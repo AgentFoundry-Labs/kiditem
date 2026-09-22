@@ -113,7 +113,7 @@ describe('ChannelRegistrationService browser registration boundary', () => {
     const tx = ownerTransaction({ opaque: true } as never);
     const input = {
       organizationId: 'org-1',
-      sourceCandidateId: 'candidate-1',
+      salesProductId: 'draft-1',
       channelAccountId: 'account-1',
       submissionKey: 'submission-key-1',
       externalListingId: '427011919',
@@ -142,7 +142,7 @@ describe('ChannelRegistrationService browser registration boundary', () => {
     const tx = ownerTransaction({ opaque: true } as never);
     const input = {
       organizationId: 'org-1',
-      sourceCandidateId: 'candidate-1',
+      salesProductId: 'draft-1',
       channelAccountId: 'account-1',
       submissionKey: 'submission-key-1',
       externalListingId: '427011919',

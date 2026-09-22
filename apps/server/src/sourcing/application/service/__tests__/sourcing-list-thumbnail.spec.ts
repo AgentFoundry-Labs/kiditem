@@ -6,9 +6,9 @@ import type { SourcingAgentCommandService } from '../sourcing-agent-command.serv
  * 수집상품 **목록**의 대표 썸네일 되읽기.
  *
  * `sourcing_candidates.thumbnail_url` 은 수집 원본이라 대표를 바꿔 저장해도
- * 그대로 남는다. 대표는 준비(`RegistrationTarget`) 또는 후보 워크스페이스가
- * 소유하므로, 목록도 상세(`getProduct`)와 같은 우선순위로 되읽어야 카드가
- * 저장한 이미지를 보여준다.
+ * 그대로 남는다. 대표는 등록 설정(`RegistrationTarget`) 또는 그 후보의 판매상품
+ * 초안이 가진 작업공간이 소유하므로(KID-310), 목록도 상세(`getProduct`)와 같은
+ * 우선순위로 되읽어야 카드가 저장한 이미지를 보여준다.
  */
 const ORG = 'org-1';
 
@@ -22,22 +22,29 @@ const candidate = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+/** 후보 id 에 `-draft` 를 붙인 초안 id. 목록이 후보 → 초안을 한 번에 옮기는 것을 본다. */
+const draftIdOf = (candidateId: string) => `${candidateId}-draft`;
+
 function buildService(input: {
   items: Array<Record<string, unknown>>;
   workspaceThumbnails: Map<string, { url: string; sourceThumbnailGenerationId: string | null; sourceThumbnailCandidateId: string | null }>;
 }) {
   const listSourced = vi.fn().mockResolvedValue({ total: input.items.length, items: input.items });
-  const findCurrentThumbnails = vi.fn().mockResolvedValue(input.workspaceThumbnails);
+  const findCurrentThumbnails = vi.fn().mockResolvedValue(
+    new Map([...input.workspaceThumbnails].map(([candidateId, thumbnail]) => [draftIdOf(candidateId), thumbnail])),
+  );
   const findCurrentThumbnail = vi.fn();
+  const findDraftIdsForSources = vi.fn().mockImplementation(async (_org: string, candidateIds: string[]) =>
+    new Map(candidateIds.map((candidateId) => [candidateId, draftIdOf(candidateId)])));
   const service = new SourcingService(
     { listSourced } as never,
     {} as never,
     { findCurrentThumbnails, findCurrentThumbnail } as never,
-    {} as never,
-    {} as never,
     {} as SourcingAgentCommandService,
+    {} as never,
+    { findDraftIdsForSources } as never,
   );
-  return { service, listSourced, findCurrentThumbnails, findCurrentThumbnail };
+  return { service, listSourced, findCurrentThumbnails, findCurrentThumbnail, findDraftIdsForSources };
 }
 
 describe('SourcingService.listProducts 대표 썸네일', () => {
@@ -107,7 +114,7 @@ describe('SourcingService.listProducts 대표 썸네일', () => {
     expect(findCurrentThumbnails).toHaveBeenCalledTimes(1);
     expect(findCurrentThumbnails).toHaveBeenCalledWith({
       organizationId: ORG,
-      sourceCandidateIds: ['cand-1', 'cand-2', 'cand-3'],
+      salesProductIds: ['cand-1-draft', 'cand-2-draft', 'cand-3-draft'],
     });
     expect(findCurrentThumbnail).not.toHaveBeenCalled();
   });

@@ -10,7 +10,7 @@ import {
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
-} from '../port/in/registration-content-workspace.port';
+} from '../../../ai/application/port/in/workspace/registration-content-workspace.port';
 
 /**
  * 수집후보의 등록 초안.
@@ -41,12 +41,12 @@ export class ProductPreparationService {
         createdByUserId: userId,
         input,
       },
-      (tx) => this.contentWorkspaces.ensureCandidateWorkspace(tx, {
+      async (tx, salesProductId) => (await this.contentWorkspaces.ensureSalesProductWorkspace(tx, {
         organizationId,
-        sourceCandidateId: candidateId,
+        salesProductId,
         displayName: input.displayName,
         createdByUserId: userId,
-      }),
+      })).workspaceId,
       (tx, selections) => this.contentWorkspaces.resolveSourceSelections(tx, selections),
     );
     return { preparationId: result.preparationId, status: 'draft' };

@@ -21,7 +21,7 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
   startProductGeneration(
     request: SourcingStartProductGenerationRequest,
   ): Promise<SourcingStartProductGenerationResult> {
-    return this.productGenerationAi.startForCandidate(request);
+    return this.productGenerationAi.startForSalesProduct(request);
   }
 
   registerUploadedDetailPage(

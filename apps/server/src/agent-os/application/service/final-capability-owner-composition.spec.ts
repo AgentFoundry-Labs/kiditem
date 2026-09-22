@@ -86,7 +86,7 @@ function ownerCompositions() {
   };
   const products: ProductsListingGenerationCapabilityPort = {
     createListingGenerationPackage: vi.fn(async () => ({
-      candidateId: identifiers.candidateId,
+      salesProductId: identifiers.candidateId,
       detailGenerationId: identifiers.candidateId,
       thumbnailGenerationId: identifiers.candidateId,
       contentWorkspaceId: identifiers.candidateId,
@@ -193,8 +193,8 @@ describe('owner capability composition', () => {
     await registry
       .resolveImplementation('products.create_listing_generation_package')!
       .invoke({
-        context: mutationContext({ candidateId: identifiers.candidateId }),
-        input: { candidateId: identifiers.candidateId },
+        context: mutationContext({ salesProductId: identifiers.candidateId }),
+        input: { salesProductId: identifiers.candidateId },
       });
     await registry.resolveImplementation('sourcing.ingestCandidate')!.invoke({
       context: mutationContext({ snapshot }),
@@ -236,7 +236,7 @@ describe('owner capability composition', () => {
         organizationId: identifiers.organizationId,
         triggeredByUserId: identifiers.userId,
         idempotencyKey: context.ownerIdempotencyKey,
-        candidateId: identifiers.candidateId,
+        salesProductId: identifiers.candidateId,
       }),
     );
     expect(ports.sourcing.ingestCandidate).toHaveBeenCalledWith({

@@ -51,6 +51,11 @@ export interface SalesProductPort {
   createFromSource(organizationId: string, input: SalesProductDraftSource): Promise<SalesProduct>;
   /** 원천 기록(수집상품)에서 만든 초안 id. 없으면 null. 수집 화면이 초안으로 넘어갈 때 쓴다. */
   findDraftIdForSource(organizationId: string, candidateId: string): Promise<string | null>;
+  /** 배치판. 수집상품 목록 한 쪽을 한 번에 옮긴다 — 후보마다 부르면 N+1 이다. */
+  findDraftIdsForSources(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<Map<string, string>>;
   /** 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다. 몰에 올라가 있으면 그대로 두고 이유를 돌려준다. */
   retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireResult>;
   /**

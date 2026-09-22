@@ -1,11 +1,15 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma, type RegistrationTarget } from '@prisma/client';
 import {
   SalesProductDraftError,
   requireConfirmedPrice,
 } from '../../../domain/sales-product/sales-product-draft';
+import {
+  SelectedThumbnailError,
+  assertSelectedThumbnailAllowed,
+} from '../../../domain/registration/selected-thumbnail';
 import type { SalesProductStatus } from '@kiditem/shared/sales-product';
-import type { ResolvedRegistrationContentSelections } from '../../../../sourcing/application/port/in/registration-content-workspace.port';
+import type { ResolvedRegistrationContentSelections } from '../../../../ai/application/port/in/workspace/registration-content-workspace.port';
 
 /**
  * 초안 행을 다루는 공용 조각. 초안 CRUD 어댑터와 등록 울타리가 쓰는 초안 어댑터가
@@ -130,6 +134,36 @@ export function assertRegistrationIdentity(
 } {
   if (!row.salesProductId || !row.channelAccountId || !row.displayName) {
     throw new ConflictException('Preparation is missing account-scoped registration identity.');
+  }
+}
+
+/**
+ * 고른 대표 사진이 이 판매상품의 것인지 본다(KID-310).
+ *
+ * AI 는 id 를 가진 선택만 자기 작업공간 소유인지 확인한다 — 맨 주소(`selectedThumbnailUrl`)는
+ * 초안이 든 사진인지 알 방법이 없어 그대로 채택한다. 초안의 사진 목록은 Channels 것이므로
+ * 여기서 막는다. 초안 편집과 제출 동결이 같은 허용 목록을 쓴다.
+ */
+export async function assertThumbnailBelongsToProduct(
+  reader: Pick<Prisma.TransactionClient, 'salesProduct'>,
+  thumbnailSources: { listGeneratedThumbnailUrls(organizationId: string, salesProductId: string): Promise<string[]> } | undefined,
+  organizationId: string,
+  salesProductId: string,
+  selectedThumbnailUrl: string | null | undefined,
+): Promise<void> {
+  if (!selectedThumbnailUrl || !thumbnailSources) return;
+  const [product, generated] = await Promise.all([
+    reader.salesProduct.findFirst({
+      where: { id: salesProductId, organizationId },
+      select: { imageUrls: true },
+    }),
+    thumbnailSources.listGeneratedThumbnailUrls(organizationId, salesProductId),
+  ]);
+  try {
+    assertSelectedThumbnailAllowed(selectedThumbnailUrl, [...(product?.imageUrls ?? []), ...generated]);
+  } catch (error) {
+    if (error instanceof SelectedThumbnailError) throw new BadRequestException(error.message);
+    throw error;
   }
 }
 

@@ -249,6 +249,11 @@ export interface SalesProductRepositoryPort {
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]>;
   /** 원천 기록 id → 그 후보에서 만든 초안 id(있으면). 초안은 후보당 하나다. */
   findIdBySourceCandidate(organizationId: string, candidateId: string): Promise<string | null>;
+  /** 배치판. 수집상품 목록이 후보마다 초안을 되읽으면 N+1 이다. 초안이 없는 후보는 맵에 없다. */
+  findIdsBySourceCandidates(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<Map<string, string>>;
   /**
    * 후보에서 만든 초안을 `unused` 로 내린다. 활성 몰 상품이나 살아 있는 등록 실행이 있으면 내리지
    * 않고 그 수를 돌려준다 — 후보 거절을 막지는 않는다.

@@ -1166,6 +1166,19 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return row?.id ?? null;
   }
 
+  async findIdsBySourceCandidates(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(candidateIds.filter(Boolean))];
+    if (ids.length === 0) return new Map();
+    const rows = await this.prisma.salesProduct.findMany({
+      where: { organizationId, sourceCandidateId: { in: ids } },
+      select: { id: true, sourceCandidateId: true },
+    });
+    return new Map(rows.flatMap((row) => (row.sourceCandidateId ? [[row.sourceCandidateId, row.id] as const] : [])));
+  }
+
   /**
    * 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다.
    *

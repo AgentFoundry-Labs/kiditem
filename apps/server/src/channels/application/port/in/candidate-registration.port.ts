@@ -5,9 +5,9 @@ import type {
   UpdateProductPreparationInput,
 } from '@kiditem/shared/sourcing';
 import type {
+  RegistrationContentSelectionInput,
   ResolvedRegistrationContentSelections,
-  ValidateRegistrationContentSelectionsInput,
-} from '../../../../sourcing/application/port/in/registration-content-workspace.port';
+} from '../../../../ai/application/port/in/workspace/registration-content-workspace.port';
 
 export const CANDIDATE_REGISTRATION_PORT = Symbol(
   'CANDIDATE_REGISTRATION_PORT',
@@ -43,7 +43,7 @@ export interface CreateOrGetActiveDraftInput {
 
 export type ResolveProductPreparationSelections = (
   tx: OwnerTransaction,
-  input: ValidateRegistrationContentSelectionsInput,
+  input: RegistrationContentSelectionInput,
 ) => Promise<ResolvedRegistrationContentSelections>;
 
 /**
@@ -64,7 +64,7 @@ export interface CandidateRegistrationPort {
 
   createOrGetActiveDraft(
     input: CreateOrGetActiveDraftInput,
-    resolveSourceWorkspace: (tx: OwnerTransaction) => Promise<string>,
+    resolveSourceWorkspace: (tx: OwnerTransaction, salesProductId: string) => Promise<string>,
     resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationDraftResult>;
 

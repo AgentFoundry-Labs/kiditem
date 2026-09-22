@@ -63,6 +63,7 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
     const repository = new ProductPreparationRepositoryAdapter(
       prisma as unknown as PrismaService,
       undefined as never,
+      undefined as never,
     );
 
     const result = await repository.readForCandidates('org-1', [
@@ -120,6 +121,7 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
     };
     const repository = new ProductPreparationRepositoryAdapter(
       prisma as unknown as PrismaService,
+      undefined as never,
       undefined as never,
     );
 

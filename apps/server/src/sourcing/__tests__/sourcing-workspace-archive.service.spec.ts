@@ -31,40 +31,40 @@ function makeExecutionFence() {
   };
 }
 
-function makeAiArchive() {
+/**
+ * 콘텐츠 작업공간은 판매상품 초안 소유다(KID-310). 후보를 지우면 초안을 `unused` 로
+ * 내리라고 Channels 에 부탁하고, AI 행 보관은 그쪽이 한다.
+ */
+function makeDrafts() {
   return {
-    archiveSourcingWorkspace: vi.fn().mockResolvedValue({
-      archivedContentGenerations: 1,
-      archivedDetailPageArtifacts: 1,
-      archivedContentAssets: 1,
-      archivedThumbnailGenerations: 1,
+    createFromSource: vi.fn(),
+    findDraftIdForSource: vi.fn(),
+    retireForSource: vi.fn().mockResolvedValue({
+      salesProductId: 'draft-1', retired: true, blockedReason: null,
     }),
   };
 }
 
 describe('SourcingWorkspaceArchiveService', () => {
-  it('archives the candidate workspace and delegates AI artifacts inside one transaction', async () => {
+  it('archives the candidate workspace and sends its sales-product draft to unused', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-15T08:00:00.000Z'));
     try {
       const repo = makeRepo();
-      const aiArchive = makeAiArchive();
+      const drafts = makeDrafts();
       const preparations = makePreparationGuard();
       const executions = makeExecutionFence();
       const service = new SourcingWorkspaceArchiveService(
         repo as never,
-        aiArchive as never,
         preparations as never,
         executions as never,
+        drafts as never,
       );
 
       await expect(service.archive(CANDIDATE_ID, ORG)).resolves.toEqual({
         ok: true,
         archivedCandidateImages: 2,
-        archivedContentGenerations: 1,
-        archivedDetailPageArtifacts: 1,
-        archivedContentAssets: 1,
-        archivedThumbnailGenerations: 1,
+        draftRetired: true,
       });
 
       expect(repo.runInTransaction).toHaveBeenCalledTimes(1);
@@ -95,11 +95,7 @@ describe('SourcingWorkspaceArchiveService', () => {
         organizationId: ORG,
         archivedAt: new Date('2026-05-15T08:00:00.000Z'),
       });
-      expect(aiArchive.archiveSourcingWorkspace).toHaveBeenCalledWith({ tx: true }, {
-        organizationId: ORG,
-        sourceCandidateId: CANDIDATE_ID,
-        archivedAt: new Date('2026-05-15T08:00:00.000Z'),
-      });
+      expect(drafts.retireForSource).toHaveBeenCalledWith(ORG, CANDIDATE_ID);
     } finally {
       vi.useRealTimers();
     }
@@ -108,25 +104,25 @@ describe('SourcingWorkspaceArchiveService', () => {
   it('throws NotFoundException when the active sourced candidate is missing', async () => {
     const repo = makeRepo();
     repo.findCandidateState.mockResolvedValueOnce(null);
-    const aiArchive = makeAiArchive();
+    const drafts = makeDrafts();
     const preparations = makePreparationGuard();
     const executions = makeExecutionFence();
     const service = new SourcingWorkspaceArchiveService(
       repo as never,
-      aiArchive as never,
       preparations as never,
       executions as never,
+      drafts as never,
     );
 
     await expect(service.archive(CANDIDATE_ID, ORG)).rejects.toBeInstanceOf(NotFoundException);
     expect(preparations.assertCandidateTerminalTransitionAllowed).not.toHaveBeenCalled();
     expect(repo.archiveSourcedWorkspace).not.toHaveBeenCalled();
-    expect(aiArchive.archiveSourcingWorkspace).not.toHaveBeenCalled();
+    expect(drafts.retireForSource).not.toHaveBeenCalled();
   });
 
-  it('does not archive the candidate or AI workspace while a preparation blocks terminal state', async () => {
+  it('does not archive the candidate or retire its draft while a preparation blocks terminal state', async () => {
     const repo = makeRepo();
-    const aiArchive = makeAiArchive();
+    const drafts = makeDrafts();
     const preparations = makePreparationGuard();
     const executions = makeExecutionFence();
     preparations.assertCandidateTerminalTransitionAllowed.mockRejectedValueOnce(
@@ -134,13 +130,13 @@ describe('SourcingWorkspaceArchiveService', () => {
     );
     const service = new SourcingWorkspaceArchiveService(
       repo as never,
-      aiArchive as never,
       preparations as never,
       executions as never,
+      drafts as never,
     );
 
     await expect(service.archive(CANDIDATE_ID, ORG)).rejects.toBeInstanceOf(ConflictException);
     expect(repo.archiveSourcedWorkspace).not.toHaveBeenCalled();
-    expect(aiArchive.archiveSourcingWorkspace).not.toHaveBeenCalled();
+    expect(drafts.retireForSource).not.toHaveBeenCalled();
   });
 });

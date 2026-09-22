@@ -3,23 +3,23 @@ import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-ke
 import { ProductsListingGenerationCapabilityAdapter } from './products-listing-generation-capability.adapter';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
-const candidateId = '00000000-0000-4000-8000-000000000002';
+const salesProductId = '00000000-0000-4000-8000-000000000002';
 const userId = '00000000-0000-4000-8000-000000000003';
 
 describe('ProductsListingGenerationCapabilityAdapter', () => {
-  it('delegates directly to the AI-owned generation job for an existing candidate', async () => {
+  it('delegates directly to the AI-owned generation job for an existing sales-product draft', async () => {
     const productGeneration = {
-      startForCandidate: vi.fn().mockResolvedValue({
-        candidateId,
+      startForSalesProduct: vi.fn().mockResolvedValue({
+        salesProductId,
         detailGenerationId: '00000000-0000-4000-8000-000000000004',
         thumbnailGenerationId: '00000000-0000-4000-8000-000000000005',
         contentWorkspaceId: '00000000-0000-4000-8000-000000000006',
-        href: `/product-pipeline/collected-products/${candidateId}`,
+        href: `/product-pipeline/collected-products/${salesProductId}`,
       }),
     };
     const adapter = new ProductsListingGenerationCapabilityAdapter(productGeneration as never);
     const businessInput = {
-      candidateId,
+      salesProductId,
       productName: 'Wooden blocks',
       imageUrls: ['https://example.test/block.jpg'],
       category: 'Toys',
@@ -42,24 +42,24 @@ describe('ProductsListingGenerationCapabilityAdapter', () => {
     };
 
     await expect(adapter.createListingGenerationPackage(input)).resolves.toEqual({
-      candidateId,
+      salesProductId,
       detailGenerationId: '00000000-0000-4000-8000-000000000004',
       thumbnailGenerationId: '00000000-0000-4000-8000-000000000005',
       contentWorkspaceId: '00000000-0000-4000-8000-000000000006',
-      href: `/product-pipeline/collected-products/${candidateId}`,
+      href: `/product-pipeline/collected-products/${salesProductId}`,
     });
     await adapter.createListingGenerationPackage(input);
 
-    expect(productGeneration.startForCandidate).toHaveBeenCalledTimes(2);
-    expect(productGeneration.startForCandidate).toHaveBeenCalledWith(expect.objectContaining({
+    expect(productGeneration.startForSalesProduct).toHaveBeenCalledTimes(2);
+    expect(productGeneration.startForSalesProduct).toHaveBeenCalledWith(expect.objectContaining({
       organizationId,
       idempotencyKey: input.idempotencyKey,
       requestHash: input.inputHash,
       triggeredByUserId: userId,
-      candidateId,
+      salesProductId,
     }));
-    expect(productGeneration.startForCandidate.mock.calls[0][0]).toEqual(
-      productGeneration.startForCandidate.mock.calls[1][0],
+    expect(productGeneration.startForSalesProduct.mock.calls[0][0]).toEqual(
+      productGeneration.startForSalesProduct.mock.calls[1][0],
     );
   });
 });

@@ -1,5 +1,5 @@
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma, type RegistrationTarget } from '@prisma/client';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../../sourcing/application/port/in/registration-source.port';
@@ -11,9 +11,14 @@ import {
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
-} from '../../../../sourcing/application/port/in/registration-content-workspace.port';
+} from '../../../../ai/application/port/in/workspace/registration-content-workspace.port';
+import {
+  SALES_PRODUCT_THUMBNAIL_SOURCE_PORT,
+  type SalesProductThumbnailSourcePort,
+} from '../../../application/port/out/ai/sales-product-thumbnail-source.port';
 import {
   assertRegistrationIdentity,
+  assertThumbnailBelongsToProduct,
   requireConfirmedProductForCandidate,
   requireConfirmedSalesProduct,
   findCandidateAccountPreparation,
@@ -44,6 +49,8 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     @Inject(REGISTRATION_SOURCE_PORT) private readonly source: RegistrationSourcePort,
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly contentWorkspaces: RegistrationContentWorkspacePort,
+    @Optional() @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
+    private readonly thumbnailSources?: SalesProductThumbnailSourcePort,
   ) {}
 
   async lockCandidate(
@@ -91,12 +98,12 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       select: { name: true, sourceCandidateId: true },
     });
     const workspaceId = options.ensure
-      ? await this.contentWorkspaces.ensureSalesProductWorkspace(tx, {
+      ? (await this.contentWorkspaces.ensureSalesProductWorkspace(tx, {
         organizationId: row.organizationId,
         salesProductId: row.salesProductId,
         displayName: row.displayName ?? product?.name ?? '',
         createdByUserId: null,
-      })
+      })).workspaceId
       : await this.contentWorkspaces.findSalesProductWorkspaceId({
         organizationId: row.organizationId,
         salesProductId: row.salesProductId,
@@ -163,7 +170,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const tx = client(handle);
     const product = await requireConfirmedProductForCandidate(tx, input.organizationId, input.sourceCandidateId);
     const existing = await findCandidateAccountPreparation(tx, input.organizationId, product.id, input.channelAccountId);
-    const sourceContentWorkspaceId = await this.contentWorkspaces.ensureSalesProductWorkspace(handle, {
+    const { workspaceId: sourceContentWorkspaceId } = await this.contentWorkspaces.ensureSalesProductWorkspace(handle, {
       organizationId: input.organizationId,
       salesProductId: product.id,
       displayName: input.displayName,
@@ -172,6 +179,9 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const resolved = await this.contentWorkspaces.resolveSourceSelections(
       handle,
       selectionResolutionInput(input.organizationId, sourceContentWorkspaceId, {}),
+    );
+    await assertThumbnailBelongsToProduct(
+      tx, this.thumbnailSources, input.organizationId, product.id, resolved.selectedThumbnailUrl,
     );
     const frozenColumns = {
       displayName: input.displayName,
@@ -254,6 +264,13 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
         context.sourceContentWorkspaceId,
         current,
       ),
+    );
+    await assertThumbnailBelongsToProduct(
+      tx,
+      this.thumbnailSources,
+      input.organizationId,
+      current.salesProductId,
+      resolvedSelections.selectedThumbnailUrl,
     );
     const resolvedCurrent = {
       ...current,

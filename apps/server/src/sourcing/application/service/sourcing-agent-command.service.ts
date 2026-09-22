@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
@@ -8,6 +8,10 @@ import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
 } from '../port/out/runtime/sourcing-agent.gateway.port';
+import {
+  SALES_PRODUCT_DRAFT_PORT,
+  type SalesProductDraftPort,
+} from '../port/out/cross-domain/sales-product-draft.port';
 import type {
   CreateProductGenerationCommand,
   RegisterManualProductCommand,
@@ -24,6 +28,17 @@ function uniqueNonEmptyStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+/** 화면이 쉼표로 적어 보내는 색상 이름. 초안 컬럼과 같은 배열 모양으로 맞춘다. */
+function splitNames(value: string | null | undefined): string[] {
+  return uniqueNonEmptyStrings((value ?? '').split(','));
+}
+
+function parseCount(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const count = typeof value === 'number' ? value : Number.parseInt(value, 10);
+  return Number.isInteger(count) && count > 0 ? count : null;
+}
+
 function collectedCandidateHref(candidateId: string): string {
   return `/product-pipeline/collected-products/${encodeURIComponent(candidateId)}`;
 }
@@ -35,6 +50,8 @@ export class SourcingAgentCommandService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
+    @Optional() @Inject(SALES_PRODUCT_DRAFT_PORT)
+    private readonly salesProductDrafts?: SalesProductDraftPort,
   ) {}
 
   async registerManualProduct(
@@ -89,12 +106,14 @@ export class SourcingAgentCommandService {
 
     // 이미 있는 상세페이지를 올린 등록. AI 상세페이지 · 썸네일 생성을 돌리지 않는다
     // (사장님 2026-09-22: "상세페이지 섬네일 이미지 생성하지말고 등록하는 걸로").
+    // 수집이 후보를 담을 때 판매상품 초안 하나가 함께 생긴다(KID-310). 콘텐츠는 그 초안이 가진다.
+    const salesProductId = await this.requireDraftId(organizationId, candidate.candidateId);
     const detailPageImageUrls = uniqueNonEmptyStrings(data.detailPageImageUrls ?? []);
     if (detailPageImageUrls.length > 0) {
       const uploaded = await this.agentGateway.registerUploadedDetailPage({
         organizationId,
         triggeredByUserId,
-        candidateId: candidate.candidateId,
+        salesProductId,
         productName: data.title.trim(),
         detailPageImageUrls,
       });
@@ -102,7 +121,8 @@ export class SourcingAgentCommandService {
         ok: true,
         message: '올린 상세페이지로 상품을 등록했습니다.',
         product_count: 1,
-        candidateId: uploaded.candidateId,
+        candidateId: candidate.candidateId,
+        salesProductId: uploaded.salesProductId,
         href: uploaded.href,
         detailGenerationId: uploaded.detailGenerationId,
         thumbnailGenerationId: null,
@@ -119,36 +139,49 @@ export class SourcingAgentCommandService {
       triggeredByUserId,
       idempotencyKey: coordinate.idempotencyKey,
       requestHash: coordinate.requestHash,
-      candidateId: candidate.candidateId,
-      productName: data.title.trim(),
-      category: data.category ?? null,
-      description: data.description ?? null,
-      target: data.target ?? null,
-      imageUrls: uniqueNonEmptyStrings(data.imageUrls),
-      thumbnailUrl: representativeThumbnailUrl,
-      optionNames: uniqueNonEmptyStrings(data.optionNames ?? []),
+      salesProductId,
+      sourceCandidateId: candidate.candidateId,
+      productBrief: {
+        productName: data.title.trim(),
+        category: data.category ?? null,
+        description: data.description ?? null,
+        target: data.target ?? null,
+        imageUrls: uniqueNonEmptyStrings(data.imageUrls),
+        thumbnailUrl: representativeThumbnailUrl,
+        optionNames: uniqueNonEmptyStrings(data.optionNames ?? []),
+        productSize: data.productSize ?? null,
+        colorVariantStatus: data.colorVariantStatus ?? 'auto',
+        colorVariantNames: splitNames(data.colorVariantNames),
+        boxSetStatus: data.boxSetStatus ?? 'auto',
+        boxSetQuantity: parseCount(data.boxSetQuantity),
+      },
       templateId: data.templateId ?? 'bold-vertical',
       ageGroup: data.ageGroup ?? 'age-8-plus',
       detailImageCount: data.detailImageCount ?? '2',
       usageSectionMode: data.usageSectionMode ?? 'include',
       kcCertificationStatus: data.kcCertificationStatus ?? 'unknown',
       kcCertificationNumber: data.kcCertificationNumber ?? null,
-      productSize: data.productSize ?? null,
-      colorVariantStatus: data.colorVariantStatus ?? 'auto',
-      colorVariantNames: data.colorVariantNames ?? null,
-      boxSetStatus: data.boxSetStatus ?? 'auto',
-      boxSetQuantity: data.boxSetQuantity ?? null,
     });
     return {
       ok: true,
       message: '상품 생성 작업이 시작되었습니다.',
       product_count: 1,
       candidateId: candidate.candidateId,
+      salesProductId: ai.salesProductId,
       href: ai.href,
       detailGenerationId: ai.detailGenerationId,
       thumbnailGenerationId: ai.thumbnailGenerationId,
       contentWorkspaceId: ai.contentWorkspaceId,
     };
+  }
+
+  /** 후보의 편집 정본. 수집이 초안을 만들지 못했으면 생성할 대상이 없다. */
+  private async requireDraftId(organizationId: string, candidateId: string): Promise<string> {
+    const salesProductId = await this.salesProductDrafts?.findDraftIdForSource(organizationId, candidateId);
+    if (!salesProductId) {
+      throw new NotFoundException('이 수집상품의 판매상품 초안을 찾지 못했습니다.');
+    }
+    return salesProductId;
   }
 
   private manualProductCandidateInput(
@@ -200,7 +233,7 @@ export class SourcingAgentCommandService {
         colorVariantStatus: data.colorVariantStatus ?? null,
         colorVariantNames: data.colorVariantNames ?? null,
         boxSetStatus: data.boxSetStatus ?? null,
-        boxSetQuantity: data.boxSetQuantity ?? null,
+        boxSetQuantity: parseCount(data.boxSetQuantity),
         // 사방넷 신규등록과 같은 칸 — 상품 등록 초안에서 받은 값이 판매상품까지 간다.
         salePrice: positiveOrNull(data.salePrice),
         tagPrice: positiveOrNull(data.tagPrice),

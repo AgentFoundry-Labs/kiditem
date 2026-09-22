@@ -37,14 +37,32 @@ function makeScrapes() {
 }
 
 
-// 후보 상세 응답의 `contentWorkspaceId` 조회. 읽기 전용이라 기본값은 "워크스페이스 없음".
-function makeRegistrationContentWorkspaces() {
+/** 후보의 편집 정본(판매상품 초안). 수집이 후보를 담을 때 함께 생긴다(KID-310). */
+function makeDrafts() {
   return {
-    findCandidateWorkspaceId: vi.fn().mockResolvedValue(null),
-    resolveSourceSelections: vi.fn(),
-    validateSourceSelections: vi.fn(),
-    ensureCandidateWorkspace: vi.fn(),
-    branchToListing: vi.fn(),
+    createFromSource: vi.fn(),
+    findDraftIdForSource: vi.fn().mockResolvedValue(DRAFT_ID),
+    findDraftIdsForSources: vi.fn().mockResolvedValue(new Map()),
+    getDraft: vi.fn().mockResolvedValue(draftRow()),
+    retireForSource: vi.fn(),
+  };
+}
+
+const DRAFT_ID = 'draft-1';
+
+/** 생성 prompt 가 읽는 초안 한 줄. 후보 원문이 아니라 여기 값이 정본이다. */
+function draftRow() {
+  return {
+    id: DRAFT_ID,
+    name: '자석 다트게임',
+    standardCategory: '완구',
+    description: '안전한 다트 보드',
+    targetAudience: '초등학생',
+    imageUrls: ['https://example.com/main.jpg'],
+    optionAxes: ['기본'],
+    productSize: null,
+    colorVariantNames: [],
+    boxSetQuantity: null,
   };
 }
 
@@ -100,8 +118,8 @@ describe('SourcingService — candidate ingest', () => {
   let repo: ReturnType<typeof makeCandidateRepo>;
   let gateway: ReturnType<typeof makeGateway>;
   let scrapes: ReturnType<typeof makeScrapes>;
-  let registrationContentWorkspaces: ReturnType<typeof makeRegistrationContentWorkspaces>;
-  let candidateContentAssets: {
+  let drafts: ReturnType<typeof makeDrafts>;
+  let draftContentAssets: {
     loadRegistrationMedia: ReturnType<typeof vi.fn>;
     listRegistrationImages: ReturnType<typeof vi.fn>;
     findCurrentThumbnail: ReturnType<typeof vi.fn>;
@@ -112,8 +130,8 @@ describe('SourcingService — candidate ingest', () => {
     repo = makeCandidateRepo();
     gateway = makeGateway();
     scrapes = makeScrapes();
-    registrationContentWorkspaces = makeRegistrationContentWorkspaces();
-    candidateContentAssets = {
+    drafts = makeDrafts();
+    draftContentAssets = {
       loadRegistrationMedia: vi.fn().mockResolvedValue({
         registrationImages: { primary: [], thumbnail: [], detail: [] },
         currentThumbnail: null,
@@ -125,14 +143,15 @@ describe('SourcingService — candidate ingest', () => {
     const agentCommands = new SourcingAgentCommandService(
       repo as any,
       gateway as any,
+      drafts as any,
     );
     service = new SourcingService(
       repo as any,
       gateway as any,
-      candidateContentAssets as any,
-      registrationContentWorkspaces as any,
+      draftContentAssets as any,
       agentCommands,
       scrapes as any,
+      drafts as any,
     );
   });
 
@@ -290,7 +309,7 @@ describe('SourcingService — candidate ingest', () => {
   it('createProductGeneration creates a manual candidate and delegates AI product generation', async () => {
     repo.upsertSourcedWithIdempotencyReceipt.mockResolvedValueOnce({ candidateId: 'candidate-1' });
     gateway.startProductGeneration.mockResolvedValueOnce({
-      candidateId: 'candidate-1',
+      salesProductId: DRAFT_ID,
       detailGenerationId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
       contentWorkspaceId: 'workspace-1',
@@ -323,9 +342,12 @@ describe('SourcingService — candidate ingest', () => {
     expect(gateway.startProductGeneration).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'org-1',
       triggeredByUserId: 'user-1',
-      candidateId: 'candidate-1',
-      productName: '자석 다트게임',
-      imageUrls: ['https://example.com/main.jpg'],
+      salesProductId: DRAFT_ID,
+      sourceCandidateId: 'candidate-1',
+      productBrief: expect.objectContaining({
+        productName: '자석 다트게임',
+        imageUrls: ['https://example.com/main.jpg'],
+      }),
       idempotencyKey: 'product-generation-key',
       requestHash: canonicalOwnerInputHash({
         kind: 'sourcing.product_generation',
@@ -351,7 +373,7 @@ describe('SourcingService — candidate ingest', () => {
   it('quickProcessCandidate delegates product generation for an existing candidate without creating a new candidate', async () => {
     repo.findById.mockResolvedValueOnce(quickProcessCandidate());
     gateway.startProductGeneration.mockResolvedValueOnce({
-      candidateId: 'candidate-1',
+      salesProductId: DRAFT_ID,
       detailGenerationId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
       contentWorkspaceId: 'workspace-1',
@@ -380,14 +402,17 @@ describe('SourcingService — candidate ingest', () => {
     expect(gateway.startProductGeneration).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'org-1',
       triggeredByUserId: 'user-1',
-      candidateId: 'candidate-1',
-      productName: '자석 다트게임',
-      category: '완구',
-      description: '안전한 다트 보드',
-      target: '초등학생',
-      imageUrls: ['https://example.com/main.jpg'],
-      thumbnailUrl: 'https://example.com/main.jpg',
-      optionNames: ['기본'],
+      salesProductId: DRAFT_ID,
+      sourceCandidateId: 'candidate-1',
+      productBrief: expect.objectContaining({
+        productName: '자석 다트게임',
+        category: '완구',
+        description: '안전한 다트 보드',
+        target: '초등학생',
+        imageUrls: ['https://example.com/main.jpg'],
+        thumbnailUrl: 'https://example.com/main.jpg',
+        optionNames: ['기본'],
+      }),
       templateId: 'bold-vertical',
       ageGroup: 'age-8-plus',
       detailImageCount: '2',
@@ -457,7 +482,7 @@ describe('SourcingService — candidate ingest', () => {
       registrationTarget: null,
     });
     gateway.startProductGeneration.mockResolvedValueOnce({
-      candidateId: 'candidate-1',
+      salesProductId: DRAFT_ID,
       detailGenerationId: null,
       thumbnailGenerationId: 'thumb-1',
       contentWorkspaceId: null,
@@ -473,7 +498,8 @@ describe('SourcingService — candidate ingest', () => {
     );
 
     expect(gateway.startProductGeneration).toHaveBeenCalledWith(expect.objectContaining({
-      candidateId: 'candidate-1',
+      salesProductId: DRAFT_ID,
+      sourceCandidateId: 'candidate-1',
       task: 'thumbnail',
       idempotencyKey: 'quick-process-thumbnail-key',
     }));
@@ -500,13 +526,13 @@ describe('SourcingService — candidate ingest', () => {
 
     await service.getProduct('cand-1', 'org-1');
 
-    expect(candidateContentAssets.loadRegistrationMedia).toHaveBeenCalledOnce();
-    expect(candidateContentAssets.loadRegistrationMedia).toHaveBeenCalledWith({
+    expect(draftContentAssets.loadRegistrationMedia).toHaveBeenCalledOnce();
+    expect(draftContentAssets.loadRegistrationMedia).toHaveBeenCalledWith({
       organizationId: 'org-1',
-      sourceCandidateId: 'cand-1',
+      salesProductId: DRAFT_ID,
     });
-    expect(candidateContentAssets.listRegistrationImages).not.toHaveBeenCalled();
-    expect(candidateContentAssets.findCurrentThumbnail).not.toHaveBeenCalled();
+    expect(draftContentAssets.listRegistrationImages).not.toHaveBeenCalled();
+    expect(draftContentAssets.findCurrentThumbnail).not.toHaveBeenCalled();
   });
 
   /**
@@ -532,7 +558,7 @@ describe('SourcingService — candidate ingest', () => {
 
       const result = await service.getProduct('cand-1', 'org-1');
 
-      expect(result).toMatchObject({ id: 'cand-1', salesProductId: null });
+      expect(result).toMatchObject({ id: 'cand-1', salesProductId: DRAFT_ID });
       expect(result).not.toHaveProperty('basicInfo');
     });
   });

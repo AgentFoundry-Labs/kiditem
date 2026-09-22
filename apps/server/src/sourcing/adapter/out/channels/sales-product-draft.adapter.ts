@@ -3,6 +3,7 @@ import {
   SALES_PRODUCT_PORT,
   type SalesProductPort,
 } from '../../../../channels/application/port/in/sales-product.port';
+import type { SalesProduct } from '@kiditem/shared/sales-product';
 import type {
   SalesProductDraftPort,
   SalesProductDraftSourceFacts,
@@ -23,6 +24,17 @@ export class SalesProductDraftAdapter implements SalesProductDraftPort {
 
   findDraftIdForSource(organizationId: string, candidateId: string): Promise<string | null> {
     return this.salesProducts.findDraftIdForSource(organizationId, candidateId);
+  }
+
+  findDraftIdsForSources(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    return this.salesProducts.findDraftIdsForSources(organizationId, candidateIds);
+  }
+
+  getDraft(organizationId: string, salesProductId: string): Promise<SalesProduct> {
+    return this.salesProducts.get(organizationId, salesProductId);
   }
 
   async retireForSource(organizationId: string, candidateId: string) {

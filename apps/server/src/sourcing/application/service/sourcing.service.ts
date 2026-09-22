@@ -21,13 +21,9 @@ import {
   type SourcingCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-candidate.repository.port';
 import {
-  SOURCING_CANDIDATE_CONTENT_ASSET_PORT,
-  type CandidateContentAssetPort,
-} from '../port/out/cross-domain/candidate-content-asset.port';
-import {
-  REGISTRATION_CONTENT_WORKSPACE_PORT,
-  type RegistrationContentWorkspacePort,
-} from '../port/in/registration-content-workspace.port';
+  SALES_PRODUCT_CONTENT_ASSET_PORT,
+  type SalesProductContentAssetPort,
+} from '../../../ai/application/port/in/workspace/sales-product-content-asset.port';
 import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,
@@ -77,10 +73,8 @@ export class SourcingService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
-    @Inject(SOURCING_CANDIDATE_CONTENT_ASSET_PORT)
-    private readonly candidateContentAssets: CandidateContentAssetPort,
-    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
-    private readonly registrationContentWorkspaces: RegistrationContentWorkspacePort,
+    @Inject(SALES_PRODUCT_CONTENT_ASSET_PORT)
+    private readonly draftContentAssets: SalesProductContentAssetPort,
     private readonly agentCommands: SourcingAgentCommandService,
     private readonly scrapes: SourcingScrapeUrlService,
     @Optional() @Inject(SALES_PRODUCT_DRAFT_PORT)
@@ -249,32 +243,38 @@ export class SourcingService {
       ...rawOptionNames,
       ...this.stringArrayFromUnknown(candidate.tags),
     ]);
-    const target = typeof rawData.target === 'string' ? rawData.target : null;
 
+    // 편집 정본은 판매상품 초안이다(KID-310). 생성 prompt 가 쓰는 값은 그 초안에서 읽고,
+    // 후보 원문은 초안이 아직 비워 둔 자리를 메우는 데만 쓴다.
+    const salesProductId = await this.requireDraftId(organizationId, candidateId);
+    const draft = await this.salesProductDrafts!.getDraft(organizationId, salesProductId);
     const ai = await this.agentGateway.startProductGeneration({
       organizationId,
       triggeredByUserId,
       idempotencyKey,
       requestHash,
-      candidateId,
-      productName: candidate.name,
-      category: candidate.category,
-      description: candidate.description,
-      target,
-      imageUrls,
-      thumbnailUrl: candidate.thumbnailUrl ?? imageUrls[0] ?? null,
-      optionNames,
+      salesProductId,
+      sourceCandidateId: candidateId,
+      productBrief: {
+        productName: draft.name || candidate.name,
+        category: draft.standardCategory ?? candidate.category,
+        description: draft.description || candidate.description,
+        target: draft.targetAudience ?? (typeof rawData.target === 'string' ? rawData.target : null),
+        imageUrls: draft.imageUrls.length > 0 ? draft.imageUrls : imageUrls,
+        thumbnailUrl: candidate.thumbnailUrl ?? draft.imageUrls[0] ?? imageUrls[0] ?? null,
+        optionNames: draft.optionAxes.length > 0 ? draft.optionAxes : optionNames,
+        productSize: draft.productSize,
+        colorVariantStatus: 'auto',
+        colorVariantNames: draft.colorVariantNames,
+        boxSetStatus: 'auto',
+        boxSetQuantity: draft.boxSetQuantity,
+      },
       templateId: 'bold-vertical',
       ageGroup: 'age-8-plus',
       detailImageCount: '2',
       usageSectionMode: 'include',
       kcCertificationStatus: 'unknown',
       kcCertificationNumber: null,
-      productSize: null,
-      colorVariantStatus: 'auto',
-      colorVariantNames: null,
-      boxSetStatus: 'auto',
-      boxSetQuantity: null,
       task,
     });
 
@@ -282,12 +282,22 @@ export class SourcingService {
       ok: true,
       message: quickProcessMessage(task),
       product_count: 1,
-      candidateId: ai.candidateId,
+      candidateId,
+      salesProductId: ai.salesProductId,
       href: ai.href,
       detailGenerationId: ai.detailGenerationId,
       thumbnailGenerationId: ai.thumbnailGenerationId,
       contentWorkspaceId: ai.contentWorkspaceId,
     };
+  }
+
+  /** 후보의 편집 정본. 수집이 만든 초안이 없으면 생성할 대상도 없다. */
+  private async requireDraftId(organizationId: string, candidateId: string): Promise<string> {
+    const salesProductId = await this.salesProductDrafts?.findDraftIdForSource(organizationId, candidateId);
+    if (!salesProductId) {
+      throw new NotFoundException('이 수집상품의 판매상품 초안을 찾지 못했습니다.');
+    }
+    return salesProductId;
   }
 
   async scrapeUrl(
@@ -327,19 +337,28 @@ export class SourcingService {
     // 하고, 조용한 대체는 어떤 이미지가 왜 보이는지를 지운다.
     //
     // 페이지 전체를 한 번에 읽는다. 후보별 조회는 N+1 이다.
-    const workspaceThumbnails = await this.candidateContentAssets.findCurrentThumbnails({
+    // 작업공간은 이제 후보가 아니라 그 초안이 가진다(KID-310). 후보 → 초안도 한 번에 읽는다.
+    const draftIds = await this.salesProductDrafts?.findDraftIdsForSources(
       organizationId,
-      sourceCandidateIds: listed.items.map((item) => item.id),
+      listed.items.map((item) => item.id),
+    ) ?? new Map<string, string>();
+    const workspaceThumbnails = await this.draftContentAssets.findCurrentThumbnails({
+      organizationId,
+      salesProductIds: [...draftIds.values()],
     });
     return {
       ...listed,
-      items: listed.items.map((item) => ({
-        ...item,
-        selectedThumbnailUrl:
-          item.registrationTarget?.selectedThumbnailUrl
-          ?? workspaceThumbnails.get(item.id)?.url
-          ?? null,
-      })),
+      items: listed.items.map((item) => {
+        const salesProductId = draftIds.get(item.id) ?? null;
+        return {
+          ...item,
+          salesProductId,
+          selectedThumbnailUrl:
+            item.registrationTarget?.selectedThumbnailUrl
+            ?? (salesProductId ? workspaceThumbnails.get(salesProductId)?.url : null)
+            ?? null,
+        };
+      }),
     };
   }
 
@@ -349,22 +368,17 @@ export class SourcingService {
     // Registration images come from ContentAsset.role, not from the scrape
     // originals on the candidate row. Missing assets stay empty so the caller
     // can fall back explicitly instead of shipping an off-spec source image.
-    const [registrationMedia, salesProductId] = await Promise.all([
-      // 갤러리와 현재 대표를 하나의 미디어 읽기로 받아, 응답 중간에
-      // 선택이 바뀌어도 등록 이미지와 `등록 대표` 배지가 엇갈리지 않게 한다.
-      this.candidateContentAssets.loadRegistrationMedia({
-        organizationId,
-        sourceCandidateId: productId,
-      }),
-      // 후보가 이미 가진 content workspace. 없으면 null 이고, 읽기 경로에서
-      // 새로 만들지 않는다. 워크스페이스 화면은 이 값이 있어야 썸네일 구성을
-      // 저장할 수 있다.
-      this.salesProductDrafts?.findDraftIdForSource(organizationId, productId) ?? null,
-    ]);
+    // 이 후보의 편집 정본(판매상품 초안). 콘텐츠 작업공간도 초안이 가지므로 미디어는
+    // 초안 기준으로 읽는다. 초안이 없으면 읽을 미디어도 없다.
+    const salesProductId = await this.salesProductDrafts?.findDraftIdForSource(organizationId, productId) ?? null;
+    // 갤러리와 현재 대표를 하나의 미디어 읽기로 받아, 응답 중간에
+    // 선택이 바뀌어도 등록 이미지와 `등록 대표` 배지가 엇갈리지 않게 한다.
     const {
       registrationImages,
       currentThumbnail: workspaceThumbnailSelection,
-    } = registrationMedia;
+    } = salesProductId
+      ? await this.draftContentAssets.loadRegistrationMedia({ organizationId, salesProductId })
+      : { registrationImages: { primary: [], thumbnail: [], detail: [] }, currentThumbnail: null };
     return {
       ...row,
       salesProductId,

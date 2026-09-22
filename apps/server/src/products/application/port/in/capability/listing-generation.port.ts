@@ -8,8 +8,8 @@ export interface ProductsListingGenerationInput {
   /** Exact canonical Agent capability input hash, bound with the owner key. */
   inputHash: string;
   triggeredByUserId?: string | null;
-  /** Existing Sourcing candidate; Products never creates one as a side effect. */
-  candidateId: string;
+  /** Existing Channels sales-product draft; Products never creates one as a side effect. */
+  salesProductId: string;
   productName?: string | null;
   imageUrls?: string[];
   category?: string | null;
@@ -32,7 +32,7 @@ export interface ProductsListingGenerationInput {
 }
 
 export interface ProductsListingGenerationResult {
-  candidateId: string;
+  salesProductId: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;

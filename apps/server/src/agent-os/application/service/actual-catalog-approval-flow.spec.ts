@@ -44,9 +44,9 @@ const scenarios: readonly ApprovalScenario[] = [
       'products.create_listing_generation_package',
     ),
     actingAgentKey: 'merchandising',
-    input: { candidateId: CANDIDATE_ID },
+    input: { salesProductId: CANDIDATE_ID },
     output: {
-      candidateId: CANDIDATE_ID,
+      salesProductId: CANDIDATE_ID,
       detailGenerationId: CANDIDATE_ID,
       thumbnailGenerationId: CANDIDATE_ID,
       contentWorkspaceId: CANDIDATE_ID,

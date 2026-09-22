@@ -1,3 +1,5 @@
+import type { SalesProduct } from '@kiditem/shared/sales-product';
+
 export const SALES_PRODUCT_DRAFT_PORT = Symbol('SALES_PRODUCT_DRAFT_PORT');
 
 /** 원천 한 줄이 초안에 넘기는 사실. 원천 기록은 Sourcing 것이고 초안은 Channels 것이다. */
@@ -23,6 +25,13 @@ export interface SalesProductDraftPort {
   createFromSource(organizationId: string, input: SalesProductDraftSourceFacts): Promise<{ salesProductId: string }>;
   /** 그 후보에서 만든 초안 id. 없으면 null. */
   findDraftIdForSource(organizationId: string, candidateId: string): Promise<string | null>;
+  /** 배치판. 목록 한 쪽의 후보를 한 번에 초안으로 옮긴다. 초안이 없는 후보는 맵에 없다. */
+  findDraftIdsForSources(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<Map<string, string>>;
+  /** 초안 한 줄. 생성 prompt 가 쓰는 값(설명 · 대상 · 크기 · 색상 · 박스)은 여기서 온다. */
+  getDraft(organizationId: string, salesProductId: string): Promise<SalesProduct>;
   /** 후보 거절 · 삭제. 몰에 올라가 있으면 초안을 그대로 두고 이유를 돌려준다(거절을 막지 않는다). */
   retireForSource(organizationId: string, candidateId: string): Promise<{
     salesProductId: string | null;

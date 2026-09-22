@@ -6,10 +6,10 @@ const Uuid = z.string().uuid();
 export const PRODUCTS_CAPABILITIES = [
   {
     key: 'products.create_listing_generation_package', ownerDomain: 'products', ownerInputPort: 'products.createListingGenerationPackage',
-    description: 'Start deterministic listing generation for an existing sourcing candidate.',
+    description: 'Start deterministic listing generation for an existing sales-product draft.',
     resultSummary: '상품 등록용 생성 작업을 시작했습니다.',
     inputSchema: z.object({
-      candidateId: Uuid,
+      salesProductId: Uuid,
       productName: z.string().trim().max(500).nullable().optional(), imageUrls: z.array(z.string().url()).max(40).optional(),
       category: z.string().trim().max(200).nullable().optional(), description: z.string().trim().max(20_000).nullable().optional(),
       target: z.string().trim().max(1_000).nullable().optional(), thumbnailUrl: z.string().url().nullable().optional(),
@@ -22,7 +22,7 @@ export const PRODUCTS_CAPABILITIES = [
       task: z.enum(['all', 'detail', 'thumbnail']).optional(),
     }).strict(),
     outputSchema: z.object({
-      candidateId: Uuid,
+      salesProductId: Uuid,
       detailGenerationId: Uuid.nullable(),
       thumbnailGenerationId: Uuid.nullable(),
       contentWorkspaceId: Uuid.nullable(),

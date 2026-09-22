@@ -1,7 +1,7 @@
 import { NotImplementedException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { CandidateRegistrationPort } from '../../../../channels/application/port/in/candidate-registration.port';
-import type { RegistrationContentWorkspacePort } from '../../port/in/registration-content-workspace.port';
+import type { RegistrationContentWorkspacePort } from '../../../../ai/application/port/in/workspace/registration-content-workspace.port';
 import { ProductPreparationService } from '../product-preparation.service';
 
 const ORG_ID = 'org-1';
@@ -9,6 +9,7 @@ const USER_ID = 'user-1';
 const CANDIDATE_ID = 'candidate-1';
 const PREPARATION_ID = 'preparation-1';
 const WORKSPACE_ID = 'workspace-1';
+const SALES_PRODUCT_ID = 'draft-1';
 const ACCOUNT_ID = 'account-1';
 const TX = { opaque: true } as never;
 
@@ -25,7 +26,7 @@ function setup(overrides: {
   const repository = {
     createOrGetActiveDraft: vi.fn().mockImplementation(
       async (input, resolveWorkspace, resolveSelections) => {
-        const sourceContentWorkspaceId = await resolveWorkspace(TX);
+        const sourceContentWorkspaceId = await resolveWorkspace(TX, SALES_PRODUCT_ID);
         await resolveSelections(TX, {
           organizationId: input.organizationId,
           sourceWorkspaceId: sourceContentWorkspaceId,
@@ -56,15 +57,15 @@ function setup(overrides: {
       selectedDetailPageRevisionId: input.selectedDetailPageRevisionId,
       selectedDetailPageGenerationId: input.selectedDetailPageGenerationId,
     })),
-    ensureCandidateWorkspace: vi.fn().mockResolvedValue(WORKSPACE_ID),
-    branchToListing: vi.fn().mockResolvedValue({ workspaceId: 'listing-workspace-1' }),
+    ensureSalesProductWorkspace: vi.fn().mockResolvedValue({ workspaceId: WORKSPACE_ID }),
+    attachToListing: vi.fn().mockResolvedValue({ workspaceId: 'listing-workspace-1' }),
     ...overrides.content,
   } as RegistrationContentWorkspacePort;
   return { service: new ProductPreparationService(repository, content), repository, content };
 }
 
 describe('ProductPreparationService', () => {
-  it('creates an account-scoped draft and atomically resolves the candidate workspace', async () => {
+  it('creates an account-scoped draft and atomically resolves the draft workspace', async () => {
     const { service, repository, content } = setup();
 
     await expect(service.createDraft(ORG_ID, CANDIDATE_ID, USER_ID, DRAFT_INPUT))
@@ -80,9 +81,9 @@ describe('ProductPreparationService', () => {
       expect.any(Function),
       expect.any(Function),
     );
-    expect(content.ensureCandidateWorkspace).toHaveBeenCalledWith(TX, {
+    expect(content.ensureSalesProductWorkspace).toHaveBeenCalledWith(TX, {
       organizationId: ORG_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      salesProductId: SALES_PRODUCT_ID,
       displayName: DRAFT_INPUT.displayName,
       createdByUserId: USER_ID,
     });
@@ -148,7 +149,7 @@ describe('ProductPreparationService', () => {
     expect((thrown as NotImplementedException).getStatus()).toBe(501);
     expect((thrown as Error).message).toContain('product submission is not supported');
     expect(repository.replaceDraftInput).not.toHaveBeenCalled();
-    expect(content.branchToListing).not.toHaveBeenCalled();
+    expect(content.attachToListing).not.toHaveBeenCalled();
   });
 
   it('cancels through the row-locked repository command', async () => {

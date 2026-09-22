@@ -118,6 +118,8 @@ function existingState(): SalesProductOptionState {
   return {
     productId: PRODUCT_ID,
     productCode: EXISTING_PRODUCT_CODE,
+    productName: '사방넷 상품',
+    status: 'active',
     version: 7,
     options: [existingOption()],
   };

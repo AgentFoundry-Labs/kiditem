@@ -8,15 +8,22 @@ function createSubject() {
     upsertSourced: vi.fn().mockResolvedValue({ id: 'candidate-1' }),
     upsertSourcedWithIdempotencyReceipt: vi.fn().mockResolvedValue({ candidateId: 'candidate-1' }),
   };
+  const drafts = {
+    createFromSource: vi.fn(),
+    findDraftIdForSource: vi.fn().mockResolvedValue('draft-1'),
+    findDraftIdsForSources: vi.fn(),
+    getDraft: vi.fn(),
+    retireForSource: vi.fn(),
+  };
   const gateway = {
     registerUploadedDetailPage: vi.fn().mockResolvedValue({
-      candidateId: 'candidate-1',
+      salesProductId: 'draft-1',
       detailGenerationId: 'uploaded-1',
       contentWorkspaceId: 'workspace-1',
       href: '/product-pipeline/collected-products/candidate-1',
     }),
     startProductGeneration: vi.fn().mockResolvedValue({
-      candidateId: 'candidate-1',
+      salesProductId: 'draft-1',
       detailGenerationId: 'detail-1',
       thumbnailGenerationId: 'thumbnail-1',
       contentWorkspaceId: 'workspace-1',
@@ -26,9 +33,11 @@ function createSubject() {
   return {
     candidates,
     gateway,
+    drafts,
     subject: new SourcingAgentCommandService(
       candidates as never,
       gateway as never,
+      drafts as never,
     ),
   };
 }
@@ -60,8 +69,9 @@ describe('SourcingAgentCommandService', () => {
       expect.objectContaining({
         organizationId: 'org-1',
         triggeredByUserId: 'user-1',
-        candidateId: 'candidate-1',
-        productName: '자석 다트게임',
+        salesProductId: 'draft-1',
+        sourceCandidateId: 'candidate-1',
+        productBrief: expect.objectContaining({ productName: '자석 다트게임' }),
         idempotencyKey: 'browser-key',
         requestHash: 'a'.repeat(64),
       }),
@@ -79,7 +89,7 @@ describe('SourcingAgentCommandService', () => {
     gateway.startProductGeneration
       .mockRejectedValueOnce(new Error('thumbnail_enqueue_failed'))
       .mockResolvedValueOnce({
-        candidateId: 'candidate-1',
+        salesProductId: 'draft-1',
         detailGenerationId: 'detail-1',
         thumbnailGenerationId: 'thumbnail-1',
         contentWorkspaceId: 'workspace-1',
@@ -104,7 +114,8 @@ describe('SourcingAgentCommandService', () => {
       2,
       expect.objectContaining({
         ...coordinate,
-        candidateId: 'candidate-1',
+        salesProductId: 'draft-1',
+        sourceCandidateId: 'candidate-1',
       }),
     );
   });
@@ -142,7 +153,7 @@ describe('SourcingAgentCommandService', () => {
     expect(gateway.startProductGeneration).not.toHaveBeenCalled();
     expect(gateway.registerUploadedDetailPage).toHaveBeenCalledWith(
       expect.objectContaining({
-        candidateId: 'candidate-1',
+        salesProductId: 'draft-1',
         detailPageImageUrls: ['https://example.com/detail-1.jpg', 'https://example.com/detail-2.jpg'],
       }),
     );

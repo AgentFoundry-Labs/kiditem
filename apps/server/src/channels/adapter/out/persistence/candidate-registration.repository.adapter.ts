@@ -13,15 +13,11 @@ import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
-} from '../../../../sourcing/application/port/in/registration-content-workspace.port';
+} from '../../../../ai/application/port/in/workspace/registration-content-workspace.port';
 import {
   SALES_PRODUCT_THUMBNAIL_SOURCE_PORT,
   type SalesProductThumbnailSourcePort,
 } from '../../../application/port/out/ai/sales-product-thumbnail-source.port';
-import {
-  SelectedThumbnailError,
-  assertSelectedThumbnailAllowed,
-} from '../../../domain/registration/selected-thumbnail';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   blocksCandidateTerminalTransition as executionsBlockTerminalTransition,
@@ -37,6 +33,7 @@ import {
   requireConfirmedProductForCandidate,
   findCandidateAccountPreparation,
   assertRegistrationIdentity,
+  assertThumbnailBelongsToProduct,
   isUniqueConstraintError,
   lockPreparation,
   resolvedSelectionData,
@@ -77,26 +74,14 @@ export class ProductPreparationRepositoryAdapter
    * 몰에 나갈 대표 사진은 그 판매상품의 사진이어야 한다(KID-310). 손으로 적은 주소나 다른 상품의
    * 사진을 그대로 얼리면 몰에서 엉뚱한 상품이 되고 되돌릴 방법이 없다.
    */
-  private async assertThumbnailBelongsToProduct(
+  private assertThumbnailBelongsToProduct(
     organizationId: string,
     salesProductId: string,
     selectedThumbnailUrl: string | null,
   ): Promise<void> {
-    if (!selectedThumbnailUrl || !this.thumbnailSources) return;
-    const [product, generated] = await Promise.all([
-      this.prisma.salesProduct.findFirst({
-        where: { id: salesProductId, organizationId },
-        select: { imageUrls: true },
-      }),
-      this.thumbnailSources.listGeneratedThumbnailUrls(organizationId, salesProductId),
-    ]);
-    const allowed = [...(product?.imageUrls ?? []), ...generated];
-    try {
-      assertSelectedThumbnailAllowed(selectedThumbnailUrl, allowed);
-    } catch (error) {
-      if (error instanceof SelectedThumbnailError) throw new BadRequestException(error.message);
-      throw error;
-    }
+    return assertThumbnailBelongsToProduct(
+      this.prisma, this.thumbnailSources, organizationId, salesProductId, selectedThumbnailUrl,
+    );
   }
 
   async readForCandidates(
@@ -244,7 +229,7 @@ export class ProductPreparationRepositoryAdapter
 
   async createOrGetActiveDraft(
     input: CreateOrGetActiveDraftInput,
-    resolveSourceWorkspace: (tx: OwnerTransaction) => Promise<string>,
+    resolveSourceWorkspace: (tx: OwnerTransaction, salesProductId: string) => Promise<string>,
     resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationDraftResult> {
     try {
@@ -268,9 +253,10 @@ export class ProductPreparationRepositoryAdapter
           return { preparationId: existing.id, status: 'draft' as const };
         }
 
-        const sourceContentWorkspaceId = await resolveSourceWorkspace(
-          handle,
+        await assertThumbnailBelongsToProduct(
+          tx, this.thumbnailSources, input.organizationId, product.id, input.input.selectedThumbnailUrl ?? null,
         );
+        const sourceContentWorkspaceId = await resolveSourceWorkspace(handle, product.id);
         const resolvedSelections = await resolveSelections(
           handle,
           selectionResolutionInput(
