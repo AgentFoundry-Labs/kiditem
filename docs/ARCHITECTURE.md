@@ -953,9 +953,7 @@ preview, start, status, unresolved, not-submitted, confirm — is Channels' own
 route family, `/api/channels/candidates/:id/registration-executions/*`, and the
 product-pipeline Wing flow and the mall wizard reach it through the one web
 client `(channels)/_shared/registration-execution-api.ts`.
-In 0.1.8, `POST /api/sourcing/candidates/:id/promote` is a
-deprecated alias for draft creation and returns only
-`{ preparationId, status: 'draft' }`. Active preparation uniqueness is scoped
+Active preparation uniqueness is scoped
 to organization, candidate, and selected channel account. The same candidate
 may therefore have one active draft per account, while duplicate active drafts
 for the same account are rejected deterministically.

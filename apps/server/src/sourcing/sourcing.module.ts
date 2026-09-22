@@ -152,11 +152,11 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
 
 /**
  * Sourcing is the canonical owner root for sourced-product discovery and the
- * candidate→master promotion handoff.
+ * candidate handoff to the Channels selling-product draft.
  *
  * Capabilities folded under this module:
  *   - sourcing extension ingest + scrape (Agent OS delegated) — `/api/sourcing/*`
- *   - candidate promotion/rejection — `/api/sourcing/candidates/:id/{promote,reject}`
+ *   - candidate rejection — `/api/sourcing/candidates/:id/reject`
  *
  * Supplier registry and purchase-order procurement live in `supply/` (extracted
  * during issue #192 follow-up Track A PR 1). `supplier-payments` is a finance

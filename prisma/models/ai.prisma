@@ -379,7 +379,7 @@ model ContentGeneration {
 }
 
 /// @namespace AI
-/// @describe Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history.
+/// @describe Workspace-owned editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history.
 model DetailPageArtifact {
   id                        String    @id @default(uuid()) @db.Uuid
   organizationId            String    @map("organization_id") @db.Uuid
