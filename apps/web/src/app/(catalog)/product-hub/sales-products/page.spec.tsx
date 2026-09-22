@@ -79,6 +79,20 @@ describe('판매상품 목록 화면', () => {
     expect(navigation.replace).toHaveBeenCalledWith('/product-hub/sales-products?focus=unregistered');
   });
 
+  it('되돌린 상품 줄은 원시 상태 대신 수집상품으로 되돌림으로 읽는다', async () => {
+    listQuery.mockResolvedValue({
+      items: [listItem({ status: 'archived', sourceCandidateId: '22222222-2222-4222-8222-222222222222' })],
+      total: 1,
+      page: 1,
+      limit: 50,
+      summary: { total: 1, withOptions: 0, withUnlinkedOptions: 0, unregistered: 0 },
+    });
+    renderPage();
+    expect(await screen.findByText('수집상품으로 되돌림')).toBeInTheDocument();
+    expect(screen.queryByText('삭제')).not.toBeInTheDocument();
+    expect(screen.queryByText('보관')).not.toBeInTheDocument();
+  });
+
   it('주소의 미등록 조건을 그대로 서버에 묻는다', async () => {
     navigation.params = new URLSearchParams('focus=unregistered');
     renderPage();

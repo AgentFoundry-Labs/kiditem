@@ -38,7 +38,7 @@ import {
   SALES_PRODUCT_STATUS_TONE,
   TAX_TYPE_LABEL,
 } from '../lib/sales-product-labels';
-import { salesProductDemoteState } from '../lib/sales-product-demote';
+import { salesProductDemoteState, salesProductStatusText } from '../lib/sales-product-demote';
 
 const SECTIONS = [
   { id: 'basics', label: '기본 정보' },
@@ -160,7 +160,7 @@ function Editor({ product }: { product: SalesProduct }) {
             <span className="font-mono">판매상품코드 {product.code}</span>
             {product.sabangnetGoodsNo && <span>· 사방넷 품번 {product.sabangnetGoodsNo}</span>}
             <span className={cn('rounded-full px-2 py-0.5 font-semibold', SALES_PRODUCT_STATUS_TONE[product.status])}>
-              {demoteState.kind === 'demoted' ? '수집상품으로 되돌림' : SALES_PRODUCT_STATUS_LABEL[product.status]}
+              {salesProductStatusText(product)}
             </span>
             {product.sourceCandidateId && <span>· 수집상품에서 만듦</span>}
           </div>

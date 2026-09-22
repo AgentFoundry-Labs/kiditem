@@ -13,11 +13,8 @@ import { MallPriceAdoptionNotice } from './components/MallPriceAdoptionNotice';
 import { MallSheetDialog } from '@/components/mall-sheet/MallSheetDialog';
 import { SabangnetImportDialog } from './components/SabangnetImportDialog';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
-import {
-  formatWon,
-  SALES_PRODUCT_STATUS_LABEL,
-  SALES_PRODUCT_STATUS_TONE,
-} from './lib/sales-product-labels';
+import { formatWon, SALES_PRODUCT_STATUS_TONE } from './lib/sales-product-labels';
+import { salesProductStatusText } from './lib/sales-product-demote';
 
 type Focus = SalesProductListQuery['focus'];
 
@@ -227,7 +224,7 @@ function SalesProductsContent() {
                       <td className="px-2 py-2 text-right tabular-nums text-slate-800">{formatWon(item.salePrice)}</td>
                       <td className="px-4 py-2 text-center">
                         <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs font-semibold', SALES_PRODUCT_STATUS_TONE[item.status])}>
-                          {SALES_PRODUCT_STATUS_LABEL[item.status]}
+                          {salesProductStatusText(item)}
                         </span>
                       </td>
                     </tr>
