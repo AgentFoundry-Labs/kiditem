@@ -93,7 +93,7 @@ describe('몰 하나 실행', () => {
 });
 
 describe('여러 몰 실행', () => {
-  it('한 번에 하나씩 돈다 — 탭을 나눠 쓴다', async () => {
+  it('묶음으로 동시에 열되 한꺼번에 다 열지는 않는다 — 탭을 빨리 많이 만들면 주입이 깨진다', async () => {
     let inFlight = 0;
     let maxInFlight = 0;
     const slow = () => {
@@ -111,7 +111,9 @@ describe('여러 몰 실행', () => {
       item,
       values: filled(),
     });
-    expect(maxInFlight).toBe(1);
+    // 둘은 함께 돈다. 상한(4)은 넘지 않는다 — 2026-09-10 에 일곱을 연달아 열자 깨졌다.
+    expect(maxInFlight).toBe(2);
+    expect(maxInFlight).toBeLessThanOrEqual(4);
   });
 
   it('한 몰이 실패해도 나머지를 계속한다', async () => {
@@ -127,7 +129,7 @@ describe('여러 몰 실행', () => {
     expect(domeggook).toHaveBeenCalledOnce();
   });
 
-  it('시작과 끝을 순서대로 알린다 — 화면이 어느 몰이 도는지 보여 준다', async () => {
+  it('몰마다 시작과 끝을 알린다 — 화면이 어느 몰이 도는지 보여 준다', async () => {
     vi.spyOn(kidsnoteAdapter, 'send').mockResolvedValue(ok());
     vi.spyOn(domeggookAdapter, 'send').mockResolvedValue(ok());
     const events: string[] = [];
@@ -139,7 +141,11 @@ describe('여러 몰 실행', () => {
       onStart: (mallKey) => events.push(`start:${mallKey}`),
       onOutcome: (outcome) => events.push(`done:${outcome.mallKey}`),
     });
-    expect(events).toEqual(['start:kidsnote', 'done:kidsnote', 'start:domeggook', 'done:domeggook']);
+    // 함께 도므로 끝나는 차례는 정해지지 않는다. 몰마다 시작과 끝이 한 번씩 오면 된다.
+    expect(events.filter((event) => event.startsWith('start:')).sort())
+      .toEqual(['start:domeggook', 'start:kidsnote']);
+    expect(events.filter((event) => event.startsWith('done:')).sort())
+      .toEqual(['done:domeggook', 'done:kidsnote']);
   });
 
   it('보낼 몰이 없으면 아무것도 하지 않는다', async () => {

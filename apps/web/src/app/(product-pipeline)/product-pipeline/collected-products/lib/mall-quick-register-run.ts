@@ -14,8 +14,8 @@ import { isApiError } from '@/lib/api-error';
  *
  * 두 가지를 지킨다.
  *
- *  1. **한 번에 한 몰.** 폼 채움은 브라우저 탭 하나를 점유하고, 확장은 그 탭 안에서
- *     이미지를 내려받고 다이얼로그를 연다. 동시에 돌리면 서로의 탭을 밟는다.
+ *  1. **묶음으로 열되 한꺼번에 다 열지는 않는다.** 몰마다 탭을 따로 쓰므로 함께 돌 수
+ *     있지만, 탭을 빨리 너무 많이 만들면 아직 안 뜬 화면에 주입해 깨진다(아래 상수 참고).
  *  2. **막힌 몰에서 멈추지 않는다.** 한 몰이 실패해도 나머지를 계속 채운다. 하나
  *     때문에 전부 못 하면 '한번에 등록하기' 는 쓸모가 없다.
  *
@@ -107,6 +107,12 @@ export async function runOneMallRegistration(
 }
 
 /** 여러 몰. 순서대로 하나씩이고, 하나가 실패해도 멈추지 않는다. */
+/**
+ * 한 번에 여는 몰 수. 탭을 빨리 여러 개 만들수록 각 탭 로딩이 느려져 주입이 깨진다
+ * (라이브 2026-09-10: 일곱을 연달아 열자 도매꾹 · 아트공구가 깨짐).
+ */
+const MALL_REGISTER_CONCURRENCY = 4;
+
 export async function runMallRegistrations({
   mallKeys,
   item,
@@ -114,15 +120,36 @@ export async function runMallRegistrations({
   onStart,
   onOutcome,
 }: RunOptions): Promise<MallRunOutcome[]> {
+  // 몰마다 탭을 따로 연다. 하나씩 돌리면 19개 몰이 순서대로 열려 오래 걸린다.
+  //
+  // 그렇다고 한꺼번에 다 열면 안 된다 — 2026-09-10 에 '한번에 등록하기' 로 일곱을 연달아
+  // 열자 도매꾹 · 아트공구가 `No tab with id` · `Frame with ID 0 was removed` 로 깨졌다.
+  // 탭을 빨리 여러 개 만들수록 각 탭의 로딩이 느려지고, 아직 안 뜬 화면에 주입하면 그렇게 된다.
+  //
+  // 그래서 **묶음으로** 연다. 확장이 탭 로딩 완료를 기다린 뒤 주입하므로(`waitForTabComplete`)
+  // 이 정도 동시성은 견딘다. 이 수를 올리기 전에는 몰 전부로 라이브 시험을 먼저 하라.
   const outcomes: MallRunOutcome[] = [];
-  for (const mallKey of mallKeys) {
-    onStart?.(mallKey);
-    // eslint-disable-next-line no-await-in-loop -- 탭 하나를 나눠 쓴다. 동시에 돌리면 서로를 밟는다.
-    const outcome = await runOneMallRegistration(mallKey, item, values);
-    outcomes.push(outcome);
-    onOutcome?.(outcome);
-  }
-  return outcomes;
+  const queue = [...mallKeys];
+  const worker = async () => {
+    for (;;) {
+      const mallKey = queue.shift();
+      if (mallKey === undefined) return;
+      onStart?.(mallKey);
+      // eslint-disable-next-line no-await-in-loop -- 이 일꾼은 제 몫을 차례로 처리한다.
+      const outcome = await runOneMallRegistration(mallKey, item, values);
+      outcomes.push(outcome);
+      onOutcome?.(outcome);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(MALL_REGISTER_CONCURRENCY, mallKeys.length) }, worker),
+  );
+  // 고른 순서대로 돌려준다 — 끝난 순서가 아니라. 요약 문구가 몰 순서를 따라야 읽힌다.
+  const byMallKey = new Map(outcomes.map((outcome) => [outcome.mallKey, outcome]));
+  return mallKeys.flatMap((mallKey) => {
+    const outcome = byMallKey.get(mallKey);
+    return outcome ? [outcome] : [];
+  });
 }
 
 /** 실행 결과 한 줄 요약. 토스트에 그대로 쓴다. */

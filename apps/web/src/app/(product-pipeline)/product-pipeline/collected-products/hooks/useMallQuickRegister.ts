@@ -35,9 +35,10 @@ export function useMallQuickRegister(input: {
   enabled: boolean;
 }) {
   const { candidateId, enabled } = input;
-  const [runningMallKey, setRunningMallKey] = useState<string | null>(null);
+  // 묶음으로 동시에 도므로 "도는 몰" 은 하나가 아니다.
+  const [runningMallKeys, setRunningMallKeys] = useState<readonly string[]>([]);
   const [results, setResults] = useState<Record<string, MallRunOutcome>>({});
-  // 실행 중에 상태가 바뀌어도 두 번 돌지 않게 막는다. 탭을 하나만 쓴다.
+  // 실행 중에 상태가 바뀌어도 두 번 돌지 않게 막는다.
   const running = useRef(false);
 
   // ⚠️ 상세를 여기서 다시 `useQuery` 로 부르지 않는다. `queryKeys.sourcing.detail(id)` 은
@@ -114,8 +115,9 @@ export function useMallQuickRegister(input: {
         mallKeys,
         item,
         values,
-        onStart: (mallKey) => setRunningMallKey(mallKey),
+        onStart: (mallKey) => setRunningMallKeys((current) => [...current, mallKey]),
         onOutcome: (outcome) => {
+          setRunningMallKeys((current) => current.filter((key) => key !== outcome.mallKey));
           setResults((current) => ({ ...current, [outcome.mallKey]: outcome }));
         },
       });
@@ -129,7 +131,7 @@ export function useMallQuickRegister(input: {
       }
     } finally {
       running.current = false;
-      setRunningMallKey(null);
+      setRunningMallKeys([]);
     }
   }, [item, values]);
 
@@ -139,11 +141,11 @@ export function useMallQuickRegister(input: {
     readyMallKeys,
     wingReadiness,
     results,
-    runningMallKey,
+    runningMallKeys,
     /** 저장된 값을 아직 못 읽었다. 이 동안은 버튼을 열지 않는다. */
     isLoading: detailQuery.isLoading,
     loadError: detailQuery.isError,
-    // 고른 몰만 순서대로. 기다릴 수 있게 프라미스를 돌려준다 — 쿠팡 WING 은 폼 몰이
+    // 고른 몰만 묶음으로. 기다릴 수 있게 프라미스를 돌려준다 — 쿠팡 WING 은 폼 몰이
     // 다 끝난 뒤에 확인 창을 띄워야 해서 호출부가 순서를 잡는다.
     runMalls: useCallback((mallKeys: readonly string[]) => run(mallKeys), [run]),
   };

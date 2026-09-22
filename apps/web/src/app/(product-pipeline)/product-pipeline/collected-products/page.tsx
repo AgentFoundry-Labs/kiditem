@@ -718,7 +718,7 @@ function QuickProcessSelectedDialog({
             <MallQuickRegisterRows
               readiness={mallRegister.readiness}
               results={mallRegister.results}
-              runningMallKey={mallRegister.runningMallKey}
+              runningMallKeys={mallRegister.runningMallKeys}
               isLoading={mallRegister.isLoading}
               disabled={targetCount === 0 || isSubmitting}
               detailHref={mallDetailHref}

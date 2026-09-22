@@ -48,7 +48,7 @@ describe('MallQuickRegisterRows', () => {
     const props = {
       readiness: allReady(),
       results: {} as Record<string, MallRunOutcome>,
-      runningMallKey: null,
+      runningMallKeys: [],
       isLoading: false,
       disabled: false,
       detailHref: '/product-pipeline/collected-products/c1',
@@ -114,7 +114,7 @@ describe('MallQuickRegisterRows', () => {
     });
 
     it('한 몰이 도는 동안에는 다 잠근다 — 탭을 하나만 쓴다', () => {
-      renderRows({ runningMallKey: 'kidsnote' });
+      renderRows({ runningMallKeys: ['kidsnote'] });
       expect(screen.getByRole('button', { name: '도매꾹만 등록' })).toBeDisabled();
     });
 
@@ -218,11 +218,19 @@ describe('MallQuickRegisterRows', () => {
       expect(within(rowOf('키즈노트')).getByText('대기')).toBeInTheDocument();
     });
 
-    it('도는 중에는 채우는 중이고 체크박스가 잠긴다', () => {
-      renderRows({ runningMallKey: 'kidsnote' });
+    it('묶음으로 도는 몰은 모두 채우는 중이다 — 한 몰만 도는 것처럼 보이지 않는다', () => {
+      renderRows({ runningMallKeys: ['kidsnote', 'domeggook'] });
       expect(within(rowOf('키즈노트')).getByText('채우는 중')).toBeInTheDocument();
+      expect(within(rowOf('도매꾹')).getByText('채우는 중')).toBeInTheDocument();
+    });
+
+    it('도는 중에는 채우는 중이고 체크박스가 잠긴다', () => {
+      renderRows({ runningMallKeys: ['kidsnote'] });
+      expect(within(rowOf('키즈노트')).getByText('채우는 중')).toBeInTheDocument();
+      // 묶음으로 동시에 도므로 여럿이 함께 `채우는 중` 이다.
+      expect(within(rowOf('도매꾹')).getByText('대기')).toBeInTheDocument();
       expect(screen.getByLabelText('도매꾹')).toBeDisabled();
-      expect(screen.getByRole('button', { name: '순서대로 채우는 중' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '몰을 열어 채우는 중' })).toBeDisabled();
     });
 
     it('채운 몰은 채움, 실패한 몰은 실패와 사유를 남긴다', () => {
@@ -280,7 +288,7 @@ describe('MallQuickRegisterRows', () => {
     it('준비 중에는 제 문구를 배지에 쓴다', () => {
       renderRows({ wing: { ...wingRow(), busy: true, busyLabel: '상세페이지 생성 중' } });
       expect(screen.getByText('상세페이지 생성 중')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '순서대로 채우는 중' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '몰을 열어 채우는 중' })).toBeDisabled();
     });
   });
 
