@@ -13,7 +13,17 @@ import { downloadBlob } from '@/lib/browser-download';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
-import { mallSheetCategoryGroups, readStoredFixed, storeFixed, type MallSheetCategoryGroup } from './mall-sheet';
+import {
+  chosenTargetsFor,
+  mallSheetCategoryGroups,
+  mallSheetTargetChoices,
+  readStoredFixed,
+  storeFixed,
+  targetSelectionKey,
+  unchosenMallTargets,
+  type MallSheetCategoryGroup,
+  type MallSheetTargetChoice,
+} from './mall-sheet';
 import { uploadPublicImages, type PublicImageUploadProgress } from './public-image-upload';
 
 const MALL_LABEL: Record<string, string> = {
@@ -48,6 +58,9 @@ export function MallSheetDialog({
   const [fixedBySheet, setFixedBySheet] = useState<Record<string, Record<string, string>>>(() => readStoredFixed());
   const [check, setCheck] = useState<SalesProductMallSheetCheck | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  // 상품 × 몰에서 고른 등록 설정. 바꾸면 이전 확인 결과는 그 설정으로 센 것이 아니다.
+  const [targets, setTargets] = useState<Record<string, string>>({});
+  const [targetsChanged, setTargetsChanged] = useState(false);
 
   const sheet = sheets.data?.sheets.find((item) => item.sheetKey === sheetKey) ?? sheets.data?.sheets[0] ?? null;
   const fixed = useMemo(() => {
@@ -57,19 +70,32 @@ export function MallSheetDialog({
   }, [sheet, fixedBySheet]);
 
   const runCheck = useMutation({
-    mutationFn: () => salesProductApi.checkMallSheet(
-      sheet!.sheetKey,
-      preset ? { fixed, salesProductIds: [...preset] } : { fixed },
-    ),
+    mutationFn: () => {
+      // 이전 확인에서 고른 설정을 그대로 다시 보낸다 — 서버가 그 설정으로 값을 세고 막힌 것을 알려 준다.
+      const targetIds = check ? chosenTargetsFor(check, targets, check.products.map((item) => item.salesProductId)) : [];
+      return salesProductApi.checkMallSheet(sheet!.sheetKey, {
+        fixed,
+        ...(preset ? { salesProductIds: [...preset] } : {}),
+        ...(targetIds.length ? { targetIds } : {}),
+      });
+    },
     onSuccess: (result) => {
       setCheck(result);
+      setTargetsChanged(false);
       setSelected(new Set(result.products.filter((product) => product.problems.length === 0).map((product) => product.salesProductId)));
     },
     onError: (error) => toast.error(isApiError(error) ? error.detail : '몰 엑셀을 확인하지 못했습니다.'),
   });
 
   const assign = useMutation({
-    mutationFn: (group: { mallKey: string; path: string; salesProductIds: string[] }) => salesProductApi.assignMallCategory(group),
+    mutationFn: (group: { mallKey: string; path: string; salesProductIds: string[] }) => salesProductApi.assignMallCategory({
+      ...group,
+      // 설정이 여러 개인 상품은 고른 설정에만 분류를 쓴다.
+      targetIds: group.salesProductIds.flatMap((salesProductId) => {
+        const targetId = targets[targetSelectionKey(salesProductId, group.mallKey)];
+        return targetId ? [{ salesProductId, targetId }] : [];
+      }),
+    }),
     onSuccess: (result, group) => {
       toast.success(`${MALL_LABEL[group.mallKey] ?? group.mallKey} 분류를 ${group.salesProductIds.length}개에 저장했습니다${
         sheet?.categoryBy === 'code' && !result.code ? ' — 이 경로는 몰 번호로 바뀌지 않아 여전히 막힙니다' : ''}`);
@@ -83,9 +109,12 @@ export function MallSheetDialog({
       const ids = check!.products.map((product) => product.salesProductId).filter((id) => selected.has(id));
       const size = sheet!.maxProducts;
       for (let start = 0; start < ids.length; start += size) {
+        const batch = ids.slice(start, start + size);
+        const targetIds = chosenTargetsFor(check!, targets, batch);
         const { blob, fileName } = await salesProductApi.downloadMallSheet(sheet!.sheetKey, {
-          salesProductIds: ids.slice(start, start + size),
+          salesProductIds: batch,
           fixed,
+          ...(targetIds.length ? { targetIds } : {}),
         });
         downloadBlob(blob, fileName);
       }
@@ -107,6 +136,12 @@ export function MallSheetDialog({
     setSheetKey(next);
     setCheck(null);
     setSelected(new Set());
+    setTargets({});
+    setTargetsChanged(false);
+  };
+  const chooseTarget = (key: string, targetId: string) => {
+    setTargets((current) => ({ ...current, [key]: targetId }));
+    setTargetsChanged(true);
   };
   const setFixedValue = (key: string, value: string) => {
     const next = { ...fixedBySheet, [sheet!.sheetKey]: { ...fixed, [key]: value } };
@@ -118,6 +153,9 @@ export function MallSheetDialog({
   const chosen = readyIds.filter((id) => selected.has(id)).length;
   const files = sheet ? Math.ceil(chosen / sheet.maxProducts) : 0;
   const groups = check && sheet ? mallSheetCategoryGroups(check, sheet) : [];
+  const unchosen = check ? unchosenMallTargets(check, targets) : 0;
+  // 설정을 바꾼 뒤에는 이전 확인 결과로 파일을 만들지 않는다 — 그 결과는 다른 설정으로 센 것이다.
+  const staleCheck = targetsChanged || unchosen > 0;
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="몰 대량등록 엑셀">
@@ -185,6 +223,8 @@ export function MallSheetDialog({
               sheet={sheet}
               groups={groups}
               selected={selected}
+              targets={targets}
+              onChooseTarget={chooseTarget}
               onToggle={(id) => setSelected((current) => {
                 const next = new Set(current);
                 if (next.has(id)) next.delete(id);
@@ -201,14 +241,21 @@ export function MallSheetDialog({
 
         <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
           <p className="text-sm text-slate-500">
-            {check ? <>고른 상품 <b className="tabular-nums text-slate-800">{chosen}</b>개{files > 1 ? ` · 파일 ${files}개로 나눠 받습니다` : ''}</> : '먼저 확인을 눌러 주세요.'}
+            {!check && '먼저 확인을 눌러 주세요.'}
+            {check && unchosen > 0 && (
+              <span className="text-amber-700">등록 설정을 고르지 않은 상품 · 몰이 {unchosen}개 있습니다.</span>
+            )}
+            {check && unchosen === 0 && targetsChanged && (
+              <span className="text-amber-700">등록 설정을 바꿨습니다 — 다시 확인을 눌러 주세요.</span>
+            )}
+            {check && !staleCheck && <>고른 상품 <b className="tabular-nums text-slate-800">{chosen}</b>개{files > 1 ? ` · 파일 ${files}개로 나눠 받습니다` : ''}</>}
           </p>
           <div className="flex gap-2">
             <button type="button" className="btn-secondary" onClick={onClose}>닫기</button>
             <button
               type="button"
               className="btn-primary inline-flex items-center gap-1.5 disabled:opacity-50"
-              disabled={!check || chosen === 0 || check.missingFixed.length > 0 || download.isPending}
+              disabled={!check || chosen === 0 || check.missingFixed.length > 0 || staleCheck || download.isPending}
               onClick={() => download.mutate()}
             >
               <Download size={16} aria-hidden />
@@ -264,6 +311,8 @@ function CheckResult({
   sheet,
   groups,
   selected,
+  targets,
+  onChooseTarget,
   onToggle,
   onToggleAll,
   onAssign,
@@ -274,6 +323,8 @@ function CheckResult({
   sheet: SalesProductMallSheet;
   groups: MallSheetCategoryGroup[];
   selected: ReadonlySet<string>;
+  targets: Readonly<Record<string, string>>;
+  onChooseTarget: (key: string, targetId: string) => void;
   onToggle: (id: string) => void;
   onToggleAll: (on: boolean) => void;
   onAssign: (group: MallSheetCategoryGroup, path: string) => void;
@@ -281,6 +332,14 @@ function CheckResult({
   onImagesUploaded: () => void;
 }) {
   const ready = check.products.filter((product) => product.problems.length === 0);
+  // 설정이 둘 이상인 상품 × 몰에만 고를 칸이 생긴다. 하나도 없으면 칸 자체가 없다.
+  const choices = useMemo(() => {
+    const byProduct = new Map<string, MallSheetTargetChoice[]>();
+    for (const choice of mallSheetTargetChoices(check)) {
+      byProduct.set(choice.salesProductId, [...(byProduct.get(choice.salesProductId) ?? []), choice]);
+    }
+    return byProduct;
+  }, [check]);
   const allOn = ready.length > 0 && ready.every((product) => selected.has(product.salesProductId));
   // 사진 올리기는 사진 때문에 막힌 상품만 — 사방넷 사진으로 대신 넣는 상품은 경고로 두고 올리라고 하지 않는다.
   const photoBlockedIds = useMemo(
@@ -325,6 +384,7 @@ function CheckResult({
               </th>
               <th className="px-3 py-2">코드</th>
               <th className="px-3 py-2">상품명</th>
+              {choices.size > 0 && <th className="px-3 py-2">등록 설정</th>}
               <th className="px-3 py-2">엑셀</th>
             </tr>
           </thead>
@@ -344,6 +404,15 @@ function CheckResult({
                   </td>
                   <td className="px-3 py-2 tabular-nums text-slate-600">{product.code}</td>
                   <td className="max-w-[320px] truncate px-3 py-2 text-slate-800" title={product.name}>{product.name}</td>
+                  {choices.size > 0 && (
+                    <td className="px-3 py-2">
+                      <TargetChoices
+                        choices={choices.get(product.salesProductId) ?? []}
+                        targets={targets}
+                        onChoose={onChooseTarget}
+                      />
+                    </td>
+                  )}
                   <td className="px-3 py-2 text-xs">
                     {blocked ? (
                       <span className="text-amber-800" title={product.problems.join('\n')}>{product.problems[0]}</span>
@@ -358,7 +427,7 @@ function CheckResult({
             })}
             {check.products.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
+                <td colSpan={choices.size > 0 ? 5 : 4} className="px-3 py-6 text-center text-slate-500">
                   {check.scope === 'selected' ? '고른 판매상품이 판매중이 아니거나 이미 이 몰에 있습니다.' : '이 몰에 없는 판매상품이 없습니다.'}
                 </td>
               </tr>
@@ -367,6 +436,53 @@ function CheckResult({
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * 이 상품 × 몰에 등록 설정이 여러 개일 때 쓸 설정을 고른다(ADR-0020). 고른 설정의 가격 · 이름 · 상세 · 분류로
+ * 엑셀을 만든다. 고르기 전에는 파일을 만들지 않는다 — 설정마다 값이 다르다.
+ */
+function TargetChoices({
+  choices,
+  targets,
+  onChoose,
+}: {
+  choices: MallSheetTargetChoice[];
+  targets: Readonly<Record<string, string>>;
+  onChoose: (key: string, targetId: string) => void;
+}) {
+  if (choices.length === 0) return <span className="text-xs text-slate-400">—</span>;
+  return (
+    <div className="space-y-1">
+      {choices.map((choice) => {
+        const mallLabel = MALL_LABEL[choice.mallKey] ?? choice.mallKey;
+        const value = targets[choice.key] ?? '';
+        return (
+          <div key={choice.key} className="flex items-center gap-1.5">
+            {choices.length > 1 && <span className="w-12 shrink-0 text-xs text-slate-500">{mallLabel}</span>}
+            <select
+              value={value}
+              aria-label={`${choice.code} ${mallLabel} 등록 설정`}
+              onChange={(event) => onChoose(choice.key, event.target.value)}
+              className={cn(
+                'min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs',
+                value ? 'border-slate-200 text-slate-800' : 'border-amber-300 bg-amber-50 text-amber-800',
+              )}
+            >
+              <option value="">설정 고르기({choice.targets.length}개)</option>
+              {choice.targets.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {target.label}
+                  {target.optionCount > 0 ? ` · 단품 ${target.optionCount}개` : ''}
+                  {target.categoryPath ? ` · ${target.categoryPath}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

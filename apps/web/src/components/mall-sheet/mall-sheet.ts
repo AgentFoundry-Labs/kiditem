@@ -1,4 +1,9 @@
-import type { SalesProductMallSheet, SalesProductMallSheetCheck } from '@kiditem/shared/sales-product';
+import type {
+  SalesProductMallSheet,
+  SalesProductMallSheetCheck,
+  SalesProductMallSheetTarget,
+  SalesProductMallSheetTargetChoice,
+} from '@kiditem/shared/sales-product';
 
 /** 분류가 없어 막힌 상품을 (몰 · 추천 분류)로 묶은 것. 한 번에 저장한다. */
 export interface MallSheetCategoryGroup {
@@ -51,6 +56,66 @@ export function mallSheetCategoryGroups(
       order(left.mallKey) - order(right.mallKey)
       || Number(right.suggestion !== null) - Number(left.suggestion !== null)
       || right.salesProductIds.length - left.salesProductIds.length);
+}
+
+/** 사람이 고를 등록 설정 한 줄 — 상품 × 몰. 설정이 둘 이상인 것만 나온다. */
+export interface MallSheetTargetChoice {
+  /** 고른 값을 담는 열쇠(`상품id|몰키`). */
+  key: string;
+  salesProductId: string;
+  code: string;
+  name: string;
+  mallKey: string;
+  targets: SalesProductMallSheetTarget[];
+}
+
+/** 고른 등록 설정을 담는 열쇠. 상품 × 몰마다 하나다. */
+export function targetSelectionKey(salesProductId: string, mallKey: string): string {
+  return `${salesProductId}|${mallKey}`;
+}
+
+/** 이 확인 결과에서 사람이 골라야 하는 상품 × 몰. 0개 · 1개인 상품 × 몰은 나오지 않는다. */
+export function mallSheetTargetChoices(check: SalesProductMallSheetCheck): MallSheetTargetChoice[] {
+  return check.products.flatMap((product) => product.mallTargets
+    .filter((mall) => mall.selectionRequired)
+    .map((mall) => ({
+      key: targetSelectionKey(product.salesProductId, mall.mallKey),
+      salesProductId: product.salesProductId,
+      code: product.code,
+      name: product.name,
+      mallKey: mall.mallKey,
+      targets: mall.targets,
+    })));
+}
+
+/** 아직 고르지 않은 상품 × 몰 수. 0이 아니면 파일을 만들 수 없다. */
+export function unchosenMallTargets(
+  check: SalesProductMallSheetCheck,
+  selection: Readonly<Record<string, string>>,
+): number {
+  return mallSheetTargetChoices(check)
+    .filter((choice) => !choice.targets.some((target) => target.id === selection[choice.key]))
+    .length;
+}
+
+/**
+ * 이 묶음에 넣을 상품의 고른 설정만. 받기는 몰이 받는 상품 수로 잘라 여러 번 보내므로, 그 묶음에 없는 상품의
+ * 선택을 함께 보내면 서버가 거절한다.
+ */
+export function chosenTargetsFor(
+  check: SalesProductMallSheetCheck,
+  selection: Readonly<Record<string, string>>,
+  salesProductIds: readonly string[],
+): SalesProductMallSheetTargetChoice[] {
+  const batch = new Set(salesProductIds);
+  return mallSheetTargetChoices(check)
+    .filter((choice) => batch.has(choice.salesProductId))
+    .flatMap((choice) => {
+      const targetId = selection[choice.key];
+      return targetId && choice.targets.some((target) => target.id === targetId)
+        ? [{ salesProductId: choice.salesProductId, mallKey: choice.mallKey, targetId }]
+        : [];
+    });
 }
 
 const STORAGE_KEY = 'kiditem.mallSheetFixed.v1';

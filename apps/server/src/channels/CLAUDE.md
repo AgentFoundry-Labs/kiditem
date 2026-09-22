@@ -142,6 +142,8 @@ sync, registration, matching, and capacity behavior is executable in
 - Channels owns common selling products, their KID options and registration templates. Templates may initialize an empty confirmed recipe only on explicit application; they never supply operational capacity.
 - Source products remain Products-owned. Catalog storage references MasterProduct UUIDs without a cross-owner foreign key; names and barcodes do not establish source identity.
 - Marketplace transport preserves its existing per-provider stock behavior. Internal capacity does not replace the submitted stock value or mutate source stock.
+- 몰 대량등록 엑셀은 상품 × 몰의 등록 설정이 여러 개면 요청이 고른 설정 하나로만 확인 · 파일 ·
+  분류 저장을 한다. 하나를 임의로 고르지 않고, 고른 설정이 그 조직 · 상품 · 몰의 것인지 확인한다.
 
 ## 쿠팡 윙 엑셀
 
