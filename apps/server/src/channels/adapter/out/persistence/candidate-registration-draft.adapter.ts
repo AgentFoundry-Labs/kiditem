@@ -200,6 +200,14 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     return input.status && draft.status !== input.status ? null : draft;
   }
 
+  /**
+   * 제출 payload 를 그 상품 × 몰 계정의 **기존** 등록 설정에 얼린다.
+   *
+   * 없는 설정을 여기서 만들지 않는다(KID-310). 설정을 만드는 순간이 곧 판매 결정이라 그 자리에서
+   * KID 를 발급하는데(`channels/registration-targets` resolve), 동결이 설정을 대신 만들면 그
+   * 발급을 건너뛰어 코드 없는 상품이 몰로 나간다. 발급 지점은 셋뿐이다: 첫 등록 설정 · 몰 엑셀
+   * 파일 · 직접 작성(ADR-0022).
+   */
   async freezeForSubmission(
     handle: ChannelsRepositoryTransaction,
     input: FreezeRegistrationDraftInput,
@@ -207,6 +215,11 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const tx = client(handle);
     const product = await requireConfirmedSalesProduct(tx, input.organizationId, input.salesProductId);
     const existing = await findCandidateAccountPreparation(tx, input.organizationId, product.id, input.channelAccountId);
+    if (!existing) {
+      throw new ConflictException(
+        `'${product.name}' 에는 이 몰 계정의 등록 설정이 없습니다. 등록 설정을 먼저 만든 뒤 다시 시도하세요.`,
+      );
+    }
     const { workspaceId: sourceContentWorkspaceId } = await this.contentWorkspaces.ensureSalesProductWorkspace(handle, {
       organizationId: input.organizationId,
       salesProductId: product.id,
@@ -220,32 +233,14 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     await assertThumbnailBelongsToProduct(
       tx, this.thumbnailSources, input.organizationId, product.id, resolved.selectedThumbnailUrl,
     );
-    const frozenColumns = {
-      displayName: input.displayName,
-      registrationInput: input.registrationInput as Prisma.InputJsonValue,
-      ...resolvedSelectionData(resolved),
-    };
-    const row = existing
-      ? await tx.registrationTarget.update({
-        where: { id: existing.id, organizationId: input.organizationId },
-        data: {
-          registrationInput: input.registrationInput as Prisma.InputJsonValue,
-          ...(existing.displayName === null ? { displayName: input.displayName } : {}),
-          ...resolvedSelectionData(resolved),
-        },
-      })
-      : await tx.registrationTarget.create({
-        data: {
-          organizationId: input.organizationId,
-          salesProductId: product.id,
-          selectedOptions: { createMany: { data: product.options.map((option, sortOrder) => ({
-            salesProductOptionId: option.id, sortOrder,
-          })) } },
-          channelAccountId: input.channelAccountId,
-          createdByUserId: input.requestedByUserId,
-          ...frozenColumns,
-        },
-      });
+    const row = await tx.registrationTarget.update({
+      where: { id: existing.id, organizationId: input.organizationId },
+      data: {
+        registrationInput: input.registrationInput as Prisma.InputJsonValue,
+        ...(existing.displayName === null ? { displayName: input.displayName } : {}),
+        ...resolvedSelectionData(resolved),
+      },
+    });
     return toFrozenDraft(tx, row, {
       sourceCandidateId: product.sourceCandidateId,
       sourceContentWorkspaceId,
