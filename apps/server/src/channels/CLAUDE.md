@@ -129,7 +129,7 @@ sync, registration, matching, and capacity behavior is executable in
   lock; a mismatch conflicts.
 - The Sabangnet listing import (KID-246) is one organization attempt whose
   plan freezes the mall account rows the hub picks
-  (`read/mall-account-rows.ts`, any status). Completion publishes each mall's
+  (`adapter/out/repository/mall-account-rows.ts`, any status). Completion publishes each mall's
   send records as listings with one option (`sellerSku` = Sabangnet model =
   Sellpia SKU code) and turns off only listings this source created that left
   the list. Its statuses carry the `사방넷 ` prefix and fold with a

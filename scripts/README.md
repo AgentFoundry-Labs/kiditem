@@ -87,4 +87,4 @@ owner runtime upload endpoints are the source-of-truth import paths. If a
 workflow needs a durable script again, add it back as a named package script or
 runbook step and update this inventory in the same PR.
 
-- `scripts/check-channels-hexagonal.mjs` — Channels business directories and pure application/domain boundary; run with `npm run check:channels-hexagonal` (also in conventions).
+- `scripts/check-hexagonal.mjs` — Channels/Sourcing/Content hexagonal boundaries: pure domain/application never imports a concrete adapter, `application/usecase/` and `marketplace/` stay retired, and the retired top-level `read/`/`mapper/`/`service/` lanes (KID-310) do not reappear in any of the three domains. Channels' fuller ruleset (business-area nesting, `@nestjs`/`@prisma`/Node-builtin purity, input-port-only incoming adapters, `adapter/in/web` naming) stays scoped to channels — sourcing and content have pre-existing debt on those specific rules that predates KID-310 and is tracked separately. Run with `npm run check:channels-hexagonal` (also in conventions).
