@@ -184,6 +184,30 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
     expect(result.listing!.sales_product_id).toBe(PRODUCT_ID);
   }, 60_000);
 
+  it('links a mall product to the draft this run makes for its candidate', async () => {
+    const result = await withPost022Schema(async (tx) => {
+      // 초안이 아직 없는 후보다. 이 이관이 초안을 만들고, 그 초안에 몰 상품이 이어져야 한다 —
+      // 잇지 못하면 push 가 후보 열을 지운 뒤 몰 상품이 원천에 닿을 길이 없다.
+      await seedCandidate(tx, { id: CANDIDATE_ID });
+      await tx.$executeRaw`
+        INSERT INTO channel_listings (id, organization_id, channel_account_id, source_candidate_id, sales_product_id, external_id)
+        VALUES (${LISTING_ID}::uuid, ${ORGANIZATION_ID}::uuid, ${ACCOUNT_ID}::uuid, ${CANDIDATE_ID}::uuid, NULL, 'EXT-2')
+      `;
+
+      const run = await salesProductDraftCutoverMigration.run(tx, { target: 'office' });
+      const [listing] = await tx.$queryRaw<Array<{ sales_product_id: string | null }>>`
+        SELECT sales_product_id::text AS sales_product_id FROM channel_listings WHERE id = ${LISTING_ID}::uuid
+      `;
+      const [draft] = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id::text AS id FROM sales_products WHERE source_candidate_id = ${CANDIDATE_ID}::uuid
+      `;
+      return { run, listing, draft };
+    });
+
+    expect(result.run.details).toMatchObject({ createdDrafts: 1, linkedListings: 1 });
+    expect(result.listing!.sales_product_id).toBe(result.draft!.id);
+  }, 60_000);
+
   it('strips the edit keys of a live candidate, leaves a deleted one alone and gives it no draft', async () => {
     const result = await withPost022Schema(async (tx) => {
       await seedCandidate(tx, { id: CANDIDATE_ID, rawData: { title: '원문', manualBasics: { ageGroup: '5세 이상' } } });

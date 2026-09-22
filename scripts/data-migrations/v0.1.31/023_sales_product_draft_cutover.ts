@@ -53,7 +53,6 @@ export const salesProductDraftCutoverMigration: DataMigration = {
     if (!(await readShape(tx)).draft_columns) {
       throw new Error('The draft columns are still missing after expand; the draft cutover stopped before mutation.');
     }
-    const linkedListings = shape.listings ? await backfillListingDrafts(tx) : 0;
     const archivedDuplicateTargets = shape.targets ? await archiveDuplicateTargets(tx) : 0;
 
     const candidates = await readCandidates(tx, shape);
@@ -82,6 +81,9 @@ export const salesProductDraftCutoverMigration: DataMigration = {
         discardedMallValues += moved.discarded;
       }
     }
+    // 초안을 다 만든 뒤에 잇는다. 이 이관이 만든 초안도 몰 상품의 원천이라, 먼저 이으면
+    // 그 상품만 `sales_product_id` 가 빈 채로 push 를 맞고 후보 열과 함께 원천을 잃는다.
+    const linkedListings = shape.listings ? await backfillListingDrafts(tx) : 0;
     const strippedCandidates = await stripCandidateEdits(tx);
 
     return {
