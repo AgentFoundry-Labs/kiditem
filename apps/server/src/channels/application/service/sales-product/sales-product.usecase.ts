@@ -24,7 +24,6 @@ import {
   resolveSalesProductStatus,
   type SalesProductPricedOption,
 } from '../../../domain/sales-product/sales-product-draft';
-import { issuesKidCodes } from '../../../domain/sales-product/sales-product-code';
 import { issueSalesProductOptionCodes } from './sales-product-code';
 import type { SalesProductWorkspaceArchivePort } from '../../port/out/ai/sales-product-workspace-archive.port';
 import {
@@ -81,11 +80,11 @@ export class SalesProductUseCase implements SalesProductPort {
     return this.get(organizationId, id);
   }
 
-  /** KID 발급의 단일 진입점. 발급 시점은 `KID_ISSUE_MOMENT` 하나가 정한다. */
-  async ensureSalesProductCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }> {
-    if (!issuesKidCodes('sale_decided')) {
-      throw new Error('KID 발급 시점이 바뀌었습니다. ensureSalesProductCodes 를 부르는 자리를 함께 옮기세요.');
-    }
+  /**
+   * KID 발급의 단일 진입점. 팔기로 정한 순간에만 부른다 — 첫 등록 설정, 몰 엑셀 파일,
+   * 직접 작성(ADR-0022). 멱등이다.
+   */
+  ensureSalesProductCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }> {
     return this.repository.ensureCodes(organizationId, salesProductId);
   }
 
@@ -219,7 +218,7 @@ export class SalesProductUseCase implements SalesProductPort {
       options: input.options.map(toDraft),
     }));
     // 이미 팔기로 정한 상품(KID 가 있는 상품)에 새 단품을 더하면 그 자리에서 번호를 준다.
-    // 아직 코드가 없는 초안은 발급 시점(`KID_ISSUE_MOMENT`)까지 비워 둔다.
+    // 아직 코드가 없는 초안은 팔기로 정할 때까지 비워 둔다(ADR-0022).
     if (state.productCode) await issueSalesProductOptionCodes(organizationId, plan, this.repository);
     const applied = await this.repository.applyOptionPlan({
       organizationId,

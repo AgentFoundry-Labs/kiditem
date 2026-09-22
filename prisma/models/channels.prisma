@@ -472,7 +472,9 @@ model SalesProduct {
   @@unique([organizationId, sourceCandidateId], map: "sales_products_org_source_candidate_key", where: raw("source_candidate_id IS NOT NULL"))
   @@unique([id, organizationId], map: "sales_products_id_org_key")
   @@index([organizationId, status])
-  @@index([organizationId, sourcePlatform, status])
+  /// 수집상품 탭: 조직 · 원천 장터 · 상태로 거르고 updatedAt desc, id desc 로 정렬한다.
+  /// 정렬 열이 동등 조건 열 뒤에 와야 색인 하나로 걸러 낸 뒤 정렬 없이 읽는다.
+  @@index([organizationId, sourcePlatform, status, updatedAt, id])
   @@index([organizationId, updatedAt, id])
   @@map("sales_products")
 }

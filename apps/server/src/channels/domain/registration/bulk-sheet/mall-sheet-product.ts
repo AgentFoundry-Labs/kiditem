@@ -69,8 +69,6 @@ export interface MallSheetSourceProduct {
 
 const KEYS = SALES_PRODUCT_SABANGNET_VALUE_KEYS;
 
-/** 상품 × 몰에서 고른 등록 설정: 몰 키 → 등록 설정 id. 비어 있으면 0개/1개 흐름이다. */
-
 type MallOverride = MallSheetSourceProduct['overrides'][number];
 
 /** 이 몰의 등록 설정들. 상품 × 몰 계정당 활성 설정은 하나지만, 한 몰에 계정이 여럿일 수 있다. */

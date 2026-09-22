@@ -1,17 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  KID_ISSUE_MOMENT,
-  issuesKidCodes,
   planKidIssue,
 } from './sales-product-code';
-
-describe('KID 발급 시점', () => {
-  it('판매하기로 정한 시점에 발급한다 — 초안을 만들 때가 아니다', () => {
-    expect(KID_ISSUE_MOMENT).toBe('sale_decided');
-    expect(issuesKidCodes('sale_decided')).toBe(true);
-    expect(issuesKidCodes('draft_created')).toBe(false);
-  });
-});
 
 describe('planKidIssue', () => {
   it('상품과 단품 중 비어 있는 것만 발급 대상으로 센다', () => {

@@ -60,7 +60,7 @@ export interface SalesProductPort {
   retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireResult>;
   /**
    * 팔기로 정한 시점에 KID 를 발급한다(상품 + 파는 단품). 멱등이다 — 이미 있으면 그대로 둔다.
-   * 부르는 곳은 첫 등록 설정 생성 · 몰 엑셀 파일 · 직접 작성뿐이다(`KID_ISSUE_MOMENT`).
+   * 부르는 곳은 첫 등록 설정 생성 · 몰 엑셀 파일 · 직접 작성뿐이다(ADR-0022).
    */
   ensureSalesProductCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }>;
   update(organizationId: string, salesProductId: string, input: SalesProductUpdateInput): Promise<SalesProduct>;

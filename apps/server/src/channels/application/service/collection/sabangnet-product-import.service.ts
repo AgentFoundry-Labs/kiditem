@@ -188,17 +188,22 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         },
       };
       const state = sourceKeys.map((key) => states.get(key)).find(Boolean);
+      // 사방넷에서 옮긴 상품은 품번코드를 이미 들고 온다. 없으면 어느 줄이 문제인지 말한다.
+      const importedCode = product.create.code;
+      if (!importedCode) {
+        issues.push({ kind: 'products', row: 0, code: '', message: '사방넷 상품에 품번코드가 없습니다.' });
+        continue;
+      }
       let optionPlan;
       try {
         optionPlan = planSalesProductOptionReplacement({
-          // 사방넷에서 옮긴 상품은 품번코드를 이미 들고 온다.
-          productCode: product.create.code!,
+          productCode: importedCode,
           existing: state?.options ?? [],
           options: product.options,
         });
       } catch (error) {
         if (!(error instanceof SalesProductOptionPlanError)) throw error;
-        issues.push({ kind: 'products', row: 0, code: product.create.code!, message: error.message });
+        issues.push({ kind: 'products', row: 0, code: importedCode, message: error.message });
         continue;
       }
       const fingerprint = salesProductImportFingerprint({
@@ -211,9 +216,9 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
       if (state) {
         existingChangesByProductId.set(state.productId, {
           salesProductId: state.productId,
-          code: state.productCode!,
+          code: state.productCode ?? importedCode,
           name: product.create.name,
-          sourceKey: sourceKeys.find((key) => states.get(key)?.productId === state.productId) ?? product.create.code!,
+          sourceKey: sourceKeys.find((key) => states.get(key)?.productId === state.productId) ?? importedCode,
           expectedVersion: state.version,
           changed: !same,
         });

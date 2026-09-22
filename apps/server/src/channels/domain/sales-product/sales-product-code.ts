@@ -1,19 +1,16 @@
 /**
- * KID(판매상품코드 · 단품코드) 발급 정책 — 순수 함수만 둔다(KID-310).
+ * KID(판매상품코드 · 단품코드) 발급 정책 — 순수 함수만 둔다(KID-310 · ADR-0022).
  *
  * 사장님 결정(2026-09-23): **팔기로 정한 시점**에 발급한다. 수집한 초안은 코드 없이 만들어지고,
  * 첫 등록 설정을 만들거나 몰 엑셀 파일을 뽑을 때 비로소 번호를 받는다 — 안 팔 상품이 번호를
- * 소모하지 않는다. 시점을 바꾸려면 이 상수 하나를 옮기고 `ensureSalesProductCodes` 호출 자리만
- * 옮긴다.
+ * 소모하지 않는다.
+ *
+ * 발급을 부르는 자리는 네 곳뿐이다:
+ * `registration-target.repository.adapter.ts`(첫 등록 설정),
+ * `sales-product-mall-sheet.service.ts`(몰 엑셀 파일),
+ * `sales-product.usecase.ts`(직접 작성),
+ * `sabangnet-product-import.service.ts`(사방넷은 품번코드를 그대로 쓴다).
  */
-
-export type KidIssueMoment = 'draft_created' | 'sale_decided';
-
-export const KID_ISSUE_MOMENT: KidIssueMoment = 'sale_decided';
-
-export function issuesKidCodes(moment: KidIssueMoment): boolean {
-  return moment === KID_ISSUE_MOMENT;
-}
 
 export interface KidIssuePlan {
   /** 상품 KID 를 발급해야 하는가. */

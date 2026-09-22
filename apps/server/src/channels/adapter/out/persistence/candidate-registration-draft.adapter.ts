@@ -215,10 +215,13 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     });
   }
 
-  /** 이름 없는 옛 설정에 판매상품 이름을 채운다. 가격 게이트는 여기서 함께 본다. */
+  /**
+   * 이름 없는 옛 설정에 판매상품 이름을 채운다. 가격 게이트는 이름이 이미 있어도 본다 —
+   * 이름이 있다고 초안이 아닌 것은 아니다.
+   */
   private async ensureDisplayName(handle: ChannelsRepositoryTransaction, row: RegistrationTarget): Promise<RegistrationTarget> {
-    if (row.displayName) return row;
     const product = await requireConfirmedSalesProduct(client(handle), row.organizationId, row.salesProductId);
+    if (row.displayName) return row;
     return client(handle).registrationTarget.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: { displayName: product.name },

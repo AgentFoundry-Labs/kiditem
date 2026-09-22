@@ -87,12 +87,13 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         select: { id: true },
       });
       if (existing) return existing.id;
-      // 첫 등록 설정을 만드는 순간이 곧 판매 결정이다 — 여기서 KID 를 발급한다(KID-310).
-      await ensureSalesProductCodesInTransaction(tx, organizationId, input.salesProductId,
-        (ids) => this.readMasterProductCodes(tx, organizationId, ids));
       if (product.status === 'archived') {
         throw new RegistrationTargetException('invalid', '보관된 판매상품에는 새 등록 설정을 만들 수 없습니다.');
       }
+      // 첫 등록 설정을 만드는 순간이 곧 판매 결정이다 — 여기서 KID 를 발급한다(KID-310).
+      // 발급은 트랜잭션 밖 시퀀스라 되돌아오지 않는다: 거절할 이유는 모두 이 앞에서 본다.
+      await ensureSalesProductCodesInTransaction(tx, organizationId, input.salesProductId,
+        (ids) => this.readMasterProductCodes(tx, organizationId, ids));
       const options = await tx.salesProductOption.findMany({
         where: { organizationId, salesProductId: input.salesProductId, supplyStatus: { not: 'unused' } },
         orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
@@ -143,7 +144,25 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
     return row ? toRecord(row) : null;
   }
 
+  /**
+   * 상품 × 몰 계정당 등록 설정은 하나다(ADR-0022). 이미 있으면 부분 유일키가 막는데, 그것을
+   * 데이터베이스 오류로 흘려보내면 화면이 왜 막혔는지 말하지 못한다.
+   */
   async create(organizationId: string, input: RegistrationTargetCreateInput): Promise<string> {
+    try {
+      return await this.createTarget(organizationId, input);
+    } catch (error) {
+      if (error && typeof error === 'object' && (error as { code?: unknown }).code === 'P2002') {
+        throw new RegistrationTargetException(
+          'conflict',
+          '이 판매상품과 몰 계정에는 이미 등록 설정이 있습니다. 기존 설정을 고쳐주세요.',
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async createTarget(organizationId: string, input: RegistrationTargetCreateInput): Promise<string> {
     return this.prisma.$transaction(async (tx) => {
       await validateReferences(tx, organizationId, input.salesProductId, input.channelAccountId);
       await validateSelectedOptions(tx, {

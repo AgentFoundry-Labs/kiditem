@@ -9,6 +9,7 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
+import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 
 describe('Sourcing final owner idempotency receipt (PG integration)', () => {
   let prisma: PrismaClient;
@@ -17,7 +18,7 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    candidates = new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService);
+    candidates = new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService, undefined, undefined, realSalesProductDraftPort(prisma));
   });
 
   afterAll(async () => prisma?.$disconnect());
@@ -83,6 +84,7 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
     await otherPrisma.$connect();
     const otherCandidates = new SourcingCandidateRepositoryAdapter(
       otherPrisma as unknown as PrismaService,
+      undefined, undefined, realSalesProductDraftPort(otherPrisma),
     );
     const input = {
       organizationId: TEST_ORGANIZATION_ID,

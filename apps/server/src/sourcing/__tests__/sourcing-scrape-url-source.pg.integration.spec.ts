@@ -14,6 +14,7 @@ import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/re
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 
 const sourceUrl = 'https://detail.1688.com/offer/123.html';
 const scraped = {
@@ -36,7 +37,7 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
   let capability: SourcingFinalCapabilityAdapter;
   beforeAll(async () => {
     prisma = makeTestPrisma(); await prisma.$connect();
-    candidates = new SourcingCandidateRepositoryAdapter(prisma as never);
+    candidates = new SourcingCandidateRepositoryAdapter(prisma as never, undefined, undefined, realSalesProductDraftPort(prisma));
     const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never));
     const owner = new SourcingScrapeUrlService(attempts, candidates, { scrapeProductUrl: async () => { providerCalls++; return provider(); } });
     capability = new SourcingFinalCapabilityAdapter(undefined as never, undefined as never, undefined as never,

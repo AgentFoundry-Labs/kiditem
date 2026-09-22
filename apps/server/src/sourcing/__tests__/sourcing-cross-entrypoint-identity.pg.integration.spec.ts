@@ -15,6 +15,7 @@ import { SourcingExtensionIngestService } from '../application/service/sourcing-
 import { canonicalSourcingCandidateIdentity } from '../domain/sourcing-candidate-identity';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
+import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 
 describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => {
   let agentPrisma: PrismaClient;
@@ -26,7 +27,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     agentPrisma = makeTestPrisma();
     extensionPrisma = makeTestPrisma();
     await Promise.all([agentPrisma.$connect(), extensionPrisma.$connect()]);
-    candidates = new SourcingCandidateRepositoryAdapter(agentPrisma as unknown as PrismaService);
+    candidates = new SourcingCandidateRepositoryAdapter(agentPrisma as unknown as PrismaService, undefined, undefined, realSalesProductDraftPort(agentPrisma));
     extension = extensionOwner(extensionPrisma);
   });
 
@@ -122,6 +123,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     const waitForPeerCandidateRead = candidateReadBarrier();
     const agentCandidates = new SourcingCandidateRepositoryAdapter(
       prismaWithCandidateReadBarrier(agentPrisma, waitForPeerCandidateRead) as unknown as PrismaService,
+      undefined, undefined, realSalesProductDraftPort(agentPrisma),
     );
     const agent = new SourcingFinalDiscoveryCapabilityAdapter(agentCandidates, {
       scrapeProductUrl: async () => ({
