@@ -65,7 +65,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
         .mockImplementationOnce(async (callback: (tx: typeof tx1) => Promise<unknown>) => callback(tx1))
         .mockImplementationOnce(async (callback: (tx: typeof tx2) => Promise<unknown>) => callback(tx2)),
     };
-    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, undefined, undefined, draftsFake());
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, draftsFake());
 
     const row = await repository.upsertSourced({
       organizationId: 'org-1',
@@ -140,7 +140,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     const prisma = {
       $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)),
     };
-    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, undefined, undefined, draftsFake());
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, draftsFake());
     const input = {
       organizationId: 'org-1',
       idempotencyKey: 'candidate-owner-key',
@@ -177,7 +177,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
         .mockRejectedValueOnce(unique)
         .mockRejectedValueOnce(new Error('must not make a third receipt attempt')),
     };
-    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, undefined, undefined, draftsFake());
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, draftsFake());
 
     await expect(repository.upsertSourcedWithIdempotencyReceipt(receiptInput()))
       .rejects.toBe(unique);
@@ -188,7 +188,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     const prisma = {
       sourcingCandidate: { findFirst: vi.fn().mockResolvedValue(candidateRow()) },
     };
-    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, undefined, undefined, draftsFake());
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, draftsFake());
 
     const result = await repository.findActiveBySourceUrl({
       organizationId: 'org-1',
@@ -210,7 +210,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
   it('lists only requested sourcing platforms', async () => {
     const prisma = listPrisma();
     const channelListings = registeredCandidateIds([]);
-    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, undefined, channelListings as never, draftsFake());
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, draftsFake(), undefined, channelListings as never);
 
     await repository.listSourced({
       organizationId: 'org-1',
@@ -230,7 +230,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
   it('excludes candidates with an active listing using the Channels owner read', async () => {
     const prisma = listPrisma();
     const channelListings = registeredCandidateIds(['listed-candidate']);
-    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, undefined, channelListings as never, draftsFake());
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, draftsFake(), undefined, channelListings as never);
 
     await repository.listSourced({
       organizationId: 'org-1',
@@ -288,6 +288,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     };
     const repository = new SourcingCandidateRepositoryAdapter(
       prisma as never,
+      draftsFake(),
       candidateRegistrations as never,
       registeredCandidateIds([]) as never,
     );
@@ -360,6 +361,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     };
     const repository = new SourcingCandidateRepositoryAdapter(
       prisma as never,
+      draftsFake(),
       candidateRegistrations as never,
       registeredCandidateIds([]) as never,
     );

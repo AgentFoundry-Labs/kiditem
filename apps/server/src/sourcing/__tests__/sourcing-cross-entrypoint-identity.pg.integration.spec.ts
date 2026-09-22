@@ -27,7 +27,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     agentPrisma = makeTestPrisma();
     extensionPrisma = makeTestPrisma();
     await Promise.all([agentPrisma.$connect(), extensionPrisma.$connect()]);
-    candidates = new SourcingCandidateRepositoryAdapter(agentPrisma as unknown as PrismaService, undefined, undefined, realSalesProductDraftPort(agentPrisma));
+    candidates = new SourcingCandidateRepositoryAdapter(agentPrisma as unknown as PrismaService, realSalesProductDraftPort(agentPrisma));
     extension = extensionOwner(extensionPrisma);
   });
 
@@ -123,7 +123,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     const waitForPeerCandidateRead = candidateReadBarrier();
     const agentCandidates = new SourcingCandidateRepositoryAdapter(
       prismaWithCandidateReadBarrier(agentPrisma, waitForPeerCandidateRead) as unknown as PrismaService,
-      undefined, undefined, realSalesProductDraftPort(agentPrisma),
+      realSalesProductDraftPort(agentPrisma),
     );
     const agent = new SourcingFinalDiscoveryCapabilityAdapter(agentCandidates, {
       scrapeProductUrl: async () => ({

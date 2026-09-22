@@ -1,3 +1,4 @@
+import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
@@ -56,6 +57,7 @@ describe('registration execution fence (PG integration)', () => {
     );
     candidateRepository = new SourcingCandidateRepositoryAdapter(
       prisma as unknown as PrismaService,
+      realSalesProductDraftPort(prisma),
     );
   });
 

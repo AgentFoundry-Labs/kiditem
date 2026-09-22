@@ -1,3 +1,4 @@
+import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
@@ -27,7 +28,7 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
     prisma = makeTestPrisma();
     await prisma.$connect();
     service = new SourcingPromotionService(
-      new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService),
+      new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService, realSalesProductDraftPort(prisma)),
       new ProductPreparationRepositoryAdapter(prisma as unknown as PrismaService, {
         lock: async () => undefined,
         requireActive: async () => undefined,

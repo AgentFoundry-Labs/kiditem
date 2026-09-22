@@ -1,3 +1,4 @@
+import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -48,6 +49,7 @@ describe('candidate registration state (PG integration)', () => {
     );
     candidates = new SourcingCandidateRepositoryAdapter(
       prisma as unknown as PrismaService,
+      realSalesProductDraftPort(prisma),
       registrations,
       channelListings,
     );

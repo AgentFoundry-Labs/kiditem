@@ -28,12 +28,14 @@ import type { SourcingRepositoryTransaction } from '../../../application/port/ou
 export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
+    // 초안 없는 수집은 없다(KID-310). 필수 주입이라 배선이 빠지면 부팅이 선다 —
+    // 초안이 없으면 편집 · 등록 · 몰 엑셀이 모두 갈 곳을 잃는다.
+    @Inject(SALES_PRODUCT_DRAFT_PORT)
+    private readonly salesProductDrafts: SalesProductDraftPort,
     @Optional() @Inject(CANDIDATE_REGISTRATION_PORT)
     private readonly candidateRegistrations?: CandidateRegistrationPort,
     @Optional() @Inject(CHANNEL_LISTING_QUERY_PORT)
     private readonly channelListings?: ChannelListingQueryPort,
-    @Optional() @Inject(SALES_PRODUCT_DRAFT_PORT)
-    private readonly salesProductDrafts?: SalesProductDraftPort,
   ) {}
 
   runInTransaction<T>(
@@ -393,11 +395,6 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
    * Channels 에 초안을 부탁한다 — 멱등이라 다시 담아도 초안은 하나다.
    */
   private async ensureDraft(input: UpsertCandidateInput, candidateId: string): Promise<void> {
-    // 초안 없는 수집은 없다(KID-310). 배선이 빠졌으면 조용히 건너뛰지 않고 수집을 세운다 —
-    // 초안이 없으면 편집 · 등록 · 몰 엑셀이 모두 갈 곳을 잃는다.
-    if (!this.salesProductDrafts) {
-      throw new Error('SALES_PRODUCT_DRAFT_PORT is not wired; a collected candidate cannot exist without its draft.');
-    }
     await this.salesProductDrafts.createFromSource(input.organizationId, {
       candidateId,
       name: input.name,

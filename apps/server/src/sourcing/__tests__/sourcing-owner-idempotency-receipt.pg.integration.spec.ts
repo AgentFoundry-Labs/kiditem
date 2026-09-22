@@ -18,7 +18,7 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    candidates = new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService, undefined, undefined, realSalesProductDraftPort(prisma));
+    candidates = new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService, realSalesProductDraftPort(prisma));
   });
 
   afterAll(async () => prisma?.$disconnect());
@@ -84,7 +84,7 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
     await otherPrisma.$connect();
     const otherCandidates = new SourcingCandidateRepositoryAdapter(
       otherPrisma as unknown as PrismaService,
-      undefined, undefined, realSalesProductDraftPort(otherPrisma),
+      realSalesProductDraftPort(otherPrisma),
     );
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
