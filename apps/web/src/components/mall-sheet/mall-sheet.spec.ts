@@ -103,6 +103,13 @@ describe('choosing a registration setting in the mall sheet dialog', () => {
     expect(unchosenMallTargets(checkWith([many]), { [targetSelectionKey('a', 'gmarket')]: 'stale' })).toBe(1);
   });
 
+  it('counts only the products the operator actually put in the file', () => {
+    // 고르지 않은 상품을 담지 않았다면 나머지 상품은 그대로 받을 수 있다.
+    expect(unchosenMallTargets(checkWith([many, one]), {}, ['b'])).toBe(0);
+    expect(unchosenMallTargets(checkWith([many, one]), {}, ['a', 'b'])).toBe(1);
+    expect(unchosenMallTargets(checkWith([many, one]), {}, [])).toBe(0);
+  });
+
   it('sends only the chosen settings of the products in that download batch', () => {
     const selection = {
       [targetSelectionKey('a', 'gmarket')]: TARGET_B,

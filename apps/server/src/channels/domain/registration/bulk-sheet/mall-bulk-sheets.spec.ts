@@ -227,14 +227,29 @@ describe('choosing among several registration settings', () => {
     expect(unchosen.malls.gmarket!.salePrice).toBe(3960);
   });
 
-  it('does not borrow a category from a mall whose setting is ambiguous', () => {
-    const smartstore = source().overrides.find((item) => item.mallKey === 'smartstore');
-    const base = smartstore ?? { ...source().overrides[0]!, mallKey: 'smartstore' };
-    const borrowable = { ...base, adapterValues: { categoryPath: '출산/육아>완구/인형>감각발달완구>비눗방울' } };
-    const one = source({ overrides: [{ ...borrowable, targetId: 'target-1' }] });
-    const two = source({ overrides: [{ ...borrowable, targetId: 'target-1' }, { ...borrowable, targetId: 'target-2' }] });
-    expect(toMallSheetProduct(one, onchannelSheet, lookup).malls.onch!.categoryCode).toBe('50004224');
-    expect(toMallSheetProduct(two, onchannelSheet, lookup).malls.onch!.categoryCode).toBeNull();
+  describe('borrowing a category from a mall with the same category tree', () => {
+    const base = source().overrides.find((item) => item.mallKey === 'smartstore')
+      ?? { ...source().overrides[0]!, mallKey: 'smartstore' };
+    const donor = (targetId: string, categoryPath: string) => ({ ...base, targetId, adapterValues: { categoryPath } });
+    const SHARED = '출산/육아>완구/인형>감각발달완구>비눗방울';
+    const OTHER = '출산/육아>완구/인형>블록';
+    const code = (product: MallSheetSourceProduct, selection?: Map<string, string>) =>
+      toMallSheetProduct(product, onchannelSheet, lookup, new Map(), selection).malls.onch!.categoryCode;
+
+    it('borrows from one setting, and from several settings that all point at the same category', () => {
+      expect(code(source({ overrides: [donor('target-1', SHARED)] }))).toBe('50004224');
+      expect(code(source({ overrides: [donor('target-1', SHARED), donor('target-2', SHARED)] }))).toBe('50004224');
+    });
+
+    it('does not borrow when the settings point at different categories', () => {
+      expect(code(source({ overrides: [donor('target-1', SHARED), donor('target-2', OTHER)] }))).toBeNull();
+    });
+
+    it('borrows from the setting the caller chose for that mall', () => {
+      const product = source({ overrides: [donor('target-1', OTHER), donor('target-2', SHARED)] });
+      expect(code(product, new Map([['smartstore', 'target-2']]))).toBe('50004224');
+      expect(code(product, new Map([['smartstore', 'target-1']]))).toBeNull();
+    });
   });
 });
 

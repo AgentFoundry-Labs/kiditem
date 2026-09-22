@@ -88,12 +88,18 @@ export function mallSheetTargetChoices(check: SalesProductMallSheetCheck): MallS
     })));
 }
 
-/** 아직 고르지 않은 상품 × 몰 수. 0이 아니면 파일을 만들 수 없다. */
+/**
+ * 아직 등록 설정을 고르지 않은 상품 × 몰 수. `salesProductIds` 를 주면 그 상품만 센다 — 고르지 않은 상품 하나가
+ * 나머지 상품의 받기까지 막지 않게, 받기는 실제로 담은 상품만 본다.
+ */
 export function unchosenMallTargets(
   check: SalesProductMallSheetCheck,
   selection: Readonly<Record<string, string>>,
+  salesProductIds?: readonly string[],
 ): number {
+  const only = salesProductIds ? new Set(salesProductIds) : null;
   return mallSheetTargetChoices(check)
+    .filter((choice) => !only || only.has(choice.salesProductId))
     .filter((choice) => !choice.targets.some((target) => target.id === selection[choice.key]))
     .length;
 }

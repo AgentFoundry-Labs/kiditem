@@ -110,7 +110,7 @@ describe('<MallSheetDialog /> choosing among several registration settings', () 
     vi.mocked(salesProductApi.downloadMallSheet).mockResolvedValue({ blob: new Blob(['x']), fileName: 'a.xls' });
   });
 
-  it('asks only for the product that has several settings, and keeps the file blocked until it is chosen', async () => {
+  it('asks only for the product that has several settings', async () => {
     open();
     const choose = await screen.findByRole('combobox', { name: 'KID001 teacher-mall 등록 설정' });
     expect(screen.queryByRole('combobox', { name: 'KID002 teacher-mall 등록 설정' })).not.toBeInTheDocument();
@@ -119,8 +119,20 @@ describe('<MallSheetDialog /> choosing among several registration settings', () 
       '기본 등록 · 단품 1개',
       '별도 등록 · 단품 2개 · 완구>블록',
     ]);
-    expect(screen.getByRole('button', { name: /엑셀 받기/ })).toBeDisabled();
-    expect(screen.getByText('등록 설정을 고르지 않은 상품 · 몰이 1개 있습니다.')).toBeInTheDocument();
+    expect(screen.getByText('등록 설정을 고르지 않은 상품 · 몰 1개는 받을 수 없습니다.')).toBeInTheDocument();
+  });
+
+  it('still downloads the ready products while another product waits for its setting', async () => {
+    open();
+    await screen.findByRole('combobox', { name: 'KID001 teacher-mall 등록 설정' });
+    // 막힌 상품은 담기지 않는다 — 담은 상품만으로 파일을 만든다.
+    expect(screen.getByRole('checkbox', { name: 'KID001 고르기' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /엑셀 받기/ })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /엑셀 받기/ }));
+    await waitFor(() => expect(salesProductApi.downloadMallSheet).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(salesProductApi.downloadMallSheet).mock.calls[0]![1])
+      .toEqual({ salesProductIds: [ONE], fixed: {} });
   });
 
   it('will not download with the earlier check result after the setting changes', async () => {

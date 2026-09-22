@@ -117,14 +117,30 @@ function borrowCategoryPath(
   spec: Pick<MallBulkSheetSpec, 'categorySharesWith'>,
   mallKey: string,
   categories: MallCategoryLookup,
+  selection: MallTargetSelection,
 ): string | null {
   for (const donor of spec.categorySharesWith ?? []) {
-    // 빌려 오는 몰도 설정이 둘 이상이면 어느 쪽 분류인지 알 수 없다 — 빌리지 않는다.
-    const donors = mallTargets(source, donor);
-    const path = donors.length === 1 ? mallTargetCategoryPath(donors[0]!) : null;
+    const path = donorCategoryPath(source, donor, selection);
     if (path && categories.code(mallKey, path)) return path;
   }
   return null;
+}
+
+/**
+ * 빌려 올 몰이 가리키는 분류 경로. 그 몰 설정을 골랐으면 고른 것, 아니면 설정들이 **한 경로로 모일 때만** 그 경로다 —
+ * 설정마다 분류가 다르면 어느 쪽인지 알 수 없어 빌리지 않는다.
+ */
+function donorCategoryPath(
+  source: MallSheetSourceProduct,
+  donor: string,
+  selection: MallTargetSelection,
+): string | null {
+  const { override } = pickMallOverride(source, donor, selection);
+  if (override) return mallTargetCategoryPath(override);
+  const paths = new Set(mallTargets(source, donor)
+    .map(mallTargetCategoryPath)
+    .filter((path): path is string => path !== null));
+  return paths.size === 1 ? [...paths][0]! : null;
 }
 
 function joinText(parts: readonly (string | null | undefined)[], separator: string): string {
@@ -246,7 +262,7 @@ export function toMallSheetProduct(
     const values = override?.adapterValues ?? {};
     const ownPath = values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
     // 분류 체계가 같은 몰에서 빌려 온다(온채널 ← 스마트스토어). 이 몰 표에서 번호가 나올 때만 쓴다.
-    const borrowed = ownPath ? null : borrowCategoryPath(source, spec, mallKey, categories);
+    const borrowed = ownPath ? null : borrowCategoryPath(source, spec, mallKey, categories, selection);
     const categoryPath = ownPath ?? borrowed;
     const explicitCode = values.categoryCode?.trim() || null;
     malls[mallKey] = {

@@ -155,7 +155,8 @@ export function MallSheetDialog({
   const groups = check && sheet ? mallSheetCategoryGroups(check, sheet) : [];
   const unchosen = check ? unchosenMallTargets(check, targets) : 0;
   // 설정을 바꾼 뒤에는 이전 확인 결과로 파일을 만들지 않는다 — 그 결과는 다른 설정으로 센 것이다.
-  const staleCheck = targetsChanged || unchosen > 0;
+  // 아직 고르지 않은 상품은 그 상품만 막고, 담은 나머지 상품은 그대로 받는다.
+  const staleCheck = targetsChanged || (check ? unchosenMallTargets(check, targets, [...selected]) > 0 : false);
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="몰 대량등록 엑셀">
@@ -242,13 +243,13 @@ export function MallSheetDialog({
         <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
           <p className="text-sm text-slate-500">
             {!check && '먼저 확인을 눌러 주세요.'}
-            {check && unchosen > 0 && (
-              <span className="text-amber-700">등록 설정을 고르지 않은 상품 · 몰이 {unchosen}개 있습니다.</span>
-            )}
-            {check && unchosen === 0 && targetsChanged && (
+            {check && !staleCheck && <>고른 상품 <b className="tabular-nums text-slate-800">{chosen}</b>개{files > 1 ? ` · 파일 ${files}개로 나눠 받습니다` : ''}</>}
+            {check && targetsChanged && (
               <span className="text-amber-700">등록 설정을 바꿨습니다 — 다시 확인을 눌러 주세요.</span>
             )}
-            {check && !staleCheck && <>고른 상품 <b className="tabular-nums text-slate-800">{chosen}</b>개{files > 1 ? ` · 파일 ${files}개로 나눠 받습니다` : ''}</>}
+            {check && !targetsChanged && unchosen > 0 && (
+              <span className="ml-2 text-amber-700">등록 설정을 고르지 않은 상품 · 몰 {unchosen}개는 받을 수 없습니다.</span>
+            )}
           </p>
           <div className="flex gap-2">
             <button type="button" className="btn-secondary" onClick={onClose}>닫기</button>

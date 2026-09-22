@@ -12,7 +12,11 @@ const ACCOUNT = '10000000-0000-4000-8000-000000000006';
 const OTHER_PRODUCT = '10000000-0000-4000-8000-000000000007';
 const OTHER_TARGET = '10000000-0000-4000-8000-000000000008';
 
-function target(id: string, price: number, supplyPrice: number | null = 1500): MallSheetSourceProduct['overrides'][number] {
+function target(
+  id: string,
+  price: number | null,
+  supplyPrice: number | null = 1500,
+): MallSheetSourceProduct['overrides'][number] {
   return { targetId: id, mallKey: 'teacher-mall', name: id === FIRST ? '기본 등록' : '별도 등록',
     salePrice: null, priceRateBp: null, detailHtml: null, promoText: null,
     selectedOptionIds: [OPTION], optionPrices: [{ salesProductOptionId: OPTION, salePrice: price, normalPrice: null, supplyPrice }],
@@ -100,13 +104,43 @@ describe('mall sheets use the explicitly selected registration settings', () => 
     for (const chosen of [
       { salesProductId: PRODUCT, mallKey: 'teacher-mall', targetId: OTHER_TARGET },
       { salesProductId: OTHER_PRODUCT, mallKey: 'teacher-mall', targetId: FIRST },
-      { salesProductId: PRODUCT, mallKey: 'gmarket', targetId: FIRST },
     ]) {
       await expect(service.check(ORG, 'teacherville', { salesProductIds: [PRODUCT], targetIds: [chosen] }))
         .rejects.toThrow('등록 설정');
       await expect(service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT], targetIds: [chosen] }))
         .rejects.toThrow('등록 설정');
     }
+  });
+
+  it('tells a 0 won setting apart from a setting that names no price', async () => {
+    // 0원은 "이 설정은 0원이다"라는 말이고, null 은 "이 설정은 값을 정하지 않았다"는 말이다.
+    const zero = setup([target(FIRST, 0, 0), target(SECOND, null, null)]);
+    const chosenZero = await zero.service.check(ORG, 'teacherville', { salesProductIds: [PRODUCT], targetIds: [chose(FIRST)] });
+    expect(chosenZero.products[0]!.problems).toContain('판매가가 0원입니다.');
+    await expect(zero.service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT], targetIds: [chose(FIRST)] }))
+      .rejects.toThrow('0원');
+
+    const chosenNull = setup([target(FIRST, 0, 0), target(SECOND, null, null)]);
+    await chosenNull.service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT], targetIds: [chose(SECOND)] });
+    // null 은 정본 단품 가격으로 물러서고, 공급가는 몰 고정값 비율(80%)로 계산한다.
+    expect(chosenNull.files.write.mock.calls[0]![1]).toEqual([expect.objectContaining({
+      '할인가(판매가)': 2000,
+      공급가: 1600,
+    })]);
+  });
+
+  it('keeps an explicit 0 won supply price instead of recomputing it from the mall rate', async () => {
+    const { service, files } = setup([target(FIRST, 3000, 0), target(SECOND, 3000, null)]);
+    await service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT], targetIds: [chose(FIRST)] });
+    expect(files.write.mock.calls[0]![1]).toEqual([expect.objectContaining({ 공급가: 0 })]);
+  });
+
+  it('refuses a setting for a mall this sheet does not cover', async () => {
+    const { service } = setup();
+    await expect(service.check(ORG, 'teacherville', {
+      salesProductIds: [PRODUCT],
+      targetIds: [{ salesProductId: PRODUCT, mallKey: 'gmarket', targetId: FIRST }],
+    })).rejects.toThrow('이 엑셀이 다루는 몰이 아닙니다');
   });
 
   it('refuses two settings for one product and mall', async () => {
