@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const AI_ROOT = resolve(import.meta.dirname, '..');
+const SERVER_ROOT = resolve(AI_ROOT, '..');
 
 const LEGACY_FILES = [
   'adapter/in/http/content-workspace-attachment.controller.ts',
@@ -19,7 +20,32 @@ const LEGACY_FILES = [
   'application/service/post-promotion-ai.service.ts',
 ] as const;
 
+/**
+ * KID-310: Sourcing no longer owns a content workspace, so its one-to-one
+ * forwarding port/adapter pairs onto the AI capability are gone. Callers use
+ * the AI incoming port directly (ADR-0021).
+ */
+const RETIRED_SOURCING_PASS_THROUGHS = [
+  'sourcing/adapter/out/ai/candidate-content-asset.adapter.ts',
+  'sourcing/adapter/out/ai/registration-content-workspace.adapter.ts',
+  'sourcing/adapter/out/ai/workspace-archive.adapter.ts',
+  'sourcing/application/port/out/cross-domain/candidate-content-asset.port.ts',
+  'sourcing/application/port/out/cross-domain/ai-workspace-archive.port.ts',
+] as const;
+
 describe('AI final workspace-owner cutover', () => {
+  it('keeps no Sourcing pass-through in front of the AI workspace capability', () => {
+    expect(RETIRED_SOURCING_PASS_THROUGHS.filter((file) => existsSync(resolve(SERVER_ROOT, file))))
+      .toEqual([]);
+  });
+
+  it('owns the workspace ports under sales-product names', () => {
+    expect(existsSync(resolve(AI_ROOT, 'application/port/in/workspace/sales-product-content-asset.port.ts'))).toBe(true);
+    expect(existsSync(resolve(AI_ROOT, 'application/port/in/workspace/sales-product-workspace-archive.port.ts'))).toBe(true);
+    expect(existsSync(resolve(AI_ROOT, 'application/port/in/workspace/candidate-content-asset.port.ts'))).toBe(false);
+    expect(existsSync(resolve(AI_ROOT, 'application/port/in/workspace/sourcing-workspace-archive.port.ts'))).toBe(false);
+  });
+
   it('removes MasterProduct-era generation and attachment entrypoints', () => {
     expect(LEGACY_FILES.filter((file) => existsSync(resolve(AI_ROOT, file)))).toEqual([]);
   });
