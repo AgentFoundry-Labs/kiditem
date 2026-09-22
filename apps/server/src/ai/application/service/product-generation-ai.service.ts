@@ -11,10 +11,14 @@ import {
   buildThumbnailGenerateDirectInput,
   buildThumbnailGenerationInputMeta,
 } from './thumbnail-generation-requests';
+import { ContentWorkspaceService } from './content-workspace.service';
+import { DetailPageQueryService } from './detail-page-query.service';
 import type {
   ProductGenerationAiRequest,
   ProductGenerationAiResult,
   ProductGenerationAiTriggerPort,
+  RegisterUploadedDetailPageRequest,
+  RegisterUploadedDetailPageResult,
 } from '../port/in/generation/product-generation-ai-trigger.port';
 
 @Injectable()
@@ -25,6 +29,8 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     private readonly detailPages: DetailPageGenerationService,
     private readonly thumbnails: ThumbnailGenerationJobService,
     private readonly editorAi: ThumbnailEditorAiService,
+    private readonly contentWorkspaces: ContentWorkspaceService,
+    private readonly detailPageQueries: DetailPageQueryService,
   ) {}
 
   async startForCandidate(
@@ -36,6 +42,49 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
       throw new Error('product_generation_idempotency_required');
     }
     return this.startClaimed(input, { idempotencyKey, requestHash });
+  }
+
+  /**
+   * 올린 상세페이지를 그 상품의 현재 상세페이지로 건다. AI 는 부르지 않는다.
+   *
+   * 워크스페이스는 생성 경로와 **같은 `ensureForGeneration`** 으로 연다 — 여기서 따로 만들면
+   * 같은 상품이 워크스페이스 두 개를 갖게 된다.
+   */
+  async registerUploadedDetailPage(
+    input: RegisterUploadedDetailPageRequest,
+  ): Promise<RegisterUploadedDetailPageResult> {
+    const candidate = await this.contextRepository.findCandidate({
+      organizationId: input.organizationId,
+      candidateId: input.candidateId,
+    });
+    if (!candidate) throw new NotFoundException('Sourcing candidate not found');
+
+    const productName = input.productName.trim() || candidate.name;
+    const workspace = await this.contentWorkspaces.ensureForGeneration({
+      organizationId: input.organizationId,
+      triggeredByUserId: input.triggeredByUserId,
+      rawTitle: productName,
+      sourceCandidateId: input.candidateId,
+    });
+    const created = await this.detailPageQueries.registerUploaded({
+      organizationId: input.organizationId,
+      triggeredByUserId: input.triggeredByUserId,
+      contentWorkspaceId: workspace.id,
+      sourceCandidateId: input.candidateId,
+      title: productName,
+      imageUrls: input.detailPageImageUrls,
+    });
+    await this.contentWorkspaces.selectCurrentDetailPage({
+      organizationId: input.organizationId,
+      workspaceId: workspace.id,
+      contentGenerationId: created.id,
+    });
+    return {
+      candidateId: input.candidateId,
+      detailGenerationId: created.id,
+      contentWorkspaceId: workspace.id,
+      href: `/product-pipeline/collected-products/${encodeURIComponent(input.candidateId)}`,
+    };
   }
 
   private async startClaimed(

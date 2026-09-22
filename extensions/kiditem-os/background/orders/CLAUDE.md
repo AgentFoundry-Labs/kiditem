@@ -139,3 +139,37 @@ registration, and Coupang cookie-overflow recovery.
 
 This guide inherits the extension verification gate; run the focused
 `order-collector-*.test.mjs` files first for Orders changes.
+
+## 세션 정리는 나눠 보낸다
+
+웹 앱이 닫히면 보관된 세션마다 소유자에게 `/control` 을 읽어 정리한다. 끝났는데도 지워지지
+않은 세션이 쌓이면 그 수만큼 읽기가 한꺼번에 날아간다. 2026-09-21 라이브에서 40개가 몰려 API
+분당 한도(600)를 통째로 먹었고, 읽기가 429 로 실패하니 세션을 지우지도 못해 다음 정리 때 같은
+40개를 다시 쏘는 고리가 됐다 — 정리하는 일 자체가 한도에 막혀 영원히 줄지 않았다.
+
+그래서 `web-app-collection-lifetime` 은 `CANCEL_CONCURRENCY` 만큼만 동시에 묻고, 묶음이
+끝나야 다음 묶음을 연다. 정리 경로에 요청을 더할 때는 이 예산을 먼저 따진다.
+
+## 서버에 없는 시도는 붙들지 않는다
+
+취소는 먼저 소유자에게 `/control` 을 읽어 지금 상태를 묻는다. 그 읽기가 **404** 면 그 시도는
+서버에 아예 없다 — 취소할 것도, 기다릴 것도 없으므로 이 브라우저의 세션을 놓아 준다
+(`ORDER_COLLECTION_ATTEMPT_MISSING`).
+
+404 를 `SOURCE_OWNER_UNAVAILABLE` 로 두면 세션이 남고, 정리할 때마다 같은 시도를 다시 읽어 또
+404 를 받는다. 세션은 보관 기간이 끝날 때까지 사라지지 않고, 운영자는 누를 때마다
+`ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 만 본다(2026-09-21 라이브, 쿠팡직배송).
+
+읽기가 다른 이유로 실패한 것(5xx · 끊김 · 429)은 여전히 `SOURCE_OWNER_UNAVAILABLE` 이다.
+그때는 서버가 아직 답을 못 한 것이지 시도가 없는 것이 아니다.
+
+## 쿠팡직배송 로그인은 몰 소유자로 감싸지 않는다
+
+`ensureMallLoggedIn` 은 보통 `runOwnedOrderCollection` 을 거쳐 **몰 소유자**(`orders.mall`) 안에서
+돈다. 쿠팡직배송은 제 소유자(`orders.coupang_directship`)가 따로 있어서 그 시도가 몰 쪽에는
+없다. 그래서 감싸면 몰 경로 조회가 404(`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)로 끝나고, 시도를
+빼고 보내면 `Owner attempt ID is required` 로 막힌다 — 어느 쪽이든 **로그인 문턱에서 수집이
+끝난다**(2026-09-21 라이브, 09-18부터 30번 연속 실패의 원인).
+
+그래서 `coupang-direct` 는 로그인만 시키고, 시도의 마무리는 제 소유자가 한다. 소유자가 따로
+있는 수집을 더할 때도 같다.

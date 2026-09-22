@@ -2,7 +2,9 @@
 
 import {
   OrderCollectionSourceStatusSchema,
+  OrderCollectionTodayOrdersSchema,
   type OrderCollectionSourceStatus,
+  type OrderCollectionTodayOrders,
 } from '@kiditem/shared/order-collection-source';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
@@ -69,6 +71,17 @@ export function readMallOrderCollectionSources(): Promise<MallOrderCollectionSou
   return apiClient
     .getParsed(`${ORDER_COLLECTION_SOURCE_PATH}/sources`, MallOrderCollectionSourceListSchema)
     .then((body) => body.malls);
+}
+
+/**
+ * 오늘 수집이 실어 온 주문 수(서버 기록). 브라우저에 남은 변환 파일이 아니라 서버가 적은
+ * 수라서, 어느 PC 에서 열어도 같고 대시보드의 '오늘 주문' 과 같은 수다(사장님 2026-09-22).
+ */
+export function readOrderCollectionTodayOrders(): Promise<OrderCollectionTodayOrders> {
+  return apiClient.getParsed(
+    `${ORDER_COLLECTION_SOURCE_PATH}/today-orders`,
+    OrderCollectionTodayOrdersSchema,
+  );
 }
 
 /** 화면 하나가 함께 보는 몰 목록 읽기의 키. 조직이 없으면 그 읽기는 꺼져 있다. */

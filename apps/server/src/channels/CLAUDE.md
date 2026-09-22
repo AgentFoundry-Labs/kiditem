@@ -128,3 +128,18 @@ sync, registration, matching, and capacity behavior is executable in
 - Channels owns common selling products, their KID options and registration templates. Templates may initialize an empty confirmed recipe only on explicit application; they never supply operational capacity.
 - Source products remain Products-owned. Catalog storage references MasterProduct UUIDs without a cross-owner foreign key; names and barcodes do not establish source identity.
 - Marketplace transport preserves its existing per-provider stock behavior. Internal capacity does not replace the submitted stock value or mutate source stock.
+
+## 쿠팡 윙 엑셀
+
+- 윙 엑셀은 두 갈래다. `coupang-wing.sheet.ts` 는 **없는 상품을 새로 올리는** 일괄등록 양식이고,
+  `coupang-catalog-edit.ts` 는 **이미 올라간 상품의 쿠팡상품정보를 고쳐 달라고 제안하는** 수정요청
+  양식이다. 둘 다 쓴다(사장님 2026-09-22).
+- 윙 파일의 시트 범위(`!ref`)를 믿지 않는다. 윙은 `A1:HW4` 라고 적어 놓고 그 아래에 줄을 쌓는다
+  (실측 2026-09-22: 적힌 네 줄, 실제 2,274 줄). 실제 칸으로 다시 세야 한다.
+- 수정요청은 **빈 칸만** 채우고, 회색 칸(등록상품ID · 카테고리 · 승인상태 · 옵션 ID)은 건드리지
+  않는다. 한 줄은 상품이 아니라 옵션 하나다. 양식 판이 `Catalog Template_Ver.1.2` 가 아니면
+  칸 자리를 믿을 수 없어 거절한다.
+- 수정요청은 **제안이지 반영이 아니다**. 쿠팡이 여러 판매자의 제안 중 골라 쓰므로, 파일을 만든
+  것은 몰에 값이 들어갔다는 뜻이 아니다. 가격 · 재고 · 사진은 이 양식에 없다.
+- `브랜드` 칸은 판매상품의 `brand` 로 채우지 않는다 — 774 건 중 770 건이 상호(`kiditem`)이지
+  상품의 브랜드가 아니다. `바코드` 는 단품에서만 온다(상품 하나에 옵션이 여럿이면 다르다).

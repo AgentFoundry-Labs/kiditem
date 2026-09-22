@@ -202,4 +202,13 @@ describe('kidkidsFormFromDraft', () => {
       main: ['https://cdn.example.com/rep.jpg'], img2: ['a'], img3: ['b'], img4: ['c'], img5: ['d'],
     });
   });
+
+  it('⭐ 셀피아 코드를 몰의 자체상품코드 칸에 심는다 — 가져올 때 이름 대신 코드로 이어진다 (KID-246)', () => {
+    expect(kidkidsFormFromDraft(draft(), { sellpiaCode: '10271-1' }).fields.partner_goodscode)
+      .toBe('10271-1');
+    // 코드가 없으면 칸을 만들지 않는다 — 빈 값을 몰에 써넣지 않는다.
+    expect(kidkidsFormFromDraft(draft()).fields.partner_goodscode).toBeUndefined();
+    expect(kidkidsFormFromDraft(draft(), { sellpiaCode: '  ' }).fields.partner_goodscode)
+      .toBeUndefined();
+  });
 });

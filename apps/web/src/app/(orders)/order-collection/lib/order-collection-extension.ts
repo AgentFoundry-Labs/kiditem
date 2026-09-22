@@ -337,7 +337,13 @@ export async function ensureMallLoggedInViaExtension(
         action: 'ensureMallLoggedIn',
         mallKey,
         credentials,
-        ...(run ? { attemptId: run.attemptId, deferTerminal: true } : {}),
+        // 시도를 같이 보내면 확장이 그 로그인을 **몰 소유자**의 수집으로 감싼다. 쿠팡직배송
+        // 시도는 제 소유자(coupang_directship)의 것이라 몰 쪽에는 없고, 그래서 로그인이
+        // 시작되기도 전에 `ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 로 끝났다. 직배송은 시도 없이
+        // 로그인만 시킨다 — 그 시도의 마무리는 제 소유자가 한다(사장님 2026-09-21).
+        ...(run && run.sourceOwner !== 'coupang_directship'
+          ? { attemptId: run.attemptId, deferTerminal: true }
+          : {}),
         date: run?.date ?? null,
       },
       // 확장 쪽 예산: 탭 준비 10초 + 1초 + 로그인 35초 + 서버 확인 몇 번. 45초로는 바쁜

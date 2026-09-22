@@ -860,6 +860,35 @@
       return promise;
     }
 
+    /**
+     * 서버에 그 시도가 아예 없다(404). 취소할 것도, 기다릴 것도 없으므로 이 브라우저의
+     * 세션을 놓아 준다.
+     *
+     * 예전에는 이것도 '서버 상태를 확인하지 못함' 으로 두어 세션이 남았다. 그러면 정리할
+     * 때마다 같은 시도를 다시 읽어 또 404 를 받고, 세션은 7일 보관 기간이 끝날 때까지
+     * 사라지지 않는다 — 운영자에게는 누를 때마다 `ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 만
+     * 뜬다(2026-09-21 라이브).
+     */
+    function isMissingAttempt(error) {
+      return error?.status === 404;
+    }
+
+    async function forgetMissing(environmentId, attemptId) {
+      try {
+        await sessions.cancel(attemptId, { closeManagedTab: true, environmentId });
+      } catch {
+        // 서버에 없는 시도다. 크롬이 탭을 아직 못 닫아도 세션을 붙들 이유가 없다.
+      }
+      return {
+        success: true,
+        attemptId,
+        terminalState: "FAILED",
+        continuationRequired: false,
+        errorCode: "ORDER_COLLECTION_ATTEMPT_MISSING",
+        error: "서버에 남지 않은 수집이라 정리했습니다.",
+      };
+    }
+
     async function cancel({ environmentId, attemptId }) {
       if (!validUuid(attemptId)) throw new Error("Owner attempt ID is required");
       const session = await sessions.getOwned(attemptId, environmentId);
@@ -869,6 +898,7 @@
       try {
         attempt = await read(environmentId, attemptId);
       } catch (error) {
+        if (isMissingAttempt(error)) return forgetMissing(environmentId, attemptId);
         return unavailable(attemptId, error);
       }
       if (attempt.state !== "RUNNING") return finish(environmentId, attempt);

@@ -1,4 +1,5 @@
 import {
+  CoupangCatalogPlanResultSchema,
   SabangnetImportPreviewSchema,
   SalesProductExternalImagesSchema,
   SalesProductFromCandidatesResultSchema,
@@ -12,6 +13,7 @@ import {
   SalesProductMallSheetListSchema,
   SalesProductPublicImagePendingSchema,
   SalesProductSchema,
+  type CoupangCatalogPlanResult,
   type SabangnetImportPreview,
   type SabangnetImportSelection,
   type SalesProduct,
@@ -158,6 +160,33 @@ export const salesProductApi = {
     return {
       blob: await response.blob(),
       fileName: fileNameFrom(response.headers.get('Content-Disposition')) ?? `${sheetKey}_대량등록.xlsx`,
+    };
+  },
+  /**
+   * 쿠팡상품정보 수정요청: 윙에서 내려받은 엑셀을 올리면 무엇이 채워지는지만 돌려준다.
+   * 파일은 만들지 않는다.
+   */
+  checkCoupangCatalog: async (file: File): Promise<CoupangCatalogPlanResult> => {
+    const form = new FormData();
+    form.append('file', file);
+    return apiClient.uploadParsed(`${BASE}/coupang-catalog/check`, CoupangCatalogPlanResultSchema, form);
+  },
+  /** 우리가 아는 값으로 흰 칸을 채운 수정요청 파일. 몰에 올리지 않는다 — 사람이 윙에 올린다. */
+  downloadCoupangCatalog: async (file: File): Promise<{ blob: Blob; fileName: string }> => {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await apiClient.fetchRaw(`${BASE}/coupang-catalog/file`, { method: 'POST', body: form });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      throw new ApiError(
+        response.status,
+        typeof payload?.error === 'string' ? payload.error : null,
+        typeof payload?.message === 'string' ? payload.message : '수정요청 파일을 만들지 못했습니다.',
+      );
+    }
+    return {
+      blob: await response.blob(),
+      fileName: fileNameFrom(response.headers.get('Content-Disposition')) ?? 'Coupang_detailinfo_수정요청.xlsx',
     };
   },
   /** 수집상품 화면의 몰 대량등록 — 고른 수집상품을 판매상품으로 만든다(같은 수집상품에서 만든 것은 그대로 쓴다). */

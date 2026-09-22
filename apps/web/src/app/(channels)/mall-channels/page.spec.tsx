@@ -52,6 +52,14 @@ vi.mock('../_shared/MallAdminListingsImport', () => ({
   ),
 }));
 
+vi.mock('../_shared/CoupangWingExcelImport', () => ({
+  CoupangWingExcelImport: () => <div data-testid="coupang-wing-excel-import" />,
+}));
+
+vi.mock('../_shared/CoupangCatalogEdit', () => ({
+  CoupangCatalogEdit: () => <div data-testid="coupang-catalog-edit" />,
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockReplace }),
   useSearchParams: () => searchParams,

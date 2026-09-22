@@ -87,6 +87,29 @@ export class SourcingAgentCommandService {
       throw error;
     }
 
+    // 이미 있는 상세페이지를 올린 등록. AI 상세페이지 · 썸네일 생성을 돌리지 않는다
+    // (사장님 2026-09-22: "상세페이지 섬네일 이미지 생성하지말고 등록하는 걸로").
+    const detailPageImageUrls = uniqueNonEmptyStrings(data.detailPageImageUrls ?? []);
+    if (detailPageImageUrls.length > 0) {
+      const uploaded = await this.agentGateway.registerUploadedDetailPage({
+        organizationId,
+        triggeredByUserId,
+        candidateId: candidate.candidateId,
+        productName: data.title.trim(),
+        detailPageImageUrls,
+      });
+      return {
+        ok: true,
+        message: '올린 상세페이지로 상품을 등록했습니다.',
+        product_count: 1,
+        candidateId: uploaded.candidateId,
+        href: uploaded.href,
+        detailGenerationId: uploaded.detailGenerationId,
+        thumbnailGenerationId: null,
+        contentWorkspaceId: uploaded.contentWorkspaceId,
+      };
+    }
+
     const thumbnailUrls = uniqueNonEmptyStrings(data.thumbnailUrls ?? []).slice(0, 10);
     const representativeThumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
       ? data.thumbnailUrl.trim()

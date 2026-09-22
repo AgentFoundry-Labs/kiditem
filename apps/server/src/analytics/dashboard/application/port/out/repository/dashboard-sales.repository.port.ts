@@ -11,6 +11,12 @@ export const DASHBOARD_SALES_REPOSITORY_PORT = Symbol(
 export interface TodayKpiRow {
   revenue: number | null;
   orders: number | null;
+  /**
+   * 지금까지 실제로 걷힌 주문 수. 하루가 다 걷히지 않아 `orders` 가 `null` 이어도 이 수는
+   * 진짜 걷힌 수다 — 주문수집 화면이 보여 주는 바로 그 수. 대시보드가 이걸 감추는 바람에
+   * 한 화면은 50건이라 하고 대시보드는 아무것도 없다고 했다(사장님 2026-09-21).
+   */
+  collectedOrders: number | null;
   requestedDates: string[];
   includedDates: string[];
   missingDates: string[];

@@ -10,6 +10,17 @@ import {
 import { RegisterManualProductDto } from './register-manual-product.dto';
 
 export class CreateProductGenerationDto extends RegisterManualProductDto {
+  /**
+   * 다른 데서 가져온 상품의 **이미 있는 상세페이지** 이미지. 이 칸이 차 있으면 AI 상세페이지 ·
+   * 썸네일 생성을 **돌리지 않고** 올린 상세페이지를 그대로 건다(사장님 2026-09-22).
+   * 순서가 곧 상세페이지에 쌓이는 순서다.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  detailPageImageUrls?: string[];
+
   @IsOptional()
   @IsIn(['kids-playful', 'bold-vertical'])
   templateId?: 'kids-playful' | 'bold-vertical';

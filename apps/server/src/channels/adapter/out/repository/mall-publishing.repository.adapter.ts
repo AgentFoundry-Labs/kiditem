@@ -94,6 +94,22 @@ function readManualKc(rawData: Prisma.JsonValue): PreflightKc {
   };
 }
 
+/** 한 번에 묶어 읽을 리스팅 수. 중첩 관계까지 붙는 조회라 넉넉히 낮게 잡는다. */
+const MATRIX_LISTING_CHUNK = 500;
+
+/** 긴 id 목록을 묶음으로 끊어 읽고 결과를 이어 붙인다. */
+async function chunked<T>(
+  ids: readonly string[],
+  size: number,
+  read: (ids: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let start = 0; start < ids.length; start += size) {
+    out.push(...await read([...ids.slice(start, start + size)]));
+  }
+  return out;
+}
+
 @Injectable()
 export class MallPublishingRepositoryAdapter implements MallPublishingRepositoryPort {
   constructor(
@@ -361,6 +377,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     // 열에 없는 계정의 리스팅은 필터 판정에도 넣지 않는다. 화면에 보이지 않는
     // 몰 때문에 '등록됨'으로 잡히면 표가 설명되지 않는다.
     const listingScope: Prisma.ChannelListingWhereInput = {
+      // 조직 울타리. 빠뜨리면 남의 조직 리스팅까지 읽어 와 메모리에서 거른다.
+      organizationId,
       isActive: true,
       ...(query.channelAccountIds?.length
         ? { channelAccountId: { in: query.channelAccountIds } }
@@ -369,11 +387,17 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
 
     const identities = await this.listVisibleProductIdentities(organizationId);
     const search = query.search?.trim().toLocaleLowerCase();
-    const listingRows = (await this.prisma.channelListing.findMany({
-      where: {
-        ...listingScope,
-      },
-      select: {
+    // 한 번에 다 읽으면 Postgres 바인드 파라미터 한계(32,767)를 넘는다 — 리스팅 1만 건에
+    // 중첩 관계까지 붙으면 그 수를 훌쩍 넘겨 화면이 통째로 500 이 된다(라이브 2026-09-22).
+    // 묶음으로 끊어 읽고 합친다. 표가 쓰는 값은 그대로다.
+    const listingIds = (await this.prisma.channelListing.findMany({
+      where: { ...listingScope },
+      select: { id: true },
+    })).map((row) => row.id);
+    const listingRows = (await chunked(listingIds, MATRIX_LISTING_CHUNK, (ids) =>
+      this.prisma.channelListing.findMany({
+        where: { ...listingScope, id: { in: ids } },
+        select: {
         id: true,
         channelAccountId: true,
         status: true,
@@ -412,8 +436,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
             },
           },
         },
-      },
-    }))
+        },
+      })))
       .map((listing) => withListingProductSummary(listing))
       .filter((listing) => listing.masterProductId !== null);
     const listingByMasterProductId = groupListingRowsByMasterProductId(listingRows);

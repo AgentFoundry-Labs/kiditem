@@ -1,4 +1,5 @@
 /** @type {import('next').NextConfig} */
+import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 // Strip a single trailing slash so rewrite destinations don't double up the
@@ -13,6 +14,19 @@ const backendBase = stripTrailingSlash(
 const proxyAllApi = process.env.KIDITEM_PROXY_ALL_API === 'true';
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
+// `next dev` blocks cross-origin dev requests it does not allow. A phone or
+// laptop on the same LAN reaches this app by one of the host's private IPv4
+// addresses, so list them instead of a wildcard.
+function privateNetworkHosts() {
+  const hosts = [];
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      if (address.family === 'IPv4' && !address.internal) hosts.push(address.address);
+    }
+  }
+  return hosts;
+}
+
 function createNextConfig() {
   return {
   // Next.js 16.3+ `next dev` appends a generated agent-rules block to this
@@ -20,7 +34,7 @@ function createNextConfig() {
   // The repository maintains its CLAUDE.md chain by hand and treats AGENTS.md
   // as a legacy file (`npm run check:agents-hygiene`), so keep that off.
   agentRules: false,
-  allowedDevOrigins: ['127.0.0.1'],
+  allowedDevOrigins: ['127.0.0.1', ...privateNetworkHosts()],
   output: 'standalone',
   transpilePackages: ['@kiditem/templates'],
   images: {

@@ -65,6 +65,7 @@ export function buildTodayKpiRow(
   return {
     revenue: 0,
     orders: 0,
+    collectedOrders: 0,
     requestedDates: ['2026-09-08'],
     includedDates: ['2026-09-08'],
     missingDates: [],

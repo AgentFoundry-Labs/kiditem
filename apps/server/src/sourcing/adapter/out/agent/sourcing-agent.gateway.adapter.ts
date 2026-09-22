@@ -5,6 +5,8 @@ import {
 } from '../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import type {
   SourcingAgentGatewayPort,
+  SourcingRegisterUploadedDetailPageRequest,
+  SourcingRegisterUploadedDetailPageResult,
   SourcingStartProductGenerationRequest,
   SourcingStartProductGenerationResult,
 } from '../../../application/port/out/runtime/sourcing-agent.gateway.port';
@@ -20,5 +22,11 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
     request: SourcingStartProductGenerationRequest,
   ): Promise<SourcingStartProductGenerationResult> {
     return this.productGenerationAi.startForCandidate(request);
+  }
+
+  registerUploadedDetailPage(
+    request: SourcingRegisterUploadedDetailPageRequest,
+  ): Promise<SourcingRegisterUploadedDetailPageResult> {
+    return this.productGenerationAi.registerUploadedDetailPage(request);
   }
 }

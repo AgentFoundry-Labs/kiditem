@@ -496,6 +496,15 @@ describe('api base helpers', () => {
     expect(normalizeLoopbackApiBase('https://api.kiditem.local', 'localhost'))
       .toBe('https://api.kiditem.local');
   });
+
+  it('follows a private LAN browser host so a phone keeps one origin host for the session cookie', () => {
+    expect(normalizeLoopbackApiBase('http://localhost:4000', '192.168.0.28'))
+      .toBe('http://192.168.0.28:4000');
+    expect(normalizeLoopbackApiBase('http://localhost:4000', '10.1.2.3'))
+      .toBe('http://10.1.2.3:4000');
+    expect(normalizeLoopbackApiBase('http://localhost:4000', '203.0.113.5'))
+      .toBe('http://localhost:4000');
+  });
 });
 
 describe('apiClient request deadlines', () => {

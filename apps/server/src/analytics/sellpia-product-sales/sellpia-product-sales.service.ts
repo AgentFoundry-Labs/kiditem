@@ -4,6 +4,7 @@ import {
   LEAD_TIME_MONTHS,
   computeSeasonTag,
   computeTrend,
+  detectAnomaly,
 } from './sellpia-product-sales.metrics';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 import { buildProductDepletionProjections } from './sellpia-product-depletion-projection';
@@ -73,6 +74,9 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       latestCapturedAt: Date;
       monthMap: Map<string, number>;
       totalQty: number;
+      // 실현 단가(금액÷수량)를 내기 위한 조회범위 판매금액 합. 원천이 단가 칸을 더는
+      // 보관하지 않으므로, 저가 대량 이상치 판정 근거를 여기서 되낸다.
+      totalAmount: number;
     }
     const byProduct = new Map<string, Agg>();
     let grandTotalQty = 0;
@@ -92,6 +96,7 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
           latestCapturedAt: r.capturedAt,
           monthMap: new Map(),
           totalQty: 0,
+          totalAmount: 0,
         };
         byProduct.set(key, agg);
       }
@@ -105,6 +110,7 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       }
       agg.monthMap.set(r.yearMonth, (agg.monthMap.get(r.yearMonth) ?? 0) + r.orderQty);
       agg.totalQty += r.orderQty;
+      agg.totalAmount += r.orderAmount;
       grandTotalQty += r.orderQty;
       if (!lastCapturedAt || r.capturedAt > lastCapturedAt) lastCapturedAt = r.capturedAt;
     }
@@ -113,35 +119,44 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     const completeMonthCount = completeMonths.length;
     const last1Ym = completeMonths.slice(-1)[0];
 
-    // Keep source quantities intact. Only complete calendar months are eligible
-    // for averages, trends, and stock projections.
+    // Keep source quantities intact in the monthly columns. Only complete calendar
+    // months are eligible for averages, trends, and stock projections.
+    // 여기에 더해 이상치(일회성 벌크/저가 대량) 월을 감지한다. 월별 칸은 원천 수량 그대로
+    // 두되 이상치 표시를 달고, 평균/추세/소진/발주는 이상치를 뺀 clean 수량으로 낸다 —
+    // 한 번 밀어낸 사은품 10만 개가 월평균을 덮어쓰지 않게 하려는 것이다.
     const bases = [...byProduct.values()].map((a) => {
       const rawMonthly = months.map((m) => ({ yearMonth: m, orderQty: a.monthMap.get(m) ?? 0 }));
+      // 실현 단가 = 조회범위 판매금액 ÷ 판매수량. 안 팔린 상품은 잴 근거가 없어 null.
+      const unitPrice = a.totalQty > 0 ? Math.round(a.totalAmount / a.totalQty) : null;
+      const { anomalyMonths, anomalyReason } = detectAnomaly(rawMonthly, unitPrice);
+      const anomalySet = new Set(anomalyMonths);
+      const cleanOf = (m: string) => (anomalySet.has(m) ? 0 : (a.monthMap.get(m) ?? 0));
 
       const monthly: SellpiaProductSalesMonthPoint[] = rawMonthly.map((p) => ({
         yearMonth: p.yearMonth,
         orderQty: p.orderQty,
+        ...(anomalySet.has(p.yearMonth) ? { anomaly: true } : {}),
       }));
       const completeMonthly: SellpiaProductSalesMonthPoint[] = completeMonths.map((m) => ({
         yearMonth: m,
-        orderQty: a.monthMap.get(m) ?? 0,
+        orderQty: cleanOf(m), // 시즌/악성/소진 판단도 clean 기준
       }));
       const completeQtys = completeMonthly.map((p) => p.orderQty);
-      const qty1m = last1Ym ? a.monthMap.get(last1Ym) ?? 0 : 0;
-      const qty2m = completeMonths.slice(-2).reduce(
-        (s, m) => s + (a.monthMap.get(m) ?? 0),
-        0,
-      );
+      const cleanTotal = months.reduce((s, m) => s + cleanOf(m), 0);
+      const qty1m = last1Ym ? cleanOf(last1Ym) : 0;
+      const qty2m = completeMonths.slice(-2).reduce((s, m) => s + cleanOf(m), 0);
       return {
         key: `${a.productCode} ${a.optionCode}`,
         a,
         monthly,
         completeMonthly,
         completeQtys,
-        totalQty: a.totalQty,
+        totalQty: cleanTotal,
         qty1m,
         qty2m,
         avg2m: complete2Count > 0 ? Math.round(qty2m / complete2Count) : 0,
+        anomaly: anomalyMonths.length > 0,
+        anomalyReason,
       };
     });
 
@@ -157,12 +172,14 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     const { availability, projection: inventoryProjection } =
       await this.inventoryReader.project(organizationId, inventoryInputs);
 
-    // Derived metrics use the actual source quantities from complete months.
+    // Derived metrics use the complete-month quantities minus anomalous months.
+    let anomalyCount = 0;
     const products: SellpiaProductSalesRow[] = bases.map((b) => {
       const { a } = b;
       const inventory = inventoryProjection.byProductKey.get(b.key)!;
       const trend = computeTrend(b.completeQtys);
       const seasonTag = computeSeasonTag(b.completeMonthly, completeMonthCount);
+      if (b.anomaly) anomalyCount++;
       return {
         productCode: a.productCode,
         optionCode: a.optionCode,
@@ -179,6 +196,8 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
         deadStock: inventory.deadStock,
         deadStockReason: inventory.deadStockReason,
         seasonTag,
+        anomaly: b.anomaly,
+        anomalyReason: b.anomalyReason,
         inventoryResolution: inventory.inventoryResolution,
         monthlyOutflow: inventory.monthlyOutflow,
         outflowMonthCount: inventory.outflowMonthCount,
@@ -209,6 +228,7 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       },
       reorderCount: inventoryProjection.summary.reorderCount,
       deadStockCount: inventoryProjection.summary.deadStockCount,
+      anomalyCount,
       abcCounts: inventoryProjection.summary.abcCounts,
       abcStatusCounts: inventoryProjection.summary.abcStatusCounts,
       abcContributionProfitByGrade: inventoryProjection.summary.abcContributionProfitByGrade,

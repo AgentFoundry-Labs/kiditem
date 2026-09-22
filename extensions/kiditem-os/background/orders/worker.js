@@ -725,6 +725,15 @@ const KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/managemen
 const KIDKIDS_TAB_MATCHES = ["https://partner.kidkids.net/*"];
 const LOTTEON_ORDER_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
 const LOTTEON_LOGIN_URL = "https://store.lotteon.com/cm/main/login_SO.wsp";
+/**
+ * 쿠팡 윙 로그인 입구. 로그아웃 상태로 윙 첫 화면에 들어가면 쿠팡이 판매자 로그인
+ * (`xauth.coupang.com`, Keycloak)으로 넘긴다 — 두 주소 모두 manifest 권한에 있다.
+ *
+ * 로그인 화면 자체는 가볍다. 무거운 것은 로그인한 뒤의 윙이라(2026-09-18 실측: 로그인된
+ * 윙이 45초 넘게 응답하지 않았다), 눌러 놓고도 '됐다' 를 확인하지 못할 수 있다. 그때는
+ * 공용 절차가 `verified: false` 로 알리고 탭을 남긴다 — 비밀번호가 틀렸다고 단정하지 않는다.
+ */
+const WING_LOGIN_URL = "https://wing.coupang.com/";
 const LOTTEON_TAB_MATCHES = ["https://store.lotteon.com/*"];
 const GSSHOP_ORDER_URL = "https://partners.gsshop.com/logistics/partner-logistics-mng";
 const GSSHOP_TAB_MATCHES = ["https://partners.gsshop.com/*"];
@@ -6576,6 +6585,14 @@ async function probeMallSessionQuietly(mallKey) {
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
 // 저장된 계정으로 로그인 후 닫는다. 이후 수집 탭은 같은 세션 쿠키라 로그인 상태. credentials 없으면 스킵.
 function ensureMallLoginWithLifecycle(message) {
+  // 쿠팡직배송은 제 소유자(orders.coupang_directship)가 따로 있다. 그 로그인을 몰 소유자로
+  // 감싸면 몰 쪽에 없는 시도를 조회해 404(`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)가 나고,
+  // 시도를 빼고 보내면 "Owner attempt ID is required" 로 막힌다 — 어느 쪽이든 로그인
+  // 문턱에서 수집이 끝났다(2026-09-21 라이브). 로그인만 시키고, 시도의 마무리는 제 소유자에게
+  // 맡긴다. 다른 몰은 지금처럼 몰 소유자 안에서 로그인한다.
+  if (message?.mallKey === "coupang-direct") {
+    return ensureMallLoggedIn(message.mallKey, message.credentials, null);
+  }
   // Keep the extracted login helper usable in the focused collector tests;
   // the service worker always provides the owner adapter above.
   if (typeof runOwnedOrderCollection !== "function") {

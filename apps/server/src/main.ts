@@ -44,6 +44,11 @@ async function bootstrap() {
           /^http:\/\/127\.0\.0\.1:\d+$/,
           /^http:\/\/0\.0\.0\.0:\d+$/,
           /^http:\/\/\[::1\]:\d+$/,
+          // 같은 LAN 의 폰/노트북이 이 맥의 사설 IP 로 dev 웹을 열면 web:3000 과
+          // server:4000 이 같은 호스트를 쓰므로 세션 쿠키가 그대로 붙는다.
+          /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
+          /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
+          /^http:\/\/172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:\d+$/,
         ],
     // apiClient 가 `credentials: 'include'` 로 fetch 하므로 cross-origin (web:3000 →
     // server:4000) 에서 cookie 전송이 허용되도록 credentials 활성화 필수.

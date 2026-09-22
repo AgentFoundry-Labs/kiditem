@@ -1,4 +1,5 @@
 import { channelCollectsViaExtension } from '@kiditem/shared/channel-registry';
+import { orderCollectionOrderCount } from '@kiditem/shared/order-collection-source';
 import { formatNumber } from '@/lib/utils';
 import type { OrderCollectionFailureCode } from './order-collection-extension';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
@@ -43,11 +44,13 @@ export function countLabel(value: number | null): string {
   return value === null ? '-' : formatNumber(value);
 }
 
+/**
+ * 이 변환이 실어 온 주문 건수. 셈법은 shared 규칙 하나뿐이다 — 서버가 수집 기록에 적는 수와
+ * 같아야 대시보드의 '오늘 주문' 과 이 화면이 같은 수를 말한다(사장님 2026-09-22: 63 대 82).
+ */
 export function getOrderCount(result: ConversionHistoryItem | null): number | null {
   if (!result || !isSellpiaOrderFile(result)) return null;
-  if (result.outputRows === null || result.productRows === null) return null;
-  const orderCount = result.outputRows - result.productRows;
-  return orderCount >= 0 ? orderCount : null;
+  return orderCollectionOrderCount(result);
 }
 
 export function hasSellpiaTransmissionRequest(item: ConversionHistoryItem): boolean {
@@ -181,6 +184,18 @@ export function isAuthRequiredMessage(message: string | null | undefined): boole
  * 브라우저가 원인 없이 던지는 네트워크 실패("Failed to fetch" 등)인지 판별한다.
  * 몰 수집 중에는 대부분 로그인 세션이 끊겨 로그인 페이지로 밀려난 경우다.
  */
+/**
+ * 우리 API 가 스스로 요청을 막은 것인지 — 몰 잘못이 아니다.
+ *
+ * 몰 카드에 `ThrottlerException: Too Many Requests` 가 그대로 뜨면 사장님은 몰이 고장난
+ * 줄 안다. 우리 쪽 한도이므로 몰을 실패로 세지도, 자동 운전에서 막지도 않는다
+ * (`order-collection/CLAUDE.md`: 우리 실패는 몰을 막지 않는다).
+ */
+export function isApiThrottledMessage(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return /throttlerexception|too many requests|429/i.test(message);
+}
+
 export function isNetworkFailureMessage(message: string | null | undefined): boolean {
   if (!message) return false;
   return /failed to fetch|networkerror|load failed|network request failed|fetch failed/i.test(
@@ -194,6 +209,9 @@ export function isNetworkFailureMessage(message: string | null | undefined): boo
  * 원인 없는 네트워크 실패도 몰 수집 맥락에서는 로그인 세션 문제로 보고 조치를 안내한다.
  */
 export function isLoginRequiredMessage(message: string | null | undefined): boolean {
+  // 우리 한도에 막힌 것은 로그인 문제가 아니다 — 로그인 필요로 적으면 사장님이
+  // 멀쩡한 몰에 다시 로그인하러 간다.
+  if (isApiThrottledMessage(message)) return false;
   if (!message) return false;
   if (isNetworkFailureMessage(message)) return true;
   return /로그인|세션이?\s*만료|세션\s*만료/.test(message);
@@ -239,6 +257,15 @@ export function mallCollectionFailureMessage(
   mallName: string,
   message: string,
 ): string {
+  if (isApiThrottledMessage(message)) {
+    return `요청이 한꺼번에 몰려 ${mallName} 수집을 잠시 미뤘습니다. 잠시 뒤 다시 수집해주세요.`;
+  }
+  // 서버가 그 시도를 모른다 — 몰 잘못이 아니라 우리가 시도를 엉뚱한 소유자에게 보낸 것이다.
+  // 안심시키는 말로 덮지 않는다. 그렇게 적었더니 사장님이 정상 뒷정리로 읽었고, 그 아래
+  // 진짜 원인은 열흘 넘게 가려져 있었다(2026-09-21).
+  if (/ORDER_COLLECTION_ATTEMPT_NOT_FOUND|ATTEMPT_MISSING/i.test(message)) {
+    return `${mallName} 수집이 KidItem 내부 오류로 멈췄습니다(시도를 찾지 못함). 개발에 알려 주세요.`;
+  }
   if (!isNetworkFailureMessage(message)) return message;
   return `${mallName} 연결이 끊겼습니다. 로그인 상태(또는 네트워크)를 확인한 뒤 다시 수집해주세요.`;
 }

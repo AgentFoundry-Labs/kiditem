@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight, ArrowUpRight, Bot, Clock, ListChecks, Package, ShieldAlert, Store, TrendingDown, type LucideIcon } from 'lucide-react';
 import { useAgentOrg } from '@/hooks/use-agent-org';
 import { cn, timeAgo } from '@/lib/utils';
+import { KRW_RATE_NOTE, formatKrwApprox, formatUsd, monthToDate, useAiUsage } from '../../_shared/ai-usage';
 import { buildWorkQueue, type WorkQueueCounts, type WorkQueueItem } from '../lib/work-queue';
 import { DASHBOARD_TONE, DashboardCardHeader, DashboardIconBadge, type DashboardTone } from './DashboardCardHeader';
 import type { DashboardFindings } from '@kiditem/shared/dashboard';
@@ -52,6 +53,10 @@ export function DashboardAgentSummary({ findings, findingsError = false, finding
   const ready = Boolean(findings) && !findingsError && !findingsLoading;
   const moneyMeasured = ready && findings?.reorderSuggestions !== null && findings?.salesDecline.count !== null;
   const { queue, running } = useQueue(ready ? findings : undefined, 0);
+  // 이번 달 AI 비용. 세지 않고 `/api/ai/usage` 가 낸 합계를 그대로 적는다 — 에이전트마다의
+  // 내역은 Agent Org 가 보여 준다. 달러가 원값이고 원화는 어림이라 hover 로만 말한다.
+  const usage = useAiUsage(monthToDate());
+  const total = usage.data?.totals;
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-0.5">
@@ -69,6 +74,13 @@ export function DashboardAgentSummary({ findings, findingsError = false, finding
         <SummaryChip label="막힌 일" value={queue.counts.blocked} tone="red" />
         <SummaryChip label="돈 새는 일" value={moneyMeasured ? queue.counts.money : null} tone="amber" title="선정된 발주 제안(최대 5개)과 매출 하락 묶음 수입니다. 전체 발주 대상은 재고 카드에서 확인하세요." />
         <SummaryChip label="내 결정" value={ready ? queue.counts.decision : null} tone="violet" />
+        <span
+          className="inline-flex h-7 items-center gap-1 rounded-lg bg-white px-2.5 text-[11px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-200"
+          title={total ? `${formatKrwApprox(total.costMicroUsd)} · ${KRW_RATE_NOTE}` : undefined}
+        >
+          이번 달 비용
+          <span className="tabular-nums text-slate-900">{total ? formatUsd(total.costMicroUsd) : '—'}</span>
+        </span>
         <Link
           href="/agent-org"
           className="inline-flex h-7 items-center gap-0.5 rounded-lg px-2 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-50"

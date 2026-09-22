@@ -221,4 +221,11 @@ describe('폼', () => {
   it('옵션이 없으면 폼을 만들지 않는다', () => {
     expect(() => icecreamFormFromDraft(draft({ variants: [] }))).toThrow(/옵션/);
   });
+
+  it('⭐ 셀피아 코드를 몰의 업체상품코드 칸에 심는다 — 가져올 때 이름 대신 코드로 이어진다 (KID-246)', () => {
+    expect(icecreamFormFromDraft(draft(), { sellpiaCode: '10292-1' }).formFields.goodsInfo!.entrGoodsNo)
+      .toBe('10292-1');
+    // 코드가 없으면 칸을 만들지 않는다 — 빈 값을 몰에 써넣지 않는다.
+    expect(icecreamFormFromDraft(draft()).formFields.goodsInfo!.entrGoodsNo).toBeUndefined();
+  });
 });

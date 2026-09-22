@@ -61,8 +61,13 @@ interface MallQuickRegisterRowsProps {
   readiness: readonly MallReadiness[];
   /** 이번 모달에서 이미 돌린 결과. 몰키 → 결과. */
   results: Readonly<Record<string, MallRunOutcome>>;
-  /** 지금 폼을 채우는 중인 몰키. 없으면 null. */
-  runningMallKey: string | null;
+  /**
+   * 지금 폼을 채우는 중인 몰키들. 비어 있으면 도는 것이 없다.
+   *
+   * 하나가 아니라 여럿인 까닭 — 등록은 묶음으로 동시에 돈다. 칸이 하나면 마지막에 시작한
+   * 몰만 `채우는 중` 이 되고 나머지는 `대기` 로 보여, 도는 동안 아무 일도 안 하는 것처럼 보인다.
+   */
+  runningMallKeys: readonly string[];
   /** 저장된 값을 아직 못 읽었다. */
   isLoading: boolean;
   disabled: boolean;
@@ -75,7 +80,7 @@ interface MallQuickRegisterRowsProps {
    * 없으면 줄을 세우지 않는다.
    */
   wing: WingQuickRegisterRow | null;
-  /** 고른 몰만 순서대로 보낸다. */
+  /** 고른 몰만 보낸다. 묶음으로 동시에 연다. */
   onRunSelected: (mallKeys: string[]) => void;
   /** 그 몰 하나만 보낸다. 선택과 무관하다. */
   onRunOne: (mallKey: string) => void;
@@ -94,7 +99,7 @@ const STATUS_STYLE: Record<RowStatus, { label: string; className: string }> = {
 export function MallQuickRegisterRows({
   readiness,
   results,
-  runningMallKey,
+  runningMallKeys,
   isLoading,
   disabled,
   detailHref,
@@ -108,7 +113,7 @@ export function MallQuickRegisterRows({
     () => (wing ? [wing.row, ...readiness] : [...readiness]),
     [wing, readiness],
   );
-  const running = runningMallKey !== null || (wing?.busy ?? false);
+  const running = runningMallKeys.length > 0 || (wing?.busy ?? false);
   const readyKeys = useMemo(
     () => rows.filter((row) => row.ready).map((row) => row.mallKey),
     [rows],
@@ -142,7 +147,7 @@ export function MallQuickRegisterRows({
   const statusOf = (row: MallReadiness): RowStatus => {
     if (!row.ready) return 'blocked';
     const isWing = wing?.row.mallKey === row.mallKey;
-    if (isWing ? wing.busy : runningMallKey === row.mallKey) return 'running';
+    if (isWing ? wing.busy : runningMallKeys.includes(row.mallKey)) return 'running';
     const result = isWing ? wing.result : results[row.mallKey] ?? null;
     if (!result) return 'idle';
     return result.status === 'filled' ? 'filled' : 'failed';
@@ -277,7 +282,7 @@ export function MallQuickRegisterRows({
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? <Loader2 size={15} className="animate-spin" /> : <Rocket size={15} />}
-          {running ? '순서대로 채우는 중' : `선택한 ${selected.length}개 몰에 등록`}
+          {running ? '몰을 열어 채우는 중' : `선택한 ${selected.length}개 몰에 등록`}
         </button>
 
         <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">

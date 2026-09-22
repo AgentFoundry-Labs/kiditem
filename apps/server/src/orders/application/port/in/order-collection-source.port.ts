@@ -1,5 +1,8 @@
 import { canonicalOwnerInputJson } from '../../../../common/owner-idempotency-key';
-import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
+import type {
+  OrderCollectionSourceStatus,
+  OrderCollectionTodayOrders,
+} from '@kiditem/shared/order-collection-source';
 
 export const ORDER_COLLECTION_SOURCE_PORT = Symbol('ORDER_COLLECTION_SOURCE_PORT');
 
@@ -110,6 +113,11 @@ export interface OrderCollectionSourcePort {
    * 이 조직에 계정 행이 없는 몰은 범위와 상태를 비운 칸으로 돌려준다. 몰 하나짜리 읽기와
    * 같은 판정을 쓰고, 마찬가지로 시도 토큰은 담지 않는다.
    */
+  /**
+   * 오늘 수집이 실어 온 주문 수(서버 기록). 몰마다 마지막 수집 한 번만 세고, 대시보드의
+   * '오늘 주문' 과 같은 Core 읽기를 쓴다 — 두 화면이 같은 수를 말해야 한다.
+   */
+  readTodayOrderCounts(input: { organizationId: string }): Promise<OrderCollectionTodayOrders>;
   readSourceStatuses(input: {
     organizationId: string;
   }): Promise<OrderCollectionSourceStatus[]>;
@@ -151,4 +159,18 @@ export interface OrderCollectionSourcePort {
     organizationId: string;
     artifactId: string;
   }): Promise<OrderCollectionSourceDownload>;
+
+  /**
+   * 이 수집이 실어 온 주문이 몇 줄인지 장부에 적는다.
+   *
+   * 완료 시점에는 원본 바이트만 있어 몇 건인지 모른다 — 셀피아 양식으로 **변환할 때** 비로소
+   * 안다. 그래서 몰 수집은 성공해도 `row_count` 가 0 으로 남았고, 대시보드의 '오늘 주문' 이
+   * 그만큼 모자랐다(사장님 2026-09-21). 변환은 여러 번 불릴 수 있으므로 같은 값을 다시 적는
+   * 것은 아무 일도 아니다.
+   */
+  recordCollectedRows(input: {
+    organizationId: string;
+    attemptId: string;
+    rowCount: number;
+  }): Promise<void>;
 }

@@ -119,11 +119,15 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       ORGANIZATION_ID,
     );
 
-    expect(result.today).toEqual({ revenue: 0, orders: 0 });
+    expect(result.today).toEqual({
+      revenue: 0, orders: 0, collectedOrders: 0, missingDateCount: 0,
+    });
 
+    // 하루가 다 안 걷혔어도 지금까지 걷힌 수는 내보낸다 — 주문수집 화면과 답이 같아야 한다.
     sales.fetchTodayKpis.mockResolvedValue(buildTodayKpiRow({
       revenue: null,
       orders: null,
+      collectedOrders: 50,
       includedDates: [],
       missingDates: ['2026-09-08'],
       observedAt: null,
@@ -132,7 +136,9 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       buildDashboardContext('day', undefined, undefined, new Date('2026-09-08T00:30:00.000Z')),
       ORGANIZATION_ID,
     );
-    expect(unavailable.today).toEqual({ revenue: null, orders: null });
+    expect(unavailable.today).toEqual({
+      revenue: null, orders: null, collectedOrders: 50, missingDateCount: 1,
+    });
     expect(unavailable.metricBasis?.['today.orders']).toMatchObject({
       includedDates: [],
     });

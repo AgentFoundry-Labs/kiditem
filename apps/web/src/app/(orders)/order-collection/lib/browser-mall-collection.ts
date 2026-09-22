@@ -851,6 +851,10 @@ export function createBrowserMallCollector({
       ...(run?.serverOwned ? { serverOwned: true } : {}),
       ...(run?.selectionMode ? { selectionMode: run.selectionMode } : {}),
       ...(run?.seenRowKeys ? { seenRowKeys: [...run.seenRowKeys] } : {}),
+      // 어느 소유자의 시도인지 같이 들고 가야 한다. 빠뜨리면 쿠팡직배송 시도를 몰 소유자에게
+      // 보내게 되고, 몰 쪽에는 그 시도가 없으므로 `ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 로
+      // 끝난다 — 진짜 원인은 가려진 채 그 문구만 뜬다(사장님 2026-09-21).
+      ...(run?.sourceOwner ? { sourceOwner: run.sourceOwner } : {}),
     };
     if (resolvedRun.serverOwned) {
       return generateServerOwnedSellpia(account, resolvedRun);

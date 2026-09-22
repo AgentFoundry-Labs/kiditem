@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { moveSafetyLabelImagesToEnd } from '../../domain/detail-page-image-order';
+import { buildUploadedDetailPageHtml } from '../../domain/detail-page/uploaded-detail-page';
 import type { DetailPageGenerationDto, DetailPageTemplateId } from './detail-page-ai.types';
 import { DetailPageResultRefinerService } from './detail-page-result-refiner.service';
 import {
@@ -97,6 +98,38 @@ export class DetailPageQueryService {
     });
 
     return this.toDto(duplicated);
+  }
+
+  /**
+   * 다른 데서 가져온 상세페이지를 우리 상세페이지로 등록한다. AI 를 부르지 않는다 — 이미 있는
+   * 이미지를 세로로 이어 한 판으로 만들 뿐이다(사장님 2026-09-22).
+   *
+   * HTML 은 편집 저장과 **같은 경로**로 넣는다. 그래야 이미지 자산 승격 규칙이 한 벌로 남는다.
+   */
+  async registerUploaded(input: {
+    organizationId: string;
+    triggeredByUserId: string | null;
+    contentWorkspaceId: string;
+    sourceCandidateId: string | null;
+    title: string;
+    imageUrls: readonly string[];
+  }): Promise<{ id: string; contentWorkspaceId: string }> {
+    let html: string;
+    try {
+      html = buildUploadedDetailPageHtml({ title: input.title, imageUrls: input.imageUrls });
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : '상세페이지를 만들지 못했습니다.');
+    }
+    const created = await this.repository.createUploadedVersion({
+      organizationId: input.organizationId,
+      triggeredByUserId: input.triggeredByUserId,
+      contentWorkspaceId: input.contentWorkspaceId,
+      sourceCandidateId: input.sourceCandidateId,
+      title: input.title,
+      imageUrls: input.imageUrls,
+    });
+    await this.saveEditedHtml(created.id, input.organizationId, html);
+    return { id: created.id, contentWorkspaceId: input.contentWorkspaceId };
   }
 
   async saveEditedHtml(

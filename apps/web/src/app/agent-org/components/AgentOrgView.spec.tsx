@@ -207,7 +207,7 @@ describe('AgentOrgView', () => {
   it('⭐ 아래 운영 요약은 이번 달 매출 · 영업이익 · ROAS · CTR 을 적고, 모르면 지어내지 않는다', () => {
     const business = {
       sales: {
-        today: { revenue: 0, orders: 0 },
+        today: { revenue: 0, orders: 0, collectedOrders: 0, missingDateCount: 0 },
         monthly: { revenue: 94_400_000, profit: 9_320_000, adRate: 1.3, prevRevenue: 0, prevProfit: 1_000_000, revenueChange: 12.5, profitChange: -3.2, prevAdRate: 0 },
         topProducts: [],
         monthlyTrend: [],

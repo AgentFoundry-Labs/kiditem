@@ -15,7 +15,10 @@ import {
   Res,
   StreamableFile,
 } from '@nestjs/common';
-import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
+import type {
+  OrderCollectionSourceStatus,
+  OrderCollectionTodayOrders,
+} from '@kiditem/shared/order-collection-source';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import {
@@ -90,6 +93,19 @@ export class OrderCollectionSourceController {
     @CurrentOrganization() organizationId: string,
   ): Promise<{ malls: OrderCollectionSourceStatus[] }> {
     return { malls: await this.source.readSourceStatuses({ organizationId }) };
+  }
+
+  /**
+   * 오늘 수집이 실어 온 주문 수(서버 기록). 브라우저에 남은 변환 파일이 아니라서 어느 PC 에서
+   * 열어도 같고, 대시보드의 '오늘 주문' 과 같은 사실을 읽는다(사장님 2026-09-22).
+   *
+   * 원천 목록(`sources`)과 달리 2초마다 부르지 않는다 — 수집이 끝났을 때만 다시 읽으면 된다.
+   */
+  @Get('today-orders')
+  readTodayOrderCounts(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<OrderCollectionTodayOrders> {
+    return this.source.readTodayOrderCounts({ organizationId });
   }
 
   @Get('attempts/:attemptId')
@@ -243,6 +259,14 @@ export class OrderCollectionSourceController {
       control.plan.collectionDate,
       source,
     );
+    // 이 수집이 몇 건을 실어 왔는지는 여기서야 안다. 장부에 적어 두지 않으면 성공한 수집도
+    // 건수 0 으로 남아, 대시보드의 '오늘 주문' 이 그만큼 모자라게 센다(사장님 2026-09-21).
+    // 0 건도 적는다 — "걷었는데 없었다" 는 측정이지 모름이 아니다.
+    await this.source.recordCollectedRows({
+      organizationId,
+      attemptId,
+      rowCount: result.outputRows,
+    });
     if (result.sourceRows === 0 && result.outputRows === 0) {
       setEmptyConversionHeaders(response, control.artifactId);
       response.status(204);

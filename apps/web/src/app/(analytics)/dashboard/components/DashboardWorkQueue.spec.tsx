@@ -7,6 +7,13 @@ vi.mock('@/hooks/use-agent-org', () => ({
   useAgentOrg: () => ({ snapshot: { inbox: [], stages: [] }, now: 0 }),
 }));
 
+// 비용 칸은 `/api/ai/usage` 합계를 그대로 적는다. 여기서는 그 읽기를 세워 두고 칩만 본다.
+const aiUsage = vi.hoisted(() => ({ data: undefined as { totals: { costMicroUsd: number } } | undefined }));
+vi.mock('../../_shared/ai-usage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../_shared/ai-usage')>()),
+  useAiUsage: () => aiUsage,
+}));
+
 const measured: DashboardFindings = {
   productSalesCapturedAt: null,
   reorderProductCount: 0,
@@ -50,5 +57,22 @@ describe('Dashboard work read states', () => {
     expect(moneyChip()).toBe('돈 새는 일0');
     expect(screen.getByText('내 결정').textContent).toBe('내 결정0');
     expect(screen.getByText('지금 손이 필요한 일이 없습니다.')).toBeInTheDocument();
+  });
+
+  /** 이번 달 AI 비용 — 발표된 합계만 적고, 아직 못 읽었으면 0 이 아니라 '—' 다. */
+  describe('이번 달 AI 비용', () => {
+    it('아직 읽지 못했으면 0 으로 적지 않는다', () => {
+      aiUsage.data = undefined;
+      renderWork(measured);
+      expect(screen.getByText('이번 달 비용').textContent).toBe('이번 달 비용—');
+    });
+
+    it('읽은 합계를 달러로 적고 원화 어림은 hover 로만 말한다', () => {
+      aiUsage.data = { totals: { costMicroUsd: 12_340_000 } };
+      renderWork(measured);
+      const chip = screen.getByText('이번 달 비용');
+      expect(chip.textContent).toBe('이번 달 비용$12.34');
+      expect(chip).toHaveAttribute('title', expect.stringContaining('약 17,153원'));
+    });
   });
 });

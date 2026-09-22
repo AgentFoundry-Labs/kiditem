@@ -34,6 +34,7 @@ import type {
   MallPriceCandidateListingOption,
   MallPriceCandidateProduct,
 } from '../../../domain/sales-product-mall-prices';
+import type { CoupangCatalogFacts } from '../../../domain/mall-bulk-sheet/coupang-catalog-edit';
 import type { MallSheetSourceProduct } from '../../../domain/mall-bulk-sheet/mall-sheet-product';
 import {
   REGISTRATION_TARGET_REPOSITORY_PORT,
@@ -56,6 +57,22 @@ const MALL_VALUES_CHUNK = 200;
 const MAX_MONEY = 1_000_000_000;
 /** 사방넷에서 옮긴 상품 × 몰 값 키의 머리(`SALES_PRODUCT_SABANGNET_VALUE_KEYS`). */
 const SABANGNET_VALUE_PREFIX = 'sabangnet';
+/** 쿠팡 몰 계정(ADR-0012 의 몰 키). 윙 옵션 ID 는 이 계정의 옵션에서만 찾는다. */
+const COUPANG_CHANNEL = 'coupang';
+
+/** 쿠팡상품정보 수정요청이 읽는 판매상품 칸. */
+const CATALOG_PRODUCT_SELECT = {
+  code: true,
+  brand: true,
+  manufacturer: true,
+  modelNo: true,
+  keywords: true,
+} as const;
+
+function trimmedOrNull(value: string | null): string | null {
+  const text = value?.trim() ?? '';
+  return text ? text : null;
+}
 
 type Tx = Prisma.TransactionClient;
 
@@ -875,6 +892,59 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       },
     });
     return result.count === 1;
+  }
+
+  /**
+   * 쿠팡상품정보 수정요청: 윙 옵션 ID(`externalOptionId`) → 우리가 아는 값.
+   *
+   * 쿠팡 계정의 몰 옵션만 본다. 다른 몰이 같은 숫자를 옵션 코드로 쓰면 엉뚱한 상품 값을 윙에
+   * 제안하게 된다.
+   *
+   * 값은 두 곳에서 온다. 옵션이 단품과 이어져 있으면 그 단품이고, 아니면 몰 상품이 이어진
+   * 판매상품이다(로컬 2026-09-22: 쿠팡 옵션 2,277 중 단품과 이어진 것 52 · 상품과 이어진 것 131).
+   * **바코드만은 단품에서만** 온다 — 상품 하나에 옵션이 여럿이면 바코드가 옵션마다 다르고,
+   * 상품 바코드를 모든 옵션에 붙이면 틀린 값을 몰에 제안하게 된다.
+   */
+  async readCoupangCatalogFacts(
+    organizationId: string,
+    optionIds: readonly string[],
+  ): Promise<CoupangCatalogFacts[]> {
+    if (optionIds.length === 0) return [];
+    const rows = await this.prisma.channelListingOption.findMany({
+      where: {
+        organizationId,
+        externalOptionId: { in: [...optionIds] },
+        listing: { channelAccount: { channel: COUPANG_CHANNEL } },
+        OR: [
+          { salesProductOptionId: { not: null } },
+          { listing: { salesProductId: { not: null } } },
+        ],
+      },
+      select: {
+        externalOptionId: true,
+        listing: { select: { salesProduct: { select: CATALOG_PRODUCT_SELECT } } },
+        salesProductOption: {
+          select: {
+            barcode: true,
+            salesProduct: { select: CATALOG_PRODUCT_SELECT },
+          },
+        },
+      },
+    });
+    return rows.flatMap((row) => {
+      const option = row.salesProductOption;
+      const product = option?.salesProduct ?? row.listing.salesProduct;
+      if (!product) return [];
+      return [{
+        optionId: row.externalOptionId,
+        brand: trimmedOrNull(product.brand),
+        manufacturer: trimmedOrNull(product.manufacturer),
+        modelNo: trimmedOrNull(product.modelNo),
+        barcode: option ? trimmedOrNull(option.barcode) : null,
+        keywords: product.keywords,
+        salesProductCode: product.code,
+      }];
+    });
   }
 
   async readMallSheetProducts(
