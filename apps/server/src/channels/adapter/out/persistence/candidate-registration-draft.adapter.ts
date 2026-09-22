@@ -1,5 +1,5 @@
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
-import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type RegistrationTarget } from '@prisma/client';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../../sourcing/application/port/in/registration-source.port';
@@ -50,8 +50,8 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     @Inject(REGISTRATION_SOURCE_PORT) private readonly source: RegistrationSourcePort,
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly contentWorkspaces: RegistrationContentWorkspacePort,
-    @Optional() @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
-    private readonly thumbnailSources?: SalesProductThumbnailSourcePort,
+    @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
+    private readonly thumbnailSources: SalesProductThumbnailSourcePort,
   ) {}
 
   async lockProduct(

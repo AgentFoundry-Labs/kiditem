@@ -53,12 +53,13 @@ describe('registration execution fence (PG integration)', () => {
       prisma as unknown as PrismaService,
       registrationSource,
       workspaceFake(),
+      thumbnailSourceFake(),
     );
     // 울타리는 실행 행만 쓰고 초안은 Sourcing 어댑터를 통해 만진다(ADR-0014).
     // 실제 두 어댑터를 그대로 엮어야 한 트랜잭션 계약이 여기서 검증된다.
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(registrationSource, workspaceFake()),
+      new RegistrationDraftAdapter(registrationSource, workspaceFake(), thumbnailSourceFake()),
     );
     targets = new RegistrationTargetRepositoryAdapter(
       prisma as unknown as PrismaService,
@@ -1293,7 +1294,9 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('rolls back a failed bundle allocation without leaving an execution or preparation', async () => {
-    const failingDrafts = new RegistrationDraftAdapter(new RegistrationSourceAdapter(), workspaceFake());
+    const failingDrafts = new RegistrationDraftAdapter(
+      new RegistrationSourceAdapter(), workspaceFake(), thumbnailSourceFake(),
+    );
     vi.spyOn(failingDrafts, 'freezeForSubmission').mockRejectedValueOnce(
       new Error('forced transaction rollback after allocation'),
     );
@@ -1598,7 +1601,7 @@ describe('registration execution fence (PG integration)', () => {
     };
     const pausedRepository = new RegistrationExecutionRepositoryAdapter(
       pausedPrisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(new RegistrationSourceAdapter(), workspaceFake()),
+      new RegistrationDraftAdapter(new RegistrationSourceAdapter(), workspaceFake(), thumbnailSourceFake()),
     );
     const supersede = pausedRepository.prepare({
       ...base,
@@ -1768,6 +1771,16 @@ describe('registration execution fence (PG integration)', () => {
     return {
       preparationId: await targets.resolve(TEST_ORGANIZATION_ID, { salesProductId, channelAccountId }),
       status: 'draft' as const,
+    };
+  }
+
+  /**
+   * AI 가 이 판매상품을 위해 만든 생성 썸네일 목록. 대표 사진 울타리가 초안의 사진 목록과
+   * 합쳐서 본다 — 정본으로 바뀌는 주소도 이 목록에서 온 사진이다.
+   */
+  function thumbnailSourceFake() {
+    return {
+      listGeneratedThumbnailUrls: async () => (canonicalThumbnailUrl ? [canonicalThumbnailUrl] : []),
     };
   }
 

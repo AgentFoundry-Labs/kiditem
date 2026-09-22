@@ -4,6 +4,8 @@ import { SalesProductModule } from '../sales-product.module';
 import { ChannelsRegistrationExecutionModule } from '../channels-registration-execution.module';
 import { SalesProductWorkspaceArchiveAdapter } from '../adapter/out/repository/sales-product-workspace-archive.adapter';
 import { SalesProductThumbnailSourceAdapter } from '../adapter/out/ai/sales-product-thumbnail-source.adapter';
+import { RegistrationDraftAdapter } from '../adapter/out/persistence/candidate-registration-draft.adapter';
+import { ProductPreparationRepositoryAdapter } from '../adapter/out/persistence/candidate-registration.repository.adapter';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
 import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from '../application/port/out/ai/sales-product-workspace-archive.port';
 import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from '../application/port/out/ai/sales-product-thumbnail-source.port';
@@ -40,5 +42,15 @@ describe('초안 콘텐츠 계약 배선', () => {
       .toMatchObject({ useExisting: SalesProductThumbnailSourceAdapter });
     expect(providersOf(ChannelsRegistrationExecutionModule))
       .toContain(SalesProductThumbnailSourceAdapter);
+  });
+
+  /**
+   * 선택 주입이면 배선을 빠뜨려도 부트가 성공하고 울타리만 조용히 꺼진다 — 그 상태를 알아챌
+   * 방법이 없다. 필수 주입이라야 빠진 배선이 부트에서 드러난다.
+   */
+  it('생성 썸네일 목록을 쓰는 두 소비자는 그것을 선택 주입으로 받지 않는다', () => {
+    for (const consumer of [RegistrationDraftAdapter, ProductPreparationRepositoryAdapter]) {
+      expect(Reflect.getMetadata('optional:paramtypes', consumer) ?? []).toEqual([]);
+    }
   });
 });

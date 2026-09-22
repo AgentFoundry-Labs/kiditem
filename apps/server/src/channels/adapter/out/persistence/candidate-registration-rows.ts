@@ -160,12 +160,12 @@ export function assertRegistrationIdentity(
  */
 export async function assertThumbnailBelongsToProduct(
   reader: Pick<Prisma.TransactionClient, 'salesProduct'>,
-  thumbnailSources: { listGeneratedThumbnailUrls(organizationId: string, salesProductId: string): Promise<string[]> } | undefined,
+  thumbnailSources: { listGeneratedThumbnailUrls(organizationId: string, salesProductId: string): Promise<string[]> },
   organizationId: string,
   salesProductId: string,
   selectedThumbnailUrl: string | null | undefined,
 ): Promise<void> {
-  if (!selectedThumbnailUrl || !thumbnailSources) return;
+  if (!selectedThumbnailUrl) return;
   const [product, generated] = await Promise.all([
     reader.salesProduct.findFirst({
       where: { id: salesProductId, organizationId },
