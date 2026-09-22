@@ -357,4 +357,3 @@ describe('wholeCalendarMonth', () => {
     expect(wholeCalendarMonth(selected(buildDashboardContext('custom', '2026-07-01', '2026-08-31', ANCHOR)))).toBeNull();
   });
 });
-
