@@ -14,11 +14,9 @@ function setup() {
     list: async () => [...rows.values()].map(row => ({ ...row, product: defaults })),
     get: async (_org, id) => rows.has(id) ? { ...rows.get(id)!, product: defaults } : null,
     resolve: async (_org, input) => {
+      // 상품 × 몰 계정당 활성 설정은 하나다(KID-310) — 고를 것이 없다.
       const existing = [...rows.values()].filter(row => row.salesProductId === input.salesProductId
-        && row.channelAccountId === input.channelAccountId
-        && (!input.targetId || row.id === input.targetId));
-      if (input.targetId && existing.length === 0) throw new Error('target not found');
-      if (existing.length > 1) throw new Error('multiple targets');
+        && row.channelAccountId === input.channelAccountId);
       if (existing[0]) return existing[0].id;
       const id = `target-${rows.size + 1}`;
       rows.set(id, {

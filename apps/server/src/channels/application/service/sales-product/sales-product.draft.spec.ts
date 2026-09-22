@@ -13,7 +13,7 @@ const CANDIDATE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 interface Row {
   id: string;
-  code: string;
+  code: string | null;
   version: number;
   status: string;
   name: string;
@@ -24,7 +24,7 @@ interface Row {
   sourceUrl: string | null;
   sourceRaw: Record<string, unknown> | null;
   optionAxes: string[];
-  options: { id: string; optionCode: string; optionKey: string; values: string[]; supplyStatus: string; salePrice: number | null }[];
+  options: { id: string; optionCode: string | null; optionKey: string; values: string[]; supplyStatus: string; salePrice: number | null }[];
 }
 
 function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {

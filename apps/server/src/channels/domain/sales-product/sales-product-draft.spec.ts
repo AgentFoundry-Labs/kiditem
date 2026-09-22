@@ -20,7 +20,7 @@ describe('resolveSalesProductStatus', () => {
   it('판매 옵션이 하나도 없으면 draft 다 — 팔 수 있는 것이 없다', () => {
     expect(resolveSalesProductStatus({
       current: 'draft',
-      options: [{ id: 'x', supplyStatus: 'unused', salePrice: 1000 }],
+      options: [{ supplyStatus: 'unused', salePrice: 1000 }],
     })).toBe('draft');
   });
 

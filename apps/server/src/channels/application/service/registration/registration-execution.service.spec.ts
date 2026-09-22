@@ -123,7 +123,7 @@ function setup(overrides: {
   } as RegistrationDraftPort;
   return {
     service: new RegistrationExecutionService(executions, registration, drafts, {
-      list: vi.fn(), findByCandidate: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
+      list: vi.fn(), findDraftIdForSource: vi.fn(), ensureSalesProductCodes: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
       replaceOptions: vi.fn(), createFromSource: vi.fn(), retireDraftForSource: vi.fn(), mallCategories: vi.fn(),
     }, {
       resolve: vi.fn(), list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
