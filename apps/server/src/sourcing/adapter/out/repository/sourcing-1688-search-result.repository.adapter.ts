@@ -22,8 +22,8 @@ import {
   readCurrentCompleteRuns,
   readExactSourcingRun,
   readLatestWingCatalogPublicationFacts,
-} from '../../../read/source-evidence.reader';
-import { read1688OfferSnapshotsForRuns } from '../../../read/source-evidence.reader';
+} from './source-evidence.reader';
+import { read1688OfferSnapshotsForRuns } from './source-evidence.reader';
 
 const MAX_LATEST_RUN_CANDIDATES = 120;
 const MAX_TARGET_OBSERVATION_CANDIDATES = 500;

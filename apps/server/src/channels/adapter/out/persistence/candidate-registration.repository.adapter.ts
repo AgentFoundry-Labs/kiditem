@@ -19,13 +19,13 @@ import {
   type SalesProductThumbnailSourcePort,
 } from '../../../application/port/out/ai/sales-product-thumbnail-source.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { readRegistrationExecutionFacts } from '../repository/registration-execution.reader';
 import {
   blocksCandidateTerminalTransition as executionsBlockTerminalTransition,
   candidateRegistrationState,
-  readRegistrationExecutionFacts,
   registrationDraftState,
   type CandidateRegistrationState,
-} from '../../../read/registration-execution.reader';
+} from '../../../domain/registration/registration-execution-state';
 import {
   blocksCandidateTerminalTransition,
 } from '../../../../sourcing/domain/product-preparation-state';

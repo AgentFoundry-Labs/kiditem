@@ -13,7 +13,7 @@ import {
   readLatestListingSaleStatusFacts,
   readLatestListingStateFacts,
   readListingTrafficWindowFacts,
-} from '../read/channel-listing-daily-facts';
+} from '../adapter/out/persistence/channel-listing-daily-facts';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 

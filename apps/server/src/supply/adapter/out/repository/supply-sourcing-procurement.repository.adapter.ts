@@ -6,9 +6,9 @@ import {
   readCurrentObservationHeads,
   readCurrentSupportingObservation,
   type CurrentObservationHead,
-} from '../../../../sourcing/read/source-evidence.reader';
-import { readExactDecisionBatchItem } from '../../../../sourcing/read/decision-publication.reader';
-import { readExactLaunchCandidatesByIds } from '../../../../sourcing/read/launch-candidate.reader';
+} from '../../../../sourcing/adapter/out/repository/source-evidence.reader';
+import { readExactDecisionBatchItem } from '../../../../sourcing/adapter/out/repository/decision-publication.reader';
+import { readExactLaunchCandidatesByIds } from '../../../../sourcing/adapter/out/repository/launch-candidate.reader';
 import {
   buildProcurementTestIntentRequestHash,
   evaluateSupplySourceEligibility,

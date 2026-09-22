@@ -23,7 +23,7 @@ import {
 } from '@kiditem/shared/sales-product';
 import { MALL_ADMIN_LISTING_READERS } from '@kiditem/shared/mall-admin-listings';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
-import { registrationDraftState } from '../../../read/registration-execution.reader';
+import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration/registration-item-code';
 import { PrismaService } from '../../../../prisma/prisma.service';

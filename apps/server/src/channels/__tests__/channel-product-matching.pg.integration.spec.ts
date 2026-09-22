@@ -22,7 +22,7 @@ import { ChannelProductMatchingService } from '../application/service/listing/ch
 import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
-import { readListingProductIds } from '../read/listing-product-summary.reader';
+import { readListingProductIds } from '../adapter/out/persistence/listing-product-summary.reader';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { Prisma, PrismaClient } from '@prisma/client';
 

@@ -27,7 +27,7 @@ import {
   readLatestListingSaleStatusFacts,
   readListingTrafficWindowFacts,
   type ListingTrafficDailyFact,
-} from '../../../../channels/read/channel-listing-daily-facts';
+} from '../../../../channels/adapter/out/persistence/channel-listing-daily-facts';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
 import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';

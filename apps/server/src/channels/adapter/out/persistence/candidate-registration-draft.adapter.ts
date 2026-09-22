@@ -3,7 +3,8 @@ import { ConflictException, Inject, Injectable, NotFoundException, Optional } fr
 import { Prisma, type RegistrationTarget } from '@prisma/client';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../../sourcing/application/port/in/registration-source.port';
-import { readRegistrationExecutionFacts, registrationDraftState } from '../../../read/registration-execution.reader';
+import { readRegistrationExecutionFacts } from '../repository/registration-execution.reader';
+import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
 import {
   freezeProductRegistrationPayload,
   type RegistrationSubmissionJson,

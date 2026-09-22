@@ -11,11 +11,11 @@ import {
   readLatestCurrentMarketShadowFact,
   readMarketShadowFactForAttempt,
   readRecentCurrentMarketShadowFacts,
-} from '../../../read/source-evidence.reader';
+} from './source-evidence.reader';
 import {
   readLatestSourcingAttempt,
   readSourcingRunByIdempotencyKey,
-} from '../../../read/source-evidence.reader';
+} from './source-evidence.reader';
 import { MarketShadowSnapshotDocumentSchema } from '../../../domain/market-shadow-snapshot-document';
 
 @Injectable()

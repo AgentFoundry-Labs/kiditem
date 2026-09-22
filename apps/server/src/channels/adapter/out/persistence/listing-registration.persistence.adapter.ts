@@ -25,7 +25,7 @@ import {
   type KidItemFirstOptionLink,
   type KidItemFirstRegistrationLinks,
 } from "../../../domain/registration/kiditem-first-registration-links";
-import { readListingProductIds } from '../../../read/listing-product-summary.reader';
+import { readListingProductIds } from './listing-product-summary.reader';
 import { lockChannelListingRow } from "../repository/channel-listing-row-lock";
 import type { ListingRegistrationPersistencePort } from "../../../application/port/out/persistence/listing-registration.persistence.port";
 

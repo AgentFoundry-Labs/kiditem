@@ -36,13 +36,13 @@ import {
   sabangnetListingsByAccount,
   sabangnetSubmissionProblem,
 } from '../../../domain/collection/sabangnet-mall-listings';
-import { readMallAccountRowIds } from '../../../read/mall-account-rows';
+import { readMallAccountRowIds } from './mall-account-rows';
 import {
   readSabangnetMallListingsSource,
   SABANGNET_MALL_LISTINGS_EXPIRED_MESSAGE,
   sabangnetMallListingsControl,
   sabangnetMallListingsRunWhere,
-} from '../../../read/sabangnet-mall-listings.reader';
+} from './sabangnet-mall-listings.reader';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 import { deactivateCatalogAbsence } from './catalog-absence';
 

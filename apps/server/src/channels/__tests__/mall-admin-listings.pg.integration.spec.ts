@@ -23,7 +23,7 @@ import { MallAdminListingsController } from '../adapter/in/web/mall-admin-listin
 import { MallAdminListingsRepositoryAdapter } from '../adapter/out/repository/mall-admin-listings.repository.adapter';
 import { MALL_ADMIN_LISTINGS_PORT } from '../application/port/in/mall-admin-listings.port';
 import { MallAdminListingsService } from '../application/service/collection/mall-admin-listings.service';
-import { completedCatalogRunWhere } from '../read/completed-catalog-run';
+import { completedCatalogRunWhere } from '../adapter/out/repository/completed-catalog-run';
 
 const KIDKIDS = '11111111-1111-4111-8111-111111111111';
 const KIDKIDS_LATER = '11111111-1111-4111-8111-111111111112';

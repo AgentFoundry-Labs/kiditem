@@ -1,7 +1,7 @@
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import { readPreparedRegistrationRecipes } from '../../../read/registration-execution.reader';
+import { readPreparedRegistrationRecipes } from '../repository/registration-execution.reader';
 import { preparedRegistrationRecipe, type PreparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
 import { freezeProductRegistrationPayload, type RegistrationSubmissionJson } from '../../../domain/registration/registration-submission-payload';
 import type { ChannelOptionRecipePort } from '../../../application/port/in/channel-option-recipe.port';

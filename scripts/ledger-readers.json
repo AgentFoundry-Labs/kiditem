@@ -249,7 +249,13 @@
           "reason": "Owns attempt admission, terminal publication, current-complete pointer replacement, and transaction-local validation."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing evidence observation",
@@ -268,7 +274,13 @@
           "reason": "Inserts immutable observations and validates the inserted identities inside the source owner's terminal transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing Wing catalog product fact",
@@ -291,7 +303,13 @@
           "reason": "Counts the staged keyword's current typed facts inside the source owner transaction to seal its exact accepted receipt."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing keyword suggestion fact",
@@ -310,7 +328,13 @@
           "reason": "Publishes the schema-validated keyword suggestion snapshot with its evidence inside the source owner transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing Naver keyword analysis fact",
@@ -329,7 +353,13 @@
           "reason": "Publishes the schema-validated Naver analysis snapshot with its evidence inside the source owner transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing market shadow fact",
@@ -348,7 +378,13 @@
           "reason": "Publishes the bounded market-shadow document with its evidence inside the source owner transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing 1688 offer keyword observation",
@@ -367,7 +403,13 @@
           "reason": "Inserts typed 1688 rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing Naver keyword daily snapshot",
@@ -384,7 +426,13 @@
           "reason": "Inserts typed Naver keyword rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing Naver popular keyword daily snapshot",
@@ -401,7 +449,13 @@
           "reason": "Inserts typed Naver board rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing Shorts trend daily snapshot",
@@ -418,7 +472,13 @@
           "reason": "Inserts typed Shorts rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing TikTok creative trend daily snapshot",
@@ -435,7 +495,13 @@
           "reason": "Inserts typed TikTok rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing live commerce broadcast daily snapshot",
@@ -452,7 +518,13 @@
           "reason": "Inserts typed broadcast rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing live commerce product daily snapshot",
@@ -469,7 +541,13 @@
           "reason": "Inserts typed product rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing launch candidate",
@@ -489,7 +567,13 @@
           "reason": "Owns immutable launch-candidate publication and validates the current predecessor inside its transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/launch-candidate.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing recommendation publication",
@@ -507,7 +591,13 @@
           "reason": "Owns immutable recommendation-run publication and idempotent winner resolution."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/recommendation-publication.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing validation publication",
@@ -526,7 +616,13 @@
           "reason": "Owns validation-episode publication, duplicate detection, and transaction-local receipt hydration."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/validation-publication.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Sourcing decision publication",
@@ -545,7 +641,13 @@
           "reason": "Owns immutable decision-batch publication, idempotency validation, and winner resolution."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/decision-publication.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     },
     {
       "name": "Coupang keyword SERP day",
@@ -707,7 +809,13 @@
           "reason": "Channels owns the submission fence: it creates, leases, reconciles and finalizes one execution per draft and channel account, and re-reads the rows it just wrote inside that transaction (ADR-0014)."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/registration-execution.reader.ts",
+          "removeWith": "KID-309",
+          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+        }
+      ]
     }
   ],
   "importExceptions": [
@@ -970,7 +1078,7 @@
       "from": "apps/server/src/orders/services/reviews.service.ts"
     },
     {
-      "to": "apps/server/src/channels/read/channel-listing-daily-facts.ts",
+      "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations-data-status.repository.adapter.ts"
@@ -988,7 +1096,7 @@
       "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/channels/read/channel-listing-daily-facts.ts",
+      "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
@@ -1000,7 +1108,7 @@
       "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/channels/read/channel-listing-daily-facts.ts",
+      "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/products/adapter/out/persistence/selling-master-product.query.ts"
@@ -1030,16 +1138,10 @@
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
-      "to": "apps/server/src/channels/read/completed-catalog-run.ts",
+      "to": "apps/server/src/channels/adapter/out/repository/completed-catalog-run.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/readiness/readiness.service.ts"
-    },
-    {
-      "to": "apps/server/src/channels/read/registration-execution.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-304",
-      "from": "apps/server/src/sourcing/application/port/out/repository/sourcing-candidate.repository.port.ts"
     },
     {
       "from": "apps/server/src/sourcing/application/service/sourcing-browser-source-attempt.service.ts",
@@ -1066,19 +1168,19 @@
       "removeWith": "KID-309"
     },
     {
-      "to": "apps/server/src/sourcing/read/decision-publication.reader.ts",
+      "to": "apps/server/src/sourcing/adapter/out/repository/decision-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/supply/adapter/out/repository/supply-sourcing-procurement.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/sourcing/read/launch-candidate.reader.ts",
+      "to": "apps/server/src/sourcing/adapter/out/repository/launch-candidate.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/supply/adapter/out/repository/supply-sourcing-procurement.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/sourcing/read/source-evidence.reader.ts",
+      "to": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/supply/adapter/out/repository/supply-sourcing-procurement.repository.adapter.ts"

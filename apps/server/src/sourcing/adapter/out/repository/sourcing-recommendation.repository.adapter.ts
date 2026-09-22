@@ -13,7 +13,7 @@ import {
   readExactRecommendationRun,
   readRecommendationRunByManifest,
   recommendationGraphInclude,
-} from '../../../read/recommendation-publication.reader';
+} from './recommendation-publication.reader';
 
 @Injectable()
 export class SourcingRecommendationRepositoryAdapter

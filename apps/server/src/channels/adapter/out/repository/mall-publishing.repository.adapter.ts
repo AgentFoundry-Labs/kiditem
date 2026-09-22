@@ -13,7 +13,7 @@ import {
 } from '../../../../products/application/port/in/product-source-read.port';
 import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { MALL_ACCOUNT_ROW_ORDER } from '../../../read/mall-account-rows';
+import { MALL_ACCOUNT_ROW_ORDER } from './mall-account-rows';
 import { readMallListingProfile } from '../../../domain/account/mall-listing-profile';
 import { PUBLISHED_LISTING_STATUSES } from '../../../domain/listing/mall-listing-state';
 import { withListingProductSummary } from '../../../domain/listing/listing-product-summary';

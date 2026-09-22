@@ -35,7 +35,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   readCompletedCatalogRunIds,
   publishedCatalogOptionWhere,
-} from '../../../read/completed-catalog-run';
+} from './completed-catalog-run';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionContext,

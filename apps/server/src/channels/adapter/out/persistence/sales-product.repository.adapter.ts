@@ -1,6 +1,6 @@
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import { readSalesProductOptionExecutionCounts } from '../../../read/registration-execution.reader';
+import { readSalesProductOptionExecutionCounts } from '../repository/registration-execution.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';

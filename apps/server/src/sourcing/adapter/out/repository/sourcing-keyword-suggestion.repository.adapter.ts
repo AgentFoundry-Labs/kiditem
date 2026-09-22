@@ -10,7 +10,7 @@ import type {
   SourcingKeywordSuggestionLatestSnapshot,
   SourcingKeywordSuggestionRepositoryPort,
 } from '../../../application/port/out/repository/sourcing-keyword-suggestion.repository.port';
-import { readCurrentKeywordSuggestionFact } from '../../../read/source-evidence.reader';
+import { readCurrentKeywordSuggestionFact } from './source-evidence.reader';
 
 @Injectable()
 export class SourcingKeywordSuggestionRepositoryAdapter

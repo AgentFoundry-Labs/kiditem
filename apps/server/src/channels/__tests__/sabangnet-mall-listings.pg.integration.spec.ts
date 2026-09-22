@@ -22,7 +22,7 @@ import { SabangnetMallListingsController } from '../adapter/in/web/sabangnet-mal
 import { SabangnetMallListingsRepositoryAdapter } from '../adapter/out/repository/sabangnet-mall-listings.repository.adapter';
 import { SABANGNET_MALL_LISTINGS_PORT } from '../application/port/in/sabangnet-mall-listings.port';
 import { SabangnetMallListingsService } from '../application/service/collection/sabangnet-mall-listings.service';
-import { completedCatalogRunWhere } from '../read/completed-catalog-run';
+import { completedCatalogRunWhere } from '../adapter/out/repository/completed-catalog-run';
 
 const KIDSNOTE = '11111111-1111-4111-8111-111111111111';
 const KIDSNOTE_LATER = '11111111-1111-4111-8111-111111111112';

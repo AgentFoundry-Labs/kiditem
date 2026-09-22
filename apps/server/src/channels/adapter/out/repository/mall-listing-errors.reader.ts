@@ -1,5 +1,5 @@
-import { ERROR_LISTING_STATUSES } from '../domain/listing/mall-listing-state';
-import { getMallAdapterManifest } from '../domain/registration/mall-adapter-manifest';
+import { ERROR_LISTING_STATUSES } from '../../../domain/listing/mall-listing-state';
+import { getMallAdapterManifest } from '../../../domain/registration/mall-adapter-manifest';
 import type { Prisma } from '@prisma/client';
 
 export type RejectedListingCount = Readonly<{

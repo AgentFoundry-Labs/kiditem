@@ -2,7 +2,7 @@ import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter'
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { ChannelRecipeFactQueries } from '../../../application/port/in/channel-option-recipe.port';
-import { readListingProductIds } from '../../../read/listing-product-summary.reader';
+import { readListingProductIds } from './listing-product-summary.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import {
   BadRequestException,
@@ -27,7 +27,7 @@ import type {
   ChannelOptionRecipeMutation,
   ChannelRecipeComponentInput,
 } from '../../../application/port/in/channel-option-recipe.port';
-import { readPreparedRegistrationRecipes } from '../../../read/registration-execution.reader';
+import { readPreparedRegistrationRecipes } from '../repository/registration-execution.reader';
 import { preparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
 import { hashRegistrationSubmissionPayload } from '../../../domain/registration/registration-submission-payload';
 

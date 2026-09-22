@@ -35,13 +35,13 @@ import {
   mallAdminStatusCounts,
   mallAdminSubmissionProblem,
 } from '../../../domain/collection/mall-admin-listings';
-import { readMallAccountRowIds } from '../../../read/mall-account-rows';
+import { readMallAccountRowIds } from './mall-account-rows';
 import {
   MALL_ADMIN_LISTINGS_EXPIRED_MESSAGE,
   mallAdminListingsControl,
   mallAdminListingsRunWhere,
   readMallAdminListingsSource,
-} from '../../../read/mall-admin-listings.reader';
+} from './mall-admin-listings.reader';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 import { deactivateCatalogAbsence } from './catalog-absence';
 

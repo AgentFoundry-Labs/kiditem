@@ -3,7 +3,7 @@ import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
-import { readLatestListingSaleStatusFacts } from '../../../../channels/read/channel-listing-daily-facts';
+import { readLatestListingSaleStatusFacts } from '../../../../channels/adapter/out/persistence/channel-listing-daily-facts';
 import type { ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';
 
 const SELLING_CHANNELS = ['coupang', 'rocket'];

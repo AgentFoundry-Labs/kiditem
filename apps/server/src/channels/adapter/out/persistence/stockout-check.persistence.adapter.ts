@@ -8,8 +8,8 @@ import { lockProductMapping } from '../../../../common/product-mapping-generatio
 import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../../products/application/port/in/product-transactional-read.port';
 import type { StockoutCheckPersistencePort, StockoutSubject } from '../../../application/port/out/persistence/stockout-check.persistence.port';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import { readUnresolvedCompositionOptionIds } from '../../../read/registration-execution.reader';
-import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
+import { readUnresolvedCompositionOptionIds } from '../repository/registration-execution.reader';
+import { readLatestListingSaleStatusFacts } from './channel-listing-daily-facts';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 
 @Injectable()

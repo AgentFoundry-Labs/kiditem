@@ -1,4 +1,4 @@
-import { readUnresolvedCompositionOptionIds } from "../../../read/registration-execution.reader";
+import { readUnresolvedCompositionOptionIds } from "./registration-execution.reader";
 import {
   BadRequestException,
   Inject,
@@ -13,9 +13,9 @@ import { lockProductMapping } from '../../../../common/product-mapping-generatio
 import {
   readCompletedCatalogRunIds,
   publishedCatalogOptionWhere,
-} from '../../../read/completed-catalog-run';
-import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
-import { readListingProductIds } from '../../../read/listing-product-summary.reader';
+} from './completed-catalog-run';
+import { readLatestListingSaleStatusFacts } from '../persistence/channel-listing-daily-facts';
+import { readListingProductIds } from '../persistence/listing-product-summary.reader';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductMatchingCandidate,

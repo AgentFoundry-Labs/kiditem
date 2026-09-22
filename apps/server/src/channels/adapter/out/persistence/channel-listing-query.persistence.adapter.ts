@@ -1,7 +1,7 @@
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
-import { readRegistrationFailureCounts } from '../../../read/registration-execution.reader';
+import { readRegistrationFailureCounts } from '../repository/registration-execution.reader';
 import type { ChannelListingFactQueries } from '../../../application/port/in/listing/channel-listing-query.port';
-import { readListingTrafficWindowFacts, readLatestListingStateFacts, readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
+import { readListingTrafficWindowFacts, readLatestListingStateFacts, readLatestListingSaleStatusFacts } from './channel-listing-daily-facts';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';

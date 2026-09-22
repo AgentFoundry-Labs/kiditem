@@ -6,11 +6,11 @@ import {
   CATALOG_PARSER,
   CATALOG_SOURCE,
   ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
-} from '../domain/collection/catalog-source-identity';
+} from '../../../domain/collection/catalog-source-identity';
 import {
   ROCKET_PO_CATALOG_PARSER_VERSION,
   ROCKET_PO_CATALOG_SOURCE_TYPE,
-} from '../../orders/application/port/in/rocket-po-catalog.port';
+} from '../../../../orders/application/port/in/rocket-po-catalog.port';
 import {
   MALL_ADMIN_LISTINGS_PARSER_VERSION,
   MALL_ADMIN_LISTINGS_SOURCE_TYPE,

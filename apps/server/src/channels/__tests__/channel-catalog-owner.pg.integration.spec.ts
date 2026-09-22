@@ -35,7 +35,7 @@ import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/p
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
-import { countPublishedCatalogListings } from '../read/completed-catalog-run';
+import { countPublishedCatalogListings } from '../adapter/out/repository/completed-catalog-run';
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { lockProductMapping } from '../../common/product-mapping-generation';
 import type { PrismaClient } from '@prisma/client';

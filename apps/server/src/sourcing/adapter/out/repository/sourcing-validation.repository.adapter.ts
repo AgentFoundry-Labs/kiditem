@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { readCurrentCompleteObservationReferencesByIds } from '../../../read/source-evidence.reader';
+import { readCurrentCompleteObservationReferencesByIds } from './source-evidence.reader';
 import {
   readValidationEpisodePage,
   validationEpisodeViewInclude,
-} from '../../../read/validation-publication.reader';
+} from './validation-publication.reader';
 import type {
   SourcingValidationEpisodeWrite,
   SourcingValidationItemRecord,

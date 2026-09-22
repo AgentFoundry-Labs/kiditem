@@ -3,7 +3,7 @@ import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { ProductPreparationRow } from '../../../../../channels/application/port/in/candidate-registration.port';
 export type { ProductPreparationRow } from '../../../../../channels/application/port/in/candidate-registration.port';
 import type { SourcingRepositoryTransaction } from '../transaction/repository-transaction';
-import type { CandidateRegistrationState } from '../../../../../channels/read/registration-execution.reader';
+import type { CandidateRegistrationState } from '../../../../../channels/domain/registration/registration-execution-state';
 
 export const SOURCING_CANDIDATE_REPOSITORY_PORT = Symbol('SOURCING_CANDIDATE_REPOSITORY_PORT');
 

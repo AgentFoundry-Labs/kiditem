@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { readListingProductIds } from '../../../read/listing-product-summary.reader';
+import { readListingProductIds } from '../persistence/listing-product-summary.reader';
 import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
 
 const UPSERT_BATCH_SIZE = 500;

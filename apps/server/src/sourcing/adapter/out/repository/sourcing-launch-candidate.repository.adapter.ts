@@ -10,7 +10,7 @@ import type {
 import {
   readCurrentLaunchCandidates,
   readExactLaunchCandidatesByIds,
-} from '../../../read/launch-candidate.reader';
+} from './launch-candidate.reader';
 
 type LaunchCandidateRow = Prisma.SourcingLaunchCandidateGetPayload<
   Record<string, never>
