@@ -66,8 +66,6 @@ function product(): SalesProduct {
       mallKey: 'boribori',
       mallName: '보리보리',
       salePrice: 6200,
-      priceRateBp: null,
-      costPrice: null,
       name: '애니멀 만능패드 (보리보리)',
       detailHtml: null,
       promoText: null,

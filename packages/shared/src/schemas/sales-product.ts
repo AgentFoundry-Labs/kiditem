@@ -239,8 +239,6 @@ export const SalesProductChannelOverrideSchema = z.object({
   mallKey: z.string(),
   mallName: z.string(),
   salePrice: z.number().int().nullable(),
-  priceRateBp: z.number().int().nullable(),
-  costPrice: z.number().int().nullable(),
   name: z.string().nullable(),
   detailHtml: z.string().nullable(),
   promoText: z.string().nullable(),
