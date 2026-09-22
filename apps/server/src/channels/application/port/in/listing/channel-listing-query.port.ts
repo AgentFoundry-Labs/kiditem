@@ -102,6 +102,8 @@ export interface ChannelCatalogFact {
   displayName: string | null;
   category: string | null;
   createdAt: Date;
+  /** 이 몰 상품을 만든 판매상품 초안. KidItem 이 등록해 만든 줄인지 가른다(KID-310). */
+  salesProductId: string | null;
   sourceCandidateId: string | null;
   isActive: boolean;
   status: string | null;

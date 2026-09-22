@@ -47,6 +47,7 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
         vendorId: 'A00012345',
       },
     });
+    // 리스팅은 그 판매상품 초안을 거쳐 원천에 닿는다(KID-310).
     const candidate = await prisma.sourcingCandidate.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -57,12 +58,15 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
         status: 'sourced',
       },
     });
+    const draft = await prisma.salesProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, name: 'Test product', sourceCandidateId: candidate.id },
+    });
     listingId = (
       await prisma.channelListing.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: ACCOUNT,
-          sourceCandidateId: candidate.id,
+          salesProductId: draft.id,
           externalId: '16311428128',
           displayName: 'Test product',
           status: 'active',

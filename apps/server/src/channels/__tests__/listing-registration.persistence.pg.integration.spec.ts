@@ -18,6 +18,19 @@ const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const INACTIVE_OPTION_SKU_ID = '26000000-0000-4000-8000-000000000001';
 const ROLLBACK_SKU_ID = '26000000-0000-4000-8000-000000000002';
 
+/**
+ * 수집 한 줄이 만드는 것. 원천 기록(후보)과 그 편집 정본(판매상품 초안) 한 쌍이고,
+ * 등록은 초안을 대상으로 한다(KID-310).
+ */
+async function seedDraft(prisma: PrismaClient, sourceUrl: string, name: string) {
+  const candidate = await prisma.sourcingCandidate.create({
+    data: { organizationId: TEST_ORGANIZATION_ID, sourceUrl, sourcePlatform: 'test', name },
+  });
+  return prisma.salesProduct.create({
+    data: { organizationId: TEST_ORGANIZATION_ID, name, sourceCandidateId: candidate.id },
+  });
+}
+
 describe('ListingRegistrationPersistenceAdapter (PG integration)', () => {
   let prisma: PrismaClient;
 
@@ -47,18 +60,12 @@ describe('ListingRegistrationPersistenceAdapter (PG integration)', () => {
   });
 
   it('advances listing identity generation when registration creates or reactivates a linkless listing', async () => {
-    const candidate = await prisma.sourcingCandidate.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl: 'https://example.com/register-linkless',
-        sourcePlatform: 'test',
-        name: 'Linkless registration',
-      },
-    });
+    // 등록은 판매상품 초안 하나를 대상으로 한다(KID-310). 원천 기록은 그 초안이 가리킨다.
+    const draft = await seedDraft(prisma, 'https://example.com/register-linkless', 'Linkless registration');
     const registration = makeRegistration(prisma);
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidate.id,
+      salesProductId: draft.id,
       channelAccountId: ACCOUNT_ID,
       submissionKey: 'registration-linkless-key',
       externalListingId: '245',
@@ -86,26 +93,19 @@ describe('ListingRegistrationPersistenceAdapter (PG integration)', () => {
   });
 
   it('reactivates an inactive registration option and advances identity generation once', async () => {
-    const [product, candidate] = await Promise.all([
+    const [product, draft] = await Promise.all([
       seedSourceProduct(prisma, {
         id: INACTIVE_OPTION_SKU_ID,
         organizationId: TEST_ORGANIZATION_ID,
         code: 'KI-REGISTER-INACTIVE-OPTION',
         name: 'Inactive registration option',
       }),
-      prisma.sourcingCandidate.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceUrl: 'https://example.com/register-inactive-option',
-          sourcePlatform: 'test',
-          name: 'Inactive registration option',
-        },
-      }),
+      seedDraft(prisma, 'https://example.com/register-inactive-option', 'Inactive registration option'),
     ]);
     const registration = makeRegistration(prisma);
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidate.id,
+      salesProductId: draft.id,
       channelAccountId: ACCOUNT_ID,
       submissionKey: 'registration-inactive-option-key',
       externalListingId: '246',
@@ -147,14 +147,7 @@ describe('ListingRegistrationPersistenceAdapter (PG integration)', () => {
       name: 'Registered rollback',
       organizationId: TEST_ORGANIZATION_ID,
     });
-    const candidate = await prisma.sourcingCandidate.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl: 'https://example.com/register-rollback',
-        sourcePlatform: 'test',
-        name: 'Registered rollback',
-      },
-    });
+    const draft = await seedDraft(prisma, 'https://example.com/register-rollback', 'Registered rollback');
     const maximum = 9_223_372_036_854_775_807n;
     await prisma.masterProductAbcFormulaState.create({
       data: {
@@ -167,7 +160,7 @@ describe('ListingRegistrationPersistenceAdapter (PG integration)', () => {
     await expect(prisma.$transaction((tx) =>
       registration.resolveProductRegistration(ownerTransaction(tx), {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidate.id,
+        salesProductId: draft.id,
         channelAccountId: ACCOUNT_ID,
         submissionKey: 'registration-rollback-key',
         externalListingId: '254',

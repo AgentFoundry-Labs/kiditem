@@ -175,12 +175,12 @@ export async function readListingTrafficWindowFacts(
         channelAccountId: string;
         createdAt: Date;
         createdOn: string | null;
-        sourceCandidateId: string | null;
+        salesProductId: string | null;
       }>>`
         SELECT channel_account_id AS "channelAccountId",
                created_at AS "createdAt",
                raw_json ->> 'createdOn' AS "createdOn",
-               source_candidate_id AS "sourceCandidateId"
+               sales_product_id AS "salesProductId"
         FROM channel_listings
         WHERE organization_id = ${input.organizationId}::uuid
           AND channel_account_id = ANY(${selectedAccountIds}::uuid[])

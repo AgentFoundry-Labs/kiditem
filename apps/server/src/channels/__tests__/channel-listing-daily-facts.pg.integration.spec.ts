@@ -692,20 +692,16 @@ describe('listing daily facts reader (PG integration)', () => {
 
     it('keeps the dates before the registration day of a listing KidItem registered after the attempt', async () => {
       const { accountId } = await collectedAccount('KIDITEM-REGISTERED');
-      const candidate = await prisma.sourcingCandidate.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceUrl: 'https://example.com/kiditem-registered-late',
-          sourcePlatform: 'test',
-          name: 'KidItem registered late',
-        },
+      // 등록 provenance 는 판매상품 초안이다(KID-310).
+      const draft = await prisma.salesProduct.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'KidItem registered late' },
       });
       // KidItem's registration creates the listing without Wing's createdOn.
       await prisma.channelListing.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: accountId,
-          sourceCandidateId: candidate.id,
+          salesProductId: draft.id,
           externalId: 'KIDITEM-REGISTERED-LATE',
           createdAt: afterStart,
         },

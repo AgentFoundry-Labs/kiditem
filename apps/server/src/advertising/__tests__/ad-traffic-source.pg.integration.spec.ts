@@ -1151,20 +1151,16 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     it('publishes zero traffic for a listing KidItem registered from its registration day', async () => {
       const plan = range(3);
       const registrationDate = dateShift(plan.startDate, 1);
-      const candidate = await prisma.sourcingCandidate.create({
-        data: {
-          organizationId: ORG,
-          sourceUrl: 'https://example.com/kiditem-registered',
-          sourcePlatform: 'test',
-          name: 'KidItem registered',
-        },
+      // 등록 provenance 는 판매상품 초안이다(KID-310) — 후보가 아니라 초안이 리스팅을 만든다.
+      const draft = await prisma.salesProduct.create({
+        data: { organizationId: ORG, name: 'KidItem registered' },
       });
       // KidItem's registration creates the listing without Wing's createdOn.
       const listing = await prisma.channelListing.create({
         data: {
           organizationId: ORG,
           channelAccountId: accountId,
-          sourceCandidateId: candidate.id,
+          salesProductId: draft.id,
           externalId: 'EXT-KIDITEM-REGISTERED',
           // Noon KST on the registration day, before the collection starts.
           createdAt: new Date(`${registrationDate}T03:00:00.000Z`),

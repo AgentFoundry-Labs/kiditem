@@ -43,7 +43,6 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       new ProductAvailabilityUseCase(
         new ProductAvailabilityRepositoryAdapter(prisma as never),
       ),
-      new RegistrationSourceAdapter(),
       new ListingContentQueryRepositoryAdapter(prisma as never),
     );
   });
@@ -507,14 +506,18 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       await createCandidate('https://example.com/kid-2', {
         manualBasics: { kcCertificationStatus: 'exists', kcCertificationNumber: 'CB061R1234-1001' },
       }, product.id);
-      const candidate = await prisma.sourcingCandidate.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID, sourceUrl: 'https://example.com/kid-2' },
+      const draft = await prisma.salesProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          name: '원목 블록',
+          certifications: [{ number: 'CB061R1234-1001' }],
+        },
       });
       await prisma.channelListing.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: COUPANG_ACCOUNT,
-          sourceCandidateId: candidate.id,
+          salesProductId: draft.id,
           externalId: 'EXT-2',
         },
       });
@@ -540,20 +543,24 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       });
 
       const { rows } = await repository.listPreflightProducts(TEST_ORGANIZATION_ID, { limit: 10, offset: 0 });
-      expect(rows[0]?.kc).toEqual({ status: 'exists', number: 'CB061R1234-1001' });
+      expect(rows[0]?.certificationNumbers).toEqual(['CB061R1234-1001']);
     });
 
-    it('falls back to the shared mall certificate number and to the listing that was registered from a candidate', async () => {
+    it('reads every certificate number the draft holds', async () => {
       const product = await createProduct('KID-3');
-      const candidate = await createCandidate('https://example.com/kid-3', {
-        manualBasics: { kcCertificationStatus: 'exists', mallRegisterShared: { certNumber: 'CB999' } },
+      const draft = await prisma.salesProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          name: '원목 블록',
+          certifications: [{ number: 'CB999' }],
+        },
       });
       await prisma.channelListing.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: COUPANG_ACCOUNT,
           externalId: 'EXT-3',
-          sourceCandidateId: candidate.id,
+          salesProductId: draft.id,
         },
       });
       const listing = await prisma.channelListing.findFirstOrThrow({
@@ -578,7 +585,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       });
 
       const { rows } = await repository.listPreflightProducts(TEST_ORGANIZATION_ID, { limit: 10, offset: 0 });
-      expect(rows[0]?.kc).toEqual({ status: 'exists', number: 'CB999' });
+      expect(rows[0]?.certificationNumbers).toEqual(['CB999']);
     });
 
     /**

@@ -41,6 +41,7 @@ describe('candidate registration state (PG integration)', () => {
         lock: async () => undefined,
         requireActive: async () => undefined,
       },
+      { findSalesProductWorkspaceId: async () => workspaceId } as never,
     );
     channelListings = new ChannelListingQueryService(
       new ChannelListingQueryPersistenceAdapter(prisma as unknown as PrismaService),
@@ -98,11 +99,12 @@ describe('candidate registration state (PG integration)', () => {
         salePrice: 1000,
       },
     });
+    // 작업공간은 그 후보의 판매상품 초안이 가진다(KID-310).
     workspaceId = (await prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: candidateId,
+        ownerType: 'sales_product',
+        salesProductId,
         displayName: 'Kids rain boots',
         normalizedTitle: 'kids rain boots',
         createdByUserId: TEST_USER_ID,
@@ -186,7 +188,7 @@ describe('candidate registration state (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: ACCOUNT_ID,
-        sourceCandidateId: candidateId,
+        salesProductId,
         externalId: 'registered-source-candidate',
         displayName: 'Kids rain boots',
         status: 'active',
@@ -252,9 +254,7 @@ describe('candidate registration state (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         salesProductId,
-        sourceCandidateId: candidateId,
         channelAccountId: ACCOUNT_ID,
-        sourceContentWorkspaceId: workspaceId,
         displayName: 'Kids rain boots',
         registrationInput: {},
         createdByUserId: TEST_USER_ID,

@@ -32,7 +32,7 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
         readRegistrationBasics: async () => [],
         lock: async () => undefined,
         requireActive: async () => undefined,
-      }),
+      }, { findSalesProductWorkspaceId: async () => null } as never),
     );
   });
 
@@ -96,21 +96,22 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
         status: 'active',
       },
     });
-    const workspace = await prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: candidateId,
-        displayName: 'Active registration candidate',
-        normalizedTitle: 'activeregistrationcandidate',
-      },
-    });
     const salesProduct = await prisma.salesProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidateId,
         code: 'PROMOTION-ACTIVE-REGISTRATION',
         name: 'Active registration candidate',
+      },
+    });
+    // 작업공간은 그 초안이 가진다(KID-310).
+    await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'sales_product',
+        salesProductId: salesProduct.id,
+        displayName: 'Active registration candidate',
+        normalizedTitle: 'activeregistrationcandidate',
       },
     });
     await prisma.salesProductOption.create({
@@ -127,9 +128,7 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         salesProductId: salesProduct.id,
-        sourceCandidateId: candidateId,
         channelAccountId: account.id,
-        sourceContentWorkspaceId: workspace.id,
         displayName: 'Active registration candidate',
         registrationInput: {},
       },

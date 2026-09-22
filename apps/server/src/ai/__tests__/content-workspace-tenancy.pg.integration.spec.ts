@@ -207,9 +207,7 @@ describe('AI content ownership constraints (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           salesProductId: localProduct.id,
-          sourceCandidateId: localCandidate.id,
           channelAccountId: localAccount.id,
-          sourceContentWorkspaceId: localWorkspace.id,
           displayName: 'Cross-tenant preparation',
           registrationInput: {},
           ...selections,

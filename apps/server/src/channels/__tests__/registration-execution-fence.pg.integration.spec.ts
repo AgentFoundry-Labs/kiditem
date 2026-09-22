@@ -43,18 +43,13 @@ describe('registration execution fence (PG integration)', () => {
     drafts = new ProductPreparationRepositoryAdapter(
       prisma as unknown as PrismaService,
       registrationSource,
+      workspaceFake(),
     );
     // 울타리는 실행 행만 쓰고 초안은 Sourcing 어댑터를 통해 만진다(ADR-0014).
     // 실제 두 어댑터를 그대로 엮어야 한 트랜잭션 계약이 여기서 검증된다.
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(registrationSource, {
-        findCandidateWorkspaceId: async () => null,
-        resolveSourceSelections: async (_opaqueTx, input) => input,
-        validateSourceSelections: async () => undefined,
-        ensureCandidateWorkspace: async (ownerTx) => ensureWorkspace(ownerTx),
-        branchToListing: async () => ({ workspaceId: '' }),
-      }),
+      new RegistrationDraftAdapter(registrationSource, workspaceFake()),
     );
     candidateRepository = new SourcingCandidateRepositoryAdapter(
       prisma as unknown as PrismaService,
@@ -149,7 +144,7 @@ describe('registration execution fence (PG integration)', () => {
 
     expect(left.preparationId).toBe(right.preparationId);
     expect(await prisma.registrationTarget.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId },
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: SALES_PRODUCT_ID },
     })).toBe(1);
   });
 
@@ -170,7 +165,7 @@ describe('registration execution fence (PG integration)', () => {
     expect(await prisma.registrationTarget.count({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
+        salesProductId: SALES_PRODUCT_ID,
         archivedAt: null,
       },
     })).toBe(2);
@@ -1255,13 +1250,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('rolls back a failed bundle allocation without leaving an execution or preparation', async () => {
-    const failingDrafts = new RegistrationDraftAdapter(new RegistrationSourceAdapter(), {
-      findCandidateWorkspaceId: async () => null,
-      resolveSourceSelections: async (_opaqueTx, input) => input,
-      validateSourceSelections: async () => undefined,
-      ensureCandidateWorkspace: async (opaqueTx) => ensureWorkspace(opaqueTx),
-      branchToListing: async () => ({ workspaceId: '' }),
-    });
+    const failingDrafts = new RegistrationDraftAdapter(new RegistrationSourceAdapter(), workspaceFake());
     vi.spyOn(failingDrafts, 'freezeForSubmission').mockRejectedValueOnce(
       new Error('forced transaction rollback after allocation'),
     );
@@ -1278,7 +1267,7 @@ describe('registration execution fence (PG integration)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).toBe(0);
     expect(await prisma.registrationTarget.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId },
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: SALES_PRODUCT_ID },
     })).toBe(0);
 
     await expect(repository.prepare({
@@ -1341,7 +1330,7 @@ describe('registration execution fence (PG integration)', () => {
     expect(await prisma.registrationTarget.count({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
+        salesProductId: SALES_PRODUCT_ID,
         archivedAt: null,
       },
     })).toBe(1);
@@ -1564,13 +1553,7 @@ describe('registration execution fence (PG integration)', () => {
     };
     const pausedRepository = new RegistrationExecutionRepositoryAdapter(
       pausedPrisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(new RegistrationSourceAdapter(), {
-        findCandidateWorkspaceId: async () => null,
-        resolveSourceSelections: async (_opaqueTx, input) => input,
-        validateSourceSelections: async () => undefined,
-        ensureCandidateWorkspace: async (opaqueTx) => ensureWorkspace(opaqueTx),
-        branchToListing: async () => ({ workspaceId: '' }),
-      }),
+      new RegistrationDraftAdapter(new RegistrationSourceAdapter(), workspaceFake()),
     );
     const supersede = pausedRepository.prepare({
       ...base,
@@ -1697,12 +1680,29 @@ describe('registration execution fence (PG integration)', () => {
     };
   }
 
+  /**
+   * AI 공개 작업공간 port 의 대역. 초안 하나에 작업공간 하나이고, 등록은 그 작업공간을
+   * 복제하지 않고 listing 을 가리키게만 한다(KID-310).
+   */
+  function workspaceFake() {
+    return {
+      findSalesProductWorkspaceId: async () => null,
+      resolveSourceSelections: async (_opaqueTx: OwnerTransaction, input: unknown) => input,
+      validateSourceSelections: async () => undefined,
+      ensureSalesProductWorkspace: async (ownerTx: OwnerTransaction) => ({
+        workspaceId: await ensureWorkspace(ownerTx),
+      }),
+      attachToListing: async () => ({ workspaceId: '' }),
+    } as never;
+  }
+
+  /** 콘텐츠 작업공간은 판매상품 초안이 가진다(KID-310). 후보는 그 초안이 가리킨다. */
   async function ensureWorkspace(ownerTx: OwnerTransaction): Promise<string> {
     const client = ownerTransactionClient(ownerTx);
     const existing = await client.contentWorkspace.findFirst({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
+        salesProductId: SALES_PRODUCT_ID,
         status: 'active',
         isDeleted: false,
       },
@@ -1711,8 +1711,8 @@ describe('registration execution fence (PG integration)', () => {
     return (await client.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: candidateId,
+        ownerType: 'sales_product',
+        salesProductId: SALES_PRODUCT_ID,
         displayName: 'Kids rain boots',
         normalizedTitle: 'kids rain boots',
         createdByUserId: TEST_USER_ID,
@@ -1744,7 +1744,7 @@ describe('registration execution fence (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: ACCOUNT_ID,
-        sourceCandidateId: candidateId,
+        salesProductId: SALES_PRODUCT_ID,
         externalId,
         displayName: 'Kids rain boots',
         status: 'active',
@@ -1756,7 +1756,7 @@ describe('registration execution fence (PG integration)', () => {
         ownerType: 'channel_listing',
         channelListingId: listing.id,
         originWorkspaceId: (await client.contentWorkspace.findFirstOrThrow({
-          where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId },
+          where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: SALES_PRODUCT_ID },
         })).id,
         displayName: 'Kids rain boots',
         normalizedTitle: 'kids rain boots',

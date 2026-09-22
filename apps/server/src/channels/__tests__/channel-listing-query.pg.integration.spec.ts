@@ -48,7 +48,7 @@ describe('channel listing list (PG integration)', () => {
         displayName: '수집으로만 생긴 상품',
         rawJson: { source: 'coupang_catalog_basics' },
       },
-      select: { id: true, salesProductId: true, sourceCandidateId: true },
+      select: { id: true, salesProductId: true },
     });
     const prepared = await prisma.channelListing.create({
       data: {
@@ -79,9 +79,8 @@ describe('channel listing list (PG integration)', () => {
     expect(listed.total).toBe(2);
     expect(listed.items.map((item) => item.externalId).sort())
       .toEqual(['P-COLLECTED-ONLY', 'P-WITH-WORKSPACE']);
-    // 후보도 판매상품도 지어내지 않는다.
+    // 판매상품을 지어내지 않는다 — 후보는 그 판매상품을 거쳐야만 닿는다(KID-310).
     expect(bare.salesProductId).toBeNull();
-    expect(bare.sourceCandidateId).toBeNull();
     expect(listed.items.find((item) => item.externalId === 'P-COLLECTED-ONLY'))
       .toMatchObject({ sourceCandidateId: null, contentWorkspaceId: null });
   });

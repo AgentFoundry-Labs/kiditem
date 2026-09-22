@@ -122,7 +122,7 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
           ...(input.activeAccountsOnly ? { status: 'active' } : {}) } },
       select: { id: true, channelAccountId: true, externalId: true, channelName: true, displayName: true,
         category: true, imageUrl: true, status: true, exposureStatus: true, isActive: true, rawJson: true,
-        salesProduct: { select: { sourceCandidateId: true } }, createdAt: true, updatedAt: true,
+        salesProductId: true, salesProduct: { select: { sourceCandidateId: true } }, createdAt: true, updatedAt: true,
         channelAccount: { select: { channel: true } },
         options: { where: { organizationId: input.organizationId, ...(input.activeOnly ? { isActive: true } : {}) },
           select: { id: true, externalOptionId: true, itemName: true, sellerSku: true, status: true,

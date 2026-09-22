@@ -13,7 +13,7 @@ import { wingListingRegistrationDate } from '../../channels/domain/registration/
  * stays unmeasured.
  */
 export function omittedListingFirstZeroTrafficDate(input: Readonly<{
-  listing: Readonly<{ createdAt: Date; createdOn: string | null; sourceCandidateId: string | null }>;
+  listing: Readonly<{ createdAt: Date; createdOn: string | null; salesProductId: string | null }>;
   collectionStartedAt: Date;
 }>): string | null {
   if (input.listing.createdAt >= input.collectionStartedAt) return null;
