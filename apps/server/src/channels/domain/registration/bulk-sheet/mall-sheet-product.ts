@@ -64,6 +64,47 @@ export interface MallSheetSourceProduct {
 
 const KEYS = SALES_PRODUCT_SABANGNET_VALUE_KEYS;
 
+/** 상품 × 몰에서 고른 등록 설정: 몰 키 → 등록 설정 id. 비어 있으면 0개/1개 흐름이다. */
+export type MallTargetSelection = ReadonlyMap<string, string>;
+
+type MallOverride = MallSheetSourceProduct['overrides'][number];
+
+/** 이 몰의 등록 설정들(ADR-0020) — 만든 순서 그대로. 0개면 공통값, 1개면 자동, 2개 이상이면 골라야 한다. */
+export function mallTargets(source: MallSheetSourceProduct, mallKey: string): MallOverride[] {
+  return source.overrides.filter((item) => item.mallKey === mallKey);
+}
+
+/** 이 몰의 등록 설정 경로 — 사람이 정한 값, 없으면 사방넷에서 옮긴 경로. */
+export function mallTargetCategoryPath(override: MallOverride): string | null {
+  const values = override.adapterValues;
+  return values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
+}
+
+/**
+ * 이 몰에서 쓸 등록 설정 하나. 하나뿐이면 그것, 고른 것이 있으면 그것. 둘 이상인데 고르지 않았으면
+ * `unselected` — 이때 값을 하나 몰래 고르지 않는다(틀린 가격이 몰로 간다).
+ */
+export function pickMallOverride(
+  source: MallSheetSourceProduct,
+  mallKey: string,
+  selection: MallTargetSelection = new Map(),
+): { override: MallOverride | null; unselected: boolean } {
+  const targets = mallTargets(source, mallKey);
+  if (targets.length <= 1) return { override: targets[0] ?? null, unselected: false };
+  const chosen = selection.get(mallKey);
+  const override = chosen ? targets.find((item) => item.targetId === chosen) ?? null : null;
+  return override ? { override, unselected: false } : { override: null, unselected: true };
+}
+
+/** 이 파일이 다루는 몰 중 등록 설정을 아직 고르지 않은 몰. */
+export function unselectedMalls(
+  source: MallSheetSourceProduct,
+  mallKeys: readonly string[],
+  selection: MallTargetSelection = new Map(),
+): string[] {
+  return mallKeys.filter((mallKey) => pickMallOverride(source, mallKey, selection).unselected);
+}
+
 // 몰 등록 폼과 같은 이름을 보내야 해서 공용 함수를 쓴다(`@kiditem/shared/sales-product`).
 export { mallDisplayName };
 
@@ -76,13 +117,30 @@ function borrowCategoryPath(
   spec: Pick<MallBulkSheetSpec, 'categorySharesWith'>,
   mallKey: string,
   categories: MallCategoryLookup,
+  selection: MallTargetSelection,
 ): string | null {
   for (const donor of spec.categorySharesWith ?? []) {
-    const values = source.overrides.find((item) => item.mallKey === donor)?.adapterValues ?? {};
-    const path = values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
+    const path = donorCategoryPath(source, donor, selection);
     if (path && categories.code(mallKey, path)) return path;
   }
   return null;
+}
+
+/**
+ * 빌려 올 몰이 가리키는 분류 경로. 그 몰 설정을 골랐으면 고른 것, 아니면 설정들이 **한 경로로 모일 때만** 그 경로다 —
+ * 설정마다 분류가 다르면 어느 쪽인지 알 수 없어 빌리지 않는다.
+ */
+function donorCategoryPath(
+  source: MallSheetSourceProduct,
+  donor: string,
+  selection: MallTargetSelection,
+): string | null {
+  const { override } = pickMallOverride(source, donor, selection);
+  if (override) return mallTargetCategoryPath(override);
+  const paths = new Set(mallTargets(source, donor)
+    .map(mallTargetCategoryPath)
+    .filter((path): path is string => path !== null));
+  return paths.size === 1 ? [...paths][0]! : null;
 }
 
 function joinText(parts: readonly (string | null | undefined)[], separator: string): string {
@@ -156,6 +214,8 @@ export function toMallSheetProduct(
   categories: MallCategoryLookup,
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(사진 올리기로 만든 것). */
   publicCopies: ReadonlyMap<string, string> = new Map(),
+  /** 몰마다 고른 등록 설정. 설정이 둘 이상인 몰은 이 선택이 있어야 그 설정 값으로 푼다. */
+  selection: MallTargetSelection = new Map(),
 ): MallSheetProduct {
   // 사진이 전부 몰이 읽는 주소로 바뀌어야 우리 사진을 쓴다. 하나라도 못 바꾸면 사방넷 원래 주소로 물러선다.
   const mapped = source.imageUrls.map((url) => publicUrlOf(url, publicCopies));
@@ -178,10 +238,9 @@ export function toMallSheetProduct(
       ? Math.min(...selling.map((option) => option.salePrice))
       : source.salePrice;
   for (const mallKey of spec.mallKeys) {
-    // A duplicate target is ambiguous. Do not silently choose the first target;
-    // The sheet service blocks file generation until the caller selects one.
-    const mallOverrides = source.overrides.filter((item) => item.mallKey === mallKey);
-    const override = mallOverrides.length === 1 ? mallOverrides[0]! : null;
+    // 설정이 둘 이상이면 고른 것만 쓴다. 고르지 않았으면 공통값으로 두고, 파일은 서비스가 막는다 —
+    // 첫 번째를 조용히 고르면 다른 설정의 가격이 몰로 올라간다.
+    const { override } = pickMallOverride(source, mallKey, selection);
     const selectedIds = override?.selectedOptionIds ? new Set(override.selectedOptionIds) : null;
     const selected = selling.filter((option) => !selectedIds || !option.id || selectedIds.has(option.id));
     const resolved = selected.map((option) => ({
@@ -203,7 +262,7 @@ export function toMallSheetProduct(
     const values = override?.adapterValues ?? {};
     const ownPath = values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
     // 분류 체계가 같은 몰에서 빌려 온다(온채널 ← 스마트스토어). 이 몰 표에서 번호가 나올 때만 쓴다.
-    const borrowed = ownPath ? null : borrowCategoryPath(source, spec, mallKey, categories);
+    const borrowed = ownPath ? null : borrowCategoryPath(source, spec, mallKey, categories, selection);
     const categoryPath = ownPath ?? borrowed;
     const explicitCode = values.categoryCode?.trim() || null;
     malls[mallKey] = {

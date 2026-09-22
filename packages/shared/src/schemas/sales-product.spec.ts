@@ -3,6 +3,8 @@ import {
   buildSalesProductOptionCombinations,
   nextSalesProductOptionCode,
   SalesProductCreateInputSchema,
+  SalesProductMallCategoryAssignRequestSchema,
+  SalesProductMallSheetRequestSchema,
   SalesProductOptionsReplaceInputSchema,
   salesProductOptionKey,
 } from './sales-product';
@@ -82,5 +84,36 @@ describe('sales product input contract', () => {
       optionAxes: ['색상'],
       options: [{ values: ['빨강'], extraPrice: 500 }],
     }).options[0]!.extraPrice).toBe(500);
+  });
+});
+
+describe('mall sheet requests carry the chosen registration setting', () => {
+  const PRODUCT = '8b0b4f3e-6d77-4a58-9f43-2f1f2b7b8c21';
+  const TARGET = '8b0b4f3e-6d77-4a58-9f43-2f1f2b7b8c22';
+
+  it('accepts one setting per product and mall, and omits the list when nothing is chosen', () => {
+    expect(SalesProductMallSheetRequestSchema.parse({
+      salesProductIds: [PRODUCT],
+      targetIds: [{ salesProductId: PRODUCT, mallKey: 'gmarket', targetId: TARGET }],
+    }).targetIds).toEqual([{ salesProductId: PRODUCT, mallKey: 'gmarket', targetId: TARGET }]);
+    expect(SalesProductMallSheetRequestSchema.parse({ salesProductIds: [PRODUCT] }).targetIds).toBeUndefined();
+  });
+
+  it('refuses a setting reference that is not an identifier', () => {
+    expect(SalesProductMallSheetRequestSchema.safeParse({
+      targetIds: [{ salesProductId: PRODUCT, mallKey: 'gmarket', targetId: 'first' }],
+    }).success).toBe(false);
+    expect(SalesProductMallSheetRequestSchema.safeParse({
+      targetIds: [{ salesProductId: PRODUCT, mallKey: '', targetId: TARGET }],
+    }).success).toBe(false);
+  });
+
+  it('carries the chosen setting into a category save', () => {
+    expect(SalesProductMallCategoryAssignRequestSchema.parse({
+      mallKey: 'gmarket',
+      path: 'A>B',
+      salesProductIds: [PRODUCT],
+      targetIds: [{ salesProductId: PRODUCT, targetId: TARGET }],
+    }).targetIds).toEqual([{ salesProductId: PRODUCT, targetId: TARGET }]);
   });
 });

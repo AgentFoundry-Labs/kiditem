@@ -28,6 +28,7 @@ import {
   type SalesProductMallSheetCategoryList,
   type SalesProductMallSheetCheck,
   type SalesProductMallSheetList,
+  type SalesProductMallSheetTargetChoice,
   type SalesProductPublicImagePending,
   type SalesProductPublicImageSaveRequest,
   type SalesProductListQuery,
@@ -68,6 +69,8 @@ export const salesProductKeys = {
 export interface MallSheetRequestBody {
   salesProductIds?: string[];
   fixed: Record<string, string>;
+  /** 등록 설정이 둘 이상인 상품 × 몰에서 고른 설정. 이 요청에 든 상품 것만 보낸다. */
+  targetIds?: SalesProductMallSheetTargetChoice[];
 }
 
 function toQuery(query: Partial<SalesProductListQuery>): string {
@@ -142,7 +145,7 @@ export const salesProductApi = {
   /** 고른 판매상품으로 채운 몰 양식 파일(바이트와 파일 이름). 몰에 올리지 않는다. */
   downloadMallSheet: async (
     sheetKey: string,
-    body: Required<MallSheetRequestBody>,
+    body: MallSheetRequestBody & { salesProductIds: string[] },
   ): Promise<{ blob: Blob; fileName: string }> => {
     const response = await apiClient.fetchRaw(`${BASE}/mall-sheets/${encodeURIComponent(sheetKey)}/file`, {
       method: 'POST',

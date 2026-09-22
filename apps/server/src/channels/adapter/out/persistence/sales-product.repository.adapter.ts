@@ -1083,14 +1083,17 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
 
   async setMallCategoryPaths(
     organizationId: string,
-    writes: readonly { salesProductId: string; channelAccountId: string; path: string }[],
+    writes: readonly { salesProductId: string; channelAccountId: string; targetId?: string; path: string }[],
   ): Promise<number> {
     let written = 0;
     for (let start = 0; start < writes.length; start += MALL_VALUES_CHUNK) {
       const chunk = writes.slice(start, start + MALL_VALUES_CHUNK);
       for (const write of chunk) {
+        // 고른 설정이 있으면 그 설정만 — `resolve` 가 조직 · 상품 · 몰 계정 소속을 확인하고, 아니면 거절한다.
         const targetId = await this.registrationTargets.resolve(organizationId, {
-          salesProductId: write.salesProductId, channelAccountId: write.channelAccountId,
+          salesProductId: write.salesProductId,
+          channelAccountId: write.channelAccountId,
+          ...(write.targetId ? { targetId: write.targetId } : {}),
         });
         const target = await this.registrationTargets.get(organizationId, targetId);
         if (!target) throw new NotFoundException('등록 설정을 찾을 수 없습니다.');

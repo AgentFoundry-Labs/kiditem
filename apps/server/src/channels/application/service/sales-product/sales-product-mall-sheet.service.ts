@@ -15,6 +15,8 @@ import {
   type SalesProductMallSheetCheck,
   type SalesProductMallSheetList,
   type SalesProductMallSheetRequest,
+  type SalesProductMallSheetTargetChoice,
+  type SalesProductMallSheetTargets,
 } from '@kiditem/shared/sales-product';
 import {
   isPublicImageUrl,
@@ -33,10 +35,14 @@ import {
 import { MallCategoryLookup } from '../../../domain/registration/bulk-sheet/mall-sheet-categories';
 import { MallCategorySuggester } from '../../../domain/registration/bulk-sheet/mall-category-suggestions';
 import {
+  mallTargetCategoryPath,
+  mallTargets,
   pendingPublicImages,
   privateImageUrls,
   toMallSheetProduct,
   unreadableSheetImages,
+  unselectedMalls,
+  type MallTargetSelection,
   type MallSheetSourceProduct,
 } from '../../../domain/registration/bulk-sheet/mall-sheet-product';
 import {
@@ -105,10 +111,12 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     const missing = scope === 'missing' ? await this.repository.findMallSheetMissing(organizationId, spec.mallKeys) : null;
     const ids = missing?.salesProductIds ?? request.salesProductIds ?? [];
     const sources = await this.repository.readMallSheetProducts(organizationId, ids);
+    const selections = readSelections(byId(sources), spec.mallKeys, request.targetIds);
     const context = await this.context(spec, request, sources, organizationId);
     const suggester = new MallCategorySuggester(await this.repository.listMallCategoryPaths(organizationId));
     const products = sources.map((source) => {
-      const result = this.rowsFor(spec, source, context);
+      const selection = selections.get(source.id) ?? EMPTY_SELECTION;
+      const result = this.rowsFor(spec, source, context, selection);
       return {
         salesProductId: source.id,
         code: source.code,
@@ -117,8 +125,8 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
         problems: result.problems,
         warnings: result.warnings,
         unreadableImages: result.unreadableImages,
-        categories: ambiguousMalls(source, spec.mallKeys).length ? [] : categoryStates(spec, source, context, suggester),
-
+        categories: categoryStates(spec, source, context, suggester, selection),
+        mallTargets: targetChoices(source, spec.mallKeys),
       };
     });
     return {
@@ -141,6 +149,7 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
       throw new BadRequestException(`${spec.label}은(는) 한 파일에 ${spec.maxProducts}개까지 받습니다. 나눠서 받으세요.`);
     }
     const sources = await this.repository.readMallSheetProducts(organizationId, ids);
+    const selections = readSelections(byId(sources), spec.mallKeys, request.targetIds);
     const context = await this.context(spec, request, sources, organizationId);
     const missingFixed = missingFixedFields(spec, context.fixed);
     if (missingFixed.length) throw new BadRequestException(`비어 있는 고정값: ${missingFixed.join(', ')}`);
@@ -149,7 +158,7 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     const rows: MallSheetRow[] = [];
     const blocked: string[] = [];
     for (const source of sources) {
-      const result = this.rowsFor(spec, source, context);
+      const result = this.rowsFor(spec, source, context, selections.get(source.id) ?? EMPTY_SELECTION);
       if (result.problems.length) blocked.push(`${source.code} ${result.problems[0]}`);
       else rows.push(...result.rows);
     }
@@ -168,12 +177,24 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', '));
     }
-    const { mallKey, path, salesProductIds } = parsed.data;
+    const { mallKey, path, salesProductIds, targetIds } = parsed.data;
     const account = (await this.repository.listChannelAccounts(organizationId)).find((item) => item.channel === mallKey);
     if (!account) throw new BadRequestException(`'${mallKey}' 몰 계정이 없습니다.`);
+    const ids = [...new Set(salesProductIds)];
+    const sources = byId(await this.repository.readMallSheetProducts(organizationId, ids));
+    const selections = readSelections(sources, [mallKey], targetIds?.map((choice) => ({ ...choice, mallKey })));
     const written = await this.repository.setMallCategoryPaths(
       organizationId,
-      [...new Set(salesProductIds)].map((salesProductId) => ({ salesProductId, channelAccountId: account.id, path })),
+      ids.map((salesProductId) => {
+        const source = sources.get(salesProductId);
+        const selection = selections.get(salesProductId) ?? EMPTY_SELECTION;
+        if (source && unselectedMalls(source, [mallKey], selection).length) {
+          throw new BadRequestException(
+            `'${source.code}' 은(는) 이 몰에 등록 설정이 여러 개입니다 — 분류를 바꿀 등록 설정을 골라 주세요.`,
+          );
+        }
+        return { salesProductId, channelAccountId: account.id, targetId: selection.get(mallKey), path };
+      }),
     );
     const categories = new MallCategoryLookup(await this.files.categoryTables());
     this.logger.log(`몰 분류 정함 org=${organizationId} ${mallKey} '${path}' 상품 ${salesProductIds.length} · 바뀜 ${written}`);
@@ -203,10 +224,18 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     spec: MallBulkSheetSpec,
     source: MallSheetSourceProduct,
     context: SheetContext,
+    selection: MallTargetSelection,
   ): MallSheetRowsResult & { unreadableImages: number } {
-    const ambiguous = ambiguousMalls(source, spec.mallKeys);
-    if (ambiguous.length) return { rows: [], problems: ['몰별 등록 설정이 여러 개라 엑셀을 만들 수 없습니다. 등록 화면에서 사용할 설정을 선택해 진행해 주세요.'], warnings: [], unreadableImages: 0 };
-    const product = toMallSheetProduct(source, spec, context.categories, context.publicCopies);
+    const unselected = unselectedMalls(source, spec.mallKeys, selection);
+    if (unselected.length) {
+      return {
+        rows: [],
+        problems: ['몰별 등록 설정이 여러 개입니다 — 이 엑셀에 쓸 등록 설정을 골라 주세요.'],
+        warnings: [],
+        unreadableImages: 0,
+      };
+    }
+    const product = toMallSheetProduct(source, spec, context.categories, context.publicCopies, selection);
     if (product.options.length === 0) {
       return { rows: [], problems: ['파는 단품이 없습니다(모든 단품이 품절 · 미사용).'], warnings: [], unreadableImages: 0 };
     }
@@ -262,10 +291,13 @@ function categoryStates(
   source: MallSheetSourceProduct,
   context: SheetContext,
   suggester: MallCategorySuggester,
+  selection: MallTargetSelection,
 ): SalesProductMallSheetCategory[] {
   const categories = context.categories;
-  const product = toMallSheetProduct(source, spec, categories, context.publicCopies);
-  return spec.mallKeys.map((mallKey) => {
+  const product = toMallSheetProduct(source, spec, categories, context.publicCopies, selection);
+  // 아직 설정을 고르지 않은 몰은 어느 분류를 고칠지 알 수 없어 뺀다 — 나머지 몰 분류는 그대로 보인다.
+  const unselected = new Set(unselectedMalls(source, spec.mallKeys, selection));
+  return spec.mallKeys.filter((mallKey) => !unselected.has(mallKey)).map((mallKey) => {
     const mall = product.malls[mallKey]!;
     const values = mall.values;
     const origin = values.categoryCode?.trim() || values.categoryPath?.trim()
@@ -303,6 +335,59 @@ function kstDate(): string {
   return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
 }
 
-function ambiguousMalls(source: MallSheetSourceProduct, mallKeys: readonly string[]): string[] {
-  return mallKeys.filter((mallKey) => source.overrides.filter((item) => item.mallKey === mallKey).length > 1);
+const EMPTY_SELECTION: MallTargetSelection = new Map();
+
+function byId(sources: readonly MallSheetSourceProduct[]): Map<string, MallSheetSourceProduct> {
+  return new Map(sources.map((source) => [source.id, source]));
+}
+
+/**
+ * 요청이 고른 등록 설정을 상품별로 묶는다. 조직 · 상품 · 몰 소속은 이 조직에서 읽은 판매상품의 설정 목록에 있는지로
+ * 확인한다 — 다른 조직 · 다른 상품 · 다른 몰의 설정 id 는 그 목록에 없다. 상품 × 몰마다 하나만 받는다.
+ */
+function readSelections(
+  byId: ReadonlyMap<string, MallSheetSourceProduct>,
+  mallKeys: readonly string[],
+  choices: readonly SalesProductMallSheetTargetChoice[] | undefined,
+): Map<string, Map<string, string>> {
+  const byProduct = new Map<string, Map<string, string>>();
+  for (const choice of choices ?? []) {
+    if (!mallKeys.includes(choice.mallKey)) {
+      throw new BadRequestException(`'${choice.mallKey}' 은(는) 이 엑셀이 다루는 몰이 아닙니다 — 등록 설정을 고를 수 없습니다.`);
+    }
+    const source = byId.get(choice.salesProductId);
+    const known = source?.overrides.some(
+      (item) => item.mallKey === choice.mallKey && item.targetId === choice.targetId,
+    );
+    if (!known) {
+      throw new BadRequestException(`고른 등록 설정이 이 조직의 상품 · 몰에 없습니다(${choice.mallKey}).`);
+    }
+    const perMall = byProduct.get(choice.salesProductId) ?? new Map<string, string>();
+    if (perMall.has(choice.mallKey)) {
+      throw new BadRequestException(`'${source!.code}' 의 ${choice.mallKey} 등록 설정은 하나만 고를 수 있습니다.`);
+    }
+    perMall.set(choice.mallKey, choice.targetId);
+    byProduct.set(choice.salesProductId, perMall);
+  }
+  return byProduct;
+}
+
+/** 이 파일이 다루는 몰마다 고를 수 있는 등록 설정(ADR-0020). 두 개 이상이면 사람이 골라야 한다. */
+function targetChoices(source: MallSheetSourceProduct, mallKeys: readonly string[]): SalesProductMallSheetTargets[] {
+  return mallKeys.map((mallKey) => {
+    // id 로 가리킬 수 있는 설정만 고를거리다. 저장소가 읽은 설정에는 늘 id 가 있다.
+    const targets = mallTargets(source, mallKey).filter(
+      (target): target is typeof target & { targetId: string } => target.targetId !== undefined,
+    );
+    return {
+      mallKey,
+      targets: targets.map((target, index) => ({
+        id: target.targetId,
+        label: target.name?.trim() || `등록 설정 ${index + 1}`,
+        optionCount: target.selectedOptionIds?.length ?? 0,
+        categoryPath: mallTargetCategoryPath(target),
+      })),
+      selectionRequired: targets.length > 1,
+    };
+  });
 }
