@@ -129,9 +129,10 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
 
     await expect(
       repository.openPendingDirectGeneration({
-        subject: 'candidate',
+        subject: 'sales_product',
+        salesProductId: 'sales-product-1',
+        productName: '상품',
         organizationId: 'org-1',
-        sourceCandidateId: 'candidate-1',
         contentWorkspaceId: 'workspace-1',
         originalUrl: 'https://cdn.example.com/source.jpg',
         method: 'generate',

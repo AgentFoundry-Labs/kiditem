@@ -48,7 +48,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
 
     const result = await service.listRegistrationImages({
       organizationId: ORG,
-      sourceCandidateId: CANDIDATE,
+      salesProductId: CANDIDATE,
     });
 
     expect(result).toEqual({
@@ -72,7 +72,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
     const service = new ContentAssetService(repo);
 
     await expect(
-      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+      service.listRegistrationImages({ organizationId: ORG, salesProductId: CANDIDATE }),
     ).resolves.toEqual({
       primary: [],
       thumbnail: ['http://localhost:9000/a/dup.png'],
@@ -84,7 +84,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
     const service = new ContentAssetService(repository());
 
     await expect(
-      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+      service.listRegistrationImages({ organizationId: ORG, salesProductId: CANDIDATE }),
     ).resolves.toEqual({ primary: [], thumbnail: [], detail: [] });
   });
 
@@ -104,7 +104,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
     const service = new ContentAssetService(repo);
 
     await expect(
-      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+      service.listRegistrationImages({ organizationId: ORG, salesProductId: CANDIDATE }),
     ).resolves.toEqual({
       primary: [],
       thumbnail: [
@@ -131,7 +131,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
 
     await expect(service.loadRegistrationMedia({
       organizationId: ORG,
-      sourceCandidateId: CANDIDATE,
+      salesProductId: CANDIDATE,
     })).resolves.toEqual({
       registrationImages: {
         primary: [],
@@ -187,7 +187,7 @@ describe('ContentAssetService.replaceWorkspaceThumbnailGallery', () => {
       ],
     });
     await expect(
-      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+      service.listRegistrationImages({ organizationId: ORG, salesProductId: CANDIDATE }),
     ).resolves.toEqual({
       primary: [],
       thumbnail: [

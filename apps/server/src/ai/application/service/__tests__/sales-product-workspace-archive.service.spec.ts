@@ -3,7 +3,7 @@ import type { SalesProductWorkspaceArchiveRepositoryPort } from '../../port/out/
 import { SalesProductWorkspaceArchiveService } from '../sales-product-workspace-archive.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
-const CANDIDATE_ID = '22222222-2222-4222-8222-222222222222';
+const SALES_PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const ARCHIVED_AT = new Date('2026-05-15T08:00:00.000Z');
 
 describe('AI SalesProductWorkspaceArchiveService', () => {
@@ -39,7 +39,7 @@ describe('AI SalesProductWorkspaceArchiveService', () => {
     await expect(
       service.archiveSalesProductWorkspace(scope, {
         organizationId: ORG,
-        sourceCandidateId: CANDIDATE_ID,
+        salesProductId: SALES_PRODUCT_ID,
         archivedAt: ARCHIVED_AT,
       }),
     ).resolves.toEqual({
@@ -51,7 +51,7 @@ describe('AI SalesProductWorkspaceArchiveService', () => {
 
     expect(repository.archiveSalesProductWorkspace).toHaveBeenCalledWith(scope, {
       organizationId: ORG,
-      sourceCandidateId: CANDIDATE_ID,
+      salesProductId: SALES_PRODUCT_ID,
       archivedAt: ARCHIVED_AT,
     });
   });

@@ -39,7 +39,6 @@ describe('DetailPageGenerationRepositoryAdapter', () => {
       repository.openProcessingGenerationLedger({
         organizationId: 'org-1',
         contentWorkspaceId: 'workspace-1',
-        sourceCandidateId: 'candidate-1',
         triggeredByUserId: 'user-1',
         templateId: 'bold-vertical',
         rawInput: { rawTitle: '상품' } as never,
@@ -48,7 +47,6 @@ describe('DetailPageGenerationRepositoryAdapter', () => {
         sourceReferences: [
           {
             sourceType: 'sourcing_candidate',
-            sourceCandidateId: 'candidate-1',
             label: '상품 후보',
           },
         ],
@@ -76,7 +74,6 @@ describe('DetailPageGenerationRepositoryAdapter', () => {
         data: [
           expect.objectContaining({
             sourceType: 'sourcing_candidate',
-            sourceCandidateId: 'candidate-1',
             contentGenerationId: 'generation-1',
           }),
           expect.objectContaining({
@@ -124,7 +121,6 @@ describe('DetailPageGenerationRepositoryAdapter', () => {
       repository.openProcessingGenerationLedger({
         organizationId: 'org-1',
         contentWorkspaceId: 'workspace-1',
-        sourceCandidateId: null,
         triggeredByUserId: 'user-1',
         templateId: 'bold-vertical',
         rawInput: { rawTitle: '상품', productGenerationRequestHash: 'a'.repeat(64) } as never,
@@ -181,7 +177,6 @@ describe('DetailPageGenerationRepositoryAdapter', () => {
       repository.openProcessingGenerationLedger({
         organizationId: 'org-1',
         contentWorkspaceId: 'workspace-1',
-        sourceCandidateId: null,
         triggeredByUserId: 'user-1',
         templateId: 'bold-vertical',
         rawInput: { rawTitle: '상품', productGenerationRequestHash: 'b'.repeat(64) } as never,
@@ -240,7 +235,6 @@ describe('DetailPageGenerationRepositoryAdapter', () => {
     await expect(repository.openProcessingGenerationLedger({
       organizationId: 'org-1',
       contentWorkspaceId: 'workspace-1',
-      sourceCandidateId: null,
       triggeredByUserId: 'user-1',
       templateId: 'bold-vertical',
       rawInput: { rawTitle: '상품', productGenerationRequestHash: identity.requestHash } as never,

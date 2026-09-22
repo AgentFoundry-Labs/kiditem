@@ -177,7 +177,6 @@ export type ThumbnailRegistrationStatus = (typeof THUMBNAIL_REGISTRATION_STATUSE
 export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
   contentWorkspaceId: z.string(),
-  sourceCandidateId: z.string().nullable().optional(),
   originalUrl: z.string().nullable(),
   candidates: z.array(
     z.object({
