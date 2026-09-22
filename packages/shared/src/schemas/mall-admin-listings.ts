@@ -368,6 +368,12 @@ export const MallAdminListingsSubmissionSchema = z.object({
     mallKey: MallKeySchema,
     pageSize: z.number().int().positive().max(20_000),
     validatedList: z.literal(true),
+    /**
+     * 몰이 아직 상품코드를 내주지 않아 건너뛴 줄 수. 리스팅이 될 수 없는 줄이라 담지
+     * 않지만, 조용히 빠지면 사람이 수를 설명하지 못한다 — GS샵 판매대기 68건(라이브
+     * 2026-09-22: 435줄 중 367줄만 코드가 있다).
+     */
+    skippedWithoutMallCode: z.number().int().nonnegative().optional(),
   }).strict(),
 }).strict();
 export type MallAdminListingsSubmission = z.infer<typeof MallAdminListingsSubmissionSchema>;

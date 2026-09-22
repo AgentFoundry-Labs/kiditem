@@ -2428,6 +2428,7 @@
       const rows = [];
       const seen = new Set();
       let pagesRead = 0;
+      let skipped = 0;
       const end = new Date();
       for (let window = 0; window < WINDOW_LIMIT; window += 1) {
         const to = new Date(end);
@@ -2449,8 +2450,11 @@
           const chunk = index === 1 ? first : await page(day(from), day(to), index);
           if (chunk.totalSize !== first.totalSize) return fail("mall_total_changed");
           for (const item of chunk.list) {
+            // 판매대기 상품은 GS상품코드가 아직 없다(라이브 2026-09-22: 435줄 중 68줄).
+            // 몰 상품코드가 없으면 리스팅이 될 수 없으므로 담지 않고 세어 둔다.
             const mallProductCode = text(String(item?.prdCd ?? ""), 60);
-            if (!mallProductCode || !/^\d{1,15}$/.test(mallProductCode)) drift("prdCd");
+            if (!mallProductCode) { skipped += 1; continue; }
+            if (!/^\d{1,15}$/.test(mallProductCode)) drift("prdCd");
             // 창이 겹치면(같은 상품이 두 창에) 건너뛴다 — 경계 하루는 겹칠 수 있다.
             if (seen.has(mallProductCode)) continue;
             seen.add(mallProductCode);
@@ -2487,7 +2491,12 @@
             detailsMissing: 0,
           },
           rows,
-          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+          proof: {
+            mallKey: plan.mallKey,
+            pageSize: plan.pageSize,
+            validatedList: true,
+            skippedWithoutMallCode: skipped,
+          },
         },
       };
     } catch (error) {
@@ -2632,10 +2641,13 @@
     boribori: Object.freeze({
       mallName: "보리보리",
       origin: "https://seller-club.co.kr",
-      // 화면과 같은 100줄씩(라이브 2026-09-22: 1,362개 = 14쪽). 500줄로 받으면 몰이 30초
-      // 안에 답하지 못해 `mall_timeout` 으로 끝난다(실측).
+      // 화면과 같은 100줄씩(라이브 2026-09-22: 1,362개 = 14쪽).
       pageSize: 100,
-      startPath: "/product/productManagerList",
+      // ⚠️ 상품관리 화면(`/product/productManagerList`)을 열지 않는다. 그 화면은 열리자마자
+      // 렌더러를 1분 넘게 붙들어, 그 안에서 보낸 요청이 30초 시계에 먼저 걸린다(실측
+      // 2026-09-22: 기다렸다 세 번 다시 청해도 140초 내내 한 번도 못 받았다). 목록 조회는
+      // 주소(origin)만 같으면 되므로 가벼운 첫 화면에서 부른다.
+      startPath: "/",
       read: readBoriboriListings,
     }),
     "gs-shop": Object.freeze({
