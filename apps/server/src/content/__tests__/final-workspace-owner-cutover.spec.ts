@@ -52,7 +52,7 @@ describe('AI final workspace-owner cutover', () => {
       .filter((file) => file && !file.endsWith('.spec.ts'));
 
     expect(declarations).toEqual([
-      'apps/server/src/ai/application/port/in/workspace/registration-content-workspace.port.ts',
+      'apps/server/src/content/application/port/in/workspace/registration-content-workspace.port.ts',
     ]);
   });
 

@@ -312,7 +312,7 @@ owner-provided read-port 패턴을 그대로 복제한다.
 ### D7. 이미지 규격 실측 — **검증기는 있고 배선만 없음**
 
 `content_assets.width/height` 가 NULL 이라 크기로 못 거른다(spec §4).
-그러나 **실측 검증기가 이미 존재한다**: `apps/server/src/ai/domain/thumbnail-image-spec.ts` 의
+그러나 **실측 검증기가 이미 존재한다**: `apps/server/src/content/domain/thumbnail-image-spec.ts` 의
 `parseImageDimensions`(sharp) + `deriveImageSpec` 이 `<1000px` fail, 1:1 비율 이탈 fail,
 10MB 초과 fail 을 판정한다. 현재 **썸네일 AI 분석 도메인 전용**이고 WING 등록 경로에서
 호출되지 않는다. → 신규 구현이 아니라 **재사용 배선**이다.

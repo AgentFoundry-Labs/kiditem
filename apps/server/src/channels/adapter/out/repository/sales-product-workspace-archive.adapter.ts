@@ -3,7 +3,7 @@ import {
   AI_WORKSPACE_ARCHIVE_PORT,
   type AiWorkspaceArchivePort,
   type AiWorkspaceArchiveScope,
-} from '../../../../ai/application/port/in/workspace/sales-product-workspace-archive.port';
+} from '../../../../content/application/port/in/workspace/sales-product-workspace-archive.port';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { SalesProductWorkspaceArchivePort } from '../../../application/port/out/ai/sales-product-workspace-archive.port';

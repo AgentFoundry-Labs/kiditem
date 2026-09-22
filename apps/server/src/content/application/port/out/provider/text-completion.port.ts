@@ -1,7 +1,7 @@
 /**
  * Outgoing port for text completion (Gemini text models).
  *
- * apps/server/src/ai/CLAUDE.md "Transitional shortcuts" 에서 `text-ai.service`
+ * apps/server/src/content/CLAUDE.md "Transitional shortcuts" 에서 `text-ai.service`
  * 와 `detail-page-ai.service` 가 inline `fetch(...)` 로 Gemini text generation
  * API 를 직접 호출하던 패턴을 캡슐화한다. 모든 Gemini 텍스트 호출은 이 port
  * 를 거쳐야 application service 가 HTTP / SDK / API key 를 알지 않게 된다.

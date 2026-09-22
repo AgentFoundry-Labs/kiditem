@@ -1,5 +1,5 @@
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
-import { AiListingContentQueryModule } from '../ai/ai-listing-content-query.module';
+import { AiListingContentQueryModule } from '../content/ai-listing-content-query.module';
 import { Module } from '@nestjs/common';
 import { AdvertisingModule } from '../advertising/advertising.module';
 import { AnalyticsModule } from '../analytics/analytics.module';

@@ -1,4 +1,4 @@
-import { AiListingContentQueryModule } from '../ai/ai-listing-content-query.module';
+import { AiListingContentQueryModule } from '../content/ai-listing-content-query.module';
 import { ListingContentAdapter } from './adapter/out/content/listing-content.adapter';
 import { CHANNEL_LISTING_CONTENT_PORT, type ChannelListingContentPort } from './application/port/out/content/listing-content.port';
 import { CatalogIdentityService } from './application/service/collection/catalog-identity.service';

@@ -1,4 +1,4 @@
-import { AiListingContentQueryModule } from '../../../ai/ai-listing-content-query.module';
+import { AiListingContentQueryModule } from '../../../content/ai-listing-content-query.module';
 import { ChannelCatalogModule } from '../../../channels/channel-catalog.module';
 import { ProductCollectionRuntimeModule } from '../../../products/product-collection-runtime.module';
 import { SellpiaProductSalesModule } from '../../sellpia-product-sales/sellpia-product-sales.module';

@@ -1,5 +1,5 @@
-import { AI_LISTING_CONTENT_QUERY_PORT } from '../ai/application/port/in/workspace/listing-content-query.port';
-import { ListingContentQueryRepositoryAdapter } from '../ai/adapter/out/repository/listing-content-query.repository.adapter';
+import { AI_LISTING_CONTENT_QUERY_PORT } from '../content/application/port/in/workspace/listing-content-query.port';
+import { ListingContentQueryRepositoryAdapter } from '../content/adapter/out/repository/listing-content-query.repository.adapter';
 import { CHANNEL_LISTING_QUERY_PORT } from '../channels/application/port/in/listing/channel-listing-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT } from '../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_ACCOUNT_PORT } from '../channels/application/port/in/account/channel-account.port';

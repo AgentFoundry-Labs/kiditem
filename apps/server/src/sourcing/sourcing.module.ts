@@ -2,7 +2,7 @@ import { ChannelsRegistrationPreparationModule } from "../channels/channels-regi
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
-import { AiModule } from "../ai/ai.module";
+import { AiModule } from "../content/ai.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { ChannelsRegistrationExecutionModule } from "../channels/channels-registration-execution.module";

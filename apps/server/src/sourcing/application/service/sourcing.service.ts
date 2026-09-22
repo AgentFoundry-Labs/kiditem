@@ -23,7 +23,7 @@ import {
 import {
   SALES_PRODUCT_CONTENT_ASSET_PORT,
   type SalesProductContentAssetPort,
-} from '../../../ai/application/port/in/workspace/sales-product-content-asset.port';
+} from '../../../content/application/port/in/workspace/sales-product-content-asset.port';
 import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,
@@ -39,7 +39,7 @@ import type {
   ReceiveExtensionDataInput,
   RegisterManualProductCommand,
 } from '../port/in/sourcing.commands';
-import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
+import type { ProductGenerationTask } from '../../../content/application/port/in/generation/product-generation-ai-trigger.port';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',

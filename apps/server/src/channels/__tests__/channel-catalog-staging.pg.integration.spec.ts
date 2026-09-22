@@ -1,12 +1,12 @@
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
-import { ListingContentQueryRepositoryAdapter } from '../../ai/adapter/out/repository/listing-content-query.repository.adapter';
+import { ListingContentQueryRepositoryAdapter } from '../../content/adapter/out/repository/listing-content-query.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
+import { AiCatalogMediaPublicationRepositoryAdapter } from '../../content/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import {
   makeTestPrisma,
   resetDb,

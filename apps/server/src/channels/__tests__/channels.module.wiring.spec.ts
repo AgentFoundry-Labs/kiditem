@@ -55,7 +55,7 @@ import { ChannelProductMatchingService } from '../application/service/listing/ch
 import { ChannelRecipeSuggestionService } from '../application/service/listing/channel-recipe-suggestion.service';
 import { SellpiaManualMatchService } from '../application/service/listing/sellpia-manual-match.service';
 import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from '../application/port/out/repository/channel-product-matching.repository.port';
-import { CATALOG_DISPLAY_MEDIA_PORT } from '../../ai/application/port/in/workspace/catalog-display-media.port';
+import { CATALOG_DISPLAY_MEDIA_PORT } from '../../content/application/port/in/workspace/catalog-display-media.port';
 import { PRODUCT_AVAILABILITY_PORT } from '../../products/application/port/in/product-availability.port';
 import { CHANNEL_PRODUCT_AVAILABILITY_PORT } from '../application/port/out/products/product-availability.port';
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from '../application/port/out/repository/channel-recipe-suggestion-context.repository.port';

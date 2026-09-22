@@ -12,7 +12,7 @@ import { ProductSourceModule } from '../product-source.module';
 import { PRODUCT_QUERY_PORT } from '../application/port/in/product-query.port';
 import { PRODUCT_METADATA_PORT } from '../application/port/in/product-metadata.port';
 import { AnalyticsModule } from '../../analytics/analytics.module';
-import { AiModule } from '../../ai/ai.module';
+import { AiModule } from '../../content/ai.module';
 import { FinanceModule } from '../../finance/finance.module';
 import { ProductAbcController } from '../adapter/in/web/product-abc.controller';
 import { MASTER_PRODUCT_ABC_RECALCULATION_PORT } from '../application/port/in/master-product-abc-recalculation.port';

@@ -7,9 +7,9 @@ import { describe, expect, it } from 'vitest';
 import { ApiApplicationModule } from '../api-application.module';
 import { AgentOsInteractionHttpModule } from '../agent-os/agent-os-interaction-http.module';
 import { AgentOsHttpModule } from '../agent-os/agent-os-http.module';
-import { DetailPageEditorController } from '../ai/adapter/in/http/detail-page-editor.controller';
-import { ImageAiController } from '../ai/adapter/in/http/image-ai.controller';
-import { ThumbnailAnalysisGenerationReviewController } from '../ai/adapter/in/http/thumbnail-analysis-generation-review.controller';
+import { DetailPageEditorController } from '../content/adapter/in/http/detail-page-editor.controller';
+import { ImageAiController } from '../content/adapter/in/http/image-ai.controller';
+import { ThumbnailAnalysisGenerationReviewController } from '../content/adapter/in/http/thumbnail-analysis-generation-review.controller';
 import { inspectStaticApplicationRootPolicy } from './application-root-policy';
 
 type ModuleLike =

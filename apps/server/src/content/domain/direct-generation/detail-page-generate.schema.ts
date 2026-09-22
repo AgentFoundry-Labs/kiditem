@@ -2,8 +2,8 @@
  * Detail-page direct generation input/output contract.
  *
  * `result` 의 모양은 ai 도메인이 이미 보유한 templateId 별 1-call schema 와
- * 1:1 대응한다 (`apps/server/src/ai/domain/prompts/detail-page/single-call.ts`,
- * `apps/server/src/ai/domain/prompts/bold-vertical/single-call.ts`).
+ * 1:1 대응한다 (`apps/server/src/content/domain/prompts/detail-page/single-call.ts`,
+ * `apps/server/src/content/domain/prompts/bold-vertical/single-call.ts`).
  *
  * Domain 계층이라 Nest/Prisma/HTTP 의존이 없다. Zod 만 사용한다.
  */

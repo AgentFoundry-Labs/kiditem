@@ -1,5 +1,5 @@
 import { RegistrationSourceAdapter } from '../../../../../sourcing/adapter/out/repository/registration-source.adapter';
-import { ListingContentQueryRepositoryAdapter } from '../../../../../ai/adapter/out/repository/listing-content-query.repository.adapter';
+import { ListingContentQueryRepositoryAdapter } from '../../../../../content/adapter/out/repository/listing-content-query.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';

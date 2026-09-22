@@ -9,7 +9,7 @@ import {
   assertSelectedThumbnailAllowed,
 } from '../../../domain/registration/selected-thumbnail';
 import type { SalesProductStatus } from '@kiditem/shared/sales-product';
-import type { ResolvedRegistrationContentSelections } from '../../../../ai/application/port/in/workspace/registration-content-workspace.port';
+import type { ResolvedRegistrationContentSelections } from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
 
 /**
  * 초안 행을 다루는 공용 조각. 초안 CRUD 어댑터와 등록 울타리가 쓰는 초안 어댑터가

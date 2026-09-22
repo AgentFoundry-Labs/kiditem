@@ -11,8 +11,8 @@ import {
   productAbcDisplayStatus,
 } from '@kiditem/shared/product-abc';
 import { periodBasisStatus } from '@kiditem/shared/dashboard';
-import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
-import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
+import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/repository/catalog-display-media.repository.adapter';
+import { CatalogDisplayMediaService } from '../../content/application/service/catalog-display-media.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,

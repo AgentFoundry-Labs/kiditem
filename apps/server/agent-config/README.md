@@ -37,7 +37,7 @@ definition registry 가 프롬프트 파일 경로를 참조한다.
 1. `agent-config/prompts/agents/` 에 프롬프트 마크다운 파일 추가
 2. 필요 시 `agent-config/rules/` 에 도메인 규칙 문서 추가
 3. `apps/server/src/agent-os/domain/agent-definition.registry.ts` 에 definition 등록
-4. 필요한 경우 `apps/server/src/ai/domain/agent-output/` 에 결과 Zod 스키마 추가
+4. 필요한 경우 `apps/server/src/content/domain/agent-output/` 에 결과 Zod 스키마 추가
 
 ## 새 규칙 문서 추가
 

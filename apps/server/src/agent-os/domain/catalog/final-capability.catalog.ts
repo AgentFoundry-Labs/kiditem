@@ -1,5 +1,5 @@
 import type { CapabilityDefinition } from '../../../common/capability-definition';
-import { AI_CAPABILITIES } from '../../../ai/domain/capability/ai.capabilities';
+import { AI_CAPABILITIES } from '../../../content/domain/capability/ai.capabilities';
 import { ANALYTICS_CAPABILITIES } from '../../../analytics/domain/capability/analytics.capabilities';
 import { CHANNELS_CAPABILITIES } from '../../../channels/domain/capability/channels.capabilities';
 import { PRODUCTS_CAPABILITIES } from '../../../products/domain/capability/products.capabilities';

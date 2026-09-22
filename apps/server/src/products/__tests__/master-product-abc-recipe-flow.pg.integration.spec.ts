@@ -7,8 +7,8 @@ import {
   productAbcDisplayStatus,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
 } from '@kiditem/shared/product-abc';
-import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
-import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
+import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/repository/catalog-display-media.repository.adapter';
+import { CatalogDisplayMediaService } from '../../content/application/service/catalog-display-media.service';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProductInventoryReader } from '../../analytics/sellpia-product-sales/sellpia-product-inventory-reader';

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ProductGenerationAiTriggerPort } from '../../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
+import type { ProductGenerationAiTriggerPort } from '../../../../../content/application/port/in/generation/product-generation-ai-trigger.port';
 import { SourcingAgentGatewayAdapter } from '../sourcing-agent.gateway.adapter';
 
 describe('SourcingAgentGatewayAdapter', () => {

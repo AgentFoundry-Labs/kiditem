@@ -8,7 +8,7 @@ import { UpdateProductMetadataUseCase } from './application/usecase/update-produ
 import { Module } from '@nestjs/common';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { FinanceModule } from '../finance/finance.module';
-import { AiModule } from '../ai/ai.module';
+import { AiModule } from '../content/ai.module';
 import { ProductOperationsController } from './adapter/in/web/product-operations.controller';
 import { ProductAbcController } from './adapter/in/web/product-abc.controller';
 import { ProductOperationsRepositoryAdapter } from './adapter/out/persistence/product-operations.repository.adapter';

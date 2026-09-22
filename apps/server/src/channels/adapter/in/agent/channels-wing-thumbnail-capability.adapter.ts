@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   AI_WING_REGISTRATION_CAPABILITY_PORT,
   type AiWingRegistrationCapabilityPort,
-} from '../../../../ai/application/port/in/capability/wing-registration.port';
+} from '../../../../content/application/port/in/capability/wing-registration.port';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import type { ChannelsWingThumbnailCapabilityPort } from '../../../application/port/in/capability/wing-thumbnail.port';
 

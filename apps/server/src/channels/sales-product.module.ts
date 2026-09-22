@@ -35,7 +35,7 @@ import { SalesProductRepositoryAdapter } from './adapter/out/persistence/sales-p
 import { SALES_PRODUCT_REPOSITORY_PORT } from './application/port/out/persistence/sales-product.repository.port';
 import { SabangnetProductImportService } from './application/service/collection/sabangnet-product-import.service';
 import { SalesProductUseCase } from './application/service/sales-product/sales-product.usecase';
-import { AiModule } from '../ai/ai.module';
+import { AiModule } from '../content/ai.module';
 import { SalesProductWorkspaceArchiveAdapter } from './adapter/out/repository/sales-product-workspace-archive.adapter';
 import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from './application/port/out/ai/sales-product-workspace-archive.port';
 

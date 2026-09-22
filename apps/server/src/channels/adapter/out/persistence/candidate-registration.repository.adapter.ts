@@ -13,7 +13,7 @@ import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
-} from '../../../../ai/application/port/in/workspace/registration-content-workspace.port';
+} from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
 import {
   SALES_PRODUCT_THUMBNAIL_SOURCE_PORT,
   type SalesProductThumbnailSourcePort,

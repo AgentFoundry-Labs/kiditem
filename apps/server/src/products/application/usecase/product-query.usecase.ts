@@ -39,7 +39,7 @@ import {
 import {
   CATALOG_DISPLAY_MEDIA_PORT,
   type CatalogDisplayMediaPort,
-} from '../../../ai/application/port/in/workspace/catalog-display-media.port';
+} from '../../../content/application/port/in/workspace/catalog-display-media.port';
 import {
   PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
   type ProductOperationsDataStatusRepositoryPort,

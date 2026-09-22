@@ -1,12 +1,12 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { AiUsageContextInterceptor } from './ai/adapter/in/http/ai-usage-context.interceptor';
+import { AiUsageContextInterceptor } from './content/adapter/in/http/ai-usage-context.interceptor';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-http.module';
 import { AgentOsRuntimeHttpModule } from './agent-os/agent-os-runtime-http.module';
-import { AiModule } from './ai/ai.module';
+import { AiModule } from './content/ai.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { TodoModule } from './todo/todo.module';
 import { AnalyticsModule } from './analytics/analytics.module';

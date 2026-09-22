@@ -1,10 +1,10 @@
-import { AiListingContentQueryModule } from '../ai/ai-listing-content-query.module';
+import { AiListingContentQueryModule } from '../content/ai-listing-content-query.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
-import { AiModule } from "../ai/ai.module";
+import { AiModule } from "../content/ai.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { AdvertisingProfitabilityReadModule } from "./advertising-profitability-read.module";
 import { AdvertisingActionsController } from "./adapter/in/http/advertising-actions.controller";

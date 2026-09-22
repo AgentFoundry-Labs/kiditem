@@ -1,4 +1,4 @@
-import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../ai/application/port/in/workspace/listing-content-query.port';
+import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../content/application/port/in/workspace/listing-content-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
 import { ownerTransaction } from '../../prisma/owner-transaction';

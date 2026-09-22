@@ -2,7 +2,7 @@ import { ownerTransaction } from '../prisma/owner-transaction';
 import type { ChannelListingQueryPort } from '../channels/application/port/in/listing/channel-listing-query.port';
 import type { ChannelOptionRecipePort } from '../channels/application/port/in/channel-option-recipe.port';
 import type { ChannelAccountPort } from '../channels/application/port/in/account/channel-account.port';
-import type { ListingContentQueryPort } from '../ai/application/port/in/workspace/listing-content-query.port';
+import type { ListingContentQueryPort } from '../content/application/port/in/workspace/listing-content-query.port';
 
 import type { Prisma } from '@prisma/client';
 import {

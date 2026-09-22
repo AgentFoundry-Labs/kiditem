@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AiModule } from '../ai/ai.module';
+import { AiModule } from '../content/ai.module';
 import { REGISTRATION_SOURCE_PORT } from './application/port/in/registration-source.port';
 import { RegistrationSourceAdapter } from './adapter/out/repository/registration-source.adapter';
 

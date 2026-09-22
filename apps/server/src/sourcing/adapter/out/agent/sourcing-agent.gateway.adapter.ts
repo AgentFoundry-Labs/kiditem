@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
   type ProductGenerationAiTriggerPort,
-} from '../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
+} from '../../../../content/application/port/in/generation/product-generation-ai-trigger.port';
 import type {
   SourcingAgentGatewayPort,
   SourcingRegisterUploadedDetailPageRequest,

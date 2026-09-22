@@ -1,8 +1,8 @@
 Before working in this directory, always read this document first rather than relying on memory.
 
-# ai — Media AI And Direct Generation
+# content — Media AI And Direct Generation
 
-`src/ai/` owns generated media, detail-page content, direct AI job execution,
+`src/content/` owns generated media, detail-page content, direct AI job execution,
 workspace projection, and provider/storage adapters. HTTP adapters live under
 `adapter/in`; application orchestration uses ports; `domain/` is pure.
 

@@ -811,11 +811,11 @@
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
-      "from": "apps/server/src/ai/adapter/out/repository/thumbnail-generation-ledger.query.ts"
+      "from": "apps/server/src/content/adapter/out/repository/thumbnail-generation-ledger.query.ts"
     },
     {
-      "from": "apps/server/src/ai/application/service/detail-page-ai.service.ts",
-      "to": "apps/server/src/ai/application/service/detail-page-ai.types.ts",
+      "from": "apps/server/src/content/application/service/detail-page-ai.service.ts",
+      "to": "apps/server/src/content/application/service/detail-page-ai.types.ts",
       "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
       "removeWith": "KID-309"
     },
