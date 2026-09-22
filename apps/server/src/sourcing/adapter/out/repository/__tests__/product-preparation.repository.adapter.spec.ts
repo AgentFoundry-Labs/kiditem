@@ -89,7 +89,6 @@ function setup(existingExecution: {
       operation(tx)),
   };
   const source = {
-    readRegistrationBasics: vi.fn().mockResolvedValue([]),
     lock: vi.fn().mockResolvedValue(undefined),
     requireActive: vi.fn().mockResolvedValue(undefined),
   };

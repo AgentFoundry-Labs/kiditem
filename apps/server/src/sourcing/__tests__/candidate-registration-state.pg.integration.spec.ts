@@ -37,7 +37,6 @@ describe('candidate registration state (PG integration)', () => {
     const registrations = new ProductPreparationRepositoryAdapter(
       prisma as unknown as PrismaService,
       {
-        readRegistrationBasics: async () => [],
         lock: async () => undefined,
         requireActive: async () => undefined,
       },

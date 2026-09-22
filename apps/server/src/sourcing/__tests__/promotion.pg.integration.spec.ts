@@ -29,7 +29,6 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
     service = new SourcingPromotionService(
       new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService),
       new ProductPreparationRepositoryAdapter(prisma as unknown as PrismaService, {
-        readRegistrationBasics: async () => [],
         lock: async () => undefined,
         requireActive: async () => undefined,
       }, { findSalesProductWorkspaceId: async () => null } as never),

@@ -17,7 +17,8 @@ belong to Supply; supplier payments belong to Finance.
   not on the candidate (KID-310). Capturing a candidate asks Channels for one
   draft per candidate, and rejecting or deleting a candidate sends that draft
   to `unused` unless a mall still holds it. Both go through
-  `application/port/out/cross-domain/sales-product-draft.port.ts`.
+  `application/port/out/cross-domain/sales-product-draft.port.ts`
+  ([ADR-0022](../../../../docs/adr/0022-sales-product-drafts-exist-from-collection.md)).
 - `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` are the
   append-only collection/evidence ledger. Supplier-offer snapshots, launch
   candidates, decisions, and procurement intents retain immutable provenance.
