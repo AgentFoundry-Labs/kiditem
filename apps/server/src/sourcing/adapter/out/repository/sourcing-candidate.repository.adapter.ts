@@ -132,12 +132,12 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     throw new Error('sourcing_owner_idempotency_receipt_retry_exhausted');
   }
 
-  async claimQuickProcessCandidate(input: {
+  async claimQuickProcess(input: {
     organizationId: string;
-    candidateId: string;
+    salesProductId: string;
     idempotencyKey: string;
     requestHash: string;
-  }): Promise<{ candidateId: string }> {
+  }): Promise<{ salesProductId: string }> {
     const capabilityKey = 'sourcing.quick_process';
     return this.prisma.$transaction(async (tx) => {
       await advisoryLock(
@@ -159,10 +159,10 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         if (receipt.requestHash !== input.requestHash) {
           throw new Error('owner_idempotency_input_conflict');
         }
-        return receiptCandidateResult(receipt.result);
+        return receiptSalesProductResult(receipt.result);
       }
 
-      const result = { candidateId: input.candidateId };
+      const result = { salesProductId: input.salesProductId };
       await tx.sourcingOwnerIdempotencyReceipt.create({
         data: {
           organizationId: input.organizationId,
@@ -479,6 +479,24 @@ async function advisoryLock(
     // queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
     Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"`,
   );
+}
+
+/**
+ * 생성 시작 영수증에 적힌 대상. 지금은 판매상품 초안이다(KID-310).
+ *
+ * 후보 키로 적힌 옛 영수증은 읽지 않는다 — 같은 멱등 키로 다시 와도 요청 해시가 이미 달라
+ * 앞에서 충돌로 막힌다. cutover 때 writer 가 멈추므로 재생될 in-flight 키도 없다.
+ */
+function receiptSalesProductResult(value: Prisma.JsonValue): { salesProductId: string } {
+  if (
+    value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && typeof (value as Record<string, unknown>).salesProductId === 'string'
+  ) {
+    return { salesProductId: (value as Record<string, string>).salesProductId };
+  }
+  throw new Error('sourcing_owner_idempotency_receipt_invalid');
 }
 
 function receiptCandidateResult(value: Prisma.JsonValue): { candidateId: string } {

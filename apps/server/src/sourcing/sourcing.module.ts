@@ -27,6 +27,7 @@ import { SOURCING_CAPABILITY_ADMISSION_PORT } from './application/port/in/capabi
 import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from './application/port/in/capability/sourcing-final-discovery-capability.port';
 import { SOURCING_BROWSER_SCRAPE_PORT } from './application/port/out/runtime/sourcing-browser-scrape.port';
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
+import { SalesProductGenerationController } from "./adapter/in/http/sales-product-generation.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
 import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1688-search-result.controller";
 import { Sourcing1688SearchController } from "./adapter/in/http/sourcing-1688-search.controller";
@@ -166,6 +167,7 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingRisingProductController,
     SourcingIntelligenceController,
     SourcingCandidateWorkspaceController,
+    SalesProductGenerationController,
     MarketShadowSignalController,
     SourcingInterestTargetController,
     SourcingWorkspaceController,

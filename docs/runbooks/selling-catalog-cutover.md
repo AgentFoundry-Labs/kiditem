@@ -130,6 +130,13 @@ KID codes are **not** issued here. A draft carries no `code` until somebody
 decides to sell it — the first registration target or the mall workbook file
 issues it (`ensureSalesProductCodes`). Re-running `023` changes nothing.
 
+Generation-start receipts (`sourcing_owner_idempotency_receipts`,
+`capabilityKey = 'sourcing.quick_process'`) are not migrated. Their `result` is
+now `{ salesProductId }` and the request hash covers the selling product, so a
+receipt written before the cutover no longer matches and its key is refused as a
+conflict rather than replayed. Writers are stopped during the cutover, so no
+in-flight key can be replayed across it; leave the old rows in place.
+
 The focused Testcontainers suite is
 `apps/server/src/__tests__/sales-product-draft-cutover.pg.integration.spec.ts`.
 

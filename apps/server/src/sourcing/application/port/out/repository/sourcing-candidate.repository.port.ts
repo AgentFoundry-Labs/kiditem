@@ -129,12 +129,13 @@ export interface SourcingCandidateRepositoryPort {
   upsertSourcedWithIdempotencyReceipt(
     input: UpsertCandidateWithIdempotencyReceiptInput,
   ): Promise<{ candidateId: string }>;
-  claimQuickProcessCandidate(input: {
+  /** 생성 시작을 한 번만 받는 영수증. 대상은 판매상품 초안이다(KID-310). */
+  claimQuickProcess(input: {
     organizationId: string;
-    candidateId: string;
+    salesProductId: string;
     idempotencyKey: string;
     requestHash: string;
-  }): Promise<{ candidateId: string }>;
+  }): Promise<{ salesProductId: string }>;
   mergeDescription(input: {
     organizationId: string;
     sourceUrl: string;

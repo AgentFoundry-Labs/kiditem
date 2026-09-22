@@ -7,7 +7,7 @@ function makeCandidateRepo() {
   return {
     upsertSourced: vi.fn().mockResolvedValue({ id: 'cand-1' }),
     upsertSourcedWithIdempotencyReceipt: vi.fn().mockResolvedValue({ candidateId: 'cand-1' }),
-    claimQuickProcessCandidate: vi.fn().mockResolvedValue({ candidateId: 'candidate-1' }),
+    claimQuickProcess: vi.fn().mockResolvedValue({ salesProductId: DRAFT_ID }),
     mergeDescription: vi.fn().mockResolvedValue({ id: 'cand-1' }),
     findActiveBySourceUrl: vi.fn().mockResolvedValue(null),
     findById: vi.fn(),
@@ -63,6 +63,8 @@ function draftRow() {
     productSize: null,
     colorVariantNames: [],
     boxSetQuantity: null,
+    kcStatus: 'unknown' as const,
+    sourceCandidateId: 'candidate-1',
   };
 }
 
@@ -370,7 +372,7 @@ describe('SourcingService — candidate ingest', () => {
     }));
   });
 
-  it('quickProcessCandidate delegates product generation for an existing candidate without creating a new candidate', async () => {
+  it('startProductGeneration delegates product generation for an existing draft without creating a new candidate', async () => {
     repo.findById.mockResolvedValueOnce(quickProcessCandidate());
     gateway.startProductGeneration.mockResolvedValueOnce({
       salesProductId: DRAFT_ID,
@@ -380,8 +382,8 @@ describe('SourcingService — candidate ingest', () => {
       href: '/product-pipeline/collected-products/candidate-1',
     });
 
-    const result = await service.quickProcessCandidate(
-      'candidate-1',
+    const result = await service.startProductGeneration(
+      DRAFT_ID,
       'org-1',
       'user-1',
       'all',
@@ -389,13 +391,13 @@ describe('SourcingService — candidate ingest', () => {
     );
 
     expect(repo.upsertSourced).not.toHaveBeenCalled();
-    expect(repo.claimQuickProcessCandidate).toHaveBeenCalledWith({
+    expect(repo.claimQuickProcess).toHaveBeenCalledWith({
       organizationId: 'org-1',
-      candidateId: 'candidate-1',
+      salesProductId: DRAFT_ID,
       idempotencyKey: 'quick-process-key',
       requestHash: canonicalOwnerInputHash({
         kind: 'sourcing.quick_process',
-        candidateId: 'candidate-1',
+        salesProductId: DRAFT_ID,
         task: 'all',
       }),
     });
@@ -422,7 +424,7 @@ describe('SourcingService — candidate ingest', () => {
       idempotencyKey: 'quick-process-key',
       requestHash: canonicalOwnerInputHash({
         kind: 'sourcing.quick_process',
-        candidateId: 'candidate-1',
+        salesProductId: DRAFT_ID,
         task: 'all',
       }),
     }));
@@ -435,14 +437,42 @@ describe('SourcingService — candidate ingest', () => {
     }));
   });
 
+  /**
+   * 직접 작성한 초안에는 원천 기록이 없다. 편집 정본이 초안이므로 생성이 쓸 값은 다 있고,
+   * 후보를 못 찾았다고 생성이 막히면 안 된다(KID-310 · ADR-0022).
+   */
+  it('⭐ 후보 없는 직접 작성 초안도 생성을 시작한다', async () => {
+    drafts.getDraft.mockResolvedValueOnce({ ...draftRow(), sourceCandidateId: null });
+    gateway.startProductGeneration.mockResolvedValueOnce({
+      salesProductId: DRAFT_ID,
+      detailGenerationId: 'detail-1',
+      thumbnailGenerationId: 'thumb-1',
+      contentWorkspaceId: 'workspace-1',
+      href: `/product-hub/sales-products/${DRAFT_ID}`,
+    });
+
+    const result = await service.startProductGeneration(
+      DRAFT_ID, 'org-1', 'user-1', 'all', 'direct-key',
+    );
+
+    // 후보를 아예 찾지 않는다 — 찾을 것이 없다.
+    expect(repo.findById).not.toHaveBeenCalled();
+    expect(gateway.startProductGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      salesProductId: DRAFT_ID,
+      sourceCandidateId: null,
+      productBrief: expect.objectContaining({ productName: '자석 다트게임' }),
+    }));
+    expect(result).toMatchObject({ ok: true, candidateId: null, salesProductId: DRAFT_ID });
+  });
+
   it('rejects quick-process hash drift before starting direct AI work', async () => {
     repo.findById.mockResolvedValueOnce(quickProcessCandidate());
-    repo.claimQuickProcessCandidate.mockRejectedValueOnce(
+    repo.claimQuickProcess.mockRejectedValueOnce(
       new Error('owner_idempotency_input_conflict'),
     );
 
-    await expect(service.quickProcessCandidate(
-      'candidate-1',
+    await expect(service.startProductGeneration(
+      DRAFT_ID,
       'org-1',
       'user-1',
       'thumbnail',
@@ -454,7 +484,7 @@ describe('SourcingService — candidate ingest', () => {
     expect(gateway.startProductGeneration).not.toHaveBeenCalled();
   });
 
-  it('quickProcessCandidate can request only thumbnail generation', async () => {
+  it('startProductGeneration can request only thumbnail generation', async () => {
     repo.findById.mockResolvedValueOnce({
       id: 'candidate-1',
       organizationId: 'org-1',
@@ -489,8 +519,8 @@ describe('SourcingService — candidate ingest', () => {
       href: '/product-pipeline/collected-products/candidate-1',
     });
 
-    await service.quickProcessCandidate(
-      'candidate-1',
+    await service.startProductGeneration(
+      DRAFT_ID,
       'org-1',
       'user-1',
       'thumbnail',

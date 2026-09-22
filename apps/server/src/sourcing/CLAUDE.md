@@ -14,11 +14,19 @@ belong to Supply; supplier payments belong to Finance.
   `sourced|rejected`; registration state is derived from the Channels execution
   fence and listings.
 - Editing a collected product happens on the Channels selling-product draft,
-  not on the candidate (KID-310). Capturing a candidate asks Channels for one
-  draft per candidate, and rejecting or deleting a candidate sends that draft
-  to `unused` unless a mall still holds it. Both go through
+  not on the candidate (KID-310). Every collection path asks Channels for one
+  draft per candidate through
+  `application/service/sourcing-collected-draft.service.ts`, and rejecting or
+  deleting a candidate sends that draft to `unused` in the same transaction
+  unless a mall still holds it. Both go through
   `application/port/out/cross-domain/sales-product-draft.port.ts`
   ([ADR-0022](../../../../docs/adr/0022-sales-product-drafts-exist-from-collection.md)).
+- Sourcing serves no registration-setting route. Creating and editing one is
+  `channels/registration-targets` (resolve, create, update, archive). Content
+  generation starts on the draft too:
+  `POST products/sales-products/:salesProductId/generation`, whose idempotency
+  receipt (`sourcing.quick_process`) records `{ salesProductId }` — a directly
+  authored draft with no candidate starts generation like any other.
 - `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` are the
   append-only collection/evidence ledger. Supplier-offer snapshots, launch
   candidates, decisions, and procurement intents retain immutable provenance.

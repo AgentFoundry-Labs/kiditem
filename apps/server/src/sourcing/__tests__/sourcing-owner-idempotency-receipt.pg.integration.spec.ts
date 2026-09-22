@@ -57,6 +57,42 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
     })).resolves.toBe(1);
   });
 
+  /**
+   * 직접 작성한 판매상품에는 원천 기록이 없다. 생성 시작 영수증은 초안을 가리키므로 후보 없이도
+   * 열리고, 같은 키로 다시 오면 그 결과를 그대로 돌려준다(KID-310 · ADR-0022).
+   */
+  it('⭐ 후보 없는 직접 작성 초안도 생성 영수증을 열고 같은 키에 같은 결과를 돌려준다', async () => {
+    const draft = await prisma.salesProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'DIRECTLY-AUTHORED-GENERATION',
+        name: '직접 만든 상품',
+      },
+      select: { id: true },
+    });
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId: draft.id,
+      idempotencyKey: 'owner:attempt:direct-generation',
+      requestHash: 'c'.repeat(64),
+    };
+
+    await expect(candidates.claimQuickProcess(input)).resolves.toEqual({ salesProductId: draft.id });
+    await expect(candidates.claimQuickProcess(input)).resolves.toEqual({ salesProductId: draft.id });
+    await expect(prisma.sourcingOwnerIdempotencyReceipt.findMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        capabilityKey: 'sourcing.quick_process',
+        idempotencyKey: input.idempotencyKey,
+      },
+      select: { result: true },
+    })).resolves.toEqual([{ result: { salesProductId: draft.id } }]);
+
+    // 같은 키에 다른 요청이 오면 재응답이 아니라 충돌이다 — 후보 키로 적힌 옛 영수증도 여기서 막힌다.
+    await expect(candidates.claimQuickProcess({ ...input, requestHash: 'd'.repeat(64) }))
+      .rejects.toThrow('owner_idempotency_input_conflict');
+  });
+
   it('rejects the same owner key when the canonical request hash changes', async () => {
     const input = receiptInput();
     await candidates.upsertSourcedWithIdempotencyReceipt(input);
@@ -86,16 +122,26 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
       otherPrisma as unknown as PrismaService,
       realSalesProductDraftPort(otherPrisma),
     );
+    // 생성 시작 영수증의 대상은 판매상품 초안이다(KID-310).
+    const draft = await prisma.salesProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidate.id,
+        code: 'QUICK-PROCESS-RECEIPT',
+        name: 'Quick process receipt candidate',
+      },
+      select: { id: true },
+    });
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
-      candidateId: candidate.id,
+      salesProductId: draft.id,
       idempotencyKey: 'owner:attempt:quick-process',
     };
 
     try {
       const outcomes = await Promise.allSettled([
-        candidates.claimQuickProcessCandidate({ ...input, requestHash: 'a'.repeat(64) }),
-        otherCandidates.claimQuickProcessCandidate({ ...input, requestHash: 'b'.repeat(64) }),
+        candidates.claimQuickProcess({ ...input, requestHash: 'a'.repeat(64) }),
+        otherCandidates.claimQuickProcess({ ...input, requestHash: 'b'.repeat(64) }),
       ]);
 
       expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
@@ -114,7 +160,7 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
         },
         select: { requestHash: true, result: true },
       })).resolves.toEqual([
-        expect.objectContaining({ result: { candidateId: candidate.id } }),
+        expect.objectContaining({ result: { salesProductId: draft.id } }),
       ]);
     } finally {
       await otherPrisma.$disconnect();

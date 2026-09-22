@@ -194,8 +194,15 @@ export class SourcingService {
     );
   }
 
-  async quickProcessCandidate(
-    candidateId: string,
+  /**
+   * 판매상품 초안의 콘텐츠 생성을 시작한다.
+   *
+   * 편집 정본은 초안이므로 생성이 쓰는 값은 모두 초안에서 온다(KID-310 · ADR-0022). 원천
+   * 기록(수집상품)은 초안이 아직 비워 둔 자리를 메우는 데만 쓰고, 직접 작성한 초안에는 그 원천이
+   * 아예 없다 — 그래도 생성은 시작된다.
+   */
+  async startProductGeneration(
+    salesProductId: string,
     organizationId: string,
     triggeredByUserId: string | null,
     task: ProductGenerationTask,
@@ -203,19 +210,18 @@ export class SourcingService {
   ) {
     const requestHash = canonicalOwnerInputHash({
       kind: 'sourcing.quick_process',
-      candidateId,
+      salesProductId,
       task,
     });
-    const candidate = await this.candidates.findById(candidateId, organizationId);
-    if (!candidate) throw new NotFoundException('Sourcing candidate not found');
+    const draft = await this.requireDraft(organizationId, salesProductId);
     try {
-      const receipt = await this.candidates.claimQuickProcessCandidate({
+      const receipt = await this.candidates.claimQuickProcess({
         organizationId,
-        candidateId,
+        salesProductId,
         idempotencyKey,
         requestHash,
       });
-      if (receipt.candidateId !== candidate.id) {
+      if (receipt.salesProductId !== salesProductId) {
         throw new ConflictException('product_generation_idempotency_conflict');
       }
     } catch (error) {
@@ -225,15 +231,18 @@ export class SourcingService {
       throw error;
     }
 
-    const rawData = this.plainRecord(candidate.rawData);
-    const candidateImageUrls = candidate.images
+    const candidate = draft.sourceCandidateId
+      ? await this.candidates.findById(draft.sourceCandidateId, organizationId)
+      : null;
+    const rawData = this.plainRecord(candidate?.rawData);
+    const candidateImageUrls = (candidate?.images ?? [])
       .filter((image) => image.role === 'product')
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((image) => image.url);
     const fallbackImageUrls = [
       ...this.extractProductImageUrls(rawData),
-      candidate.imageUrl ?? '',
-      candidate.thumbnailUrl ?? '',
+      candidate?.imageUrl ?? '',
+      candidate?.thumbnailUrl ?? '',
     ];
     const imageUrls = this.uniqueNonEmptyStrings(
       candidateImageUrls.length > 0 ? candidateImageUrls : fallbackImageUrls,
@@ -241,27 +250,23 @@ export class SourcingService {
     const rawOptionNames = this.stringArrayFromUnknown(rawData.optionNames ?? rawData.options);
     const optionNames = this.uniqueNonEmptyStrings([
       ...rawOptionNames,
-      ...this.stringArrayFromUnknown(candidate.tags),
+      ...this.stringArrayFromUnknown(candidate?.tags),
     ]);
 
-    // 편집 정본은 판매상품 초안이다(KID-310). 생성 prompt 가 쓰는 값은 그 초안에서 읽고,
-    // 후보 원문은 초안이 아직 비워 둔 자리를 메우는 데만 쓴다.
-    const salesProductId = await this.requireDraftId(organizationId, candidateId);
-    const draft = await this.salesProductDrafts!.getDraft(organizationId, salesProductId);
     const ai = await this.agentGateway.startProductGeneration({
       organizationId,
       triggeredByUserId,
       idempotencyKey,
       requestHash,
       salesProductId,
-      sourceCandidateId: candidateId,
+      sourceCandidateId: draft.sourceCandidateId,
       productBrief: {
-        productName: draft.name || candidate.name,
-        category: draft.standardCategory ?? candidate.category,
-        description: draft.description || candidate.description,
+        productName: draft.name || candidate?.name || '',
+        category: draft.standardCategory ?? candidate?.category ?? null,
+        description: draft.description || candidate?.description || '',
         target: draft.targetAudience ?? (typeof rawData.target === 'string' ? rawData.target : null),
         imageUrls: draft.imageUrls.length > 0 ? draft.imageUrls : imageUrls,
-        thumbnailUrl: candidate.thumbnailUrl ?? draft.imageUrls[0] ?? imageUrls[0] ?? null,
+        thumbnailUrl: candidate?.thumbnailUrl ?? draft.imageUrls[0] ?? imageUrls[0] ?? null,
         optionNames: draft.optionAxes.length > 0 ? draft.optionAxes : optionNames,
         productSize: draft.productSize,
         colorVariantStatus: 'auto',
@@ -273,7 +278,8 @@ export class SourcingService {
       ageGroup: 'age-8-plus',
       detailImageCount: '2',
       usageSectionMode: 'include',
-      kcCertificationStatus: 'unknown',
+      // KC 는 초안이 말한다 — 'none' 이면 인증 문서 없이도 송신을 통과한다(KID-310).
+      kcCertificationStatus: draft.kcStatus,
       kcCertificationNumber: null,
       task,
     });
@@ -282,7 +288,7 @@ export class SourcingService {
       ok: true,
       message: quickProcessMessage(task),
       product_count: 1,
-      candidateId,
+      candidateId: draft.sourceCandidateId,
       salesProductId: ai.salesProductId,
       href: ai.href,
       detailGenerationId: ai.detailGenerationId,
@@ -291,13 +297,11 @@ export class SourcingService {
     };
   }
 
-  /** 후보의 편집 정본. 수집이 만든 초안이 없으면 생성할 대상도 없다. */
-  private async requireDraftId(organizationId: string, candidateId: string): Promise<string> {
-    const salesProductId = await this.salesProductDrafts?.findDraftIdForSource(organizationId, candidateId);
-    if (!salesProductId) {
-      throw new NotFoundException('이 수집상품의 판매상품 초안을 찾지 못했습니다.');
-    }
-    return salesProductId;
+  /** 생성 대상 초안. 없으면 생성할 것도 없다. */
+  private async requireDraft(organizationId: string, salesProductId: string) {
+    const draft = await this.salesProductDrafts?.getDraft(organizationId, salesProductId);
+    if (!draft) throw new NotFoundException('판매상품 초안을 찾지 못했습니다.');
+    return draft;
   }
 
   async scrapeUrl(
