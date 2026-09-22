@@ -162,15 +162,22 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     const withUnlinked: Prisma.SalesProductWhereInput = {
       options: { some: { supplyStatus: { not: 'unused' }, components: { none: {} } } },
     };
+    // 미등록 = 살아 있는 몰 상품이 하나도 없는 판매상품. 수집상품에서 만든 것과 직접 만든 것을 가리지 않는다.
+    const unregistered: Prisma.SalesProductWhereInput = {
+      channelListings: { none: { isActive: true } },
+    };
     const focusWhere = query.focus === 'with_options'
       ? withOptions
-      : query.focus === 'unlinked' ? withUnlinked : {};
+      : query.focus === 'unlinked'
+        ? withUnlinked
+        : query.focus === 'unregistered' ? unregistered : {};
     const where: Prisma.SalesProductWhereInput = { AND: [base, searchWhere, focusWhere] };
-    const [total, summaryTotal, summaryWithOptions, summaryUnlinked, rows] = await Promise.all([
+    const [total, summaryTotal, summaryWithOptions, summaryUnlinked, summaryUnregistered, rows] = await Promise.all([
       this.prisma.salesProduct.count({ where }),
       this.prisma.salesProduct.count({ where: base }),
       this.prisma.salesProduct.count({ where: { AND: [base, withOptions] } }),
       this.prisma.salesProduct.count({ where: { AND: [base, withUnlinked] } }),
+      this.prisma.salesProduct.count({ where: { AND: [base, unregistered] } }),
       this.prisma.salesProduct.findMany({
         where,
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
@@ -180,6 +187,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           id: true,
           code: true,
           ownCode: true,
+          sourceCandidateId: true,
           name: true,
           status: true,
           imageUrls: true,
@@ -202,6 +210,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         id: row.id,
         code: row.code,
         ownCode: row.ownCode,
+        sourceCandidateId: row.sourceCandidateId,
         name: row.name,
         status: row.status as SalesProductStatus,
         salePrice: minimumOptionPrice(row.options),
@@ -222,6 +231,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         total: summaryTotal,
         withOptions: summaryWithOptions,
         withUnlinkedOptions: summaryUnlinked,
+        unregistered: summaryUnregistered,
       },
     };
   }

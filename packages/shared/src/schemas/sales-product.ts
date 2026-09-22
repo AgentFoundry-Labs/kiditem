@@ -318,8 +318,11 @@ export type SalesProduct = z.infer<typeof SalesProductSchema>;
 export const SalesProductListQuerySchema = z.object({
   query: z.string().trim().max(200).optional(),
   status: SalesProductStatusSchema.optional(),
-  /** `with_options`: 단품이 둘 이상 · `unlinked`: 셀피아 연결이 빠진 단품이 있는 상품. */
-  focus: z.enum(['all', 'with_options', 'unlinked']).default('all'),
+  /**
+   * `with_options`: 단품이 둘 이상 · `unlinked`: 셀피아 연결이 빠진 단품이 있는 상품 ·
+   * `unregistered`: 아직 어느 몰에도 올라가지 않은 상품(수집상품에서 만든 것과 직접 만든 것을 함께).
+   */
+  focus: z.enum(['all', 'with_options', 'unlinked', 'unregistered']).default('all'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
@@ -329,6 +332,8 @@ export const SalesProductListItemSchema = z.object({
   id: z.string().uuid(),
   code: z.string(),
   ownCode: z.string().nullable(),
+  /** 수집상품에서 만든 판매상품이면 그 수집상품 id. 미등록 목록이 같은 항목을 두 번 보이지 않게 하는 열쇠다. */
+  sourceCandidateId: z.string().uuid().nullable(),
   name: z.string(),
   status: SalesProductStatusSchema,
   salePrice: z.number().int(),
@@ -353,6 +358,8 @@ export const SalesProductListResponseSchema = z.object({
     total: z.number().int(),
     withOptions: z.number().int(),
     withUnlinkedOptions: z.number().int(),
+    /** 아직 어느 몰에도 올라가지 않은 판매상품 수. */
+    unregistered: z.number().int(),
   }),
 });
 export type SalesProductListResponse = z.infer<typeof SalesProductListResponseSchema>;

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Suspense, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { FileSpreadsheet, Layers, Link2Off, Package, Search, Store } from 'lucide-react';
+import { FileSpreadsheet, Layers, Link2Off, Package, PackageOpen, Search, Store } from 'lucide-react';
 import type { SalesProductListQuery } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,7 @@ const FOCUS_TABS: { value: Focus; label: string }[] = [
   { value: 'all', label: '전체' },
   { value: 'with_options', label: '옵션 상품' },
   { value: 'unlinked', label: '셀피아 연결 필요' },
+  { value: 'unregistered', label: '아직 몰에 없음' },
 ];
 
 const PAGE_SIZE = 50;
@@ -99,7 +100,7 @@ function SalesProductsContent() {
       <ExternalImagesNotice />
       <MallPriceAdoptionNotice />
 
-      <section aria-label="판매상품 요약" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <section aria-label="판매상품 요약" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard icon={Package} label="판매상품" value={data?.summary.total} active={focus === 'all'} onClick={() => navigate({ focus: 'all' })} />
         <SummaryCard icon={Layers} label="옵션 상품" value={data?.summary.withOptions} active={focus === 'with_options'} onClick={() => navigate({ focus: 'with_options' })} />
         <SummaryCard
@@ -109,6 +110,13 @@ function SalesProductsContent() {
           tone="warn"
           active={focus === 'unlinked'}
           onClick={() => navigate({ focus: 'unlinked' })}
+        />
+        <SummaryCard
+          icon={PackageOpen}
+          label="아직 몰에 없음"
+          value={data?.summary.unregistered}
+          active={focus === 'unregistered'}
+          onClick={() => navigate({ focus: 'unregistered' })}
         />
       </section>
 
