@@ -14,6 +14,7 @@ import {
   MARKETPLACE_CHANNELS,
   channelCollectsOrders,
   channelCollectsViaExtension,
+  channelCollectsViaUpload,
   channelRegistersListings,
   channelUploadsTracking,
   type ChannelRegistryEntry,
@@ -149,9 +150,11 @@ export interface MallInboundSupports {
  * 매니페스트가 몰 목록을 따로 들고 있던 동안 확장에 수집기가 있는 카카오를 빠뜨렸다.
  */
 export function mallInboundSupports(mallKey: string): MallInboundSupports {
-  const orderCollectionVia: OrderCollectionVia | null = channelCollectsViaExtension(mallKey)
-    ? 'kiditem'
-    : channelCollectsOrders(mallKey) ? 'sellpia' : null;
+  // 운영자가 올린 파일을 우리가 변환하는 몰(원폴라리스)도 주문이 우리 쪽으로 들어온다.
+  const orderCollectionVia: OrderCollectionVia | null =
+    channelCollectsViaExtension(mallKey) || channelCollectsViaUpload(mallKey)
+      ? 'kiditem'
+      : channelCollectsOrders(mallKey) ? 'sellpia' : null;
   return {
     collectsOrders: channelCollectsOrders(mallKey),
     orderCollectionVia,

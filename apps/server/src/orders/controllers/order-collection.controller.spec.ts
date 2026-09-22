@@ -32,6 +32,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       {} as never,
       source as never,
+      {} as never,
     );
     const response = { setHeader: vi.fn() };
     const body = { rows: [{ orderId: '20260727-1234567', productName: '상품', qty: 1 }] };
@@ -90,6 +91,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       {} as never,
       source as never,
+      {} as never,
     );
 
     await expect(controller.convertKkomangse(
@@ -116,6 +118,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       {} as never,
       source as never,
+      {} as never,
     );
 
     await expect(controller.convertKidsnote(
@@ -150,6 +153,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       {} as never,
       source as never,
+      {} as never,
     );
     const response = { setHeader: vi.fn() };
     const body = {
@@ -188,6 +192,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       {} as never,
       source as never,
+      {} as never,
     );
 
     await expect(controller.convertKidsnote(
@@ -243,6 +248,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       workbook as never,
       collection as never,
+      {} as never,
       {} as never,
       {} as never,
     );
@@ -339,6 +345,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       collection as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     const response = {
       setHeader: vi.fn(),
@@ -393,6 +400,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       collection as never,
       {} as never,
       {} as never,
+      {} as never,
     );
     const response = { setHeader: vi.fn(), status: vi.fn().mockReturnThis() };
     const emptyRequest = { ...request(), pos: [] };
@@ -444,6 +452,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       collection as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     await expect(controller.convertCoupangDirectship(
@@ -469,6 +478,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       {} as never,
       owner as never,
+      {} as never,
       {} as never,
       {} as never,
     );
@@ -508,6 +518,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       owner as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     const view = await controller.readCoupangDirectSourceStatus(CHANNEL_ACCOUNT_ID, ORGANIZATION_ID);
@@ -526,6 +537,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
       {} as never,
       {} as never,
       owner as never,
+      {} as never,
       {} as never,
       {} as never,
     );

@@ -55,6 +55,11 @@ convenience history.
 - Rocket PA collection carries the selected Rocket account, persists complete
   SHIPMENT/MILKRUN evidence, and exports every collected row for the selected
   transport. Workbook linkage is optional and unmatched rows stay visible.
+- A mall whose registry `collector` is `upload` (원폴라리스: orders arrive only as a
+  mailed Excel) has no collector to start. Its card's control opens the upload
+  modal with that mall selected; the conversion fills 전화 · 주소 · 공급단가 from
+  the Sellpia template (`주소록` · `단가`) saved on the mall account row, and a
+  template uploaded with the order file replaces the saved one.
 
 ## Submission Contract
 

@@ -5,6 +5,8 @@ import {
   MARKETPLACE_CHANNELS,
   channelCollectsOrders,
   channelCollectsViaExtension,
+  channelCollectsViaSellpia,
+  channelCollectsViaUpload,
   channelFormSpec,
   channelLogoPath,
   channelOutcomeKey,
@@ -73,6 +75,17 @@ describe('채널 레지스트리', () => {
     expect(channelCollectsOrders('coupang')).toBe(true);
     expect(channelCollectsViaExtension('coupang')).toBe(false);
     expect(channelCollectsOrders('yoons')).toBe(false);
+  });
+
+  /** 원폴라리스는 판매자 화면이 없다. 주문이 메일 첨부 엑셀로만 와서 운영자가 올린다. */
+  it('⭐ 파일을 올려 수집하는 채널은 원폴라리스뿐이고, 그 주문도 우리 쪽으로 들어온다', () => {
+    expect(CHANNEL_REGISTRY.filter((entry) => entry.collector === 'upload').map((entry) => entry.key))
+      .toEqual(['one-polaris']);
+    expect(channelCollectsViaUpload('one-polaris')).toBe(true);
+    expect(channelCollectsOrders('one-polaris')).toBe(true);
+    expect(channelCollectsViaExtension('one-polaris')).toBe(false);
+    expect(channelCollectsViaSellpia('one-polaris')).toBe(false);
+    expect(channelCollectsViaUpload('kakao')).toBe(false);
   });
 
   /** 경로가 없는 일에 초록을 칠하지 않는다 — 확장에 발송처리 액션이 있는 셋뿐이다. */

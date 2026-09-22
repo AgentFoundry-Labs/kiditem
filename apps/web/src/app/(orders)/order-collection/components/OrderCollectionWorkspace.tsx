@@ -48,6 +48,7 @@ import {
   readOrderCollectionTodayOrders,
 } from '../lib/mall-order-collection-source';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
+import { ONE_POLARIS_MALL_KEY, convertOnePolarisOrderFile } from '../lib/one-polaris-orders-api';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import { MallCollectionControl } from './MallCollectionControl';
 import { SellpiaShipmentTrackingControl } from './SellpiaShipmentTrackingControl';
@@ -58,6 +59,7 @@ import {
   EMPTY_MALL_DRAFT,
   draftFromMallAccount,
   isBrowserCollectableMall,
+  isUploadCollectedMall,
   hasSellpiaTransmissionRequest,
   mallCollectionFailureMessage,
   orderCollectionBatchNotice,
@@ -606,10 +608,13 @@ export function OrderCollectionWorkspace() {
     mall,
     file,
     password,
+    templateFile,
   }: {
     mall: OrderCollectionMallAccount;
     file: File;
     password?: string;
+    /** 원폴라리스: 함께 올린 양식(주소록 · 단가). 서버가 저장하고 이번 변환부터 쓴다. */
+    templateFile?: File | null;
   }) => {
     setState('converting');
     let run: OrderCollectionExtensionRun | null = null;
@@ -618,7 +623,7 @@ export function OrderCollectionWorkspace() {
       // extension admission, but their conversion must carry the same fence
       // so the server can terminalize the exact attempt that owns the file.
       run = await sessionControls.prepareManualUploadRun(mall);
-      const result = await convertUploadedFile(mall, file, password, run);
+      const result = await convertUploadedFile(mall, file, password, run, templateFile);
       const convertedAt = Date.now();
       const historyItem: ConversionHistoryItem = {
         ...result,
@@ -634,6 +639,11 @@ export function OrderCollectionWorkspace() {
       setPreviewId(historyItem.id);
       setState('success');
       toast.success(`${mall.name} 변환 완료`);
+      // 표에 없어 비워 둔 칸은 파일만 봐서는 모른다 — 엑셀에서 #N/A 로 보이던 것이다.
+      for (const note of result.notes ?? []) toast.warning(note, { duration: 12000 });
+      if (templateFile) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.orders.onePolarisSellpiaTemplate() });
+      }
     } catch (err) {
       // 운영자 중단이 이 변환을 끊었으면 terminal 은 owner 취소의 몫이다(KID-159).
       if (run) {
@@ -977,6 +987,29 @@ export function OrderCollectionWorkspace() {
         onAutoIntervalChange={autoDetect.changeInterval}
         onCollectAll={() => void handleBrowserCollectAll()}
         renderCollectionControl={(account, renderCard) => {
+          // 파일을 올려 수집하는 몰(원폴라리스)은 시작할 수집기가 없다. 그 카드의 수집 자리는
+          // 몰을 고른 채로 업로드 모달을 연다.
+          if (isUploadCollectedMall(account)) {
+            return renderCard({
+              control: (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedMallKey(account.key);
+                    setUploadModalOpen(true);
+                  }}
+                  aria-label={`${account.name} 주문 엑셀 업로드`}
+                  title={`${account.name} — 메일로 받은 주문 엑셀을 올려 셀피아 파일로 바꿉니다`}
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3.5 py-2 text-xs font-semibold text-[var(--primary-contrast)] transition hover:bg-[var(--primary-hover)]"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  업로드
+                </button>
+              ),
+              running: false,
+              opensChooser: false,
+            });
+          }
           const card = {
             account,
             startBlockedReason: mallStartBlockedReason(account),
@@ -1073,7 +1106,11 @@ async function convertUploadedFile(
   file: File,
   password?: string,
   run?: OrderCollectionExtensionRun,
+  templateFile?: File | null,
 ) {
+  if (mall.key === ONE_POLARIS_MALL_KEY) {
+    return convertOnePolarisOrderFile(file, { template: templateFile, download: false, run });
+  }
   if (mall.key === 'domeggook') {
     const { convertDomeggookOrderFile } = await import('../lib/order-collection-api');
     return convertDomeggookOrderFile(file, { run });

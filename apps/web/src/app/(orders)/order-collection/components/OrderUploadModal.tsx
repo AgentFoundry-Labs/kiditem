@@ -2,13 +2,20 @@
 
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { useQuery } from '@tanstack/react-query';
 import { FileSpreadsheet, Loader2, LockKeyhole, Store, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
+import {
+  ONE_POLARIS_MALL_KEY,
+  readOnePolarisSellpiaTemplate,
+} from '../lib/one-polaris-orders-api';
 
 const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
+const TEMPLATE_EXTENSIONS = '.xls,.xlsx';
 
 interface OrderUploadModalProps {
   open: boolean;
@@ -19,12 +26,17 @@ interface OrderUploadModalProps {
     mall: OrderCollectionMallAccount;
     file: File;
     password?: string;
+    /** 원폴라리스: 함께 올린 양식(주소록 · 단가). 없으면 저장된 양식을 쓴다. */
+    templateFile?: File | null;
   }) => Promise<void>;
 }
 
 /**
  * 상단 "업로드" 버튼이 여는 모달. 몰을 고르고 주문 파일을 올리면 변환해 생성 파일에 추가한다.
  * 실제 변환/추가는 page 의 onUpload 가 담당 (몰 태그 포함).
+ *
+ * 원폴라리스는 주문이 메일 첨부 엑셀로만 온다. 그 엑셀은 배송지 · 상품명뿐이라 서버가 사장님 양식
+ * (주소록 · 단가)으로 전화 · 주소 · 공급단가를 채운다 — 저장된 양식이 없으면 여기서 함께 올린다.
  */
 export function OrderUploadModal({
   open,
@@ -34,8 +46,10 @@ export function OrderUploadModal({
   onUpload,
 }: OrderUploadModalProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const templateInputRef = useRef<HTMLInputElement>(null);
   const [mallKey, setMallKey] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [templateFile, setTemplateFile] = useState<File | null>(null);
   const [password, setPassword] = useState('');
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -44,18 +58,34 @@ export function OrderUploadModal({
     if (!open) return;
     setMallKey(defaultMallKey ?? mallAccounts[0]?.key ?? '');
     setFile(null);
+    setTemplateFile(null);
     setPassword('');
     setDragActive(false);
   }, [open, defaultMallKey, mallAccounts]);
 
   const selectedMall = mallAccounts.find((account) => account.key === mallKey) ?? null;
-  const canUpload = Boolean(selectedMall && file && !uploading);
+  const onePolaris = selectedMall?.key === ONE_POLARIS_MALL_KEY;
+  const templateQuery = useQuery({
+    queryKey: queryKeys.orders.onePolarisSellpiaTemplate(),
+    queryFn: readOnePolarisSellpiaTemplate,
+    enabled: open && onePolaris,
+    meta: { suppressGlobalErrorToast: true },
+  });
+  const storedTemplate = templateQuery.data ?? null;
+  // 원폴라리스는 양식 표가 있어야 변환된다. 저장된 것도 고른 것도 없으면 올릴 수 없다.
+  const needsTemplate = onePolaris && !storedTemplate && !templateFile && !templateQuery.isLoading;
+  const canUpload = Boolean(selectedMall && file && !uploading && !needsTemplate);
 
   const handleUpload = async () => {
     if (!selectedMall || !file) return;
     setUploading(true);
     try {
-      await onUpload({ mall: selectedMall, file, password: password.trim() || undefined });
+      await onUpload({
+        mall: selectedMall,
+        file,
+        password: password.trim() || undefined,
+        templateFile: onePolaris ? templateFile : null,
+      });
       onOpenChange(false);
     } catch (err) {
       toast.error(uploadErrorMessage(err));
@@ -143,7 +173,7 @@ export function OrderUploadModal({
               />
               <FileSpreadsheet size={30} className="text-slate-400" />
               <div className="mt-2 text-sm font-medium text-slate-900">
-                {file ? file.name : '주문 파일을 끌어다 놓기'}
+                {file ? file.name : onePolaris ? '메일로 받은 주문 엑셀을 끌어다 놓기' : '주문 파일을 끌어다 놓기'}
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 {file ? fileSizeLabel(file.size) : ACCEPTED_EXTENSIONS}
@@ -158,6 +188,45 @@ export function OrderUploadModal({
                 파일 선택
               </button>
             </div>
+
+            {onePolaris ? (
+              <div
+                data-testid="one-polaris-template-field"
+                className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-slate-600">양식 파일 (주소록 · 단가)</span>
+                  <input
+                    ref={templateInputRef}
+                    type="file"
+                    accept={TEMPLATE_EXTENSIONS}
+                    aria-label="원폴라리스 양식 파일"
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setTemplateFile(event.target.files?.[0] ?? null)
+                    }
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => templateInputRef.current?.click()}
+                    disabled={uploading}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <Upload size={13} />
+                    {storedTemplate || templateFile ? '양식 바꾸기' : '양식 선택'}
+                  </button>
+                </div>
+                <p className={cn('mt-1.5 text-xs', needsTemplate ? 'text-amber-700' : 'text-slate-500')}>
+                  {templateFile
+                    ? `이번에 올릴 양식: ${templateFile.name} — 저장돼 다음부터 그대로 씁니다`
+                    : templateQuery.isLoading
+                      ? '저장된 양식을 확인하는 중…'
+                      : storedTemplate
+                        ? `저장된 양식: ${storedTemplate.fileName} · 주소록 ${storedTemplate.addressCount}곳 · 단가 ${storedTemplate.priceCount}개 · ${uploadedAtLabel(storedTemplate.uploadedAt)}`
+                        : '저장된 양식이 없습니다. 양식샘플 xls(주소록 · 단가 시트)를 한 번 올려 주세요.'}
+                </p>
+              </div>
+            ) : null}
 
             <label className="block">
               <span className="text-xs font-medium text-slate-600">파일 비밀번호</span>
@@ -212,4 +281,12 @@ function fileSizeLabel(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function uploadedAtLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day} 올림`;
 }

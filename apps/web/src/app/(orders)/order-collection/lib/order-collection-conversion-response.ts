@@ -46,6 +46,23 @@ export type ConversionPreview =
 /** Rows kept in the preview grid, the same for every mall. */
 const PREVIEW_ROW_LIMIT = 24;
 
+/** 변환이 사람에게 남긴 말(표에 없어 비워 둔 칸 같은 것). 서버가 URL 인코딩한 JSON 배열로 보낸다. */
+const NOTES_HEADER = 'X-Order-Collection-Notes';
+
+function notesHeader(response: Response): string[] | undefined {
+  const value = response.headers.get(NOTES_HEADER);
+  if (!value) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(decodeURIComponent(value));
+    if (!Array.isArray(parsed)) return undefined;
+    const notes = parsed.filter((item): item is string => typeof item === 'string');
+    return notes.length > 0 ? notes : undefined;
+  } catch {
+    // 읽지 못한 말은 없는 것으로 둔다 — 변환 자체는 이미 성공했다.
+    return undefined;
+  }
+}
+
 function numericHeader(response: Response, name: string): number | null {
   const value = response.headers.get(name);
   if (!value) return null;
@@ -160,6 +177,7 @@ export async function conversionResultFrom(
   const fileName = fileNameFromContentDisposition(response.headers.get('Content-Disposition'))
     ?? options.defaultFileName;
   if (options.download !== false) downloadBlob(blob, fileName);
+  const notes = notesHeader(response);
   return {
     fileName,
     blob,
@@ -168,5 +186,6 @@ export async function conversionResultFrom(
     productRows: numericHeader(response, ROW_COUNT_HEADERS.productRows),
     outputRows: numericHeader(response, ROW_COUNT_HEADERS.outputRows),
     skippedRows: numericHeader(response, ROW_COUNT_HEADERS.skippedRows),
+    ...(notes ? { notes } : {}),
   };
 }

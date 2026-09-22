@@ -344,4 +344,76 @@ describe('OrderCollectionMallAccountService', () => {
       password: 'kidkids-password',
     });
   });
+
+  describe('원폴라리스 셀피아 양식 표 — 몰 계정 행에 산다', () => {
+    const template = {
+      fileName: '양식샘플__26.09.21.(최신) 1.xls',
+      uploadedAt: '2026-09-22T10:00:00.000Z',
+      addresses: [{ site: '대구지점', zip: '41963', address: '대구 중구 명덕로 203', phone: '053-422-0970' }],
+      prices: [{ name: '메달(상)', cost: 808 }],
+    };
+
+    it('⭐ 양식을 저장해도 로그인 · 사용 여부 · 순서는 그대로다', async () => {
+      const prisma = makePrisma();
+      const service = new OrderCollectionMallAccountService(prisma as never);
+      prisma.channelAccount.findFirst.mockResolvedValue(
+        mallRow('one-polaris', { loginId: 'hansol', enabled: false, sortOrder: 2 }),
+      );
+
+      await service.saveOnePolarisSellpiaTemplate(ORGANIZATION_ID, template);
+
+      expect(prisma.channelAccount.create).not.toHaveBeenCalled();
+      const [args] = prisma.channelAccount.update.mock.calls[0] as [
+        { where: { id_organizationId: { id: string } }; data: { config: { orderCollection: Record<string, unknown> } } },
+      ];
+      expect(args.where.id_organizationId.id).toBe('row-one-polaris');
+      expect(args.data.config.orderCollection).toMatchObject({
+        loginId: 'hansol',
+        enabled: false,
+        sortOrder: 2,
+        sellpiaTemplate: template,
+      });
+    });
+
+    it('양식만 먼저 올린 조직에는 원폴라리스 몰 행을 만든다', async () => {
+      const prisma = makePrisma();
+      const service = new OrderCollectionMallAccountService(prisma as never);
+      prisma.channelAccount.findFirst.mockResolvedValue(null);
+
+      await service.saveOnePolarisSellpiaTemplate(ORGANIZATION_ID, template);
+
+      expect(prisma.channelAccount.update).not.toHaveBeenCalled();
+      const [args] = prisma.channelAccount.create.mock.calls[0] as [
+        { data: { channel: string; externalAccountId: string; config: { orderCollection: Record<string, unknown> } } },
+      ];
+      expect(args.data).toMatchObject({ channel: 'one-polaris', externalAccountId: 'one-polaris' });
+      expect(args.data.config.orderCollection.sellpiaTemplate).toEqual(template);
+    });
+
+    it('⭐ 계정 저장이 양식 표를 지우지 않는다', async () => {
+      const prisma = makePrisma();
+      const service = new OrderCollectionMallAccountService(prisma as never);
+      prisma.channelAccount.findFirst.mockResolvedValue(mallRow('one-polaris', { sellpiaTemplate: template }));
+      prisma.channelAccount.update.mockResolvedValue(mallRow('one-polaris', { loginId: 'hansol', sellpiaTemplate: template }));
+
+      await service.update(ORGANIZATION_ID, 'one-polaris', { loginId: 'hansol', password: 'secret', enabled: true });
+
+      const [args] = prisma.channelAccount.update.mock.calls[0] as [
+        { data: { config: { orderCollection: Record<string, unknown> } } },
+      ];
+      expect(args.data.config.orderCollection.loginId).toBe('hansol');
+      expect(args.data.config.orderCollection.sellpiaTemplate).toEqual(template);
+    });
+
+    it('저장된 것이 없거나 표 모양이 아니면 양식이 없다', async () => {
+      const prisma = makePrisma();
+      const service = new OrderCollectionMallAccountService(prisma as never);
+      prisma.channelAccount.findFirst.mockResolvedValueOnce(null);
+      expect(await service.readOnePolarisSellpiaTemplate(ORGANIZATION_ID)).toBeNull();
+      prisma.channelAccount.findFirst.mockResolvedValueOnce(mallRow('one-polaris', { sellpiaTemplate: { fileName: 'x' } }));
+      expect(await service.readOnePolarisSellpiaTemplate(ORGANIZATION_ID)).toBeNull();
+      prisma.channelAccount.findFirst.mockResolvedValueOnce(mallRow('one-polaris', { sellpiaTemplate: template }));
+      expect(await service.readOnePolarisSellpiaTemplate(ORGANIZATION_ID)).toEqual(template);
+    });
+  });
 });

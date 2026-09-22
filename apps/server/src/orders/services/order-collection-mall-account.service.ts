@@ -19,8 +19,15 @@ import {
   type OrderCollectionMall,
   type OrderCollectionMallKey,
 } from '../domain/order-collection-malls';
+import {
+  ONE_POLARIS_MALL_KEY,
+  isOnePolarisSellpiaTemplate,
+  type OnePolarisSellpiaTemplate,
+} from '../domain/one-polaris-sellpia-order';
 
 const ORDER_COLLECTION_CONFIG_KEY = 'orderCollection';
+/** 원폴라리스 셀피아 양식 표가 사는 `config.orderCollection` 안의 칸. */
+const SELLPIA_TEMPLATE_KEY = 'sellpiaTemplate';
 
 export interface OrderCollectionMallAccount {
   key: OrderCollectionMallKey;
@@ -186,6 +193,8 @@ export class OrderCollectionMallAccountService {
         memo,
         // 계정 저장이 카드 순서를 지우지 않도록 그대로 넘긴다.
         sortOrder: readNumber(existingOrderConfig.sortOrder),
+        // 원폴라리스 셀피아 양식 표도 계정 저장이 지우지 않는다.
+        ...carrySellpiaTemplate(existingOrderConfig),
       },
     } satisfies Prisma.InputJsonObject;
 
@@ -241,6 +250,62 @@ export class OrderCollectionMallAccountService {
       }
       throw err;
     }
+  }
+
+  /**
+   * 원폴라리스 셀피아 양식(주소록 · 단가 표). 메일 주문 엑셀을 변환할 때 이 표로 전화 · 주소 ·
+   * 공급단가를 채운다. 몰 계정 행 `config.orderCollection.sellpiaTemplate` 에 둔다 — 그 몰의
+   * 설정이고, 이 행에 쓰는 곳은 이 서비스 하나다. 저장된 것이 없거나 모양이 아니면 null.
+   */
+  async readOnePolarisSellpiaTemplate(
+    organizationId: string,
+  ): Promise<OnePolarisSellpiaTemplate | null> {
+    const mall = findMall(ONE_POLARIS_MALL_KEY);
+    const existing = await this.findAccountRow(organizationId, mall);
+    const template = readOrderCollectionConfig(toJsonRecord(existing?.config))[SELLPIA_TEMPLATE_KEY];
+    return isOnePolarisSellpiaTemplate(template) ? template : null;
+  }
+
+  /** 양식 표를 바꿔 끼운다. 로그인 · 순서 같은 다른 설정은 그대로 둔다. */
+  async saveOnePolarisSellpiaTemplate(
+    organizationId: string,
+    template: OnePolarisSellpiaTemplate,
+  ): Promise<OnePolarisSellpiaTemplate> {
+    const mall = findMall(ONE_POLARIS_MALL_KEY);
+    const identity = orderCollectionMallAccountIdentity(mall);
+    if (identity.kind !== 'own') throw new Error('ORDER_COLLECTION_SHARED_ACCOUNT_MISSING');
+    const existing = await this.findAccountRow(organizationId, mall);
+    const existingConfig = toJsonRecord(existing?.config);
+    const existingOrderConfig = readOrderCollectionConfig(existingConfig);
+    const nextConfig = {
+      ...existingConfig,
+      [ORDER_COLLECTION_CONFIG_KEY]: {
+        version: 1,
+        ...(existingOrderConfig as Prisma.InputJsonObject),
+        [SELLPIA_TEMPLATE_KEY]: JSON.parse(JSON.stringify(template)) as Prisma.InputJsonObject,
+      },
+    } satisfies Prisma.InputJsonObject;
+
+    if (existing) {
+      await this.prisma.channelAccount.update({
+        where: { id_organizationId: { id: existing.id, organizationId } },
+        data: { config: nextConfig },
+      });
+    } else {
+      // 양식만 먼저 올린 조직에도 몰 행이 있어야 표가 붙는다. 로그인은 비워 둔다.
+      await this.prisma.channelAccount.create({
+        data: {
+          organizationId,
+          channel: identity.channel,
+          name: mall.name,
+          externalAccountId: identity.externalAccountId,
+          status: 'configured',
+          isPrimary: false,
+          config: nextConfig,
+        },
+      });
+    }
+    return template;
   }
 
   private findAccountRow(organizationId: string, mall: OrderCollectionMall) {
@@ -302,6 +367,14 @@ function readOrderCollectionConfig(config: Prisma.JsonObject): Record<string, un
   const value = config[ORDER_COLLECTION_CONFIG_KEY];
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+/** 계정 저장이 `config.orderCollection` 을 통째로 다시 쓰므로, 양식 표는 따로 실어 넘긴다. */
+function carrySellpiaTemplate(orderConfig: Record<string, unknown>): Prisma.InputJsonObject {
+  const template = orderConfig[SELLPIA_TEMPLATE_KEY];
+  return template === undefined || template === null
+    ? {}
+    : { [SELLPIA_TEMPLATE_KEY]: template as Prisma.InputJsonValue };
 }
 
 function readString(value: unknown): string | null {

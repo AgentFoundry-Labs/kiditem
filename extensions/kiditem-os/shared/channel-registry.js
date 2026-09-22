@@ -9,7 +9,7 @@
   "use strict";
 
   var CHANNEL_REGISTRY = Object.freeze([
-    Object.freeze({ "key": "one-polaris", "name": "원폴라리스", "kind": "mall", "collector": "none", "uploadTracking": false, "register": "none", "verified": false, "logo": null }),
+    Object.freeze({ "key": "one-polaris", "name": "원폴라리스", "kind": "mall", "collector": "upload", "uploadTracking": false, "register": "none", "verified": false, "logo": null }),
     Object.freeze({ "key": "icecream-mall", "name": "아이스크림몰", "kind": "mall", "collector": "extension", "uploadTracking": false, "register": "none", "verified": false, "logo": "/mall-logos/icecream-mall.png" }),
     Object.freeze({ "key": "kidkids", "name": "키드키즈", "kind": "mall", "collector": "extension", "uploadTracking": true, "register": "form", "verified": false, "logo": "/mall-logos/kidkids.ico" }),
     Object.freeze({ "key": "kidsnote", "name": "키즈노트", "kind": "mall", "collector": "extension", "uploadTracking": false, "register": "excel", "verified": true, "logo": "/mall-logos/kidsnote.png" }),

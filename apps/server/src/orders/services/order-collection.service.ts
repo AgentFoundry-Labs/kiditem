@@ -6,6 +6,17 @@ import { basename, extname } from 'path';
 
 import type { MulterFile } from '../../common/types';
 import { KIDSNOTE_SUMMARY_INFO, KIDSNOTE_DOC_SUMMARY_INFO } from './kidsnote-sellpia-meta';
+import {
+  ONE_POLARIS_SELLPIA_COLUMN,
+  ONE_POLARIS_SELLPIA_HEADERS,
+  ONE_POLARIS_TEMPLATE_SHEETS,
+  OnePolarisFileError,
+  buildOnePolarisSellpiaRows,
+  onePolarisConversionNotes,
+  parseOnePolarisTemplateTables,
+  readOnePolarisOrderRows,
+  type OnePolarisSellpiaTemplate,
+} from '../domain/one-polaris-sellpia-order';
 
 /**
  * A day with nothing to convert. It is not a failed conversion: the code tells
@@ -143,6 +154,8 @@ export interface OrderCollectionConversion {
   productRows: number;
   outputRows: number;
   skippedRows: number;
+  /** 변환은 됐지만 사람이 알아야 할 것 — 표에 없어 비워 둔 칸 같은 것. 화면이 그대로 보여 준다. */
+  notes?: string[];
 }
 
 export interface OrderCollectionConversionOptions {
@@ -744,6 +757,121 @@ export class OrderCollectionService {
       skippedRows: aoa.length - 1 - dataRows.length,
     };
   }
+  /**
+   * 원폴라리스 양식 xls(사장님 `양식샘플`)에서 `주소록` · `단가` 표를 읽는다. 저장해 두고 메일
+   * 주문을 변환할 때마다 쓴다. 규칙은 domain/one-polaris-sellpia-order.ts.
+   */
+  parseOnePolarisSellpiaTemplateFile(file: MulterFile): OnePolarisSellpiaTemplate {
+    if (!file?.buffer) {
+      throw new BadRequestException('원폴라리스 양식 파일(주소록 · 단가)이 필요합니다.');
+    }
+    const wb = readWorkbookOrThrow(
+      file.buffer,
+      '원폴라리스 양식 파일을 읽지 못했습니다. xls/xlsx 파일인지 확인해 주세요.',
+    );
+    const addressRows = sheetRowsByName(wb, ONE_POLARIS_TEMPLATE_SHEETS.addresses);
+    const priceRows = sheetRowsByName(wb, ONE_POLARIS_TEMPLATE_SHEETS.prices);
+    if (!addressRows || !priceRows) {
+      const missing = [
+        addressRows ? null : ONE_POLARIS_TEMPLATE_SHEETS.addresses,
+        priceRows ? null : ONE_POLARIS_TEMPLATE_SHEETS.prices,
+      ].filter(Boolean).join(' · ');
+      throw new BadRequestException(
+        `원폴라리스 양식 파일에 '${missing}' 시트가 없습니다. 양식샘플 xls 를 그대로 올려 주세요.`,
+      );
+    }
+    try {
+      const tables = parseOnePolarisTemplateTables({ addressRows, priceRows });
+      return {
+        fileName: normalizeUploadFileName(file.originalname),
+        uploadedAt: new Date().toISOString(),
+        ...tables,
+      };
+    } catch (error) {
+      if (error instanceof OnePolarisFileError) throw new BadRequestException(error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 원폴라리스 메일 주문 엑셀 → 셀피아 `양식` 시트(.xls). 배송지 · 상품명은 저장된 양식 표로
+   * 채운다. 표에 없는 칸은 비워 두고 `notes` 로 알린다 — 엑셀에서 #N/A 로 보이던 것이다.
+   */
+  convertOnePolarisOrderFile(
+    file: MulterFile,
+    template: OnePolarisSellpiaTemplate,
+  ): OrderCollectionConversion {
+    if (!file?.buffer) {
+      throw new BadRequestException('원폴라리스 주문 엑셀 파일이 필요합니다.');
+    }
+    const wb = readWorkbookOrThrow(
+      file.buffer,
+      '원폴라리스 주문 엑셀을 읽지 못했습니다. 메일에 첨부된 엑셀을 그대로 올려 주세요.',
+    );
+    const sheet = wb.Sheets[wb.SheetNames[0] ?? ''];
+    if (!sheet) {
+      throw new BadRequestException('원폴라리스 주문 엑셀에 시트가 없습니다.');
+    }
+    // 값 그대로 읽는다 — 구매일은 날짜 일련번호, 수량은 숫자로 온다.
+    const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: '' });
+    let parsed: ReturnType<typeof readOnePolarisOrderRows>;
+    try {
+      parsed = readOnePolarisOrderRows(aoa);
+    } catch (error) {
+      if (error instanceof OnePolarisFileError) throw new BadRequestException(error.message);
+      throw error;
+    }
+    if (parsed.rows.length === 0) {
+      throw noNewOrders('원폴라리스 주문 엑셀에 주문 줄이 없습니다.');
+    }
+    const built = buildOnePolarisSellpiaRows(parsed.rows, template);
+    const outSheet = XLSX.utils.aoa_to_sheet([
+      ONE_POLARIS_SELLPIA_HEADERS.slice() as string[],
+      ...built.rows,
+    ]);
+    // 사장님 양식과 같은 서식: 주문일자는 m/d/yy 날짜. 우편번호는 글자라 앞자리 0이 산다.
+    const range = XLSX.utils.decode_range(outSheet['!ref'] ?? 'A1');
+    for (let r = range.s.r + 1; r <= range.e.r; r += 1) {
+      const dateCell = outSheet[XLSX.utils.encode_cell({ r, c: ONE_POLARIS_SELLPIA_COLUMN.orderDate })];
+      if (dateCell && dateCell.t === 'n') dateCell.z = 'm/d/yy';
+    }
+    outSheet['!cols'] = ONE_POLARIS_SELLPIA_HEADERS.map((header, index) => ({
+      wch: index === ONE_POLARIS_SELLPIA_COLUMN.address
+        ? 48
+        : index === ONE_POLARIS_SELLPIA_COLUMN.productName
+          ? 34
+          : Math.min(28, Math.max(10, header.length + 2)),
+    }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, outSheet, '양식');
+    const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+    const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립
+    return {
+      buffer,
+      fileName: `원폴라리스_${dayStamp(new Date())}_변환.xls`,
+      sourceRows: parsed.sourceRows,
+      productRows: 0,
+      outputRows: built.rows.length,
+      skippedRows: parsed.skippedRows,
+      notes: onePolarisConversionNotes(built),
+    };
+  }
+}
+
+function readWorkbookOrThrow(buffer: Buffer, message: string): XLSX.WorkBook {
+  try {
+    return XLSX.read(buffer, { type: 'buffer', cellDates: false });
+  } catch {
+    throw new BadRequestException(message);
+  }
+}
+
+/** 이름이 같은 시트의 줄 전체. 없으면 null. 셀은 보이는 글자 그대로라 우편번호 앞자리 0이 산다. */
+function sheetRowsByName(wb: XLSX.WorkBook, name: string): unknown[][] | null {
+  const sheetName = wb.SheetNames.find((candidate) => candidate.trim() === name);
+  const sheet = sheetName ? wb.Sheets[sheetName] : undefined;
+  if (!sheet) return null;
+  return XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: '' });
 }
 
 function convertIcecreamMallRows(

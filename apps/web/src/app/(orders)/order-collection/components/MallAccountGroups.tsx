@@ -15,6 +15,7 @@ import {
   isAutoDetectableMall,
   isBrowserCollectableMall,
   isSellpiaCollectedMall,
+  isUploadCollectedMall,
 } from '../lib/order-collection-page-model';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
@@ -199,6 +200,9 @@ function MallAccountCard({
   onUploadTracking,
 }: MallAccountCardProps) {
   const collectable = account.enabled && isBrowserCollectableMall(account);
+  // 파일을 올려 수집하는 몰(원폴라리스)은 수집기가 없어도 '준비 중'이 아니다 — 업로드가 곧 수집이다.
+  const uploadCollected = account.enabled && isUploadCollectedMall(account);
+  const active = collectable || uploadCollected;
   const autoDetectable = isAutoDetectableMall(account);
   const trackingSupported = isTrackingSupportedMall(account.key);
   // 오류가 난 몰은 상태등이 빨간불이고 카드 배경도 빨강이다 — 실패한 카드를 한눈에 찾게.
@@ -282,7 +286,7 @@ function MallAccountCard({
         opensChooserOnCard(opensChooser) && 'cursor-pointer',
         failed
           ? 'border-red-200 bg-red-50'
-          : collectable
+          : active
             ? 'border-slate-200 hover:border-purple-300'
             : 'border-slate-100 bg-slate-50/40',
         isOpen && 'ring-1 ring-purple-300',
@@ -324,16 +328,16 @@ function MallAccountCard({
               'h-1.5 w-1.5 flex-none rounded-full',
               failed
                 ? 'bg-red-500'
-                : collectable
+                : active
                   ? 'bg-emerald-500'
                   : 'bg-slate-300',
             )}
-            title={failed ? failedTitle : collectable ? '수집 가능' : '준비 중'}
+            title={failed ? failedTitle : uploadCollected ? '파일을 올려 수집' : collectable ? '수집 가능' : '준비 중'}
           />
           <span
             className={cn(
               'truncate text-[13px] font-semibold',
-              collectable ? 'text-slate-900' : 'text-slate-400',
+              active ? 'text-slate-900' : 'text-slate-400',
             )}
             title={account.name}
           >
@@ -411,6 +415,10 @@ function MallAccountCard({
           >
             {loginBlock.kind === 'verification' ? '자동 멈춤 · 직접 인증' : '자동 멈춤 · 직접 로그인'}
           </button>
+        ) : uploadCollected ? (
+          <span className="text-slate-400" title="메일로 받은 주문 엑셀을 올리면 셀피아 파일로 바꿉니다">
+            파일 업로드
+          </span>
         ) : !collectable ? (
           <span className="text-slate-300">준비 중</span>
         ) : autoDetect && autoDetectable && autoNextRunAt !== null ? (

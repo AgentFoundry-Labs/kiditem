@@ -195,6 +195,9 @@ export const queryKeys = {
     collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
     collectionMallAction: (action: string) =>
       [...queryKeys.orders.collectionMalls(), action] as const,
+    /** 원폴라리스 셀피아 양식(주소록 · 단가) 요약. 업로드 모달이 저장된 양식을 보여 준다. */
+    onePolarisSellpiaTemplate: () =>
+      [...queryKeys.orders.collectionMalls(), 'one-polaris', 'sellpia-template'] as const,
     /**
      * Every mall's order-collection owner status in one read, shared by all the
      * screen's mall cards so 20 start controls poll the owner once (KID-170 D2).

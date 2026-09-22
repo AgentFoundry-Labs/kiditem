@@ -18,9 +18,10 @@ import {
   Res,
   StreamableFile,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 
 import type { MulterFile } from '../../common/types';
@@ -44,6 +45,7 @@ import {
   SaveCoupangDirectPoSnapshotRequestSchema,
 } from '@kiditem/shared/coupang-direct-order';
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
+import { OrderCollectionMallAccountService } from '../services/order-collection-mall-account.service';
 import {
   orderCollectionOrderCount,
   type OrderCollectionSourceStatus,
@@ -100,6 +102,7 @@ export class OrderCollectionController {
     private readonly coupangDirectPoSnapshot: CoupangDirectPoSnapshotService,
     @Inject(ORDER_COLLECTION_SOURCE_PORT)
     private readonly orderCollectionSource: OrderCollectionSourcePort,
+    private readonly mallAccounts: OrderCollectionMallAccountService,
   ) {}
 
   @Post('coupang-directship/attempts')
@@ -332,6 +335,80 @@ export class OrderCollectionController {
     response.setHeader('X-Order-Collection-Source-Rows', String(result.poCount));
     response.setHeader('X-Order-Collection-Product-Rows', String(result.rowCount));
     response.setHeader('X-Order-Collection-Output-Rows', String(result.rowCount));
+    return new StreamableFile(result.buffer);
+  }
+
+  /**
+   * 원폴라리스 — 메일로 받은 주문 엑셀을 셀피아 `양식` .xls 로. `template` 을 함께 올리면 그
+   * 양식(주소록 · 단가)을 먼저 저장하고, 아니면 저장된 양식으로 채운다.
+   */
+  @Post('one-polaris/convert')
+  @Header('Access-Control-Expose-Headers', [
+    'Content-Disposition',
+    'X-Order-Collection-Source-Rows',
+    'X-Order-Collection-Product-Rows',
+    'X-Order-Collection-Output-Rows',
+    'X-Order-Collection-Skipped-Rows',
+    'X-Order-Collection-Notes',
+  ].join(', '))
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'file', maxCount: 1 }, { name: 'template', maxCount: 1 }], {
+      limits: { fileSize: MAX_UPLOAD_SIZE },
+      fileFilter: (_req, file, cb) => {
+        const mimeOk = ALLOWED_MIME_TYPES.has(file.mimetype);
+        const extOk = /\.(xls|xlsx)$/i.test(file.originalname);
+        if (mimeOk || extOk) return cb(null, true);
+        cb(new BadRequestException('원폴라리스 주문 엑셀과 양식은 xls/xlsx 파일만 업로드 가능합니다.'), false);
+      },
+    }),
+  )
+  async convertOnePolaris(
+    @UploadedFiles() files: { file?: MulterFile[]; template?: MulterFile[] } | undefined,
+    @CurrentOrganization() organizationId: string,
+    @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
+    @Headers('x-source-attempt-token') attemptToken: string | undefined,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const file = files?.file?.[0];
+    if (!file) {
+      throw new BadRequestException('원폴라리스 주문 엑셀 파일이 필요합니다.');
+    }
+    const templateFile = files?.template?.[0];
+    const template = templateFile
+      ? await this.mallAccounts.saveOnePolarisSellpiaTemplate(
+        organizationId,
+        this.orderCollectionService.parseOnePolarisSellpiaTemplateFile(templateFile),
+      )
+      : await this.mallAccounts.readOnePolarisSellpiaTemplate(organizationId);
+    if (!template) {
+      throw new BadRequestException(
+        '원폴라리스 양식 파일(주소록 · 단가)이 아직 없습니다. 양식 파일을 함께 올려 주세요.',
+      );
+    }
+    const source = fileSubmission(file);
+    const result = await this.convertWithAttempt(
+      'one-polaris',
+      organizationId,
+      attemptId,
+      attemptToken,
+      source,
+      () => this.orderCollectionService.convertOnePolarisOrderFile(file, template),
+    );
+    this.setConversionHeaders(result, response);
+    if (result.notes?.length) {
+      // 표에 없어 비워 둔 칸 — 화면이 그대로 읽어 사람에게 보인다.
+      response.setHeader('X-Order-Collection-Notes', encodeURIComponent(JSON.stringify(result.notes)));
+    }
+    await this.persistConversion(
+      'one-polaris',
+      organizationId,
+      attemptId,
+      attemptToken,
+      source,
+      response,
+      null,
+      orderCount(result),
+    );
     return new StreamableFile(result.buffer);
   }
 

@@ -16,6 +16,8 @@ export interface OrderCollectionConversionResult {
   reconciledRows?: number | null;
   rocketWorkbookExportId?: string | null;
   transmissionIntentKey?: string | null;
+  /** 변환이 사람에게 남긴 말 — 표에 없어 비워 둔 칸 같은 것. 화면이 그대로 보여 준다. */
+  notes?: string[];
 }
 
 export interface BrowserOrderRowsPayload {

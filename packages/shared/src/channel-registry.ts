@@ -19,6 +19,8 @@ type ChannelKind = 'mall' | 'marketplace';
  * 이 채널의 주문이 **지금 실제로** 우리에게 오는 길.
  *
  *  - `extension`: 우리 확장 수집기가 가져온다(쿠팡 로켓은 발주 수집이 그 자리를 채운다).
+ *  - `upload`: 몰이 준 파일을 운영자가 주문수집 화면에 올리면 우리가 셀피아 양식으로 바꾼다.
+ *    원폴라리스가 이 길이다 — 판매자 화면이 없고 주문이 메일 첨부 엑셀로만 온다.
  *  - `sellpia`: 셀피아가 그 몰에서 직접 가져오고, 주문은 셀피아 주문수집으로 들어온다.
  *  - `none`: 아직 길이 없다.
  *
@@ -27,7 +29,7 @@ type ChannelKind = 'mall' | 'marketplace';
  * 받는다(KID-105 Q2) — 그래서 `sellpia` 다. 여기에 `extension` 을 적으면 화면이 되는
  * 것처럼 말하고 사람이 눌렀을 때 아무 일도 일어나지 않는다.
  */
-export type ChannelCollector = 'extension' | 'sellpia' | 'none';
+export type ChannelCollector = 'extension' | 'upload' | 'sellpia' | 'none';
 
 /**
  * 상품등록을 어떻게 보내는가. `none` 은 두 가지를 겸한다 — `verified` 가 가른다.
@@ -72,7 +74,7 @@ export interface ChannelRegistryEntry {
  * 몰의 순서는 주문수집 카탈로그 순서다 — 쇼핑몰 계정 화면의 기본 정렬이 이 순서를 쓴다.
  */
 const REGISTRY_ROWS = [
-  { key: 'one-polaris', name: '원폴라리스', kind: 'mall', collector: 'none', uploadTracking: false, register: 'none', verified: false, logo: null },
+  { key: 'one-polaris', name: '원폴라리스', kind: 'mall', collector: 'upload', uploadTracking: false, register: 'none', verified: false, logo: null },
   { key: 'icecream-mall', name: '아이스크림몰', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'none', verified: false, logo: '/mall-logos/icecream-mall.png' },
   { key: 'kidkids', name: '키드키즈', kind: 'mall', collector: 'extension', uploadTracking: true, register: 'form', verified: false, logo: '/mall-logos/kidkids.ico' },
   { key: 'kidsnote', name: '키즈노트', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'excel', verified: true, logo: '/mall-logos/kidsnote.png' },
@@ -186,10 +188,18 @@ export function channelCollectsViaSellpia(key: string): boolean {
   return findChannel(key)?.collector === 'sellpia';
 }
 
-/** 주문이 어디로든 들어오는 채널(우리 수집기 또는 셀피아). */
+/**
+ * 몰이 준 파일을 운영자가 올려 우리가 변환하는 채널. 시작할 수집기가 없으므로 주문수집
+ * 화면의 카드는 수집 버튼 대신 업로드를 연다.
+ */
+export function channelCollectsViaUpload(key: string): boolean {
+  return findChannel(key)?.collector === 'upload';
+}
+
+/** 주문이 어디로든 들어오는 채널(우리 수집기 · 운영자 업로드 · 셀피아). */
 export function channelCollectsOrders(key: string): boolean {
   const collector = findChannel(key)?.collector;
-  return collector === 'extension' || collector === 'sellpia';
+  return collector === 'extension' || collector === 'upload' || collector === 'sellpia';
 }
 
 /** 확장에 발송처리(송장 등록) 경로가 있는 채널. */

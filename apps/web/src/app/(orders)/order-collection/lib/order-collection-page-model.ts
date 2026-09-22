@@ -1,6 +1,7 @@
 import {
   channelCollectsViaExtension,
   channelCollectsViaSellpia,
+  channelCollectsViaUpload,
 } from '@kiditem/shared/channel-registry';
 import { orderCollectionOrderCount } from '@kiditem/shared/order-collection-source';
 import { formatNumber } from '@/lib/utils';
@@ -119,6 +120,14 @@ export function isBrowserCollectableMall(account: OrderCollectionMallAccount): b
  */
 export function isSellpiaCollectedMall(account: Pick<OrderCollectionMallAccount, 'key'>): boolean {
   return channelCollectsViaSellpia(account.key);
+}
+
+/**
+ * 몰이 준 파일을 운영자가 올려 수집하는 몰(원폴라리스) — 판정은 채널 레지스트리의 `collector`
+ * 하나다. 시작할 수집기가 없으므로 카드의 수집 자리는 업로드 모달을 연다.
+ */
+export function isUploadCollectedMall(account: Pick<OrderCollectionMallAccount, 'key'>): boolean {
+  return channelCollectsViaUpload(account.key);
 }
 
 export function isAutoDetectableMall(account: OrderCollectionMallAccount): boolean {

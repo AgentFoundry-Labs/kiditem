@@ -271,6 +271,35 @@ describe('MallAccountGroups', () => {
     });
   });
 
+  /**
+   * 원폴라리스는 주문이 메일 첨부 엑셀로만 온다. 수집기가 없어도 '준비 중'이 아니다 —
+   * 업로드가 곧 수집이라, 카드는 초록불로 서고 상태 줄이 그렇게 말한다.
+   */
+  it('⭐ 파일을 올려 수집하는 몰은 준비 중이 아니라 파일 업로드로 선다', () => {
+    render(
+      <MallAccountGroups
+        accounts={[account('one-polaris', { name: '원폴라리스' }), account('yoons', { name: '윤선생' })]}
+        stats={new Map()}
+        selectedMall={null}
+        settingsOpen={false}
+        autoDetect={false}
+        autoNextRunAt={null}
+        autoRunning={false}
+        onOpenSettings={vi.fn()}
+        renderCollectionControl={collectButton(vi.fn())}
+        onUploadTracking={vi.fn()}
+      />,
+    );
+    const card = screen.getByRole('article', { name: '원폴라리스 계정 카드' });
+    expect(within(card).getByText('파일 업로드')).toBeInTheDocument();
+    expect(within(card).queryByText('준비 중')).toBeNull();
+    expect(within(card).getByTitle('파일을 올려 수집')).toBeInTheDocument();
+
+    const idle = screen.getByRole('article', { name: '윤선생 계정 카드' });
+    expect(within(idle).getByText('준비 중')).toBeInTheDocument();
+    expect(within(idle).getByTitle('준비 중')).toBeInTheDocument();
+  });
+
   describe('셀피아가 받아 오는 몰 — 아래 영역', () => {
     /**
      * 지마켓 · 옥션 · 11번가 · 스마트스토어 · 신세계는 셀피아가 그 몰에서 직접 주문을 받아
