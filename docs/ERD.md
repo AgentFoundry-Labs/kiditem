@@ -62,7 +62,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ContentGenerationAssetUsage | AI | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
 | ContentGenerationGroup | AI | `content_generation_groups` | Same-input generation group owned by a content workspace. |
 | ContentGenerationSource | AI | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
-| ContentWorkspace | AI | `content_workspaces` | Product content workspace owned by a sourcing candidate, channel listing, or direct detail page. |
+| ContentWorkspace | AI | `content_workspaces` | Product content workspace owned by a sales product draft, its channel listing, or a direct detail page. |
 | ContentWorkspaceThumbnailSelection | AI | `content_workspace_thumbnail_selections` | Stable workspace-owned thumbnail adoption with optional generation provenance. |
 | DetailPageArtifact | AI | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
 | DetailPageImageArtifact | AI | `detail_page_image_artifacts` | Durable single-JPEG marketplace rendition for one immutable detail-page revision and renderer variant. |
@@ -620,7 +620,6 @@ erDiagram
     String organizationId FK
     String generationGroupId FK
     String contentWorkspaceId FK
-    String sourceCandidateId FK
     String detailPageArtifactId FK
     String contentType
     String templateId
@@ -666,7 +665,7 @@ erDiagram
     String organizationId FK
     String contentGenerationId FK
     String sourceType
-    String sourceCandidateId FK
+    String sourceCandidateId
     String sourceContentGenerationId FK
     String contentAssetId FK
     String label
@@ -679,7 +678,7 @@ erDiagram
     String id PK
     String organizationId FK
     String ownerType
-    String sourceCandidateId FK
+    String salesProductId
     String channelListingId
     String originWorkspaceId FK
     String displayName
@@ -924,7 +923,6 @@ erDiagram
   DetailPageImageRenderIntent {
     String id PK
     String organizationId FK
-    String sourceCandidateId FK
     String detailPageArtifactId FK
     String revisionId FK
     String variant
@@ -2382,7 +2380,6 @@ erDiagram
   ThumbnailGeneration {
     String id PK
     String organizationId FK
-    String sourceCandidateId FK
     String contentWorkspaceId FK
     String originalUrl
     String selectedUrl
@@ -2444,7 +2441,7 @@ erDiagram
     String label
     Int sortOrder
     String source
-    String candidateImageId FK
+    String candidateImageId
     String sourceThumbnailCandidateId FK
     String mimeType
     Int width
@@ -2576,7 +2573,6 @@ erDiagram
     DateTime updatedAt
   }
   AdAction ||--o{ ExecutionTask : "action"
-  CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
   ChannelAccount ||--o{ ChannelListingDeletionOperation : "channelAccount"
   ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"
@@ -2788,12 +2784,7 @@ erDiagram
   SourceImportRun o|--o{ SellpiaSalesDailySnapshot : "sourceImportRun"
   Sourcing1688OfferKeywordObservation ||--o{ SourcingReviewBatchItem : "offerKeywordObservation"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
-  SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
-  SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"
-  SourcingCandidate o|--o{ ContentWorkspace : "sourceCandidate"
-  SourcingCandidate ||--o{ DetailPageImageRenderIntent : "sourceCandidate"
   SourcingCandidate o|--o{ SourcingLaunchCandidate : "sourceCandidate"
-  SourcingCandidate o|--o{ ThumbnailGeneration : "sourceCandidate"
   SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
   SourcingDecisionBatchItem ||--o{ ProcurementTestIntent : "decisionBatchItem"
   SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
