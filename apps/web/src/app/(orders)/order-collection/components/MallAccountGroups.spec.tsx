@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -271,6 +271,105 @@ describe('MallAccountGroups', () => {
     });
   });
 
+  describe('셀피아가 받아 오는 몰 — 아래 영역', () => {
+    /**
+     * 지마켓 · 옥션 · 11번가 · 스마트스토어 · 신세계는 셀피아가 그 몰에서 직접 주문을 받아
+     * 온다. 우리 수집 몰과 한 격자에 섞여 있으면 회색 '준비 중' 카드가 되어 아직 안 만든
+     * 몰처럼 보인다 — 아래 영역으로 내리고 셀피아라고 적는다(사장님 2026-09-22).
+     */
+    function renderTwoGroups() {
+      render(
+        <MallAccountGroups
+          accounts={[
+            account('kakao', { name: '카카오' }),
+            account('gmarket', { name: '지마켓' }),
+            account('domeggook', { name: '도매꾹' }),
+            account('11st', { name: '11번가' }),
+          ]}
+          stats={new Map()}
+          selectedMall={null}
+          settingsOpen={false}
+          autoDetect={false}
+          autoNextRunAt={null}
+          autoRunning={false}
+          onOpenSettings={vi.fn()}
+          renderCollectionControl={collectButton(vi.fn())}
+          onUploadTracking={vi.fn()}
+        />,
+      );
+    }
+
+    it('⭐ 셀피아 수집 몰만 아래 영역에 선다', () => {
+      renderTwoGroups();
+      const ours = screen.getByTestId('mall-account-card-grid');
+      const sellpia = screen.getByTestId('mall-account-card-grid-sellpia');
+
+      for (const name of ['카카오', '도매꾹']) {
+        expect(within(ours).getByRole('article', { name: `${name} 계정 카드` })).toBeInTheDocument();
+        expect(within(sellpia).queryByRole('article', { name: `${name} 계정 카드` })).toBeNull();
+      }
+      for (const name of ['지마켓', '11번가']) {
+        expect(within(sellpia).getByRole('article', { name: `${name} 계정 카드` })).toBeInTheDocument();
+        expect(within(ours).queryByRole('article', { name: `${name} 계정 카드` })).toBeNull();
+      }
+    });
+
+    it('아래 영역은 셀피아라고 이름을 달고, 여기서 수집하지 않는다고 적는다', () => {
+      renderTwoGroups();
+      const area = screen.getByRole('region', { name: '셀피아가 받아 오는 몰' });
+      expect(within(area).getByRole('heading', { name: '셀피아' })).toBeInTheDocument();
+      expect(area).toHaveTextContent('여기서는 수집하지 않습니다.');
+      // 몇 개인지 먼저 말한다 — 이 화면의 다른 묶음(보낼 몰 · 생성 파일)과 같은 틀이다.
+      expect(within(area).getByText('2개')).toBeInTheDocument();
+    });
+
+    it('셀피아 몰이 하나도 없으면 아래 영역을 세우지 않는다 — 빈 제목만 남지 않게', () => {
+      render(
+        <MallAccountGroups
+          accounts={[account('kakao', { name: '카카오' })]}
+          stats={new Map()}
+          selectedMall={null}
+          settingsOpen={false}
+          autoDetect={false}
+          autoNextRunAt={null}
+          autoRunning={false}
+          onOpenSettings={vi.fn()}
+          renderCollectionControl={collectButton(vi.fn())}
+          onUploadTracking={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId('mall-account-card-grid-sellpia')).toBeNull();
+      expect(screen.queryByRole('heading', { name: '셀피아' })).toBeNull();
+    });
+
+    it('⭐ 순번은 제 영역 안에서 센다 — 아래 영역 첫 카드도 1번이다', () => {
+      const updatedAt = '2026-09-16T00:00:00.000Z';
+      render(
+        <MallAccountGroups
+          accounts={[
+            account('kakao', { name: '카카오', updatedAt }),
+            account('gmarket', { name: '지마켓', updatedAt }),
+            account('11st', { name: '11번가', updatedAt }),
+          ]}
+          stats={new Map()}
+          selectedMall={null}
+          settingsOpen={false}
+          autoDetect={false}
+          autoNextRunAt={null}
+          autoRunning={false}
+          onOpenSettings={vi.fn()}
+          renderCollectionControl={collectButton(vi.fn())}
+          onUploadTracking={vi.fn()}
+          onMoveMall={vi.fn()}
+          onDropMall={vi.fn()}
+        />,
+      );
+      expect(screen.getByRole('button', { name: '카카오 순서 1번 — 끌어서 옮기기' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '지마켓 순서 1번 — 끌어서 옮기기' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '11번가 순서 2번 — 끌어서 옮기기' })).toBeInTheDocument();
+    });
+  });
+
   describe('카드 순서 — 손잡이로만 옮긴다', () => {
     it('손잡이는 순서를 바꿀 수 있을 때만 보인다', () => {
       render(
@@ -314,9 +413,10 @@ describe('MallAccountGroups', () => {
       expect(screen.queryByRole('button', { name: /카카오 순서/ })).toBeNull();
     });
 
-    it('방향키로 옆 카드와 자리를 바꾼다', async () => {
+    it('방향키로 옆 카드와 자리를 바꾼다 — 옆이란 제 영역에서 보이는 옆이다', async () => {
       const user = userEvent.setup();
       const onMoveMall = vi.fn();
+      const onDropMall = vi.fn();
       const updatedAt = '2026-09-16T00:00:00.000Z';
       render(
         <MallAccountGroups
@@ -331,15 +431,18 @@ describe('MallAccountGroups', () => {
           renderCollectionControl={collectButton(vi.fn())}
           onUploadTracking={vi.fn()}
           onMoveMall={onMoveMall}
-          onDropMall={vi.fn()}
+          onDropMall={onDropMall}
         />,
       );
       screen.getByRole('button', { name: '아트공구 순서 1번 — 끌어서 옮기기' }).focus();
       await user.keyboard('{ArrowRight}');
-      expect(onMoveMall).toHaveBeenCalledWith('art09', 1);
+      // 전체 목록의 한 칸이 아니라 **이 영역의 이웃** 자리로 보낸다. 경계에서 다른 영역의
+      // 몰과 자리를 바꾸면 카드는 제자리에 남아 방향키가 먹지 않는 것처럼 보인다.
+      expect(onDropMall).toHaveBeenCalledWith('art09', 'kakao');
       // 맨 앞 카드는 더 앞으로 가지 않는다.
       await user.keyboard('{ArrowLeft}');
-      expect(onMoveMall).toHaveBeenCalledTimes(1);
+      expect(onDropMall).toHaveBeenCalledTimes(1);
+      expect(onMoveMall).not.toHaveBeenCalled();
     });
   });
 });

@@ -73,8 +73,13 @@ convenience history.
 - File actions lock by file ID, and irreversible sends execute through one
   ordered queue.
 
-Preserve the existing collection shell and flat mall-card grid. Enabled
-extension-session malls remain collectable without stored credentials.
+Preserve the existing collection shell. The mall cards stand in two areas: the
+malls we collect, and below them the malls Sellpia collects itself (`셀피아`).
+Which area a card stands in is the registry's `collector`, never a mall key, and
+the card itself does not change between them. Both areas share one saved order —
+the reorder request carries every mall, because a partial list clears the
+`sortOrder` of every mall left out. Enabled extension-session malls remain
+collectable without stored credentials.
 Transmission actions stay inside generated files; do not add an Inventory
 freshness workspace.
 

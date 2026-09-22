@@ -1,4 +1,7 @@
-import { channelCollectsViaExtension } from '@kiditem/shared/channel-registry';
+import {
+  channelCollectsViaExtension,
+  channelCollectsViaSellpia,
+} from '@kiditem/shared/channel-registry';
 import { orderCollectionOrderCount } from '@kiditem/shared/order-collection-source';
 import { formatNumber } from '@/lib/utils';
 import type { OrderCollectionFailureCode } from './order-collection-extension';
@@ -105,6 +108,17 @@ export function mallStatus(account: OrderCollectionMallAccount): { label: string
 export function isBrowserCollectableMall(account: OrderCollectionMallAccount): boolean {
   if (!channelCollectsViaExtension(account.key)) return false;
   return account.key !== ICECREAM_MALL_KEY || (account.configured && account.enabled);
+}
+
+/**
+ * 이 몰의 주문을 셀피아가 직접 받아 오는가 — 판정은 채널 레지스트리의 `collector` 하나다.
+ *
+ * 화면은 이 몰들을 아래 셀피아 영역에 따로 모은다. 우리 수집 몰과 섞어 두면 회색 '준비 중'
+ * 카드가 되어 **아직 안 만든 몰**처럼 보이는데, 사실은 주문이 이미 셀피아로 들어오고 있다
+ * (사장님 2026-09-22).
+ */
+export function isSellpiaCollectedMall(account: Pick<OrderCollectionMallAccount, 'key'>): boolean {
+  return channelCollectsViaSellpia(account.key);
 }
 
 export function isAutoDetectableMall(account: OrderCollectionMallAccount): boolean {

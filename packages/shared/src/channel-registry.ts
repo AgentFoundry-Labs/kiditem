@@ -176,6 +176,16 @@ export function channelCollectsViaExtension(key: string): boolean {
   return findChannel(key)?.collector === 'extension';
 }
 
+/**
+ * 셀피아가 그 몰에서 직접 주문을 가져오는 채널.
+ *
+ * 우리 확장이 들어가지 않으므로 주문수집 화면에서 누를 것이 없다. 화면은 이 몰들을
+ * 따로 모아 셀피아가 받아 온다고 적는다 — 섞어 두면 아직 안 만든 몰처럼 보인다.
+ */
+export function channelCollectsViaSellpia(key: string): boolean {
+  return findChannel(key)?.collector === 'sellpia';
+}
+
 /** 주문이 어디로든 들어오는 채널(우리 수집기 또는 셀피아). */
 export function channelCollectsOrders(key: string): boolean {
   const collector = findChannel(key)?.collector;

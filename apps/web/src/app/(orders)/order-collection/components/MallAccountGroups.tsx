@@ -14,6 +14,7 @@ import {
   formatMallCollectionTime,
   isAutoDetectableMall,
   isBrowserCollectableMall,
+  isSellpiaCollectedMall,
 } from '../lib/order-collection-page-model';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
@@ -77,34 +78,74 @@ export function MallAccountGroups({
   onOpenChooser,
   onUploadTracking,
 }: MallAccountGroupsProps) {
+  // 셀피아가 직접 받아 오는 몰은 아래로 내린다(사장님 2026-09-22). 우리 수집 몰과 섞여
+  // 있으면 회색 '준비 중' 카드가 되어 아직 안 만든 몰처럼 보이는데, 사실은 주문이 이미
+  // 셀피아로 들어오고 있다. 누구를 내릴지는 채널 레지스트리의 `collector` 가 정한다.
+  const collectedByUs = accounts.filter((account) => !isSellpiaCollectedMall(account));
+  const collectedBySellpia = accounts.filter((account) => isSellpiaCollectedMall(account));
+
+  const cardsOf = (group: readonly OrderCollectionMallAccount[]) =>
+    group.map((account, index) => (
+      <MallAccountCard
+        key={account.key}
+        // 순번·양끝은 그 카드가 선 영역 안에서 센다. 두 영역을 한 줄로 세면 아래 영역
+        // 첫 카드의 왼쪽 화살표가 위 영역 끝으로 건너뛴다.
+        position={index + 1}
+        isFirst={index === 0}
+        isLast={index === group.length - 1}
+        previousKey={group[index - 1]?.key ?? null}
+        nextKey={group[index + 1]?.key ?? null}
+        onMoveMall={onMoveMall}
+        onDropMall={onDropMall}
+        account={account}
+        collectionStat={stats.get(account.key)}
+        failedReason={failedMallReasonByKey?.get(account.key)}
+        isOpen={settingsOpen && selectedMall?.key === account.key}
+        autoDetect={autoDetect}
+        autoNextRunAt={autoNextRunAt}
+        autoRunning={autoRunning}
+        onOpenSettings={onOpenSettings}
+        renderCollectionControl={renderCollectionControl}
+        onOpenChooser={onOpenChooser}
+        onUploadTracking={onUploadTracking}
+      />
+    ));
+
   return (
-    <div className="overflow-x-auto pb-1">
-      <div
-        data-testid="mall-account-card-grid"
-        className="grid min-w-[720px] grid-cols-5 gap-3"
-      >
-        {accounts.map((account, index) => (
-          <MallAccountCard
-            key={account.key}
-            position={index + 1}
-            isFirst={index === 0}
-            isLast={index === accounts.length - 1}
-            onMoveMall={onMoveMall}
-            onDropMall={onDropMall}
-            account={account}
-            collectionStat={stats.get(account.key)}
-            failedReason={failedMallReasonByKey?.get(account.key)}
-            isOpen={settingsOpen && selectedMall?.key === account.key}
-            autoDetect={autoDetect}
-            autoNextRunAt={autoNextRunAt}
-            autoRunning={autoRunning}
-            onOpenSettings={onOpenSettings}
-            renderCollectionControl={renderCollectionControl}
-            onOpenChooser={onOpenChooser}
-            onUploadTracking={onUploadTracking}
-          />
-        ))}
+    <div className="space-y-4">
+      <div className="overflow-x-auto pb-1">
+        <div
+          data-testid="mall-account-card-grid"
+          className="grid min-w-[720px] grid-cols-5 gap-3"
+        >
+          {cardsOf(collectedByUs)}
+        </div>
       </div>
+
+      {collectedBySellpia.length > 0 ? (
+        <section aria-label="셀피아가 받아 오는 몰" className="border-t border-slate-100 pt-4">
+          <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
+            {/* 개수는 제목 밖에 둔다 — 안에 넣으면 제목을 읽는 이름이 '셀피아2개' 가 된다. */}
+            <div className="flex items-baseline gap-2">
+              <h3 className="text-sm font-semibold text-slate-700">셀피아</h3>
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
+                {formatNumber(collectedBySellpia.length)}개
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">
+              셀피아가 이 몰에서 직접 받아 옵니다. 여기서는 수집하지 않습니다.
+            </p>
+          </div>
+          <div className="overflow-x-auto pb-1">
+            <div
+              data-testid="mall-account-card-grid-sellpia"
+              className="grid min-w-[720px] grid-cols-5 gap-3"
+            >
+              {cardsOf(collectedBySellpia)}
+            </div>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -115,6 +156,9 @@ interface MallAccountCardProps {
   position: number;
   isFirst: boolean;
   isLast: boolean;
+  /** 같은 영역에서 바로 앞·뒤에 선 몰. 영역 끝이면 null. */
+  previousKey: string | null;
+  nextKey: string | null;
   onMoveMall?: (mallKey: string, direction: -1 | 1) => void;
   onDropMall?: (sourceMallKey: string, targetMallKey: string) => void;
   collectionStat: MallCollectionStat | undefined;
@@ -139,6 +183,8 @@ function MallAccountCard({
   position,
   isFirst,
   isLast,
+  previousKey,
+  nextKey,
   onMoveMall,
   onDropMall,
   collectionStat,
@@ -216,7 +262,12 @@ function MallAccountCard({
             event.preventDefault();
             setDragOver(false);
             const sourceKey = event.dataTransfer.getData('text/plain');
-            if (sourceKey && sourceKey !== account.key) onDropMall?.(sourceKey, account.key);
+            if (!sourceKey || sourceKey === account.key) return;
+            // 영역을 건너뛰는 끌어놓기는 받지 않는다. 어느 영역에 서는지는 몰의 수집 경로가
+            // 정하므로, 자리를 옮겨도 카드는 제 영역에 그대로 있다 — 저장만 되고 화면은
+            // 그대로라 사람은 순서 저장이 고장난 줄 안다.
+            if (isSellpiaCollectedMall({ key: sourceKey }) !== isSellpiaCollectedMall(account)) return;
+            onDropMall?.(sourceKey, account.key);
           }
         : undefined}
       onClick={opensChooserOnCard(opensChooser) && !running
@@ -249,14 +300,19 @@ function MallAccountCard({
               onMouseDown={() => setDragArmed(true)}
               onMouseUp={() => setDragArmed(false)}
               onKeyDown={(event) => {
-                if (event.key === 'ArrowLeft' && !isFirst) {
-                  event.preventDefault();
-                  onMoveMall?.(account.key, -1);
-                }
-                if (event.key === 'ArrowRight' && !isLast) {
-                  event.preventDefault();
-                  onMoveMall?.(account.key, 1);
-                }
+                // 옆 칸이란 **이 영역에서 눈에 보이는 옆 칸**이다. 전체 목록에서 한 칸씩
+                // 옮기면 경계 카드가 다른 영역의 몰과 자리를 바꾸는데, 영역은 몰의 수집
+                // 경로가 정하므로 카드는 그 자리에 그대로 있다 — 사람 눈에는 방향키가
+                // 먹지 않는 것으로 보인다. 그래서 이웃을 짚어 그 자리로 보낸다.
+                const neighborKey = event.key === 'ArrowLeft'
+                  ? previousKey
+                  : event.key === 'ArrowRight'
+                    ? nextKey
+                    : null;
+                if (!neighborKey) return;
+                event.preventDefault();
+                if (onDropMall) onDropMall(account.key, neighborKey);
+                else onMoveMall?.(account.key, event.key === 'ArrowLeft' ? -1 : 1);
               }}
               className="-ml-1 flex-none cursor-grab rounded p-0.5 text-slate-300 transition-colors hover:text-slate-500 active:cursor-grabbing"
             >
