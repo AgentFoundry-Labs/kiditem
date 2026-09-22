@@ -177,37 +177,7 @@ describe('ThumbnailEditorController workspace-bound (async direct AI)', () => {
   });
 });
 
-describe('ThumbnailEditorController candidate-bound generation', () => {
-  it('creates a persisted candidate-bound generation when sourceCandidateId is provided', async () => {
-    const { controller, editorAi, generationService } = makeController({
-      withProduct: false,
-    });
-    const body = {
-      sourceCandidateId: SOURCE_CANDIDATE_ID,
-      productImage: 'candidate-product-url',
-      productName: 'Candidate toy',
-      purpose: 'compliance',
-      mode: 'edit',
-    } satisfies ThumbnailEditorDto;
-
-    const result = await controller.generate(body, ORGANIZATION_ID);
-
-    expect(result).toEqual({
-      candidates: [],
-      generationId: 'candidate-generation-async-1',
-      status: 'pending',
-    });
-    expect(editorAi.generateEdit).not.toHaveBeenCalled();
-    expect(generationService.enqueueCandidateGeneration).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        sourceCandidateId: SOURCE_CANDIDATE_ID,
-        productName: 'Candidate toy',
-        originalUrl: 'candidate-product-url',
-      }),
-    );
-  });
-
+describe('ThumbnailEditorController workspace-bound generation', () => {
   it('enqueues a standalone generation without creating a sourcing candidate when owner ids are omitted', async () => {
     const { controller, editorAi, generationService, generatedCandidates } = makeController({ withProduct: false });
     const body = {

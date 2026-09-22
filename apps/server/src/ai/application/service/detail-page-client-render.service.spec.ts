@@ -16,7 +16,7 @@ const sharp: typeof import('sharp')['default'] = require('sharp');
 const ORG_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
 const OTHER_USER_ID = '33333333-3333-4333-8333-333333333333';
-const CANDIDATE_ID = '44444444-4444-4444-8444-444444444444';
+const WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
 const REVISION_ID = '55555555-5555-4555-8555-555555555555';
 const DETAIL_ARTIFACT_ID = '66666666-6666-4666-8666-666666666666';
 const INTENT_ID = '77777777-7777-4777-8777-777777777777';
@@ -40,7 +40,6 @@ function intent(overrides: Record<string, unknown> = {}) {
   return {
     id: INTENT_ID,
     organizationId: ORG_ID,
-    sourceCandidateId: CANDIDATE_ID,
     detailPageArtifactId: DETAIL_ARTIFACT_ID,
     revisionId: REVISION_ID,
     variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
@@ -88,7 +87,7 @@ function imageArtifact(overrides: Record<string, unknown> = {}) {
 
 describe('DetailPageClientRenderService', () => {
   const detailPages = {
-    findCandidateCurrentDetailPageHtml: vi.fn(),
+    findWorkspaceCurrentDetailPageHtml: vi.fn(),
     findDetailPageRevisionHtml: vi.fn(),
   };
   const images = {
@@ -129,24 +128,24 @@ describe('DetailPageClientRenderService', () => {
   });
 
   it('저장 HTML이 없거나 비어 있으면 명시적인 missing을 반환한다', async () => {
-    detailPages.findCandidateCurrentDetailPageHtml
+    detailPages.findWorkspaceCurrentDetailPageHtml
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(savedDetailPage('   '));
 
     await expect(service.prepare({
       organizationId: ORG_ID,
       userId: USER_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      contentWorkspaceId: WORKSPACE_ID,
     })).resolves.toMatchObject({ status: 'missing', reason: 'no_saved_detail_page' });
     await expect(service.prepare({
       organizationId: ORG_ID,
       userId: USER_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      contentWorkspaceId: WORKSPACE_ID,
     })).resolves.toMatchObject({ status: 'missing', reason: 'empty_html' });
   });
 
   it('현재 revision의 확정 artifact가 있으면 새 intent 없이 ready를 반환한다', async () => {
-    detailPages.findCandidateCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
+    detailPages.findWorkspaceCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
     images.findArtifact.mockResolvedValue(imageArtifact({
       variant: 'wing-server-jpeg-v1',
       objectKey: SERVER_OBJECT_KEY,
@@ -157,7 +156,7 @@ describe('DetailPageClientRenderService', () => {
     const result = await service.prepare({
       organizationId: ORG_ID,
       userId: USER_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      contentWorkspaceId: WORKSPACE_ID,
     });
 
     expect(result).toMatchObject({
@@ -171,7 +170,7 @@ describe('DetailPageClientRenderService', () => {
   });
 
   it('저장 revision을 서버에서 780px JPEG로 렌더하고 artifact를 확정한다', async () => {
-    detailPages.findCandidateCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
+    detailPages.findWorkspaceCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
     images.findArtifact.mockResolvedValue(null);
     images.createIntent.mockImplementation(async (value) => intent(value));
     images.claimIntent.mockImplementation(async () => ({
@@ -207,7 +206,7 @@ describe('DetailPageClientRenderService', () => {
     const result = await service.prepare({
       organizationId: ORG_ID,
       userId: USER_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      contentWorkspaceId: WORKSPACE_ID,
     });
 
     expect(result).toMatchObject({
@@ -219,7 +218,7 @@ describe('DetailPageClientRenderService', () => {
     });
     expect(images.createIntent).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORG_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      detailPageArtifactId: DETAIL_ARTIFACT_ID,
       revisionId: REVISION_ID,
       objectKey: SERVER_OBJECT_KEY,
       variant: 'wing-server-jpeg-v1',
@@ -246,7 +245,7 @@ describe('DetailPageClientRenderService', () => {
   });
 
   it('서버 렌더 실패를 intent에 기록하고 빈 artifact로 진행하지 않는다', async () => {
-    detailPages.findCandidateCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
+    detailPages.findWorkspaceCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
     images.findArtifact.mockResolvedValue(null);
     images.createIntent.mockImplementation(async (value) => intent({
       ...value,
@@ -272,7 +271,7 @@ describe('DetailPageClientRenderService', () => {
     await expect(service.prepare({
       organizationId: ORG_ID,
       userId: USER_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      contentWorkspaceId: WORKSPACE_ID,
     })).rejects.toThrow('Chromium launch failed');
 
     expect(images.failIntent).toHaveBeenCalledWith({

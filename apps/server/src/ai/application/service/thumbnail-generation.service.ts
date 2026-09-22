@@ -63,10 +63,10 @@ export class ThumbnailGenerationService {
     return this.generationJobs.enqueueEditorGeneration(input);
   }
 
-  async enqueueCandidateGeneration(
-    input: Parameters<ThumbnailGenerationJobService['enqueueCandidateGeneration']>[0],
+  async enqueueSalesProductGeneration(
+    input: Parameters<ThumbnailGenerationJobService['enqueueSalesProductGeneration']>[0],
   ): Promise<{ generationId: string; status: 'pending' | 'cancelled' }> {
-    return this.generationJobs.enqueueCandidateGeneration(input);
+    return this.generationJobs.enqueueSalesProductGeneration(input);
   }
 
   async enqueueStandaloneGeneration(
@@ -78,7 +78,6 @@ export class ThumbnailGenerationService {
   async findAll(
     organizationId: string,
     opts: {
-      sourceCandidateId?: string | null;
       contentWorkspaceId?: string | null;
       scope?: ThumbnailGenerationListScope;
       limit?: number | null;

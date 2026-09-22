@@ -16,7 +16,7 @@
 | ContentGenerationAssetUsage | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
 | ContentGenerationGroup | `content_generation_groups` | Same-input generation group owned by a content workspace. |
 | ContentGenerationSource | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
-| ContentWorkspace | `content_workspaces` | Product content workspace owned by a sourcing candidate, channel listing, or direct detail page. |
+| ContentWorkspace | `content_workspaces` | Product content workspace owned by a sales product draft, its channel listing, or a direct detail page. |
 | ContentWorkspaceThumbnailSelection | `content_workspace_thumbnail_selections` | Stable workspace-owned thumbnail adoption with optional generation provenance. |
 | DetailPageArtifact | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
 | DetailPageImageArtifact | `detail_page_image_artifacts` | Durable single-JPEG marketplace rendition for one immutable detail-page revision and renderer variant. |
@@ -95,7 +95,6 @@ erDiagram
     String organizationId FK
     String generationGroupId FK
     String contentWorkspaceId FK
-    String sourceCandidateId FK
     String detailPageArtifactId FK
     String contentType
     String templateId
@@ -141,7 +140,7 @@ erDiagram
     String organizationId FK
     String contentGenerationId FK
     String sourceType
-    String sourceCandidateId FK
+    String sourceCandidateId
     String sourceContentGenerationId FK
     String contentAssetId FK
     String label
@@ -154,7 +153,7 @@ erDiagram
     String id PK
     String organizationId FK
     String ownerType
-    String sourceCandidateId FK
+    String salesProductId
     String channelListingId
     String originWorkspaceId FK
     String displayName
@@ -215,7 +214,6 @@ erDiagram
   DetailPageImageRenderIntent {
     String id PK
     String organizationId FK
-    String sourceCandidateId FK
     String detailPageArtifactId FK
     String revisionId FK
     String variant
@@ -286,7 +284,6 @@ erDiagram
   ThumbnailGeneration {
     String id PK
     String organizationId FK
-    String sourceCandidateId FK
     String contentWorkspaceId FK
     String originalUrl
     String selectedUrl
@@ -348,7 +345,7 @@ erDiagram
     String label
     Int sortOrder
     String source
-    String candidateImageId FK
+    String candidateImageId
     String sourceThumbnailCandidateId FK
     String mimeType
     Int width
@@ -455,15 +452,12 @@ erDiagram
 | ContentAsset | createdByUser | references external | Core | User |
 | ContentAsset | organization | references external | Core | Organization |
 | ContentGeneration | organization | references external | Core | Organization |
-| ContentGeneration | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ContentGeneration | triggeredByUser | references external | Core | User |
 | ContentGenerationAssetUsage | organization | references external | Core | Organization |
 | ContentGenerationGroup | organization | references external | Core | Organization |
 | ContentGenerationSource | organization | references external | Core | Organization |
-| ContentGenerationSource | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ContentWorkspace | createdByUser | references external | Core | User |
 | ContentWorkspace | organization | references external | Core | Organization |
-| ContentWorkspace | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ContentWorkspaceThumbnailSelection | createdByUser | references external | Core | User |
 | ContentWorkspaceThumbnailSelection | organization | references external | Core | Organization |
 | DetailPageArtifact | createdByUser | references external | Core | User |
@@ -473,18 +467,15 @@ erDiagram
 | DetailPageImageRenderIntent | claimedBy | references external | Core | User |
 | DetailPageImageRenderIntent | organization | references external | Core | Organization |
 | DetailPageImageRenderIntent | requestedBy | references external | Core | User |
-| DetailPageImageRenderIntent | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | DetailPageRevision | createdByUser | references external | Core | User |
 | DetailPageRevision | organization | references external | Core | Organization |
 | Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | organization | references external | Core | Organization |
 | ThumbnailGeneration | organization | references external | Core | Organization |
-| ThumbnailGeneration | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ThumbnailGeneration | triggeredByUser | references external | Core | User |
 | ThumbnailGenerationCandidate | organization | references external | Core | Organization |
 | ThumbnailGenerationEvent | actor | references external | Core | User |
 | ThumbnailGenerationEvent | organization | references external | Core | Organization |
-| ThumbnailGenerationInputImage | candidateImage | references external | Sourcing | CandidateImage |
 | ThumbnailGenerationInputImage | organization | references external | Core | Organization |
 | ThumbnailRegistrationAttempt | organization | references external | Core | Organization |
 | ThumbnailTracking | organization | references external | Core | Organization |

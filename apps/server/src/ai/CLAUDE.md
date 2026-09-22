@@ -8,17 +8,19 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
 
 ## Identity And Ledgers
 
-- `ContentWorkspace` is owned by one sourcing candidate, channel listing, or
-  direct detail page. `ContentGeneration` and its sources record generated
-  content and provenance.
+- `ContentWorkspace` is owned by one sales-product draft, channel listing, or
+  direct detail page. A draft has one active workspace; registration points that
+  workspace at its listing rather than cloning a second one. `ContentGeneration`
+  and its sources record generated content and provenance.
 - `DetailPageArtifact` plus append-only revisions owns editable HTML.
   Render-intent and immutable image-artifact rows own bounded Wing JPEG output.
 - `ContentThumbnailSelection` is the workspace's managed current-thumbnail
   pointer. `ThumbnailGeneration` is its generation ledger.
 - `AiDirectJob` owns claims, leases, retries, checkpoints, cancellation, and
   recovery for thumbnail, detail-page, image-edit, and re-edit work.
-- Use `contentWorkspaceId` for media workspaces. Candidate, listing, and
-  generation IDs are provenance or ledger identities; do not reintroduce
+- Use `contentWorkspaceId` for media workspaces. Sourcing candidate and
+  candidate-image ids are provenance columns with no foreign key; AI never reads
+  a Channels or Sourcing row to fill a prompt or a name. Do not reintroduce
   MasterProduct terminology.
 
 The complete schema is
@@ -50,8 +52,8 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
   Browser-extension capture and split/stitch rendering remain retired.
 - Missing saved HTML returns the explicit missing result. Callers do not
   substitute another image.
-- Registration branches selected revision, HTML, and managed media into a
-  listing workspace without cloning jobs or candidates.
+- Registration attaches the listing to the draft's own workspace; selected
+  revision, HTML and managed media stay where they were made.
 - Product-less operator generation uses a direct workspace, not a synthetic
   sourcing candidate.
 

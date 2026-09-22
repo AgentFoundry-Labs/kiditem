@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
@@ -12,6 +12,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
+import { SalesProductOwnerReadAdapter } from '../adapter/out/channels/sales-product-owner.adapter';
 import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { groupUrlAssetKey } from '../domain/content-asset-key';
@@ -45,17 +46,58 @@ describe('AI content ownership constraints (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('rejects cross-organization workspace owner and current-content pointers', async () => {
-    const foreignCandidate = await prisma.sourcingCandidate.create({
+  /**
+   * Stands in for `SALES_PRODUCT_PORT`: the same organization-scoped lookup
+   * Channels performs, against the real rows, without pulling the Products
+   * runtime that its repository adapter needs.
+   */
+  function salesProductOwners() {
+    return new SalesProductOwnerReadAdapter({
+      async get(organizationId: string, salesProductId: string) {
+        const row = await prisma.salesProduct.findFirst({
+          where: { id: salesProductId, organizationId },
+          select: { id: true },
+        });
+        if (!row) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+        return row as never;
+      },
+    } as never);
+  }
+
+  it('refuses a draft workspace whose sales product belongs to another organization', async () => {
+    const foreignProduct = await prisma.salesProduct.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
-        sourceUrl: `https://example.com/candidate/${randomUUID()}`,
-        sourcePlatform: 'ALIBABA_1688',
-        rawData: {},
-        name: 'Foreign candidate',
-        status: 'sourced',
+        code: 'FOREIGN-DRAFT',
+        name: 'Foreign draft',
       },
     });
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new ChannelListingQueryService(
+        new ChannelListingQueryPersistenceAdapter(prisma as never),
+        { findForListings: async () => [] },
+      ),
+      salesProductOwners(),
+    );
+
+    await expect(repository.ensureActiveWorkspace({
+      organizationId: TEST_ORGANIZATION_ID,
+      ownerType: 'sales_product',
+      salesProductId: foreignProduct.id,
+      channelListingId: null,
+      originWorkspaceId: null,
+      displayName: 'Cross-tenant draft',
+      normalizedTitle: 'crosstenantdraft',
+      createdByUserId: null,
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(await prisma.contentWorkspace.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: foreignProduct.id },
+    })).toBe(0);
+  });
+
+  it('rejects cross-organization current-content pointers', async () => {
     const foreignWorkspace = await prisma.contentWorkspace.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
@@ -71,16 +113,6 @@ describe('AI content ownership constraints (PG integration)', () => {
         title: 'Foreign detail page',
       },
     });
-
-    await expect(prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: foreignCandidate.id,
-        displayName: 'Cross-tenant owner',
-        normalizedTitle: 'crosstenantowner',
-      },
-    })).rejects.toMatchObject({ code: 'P2003' });
 
     await expect(prisma.contentWorkspace.create({
       data: {
@@ -132,21 +164,21 @@ describe('AI content ownership constraints (PG integration)', () => {
         status: 'active',
       },
     });
-    const localWorkspace = await prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: localCandidate.id,
-        displayName: localCandidate.name,
-        normalizedTitle: 'localpreparationcandidate',
-      },
-    });
     const localProduct = await prisma.salesProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: localCandidate.id,
         code: 'LOCAL-PREPARATION-CANDIDATE',
         name: 'Local preparation candidate',
+      },
+    });
+    const localWorkspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'sales_product',
+        salesProductId: localProduct.id,
+        displayName: localCandidate.name,
+        normalizedTitle: 'localpreparationcandidate',
       },
     });
     await prisma.salesProductOption.create({
@@ -281,15 +313,32 @@ describe('AI content ownership constraints (PG integration)', () => {
     });
   });
 
-  it('locks a workspace owner until candidate workspace creation commits', async () => {
-    const candidate = await prisma.sourcingCandidate.create({
+  it('locks the origin draft workspace until the listing workspace creation commits', async () => {
+    const account = await prisma.channelAccount.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl: `https://example.com/candidate/${randomUUID()}`,
-        sourcePlatform: 'ALIBABA_1688',
-        rawData: {},
-        name: 'Candidate owner lock',
-        status: 'sourced',
+        channel: 'coupang',
+        externalAccountId: randomUUID(),
+        name: 'Origin lock account',
+        status: 'active',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        externalId: randomUUID(),
+        channelName: 'Origin lock listing',
+        status: 'active',
+      },
+    });
+    const origin = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'sales_product',
+        salesProductId: randomUUID(),
+        displayName: 'Origin owner lock',
+        normalizedTitle: 'originownerlock',
       },
     });
     let signalLocked!: () => void;
@@ -307,8 +356,12 @@ describe('AI content ownership constraints (PG integration)', () => {
             if (property !== '$queryRaw') return Reflect.get(target, property, receiver);
             return async <R>(query: Prisma.Sql): Promise<R> => {
               const rows = await tx.$queryRaw<R>(query);
-              signalLocked();
-              await released;
+              // The listing lock runs first; pause only once the origin
+              // workspace row itself is held.
+              if (query.sql.includes('content_workspaces')) {
+                signalLocked();
+                await released;
+              }
               return rows;
             };
           },
@@ -320,27 +373,26 @@ describe('AI content ownership constraints (PG integration)', () => {
         new ChannelListingQueryPersistenceAdapter(prisma as never),
         { findForListings: async () => [] },
       ),
+      salesProductOwners(),
     );
 
     const creation = repository.ensureActiveWorkspace({
       organizationId: TEST_ORGANIZATION_ID,
-      ownerType: 'sourcing_candidate',
-      sourceCandidateId: candidate.id,
-      channelListingId: null,
-      originWorkspaceId: null,
-      displayName: 'Candidate owner lock',
-      normalizedTitle: 'candidateownerlock',
+      ownerType: 'channel_listing',
+      salesProductId: null,
+      channelListingId: listing.id,
+      originWorkspaceId: origin.id,
+      displayName: 'Origin owner lock',
+      normalizedTitle: 'originownerlockbranch',
       createdByUserId: null,
     });
     await locked;
-    const archive = prisma.sourcingCandidate.updateMany({
-      where: {
-        id: candidate.id,
-        organizationId: TEST_ORGANIZATION_ID,
-        isDeleted: false,
-      },
-      data: { isDeleted: true, deletedAt: new Date('2026-07-13T00:00:00.000Z') },
-    });
+    const archive = prisma.$executeRaw`
+      UPDATE content_workspaces
+      SET status = 'archived'
+      WHERE id = ${origin.id}::uuid
+        AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+    `;
     await expect(Promise.race([
       archive.then(() => 'settled'),
       new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 100)),
@@ -348,13 +400,13 @@ describe('AI content ownership constraints (PG integration)', () => {
 
     releaseLock();
     await expect(creation).resolves.toMatchObject({
-      displayName: 'Candidate owner lock',
+      displayName: 'Origin owner lock',
     });
-    await expect(archive).resolves.toEqual({ count: 1 });
+    await expect(archive).resolves.toBe(1);
     expect(await prisma.contentWorkspace.count({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidate.id,
+        channelListingId: listing.id,
       },
     })).toBe(1);
   });

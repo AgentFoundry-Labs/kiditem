@@ -193,17 +193,17 @@ export async function createPendingEditJob(
 }
 
 /**
- * Build a pending thumbnail generation for a sourcing candidate workspace.
- * Candidate-bound rows intentionally have no `contentWorkspaceId`; registration may
- * branch selected content into the account-scoped listing workspace without
- * cloning the candidate or its generation job.
+ * Build a pending thumbnail generation for a sales-product draft workspace.
+ * The draft owns one workspace, so the job opens (or reuses) that workspace and
+ * registration later attaches the listing to the same row.
  */
-export async function createPendingCandidateJob(
+export async function createPendingSalesProductJob(
   prisma: Prisma.TransactionClient | PrismaService,
   args: {
     id?: string;
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
+    productName: string;
     originalUrl: string;
     method: string;
     inputMeta: Prisma.InputJsonValue;
@@ -216,7 +216,7 @@ export async function createPendingCandidateJob(
     const existing = await prisma.contentWorkspace.findFirst({
       where: {
         organizationId: args.organizationId,
-        sourceCandidateId: args.sourceCandidateId,
+        salesProductId: args.salesProductId,
         status: 'active',
         isDeleted: false,
       },
@@ -225,21 +225,14 @@ export async function createPendingCandidateJob(
     if (existing) {
       contentWorkspaceId = existing.id;
     } else {
-      const candidate = await prisma.sourcingCandidate.findFirstOrThrow({
-        where: {
-          id: args.sourceCandidateId,
-          organizationId: args.organizationId,
-          isDeleted: false,
-        },
-        select: { name: true },
-      });
+      const displayName = args.productName.trim() || '상품 콘텐츠 작업';
       const created = await prisma.contentWorkspace.create({
         data: {
           organizationId: args.organizationId,
-          ownerType: 'sourcing_candidate',
-          sourceCandidateId: args.sourceCandidateId,
-          displayName: candidate.name,
-          normalizedTitle: candidate.name.trim().toLowerCase(),
+          ownerType: 'sales_product',
+          salesProductId: args.salesProductId,
+          displayName,
+          normalizedTitle: displayName.toLowerCase(),
         },
         select: { id: true },
       });
@@ -250,7 +243,6 @@ export async function createPendingCandidateJob(
     data: {
       ...(args.id ? { id: args.id } : {}),
       organizationId: args.organizationId,
-      sourceCandidateId: args.sourceCandidateId,
       contentWorkspaceId,
       originalUrl: args.originalUrl,
       method: args.method,
@@ -266,9 +258,8 @@ export async function createPendingCandidateJob(
 
 /**
  * Build a pending thumbnail generation for the standalone thumbnail editor.
- * These rows intentionally have neither `contentWorkspaceId` nor `sourceCandidateId`:
- * they are user-visible only by generation id and must not create sourcing
- * inbox cards.
+ * These rows get a `direct_detail_page` workspace of their own: they are
+ * user-visible only by generation id and must not create sourcing inbox cards.
  */
 export async function createPendingStandaloneJob(
   prisma: Prisma.TransactionClient | PrismaService,
@@ -299,7 +290,6 @@ export async function createPendingStandaloneJob(
     data: {
       ...(args.id ? { id: args.id } : {}),
       organizationId: args.organizationId,
-      sourceCandidateId: null,
       contentWorkspaceId,
       originalUrl: args.originalUrl,
       method: args.method,

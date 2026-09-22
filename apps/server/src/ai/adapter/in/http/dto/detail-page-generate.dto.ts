@@ -81,6 +81,10 @@ export class GenerateDetailPageBodyDto implements GenerateDetailPageInput {
   contentWorkspaceId?: string;
 
   @IsOptional()
+  @IsUUID()
+  salesProductId?: string;
+
+  @IsOptional()
   @IsIn(DETAIL_PAGE_TEMPLATE_IDS)
   templateId?: DetailPageTemplateId;
 

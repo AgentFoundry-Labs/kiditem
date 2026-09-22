@@ -3,7 +3,8 @@ import { ThumbnailGenerationLedgerRepositoryAdapter } from '../thumbnail-generat
 
 const helperMocks = vi.hoisted(() => ({
   createPendingEditJob: vi.fn(),
-  createPendingCandidateJob: vi.fn(),
+  createPendingSalesProductJob: vi.fn(),
+  createPendingStandaloneJob: vi.fn(),
   persistPendingInputImages: vi.fn(),
   lockGenerationForProcessing: vi.fn(),
   applyDirectSuccessResult: vi.fn(),
@@ -11,7 +12,8 @@ const helperMocks = vi.hoisted(() => ({
 
 vi.mock('../thumbnail-generation-ledger.persistence', () => ({
   createPendingEditJob: helperMocks.createPendingEditJob,
-  createPendingCandidateJob: helperMocks.createPendingCandidateJob,
+  createPendingSalesProductJob: helperMocks.createPendingSalesProductJob,
+  createPendingStandaloneJob: helperMocks.createPendingStandaloneJob,
   persistPendingInputImages: helperMocks.persistPendingInputImages,
   lockGenerationForProcessing: helperMocks.lockGenerationForProcessing,
   applyDirectSuccessResult: helperMocks.applyDirectSuccessResult,
@@ -127,9 +129,10 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
 
     await expect(
       repository.openPendingDirectGeneration({
-        subject: 'candidate',
+        subject: 'sales_product',
+        salesProductId: 'sales-product-1',
+        productName: '상품',
         organizationId: 'org-1',
-        sourceCandidateId: 'candidate-1',
         contentWorkspaceId: 'workspace-1',
         originalUrl: 'https://cdn.example.com/source.jpg',
         method: 'generate',
@@ -177,14 +180,15 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
     const directJobs = {
       createInScope: vi.fn().mockResolvedValue({ id: 'direct-job-1' }),
     };
-    helperMocks.createPendingCandidateJob.mockResolvedValueOnce({ id: generationId });
+    helperMocks.createPendingSalesProductJob.mockResolvedValueOnce({ id: generationId });
     helperMocks.persistPendingInputImages.mockResolvedValueOnce(undefined);
     const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, directJobs as never, {} as never, {} as never);
 
     await expect(repository.openPendingDirectGeneration({
-      subject: 'candidate',
+      subject: 'sales_product',
       organizationId: 'org-1',
-      sourceCandidateId: 'candidate-1',
+      salesProductId: 'sales-product-1',
+      productName: '상품',
       contentWorkspaceId: 'workspace-1',
       originalUrl: 'https://cdn.example.com/source.jpg',
       method: 'generate',
@@ -204,7 +208,7 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
       },
     })).resolves.toMatchObject({ status: 'created', generationId });
 
-    expect(helperMocks.createPendingCandidateJob).toHaveBeenCalledWith(
+    expect(helperMocks.createPendingSalesProductJob).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({ id: generationId }),
     );
@@ -234,15 +238,16 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
       },
     };
     const directJobs = { createInScope: vi.fn() };
-    helperMocks.createPendingCandidateJob.mockRejectedValueOnce({ code: 'P2002' });
+    helperMocks.createPendingSalesProductJob.mockRejectedValueOnce({ code: 'P2002' });
     const repository = new ThumbnailGenerationLedgerRepositoryAdapter(
       prisma as never,
       directJobs as never, {} as never, {} as never);
 
     await expect(repository.openPendingDirectGeneration({
-      subject: 'candidate',
+      subject: 'sales_product',
       organizationId: 'org-1',
-      sourceCandidateId: 'candidate-1',
+      salesProductId: 'sales-product-1',
+      productName: '상품',
       contentWorkspaceId: 'workspace-1',
       originalUrl: 'https://cdn.example.com/source.jpg',
       method: 'generate',
@@ -322,37 +327,4 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
     );
   });
 
-  it('reads sourcing candidate job context with organization scope', async () => {
-    const prisma = {
-      sourcingCandidate: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: 'candidate-1',
-          name: '후보',
-          category: '완구',
-          images: [],
-        }),
-      },
-    };
-    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never, {} as never, {} as never);
-
-    await expect(repository.findSourceCandidateForJob('candidate-1', 'org-1')).resolves.toEqual({
-      id: 'candidate-1',
-      name: '후보',
-      category: '완구',
-      images: [],
-    });
-
-    expect(prisma.sourcingCandidate.findFirst).toHaveBeenCalledWith({
-      where: { id: 'candidate-1', organizationId: 'org-1', isDeleted: false },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        images: {
-          where: { isDeleted: false },
-          select: { id: true, url: true, storageKey: true },
-        },
-      },
-    });
-  });
 });

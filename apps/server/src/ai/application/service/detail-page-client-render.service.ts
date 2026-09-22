@@ -123,11 +123,11 @@ export class DetailPageClientRenderService {
   async prepare(input: {
     organizationId: string;
     userId: string;
-    sourceCandidateId: string;
+    contentWorkspaceId: string;
   }): Promise<DetailPageClientRenderPrepareResponse> {
-    const saved = await this.detailPages.findCandidateCurrentDetailPageHtml({
+    const saved = await this.detailPages.findWorkspaceCurrentDetailPageHtml({
       organizationId: input.organizationId,
-      sourceCandidateId: input.sourceCandidateId,
+      contentWorkspaceId: input.contentWorkspaceId,
     });
     if (!saved) {
       return {
@@ -155,7 +155,6 @@ export class DetailPageClientRenderService {
     const currentTime = this.now();
     const renderIntent = await this.images.createIntent({
       organizationId: input.organizationId,
-      sourceCandidateId: input.sourceCandidateId,
       detailPageArtifactId: saved.artifactId,
       revisionId: saved.revisionId,
       variant: SERVER_RENDER_VARIANT,

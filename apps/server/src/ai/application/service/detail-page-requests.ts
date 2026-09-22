@@ -25,6 +25,8 @@ export interface GenerateDetailPageInput {
   imageUrls?: string[];
   heroImageMode?: 'first' | 'llm-pick';
   contentWorkspaceId?: string;
+  /** The sales-product draft this generation belongs to, when the caller has one. */
+  salesProductId?: string;
   templateId?: DetailPageTemplateId;
   generationMode?: 'draft' | 'image' | 'full';
   ageGroup?: DetailPageAgeGroup;

@@ -7,7 +7,7 @@ export * from './detail-page-image.repository.port';
 export * from './detail-page-query.repository.port';
 export * from './product-generation-context.repository.port';
 export * from './registration-content-workspace.repository.port';
-export * from './sourcing-workspace-archive.repository.port';
+export * from './sales-product-workspace-archive.repository.port';
 export * from './thumbnail-analysis.repository.port';
 export * from './thumbnail-generation-ledger.repository.port';
 export * from './thumbnail-tracking.repository.port';

@@ -19,25 +19,25 @@ import {
 } from './dto';
 
 /**
- * 수집상품의 저장된 revision을 서버 Chromium으로 렌더하고 확정 이미지 artifact로 연결한다.
+ * 작업공간의 저장된 revision을 서버 Chromium으로 렌더하고 확정 이미지 artifact로 연결한다.
  * Wing 폼 확장은 완성된 이미지 URL만 소비하며 상세페이지 캡처에는 관여하지 않는다.
  */
 @Controller('ai/detail-page-image')
-export class DetailPageCandidateImageController {
+export class DetailPageWorkspaceImageController {
   constructor(private readonly service: DetailPageClientRenderService) {}
 
-  @Post('candidate/:candidateId/server-render')
+  @Post('workspace/:contentWorkspaceId/server-render')
   @HttpCode(200)
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   prepare(
-    @Param('candidateId', new ParseUUIDPipe()) candidateId: string,
+    @Param('contentWorkspaceId', new ParseUUIDPipe()) contentWorkspaceId: string,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
     return this.service.prepare({
       organizationId,
       userId: user.id,
-      sourceCandidateId: candidateId,
+      contentWorkspaceId,
     });
   }
 

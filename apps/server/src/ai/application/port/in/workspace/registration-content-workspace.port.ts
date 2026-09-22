@@ -3,9 +3,9 @@ export const REGISTRATION_CONTENT_WORKSPACE_PORT = Symbol(
   'REGISTRATION_CONTENT_WORKSPACE_PORT',
 );
 
-export interface EnsureRegistrationCandidateWorkspaceInput {
+export interface EnsureSalesProductContentWorkspaceInput {
   organizationId: string;
-  sourceCandidateId: string;
+  salesProductId: string;
   displayName: string;
   createdByUserId: string | null;
 }
@@ -31,29 +31,35 @@ export type ResolvedRegistrationContentSelections = Pick<
   | 'selectedDetailPageGenerationId'
 >;
 
-export interface BranchRegistrationWorkspaceToListingInput
-  extends RegistrationContentSelectionInput {
+export interface AttachContentWorkspaceToListingInput {
+  organizationId: string;
+  salesProductId: string;
   listingId: string;
-  displayName: string;
-  createdByUserId: string | null;
 }
 
-export interface FindCandidateContentWorkspaceInput {
+export interface FindSalesProductContentWorkspaceInput {
   organizationId: string;
-  sourceCandidateId: string;
+  salesProductId: string;
 }
 
 export interface RegistrationContentWorkspacePort {
   /**
-   * Read-only lookup of the active workspace a candidate already owns.
+   * Read-only lookup of the active workspace a sales-product draft already owns.
    *
-   * `ensureCandidateWorkspace` is the write path and runs inside registration.
-   * The candidate workspace screen only needs to know whether a workspace
+   * `ensureSalesProductWorkspace` is the write path and runs inside
+   * registration. The draft screen only needs to know whether a workspace
    * exists, so it must not create one as a side effect of a GET.
    */
-  findCandidateWorkspaceId(
-    input: FindCandidateContentWorkspaceInput,
+  findSalesProductWorkspaceId(
+    input: FindSalesProductContentWorkspaceInput,
   ): Promise<string | null>;
+  /**
+   * Fills in what the operator left implicit (an artifact's current revision, a
+   * generation's artifact) and adopts a plain thumbnail URL into managed
+   * content. Channels owns the draft's image list, so it — not AI — is the
+   * authority for whether a plain URL belongs to the draft; AI only enforces
+   * that every id-bearing selection is owned by this workspace.
+   */
   resolveSourceSelections(
     transaction: OwnerTransaction,
     input: RegistrationContentSelectionInput,
@@ -62,12 +68,17 @@ export interface RegistrationContentWorkspacePort {
     transaction: OwnerTransaction | null,
     input: RegistrationContentSelectionInput,
   ): Promise<void>;
-  ensureCandidateWorkspace(
+  ensureSalesProductWorkspace(
     transaction: OwnerTransaction,
-    input: EnsureRegistrationCandidateWorkspaceInput,
+    input: EnsureSalesProductContentWorkspaceInput,
   ): Promise<{ workspaceId: string }>;
-  branchToListing(
+  /**
+   * Points the draft's own workspace at the listing registration produced.
+   * There is one workspace per draft and it keeps its content, so registration
+   * records the listing instead of cloning artifacts into a second workspace.
+   */
+  attachToListing(
     transaction: OwnerTransaction,
-    input: BranchRegistrationWorkspaceToListingInput,
+    input: AttachContentWorkspaceToListingInput,
   ): Promise<{ workspaceId: string }>;
 }

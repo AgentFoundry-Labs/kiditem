@@ -692,7 +692,6 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| CandidateImage | candidateImage | referenced by external | AI | ThumbnailGenerationInputImage |
 | CandidateImage | organization | references external | Core | Organization |
 | LiveCommerceBroadcastDailySnapshot | organization | references external | Core | Organization |
 | LiveCommerceProductDailySnapshot | organization | references external | Core | Organization |
@@ -702,11 +701,6 @@ erDiagram
 | Sourcing1688OfferKeywordObservation | organization | references external | Core | Organization |
 | SourcingCandidate | organization | references external | Core | Organization |
 | SourcingCandidate | rejectedByUser | references external | Core | User |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGeneration |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | ContentWorkspace |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageImageRenderIntent |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
 | SourcingCandidate | triggeredByUser | references external | Core | User |
 | SourcingCollectionSourceControl | organization | references external | Core | Organization |
 | SourcingDecisionBatch | organization | references external | Core | Organization |

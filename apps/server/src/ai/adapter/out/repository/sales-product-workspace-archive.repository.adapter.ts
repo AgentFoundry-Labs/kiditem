@@ -2,24 +2,24 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   AiWorkspaceArchiveScope,
-  ArchiveSourcingWorkspaceInput,
-  ArchiveSourcingWorkspaceResult,
-} from '../../../application/port/in/workspace/sourcing-workspace-archive.port';
-import type { SourcingWorkspaceArchiveRepositoryPort } from '../../../application/port/out/repository/sourcing-workspace-archive.repository.port';
+  ArchiveSalesProductWorkspaceInput,
+  ArchiveSalesProductWorkspaceResult,
+} from '../../../application/port/in/workspace/sales-product-workspace-archive.port';
+import type { SalesProductWorkspaceArchiveRepositoryPort } from '../../../application/port/out/repository/sales-product-workspace-archive.repository.port';
 
 @Injectable()
-export class SourcingWorkspaceArchiveRepositoryAdapter
-implements SourcingWorkspaceArchiveRepositoryPort {
-  async archiveSourcingWorkspace(
+export class SalesProductWorkspaceArchiveRepositoryAdapter
+implements SalesProductWorkspaceArchiveRepositoryPort {
+  async archiveSalesProductWorkspace(
     scope: AiWorkspaceArchiveScope,
-    input: ArchiveSourcingWorkspaceInput,
-  ): Promise<ArchiveSourcingWorkspaceResult> {
+    input: ArchiveSalesProductWorkspaceInput,
+  ): Promise<ArchiveSalesProductWorkspaceResult> {
     const tx = scope as unknown as Prisma.TransactionClient;
-    await lockSourceContentWorkspaces(tx, input.organizationId, input.sourceCandidateId);
+    await lockSalesProductContentWorkspaces(tx, input.organizationId, input.salesProductId);
     await scope.contentWorkspace.updateMany({
       where: {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        salesProductId: input.salesProductId,
         status: 'active',
         isDeleted: false,
       },
@@ -31,19 +31,19 @@ implements SourcingWorkspaceArchiveRepositoryPort {
     });
 
     const generationRows = await scope.contentGeneration.findMany({
-      where: contentGenerationSourceCandidateWhere(input),
+      where: workspaceGenerationWhere(input),
       select: { id: true },
     });
     const generationIds = generationRows.map((row) => row.id);
     await lockContentGenerations(tx, input.organizationId, generationIds);
-    await lockThumbnailGenerations(tx, input.organizationId, input.sourceCandidateId);
+    await lockThumbnailGenerations(tx, input.organizationId, input.salesProductId);
 
     const detailPageArtifacts = await scope.detailPageArtifact.updateMany({
       where: {
         organizationId: input.organizationId,
         isDeleted: false,
         OR: [
-          { contentWorkspace: { sourceCandidateId: input.sourceCandidateId } },
+          { contentWorkspace: { salesProductId: input.salesProductId } },
           ...(generationIds.length > 0
             ? [{ sourceContentGenerationId: { in: generationIds } }]
             : []),
@@ -108,7 +108,7 @@ implements SourcingWorkspaceArchiveRepositoryPort {
     const thumbnailGenerations = await scope.thumbnailGeneration.updateMany({
       where: {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        contentWorkspace: { salesProductId: input.salesProductId },
         isDeleted: false,
         thumbnailSelections: { none: {} },
       },
@@ -124,16 +124,16 @@ implements SourcingWorkspaceArchiveRepositoryPort {
   }
 }
 
-async function lockSourceContentWorkspaces(
+async function lockSalesProductContentWorkspaces(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  sourceCandidateId: string,
+  salesProductId: string,
 ): Promise<void> {
   await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT id
     FROM content_workspaces
     WHERE organization_id = ${organizationId}::uuid
-      AND source_candidate_id = ${sourceCandidateId}::uuid
+      AND sales_product_id = ${salesProductId}::uuid
       AND status = 'active'
       AND is_deleted = false
     ORDER BY id
@@ -161,28 +161,31 @@ async function lockContentGenerations(
 async function lockThumbnailGenerations(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  sourceCandidateId: string,
+  salesProductId: string,
 ): Promise<void> {
   await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id
-    FROM thumbnail_generations
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_candidate_id = ${sourceCandidateId}::uuid
-      AND is_deleted = false
-    ORDER BY id
-    FOR UPDATE
+    SELECT g.id
+    FROM thumbnail_generations g
+    JOIN content_workspaces w
+      ON w.id = g.content_workspace_id
+     AND w.organization_id = g.organization_id
+    WHERE g.organization_id = ${organizationId}::uuid
+      AND w.sales_product_id = ${salesProductId}::uuid
+      AND g.is_deleted = false
+    ORDER BY g.id
+    FOR UPDATE OF g
   `);
 }
 
-function contentGenerationSourceCandidateWhere(input: ArchiveSourcingWorkspaceInput) {
+/**
+ * The workspace is the only owner a generation has now, so archiving follows
+ * the workspace instead of the three-way candidate fan-out it replaced.
+ */
+function workspaceGenerationWhere(input: ArchiveSalesProductWorkspaceInput) {
   return {
     organizationId: input.organizationId,
     isDeleted: false,
-    OR: [
-      { sourceCandidateId: input.sourceCandidateId },
-      { sources: { some: { sourceCandidateId: input.sourceCandidateId } } },
-      { contentWorkspace: { sourceCandidateId: input.sourceCandidateId } },
-    ],
+    contentWorkspace: { salesProductId: input.salesProductId },
   };
 }
 

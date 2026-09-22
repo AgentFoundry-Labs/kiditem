@@ -60,7 +60,7 @@ export class CreateContentWorkspaceDto {
 
   @IsOptional()
   @IsUUID()
-  sourceCandidateId?: string;
+  salesProductId?: string;
 
 }
 

@@ -1,5 +1,11 @@
 export const AI_WORKSPACE_ARCHIVE_PORT = Symbol('AI_WORKSPACE_ARCHIVE_PORT');
 
+/**
+ * Archiving every AI row a sales-product draft owns, inside the caller's own
+ * transaction. Channels owns the draft and therefore decides when its content
+ * workspace goes away; AI owns what "going away" means for its rows.
+ */
+
 export interface AiWorkspaceArchiveScope {
   contentWorkspace: {
     updateMany(args: any): Promise<{ count: number }>;
@@ -19,13 +25,13 @@ export interface AiWorkspaceArchiveScope {
   };
 }
 
-export interface ArchiveSourcingWorkspaceInput {
+export interface ArchiveSalesProductWorkspaceInput {
   organizationId: string;
-  sourceCandidateId: string;
+  salesProductId: string;
   archivedAt: Date;
 }
 
-export interface ArchiveSourcingWorkspaceResult {
+export interface ArchiveSalesProductWorkspaceResult {
   archivedContentGenerations: number;
   archivedDetailPageArtifacts: number;
   archivedContentAssets: number;
@@ -33,8 +39,8 @@ export interface ArchiveSourcingWorkspaceResult {
 }
 
 export interface AiWorkspaceArchivePort {
-  archiveSourcingWorkspace(
+  archiveSalesProductWorkspace(
     scope: AiWorkspaceArchiveScope,
-    input: ArchiveSourcingWorkspaceInput,
-  ): Promise<ArchiveSourcingWorkspaceResult>;
+    input: ArchiveSalesProductWorkspaceInput,
+  ): Promise<ArchiveSalesProductWorkspaceResult>;
 }

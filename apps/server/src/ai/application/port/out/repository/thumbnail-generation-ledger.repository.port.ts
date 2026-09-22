@@ -50,7 +50,6 @@ export interface ThumbnailGenerationLedgerRow {
   grade: string;
   score: number;
   contentWorkspaceId: string;
-  sourceCandidateId?: string | null;
   method: string;
   originalUrl: string | null;
   selectedUrl: string | null;
@@ -96,17 +95,6 @@ export interface ThumbnailGenerationWorkspaceContext {
     isPrimary: boolean;
   }>;
   thumbnailAnalyses: ThumbnailAnalysisContext[];
-}
-
-export interface ThumbnailGenerationSourceCandidateRow {
-  id: string;
-  name: string | null;
-  category: string | null;
-  images: Array<{
-    id: string;
-    url: string;
-    storageKey: string | null;
-  }>;
 }
 
 export interface ThumbnailGenerationProjectionStatus {
@@ -162,8 +150,9 @@ export type OpenPendingThumbnailDirectGenerationInput = {
       editAnalysis: EditAnalysisResult | null;
     }
   | {
-      subject: 'candidate';
-      sourceCandidateId: string;
+      subject: 'sales_product';
+      salesProductId: string;
+      productName: string;
       contentWorkspaceId?: string | null;
     }
   | {
@@ -186,7 +175,6 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
   findGenerationRows(
     organizationId: string,
     opts?: {
-      sourceCandidateId?: string | null;
       contentWorkspaceId?: string | null;
       scope?: ThumbnailGenerationListScope;
       limit?: number | null;
@@ -213,10 +201,6 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
     contentWorkspaceId: string,
     organizationId: string,
   ): Promise<ThumbnailGenerationWorkspaceContext | null>;
-  findSourceCandidateForJob(
-    sourceCandidateId: string,
-    organizationId: string,
-  ): Promise<ThumbnailGenerationSourceCandidateRow | null>;
   findWorkspacesForThumbnailJobs(
     ids: string[],
     organizationId: string,
@@ -253,9 +237,10 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
     editAnalysis: EditAnalysisResult | null;
     triggeredByUserId?: string | null;
   }): Promise<ThumbnailGenerationLedgerRow>;
-  openPendingCandidateJob(input: {
+  openPendingSalesProductJob(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
+    productName: string;
     originalUrl: string;
     method: string;
     inputMeta: unknown;

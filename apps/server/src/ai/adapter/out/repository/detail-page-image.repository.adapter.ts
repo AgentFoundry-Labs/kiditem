@@ -26,7 +26,6 @@ export class DetailPageImageRepositoryAdapter
 
   async findActiveIntent(input: {
     organizationId: string;
-    sourceCandidateId: string;
     revisionId: string;
     variant: string;
     outputWidth: number;
@@ -35,7 +34,6 @@ export class DetailPageImageRepositoryAdapter
     return this.prisma.detailPageImageRenderIntent.findFirst({
       where: {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
         revisionId: input.revisionId,
         variant: input.variant,
         outputWidth: input.outputWidth,
@@ -48,7 +46,6 @@ export class DetailPageImageRepositoryAdapter
 
   async createIntent(input: {
     organizationId: string;
-    sourceCandidateId: string;
     detailPageArtifactId: string;
     revisionId: string;
     variant: string;

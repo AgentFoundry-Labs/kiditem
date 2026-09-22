@@ -3,6 +3,12 @@
   "entries": [
     {
       "train": "0.1.31",
+      "keys": ["unique:content_workspaces_direct_title_unique"],
+      "coveredBy": "v0.1.31:024_content_workspace_owner_cutover",
+      "note": "024 adds sales_product_id and fills it only on candidate-owned workspaces, which become owner_type='sales_product'. The direct_detail_page rows this index covers are the same set as under the old source_candidate_id IS NULL predicate, and already unique. content_workspaces_sales_product_active_key is not covered by the new-nullable-column clearance either, because pre-schema 024 fills that column before the push; 024 assertOneActiveWorkspacePerDraft is what stops a draft reaching the push with two active workspaces."
+    },
+    {
+      "train": "0.1.31",
       "table": "master_product_abc_evaluations",
       "coveredBy": "v0.1.31:001_reset_absolute_product_abc",
       "note": "001 deletes every evaluation before db push; the absolute formula computes them again."

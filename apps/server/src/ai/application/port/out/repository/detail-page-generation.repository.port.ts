@@ -13,14 +13,9 @@ export const DETAIL_PAGE_GENERATION_REPOSITORY_PORT = Symbol(
 
 export interface DetailPageContentWorkspaceSnapshot {
   id: string;
-  sourceCandidateId: string | null;
+  salesProductId: string | null;
   displayName: string;
   normalizedTitle: string;
-}
-
-export interface DetailPageSourceCandidateSnapshot {
-  id: string;
-  name: string;
 }
 
 export interface DetailPageSourceContentGenerationSnapshot {
@@ -46,7 +41,6 @@ export interface DetailPageRerunBaseSnapshot {
   id: string;
   generationGroupId: string;
   contentWorkspaceId: string;
-  sourceCandidateId: string | null;
   generationInput: unknown;
   generationResult: unknown;
   templateId: string | null;
@@ -90,7 +84,6 @@ export interface DetailPageGenerationRepositoryPort {
     organizationId: string;
     generationGroupId?: string | null;
     contentWorkspaceId: string;
-    sourceCandidateId: string | null;
     triggeredByUserId: string | null;
     templateId: DetailPageTemplateId;
     rawInput: DetailPageRawInput;
@@ -111,14 +104,9 @@ export interface DetailPageGenerationRepositoryPort {
   }): Promise<DetailPageRerunBaseSnapshot | null>;
   findImageOnlyBaseCandidates(input: {
     organizationId: string;
-    sourceCandidateId: string | null;
-    contentWorkspaceId: string | null;
+    contentWorkspaceId: string;
     templateId: DetailPageTemplateId;
   }): Promise<DetailPageImageOnlyBaseCandidateSnapshot[]>;
-  findSourceCandidate(input: {
-    organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<DetailPageSourceCandidateSnapshot | null>;
   findSourceContentGeneration(input: {
     organizationId: string;
     sourceContentGenerationId: string;

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SourcingWorkspaceArchiveRepositoryAdapter } from '../sourcing-workspace-archive.repository.adapter';
+import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../sales-product-workspace-archive.repository.adapter';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
-const CANDIDATE_ID = '22222222-2222-4222-8222-222222222222';
+const SALES_PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const ARCHIVED_AT = new Date('2026-05-15T08:00:00.000Z');
 
-describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
-  it('archives candidate-bound detail-page, content asset, and thumbnail outputs without touching adopted product data', async () => {
+describe('SalesProductWorkspaceArchiveRepositoryAdapter', () => {
+  it('archives the draft workspace detail-page, content asset, and thumbnail outputs without touching adopted product data', async () => {
     const scope = {
       contentWorkspace: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -33,12 +33,12 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 4 }),
       },
     };
-    const repository = new SourcingWorkspaceArchiveRepositoryAdapter();
+    const repository = new SalesProductWorkspaceArchiveRepositoryAdapter();
 
     await expect(
-      repository.archiveSourcingWorkspace(scope, {
+      repository.archiveSalesProductWorkspace(scope, {
         organizationId: ORG,
-        sourceCandidateId: CANDIDATE_ID,
+        salesProductId: SALES_PRODUCT_ID,
         archivedAt: ARCHIVED_AT,
       }),
     ).resolves.toEqual({
@@ -52,18 +52,14 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
       where: {
         organizationId: ORG,
         isDeleted: false,
-        OR: [
-          { sourceCandidateId: CANDIDATE_ID },
-          { sources: { some: { sourceCandidateId: CANDIDATE_ID } } },
-          { contentWorkspace: { sourceCandidateId: CANDIDATE_ID } },
-        ],
+        contentWorkspace: { salesProductId: SALES_PRODUCT_ID },
       },
       select: { id: true },
     });
     expect(scope.contentWorkspace.updateMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,
-        sourceCandidateId: CANDIDATE_ID,
+        salesProductId: SALES_PRODUCT_ID,
         status: 'active',
         isDeleted: false,
       },
@@ -80,7 +76,7 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
         organizationId: ORG,
         isDeleted: false,
         OR: [
-          { contentWorkspace: { sourceCandidateId: CANDIDATE_ID } },
+          { contentWorkspace: { salesProductId: SALES_PRODUCT_ID } },
           { sourceContentGenerationId: { in: ['generation-1', 'generation-2'] } },
         ],
       },
@@ -136,7 +132,7 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
     expect(scope.thumbnailGeneration.updateMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,
-        sourceCandidateId: CANDIDATE_ID,
+        contentWorkspace: { salesProductId: SALES_PRODUCT_ID },
         isDeleted: false,
         thumbnailSelections: { none: {} },
       },

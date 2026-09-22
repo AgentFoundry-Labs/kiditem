@@ -27,7 +27,7 @@ import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository
 import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
 import { DetailPageImageRepositoryAdapter } from '../adapter/out/repository/detail-page-image.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from '../adapter/out/repository/product-generation-context.repository.adapter';
-import { SourcingWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sourcing-workspace-archive.repository.adapter';
+import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sales-product-workspace-archive.repository.adapter';
 import { ThumbnailAnalysisRepositoryAdapter } from '../adapter/out/repository/thumbnail-analysis.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { ThumbnailTrackingRepositoryAdapter } from '../adapter/out/repository/thumbnail-tracking.repository.adapter';
@@ -37,7 +37,7 @@ import { ContentAssetService } from '../application/service/content-asset.servic
 import { ContentWorkspaceThumbnailSelectionService } from '../application/service/content-workspace-thumbnail-selection.service';
 import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
 import { ProductGenerationAiService } from '../application/service/product-generation-ai.service';
-import { SourcingWorkspaceArchiveService } from '../application/service/sourcing-workspace-archive.service';
+import { SalesProductWorkspaceArchiveService } from '../application/service/sales-product-workspace-archive.service';
 import {
   AI_WING_REGISTRATION_CAPABILITY_PORT,
 } from '../application/port/in/capability/wing-registration.port';
@@ -47,7 +47,7 @@ import {
 } from '../application/port/in/generation';
 import { AI_WORKSPACE_ARCHIVE_PORT } from '../application/port/in/workspace';
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from '../application/port/in/workspace/registration-content-workspace.port';
-import { CANDIDATE_CONTENT_ASSET_PORT } from '../application/port/in/workspace/candidate-content-asset.port';
+import { SALES_PRODUCT_CONTENT_ASSET_PORT } from '../application/port/in/workspace/sales-product-content-asset.port';
 import {
   GENERATED_IMAGE_VALIDATOR_PORT,
   THUMBNAIL_IMAGE_GENERATION_PORT,
@@ -65,7 +65,7 @@ import {
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
-  SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
+  SALES_PRODUCT_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   THUMBNAIL_TRACKING_REPOSITORY_PORT,
@@ -182,7 +182,7 @@ describe('AiModule hexagonal wiring contract', () => {
       [DETAIL_PAGE_IMAGE_REPOSITORY_PORT, DetailPageImageRepositoryAdapter],
       [DETAIL_PAGE_TEMPLATE_STYLES_PORT, DetailPageTemplateStylesAdapter],
       [REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT, RegistrationContentWorkspaceRepositoryAdapter],
-      [SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT, SourcingWorkspaceArchiveRepositoryAdapter],
+      [SALES_PRODUCT_WORKSPACE_ARCHIVE_REPOSITORY_PORT, SalesProductWorkspaceArchiveRepositoryAdapter],
       [THUMBNAIL_ANALYSIS_REPOSITORY_PORT, ThumbnailAnalysisRepositoryAdapter],
       [THUMBNAIL_TRACKING_REPOSITORY_PORT, ThumbnailTrackingRepositoryAdapter],
       [THUMBNAIL_VISION_PROVIDER_PORT, GeminiThumbnailVisionAdapter],
@@ -219,10 +219,10 @@ describe('AiModule hexagonal wiring contract', () => {
       ProductGenerationAiService,
     );
     [
-      [AI_WORKSPACE_ARCHIVE_PORT, SourcingWorkspaceArchiveService],
+      [AI_WORKSPACE_ARCHIVE_PORT, SalesProductWorkspaceArchiveService],
       [AI_GENERATION_CANCELLATION_PORT, AiGenerationCancellationService],
       [REGISTRATION_CONTENT_WORKSPACE_PORT, RegistrationContentWorkspaceService],
-      [CANDIDATE_CONTENT_ASSET_PORT, ContentAssetService],
+      [SALES_PRODUCT_CONTENT_ASSET_PORT, ContentAssetService],
       [CATALOG_MEDIA_PUBLICATION_PORT, AiCatalogMediaPublicationRepositoryAdapter],
       [CATALOG_DISPLAY_MEDIA_PORT, CatalogDisplayMediaService],
       [TEXT_JUDGEMENT_PORT, TextJudgementService],
@@ -239,7 +239,7 @@ describe('AiModule hexagonal wiring contract', () => {
       AI_WORKSPACE_ARCHIVE_PORT,
       AI_GENERATION_CANCELLATION_PORT,
       REGISTRATION_CONTENT_WORKSPACE_PORT,
-      CANDIDATE_CONTENT_ASSET_PORT,
+      SALES_PRODUCT_CONTENT_ASSET_PORT,
       CATALOG_MEDIA_PUBLICATION_PORT,
       CATALOG_DISPLAY_MEDIA_PORT,
     ]));

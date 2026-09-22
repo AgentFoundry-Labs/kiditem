@@ -12,10 +12,10 @@ import {
   type PersistedContentAssetRef,
 } from '../port/out/repository/content-asset-library.repository.port';
 import type {
-  CandidateContentAssetPort,
-  CandidateCurrentThumbnail,
-  CandidateRegistrationImages,
-} from '../port/in/workspace/candidate-content-asset.port';
+  SalesProductContentAssetPort,
+  SalesProductCurrentThumbnail,
+  SalesProductRegistrationImages,
+} from '../port/in/workspace/sales-product-content-asset.port';
 export { groupUrlAssetKey } from '../../domain/content-asset-key';
 
 /** Roles that may be pushed into a channel registration form, in form order. */
@@ -38,7 +38,7 @@ export interface ContentAssetListQuery {
 export type { PersistedContentAssetRef };
 
 @Injectable()
-export class ContentAssetService implements CandidateContentAssetPort {
+export class ContentAssetService implements SalesProductContentAssetPort {
   constructor(
     @Inject(CONTENT_ASSET_LIBRARY_REPOSITORY_PORT)
     private readonly repository: ContentAssetLibraryRepositoryPort,
@@ -53,8 +53,8 @@ export class ContentAssetService implements CandidateContentAssetPort {
    */
   async listRegistrationImages(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateRegistrationImages> {
+    salesProductId: string;
+  }): Promise<SalesProductRegistrationImages> {
     const media = await this.loadRegistrationMedia(input);
     return media.registrationImages;
   }
@@ -67,16 +67,16 @@ export class ContentAssetService implements CandidateContentAssetPort {
    */
   async loadRegistrationMedia(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
   }): Promise<{
-    registrationImages: CandidateRegistrationImages;
-    currentThumbnail: CandidateCurrentThumbnail | null;
+    registrationImages: SalesProductRegistrationImages;
+    currentThumbnail: SalesProductCurrentThumbnail | null;
   }> {
     const [rows, currentThumbnail] = await Promise.all([
-      this.repository.listCandidateAssets(input),
-      this.repository.findCandidateCurrentThumbnail(input),
+      this.repository.listSalesProductAssets(input),
+      this.repository.findSalesProductCurrentThumbnail(input),
     ]);
-    const grouped: CandidateRegistrationImages = { primary: [], thumbnail: [], detail: [] };
+    const grouped: SalesProductRegistrationImages = { primary: [], thumbnail: [], detail: [] };
     for (const row of rows) {
       if (!isRegistrationRole(row.role)) continue;
       const url = typeof row.url === 'string' ? row.url.trim() : '';
@@ -101,9 +101,9 @@ export class ContentAssetService implements CandidateContentAssetPort {
    */
   findCurrentThumbnail(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateCurrentThumbnail | null> {
-    return this.repository.findCandidateCurrentThumbnail(input);
+    salesProductId: string;
+  }): Promise<SalesProductCurrentThumbnail | null> {
+    return this.repository.findSalesProductCurrentThumbnail(input);
   }
 
   /**
@@ -112,9 +112,9 @@ export class ContentAssetService implements CandidateContentAssetPort {
    */
   findCurrentThumbnails(input: {
     organizationId: string;
-    sourceCandidateIds: string[];
-  }): Promise<Map<string, CandidateCurrentThumbnail>> {
-    return this.repository.findCandidateCurrentThumbnails(input);
+    salesProductIds: string[];
+  }): Promise<Map<string, SalesProductCurrentThumbnail>> {
+    return this.repository.findSalesProductCurrentThumbnails(input);
   }
 
   /**

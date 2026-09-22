@@ -6,6 +6,10 @@ import {
   CHANNEL_LISTING_QUERY_PORT,
   type ChannelListingQueryPort,
 } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import {
+  SALES_PRODUCT_OWNER_READ_PORT,
+  type SalesProductOwnerReadPort,
+} from '../../../application/port/out/cross-domain/sales-product-owner.port';
 import type {
   ContentWorkspaceLifecycleRepositoryPort,
   ContentWorkspaceListInput,
@@ -20,6 +24,8 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     private readonly prisma: PrismaService,
     @Inject(CHANNEL_LISTING_QUERY_PORT)
     private readonly channelListings: ChannelListingQueryPort,
+    @Inject(SALES_PRODUCT_OWNER_READ_PORT)
+    private readonly salesProductOwners: SalesProductOwnerReadPort,
   ) {}
 
   async ensureActiveWorkspace(
@@ -29,14 +35,14 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     const where = activeWorkspaceWhere(input);
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await validateOwnerReferences(tx, input, this.channelListings);
+        await validateOwnerReferences(tx, input, this.channelListings, this.salesProductOwners);
         const existing = await findActiveWorkspace(tx, where);
         if (existing) return existing;
         return tx.contentWorkspace.create({
           data: {
             organizationId: input.organizationId,
             ownerType: input.ownerType,
-            sourceCandidateId: input.sourceCandidateId,
+            salesProductId: input.salesProductId,
             channelListingId: input.channelListingId,
             originWorkspaceId: input.originWorkspaceId,
             displayName: input.displayName,
@@ -50,7 +56,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error;
       const raced = await this.prisma.$transaction(async (tx) => {
-        await validateOwnerReferences(tx, input, this.channelListings);
+        await validateOwnerReferences(tx, input, this.channelListings, this.salesProductOwners);
         return findActiveWorkspace(tx, where);
       });
       if (!raced) throw error;
@@ -73,7 +79,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
       select: {
         id: true,
         ownerType: true,
-        sourceCandidateId: true,
+        salesProductId: true,
         channelListingId: true,
         originWorkspaceId: true,
         displayName: true,
@@ -120,7 +126,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
       organizationId: input.organizationId,
       status: input.status,
       isDeleted: false,
-      ownerType: { not: 'sourcing_candidate' },
+      ownerType: { not: 'sales_product' },
       ...(input.normalizedTitle ? { normalizedTitle: input.normalizedTitle } : {}),
     };
     const [total, rows] = await Promise.all([
@@ -223,65 +229,59 @@ function findActiveWorkspace(
 }
 
 function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
-  const hasSource = input.sourceCandidateId !== null;
+  const hasSalesProduct = input.salesProductId !== null;
   const hasListing = input.channelListingId !== null;
   const hasOrigin = input.originWorkspaceId !== null;
-  const valid = input.ownerType === 'sourcing_candidate'
-    ? hasSource && !hasListing && !hasOrigin
+  // A draft workspace gains its listing through `attachToListing`, never at creation.
+  const valid = input.ownerType === 'sales_product'
+    ? hasSalesProduct && !hasListing && !hasOrigin
     : input.ownerType === 'channel_listing'
-      ? !hasSource && hasListing
-      : !hasSource && !hasListing && !hasOrigin;
+      ? !hasSalesProduct && hasListing
+      : !hasSalesProduct && !hasListing && !hasOrigin;
   if (!valid) {
     throw new BadRequestException('Content workspace owner fields do not match ownerType.');
   }
 }
 
+/**
+ * Every owner a workspace can name is checked through its owner's capability —
+ * the draft and the listing through Channels, the origin workspace through AI's
+ * own locked row.
+ */
 async function validateOwnerReferences(
   tx: Prisma.TransactionClient,
   input: EnsureContentWorkspaceInput,
   channelListings: ChannelListingQueryPort,
+  salesProductOwners: SalesProductOwnerReadPort,
 ): Promise<void> {
-  if (input.ownerType === 'sourcing_candidate') {
-    const candidate = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT id
-      FROM sourcing_candidates
-      WHERE id = ${input.sourceCandidateId!}::uuid
-        AND organization_id = ${input.organizationId}::uuid
-        AND is_deleted = false
-      FOR UPDATE
-    `);
-    if (candidate.length !== 1) {
-      throw new NotFoundException('Sourcing candidate owner not found.');
-    }
+  if (input.ownerType === 'direct_detail_page') return;
+  if (input.ownerType === 'sales_product') {
+    // The workspace names its draft by id with no foreign key, so Channels — not
+    // a join — is what stops a request opening a workspace on an invented UUID.
+    await salesProductOwners.assertOwner({
+      organizationId: input.organizationId,
+      salesProductId: input.salesProductId!,
+    });
     return;
   }
 
-  if (input.ownerType === 'direct_detail_page') return;
-
-  const listing = await channelListings.lockActiveOwner(ownerTransaction(tx), {
+  await channelListings.lockActiveOwner(ownerTransaction(tx), {
     organizationId: input.organizationId,
     listingId: input.channelListingId!,
   });
   if (!input.originWorkspaceId) return;
-  const originRows = await tx.$queryRaw<Array<{
-    id: string;
-    sourceCandidateId: string | null;
-  }>>(Prisma.sql`
-    SELECT id, source_candidate_id AS "sourceCandidateId"
+  const originRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
     FROM content_workspaces
     WHERE id = ${input.originWorkspaceId}::uuid
       AND organization_id = ${input.organizationId}::uuid
-      AND owner_type = 'sourcing_candidate'
+      AND owner_type = 'sales_product'
       AND status = 'active'
       AND is_deleted = false
     FOR UPDATE
   `);
-  const origin = originRows[0];
-  if (!origin || originRows.length !== 1) {
+  if (originRows.length !== 1) {
     throw new NotFoundException('Origin content workspace not found.');
-  }
-  if (!listing.sourceCandidateId || listing.sourceCandidateId !== origin.sourceCandidateId) {
-    throw new BadRequestException('Listing and origin workspace source candidates do not match.');
   }
 }
 
@@ -292,12 +292,12 @@ function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.Conten
     normalizedTitle: input.normalizedTitle,
     status: 'active',
     isDeleted: false,
-    ...(input.ownerType === 'sourcing_candidate'
-      ? { sourceCandidateId: input.sourceCandidateId }
+    ...(input.ownerType === 'sales_product'
+      ? { salesProductId: input.salesProductId }
       : input.ownerType === 'channel_listing'
         ? { channelListingId: input.channelListingId }
         : {
-            sourceCandidateId: null,
+            salesProductId: null,
             channelListingId: null,
           }),
   };

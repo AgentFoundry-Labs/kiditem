@@ -28,8 +28,11 @@ export class ListingContentQueryRepositoryAdapter implements ListingContentQuery
       this.prisma.contentWorkspace.findMany({
         where: {
           organizationId: input.organizationId,
+          // The listing pointer, not the owner type, decides whose content a
+          // listing shows: registration attaches the listing to the draft's own
+          // workspace, and a listing with no draft keeps its own.
           channelListingId: { in: listingIds },
-          ownerType: 'channel_listing',
+          ownerType: { in: ['sales_product', 'channel_listing'] },
           status: 'active',
           isDeleted: false,
         },

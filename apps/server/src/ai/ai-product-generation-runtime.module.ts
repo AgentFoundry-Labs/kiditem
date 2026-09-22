@@ -1,4 +1,7 @@
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
+import { SalesProductModule } from '../channels/sales-product.module';
+import { SalesProductOwnerReadAdapter } from './adapter/out/channels/sales-product-owner.adapter';
+import { SALES_PRODUCT_OWNER_READ_PORT } from './application/port/out/cross-domain/sales-product-owner.port';
 import { Module } from '@nestjs/common';
 import { StorageModule } from '../common/storage/storage.module';
 import { StorageService } from '../common/storage/storage.service';
@@ -49,7 +52,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage/image-storage
  * receive only the owner trigger port and enqueue durable jobs for API workers.
  */
 @Module({
-  imports: [ChannelCatalogModule, PrismaModule, StorageModule],
+  imports: [ChannelCatalogModule, SalesProductModule, PrismaModule, StorageModule],
   providers: [
     ProductGenerationAiService,
     ContentWorkspaceService,
@@ -66,6 +69,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage/image-storage
     AiDirectJobRepositoryAdapter,
     ContentAssetLibraryRepositoryAdapter,
     ContentWorkspaceLifecycleRepositoryAdapter,
+    SalesProductOwnerReadAdapter,
     DetailPageGenerationRepositoryAdapter,
     DetailPageQueryRepositoryAdapter,
     ProductGenerationContextRepositoryAdapter,
@@ -79,6 +83,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage/image-storage
     { provide: AI_DIRECT_JOB_REPOSITORY_PORT, useExisting: AiDirectJobRepositoryAdapter },
     { provide: CONTENT_ASSET_LIBRARY_REPOSITORY_PORT, useExisting: ContentAssetLibraryRepositoryAdapter },
     { provide: CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT, useExisting: ContentWorkspaceLifecycleRepositoryAdapter },
+    { provide: SALES_PRODUCT_OWNER_READ_PORT, useExisting: SalesProductOwnerReadAdapter },
     { provide: DETAIL_PAGE_GENERATION_REPOSITORY_PORT, useExisting: DetailPageGenerationRepositoryAdapter },
     { provide: DETAIL_PAGE_QUERY_REPOSITORY_PORT, useExisting: DetailPageQueryRepositoryAdapter },
     { provide: GENERATED_IMAGE_VALIDATOR_PORT, useExisting: SharpGeneratedImageValidatorAdapter },

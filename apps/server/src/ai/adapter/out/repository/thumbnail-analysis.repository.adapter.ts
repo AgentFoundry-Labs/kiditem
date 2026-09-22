@@ -20,15 +20,15 @@ const workspaceSelect = {
   currentThumbnailSelection: {
     select: { contentAsset: { select: { url: true } } },
   },
-  sourceCandidate: {
+  // The workspace's own managed gallery replaces the sourcing-candidate images
+  // it used to borrow: Sourcing is no longer reachable from an AI row.
+  contentGenerationGroups: {
+    where: { groupType: 'workspace_assets' },
+    take: 1,
     select: {
-      name: true,
-      category: true,
-      imageUrl: true,
-      thumbnailUrl: true,
-      images: {
-        where: { isDeleted: false },
-        orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }],
+      originatingAssets: {
+        where: { isDeleted: false, assetType: 'image' },
+        orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
         take: 1,
         select: { url: true },
       },
@@ -44,9 +44,7 @@ type WorkspaceSourceRow = Prisma.ContentWorkspaceGetPayload<{
 function toWorkspaceRow(row: WorkspaceSourceRow): ThumbnailAnalysisWorkspaceRow | null {
   const imageUrl =
     row.currentThumbnailSelection?.contentAsset.url ??
-    row.sourceCandidate?.thumbnailUrl ??
-    row.sourceCandidate?.imageUrl ??
-    row.sourceCandidate?.images[0]?.url ??
+    row.contentGenerationGroups[0]?.originatingAssets[0]?.url ??
     row.channelListing?.thumbnails[0]?.imageUrl ??
     null;
   if (!imageUrl) return null;
@@ -54,13 +52,12 @@ function toWorkspaceRow(row: WorkspaceSourceRow): ThumbnailAnalysisWorkspaceRow 
     id: row.id,
     name:
       row.displayName ??
-      row.sourceCandidate?.name ??
       row.channelListing?.displayName ??
       row.channelListing?.channelName ??
       row.channelListing?.externalId ??
       '',
     imageUrl,
-    category: row.sourceCandidate?.category ?? row.channelListing?.category ?? null,
+    category: row.channelListing?.category ?? null,
     createdAt: row.createdAt,
   };
 }

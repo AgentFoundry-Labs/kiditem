@@ -1,15 +1,16 @@
-export type ThumbnailGenerationSubjectKind = 'collected-product' | 'content-workspace' | 'direct-upload';
-
 export type ThumbnailGenerationListScope = 'workspace-bound' | 'direct-upload' | 'all';
 
 export interface ThumbnailGenerationSubjectInput {
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }
 
+/**
+ * A thumbnail generation has exactly one possible owner: its content workspace.
+ * Everything else — the sales product the workspace belongs to, the listing it
+ * was branched into, the sourcing candidate the images came from — is reachable
+ * from that workspace, so the request never carries a second owner id.
+ */
 export interface ThumbnailGenerationSubject {
-  kind: ThumbnailGenerationSubjectKind;
-  sourceCandidateId: string | null;
   contentWorkspaceId: string | null;
 }
 
@@ -25,35 +26,10 @@ function clean(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-export function classifyThumbnailGenerationSubject(input: ThumbnailGenerationSubjectInput): ThumbnailGenerationSubject {
-  const sourceCandidateId = clean(input.sourceCandidateId);
-  const contentWorkspaceId = clean(input.contentWorkspaceId);
-
-  if (contentWorkspaceId && sourceCandidateId) {
-    throw new ThumbnailGenerationSubjectError('contentWorkspaceId 와 sourceCandidateId 는 동시에 사용할 수 없습니다');
-  }
-
-  if (contentWorkspaceId) {
-    return {
-      kind: 'content-workspace',
-      sourceCandidateId,
-      contentWorkspaceId,
-    };
-  }
-
-  if (sourceCandidateId) {
-    return {
-      kind: 'collected-product',
-      sourceCandidateId,
-      contentWorkspaceId: null,
-    };
-  }
-
-  return {
-    kind: 'direct-upload',
-    sourceCandidateId: null,
-    contentWorkspaceId: null,
-  };
+export function resolveThumbnailGenerationSubject(
+  input: ThumbnailGenerationSubjectInput,
+): ThumbnailGenerationSubject {
+  return { contentWorkspaceId: clean(input.contentWorkspaceId) };
 }
 
 export function normalizeThumbnailGenerationListScope(value: string | null | undefined): ThumbnailGenerationListScope {

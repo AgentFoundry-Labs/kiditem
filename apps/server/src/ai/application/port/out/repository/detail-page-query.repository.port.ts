@@ -4,7 +4,6 @@ export const DETAIL_PAGE_QUERY_REPOSITORY_PORT = Symbol(
 
 export interface DetailPageGenerationSnapshot {
   id: string;
-  sourceCandidateId: string | null;
   contentWorkspaceId: string;
   templateId: string | null;
   generationInput: unknown;
@@ -17,7 +16,6 @@ export interface DetailPageGenerationSnapshot {
 
 export interface DetailPageListRepositoryInput {
   organizationId: string;
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }
 
@@ -32,7 +30,6 @@ export interface DetailPageDuplicateSourceSnapshot {
   id: string;
   generationGroupId: string;
   contentWorkspaceId: string;
-  sourceCandidateId: string | null;
   detailPageArtifactId: string | null;
   contentType: string;
   templateId: string | null;
@@ -111,7 +108,6 @@ export interface DetailPageQueryRepositoryPort {
     organizationId: string;
     triggeredByUserId: string | null;
     contentWorkspaceId: string;
-    sourceCandidateId: string | null;
     title: string;
     imageUrls: readonly string[];
   }): Promise<DetailPageGenerationSnapshot>;
@@ -138,8 +134,8 @@ export interface DetailPageQueryRepositoryPort {
     id: string;
     organizationId: string;
   }): Promise<DetailPageEditedHtmlSnapshot | null>;
-  findCandidateCurrentDetailPageHtml(input: {
-    sourceCandidateId: string;
+  findWorkspaceCurrentDetailPageHtml(input: {
+    contentWorkspaceId: string;
     organizationId: string;
   }): Promise<CandidateDetailPageHtmlSnapshot | null>;
   findDetailPageRevisionHtml(input: {

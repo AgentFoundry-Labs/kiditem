@@ -11,7 +11,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
-import { SourcingWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sourcing-workspace-archive.repository.adapter';
+import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sales-product-workspace-archive.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { groupUrlAssetKey } from '../domain/content-asset-key';
 
@@ -30,23 +30,14 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('archives a candidate workspace before a concurrent thumbnail selection can edit it', async () => {
-    const candidate = await prisma.sourcingCandidate.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl: `https://1688.com/item/${randomUUID()}`,
-        sourcePlatform: 'ALIBABA_1688',
-        rawData: {},
-        name: 'Archive workspace lock',
-        status: 'sourced',
-      },
-    });
+  it('archives a draft workspace before a concurrent thumbnail selection can edit it', async () => {
+    const salesProductId = randomUUID();
     const workspace = await prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: candidate.id,
-        displayName: candidate.name,
+        ownerType: 'sales_product',
+        salesProductId,
+        displayName: 'Archive workspace lock',
         normalizedTitle: 'archiveworkspacelock',
       },
     });
@@ -62,7 +53,6 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         generationGroupId: group.id,
         contentWorkspaceId: workspace.id,
-        sourceCandidateId: candidate.id,
       },
     });
     const asset = await prisma.contentAsset.create({
@@ -99,15 +89,9 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     const workspaceRelease = new Promise<void>((resolve) => {
       releaseWorkspace = resolve;
     });
-    const archiveRepository = new SourcingWorkspaceArchiveRepositoryAdapter();
+    const archiveRepository = new SalesProductWorkspaceArchiveRepositoryAdapter();
     const archivedAt = new Date('2026-07-13T02:00:00.000Z');
     const archive = prisma.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`
-        SELECT id FROM sourcing_candidates
-        WHERE id = ${candidate.id}::uuid
-          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
-        FOR UPDATE
-      `);
       let didPause = false;
       const pausedScope = new Proxy(tx, {
         get(target, property, receiver) {
@@ -123,17 +107,9 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
           };
         },
       });
-      await tx.sourcingCandidate.updateMany({
-        where: {
-          id: candidate.id,
-          organizationId: TEST_ORGANIZATION_ID,
-          isDeleted: false,
-        },
-        data: { isDeleted: true, deletedAt: archivedAt },
-      });
-      return archiveRepository.archiveSourcingWorkspace(pausedScope, {
+      return archiveRepository.archiveSalesProductWorkspace(pausedScope, {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidate.id,
+        salesProductId,
         archivedAt,
       });
     });

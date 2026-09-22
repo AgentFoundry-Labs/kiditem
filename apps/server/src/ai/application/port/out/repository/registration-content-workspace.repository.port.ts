@@ -1,8 +1,8 @@
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
-  BranchRegistrationWorkspaceToListingInput,
-  EnsureRegistrationCandidateWorkspaceInput,
-  FindCandidateContentWorkspaceInput,
+  AttachContentWorkspaceToListingInput,
+  EnsureSalesProductContentWorkspaceInput,
+  FindSalesProductContentWorkspaceInput,
   RegistrationContentSelectionInput,
   ResolvedRegistrationContentSelections,
 } from '../../in/workspace/registration-content-workspace.port';
@@ -17,8 +17,8 @@ export interface RegistrationContentWorkspaceOwnerInput {
 }
 
 export interface RegistrationContentWorkspaceRepositoryPort {
-  findCandidateWorkspaceId(
-    input: FindCandidateContentWorkspaceInput,
+  findSalesProductWorkspaceId(
+    input: FindSalesProductContentWorkspaceInput,
   ): Promise<string | null>;
   resolveSourceSelections(
     transaction: OwnerTransaction,
@@ -28,14 +28,13 @@ export interface RegistrationContentWorkspaceRepositoryPort {
     transaction: OwnerTransaction | null,
     input: RegistrationContentSelectionInput,
   ): Promise<void>;
-  ensureCandidateWorkspace(
+  ensureSalesProductWorkspace(
     transaction: OwnerTransaction,
-    input: EnsureRegistrationCandidateWorkspaceInput &
+    input: EnsureSalesProductContentWorkspaceInput &
       RegistrationContentWorkspaceOwnerInput,
   ): Promise<{ workspaceId: string }>;
-  branchToListing(
+  attachToListing(
     transaction: OwnerTransaction,
-    input: BranchRegistrationWorkspaceToListingInput &
-      RegistrationContentWorkspaceOwnerInput,
+    input: AttachContentWorkspaceToListingInput,
   ): Promise<{ workspaceId: string }>;
 }

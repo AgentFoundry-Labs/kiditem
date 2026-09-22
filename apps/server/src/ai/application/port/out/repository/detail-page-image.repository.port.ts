@@ -30,7 +30,6 @@ export interface DetailPageImageArtifactRecord {
 export interface DetailPageImageRenderIntentRecord {
   id: string;
   organizationId: string;
-  sourceCandidateId: string;
   detailPageArtifactId: string;
   revisionId: string;
   variant: string;
@@ -67,7 +66,6 @@ export interface DetailPageImageRepositoryPort {
   }): Promise<DetailPageImageArtifactRecord | null>;
   findActiveIntent(input: {
     organizationId: string;
-    sourceCandidateId: string;
     revisionId: string;
     variant: string;
     outputWidth: number;
@@ -75,7 +73,6 @@ export interface DetailPageImageRepositoryPort {
   }): Promise<DetailPageImageRenderIntentRecord | null>;
   createIntent(input: {
     organizationId: string;
-    sourceCandidateId: string;
     detailPageArtifactId: string;
     revisionId: string;
     variant: string;

@@ -28,7 +28,7 @@ function workspace(overrides: Record<string, unknown> = {}) {
     id: WORKSPACE_ID,
     organizationId: ORG,
     ownerType: 'direct_detail_page',
-    sourceCandidateId: null,
+    salesProductId: null,
     targetMasterId: null,
     channelListingId: null,
     originWorkspaceId: null,
@@ -113,14 +113,14 @@ describe('ContentWorkspaceService', () => {
       organizationId: ORG,
       triggeredByUserId: 'user-1',
       rawTitle: 'Kids rain boots',
-      sourceCandidateId: null,
+      salesProductId: null,
       channelListingId: 'listing-1',
       originWorkspaceId: 'source-workspace-1',
     });
 
     expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith(expect.objectContaining({
       ownerType: 'channel_listing',
-      sourceCandidateId: null,
+      salesProductId: null,
       channelListingId: 'listing-1',
       originWorkspaceId: 'source-workspace-1',
     }));
@@ -149,7 +149,7 @@ describe('ContentWorkspaceService', () => {
       organizationId: ORG,
       triggeredByUserId: 'user-1',
       rawTitle: ' 키즈   터치등 ',
-      sourceCandidateId: null,
+      salesProductId: null,
     })).resolves.toEqual({
       id: WORKSPACE_ID,
       displayName: '키즈 터치등',
@@ -159,7 +159,7 @@ describe('ContentWorkspaceService', () => {
     expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith({
       organizationId: ORG,
       ownerType: 'direct_detail_page',
-      sourceCandidateId: null,
+      salesProductId: null,
       channelListingId: null,
       originWorkspaceId: null,
       displayName: '키즈 터치등',
@@ -193,7 +193,7 @@ describe('ContentWorkspaceService', () => {
       organizationId: ORG,
       triggeredByUserId: 'user-1',
       rawTitle: '키즈 컵',
-      sourceCandidateId: null,
+      salesProductId: null,
     })).resolves.toMatchObject({
       id: WORKSPACE_ID,
       displayName: '키즈 컵',

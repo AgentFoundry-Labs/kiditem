@@ -122,46 +122,30 @@ export class DetailPageGenerationService {
     const requestedContentWorkspace = dto.contentWorkspaceId
       ? await this.resolveContentWorkspace(organizationId, dto.contentWorkspaceId)
       : null;
-    let sourceReferences = await this.normalizeSourceReferences({
+    const sourceReferences = await this.normalizeSourceReferences({
       organizationId,
       sourceReferences: dto.sourceReferences ?? [],
     });
-    const primarySourceCandidateId =
-      requestedContentWorkspace?.sourceCandidateId ??
-      sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
-        ?.sourceCandidateId ?? null;
-    if (
-      requestedContentWorkspace?.sourceCandidateId &&
-      !sourceReferences.some((ref) => ref.sourceCandidateId === requestedContentWorkspace.sourceCandidateId)
-    ) {
-      sourceReferences = [
-        {
-          sourceType: 'sourcing_candidate',
-          sourceCandidateId: requestedContentWorkspace.sourceCandidateId,
-          label: requestedContentWorkspace.displayName,
-        },
-        ...sourceReferences,
-      ];
-    }
     if (sourceReferences.length > 0) rawInput.sourceReferences = sourceReferences;
     const contentWorkspace = requestedContentWorkspace ??
       await this.contentWorkspaces.ensureForGeneration({
         organizationId,
         triggeredByUserId,
         rawTitle: dto.rawTitle,
-        sourceCandidateId: primarySourceCandidateId,
+        // A draft's generation lands in that draft's one workspace; an operator
+        // generating without a draft gets a product-less one.
+        salesProductId: dto.salesProductId ?? null,
       });
     const imageOnlyBase = generationMode === 'image'
       ? await this.findImageOnlyBaseGeneration({
         organizationId,
-        sourceCandidateId: primarySourceCandidateId,
         contentWorkspaceId: contentWorkspace.id,
         templateId,
       })
       : null;
     if (generationMode === 'image') {
       if (!imageOnlyBase) {
-        throw new BadRequestException('이미지만 생성하려면 먼저 같은 후보/템플릿의 카피 생성 결과가 필요합니다.');
+        throw new BadRequestException('이미지만 생성하려면 먼저 같은 작업공간/템플릿의 카피 생성 결과가 필요합니다.');
       }
       rawInput.baseContentGenerationId = imageOnlyBase.id;
     }
@@ -175,7 +159,6 @@ export class DetailPageGenerationService {
       imageUrls,
       rawInput,
       sourceReferences,
-      sourceCandidateId: primarySourceCandidateId,
       existingResult: imageOnlyBase?.result,
       contentWorkspaceId: contentWorkspace.id,
       productGenerationIdentity,
@@ -187,7 +170,7 @@ export class DetailPageGenerationService {
     contentWorkspaceId: string,
   ): Promise<{
     id: string;
-    sourceCandidateId: string | null;
+    salesProductId: string | null;
     displayName: string;
     normalizedTitle: string;
   }> {
@@ -208,17 +191,12 @@ export class DetailPageGenerationService {
     imageUrls: string[];
     rawInput: DetailPageRawInput;
     sourceReferences: DetailPageSourceReference[];
-    sourceCandidateId: string | null;
     existingResult?: unknown;
     generationGroupId?: string | null;
     contentWorkspaceId: string;
     productGenerationIdentity?: ProductGenerationChildIdentity;
   }): Promise<DetailPageGenerationDto> {
     const models = resolveAiDirectJobModels('detail_page_generate');
-    const primarySourceCandidateId =
-      input.sourceCandidateId ??
-      input.sourceReferences.find((ref) => ref.sourceType === 'sourcing_candidate')
-        ?.sourceCandidateId ?? null;
     const directPayload = {
       templateId: input.templateId,
       raw: {
@@ -245,7 +223,6 @@ export class DetailPageGenerationService {
       organizationId: input.organizationId,
       generationGroupId: input.generationGroupId,
       contentWorkspaceId: input.contentWorkspaceId,
-      sourceCandidateId: primarySourceCandidateId,
       triggeredByUserId: input.triggeredByUserId,
       templateId: input.templateId,
       rawInput: input.rawInput,
@@ -325,7 +302,6 @@ export class DetailPageGenerationService {
       imageUrls,
       rawInput,
       sourceReferences: rawInput.sourceReferences ?? [],
-      sourceCandidateId: base.sourceCandidateId,
       generationGroupId,
       contentWorkspaceId,
     });
@@ -333,15 +309,11 @@ export class DetailPageGenerationService {
 
   private async findImageOnlyBaseGeneration(input: {
     organizationId: string;
-    sourceCandidateId: string | null;
-    contentWorkspaceId: string | null;
+    contentWorkspaceId: string;
     templateId: DetailPageTemplateId;
   }): Promise<{ id: string; result: unknown } | null> {
-    const sourceCandidateId = input.sourceCandidateId;
-    if (!sourceCandidateId && !input.contentWorkspaceId) return null;
     const rows = await this.repository.findImageOnlyBaseCandidates({
       organizationId: input.organizationId,
-      sourceCandidateId,
       contentWorkspaceId: input.contentWorkspaceId,
       templateId: input.templateId,
     });
@@ -381,15 +353,12 @@ export class DetailPageGenerationService {
         if (!ref.sourceCandidateId) {
           throw new BadRequestException(`sourceReferences[${index}].sourceCandidateId is required`);
         }
-        const candidate = await this.repository.findSourceCandidate({
-          organizationId: input.organizationId,
-          sourceCandidateId: ref.sourceCandidateId,
-        });
-        if (!candidate) throw new NotFoundException('Sourcing candidate source not found');
+        // Provenance only. Sourcing rows are another owner's, so the id is
+        // recorded as given and the caller supplies the human label.
         out.push({
           sourceType: 'sourcing_candidate',
-          sourceCandidateId: candidate.id,
-          label: ref.label ?? candidate.name,
+          sourceCandidateId: ref.sourceCandidateId,
+          label: ref.label ?? '수집 원천',
         });
         continue;
       }

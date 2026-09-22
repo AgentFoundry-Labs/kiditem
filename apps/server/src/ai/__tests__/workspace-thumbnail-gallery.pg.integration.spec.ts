@@ -18,7 +18,7 @@ import { groupUrlAssetKey } from '../domain/content-asset-key';
  * 준비(RegistrationTarget)가 없는 후보의 썸네일 미리보기 목록 저장 경로.
  *
  * 이 경로가 없을 때는 목록이 조용히 버려졌고, 쿠팡 WING 추가이미지가 늘 0/9 였다.
- * 여기서 검증하는 건 "저장한 목록이 `listCandidateAssets`(= registrationImages.thumbnail,
+ * 여기서 검증하는 건 "저장한 목록이 `listSalesProductAssets`(= registrationImages.thumbnail,
  * 곧 additionalImageUrls 의 소스)로 그대로 다시 읽히는가" 다.
  */
 describe('workspace thumbnail gallery (PG integration)', () => {
@@ -38,36 +38,27 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  async function seedCandidateWorkspace() {
-    const candidate = await prisma.sourcingCandidate.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl: `https://1688.com/item/${randomUUID()}`,
-        sourcePlatform: 'ALIBABA_1688',
-        rawData: {},
-        name: '과일바구니 딸깍이 키링',
-        status: 'sourced',
-      },
-    });
+  async function seedDraftWorkspace() {
+    const salesProductId = randomUUID();
     const workspace = await prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: candidate.id,
-        displayName: candidate.name,
+        ownerType: 'sales_product',
+        salesProductId,
+        displayName: '과일바구니 딸깍이 키링',
         normalizedTitle: `gallery${randomUUID().slice(0, 8)}`,
       },
     });
-    return { candidateId: candidate.id, workspaceId: workspace.id };
+    return { salesProductId, workspaceId: workspace.id };
   }
 
-  const galleryThumbnails = (candidateId: string) =>
+  const galleryThumbnails = (salesProductId: string) =>
     adapter
-      .listCandidateAssets({ organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId })
+      .listSalesProductAssets({ organizationId: TEST_ORGANIZATION_ID, salesProductId })
       .then((rows) => rows.filter((row) => row.role === 'thumbnail').map((row) => row.url));
 
   it('reads the saved preview list back as role=thumbnail registration images, in order', async () => {
-    const { candidateId, workspaceId } = await seedCandidateWorkspace();
+    const { salesProductId, workspaceId } = await seedDraftWorkspace();
 
     await adapter.replaceWorkspaceThumbnailGallery({
       organizationId: TEST_ORGANIZATION_ID,
@@ -80,7 +71,7 @@ describe('workspace thumbnail gallery (PG integration)', () => {
       ],
     });
 
-    await expect(galleryThumbnails(candidateId)).resolves.toEqual([
+    await expect(galleryThumbnails(salesProductId)).resolves.toEqual([
       'https://cdn.example.com/thumb-a.png',
       'https://cdn.example.com/thumb-b.png',
       'https://cdn.example.com/thumb-c.png',
@@ -88,7 +79,7 @@ describe('workspace thumbnail gallery (PG integration)', () => {
   });
 
   it('replaces rather than appends, and honours a reordered list', async () => {
-    const { candidateId, workspaceId } = await seedCandidateWorkspace();
+    const { salesProductId, workspaceId } = await seedDraftWorkspace();
     const save = (urls: string[]) =>
       adapter.replaceWorkspaceThumbnailGallery({
         organizationId: TEST_ORGANIZATION_ID,
@@ -107,14 +98,14 @@ describe('workspace thumbnail gallery (PG integration)', () => {
       'https://cdn.example.com/thumb-a.png',
     ]);
 
-    await expect(galleryThumbnails(candidateId)).resolves.toEqual([
+    await expect(galleryThumbnails(salesProductId)).resolves.toEqual([
       'https://cdn.example.com/thumb-c.png',
       'https://cdn.example.com/thumb-a.png',
     ]);
   });
 
   it('clears the gallery when every preview image is removed', async () => {
-    const { candidateId, workspaceId } = await seedCandidateWorkspace();
+    const { salesProductId, workspaceId } = await seedDraftWorkspace();
 
     await adapter.replaceWorkspaceThumbnailGallery({
       organizationId: TEST_ORGANIZATION_ID,
@@ -129,11 +120,11 @@ describe('workspace thumbnail gallery (PG integration)', () => {
       urls: [],
     });
 
-    await expect(galleryThumbnails(candidateId)).resolves.toEqual([]);
+    await expect(galleryThumbnails(salesProductId)).resolves.toEqual([]);
   });
 
   it('keeps an asset that the current thumbnail selection still references', async () => {
-    const { candidateId, workspaceId } = await seedCandidateWorkspace();
+    const { salesProductId, workspaceId } = await seedDraftWorkspace();
     await adapter.replaceWorkspaceThumbnailGallery({
       organizationId: TEST_ORGANIZATION_ID,
       contentWorkspaceId: workspaceId,
@@ -166,11 +157,11 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     await expect(
       prisma.contentAsset.findUniqueOrThrow({ where: { id: selected.id } }),
     ).resolves.toMatchObject({ isDeleted: false });
-    expect(await galleryThumbnails(candidateId)).toContain('https://cdn.example.com/thumb-b.png');
+    expect(await galleryThumbnails(salesProductId)).toContain('https://cdn.example.com/thumb-b.png');
   });
 
   it('tags a scrape original as a gallery thumbnail instead of reusing its role=source asset', async () => {
-    const { candidateId, workspaceId } = await seedCandidateWorkspace();
+    const { salesProductId, workspaceId } = await seedDraftWorkspace();
     const sourceUrl = 'https://cbu01.alicdn.com/original.jpg';
     const inputGroup = await prisma.contentGenerationGroup.create({
       data: {
@@ -198,7 +189,7 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     });
 
     // 기존 role=source 행을 재사용했다면 갤러리는 비어 보인다 = 조용한 저장 실패.
-    await expect(galleryThumbnails(candidateId)).resolves.toEqual([sourceUrl]);
+    await expect(galleryThumbnails(salesProductId)).resolves.toEqual([sourceUrl]);
     const roles = await prisma.contentAsset.findMany({
       where: { organizationId: TEST_ORGANIZATION_ID, url: sourceUrl, isDeleted: false },
       select: { role: true },
@@ -210,7 +201,7 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     // 원본 상품 A 의 워크스페이스에서 만든 썸네일 자산을, 거의 동일한 중복 상품 B 가
     // 재사용(선택)하는 실제 시나리오. 자산은 A 의 그룹이 소유하므로 B 기준 자산 스캔은
     // 이를 놓치지만(=버그), 선택 레코드는 워크스페이스 id 로 묶여 잡아낸다(=수정).
-    const original = await seedCandidateWorkspace();
+    const original = await seedDraftWorkspace();
     await adapter.replaceWorkspaceThumbnailGallery({
       organizationId: TEST_ORGANIZATION_ID,
       contentWorkspaceId: original.workspaceId,
@@ -225,7 +216,7 @@ describe('workspace thumbnail gallery (PG integration)', () => {
       },
     });
 
-    const duplicate = await seedCandidateWorkspace();
+    const duplicate = await seedDraftWorkspace();
     const historicalAsset = await prisma.contentAsset.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -257,11 +248,11 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     });
 
     // 그룹 소유(=A) 기준 자산 스캔은 B 에서 재사용 자산을 놓친다.
-    await expect(galleryThumbnails(duplicate.candidateId)).resolves.toEqual([]);
+    await expect(galleryThumbnails(duplicate.salesProductId)).resolves.toEqual([]);
     // 현재 선택만 재사용분으로 잡고, append-only 과거 선택은 되살리지 않는다.
-    await expect(adapter.findCandidateCurrentThumbnail({
+    await expect(adapter.findSalesProductCurrentThumbnail({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: duplicate.candidateId,
+      salesProductId: duplicate.salesProductId,
     })).resolves.toEqual({
       url: 'https://cdn.example.com/reused-thumb.png',
       sourceThumbnailGenerationId: null,
@@ -271,7 +262,7 @@ describe('workspace thumbnail gallery (PG integration)', () => {
   });
 
   it('refuses to write a gallery into another organization workspace', async () => {
-    const { workspaceId } = await seedCandidateWorkspace();
+    const { workspaceId } = await seedDraftWorkspace();
 
     await expect(adapter.replaceWorkspaceThumbnailGallery({
       organizationId: OTHER_ORGANIZATION_ID,

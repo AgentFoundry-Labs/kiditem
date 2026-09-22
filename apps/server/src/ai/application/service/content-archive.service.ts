@@ -48,15 +48,13 @@ export class ContentArchiveService {
     page: number;
     limit: number;
   }> {
-    const candidate = await this.repository.findSourcingCandidate({
-      organizationId,
-      candidateId,
-    });
-    if (!candidate) throw new NotFoundException('Sourcing candidate not found');
+    // Whether the candidate still exists is Sourcing's answer, not AI's. AI
+    // reports the content whose provenance names it, which is empty when there
+    // is none — it no longer reads the `sourcing_candidates` table to 404.
     const { page, limit } = normalizePage(query.page, query.limit);
     const { total, rows } = await this.repository.listSourcingCandidateGenerations({
       organizationId,
-      candidateId: candidate.id,
+      candidateId,
       query,
       page,
       limit,

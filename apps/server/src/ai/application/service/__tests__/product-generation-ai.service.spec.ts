@@ -4,7 +4,8 @@ import type { ProductGenerationAiRequest } from '../../port/in/generation/produc
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
-const CANDIDATE_ID = '00000000-0000-4000-8000-000000000003';
+const SALES_PRODUCT_ID = '00000000-0000-4000-8000-000000000003';
+const CANDIDATE_ID = '00000000-0000-4000-8000-000000000007';
 const WORKSPACE_ID = '00000000-0000-4000-8000-000000000004';
 const CONTENT_GENERATION_ID = '00000000-0000-4000-8000-000000000005';
 const THUMBNAIL_GENERATION_ID = '00000000-0000-4000-8000-000000000006';
@@ -14,38 +15,33 @@ const request = (overrides: Partial<ProductGenerationAiRequest> = {}): ProductGe
   idempotencyKey: 'product-generation:test:all',
   requestHash: 'a'.repeat(64),
   triggeredByUserId: USER_ID,
-  candidateId: CANDIDATE_ID,
-  productName: '자석 다트게임',
-  category: '완구',
-  description: '안전한 다트 보드',
-  target: '초등학생',
-  imageUrls: ['https://example.com/main.jpg'],
-  thumbnailUrl: 'https://example.com/main.jpg',
-  optionNames: ['기본'],
+  salesProductId: SALES_PRODUCT_ID,
+  sourceCandidateId: CANDIDATE_ID,
+  productBrief: {
+    productName: '자석 다트게임',
+    category: '완구',
+    description: '안전한 다트 보드',
+    target: '초등학생',
+    imageUrls: ['https://example.com/main.jpg'],
+    thumbnailUrl: 'https://example.com/main.jpg',
+    optionNames: ['기본'],
+    productSize: '높이: 30cm',
+    colorVariantStatus: 'auto',
+    colorVariantNames: [],
+    boxSetStatus: 'auto',
+    boxSetQuantity: null,
+  },
   templateId: 'bold-vertical',
   ageGroup: 'age-8-plus',
   detailImageCount: '2',
   usageSectionMode: 'include',
   kcCertificationStatus: 'unknown',
   kcCertificationNumber: null,
-  productSize: '높이: 30cm',
-  colorVariantStatus: 'auto',
-  colorVariantNames: '',
-  boxSetStatus: 'auto',
-  boxSetQuantity: '',
   ...overrides,
 });
 
-function candidateRepository() {
+function generationContextRepository() {
   return {
-    findCandidate: vi.fn().mockResolvedValue({
-      id: CANDIDATE_ID,
-      name: '자석 다트게임',
-      category: '완구',
-      description: '안전한 다트 보드',
-      thumbnailUrl: 'https://example.com/main.jpg',
-      images: [{ url: 'https://example.com/main.jpg', sortOrder: 0 }],
-    }),
     findExistingChildren: vi.fn().mockResolvedValue({
       detail: null,
       thumbnail: null,
@@ -70,12 +66,12 @@ function editorAi() {
 }
 
 function makeService(overrides: {
-  contextRepository?: ReturnType<typeof candidateRepository>;
+  contextRepository?: ReturnType<typeof generationContextRepository>;
   detailPages?: { generate: ReturnType<typeof vi.fn> };
-  thumbnails?: { enqueueCandidateGeneration: ReturnType<typeof vi.fn> };
+  thumbnails?: { enqueueSalesProductGeneration: ReturnType<typeof vi.fn> };
   editorAi?: ReturnType<typeof editorAi>;
 } = {}) {
-  const contextRepository = overrides.contextRepository ?? candidateRepository();
+  const contextRepository = overrides.contextRepository ?? generationContextRepository();
   const detailPages = overrides.detailPages ?? {
     generate: vi.fn().mockResolvedValue({
       id: CONTENT_GENERATION_ID,
@@ -83,7 +79,7 @@ function makeService(overrides: {
     }),
   };
   const thumbnails = overrides.thumbnails ?? {
-    enqueueCandidateGeneration: vi.fn().mockResolvedValue({
+    enqueueSalesProductGeneration: vi.fn().mockResolvedValue({
       generationId: THUMBNAIL_GENERATION_ID,
       status: 'pending',
     }),
@@ -110,19 +106,19 @@ describe('ProductGenerationAiService', () => {
   it('rejects a request without its required idempotency coordinate', async () => {
     const { service } = makeService();
 
-    await expect(service.startForCandidate(request({ idempotencyKey: undefined })))
+    await expect(service.startForSalesProduct(request({ idempotencyKey: undefined })))
       .rejects.toThrow('product_generation_idempotency_required');
   });
 
   it('returns direct child ids and workspace without an operation aggregate', async () => {
     const { service, detailPages, thumbnails, editorAi } = makeService();
 
-    await expect(service.startForCandidate(request())).resolves.toEqual({
-      candidateId: CANDIDATE_ID,
+    await expect(service.startForSalesProduct(request())).resolves.toEqual({
+      salesProductId: SALES_PRODUCT_ID,
       detailGenerationId: CONTENT_GENERATION_ID,
       thumbnailGenerationId: THUMBNAIL_GENERATION_ID,
       contentWorkspaceId: WORKSPACE_ID,
-      href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
+      href: `/product-pipeline/collected-products/${SALES_PRODUCT_ID}`,
     });
     expect(detailPages.generate).toHaveBeenCalledWith(
       expect.objectContaining({ rawTitle: '자석 다트게임' }),
@@ -134,7 +130,7 @@ describe('ProductGenerationAiService', () => {
       }),
     );
     expect(detailPages.generate.mock.calls[0]).toHaveLength(4);
-    expect(thumbnails.enqueueCandidateGeneration).toHaveBeenCalledWith(
+    expect(thumbnails.enqueueSalesProductGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
         productGenerationIdentity: expect.objectContaining({
           generationId: expect.any(String),
@@ -150,20 +146,20 @@ describe('ProductGenerationAiService', () => {
     const detailPages = { generate: vi.fn().mockRejectedValue(detailError) };
     const { service, thumbnails } = makeService({ detailPages });
 
-    await expect(service.startForCandidate(request())).rejects.toBe(detailError);
-    expect(thumbnails.enqueueCandidateGeneration).not.toHaveBeenCalled();
+    await expect(service.startForSalesProduct(request())).rejects.toBe(detailError);
+    expect(thumbnails.enqueueSalesProductGeneration).not.toHaveBeenCalled();
   });
 
   it('propagates a thumbnail enqueue failure after detail admission', async () => {
     const thumbnailError = new Error('thumbnail_enqueue_failed');
-    const thumbnails = { enqueueCandidateGeneration: vi.fn().mockRejectedValue(thumbnailError) };
+    const thumbnails = { enqueueSalesProductGeneration: vi.fn().mockRejectedValue(thumbnailError) };
     const { service } = makeService({ thumbnails });
 
-    await expect(service.startForCandidate(request())).rejects.toBe(thumbnailError);
+    await expect(service.startForSalesProduct(request())).rejects.toBe(thumbnailError);
   });
 
   it('returns durable full replay ids before reading mutable candidate or provider inputs', async () => {
-    const contextRepository = candidateRepository();
+    const contextRepository = generationContextRepository();
     contextRepository.findExistingChildren
       .mockResolvedValueOnce({ detail: null, thumbnail: null })
       .mockResolvedValueOnce({
@@ -179,17 +175,16 @@ describe('ProductGenerationAiService', () => {
       });
     const { service, detailPages, thumbnails, editorAi } = makeService({ contextRepository });
 
-    const admitted = await service.startForCandidate(request());
+    const admitted = await service.startForSalesProduct(request());
 
-    await expect(service.startForCandidate(request())).resolves.toEqual(admitted);
-    expect(contextRepository.findCandidate).toHaveBeenCalledTimes(1);
+    await expect(service.startForSalesProduct(request())).resolves.toEqual(admitted);
     expect(detailPages.generate).toHaveBeenCalledTimes(1);
     expect(editorAi.resolveInputImage).toHaveBeenCalledTimes(1);
-    expect(thumbnails.enqueueCandidateGeneration).toHaveBeenCalledTimes(1);
+    expect(thumbnails.enqueueSalesProductGeneration).toHaveBeenCalledTimes(1);
   });
 
   it('retries only a missing thumbnail when the matching detail child is already durable', async () => {
-    const contextRepository = candidateRepository();
+    const contextRepository = generationContextRepository();
     contextRepository.findExistingChildren.mockResolvedValue({
       detail: {
         generationId: CONTENT_GENERATION_ID,
@@ -203,22 +198,22 @@ describe('ProductGenerationAiService', () => {
     };
     const { service, thumbnails } = makeService({ contextRepository, detailPages });
 
-    await expect(service.startForCandidate(request())).resolves.toEqual({
-      candidateId: CANDIDATE_ID,
+    await expect(service.startForSalesProduct(request())).resolves.toEqual({
+      salesProductId: SALES_PRODUCT_ID,
       detailGenerationId: CONTENT_GENERATION_ID,
       thumbnailGenerationId: THUMBNAIL_GENERATION_ID,
       contentWorkspaceId: WORKSPACE_ID,
-      href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
+      href: `/product-pipeline/collected-products/${SALES_PRODUCT_ID}`,
     });
     expect(detailPages.generate).not.toHaveBeenCalled();
-    expect(thumbnails.enqueueCandidateGeneration).toHaveBeenCalledTimes(1);
-    expect(thumbnails.enqueueCandidateGeneration).toHaveBeenCalledWith(
+    expect(thumbnails.enqueueSalesProductGeneration).toHaveBeenCalledTimes(1);
+    expect(thumbnails.enqueueSalesProductGeneration).toHaveBeenCalledWith(
       expect.objectContaining({ contentWorkspaceId: WORKSPACE_ID }),
     );
   });
 
   it('rejects a soft-deleted deterministic detail child before mutable replay input is read', async () => {
-    const contextRepository = candidateRepository();
+    const contextRepository = generationContextRepository();
     contextRepository.findExistingChildren.mockResolvedValue({
       detail: {
         generationId: CONTENT_GENERATION_ID,
@@ -230,16 +225,15 @@ describe('ProductGenerationAiService', () => {
     });
     const { service, detailPages, thumbnails, editorAi } = makeService({ contextRepository });
 
-    await expect(service.startForCandidate(request({ task: 'detail' })))
+    await expect(service.startForSalesProduct(request({ task: 'detail' })))
       .rejects.toThrow('product_generation_idempotency_conflict');
-    expect(contextRepository.findCandidate).not.toHaveBeenCalled();
     expect(detailPages.generate).not.toHaveBeenCalled();
     expect(editorAi.resolveInputImage).not.toHaveBeenCalled();
-    expect(thumbnails.enqueueCandidateGeneration).not.toHaveBeenCalled();
+    expect(thumbnails.enqueueSalesProductGeneration).not.toHaveBeenCalled();
   });
 
   it('rejects a soft-deleted deterministic thumbnail child before mutable replay input is read', async () => {
-    const contextRepository = candidateRepository();
+    const contextRepository = generationContextRepository();
     contextRepository.findExistingChildren.mockResolvedValue({
       detail: null,
       thumbnail: {
@@ -250,12 +244,11 @@ describe('ProductGenerationAiService', () => {
     });
     const { service, detailPages, thumbnails, editorAi } = makeService({ contextRepository });
 
-    await expect(service.startForCandidate(request({ task: 'thumbnail' })))
+    await expect(service.startForSalesProduct(request({ task: 'thumbnail' })))
       .rejects.toThrow('product_generation_idempotency_conflict');
-    expect(contextRepository.findCandidate).not.toHaveBeenCalled();
     expect(detailPages.generate).not.toHaveBeenCalled();
     expect(editorAi.resolveInputImage).not.toHaveBeenCalled();
-    expect(thumbnails.enqueueCandidateGeneration).not.toHaveBeenCalled();
+    expect(thumbnails.enqueueSalesProductGeneration).not.toHaveBeenCalled();
   });
 
   it('retries a partial admission with the same durable child identities', async () => {
@@ -273,7 +266,7 @@ describe('ProductGenerationAiService', () => {
     };
     let thumbnailAttempts = 0;
     const thumbnails = {
-      enqueueCandidateGeneration: vi.fn(async (input: {
+      enqueueSalesProductGeneration: vi.fn(async (input: {
         productGenerationIdentity: { generationId: string; requestHash: string };
       }) => {
         thumbnailAttempts += 1;
@@ -283,15 +276,15 @@ describe('ProductGenerationAiService', () => {
     };
     const { service } = makeService({ detailPages, thumbnails });
 
-    await expect(service.startForCandidate(request())).rejects.toBe(thumbnailError);
-    const replay = await service.startForCandidate(request());
+    await expect(service.startForSalesProduct(request())).rejects.toBe(thumbnailError);
+    const replay = await service.startForSalesProduct(request());
 
     const firstDetailIdentity = detailPages.generate.mock.calls[0][3];
     const secondDetailIdentity = detailPages.generate.mock.calls[1][3];
     const firstThumbnailIdentity =
-      thumbnails.enqueueCandidateGeneration.mock.calls[0][0].productGenerationIdentity;
+      thumbnails.enqueueSalesProductGeneration.mock.calls[0][0].productGenerationIdentity;
     const secondThumbnailIdentity =
-      thumbnails.enqueueCandidateGeneration.mock.calls[1][0].productGenerationIdentity;
+      thumbnails.enqueueSalesProductGeneration.mock.calls[1][0].productGenerationIdentity;
     expect(secondDetailIdentity).toEqual(firstDetailIdentity);
     expect(secondThumbnailIdentity).toEqual(firstThumbnailIdentity);
     expect(replay).toMatchObject({
@@ -319,23 +312,23 @@ describe('ProductGenerationAiService', () => {
       }),
     };
     const thumbnails = {
-      enqueueCandidateGeneration: vi.fn(async (input: {
+      enqueueSalesProductGeneration: vi.fn(async (input: {
         productGenerationIdentity: { generationId: string; requestHash: string };
       }) => ({ generationId: input.productGenerationIdentity.generationId, status: 'pending' })),
     };
     const { service } = makeService({ detailPages, thumbnails });
 
-    await expect(service.startForCandidate(request())).resolves.toMatchObject({
+    await expect(service.startForSalesProduct(request())).resolves.toMatchObject({
       detailGenerationId: expect.any(String),
       thumbnailGenerationId: expect.any(String),
     });
-    await expect(service.startForCandidate(request({ requestHash: 'b'.repeat(64) })))
+    await expect(service.startForSalesProduct(request({ requestHash: 'b'.repeat(64) })))
       .rejects.toThrow('product_generation_idempotency_conflict');
   });
 
   it('rejects a different hash before admitting a disjoint child kind for the same key', async () => {
     const childRequestHashes = new Map<string, string>();
-    const contextRepository = candidateRepository();
+    const contextRepository = generationContextRepository();
     contextRepository.findExistingChildren.mockImplementation(async (input: {
       detailGenerationId: string;
       thumbnailGenerationId: string;
@@ -365,7 +358,7 @@ describe('ProductGenerationAiService', () => {
       }),
     };
     const thumbnails = {
-      enqueueCandidateGeneration: vi.fn(async (input: {
+      enqueueSalesProductGeneration: vi.fn(async (input: {
         productGenerationIdentity: { generationId: string; requestHash: string };
       }) => {
         childRequestHashes.set(
@@ -380,9 +373,9 @@ describe('ProductGenerationAiService', () => {
     };
     const { service } = makeService({ contextRepository, detailPages, thumbnails });
 
-    await service.startForCandidate(request({ task: 'thumbnail' }));
+    await service.startForSalesProduct(request({ task: 'thumbnail' }));
 
-    await expect(service.startForCandidate(request({
+    await expect(service.startForSalesProduct(request({
       task: 'detail',
       requestHash: 'b'.repeat(64),
     }))).rejects.toThrow('product_generation_idempotency_conflict');
@@ -392,13 +385,13 @@ describe('ProductGenerationAiService', () => {
   it('can request detail only and leaves thumbnail fields null', async () => {
     const { service, thumbnails } = makeService();
 
-    await expect(service.startForCandidate(request({ task: 'detail' }))).resolves.toEqual({
-      candidateId: CANDIDATE_ID,
+    await expect(service.startForSalesProduct(request({ task: 'detail' }))).resolves.toEqual({
+      salesProductId: SALES_PRODUCT_ID,
       detailGenerationId: CONTENT_GENERATION_ID,
       thumbnailGenerationId: null,
       contentWorkspaceId: WORKSPACE_ID,
-      href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
+      href: `/product-pipeline/collected-products/${SALES_PRODUCT_ID}`,
     });
-    expect(thumbnails.enqueueCandidateGeneration).not.toHaveBeenCalled();
+    expect(thumbnails.enqueueSalesProductGeneration).not.toHaveBeenCalled();
   });
 });

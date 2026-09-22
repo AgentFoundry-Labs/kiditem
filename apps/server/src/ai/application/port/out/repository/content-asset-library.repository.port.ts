@@ -69,15 +69,15 @@ export interface SyncGenerationImageUsagesInput {
 }
 
 /**
- * A role-tagged asset reachable from a sourcing candidate.
+ * A role-tagged asset reachable from a sales-product draft.
  *
  * Reachability is `ContentAsset.originGenerationGroupId -> ContentGenerationGroup
- * -> ContentWorkspace.sourceCandidateId`. The `ContentGeneration.sourceCandidateId`
- * route does NOT work for `workspace_assets` groups: those groups hold no
- * generations at all, so joining through `ContentGeneration` drops every
- * `primary`/`thumbnail`/`detail`/`option` asset.
+ * -> ContentWorkspace.salesProductId`. Joining through `ContentGeneration`
+ * does NOT work for `workspace_assets` groups: those groups hold no generations
+ * at all, so that route drops every `primary`/`thumbnail`/`detail`/`option`
+ * asset.
  */
-export interface CandidateContentAssetRow {
+export interface SalesProductContentAssetRow {
   role: string | null;
   url: string;
   sortOrder: number;
@@ -87,9 +87,9 @@ export interface CandidateContentAssetRow {
  * Replace the workspace-owned `role='thumbnail'` gallery in one shot.
  *
  * The gallery is the ordered "썸네일 미리보기 이미지" set. It is the only write
- * path a candidate without a `RegistrationTarget` has, so it must land on
+ * path a draft without a `RegistrationTarget` has, so it must land on
  * `ContentAsset.role='thumbnail'` — that is the set
- * `listCandidateAssets`/`listRegistrationImages` read back into Wing
+ * `listSalesProductAssets`/`listRegistrationImages` read back into Wing
  * `additionalImageUrls`.
  */
 export interface ReplaceWorkspaceThumbnailGalleryInput {
@@ -107,7 +107,7 @@ export interface ReplaceWorkspaceThumbnailGalleryInput {
  * thumbnail here (`ContentWorkspace.currentThumbnailSelectionId`), so without
  * reading it back the saved selection is invisible after a reload.
  */
-export interface CandidateCurrentThumbnailRow {
+export interface SalesProductCurrentThumbnailRow {
   url: string;
   sourceThumbnailGenerationId: string | null;
   sourceThumbnailCandidateId: string | null;
@@ -142,22 +142,22 @@ export interface ContentAssetLibraryRepositoryPort {
     total: number;
     rows: ContentAssetListRow[];
   }>;
-  listCandidateAssets(input: {
+  listSalesProductAssets(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateContentAssetRow[]>;
-  findCandidateCurrentThumbnail(input: {
+    salesProductId: string;
+  }): Promise<SalesProductContentAssetRow[]>;
+  findSalesProductCurrentThumbnail(input: {
     organizationId: string;
-    sourceCandidateId: string;
-  }): Promise<CandidateCurrentThumbnailRow | null>;
+    salesProductId: string;
+  }): Promise<SalesProductCurrentThumbnailRow | null>;
   /**
    * 배치판. 목록 화면은 후보마다 단건 조회를 돌리면 N+1 이 되므로 반드시
    * 이쪽을 쓴다. 선택이 없는 후보는 맵에서 빠진다(빈 값을 만들지 않는다).
    */
-  findCandidateCurrentThumbnails(input: {
+  findSalesProductCurrentThumbnails(input: {
     organizationId: string;
-    sourceCandidateIds: string[];
-  }): Promise<Map<string, CandidateCurrentThumbnailRow>>;
+    salesProductIds: string[];
+  }): Promise<Map<string, SalesProductCurrentThumbnailRow>>;
   replaceWorkspaceThumbnailGallery(
     input: ReplaceWorkspaceThumbnailGalleryInput,
   ): Promise<{ urls: string[] }>;

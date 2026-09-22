@@ -603,5 +603,5 @@ test('passes on the current schema with the recorded cross-owner allowlist', () 
   // intra-owner totals too would turn any unrelated model with an organization
   // foreign key into a failure of this guard.
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /12 cross-owner transitional allowlisted/);
+  assert.match(result.stdout, /6 cross-owner transitional allowlisted/);
 });

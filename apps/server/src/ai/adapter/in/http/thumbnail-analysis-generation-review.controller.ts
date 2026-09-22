@@ -43,6 +43,9 @@ export class ThumbnailAnalysisGenerationReviewController {
     if (masterId) {
       throw new BadRequestException('masterId는 제거되었습니다. contentWorkspaceId를 사용하세요');
     }
+    if (sourceCandidateId) {
+      throw new BadRequestException('sourceCandidateId는 제거되었습니다. contentWorkspaceId를 사용하세요');
+    }
     const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
     let normalizedScope: ReturnType<typeof normalizeThumbnailGenerationListScope>;
     try {
@@ -54,7 +57,6 @@ export class ThumbnailAnalysisGenerationReviewController {
       throw err;
     }
     return this.generationService.findAll(organizationId, {
-      sourceCandidateId: sourceCandidateId || null,
       contentWorkspaceId: contentWorkspaceId || null,
       scope: normalizedScope,
       limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,

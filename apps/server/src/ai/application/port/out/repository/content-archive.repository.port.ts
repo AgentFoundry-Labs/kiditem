@@ -18,7 +18,6 @@ export interface ContentArchiveGenerationRow {
   generationInput: unknown;
   generationResult: unknown;
   generatedTitle: string | null;
-  sourceCandidateId: string | null;
   detailPageArtifactId: string | null;
   status: string;
   errorMessage: string | null;
@@ -27,7 +26,7 @@ export interface ContentArchiveGenerationRow {
   contentWorkspace: {
     id: string;
     ownerType: string;
-    sourceCandidateId: string | null;
+    salesProductId: string | null;
     channelListingId: string | null;
     displayName: string;
   };
@@ -76,10 +75,6 @@ export interface ContentArchiveRepositoryPort {
     organizationId: string;
     query: ContentArchiveRepositoryQuery;
   }): Promise<ContentArchiveGenerationRow[]>;
-  findSourcingCandidate(input: {
-    organizationId: string;
-    candidateId: string;
-  }): Promise<{ id: string } | null>;
   listSourcingCandidateGenerations(input: {
     organizationId: string;
     candidateId: string;

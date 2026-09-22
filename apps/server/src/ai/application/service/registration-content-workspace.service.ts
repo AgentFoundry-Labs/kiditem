@@ -2,9 +2,9 @@ import type { OwnerTransaction } from '../../../common/owner-transaction';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
-  type BranchRegistrationWorkspaceToListingInput,
-  type EnsureRegistrationCandidateWorkspaceInput,
-  type FindCandidateContentWorkspaceInput,
+  type AttachContentWorkspaceToListingInput,
+  type EnsureSalesProductContentWorkspaceInput,
+  type FindSalesProductContentWorkspaceInput,
   type RegistrationContentSelectionInput,
   type RegistrationContentWorkspacePort,
   type ResolvedRegistrationContentSelections,
@@ -26,10 +26,10 @@ export class RegistrationContentWorkspaceService
     private readonly repository: RegistrationContentWorkspaceRepositoryPort,
   ) {}
 
-  findCandidateWorkspaceId(
-    input: FindCandidateContentWorkspaceInput,
+  findSalesProductWorkspaceId(
+    input: FindSalesProductContentWorkspaceInput,
   ): Promise<string | null> {
-    return this.repository.findCandidateWorkspaceId(input);
+    return this.repository.findSalesProductWorkspaceId(input);
   }
 
   resolveSourceSelections(
@@ -46,31 +46,23 @@ export class RegistrationContentWorkspaceService
     return this.repository.validateSourceSelections(transaction, input);
   }
 
-  ensureCandidateWorkspace(
+  ensureSalesProductWorkspace(
     transaction: OwnerTransaction,
-    input: EnsureRegistrationCandidateWorkspaceInput,
+    input: EnsureSalesProductContentWorkspaceInput,
   ): Promise<{ workspaceId: string }> {
     const displayName = normalizedDisplayName(input.displayName);
-    return this.repository.ensureCandidateWorkspace(transaction, {
+    return this.repository.ensureSalesProductWorkspace(transaction, {
       ...input,
       displayName,
       normalizedTitle: normalizeContentTitle(displayName),
     });
   }
 
-  async branchToListing(
+  attachToListing(
     transaction: OwnerTransaction,
-    input: BranchRegistrationWorkspaceToListingInput,
+    input: AttachContentWorkspaceToListingInput,
   ): Promise<{ workspaceId: string }> {
-    if (input.sourceWorkspaceId === input.listingId) {
-      throw new BadRequestException('Source workspace and listing owner must be distinct.');
-    }
-    const displayName = normalizedDisplayName(input.displayName);
-    return this.repository.branchToListing(transaction, {
-      ...input,
-      displayName,
-      normalizedTitle: normalizeContentTitle(displayName),
-    });
+    return this.repository.attachToListing(transaction, input);
   }
 }
 

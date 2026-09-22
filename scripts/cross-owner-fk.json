@@ -150,12 +150,6 @@
     "SourceImportRun"
   ],
   "allowlist": [
-    "ai.ContentGeneration -> sourcing.SourcingCandidate",
-    "ai.ContentGenerationSource -> sourcing.SourcingCandidate",
-    "ai.ContentWorkspace -> sourcing.SourcingCandidate",
-    "ai.DetailPageImageRenderIntent -> sourcing.SourcingCandidate",
-    "ai.ThumbnailGeneration -> sourcing.SourcingCandidate",
-    "ai.ThumbnailGenerationInputImage -> sourcing.CandidateImage",
     "orders.CoupangDirectTransportReceipt -> supply.RocketPurchaseConfirmation",
     "sourcing.SourcingDecisionBatchItem -> supply.SupplierOfferSkuSnapshot",
     "sourcing.SourcingLaunchCandidate -> supply.SupplierOfferSkuSnapshot",

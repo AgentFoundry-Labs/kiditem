@@ -17,8 +17,8 @@ function repository(
     syncGenerationImageUsages: vi.fn(),
     syncGenerationImageUsagesInScope: vi.fn(),
     listAssets: vi.fn(),
-    listCandidateAssets: vi.fn().mockResolvedValue([]),
-    findCandidateCurrentThumbnail: vi.fn().mockResolvedValue(null),
+    listSalesProductAssets: vi.fn().mockResolvedValue([]),
+    findSalesProductCurrentThumbnail: vi.fn().mockResolvedValue(null),
     replaceWorkspaceThumbnailGallery: vi.fn(async (input: { urls: string[] }) => ({
       urls: input.urls,
     })),
@@ -32,7 +32,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
 
   it('splits assets by role and drops roles that must never reach a registration form', async () => {
     const repo = repository({
-      listCandidateAssets: vi.fn().mockResolvedValue([
+      listSalesProductAssets: vi.fn().mockResolvedValue([
         { role: 'primary', url: 'http://localhost:9000/a/primary.png', sortOrder: 0 },
         { role: 'thumbnail', url: 'http://localhost:9000/a/thumb-1.png', sortOrder: 1 },
         { role: 'thumbnail', url: 'http://localhost:9000/a/thumb-2.png', sortOrder: 2 },
@@ -48,7 +48,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
 
     const result = await service.listRegistrationImages({
       organizationId: ORG,
-      sourceCandidateId: CANDIDATE,
+      salesProductId: CANDIDATE,
     });
 
     expect(result).toEqual({
@@ -63,7 +63,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
 
   it('drops blank urls and de-duplicates within a role', async () => {
     const repo = repository({
-      listCandidateAssets: vi.fn().mockResolvedValue([
+      listSalesProductAssets: vi.fn().mockResolvedValue([
         { role: 'primary', url: '  ', sortOrder: 0 },
         { role: 'thumbnail', url: 'http://localhost:9000/a/dup.png', sortOrder: 1 },
         { role: 'thumbnail', url: 'http://localhost:9000/a/dup.png', sortOrder: 2 },
@@ -72,7 +72,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
     const service = new ContentAssetService(repo);
 
     await expect(
-      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+      service.listRegistrationImages({ organizationId: ORG, salesProductId: CANDIDATE }),
     ).resolves.toEqual({
       primary: [],
       thumbnail: ['http://localhost:9000/a/dup.png'],
@@ -84,7 +84,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
     const service = new ContentAssetService(repository());
 
     await expect(
-      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+      service.listRegistrationImages({ organizationId: ORG, salesProductId: CANDIDATE }),
     ).resolves.toEqual({ primary: [], thumbnail: [], detail: [] });
   });
 
@@ -92,10 +92,10 @@ describe('ContentAssetService.listRegistrationImages', () => {
     // 중복 상품끼리 재사용된 썸네일은 다른 워크스페이스 그룹 소유라 자산 스캔이
     // 놓친다. 현재 워크스페이스 선택은 이를 잡으므로 갤러리 뒤에 합쳐진다.
     const repo = repository({
-      listCandidateAssets: vi.fn().mockResolvedValue([
+      listSalesProductAssets: vi.fn().mockResolvedValue([
         { role: 'thumbnail', url: 'http://localhost:9000/a/gallery.png', sortOrder: 0 },
       ]),
-      findCandidateCurrentThumbnail: vi.fn().mockResolvedValue({
+      findSalesProductCurrentThumbnail: vi.fn().mockResolvedValue({
         url: 'http://localhost:9000/reused/from-other-workspace.png',
         sourceThumbnailGenerationId: null,
         sourceThumbnailCandidateId: null,
@@ -104,7 +104,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
     const service = new ContentAssetService(repo);
 
     await expect(
-      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+      service.listRegistrationImages({ organizationId: ORG, salesProductId: CANDIDATE }),
     ).resolves.toEqual({
       primary: [],
       thumbnail: [
@@ -122,16 +122,16 @@ describe('ContentAssetService.listRegistrationImages', () => {
       sourceThumbnailCandidateId: 'candidate-thumb-1',
     };
     const repo = repository({
-      listCandidateAssets: vi.fn().mockResolvedValue([
+      listSalesProductAssets: vi.fn().mockResolvedValue([
         { role: 'thumbnail', url: 'http://localhost:9000/a/gallery.png', sortOrder: 0 },
       ]),
-      findCandidateCurrentThumbnail: vi.fn().mockResolvedValue(currentThumbnail),
+      findSalesProductCurrentThumbnail: vi.fn().mockResolvedValue(currentThumbnail),
     });
     const service = new ContentAssetService(repo);
 
     await expect(service.loadRegistrationMedia({
       organizationId: ORG,
-      sourceCandidateId: CANDIDATE,
+      salesProductId: CANDIDATE,
     })).resolves.toEqual({
       registrationImages: {
         primary: [],
@@ -143,7 +143,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
       },
       currentThumbnail,
     });
-    expect(repo.findCandidateCurrentThumbnail).toHaveBeenCalledTimes(1);
+    expect(repo.findSalesProductCurrentThumbnail).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -161,7 +161,7 @@ describe('ContentAssetService.replaceWorkspaceThumbnailGallery', () => {
         stored.splice(0, stored.length, ...input.urls);
         return { urls: input.urls };
       }),
-      listCandidateAssets: vi.fn(async () =>
+      listSalesProductAssets: vi.fn(async () =>
         stored.map((url, index) => ({ role: 'thumbnail', url, sortOrder: index })),
       ),
     });
@@ -187,7 +187,7 @@ describe('ContentAssetService.replaceWorkspaceThumbnailGallery', () => {
       ],
     });
     await expect(
-      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+      service.listRegistrationImages({ organizationId: ORG, salesProductId: CANDIDATE }),
     ).resolves.toEqual({
       primary: [],
       thumbnail: [

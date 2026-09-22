@@ -19,7 +19,6 @@ describe('thumbnail identity contracts', () => {
     const parsed = ThumbnailGenerationItemSchema.parse({
       id: 'generation-1',
       contentWorkspaceId: WORKSPACE_ID,
-      sourceCandidateId: null,
       originalUrl: 'https://cdn.example.com/original.jpg',
       candidates: [],
       selectedUrl: null,

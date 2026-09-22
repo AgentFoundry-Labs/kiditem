@@ -646,8 +646,9 @@ Notable route subtrees:
   owns `/product-pipeline/registered-products`, the marketplace registered
   product management surface backed by active `ChannelListing` rows with
   `ChannelAccount` and immutable source-candidate provenance. Generated content
-  history lives in listing-owned `ContentWorkspace` rows; source-candidate
-  workspaces are reached from collected product detail instead of this list.
+  history lives in the sales-product draft's `ContentWorkspace`, which
+  registration points at the listing; draft workspaces are reached from
+  collected product detail instead of this list.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/productgenerate`
   owns `/product-pipeline/productgenerate`, the sidebar product registration
   entrypoint. This is the only product-pipeline route that creates collected
@@ -958,12 +959,13 @@ and content models. This reconstruction intentionally adds no registration or
 deletion ledger backfill because the authoritative Office dataset has no legacy
 marketplace operation history to preserve.
 
-`ContentWorkspace.ownerType` is `sourcing_candidate`, `channel_listing`, or
-`direct_detail_page`. Registration branches selected artifact/revision metadata
-and HTML, reuses storage URLs and the same managed thumbnail asset, and does not
-clone generation jobs/candidates. Current-thumbnail selection may adopt an
-existing content asset, a succeeded generation candidate, or an external URL
-that first passes the guarded fetch/storage boundary. Asset deletion and GC
+`ContentWorkspace.ownerType` is `sales_product`, `channel_listing`, or
+`direct_detail_page`. A sales-product draft owns exactly one active workspace,
+and registration records the listing on that same row instead of cloning
+artifacts, revisions or generation jobs into a second workspace.
+Current-thumbnail selection may adopt an existing content asset, a succeeded
+generation candidate owned by that workspace, or a draft image URL its owner
+passes in. Asset deletion and GC
 must reject active generation usage or any thumbnail selection.
 
 ## Sellpia Current Inventory And Collection

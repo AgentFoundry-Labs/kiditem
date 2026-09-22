@@ -19,7 +19,7 @@ export interface ContentArchiveWorkspaceItem {
   title: string;
   thumbnailUrl: string | null;
   contentWorkspaceId: string;
-  sourceCandidateId: string | null;
+  salesProductId: string | null;
   channelListingId: string | null;
   href: string;
   generationCount: number;
@@ -98,7 +98,7 @@ export function contentArchiveWorkspaceFromRows(
     title: workspace.displayName,
     thumbnailUrl: pickThumbnail(latest),
     contentWorkspaceId: workspace.id,
-    sourceCandidateId: workspace.sourceCandidateId,
+    salesProductId: workspace.salesProductId,
     channelListingId: workspace.channelListingId,
     href: `/product-pipeline/registered-products/${encodeURIComponent(workspace.id)}`,
     generationCount: rows.length,
@@ -125,10 +125,7 @@ export function contentArchiveGenerationItem(
     ? row.detailPageArtifact
     : null;
   const sourceCandidateId =
-    row.sourceCandidateId ??
-    row.contentWorkspace.sourceCandidateId ??
-    row.sources.find((source) => source.sourceCandidateId)?.sourceCandidateId ??
-    null;
+    row.sources.find((source) => source.sourceCandidateId)?.sourceCandidateId ?? null;
   const detailPageRevisionId =
     activeArtifact?.currentRevisionId ?? activeArtifact?.currentRevision?.id ?? null;
   return {

@@ -15,6 +15,7 @@ import {
   type ChannelListingQueryPort,
 } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type {
+  AttachContentWorkspaceToListingInput,
   RegistrationContentSelectionInput,
   ResolvedRegistrationContentSelections,
 } from '../../../application/port/in/workspace/registration-content-workspace.port';
@@ -123,60 +124,38 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     );
   }
 
-  async findCandidateWorkspaceId(input: {
+  async findSalesProductWorkspaceId(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
   }): Promise<string | null> {
     const existing = await this.prisma.contentWorkspace.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: input.sourceCandidateId,
-        status: 'active',
-        isDeleted: false,
-      },
+      where: activeSalesProductWorkspaceWhere(input),
       select: { id: true },
     });
     return existing?.id ?? null;
   }
 
-  async ensureCandidateWorkspace(
+  async ensureSalesProductWorkspace(
     transaction: OwnerTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      salesProductId: string;
       displayName: string;
       normalizedTitle: string;
       createdByUserId: string | null;
     },
   ): Promise<{ workspaceId: string }> {
     const tx = ownerTransactionClient(transaction);
-    const candidate = await tx.sourcingCandidate.findFirst({
-      where: {
-        id: input.sourceCandidateId,
-        organizationId: input.organizationId,
-        status: 'sourced',
-        isDeleted: false,
-      },
-      select: { id: true },
-    });
-    if (!candidate) throw new NotFoundException('Sourcing candidate not found.');
     const existing = await tx.contentWorkspace.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: input.sourceCandidateId,
-        status: 'active',
-        isDeleted: false,
-      },
+      where: activeSalesProductWorkspaceWhere(input),
       select: { id: true },
     });
     if (existing) return { workspaceId: existing.id };
     const created = await tx.contentWorkspace.create({
       data: {
         organizationId: input.organizationId,
-        ownerType: 'sourcing_candidate',
-        sourceCandidateId: input.sourceCandidateId,
+        ownerType: 'sales_product',
+        salesProductId: input.salesProductId,
         channelListingId: null,
         originWorkspaceId: null,
         displayName: input.displayName,
@@ -189,155 +168,70 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     return { workspaceId: created.id };
   }
 
-  async branchToListing(
+  /**
+   * One workspace belongs to one draft and, once registered, to that draft's
+   * listing. Registration therefore records the listing on the draft's own
+   * workspace; nothing is cloned and no second workspace is created.
+   */
+  async attachToListing(
     transaction: OwnerTransaction,
-    input: {
-      organizationId: string;
-      sourceWorkspaceId: string;
-      listingId: string;
-      displayName: string;
-      normalizedTitle: string;
-      createdByUserId: string | null;
-      selectedThumbnailUrl: string | null;
-      selectedThumbnailGenerationId: string | null;
-      selectedThumbnailGenerationCandidateId: string | null;
-      selectedDetailPageArtifactId: string | null;
-      selectedDetailPageRevisionId: string | null;
-      selectedDetailPageGenerationId: string | null;
-    },
+    input: AttachContentWorkspaceToListingInput,
   ): Promise<{ workspaceId: string }> {
     const tx = ownerTransactionClient(transaction);
-    const source = await this.validateSourceSelectionsTx(tx, input);
-    const listing = await this.channelListings.lockActiveOwner(transaction, {
+    await this.channelListings.lockActiveOwner(transaction, {
       organizationId: input.organizationId,
       listingId: input.listingId,
     });
-    if (!source.sourceCandidateId
-      || listing.sourceCandidateId !== source.sourceCandidateId) {
-      throw new ConflictException(
-        'Channel listing and source workspace have different candidates.',
-      );
-    }
 
-    const existingRows = await tx.$queryRaw<Array<{
+    const lockedRows = await tx.$queryRaw<Array<{
       id: string;
-      originWorkspaceId: string | null;
-      currentDetailPageArtifactId: string | null;
-      currentDetailPageRevisionId: string | null;
-      currentThumbnailSelectionId: string | null;
+      channelListingId: string | null;
     }>>(Prisma.sql`
-      SELECT
-        id,
-        origin_workspace_id AS "originWorkspaceId",
-        current_detail_page_artifact_id AS "currentDetailPageArtifactId",
-        current_detail_page_revision_id AS "currentDetailPageRevisionId",
-        current_thumbnail_selection_id AS "currentThumbnailSelectionId"
+      SELECT id, channel_listing_id AS "channelListingId"
       FROM content_workspaces
       WHERE organization_id = ${input.organizationId}::uuid
-        AND owner_type = 'channel_listing'
-        AND channel_listing_id = ${input.listingId}::uuid
+        AND sales_product_id = ${input.salesProductId}::uuid
         AND status = 'active'
         AND is_deleted = false
-      ORDER BY updated_at DESC, created_at DESC
-      LIMIT 1
       FOR UPDATE
     `);
-    const existing = existingRows[0] ?? null;
-    let workspace: { id: string };
-    if (existing) {
-      if (existing.originWorkspaceId
-        && existing.originWorkspaceId !== source.id) {
-        throw new ConflictException(
-          'Listing workspace belongs to a different source workspace.',
-        );
-      }
-      const hasContent = Boolean(
-        existing.currentDetailPageArtifactId
-        || existing.currentDetailPageRevisionId
-        || existing.currentThumbnailSelectionId,
+    const workspace = lockedRows[0];
+    if (!workspace || lockedRows.length !== 1) {
+      throw new NotFoundException('Sales product content workspace not found.');
+    }
+    if (workspace.channelListingId === input.listingId) {
+      return { workspaceId: workspace.id };
+    }
+    if (workspace.channelListingId) {
+      throw new ConflictException(
+        'Sales product content workspace already belongs to another listing.',
       );
-      if (existing.originWorkspaceId === source.id && hasContent) {
-        return { workspaceId: existing.id };
-      }
-      if (!existing.originWorkspaceId && hasContent) {
-        throw new ConflictException(
-          'Existing listing workspace already contains unrelated content.',
-        );
-      }
-      if (!existing.originWorkspaceId) {
-        const claimed = await tx.contentWorkspace.updateMany({
-          where: {
-            id: existing.id,
-            organizationId: input.organizationId,
-            originWorkspaceId: null,
-            currentDetailPageArtifactId: null,
-            currentDetailPageRevisionId: null,
-            currentThumbnailSelectionId: null,
-            status: 'active',
-            isDeleted: false,
-          },
-          data: { originWorkspaceId: source.id },
-        });
-        if (claimed.count !== 1) {
-          throw new ConflictException(
-            'Existing listing workspace changed while content was being assigned.',
-          );
-        }
-      }
-      workspace = { id: existing.id };
-    } else {
-      workspace = await tx.contentWorkspace.create({
-        data: {
-          organizationId: input.organizationId,
-          ownerType: 'channel_listing',
-          sourceCandidateId: null,
-          channelListingId: input.listingId,
-          originWorkspaceId: source.id,
-          displayName: input.displayName,
-          normalizedTitle: input.normalizedTitle,
-          status: 'active',
-          createdByUserId: input.createdByUserId,
-        },
-        select: { id: true },
-      });
     }
 
-    const detail = await this.cloneDetailSelection(tx, {
-      ...input,
-      sourceArtifactId: input.selectedDetailPageArtifactId,
-      sourceRevisionId: input.selectedDetailPageRevisionId,
-      listingWorkspaceId: workspace.id,
-    });
-    const thumbnail = await this.cloneThumbnailSelection(tx, {
-      ...input,
-      sourceWorkspaceId: source.id,
-      listingWorkspaceId: workspace.id,
-    });
-
-    if (detail || thumbnail) {
-      const updated = await tx.contentWorkspace.updateMany({
+    let claimed: { count: number };
+    try {
+      claimed = await tx.contentWorkspace.updateMany({
         where: {
           id: workspace.id,
           organizationId: input.organizationId,
+          channelListingId: null,
+          status: 'active',
           isDeleted: false,
         },
-        data: {
-          ...(detail
-            ? {
-                currentDetailPageArtifactId: detail.artifactId,
-                currentDetailPageRevisionId: detail.revisionId,
-              }
-            : {}),
-          ...(thumbnail
-            ? { currentThumbnailSelectionId: thumbnail.selectionId }
-            : {}),
-        },
+        data: { channelListingId: input.listingId },
       });
-      if (updated.count !== 1) {
-        throw new ConflictException(
-          'Listing workspace changed before selected content was assigned.',
-        );
-      }
+    } catch (error) {
+      // `content_workspaces_listing_active_key`: another active workspace already
+      // speaks for this listing. That is a domain conflict, not a driver fault.
+      if (!isUniqueConstraintError(error)) throw error;
+      throw new ConflictException(
+        'Another active content workspace already belongs to this listing.',
+      );
+    }
+    if (claimed.count !== 1) {
+      throw new ConflictException(
+        'Content workspace changed while the listing was being attached.',
+      );
     }
     return { workspaceId: workspace.id };
   }
@@ -345,10 +239,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
   private async validateSourceSelectionsTx(
     tx: Prisma.TransactionClient,
     input: RegistrationContentSelectionInput,
-  ): Promise<{
-    id: string;
-    sourceCandidateId: string | null;
-  }> {
+  ): Promise<{ id: string }> {
     const source = await this.findSourceWorkspace(tx, input);
 
     const artifactId = input.selectedDetailPageArtifactId;
@@ -410,40 +301,52 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     input: Pick<RegistrationContentSelectionInput, 'organizationId' | 'sourceWorkspaceId'>,
   ): Promise<{
     id: string;
-    sourceCandidateId: string | null;
+    salesProductId: string | null;
     createdByUserId: string | null;
   }> {
     const source = await tx.contentWorkspace.findFirst({
       where: {
         id: input.sourceWorkspaceId,
         organizationId: input.organizationId,
-        ownerType: 'sourcing_candidate',
+        ownerType: 'sales_product',
         status: 'active',
         isDeleted: false,
       },
-      select: { id: true, sourceCandidateId: true, createdByUserId: true },
+      select: { id: true, salesProductId: true, createdByUserId: true },
     });
     if (!source) throw new NotFoundException('Source content workspace not found.');
     return source;
   }
 
+  /**
+   * A thumbnail that carries generation provenance must come from this
+   * workspace's own ledger. A plain URL is one of the draft's images — Channels
+   * owns that list — so AI adopts it into managed content instead of trying to
+   * re-derive ownership it cannot see.
+   */
   private async resolveThumbnailSelection(
     tx: Prisma.TransactionClient,
     input: RegistrationContentSelectionInput,
-    source: {
-      id: string;
-      sourceCandidateId: string | null;
-      createdByUserId: string | null;
-    },
+    source: { id: string; createdByUserId: string | null },
   ): Promise<void> {
     const hasThumbnailGeneration = Boolean(
       input.selectedThumbnailGenerationId
       || input.selectedThumbnailGenerationCandidateId,
     );
-    if (!input.selectedThumbnailUrl || hasThumbnailGeneration) {
+    if (hasThumbnailGeneration) {
+      // Registration freezes this generation's candidate into the target, so the
+      // row must not be archived between the check and the freeze.
+      await lockActiveThumbnailGenerationSelection(tx, {
+        organizationId: input.organizationId,
+        sourceWorkspaceId: source.id,
+        generationId: input.selectedThumbnailGenerationId,
+        candidateId: input.selectedThumbnailGenerationCandidateId,
+        url: input.selectedThumbnailUrl,
+      });
       await this.validateThumbnailSelection(tx, input, source.id);
       return;
     }
+    if (!input.selectedThumbnailUrl) return;
 
     const existing = await tx.contentAsset.findFirst({
       where: {
@@ -460,68 +363,16 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       select: { id: true },
     });
     if (existing) return;
-    if (!source.sourceCandidateId) {
-      throw new BadRequestException(
-        'Selected thumbnail URL is not source-owned managed content.',
-      );
-    }
 
-    const candidate = await tx.sourcingCandidate.findFirst({
-      where: {
-        id: source.sourceCandidateId,
-        organizationId: input.organizationId,
-        status: 'sourced',
-        isDeleted: false,
-        OR: [
-          { thumbnailUrl: input.selectedThumbnailUrl },
-          { imageUrl: input.selectedThumbnailUrl },
-          {
-            images: {
-              some: {
-                organizationId: input.organizationId,
-                url: input.selectedThumbnailUrl,
-                isDeleted: false,
-              },
-            },
-          },
-        ],
-      },
-      select: {
-        id: true,
-        images: {
-          where: {
-            organizationId: input.organizationId,
-            url: input.selectedThumbnailUrl,
-            isDeleted: false,
-          },
-          orderBy: { sortOrder: 'asc' },
-          take: 1,
-          select: {
-            storageKey: true,
-            mimeType: true,
-            width: true,
-            height: true,
-            fileSize: true,
-          },
-        },
-      },
-    });
-    if (!candidate) {
-      throw new BadRequestException(
-        'Selected thumbnail URL is not source-owned managed content.',
-      );
-    }
-
-    const image = candidate.images[0] ?? null;
-    const asset = await this.ensureCandidateAsset(tx, {
+    const asset = await this.ensureManagedThumbnailAsset(tx, {
       organizationId: input.organizationId,
       workspaceId: source.id,
       url: input.selectedThumbnailUrl,
-      storageKey: image?.storageKey ?? null,
-      mimeType: image?.mimeType ?? null,
-      width: image?.width ?? null,
-      height: image?.height ?? null,
-      fileSize: image?.fileSize ?? null,
+      storageKey: null,
+      mimeType: null,
+      width: null,
+      height: null,
+      fileSize: null,
       createdByUserId: source.createdByUserId,
     });
     await lockActiveContentAsset(tx, input.organizationId, asset.id);
@@ -555,247 +406,41 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       }
       return;
     }
-    if (hasThumbnailGeneration) {
-      if (!input.selectedThumbnailGenerationId
-        || !input.selectedThumbnailGenerationCandidateId) {
-        throw new BadRequestException('Thumbnail generation provenance must be complete.');
-      }
-      const [generation, candidate] = await Promise.all([
-        tx.thumbnailGeneration.findFirst({
-          where: {
-            id: input.selectedThumbnailGenerationId,
-            organizationId: input.organizationId,
-            contentWorkspaceId: sourceWorkspaceId,
-            status: 'succeeded',
-            isDeleted: false,
-          },
-          select: { id: true },
-        }),
-        tx.thumbnailGenerationCandidate.findFirst({
-          where: {
-            id: input.selectedThumbnailGenerationCandidateId,
-            organizationId: input.organizationId,
-            generationId: input.selectedThumbnailGenerationId,
-            url: input.selectedThumbnailUrl,
-          },
-          select: { id: true },
-        }),
-      ]);
-      if (!generation || !candidate) {
-        throw new BadRequestException(
-          'Selected thumbnail generation is not successful source content.',
-        );
-      }
-      return;
-    }
+    if (!hasThumbnailGeneration) return;
 
-    const asset = await tx.contentAsset.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        url: input.selectedThumbnailUrl,
-        isDeleted: false,
-        thumbnailSelections: {
-          some: {
-            organizationId: input.organizationId,
-            contentWorkspaceId: sourceWorkspaceId,
-          },
-        },
-      },
-      select: { id: true },
-    });
-    if (!asset) {
-      throw new BadRequestException(
-        'Selected thumbnail URL is not source-owned managed content.',
-      );
-    }
-  }
-
-  private async cloneDetailSelection(
-    tx: Prisma.TransactionClient,
-    input: {
-      organizationId: string;
-      sourceWorkspaceId: string;
-      listingWorkspaceId: string;
-      sourceArtifactId: string | null;
-      sourceRevisionId: string | null;
-      createdByUserId: string | null;
-    },
-  ): Promise<{ artifactId: string; revisionId: string | null } | null> {
-    if (!input.sourceArtifactId) return null;
-    const artifact = await tx.detailPageArtifact.findFirst({
-      where: {
-        id: input.sourceArtifactId,
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.sourceWorkspaceId,
-        isDeleted: false,
-      },
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        metadata: true,
-      },
-    });
-    if (!artifact) throw new BadRequestException('Selected detail artifact is not source-owned.');
-    const revisionId = input.sourceRevisionId;
-    const revision = revisionId
-      ? await tx.detailPageRevision.findFirst({
-          where: {
-            id: revisionId,
-            organizationId: input.organizationId,
-            artifactId: artifact.id,
-          },
-          select: {
-            id: true,
-            revisionType: true,
-            html: true,
-            assetUrlMap: true,
-            imageUrls: true,
-          },
-        })
-      : null;
-    if (revisionId && !revision) {
-      throw new BadRequestException('Selected detail revision is not source-owned.');
-    }
-
-    const clonedArtifact = await tx.detailPageArtifact.create({
-      data: {
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.listingWorkspaceId,
-        sourceContentGenerationId: null,
-        title: artifact.title,
-        status: artifact.status,
-        metadata: artifact.metadata as Prisma.InputJsonValue,
-        createdByUserId: input.createdByUserId,
-      },
-      select: { id: true },
-    });
-    if (!revision) return { artifactId: clonedArtifact.id, revisionId: null };
-    const clonedRevision = await tx.detailPageRevision.create({
-      data: {
-        organizationId: input.organizationId,
-        artifactId: clonedArtifact.id,
-        contentGenerationId: null,
-        revisionType: revision.revisionType,
-        html: revision.html,
-        assetUrlMap: revision.assetUrlMap as Prisma.InputJsonValue,
-        imageUrls: revision.imageUrls as Prisma.InputJsonValue,
-        createdByUserId: input.createdByUserId,
-      },
-      select: { id: true },
-    });
-    await tx.detailPageArtifact.updateMany({
-      where: {
-        id: clonedArtifact.id,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      data: { currentRevisionId: clonedRevision.id },
-    });
-    return { artifactId: clonedArtifact.id, revisionId: clonedRevision.id };
-  }
-
-  private async cloneThumbnailSelection(
-    tx: Prisma.TransactionClient,
-    input: {
-      organizationId: string;
-      sourceWorkspaceId: string;
-      listingWorkspaceId: string;
-      selectedThumbnailUrl: string | null;
-      selectedThumbnailGenerationId: string | null;
-      selectedThumbnailGenerationCandidateId: string | null;
-      createdByUserId: string | null;
-    },
-  ): Promise<{ selectionId: string } | null> {
-    if (!input.selectedThumbnailUrl) return null;
-    const hasGeneration = Boolean(
-      input.selectedThumbnailGenerationId || input.selectedThumbnailGenerationCandidateId,
-    );
-    if (hasGeneration &&
-      (!input.selectedThumbnailGenerationId || !input.selectedThumbnailGenerationCandidateId)) {
+    if (!input.selectedThumbnailGenerationId
+      || !input.selectedThumbnailGenerationCandidateId) {
       throw new BadRequestException('Thumbnail generation provenance must be complete.');
     }
-    let asset: { id: string; url: string };
-    if (hasGeneration) {
-      await lockActiveThumbnailGenerationSelection(tx, {
-        organizationId: input.organizationId,
-        sourceWorkspaceId: input.sourceWorkspaceId,
-        generationId: input.selectedThumbnailGenerationId!,
-        candidateId: input.selectedThumbnailGenerationCandidateId!,
-        url: input.selectedThumbnailUrl,
-      });
-      const generation = await tx.thumbnailGeneration.findFirst({
+    const [generation, candidate] = await Promise.all([
+      tx.thumbnailGeneration.findFirst({
         where: {
-          id: input.selectedThumbnailGenerationId!,
+          id: input.selectedThumbnailGenerationId,
           organizationId: input.organizationId,
-          contentWorkspaceId: input.sourceWorkspaceId,
+          contentWorkspaceId: sourceWorkspaceId,
           status: 'succeeded',
           isDeleted: false,
         },
         select: { id: true },
-      });
-      const candidate = await tx.thumbnailGenerationCandidate.findFirst({
+      }),
+      tx.thumbnailGenerationCandidate.findFirst({
         where: {
-          id: input.selectedThumbnailGenerationCandidateId!,
+          id: input.selectedThumbnailGenerationCandidateId,
           organizationId: input.organizationId,
-          generationId: input.selectedThumbnailGenerationId!,
+          generationId: input.selectedThumbnailGenerationId,
           url: input.selectedThumbnailUrl,
         },
-        select: {
-          id: true,
-          url: true,
-          storageKey: true,
-          mimeType: true,
-          width: true,
-          height: true,
-          fileSize: true,
-        },
-      });
-      if (!generation || !candidate) {
-        throw new BadRequestException('Selected thumbnail generation is not successful source content.');
-      }
-      asset = await this.ensureCandidateAsset(tx, {
-        organizationId: input.organizationId,
-        workspaceId: input.sourceWorkspaceId,
-        createdByUserId: input.createdByUserId,
-        ...candidate,
-      });
-    } else {
-      const sourceAsset = await tx.contentAsset.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          url: input.selectedThumbnailUrl,
-          isDeleted: false,
-          thumbnailSelections: {
-            some: {
-              organizationId: input.organizationId,
-              contentWorkspaceId: input.sourceWorkspaceId,
-            },
-          },
-        },
-        select: { id: true, url: true },
-      });
-      if (!sourceAsset) {
-        throw new BadRequestException('Selected thumbnail URL is not source-owned managed content.');
-      }
-      asset = sourceAsset;
+        select: { id: true },
+      }),
+    ]);
+    if (!generation || !candidate) {
+      throw new BadRequestException(
+        'Selected thumbnail generation is not successful source content.',
+      );
     }
-    await lockActiveContentAsset(tx, input.organizationId, asset.id);
-    const selection = await tx.contentWorkspaceThumbnailSelection.create({
-      data: {
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.listingWorkspaceId,
-        contentAssetId: asset.id,
-        sourceThumbnailGenerationId: input.selectedThumbnailGenerationId,
-        sourceThumbnailCandidateId: input.selectedThumbnailGenerationCandidateId,
-        createdByUserId: input.createdByUserId,
-      },
-      select: { id: true },
-    });
-    return { selectionId: selection.id };
   }
 
-  private async ensureCandidateAsset(
+  private async ensureManagedThumbnailAsset(
     tx: Prisma.TransactionClient,
     input: {
       organizationId: string;
@@ -856,38 +501,53 @@ export class RegistrationContentWorkspaceRepositoryAdapter
   }
 }
 
+function activeSalesProductWorkspaceWhere(input: {
+  organizationId: string;
+  salesProductId: string;
+}): Prisma.ContentWorkspaceWhereInput {
+  return {
+    organizationId: input.organizationId,
+    ownerType: 'sales_product',
+    salesProductId: input.salesProductId,
+    status: 'active',
+    isDeleted: false,
+  };
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
+}
+
 function managedAssetKey(url: string): string {
   return `managed-url:${createHash('sha256').update(url).digest('hex')}`;
 }
 
-async function lockActiveContentAsset(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  contentAssetId: string,
-): Promise<void> {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id
-    FROM content_assets
-    WHERE id = ${contentAssetId}::uuid
-      AND organization_id = ${organizationId}::uuid
-      AND is_deleted = false
-    FOR UPDATE
-  `);
-  if (rows.length !== 1) {
-    throw new BadRequestException('Selected thumbnail asset is no longer available.');
-  }
-}
-
+/**
+ * Takes the generation and its candidate row under `FOR UPDATE` so a concurrent
+ * archive cannot slip between validation and the registration freeze. An
+ * incomplete provenance pair is rejected here rather than locked.
+ */
 async function lockActiveThumbnailGenerationSelection(
   tx: Prisma.TransactionClient,
   input: {
     organizationId: string;
     sourceWorkspaceId: string;
-    generationId: string;
-    candidateId: string;
-    url: string;
+    generationId: string | null;
+    candidateId: string | null;
+    url: string | null;
   },
 ): Promise<void> {
+  if (!input.url) {
+    throw new BadRequestException(
+      'Selected thumbnail URL is required with generation provenance.',
+    );
+  }
+  if (!input.generationId || !input.candidateId) {
+    throw new BadRequestException('Thumbnail generation provenance must be complete.');
+  }
   const generations = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT id
     FROM thumbnail_generations
@@ -917,5 +577,23 @@ async function lockActiveThumbnailGenerationSelection(
     throw new BadRequestException(
       'Selected thumbnail generation is not successful source content.',
     );
+  }
+}
+
+async function lockActiveContentAsset(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  contentAssetId: string,
+): Promise<void> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM content_assets
+    WHERE id = ${contentAssetId}::uuid
+      AND organization_id = ${organizationId}::uuid
+      AND is_deleted = false
+    FOR UPDATE
+  `);
+  if (rows.length !== 1) {
+    throw new BadRequestException('Selected thumbnail asset is no longer available.');
   }
 }
