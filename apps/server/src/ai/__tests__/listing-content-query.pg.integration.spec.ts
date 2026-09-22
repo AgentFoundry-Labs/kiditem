@@ -11,6 +11,7 @@ import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG, 
 import { ListingContentQueryRepositoryAdapter } from '../adapter/out/repository/listing-content-query.repository.adapter';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
+import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 
 describe('AI listing content owner query (PG integration)', () => {
   let prisma: PrismaClient;
@@ -48,6 +49,42 @@ describe('AI listing content owner query (PG integration)', () => {
     }]);
     expect(await prisma.$transaction(tx => content.readLatestListingThumbnails(ownerTransaction(tx), { organizationId: ORG, listingIds: [listingId] })))
       .toEqual([{ listingId, imageUrl: 'https://cdn/legacy' }]);
+  });
+
+  it('serves listing content from the draft workspace registration attached to that listing', async () => {
+    const salesProductId = randomUUID();
+    const account = await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'coupang', name: 'Wing draft' } });
+    const listing = await prisma.channelListing.create({ data: {
+      organizationId: ORG, channelAccountId: account.id, externalId: randomUUID(), isActive: true,
+    } });
+    const ws = await prisma.contentWorkspace.create({ data: {
+      organizationId: ORG, ownerType: 'sales_product', salesProductId,
+      displayName: 'Draft content', normalizedTitle: randomUUID(),
+    } });
+    const asset = await prisma.contentAsset.create({ data: { organizationId: ORG, assetKey: randomUUID(), url: 'https://cdn/draft-thumb' } });
+    const selection = await prisma.contentWorkspaceThumbnailSelection.create({ data: {
+      organizationId: ORG, contentWorkspaceId: ws.id, contentAssetId: asset.id,
+    } });
+    const artifact = await prisma.detailPageArtifact.create({ data: { organizationId: ORG, contentWorkspaceId: ws.id } });
+    const revision = await prisma.detailPageRevision.create({ data: { organizationId: ORG, artifactId: artifact.id, html: '<p>Draft</p>' } });
+    await prisma.contentWorkspace.update({ where: { id: ws.id, organizationId: ORG }, data: {
+      currentThumbnailSelectionId: selection.id,
+      currentDetailPageArtifactId: artifact.id,
+      currentDetailPageRevisionId: revision.id,
+    } });
+
+    const registration = new RegistrationContentWorkspaceRepositoryAdapter(
+      prisma as PrismaService,
+      new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), { findForListings: async () => [] }),
+    );
+    await expect(prisma.$transaction((tx) => registration.attachToListing(ownerTransaction(tx), {
+      organizationId: ORG, salesProductId, listingId: listing.id,
+    }))).resolves.toEqual({ workspaceId: ws.id });
+
+    expect(await content.findForListings({ organizationId: ORG, listings: [{ id: listing.id, channel: 'coupang' }] })).toEqual([{
+      listingId: listing.id, workspaceId: ws.id, thumbnailUrl: asset.url,
+      detailPageArtifactId: artifact.id, detailPageRevisionId: revision.id, workspaceImageUrl: null, providerMedia: [],
+    }]);
   });
 
   it('falls back to the latest active same-organization thumbnail with or without a workspace', async () => {
