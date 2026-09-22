@@ -1693,7 +1693,6 @@ function projectCompatibilityOverrides(
       mallName: target.channelAccount.name,
       salePrice: commonPrice(target.selectedOptions.map((option) => option.salePrice)),
       name: target.displayName,
-
       detailHtml: typeof input.detailHtml === 'string' ? input.detailHtml : null,
       promoText: typeof input.promoText === 'string' ? input.promoText : null,
       noticeCategory: typeof input.noticeCategory === 'string' ? input.noticeCategory : null,
