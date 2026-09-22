@@ -1582,7 +1582,6 @@ function toSalesProduct(
     deliveryFee: row.deliveryFee,
     optionAxes: row.optionAxes,
     stockManaged: row.stockManaged,
-    optionsLocked: row.optionsLocked,
     imageUrls: row.imageUrls,
     detailHtml: row.detailHtml,
     extraDetailHtml: row.extraDetailHtml,

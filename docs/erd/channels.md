@@ -339,7 +339,6 @@ erDiagram
     Int deliveryFee
     StringArray optionAxes
     Boolean stockManaged
-    Boolean optionsLocked
     StringArray imageUrls
     String detailHtml
     StringArray extraDetailHtml

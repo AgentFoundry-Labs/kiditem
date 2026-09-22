@@ -53,7 +53,6 @@ const TARGET_RESULT = {
       deliveryFee: null,
       optionAxes: [],
       stockManaged: false,
-      optionsLocked: false,
       imageUrls: [],
       detailHtml: null,
       extraDetailHtml: [],

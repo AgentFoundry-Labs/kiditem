@@ -19,7 +19,7 @@ const response: TargetExecutionResult = {
       name: '테스트 상품', shortName: null, englishName: null, printName: null, modelName: null,
       modelNo: null, brand: null, manufacturer: null, originCountry: null, originRegion: null,
       keywords: [], standardCategory: null, status: 'active', taxType: 'taxable',
-      deliveryFeeType: null, deliveryFee: null, optionAxes: [], stockManaged: false, optionsLocked: false,
+      deliveryFeeType: null, deliveryFee: null, optionAxes: [], stockManaged: false,
       imageUrls: [], detailHtml: null, extraDetailHtml: [], noticeCategory: null, noticeValues: [],
       certifications: [], importDeclarationNo: null, adminMemo: null, version: 1,
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',

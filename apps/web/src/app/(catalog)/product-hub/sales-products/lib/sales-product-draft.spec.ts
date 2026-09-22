@@ -42,7 +42,6 @@ function product(overrides: Partial<SalesProduct> = {}): SalesProduct {
     deliveryFee: 3000,
     optionAxes: ['색상'],
     stockManaged: false,
-    optionsLocked: false,
     imageUrls: [],
     detailHtml: null,
     extraDetailHtml: [],

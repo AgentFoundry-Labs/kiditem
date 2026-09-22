@@ -297,7 +297,6 @@ export const SalesProductSchema = z.object({
   deliveryFee: z.number().int().nullable(),
   optionAxes: z.array(z.string()),
   stockManaged: z.boolean(),
-  optionsLocked: z.boolean(),
   imageUrls: z.array(z.string()),
   detailHtml: z.string().nullable(),
   extraDetailHtml: z.array(z.string()),

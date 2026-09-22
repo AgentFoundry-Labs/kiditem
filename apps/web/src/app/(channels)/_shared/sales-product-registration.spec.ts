@@ -44,7 +44,6 @@ function product(): SalesProduct {
     tagPrice: 9000,
     optionAxes: ['색상'],
     stockManaged: false,
-    optionsLocked: false,
     imageUrls: ['https://img.example/1.jpg', 'https://img.example/2.jpg'],
     detailHtml: '<center><img src="http://kiditem.diskn.com/a"></center><img alt="" src=\'https://kiditem.diskn.com/b\' />',
     extraDetailHtml: [],
