@@ -1326,10 +1326,10 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                   archivedAt: null,
                 },
               });
-              // Reimport never replaces an operator-edited target. A target is
-              // materialized only when this account has no existing target.
-              // Multiple targets are valid. Recollection does not choose or
-              // replace any of them, so no ambiguity needs resolving here.
+              // Reimport never replaces an operator-edited target. A product has
+              // at most one active target per channel account, so the import
+              // materializes one only when this account has none; an existing
+              // target keeps whatever the operator put in it.
               if (targetCount !== 0) continue;
               await materializeImportedTarget(
                 tx,
