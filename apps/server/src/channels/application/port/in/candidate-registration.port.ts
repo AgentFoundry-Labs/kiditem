@@ -10,7 +10,7 @@ export const CANDIDATE_REGISTRATION_PORT = Symbol(
  *
  * 등록 설정을 만들고 고치는 길은 `channels/registration-targets`(resolve · create · update)
  * 하나다(KID-310 · ADR-0022) — 여기에는 그 길이 없다. 제출 울타리도 Channels 것이라
- * ([ADR-0014](../../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md))
+ * ([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md))
  * 실행 행을 읽고 쓰는 방법도 없다.
  */
 export interface CandidateRegistrationPort {

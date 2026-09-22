@@ -900,7 +900,7 @@ immutable source record whose id the draft carries. A product has at most one
 active target per channel account, and a promotional listing is a separate sales
 product sharing the same source stock. A target references a priced selling
 product and active account. Archiving sets `archivedAt`; successful submission
-leaves the target reusable ([ADR-0022](adr/0022-sales-product-drafts-exist-from-collection.md)).
+leaves the target reusable ([ADR-0022](adr/0022-sales-product-draft-exists-from-collection.md)).
 
 `ProductRegistrationExecution` freezes each intent's payload, hash, approval,
 actor, account, idempotency key, lease and provider outcome. Changing a target

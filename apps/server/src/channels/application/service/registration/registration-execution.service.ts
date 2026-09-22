@@ -32,7 +32,7 @@ import type {
  *
  * 재사용 등록 대상의 실행마다 제출 내용을 동결한다. 같은 요청의 재전송은
  * 기존 실행을 반환하고, 시작·확정·미해결·미제출 종료가 이 계약을 통과한다
- * ([ADR-0014](../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
+ * ([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
  */
 
 export class RegistrationExecutionService implements RegistrationExecutionPort {

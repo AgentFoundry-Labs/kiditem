@@ -63,7 +63,7 @@ export type CoupangCatalogEditResult = Readonly<{
 
 /**
  * 윙 옵션 하나에 대해 **우리가 아는** 값. 우리 판매상품 · 단품에서만 온다. 모르는 값은 `null`
- * 이고, 채우지 않는다([ADR-0006](../../../../../../docs/adr/0006-a-displayed-number-is-a-measurement-or-nothing.md)).
+ * 이고, 채우지 않는다([ADR-0006](../../../../../../../docs/adr/0006-a-displayed-number-is-a-measurement-or-nothing.md)).
  */
 export type CoupangCatalogFacts = Readonly<{
   optionId: string;

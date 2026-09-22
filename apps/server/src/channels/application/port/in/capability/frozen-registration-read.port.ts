@@ -2,7 +2,7 @@
  * 실행이 동결한 제출본을 읽는 읽기 전용 경계.
  *
  * 울타리는 Channels 것이고 Agent capability 는 여기서만 그 payload 를 본다
- * ([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
+ * ([ADR-0014](../../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
  */
 export const FROZEN_REGISTRATION_READ_PORT = Symbol(
   "FROZEN_REGISTRATION_READ_PORT",

@@ -159,7 +159,7 @@ sync, registration, matching, and capacity behavior is executable in
 - 수집과 직접 작성 모두 판매상품 초안(`status='draft'`) 하나를 만든다. 저장할 때마다 팔 옵션의
   판매가로 상태를 다시 판정하고(`domain/sales-product/sales-product-draft.ts`), 등록 동결 · 몰
   엑셀 파일 · 품절 송신은 같은 게이트(`requireConfirmedPrice`)로 초안을 거절한다
-  ([ADR-0022](../../../../docs/adr/0022-sales-product-drafts-exist-from-collection.md)).
+  ([ADR-0022](../../../../docs/adr/0022-sales-product-draft-exists-from-collection.md)).
 - 몰 시트가 몰별로 다시 보는 `salePrice <= 0` 검사는 그대로 둔다. 같은 게이트를 두 번 보는 것이
   아니라, 몰마다 다른 최소가 · 배수 규칙을 그 몰 어댑터가 말해 주는 자리다.
 

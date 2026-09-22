@@ -20,7 +20,7 @@ belong to Supply; supplier payments belong to Finance.
   deleting a candidate sends that draft to `unused` in the same transaction
   unless a mall still holds it. Both go through
   `application/port/out/cross-domain/sales-product-draft.port.ts`
-  ([ADR-0022](../../../../docs/adr/0022-sales-product-drafts-exist-from-collection.md)).
+  ([ADR-0022](../../../../docs/adr/0022-sales-product-draft-exists-from-collection.md)).
 - Sourcing serves no registration-setting route. Creating and editing one is
   `channels/registration-targets` (resolve, create, update, archive). Content
   generation starts on the draft too:
