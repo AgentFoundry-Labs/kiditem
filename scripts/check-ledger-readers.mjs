@@ -437,12 +437,19 @@ function validateManifest(root, input) {
     };
   });
 
-  const importExceptions = (input.importExceptions ?? []).map((entry, index) => ({
-    from: validateRelativePath(root, entry.from, `importExceptions[${index}].from`),
-    to: validateRelativePath(root, entry.to, `importExceptions[${index}].to`),
-    reason: requireString(entry.reason, `importExceptions[${index}].reason`),
-    removeWith: requireString(entry.removeWith, `importExceptions[${index}].removeWith`),
-  }));
+  const importExceptions = (input.importExceptions ?? []).map((entry, index) => {
+    const prefix = `importExceptions[${index}]`;
+    const removeWith = requireString(entry.removeWith, `${prefix}.removeWith`);
+    if (!/^KID-\d+$/.test(removeWith)) {
+      throw new Error(`${prefix}.removeWith must be a KID issue`);
+    }
+    return {
+      from: validateRelativePath(root, entry.from, `${prefix}.from`),
+      to: validateRelativePath(root, entry.to, `${prefix}.to`),
+      reason: requireString(entry.reason, `${prefix}.reason`),
+      removeWith,
+    };
+  });
   const keys = importExceptions.map((entry) => `${entry.from} -> ${entry.to}`);
   if (new Set(keys).size !== keys.length) throw new Error('duplicate import exception');
   return { scanRoots, prismaSchemaRoots, owners, ledgers, importExceptions };

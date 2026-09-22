@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { inspectOwnerImports } from '../check-ledger-readers.mjs';
+import { inspectOwnerImports, loadManifest } from '../check-ledger-readers.mjs';
 
 function write(root, relativePath, contents) {
   const target = path.join(root, relativePath);
@@ -265,6 +265,66 @@ test('blocks an owner internal barrel from re-exporting an output implementation
       kind: 'owner implementation import',
     });
     assert.deepEqual(result.staleExceptions, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects import exceptions without a KID removal issue while loading the manifest', () => {
+  const root = createRoot();
+
+  try {
+    write(
+      root,
+      'scripts/ledger-readers.json',
+      JSON.stringify({
+        version: 2,
+        scanRoots: ['apps/server/src'],
+        prismaSchemaRoots: ['prisma'],
+        owners: {
+          advertising: { root: 'apps/server/src/advertising' },
+        },
+        ledgers: [
+          {
+            name: 'Advertising target day',
+            owner: 'advertising',
+            table: 'channel_ad_target_daily_snapshots',
+            prismaModel: 'channelAdTargetDailySnapshot',
+            prismaType: 'ChannelAdTargetDailySnapshot',
+            relationNames: [],
+            ownerPublications: [],
+            legacyReaders: [],
+          },
+        ],
+        importExceptions: [
+          {
+            from: 'apps/server/src/orders/application/service/legacy.ts',
+            to: 'apps/server/src/advertising/adapter/out/persistence/legacy.ts',
+            reason: 'Temporary owner import pending the migration.',
+            removeWith: 'KID-abc',
+          },
+        ],
+      }),
+    );
+    write(
+      root,
+      'prisma/models/advertising.prisma',
+      `model ChannelAdTargetDailySnapshot {
+  id String @id
+}
+`,
+    );
+    write(root, 'apps/server/src/orders/application/service/legacy.ts', '');
+    write(
+      root,
+      'apps/server/src/advertising/adapter/out/persistence/legacy.ts',
+      '',
+    );
+
+    assert.throws(
+      () => loadManifest(root),
+      /importExceptions\[0\]\.removeWith must be a KID issue/,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
