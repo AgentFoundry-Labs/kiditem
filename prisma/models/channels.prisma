@@ -511,7 +511,7 @@ model SalesProductOption {
 
   @@unique([salesProductId, optionKey], map: "sales_product_options_active_key", where: raw("supply_status <> 'unused'"))
   @@unique([id, organizationId], map: "sales_product_options_id_org_key")
-  @@unique([organizationId, optionCode], map: "sales_product_options_org_code_key", where: raw("option_code IS NOT NULL"))
+  @@index([organizationId, optionCode])
   @@index([salesProductId, organizationId])
   @@index([organizationId, barcode])
   @@map("sales_product_options")

@@ -31,6 +31,9 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
         channelAccount: { organizationId, status: 'active' } },
       select: { id: true, externalId: true, channelAccountId: true, status: true, lastImportRunId: true,
         channelAccount: { select: { channel: true } },
+        // 품절 송신도 등록 동결과 같은 가격 게이트를 지난다(KID-310).
+        salesProduct: { select: { name: true, status: true,
+          options: { where: { organizationId }, select: { id: true, supplyStatus: true, salePrice: true } } } },
         options: { where: { organizationId, isActive: true }, orderBy: { id: 'asc' },
           select: { id: true, externalOptionId: true, status: true, rawJson: true, safetyStock: true, lastImportRunId: true,
             inventoryComponents: { where: { organizationId }, select: { masterProductId: true, quantity: true } } } } },
@@ -86,6 +89,7 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
       return {
         listingId: listing.id, channelAccountId: listing.channelAccountId, externalListingId: listing.externalId,
         channel: listing.channelAccount.channel, status,
+        salesProduct: listing.salesProduct ?? null,
         activeExecutions: related.filter(execution => ['prepared', 'executing', 'reconciling'].includes(execution.status) || execution.providerOutcome === 'uncertain')
           .map(execution => ({ id: execution.id, idempotencyKey: execution.idempotencyKey })),
         options: listing.options.map(option => {

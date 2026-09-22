@@ -17,11 +17,22 @@ describe('resolveSalesProductStatus', () => {
     expect(resolveSalesProductStatus({ current: 'draft', options: [selling(1000), selling(2000)] })).toBe('active');
   });
 
-  it('판매 옵션이 하나도 없으면 draft 다 — 팔 수 있는 것이 없다', () => {
+  it('판매 옵션이 하나도 없으면 초안은 초안으로 남는다', () => {
     expect(resolveSalesProductStatus({
       current: 'draft',
       options: [{ supplyStatus: 'unused', salePrice: 1000 }],
     })).toBe('draft');
+  });
+
+  /**
+   * draft 는 "팔 옵션의 판매가가 비었다"는 뜻이다. 팔던 상품의 옵션을 모두 내린 것은
+   * 다른 사실이고, 그것까지 초안으로 되돌리면 이미 몰에 올라간 상품이 초안이 된다.
+   */
+  it('팔던 상품의 판매 옵션이 모두 사라져도 초안으로 되돌리지 않는다', () => {
+    expect(resolveSalesProductStatus({
+      current: 'active',
+      options: [{ supplyStatus: 'unused', salePrice: 1000 }],
+    })).toBe('active');
   });
 
   it('사람이 정한 상태(paused · sold_out · unused · archived)는 값이 차도 그대로 둔다', () => {
@@ -67,6 +78,24 @@ describe('requireConfirmedPrice', () => {
   it('보관한 상품은 거절한다', () => {
     expect(() => requireConfirmedPrice({ name: '테스트 상품', status: 'archived', options: [selling(1000)] }))
       .toThrow(SalesProductDraftError);
+  });
+
+  /**
+   * 게이트는 **초안인가**를 묻는다. 사장님이 잠시 내려둔 상품(paused)이나 품절 표시를 한
+   * 상품(sold_out)은 값이 확정된 상품이고, 몰 엑셀 · 품절 송신이 바로 그런 상품을 다룬다.
+   */
+  it('사람이 잠시 내려둔 상품과 품절 상품은 값이 차 있으면 통과시킨다', () => {
+    for (const status of ['paused', 'sold_out'] as const) {
+      expect(requireConfirmedPrice({ name: '테스트 상품', status, options: [selling(1000)] }))
+        .toEqual([{ id: 'o-1000', salePrice: 1000 }]);
+    }
+  });
+
+  it('초안 · 보관은 왜 거절인지 상태별로 말한다', () => {
+    expect(() => requireConfirmedPrice({ name: '테스트 상품', status: 'draft', options: [selling(1000)] }))
+      .toThrow('판매가');
+    expect(() => requireConfirmedPrice({ name: '테스트 상품', status: 'archived', options: [selling(1000)] }))
+      .toThrow('보관');
   });
 });
 

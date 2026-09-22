@@ -26,9 +26,11 @@ export interface SalesProductPricedOption {
 export type SalesProductOptionPrice = Pick<SalesProductPricedOption, 'supplyStatus' | 'salePrice'>;
 
 /**
- * 저장 뒤 상태. 판매(selling) 옵션에 판매가가 하나라도 비었거나 판매 옵션 자체가 없으면 `draft`,
- * 값이 다 차 있으면 `active` 다.
+ * 저장 뒤 상태. 판매(selling) 옵션에 판매가가 하나라도 비어 있으면 `draft`, 값이 다 차 있으면
+ * `active` 다.
  *
+ * 팔 옵션이 하나도 없는 것은 "값이 비었다"와 다른 사실이라 상태를 바꾸지 않는다 — 팔던 상품의
+ * 옵션을 모두 내렸다고 이미 몰에 올라간 상품이 초안으로 돌아가면 안 된다.
  * `paused` · `sold_out` · `unused` · `archived` 는 사람이 정한 상태라 값이 차도 건드리지 않는다.
  */
 export function resolveSalesProductStatus(input: {
@@ -37,7 +39,7 @@ export function resolveSalesProductStatus(input: {
 }): SalesProductStatus {
   if (!(DERIVED_STATUSES as readonly string[]).includes(input.current)) return input.current;
   const selling = input.options.filter((option) => option.supplyStatus === 'selling');
-  if (selling.length === 0) return 'draft';
+  if (selling.length === 0) return input.current;
   return selling.some((option) => option.salePrice === null) ? 'draft' : 'active';
 }
 
@@ -46,16 +48,26 @@ export class SalesProductDraftError extends Error {}
 /**
  * 등록 동결 · 몰 엑셀 · 품절 송신이 함께 쓰는 단일 가격 게이트. 값이 확정된 판매 옵션을 돌려주고,
  * 아니면 한 가지 오류로 거절한다 — 세 화면이 같은 문장을 보여야 사장님이 어디를 고칠지 안다.
+ *
+ * 묻는 것은 **아직 초안인가**이지 지금 팔고 있는가가 아니다. 잠시 내려둔 상품(`paused`)과 품절
+ * 표시를 한 상품(`sold_out`)은 값이 확정된 상품이고, 품절 송신이 다루는 것이 바로 그 상품이다.
  */
+const UNCONFIRMED_STATUSES = new Set<SalesProductStatus>(['draft', 'archived', 'unused']);
+
 export function requireConfirmedPrice(product: {
   name: string;
   status: SalesProductStatus;
   options: readonly SalesProductPricedOption[];
 }): { id: string; salePrice: number }[] {
+  if (product.status === 'archived' || product.status === 'unused') {
+    throw new SalesProductDraftError(
+      `'${product.name}' 은(는) 보관한 판매상품입니다. 다시 쓰려면 판매상품에서 상태를 되돌리세요.`,
+    );
+  }
   const selling = product.options.filter((option) => option.supplyStatus === 'selling');
   const confirmed = selling.filter((option): option is SalesProductPricedOption & { salePrice: number } =>
     option.salePrice !== null && option.salePrice > 0);
-  if (product.status !== 'active' || selling.length === 0 || confirmed.length !== selling.length) {
+  if (UNCONFIRMED_STATUSES.has(product.status) || selling.length === 0 || confirmed.length !== selling.length) {
     throw new SalesProductDraftError(
       `'${product.name}' 은(는) 아직 판매가를 정하지 않은 초안입니다. 판매상품에서 팔 옵션의 판매가를 채운 뒤 다시 시도하세요.`,
     );

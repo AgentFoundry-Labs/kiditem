@@ -18,7 +18,7 @@ import { RegistrationTargetUseCase } from './application/service/registration/re
 import { RegistrationTargetController } from './adapter/in/web/registration-target.controller';
 import { RegistrationTargetRepositoryAdapter } from './adapter/out/persistence/registration-target.repository.adapter';
 import { SALES_PRODUCT_PORT } from './application/port/in/sales-product.port';
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { ChannelOptionRecipeModule } from './channel-option-recipe.module';
 import { SalesProductLinkService } from './application/service/sales-product/sales-product-link.service';
@@ -35,6 +35,9 @@ import { SalesProductRepositoryAdapter } from './adapter/out/persistence/sales-p
 import { SALES_PRODUCT_REPOSITORY_PORT } from './application/port/out/persistence/sales-product.repository.port';
 import { SabangnetProductImportService } from './application/service/collection/sabangnet-product-import.service';
 import { SalesProductUseCase } from './application/service/sales-product/sales-product.usecase';
+import { AiModule } from '../ai/ai.module';
+import { SalesProductWorkspaceArchiveAdapter } from './adapter/out/repository/sales-product-workspace-archive.adapter';
+import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from './application/port/out/ai/sales-product-workspace-archive.port';
 
 /**
  * 판매상품 · 단품(ADR-0020). 몰에 보낼 상품을 한 번 편집하는 등록용 정의이고, 재고 · ABC 는 건드리지 않는다.
@@ -43,7 +46,9 @@ import { SalesProductUseCase } from './application/service/sales-product/sales-p
  * 양식 파일을 채워 내려줄 뿐 몰에 올리지 않는다.
  */
 @Module({
-  imports: [ProductCollectionRuntimeModule, ChannelOptionRecipeModule],
+  // AI 는 판매상품 초안을 읽고(작업공간 소유자 확인) Channels 는 초안을 내릴 때 AI 작업공간을
+  // 보관한다 — 두 owner 가 서로의 공개 계약만 부르는 양방향 의존이라 forwardRef 로 푼다.
+  imports: [ProductCollectionRuntimeModule, ChannelOptionRecipeModule, forwardRef(() => AiModule)],
   controllers: [SalesProductController, RegistrationTargetController],
   providers: [
     { provide: SALES_PRODUCT_COUPANG_CATALOG_PORT, useExisting: SalesProductCoupangCatalogService },
@@ -62,7 +67,9 @@ import { SalesProductUseCase } from './application/service/sales-product/sales-p
     { provide: REGISTRATION_TARGET_PORT, useExisting: RegistrationTargetUseCase },
     RegistrationTargetRepositoryAdapter,
     { provide: REGISTRATION_TARGET_REPOSITORY_PORT, useExisting: RegistrationTargetRepositoryAdapter },
-    { provide: SalesProductUseCase, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductUseCase>) => new SalesProductUseCase(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT] },
+    SalesProductWorkspaceArchiveAdapter,
+    { provide: SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT, useExisting: SalesProductWorkspaceArchiveAdapter },
+    { provide: SalesProductUseCase, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductUseCase>) => new SalesProductUseCase(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT] },
     { provide: SALES_PRODUCT_PORT, useExisting: SalesProductUseCase },
     { provide: SabangnetProductImportService, useFactory: (...dependencies: ConstructorParameters<typeof SabangnetProductImportService>) => new SabangnetProductImportService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, PRODUCT_SOURCE_READ_PORT, SALES_PRODUCT_LINK_PORT, SALES_PRODUCT_IMAGE_MIRROR_PORT, CHANNEL_DOCUMENTS_PORT, CHANNEL_ACTIVITY_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: SalesProductLinkService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductLinkService>) => new SalesProductLinkService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, CHANNEL_OPTION_RECIPE_PORT, CHANNEL_ACTIVITY_PORT] },

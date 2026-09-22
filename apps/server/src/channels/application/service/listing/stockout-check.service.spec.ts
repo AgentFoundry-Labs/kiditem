@@ -6,7 +6,7 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 
 const POLICY = 'capacity_at_or_below_safety_stock' as const;
 const option = (id: string, capacity: number | null = 0) => ({ id, externalOptionId: id, status: 'active', registrationType: 'NORMAL', capacity, safetyStock: 0, compositionUnconfirmed: false });
-const subject = (patch: Partial<StockoutSubject> = {}): StockoutSubject => ({ listingId: 'listing', channelAccountId: 'account', externalListingId: 'external', channel: 'coupang', status: 'active', activeExecutions: [], options: [option('a')], ...patch });
+const subject = (patch: Partial<StockoutSubject> = {}): StockoutSubject => ({ listingId: 'listing', channelAccountId: 'account', externalListingId: 'external', channel: 'coupang', status: 'active', salesProduct: null, activeExecutions: [], options: [option('a')], ...patch });
 function fixture(row: StockoutSubject) {
   const readSubjects = vi.fn(async () => [row]);
   const prepareListingAvailability = vi.fn(async () => ({}) as ListingAvailabilityExecution);
@@ -47,6 +47,29 @@ describe('explicit inventory stockout', () => {
     await expect(f.service.prepare('org', null, { listingId: 'listing', idempotencyKey: 'key' })).rejects.toThrow(decision);
     expect(f.prepareListingAvailability).not.toHaveBeenCalled();
   });
+  /**
+   * 품절 송신도 등록 동결 · 몰 엑셀과 같은 게이트를 지난다(KID-310). 아직 판매가를 정하지
+   * 않은 초안에서 나온 몰 상품에는 아무것도 보내지 않는다.
+   */
+  it('판매가를 정하지 않은 초안에서 나온 몰 상품은 보내지 않는다', async () => {
+    const f = fixture(subject({
+      salesProduct: { name: '초안 상품', status: 'draft', options: [{ id: 'o', supplyStatus: 'selling', salePrice: null }] },
+    }));
+
+    expect(await f.service.preview('org', ['listing'])).toMatchObject([{ decision: 'draft' }]);
+    await expect(f.service.prepare('org', null, { listingId: 'listing', idempotencyKey: 'key' }))
+      .rejects.toThrow('draft');
+    expect(f.prepareListingAvailability).not.toHaveBeenCalled();
+  });
+
+  it('값이 확정된 판매상품에서 나온 몰 상품은 그대로 본다', async () => {
+    const f = fixture(subject({
+      salesProduct: { name: '판매 상품', status: 'active', options: [{ id: 'o', supplyStatus: 'selling', salePrice: 12900 }] },
+    }));
+
+    expect(await f.service.preview('org', ['listing'])).toMatchObject([{ decision: 'eligible' }]);
+  });
+
   it('replays the historical receipt even after stock recovery without re-reading inventory', async () => {
     const row = subject(); const f = fixture(row);
     const receipt = { payload: snapshot(row), executionId: 'historic', maySubmit: false } as ListingAvailabilityExecution;

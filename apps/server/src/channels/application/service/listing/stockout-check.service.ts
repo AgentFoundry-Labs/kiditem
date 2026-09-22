@@ -6,6 +6,8 @@ import type { ListingAvailabilitySnapshot } from '@kiditem/shared/sales-product'
 import { FactConflictError, FactNotFoundError } from '../../../../common/errors/fact-errors';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { decideStockout } from '../../../domain/listing/stockout-policy';
+import { SalesProductDraftError, requireConfirmedPrice } from '../../../domain/sales-product/sales-product-draft';
+import type { SalesProductOptionSupplyStatus, SalesProductStatus } from '@kiditem/shared/sales-product';
 
 const POLICY = 'capacity_at_or_below_safety_stock' as const;
 
@@ -70,6 +72,27 @@ function requireEligible(result: StockoutCheckResult): void {
   }
 }
 
+/** 초안의 값이 확정되었는가. 초안이 없는 몰 상품(수집으로만 들어온 것)은 가릴 것이 없다. */
+function confirmedDraftPrice(subject: StockoutSubject): boolean {
+  const product = subject.salesProduct;
+  if (!product) return true;
+  try {
+    requireConfirmedPrice({
+      name: product.name,
+      status: product.status as SalesProductStatus,
+      options: product.options.map((option) => ({
+        id: option.id,
+        supplyStatus: option.supplyStatus as SalesProductOptionSupplyStatus,
+        salePrice: option.salePrice,
+      })),
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof SalesProductDraftError) return false;
+    throw error;
+  }
+}
+
 function evaluate(subject: StockoutSubject, ownExecutionId?: string): StockoutCheckResult {
   const result: StockoutCheckResult = {
     listingId: subject.listingId, channelAccountId: subject.channelAccountId,
@@ -78,6 +101,8 @@ function evaluate(subject: StockoutSubject, ownExecutionId?: string): StockoutCh
   };
   const capability = getListingAvailabilityCapability(subject.channel, 'sold_out');
   if (!capability) return { ...result, decision: 'unsupported' };
+  // 등록 동결 · 몰 엑셀과 같은 게이트다 — 값이 확정되지 않은 초안은 몰에 아무것도 보내지 않는다.
+  if (!confirmedDraftPrice(subject)) return { ...result, decision: 'draft' };
   if (subject.activeExecutions.some(execution => execution.id !== ownExecutionId)) return { ...result, decision: 'active_execution' };
   if (alreadyStopped(subject.status)) return { ...result, decision: 'already_sold_out' };
   if (subject.options.length === 0) return result;
