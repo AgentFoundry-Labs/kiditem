@@ -1,11 +1,8 @@
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import type { ParsedWingCatalogWorkbook } from '../application/port/out/documents/channel-document.models';
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ChannelConflictError } from '../domain/exception/channel-business-error';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -1392,8 +1389,10 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       fileHash: fileHash('live-second'),
       bytes: workbookBytes({ rows: [makeRow(0)], skippedRows: [], headers: [] }),
     }).catch((error: unknown) => error);
-    expect(conflict).toBeInstanceOf(ConflictException);
-    expect((conflict as ConflictException).getResponse()).toEqual({
+    // 계정 fence 는 업무 계약의 충돌이다 — 입력 adapter 가 HTTP 409 로 옮긴다.
+    expect(conflict).toBeInstanceOf(ChannelConflictError);
+    expect((conflict as ChannelConflictError).kind).toBe('conflict');
+    expect((conflict as ChannelConflictError).details).toEqual({
       code: 'ATTEMPT_IN_PROGRESS',
       attemptId: first.runId,
       message: expect.any(String),

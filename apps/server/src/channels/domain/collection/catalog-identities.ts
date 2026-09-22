@@ -1,9 +1,8 @@
 export type ChannelCatalogIdentityOption = {
   externalOptionId: string;
   optionName: string | null;
-  /** 원천이 읽지 않는 칸은 `unobservedOptionFields` 에 적고 값을 생략한다. */
-  salePrice?: number | null;
-  sellerSku?: string | null;
+  salePrice: number | null;
+  sellerSku: string | null;
   barcode: string | null;
   modelNumber: string | null;
   skuStatus: string | null;
@@ -34,9 +33,15 @@ export type ChannelCatalogIdentityProduct = {
 
 /**
  * 원천이 읽지 않는 옵션 칸. 몰마다 목록에 내주는 칸이 다르다 — 윙 엑셀은 판매자코드도
- * 판매가도 싣지 않는다.
+ * 판매가도 싣지 않고, 사방넷 송신 기록과 몰 관리자 목록에는 모델번호 칸이 없다.
  */
-export type ChannelCatalogUnobservedOptionField = 'sellerSku' | 'salePrice';
+export type ChannelCatalogUnobservedOptionField =
+  | 'optionName'
+  | 'salePrice'
+  | 'sellerSku'
+  | 'barcode'
+  | 'modelNumber'
+  | 'skuStatus';
 
 export type ChannelCatalogIdentityUpsertInput = {
   organizationId: string;
@@ -46,9 +51,15 @@ export type ChannelCatalogIdentityUpsertInput = {
   rawSource: string;
   /**
    * 이 원천이 읽지 않는 옵션 칸. 여기 적힌 칸은 저장된 관측값을 그대로 둔다. 적지 않은 칸은
-   * 이 원천이 관측한 값으로 덮으며, `null` 은 "비어 있는 것을 보았다"는 뜻이다.
+   * 이 원천이 관측한 값으로 덮으며, `null` 은 "비어 있는 것을 보았다"는 뜻이다. 읽지 않는
+   * 칸도 값은 `null` 로 넘긴다 — 선언과 값이 따로 놀지 않게 둘 다 필수다.
    *
    * 원천마다 몰이 목록에 내주는 칸이 다르므로 호출부가 매번 밝힌다. 모두 읽는 원천은 `[]`.
+   *
+   * 리스팅 칸(`displayName`·`category`·`manufacturer`·`brand`·`productStatus`)은 규칙이
+   * 다르다. 거기서는 `null` 이 저장값을 그대로 두는 뜻이다(`COALESCE`). 몰 목록 하나가 상품
+   * 칸을 부분적으로만 내주는 일이 흔해서, 리스팅 쪽은 빈 값을 "못 봤다"로 읽는 편이 맞고
+   * 옵션 쪽은 원천이 옵션 한 줄을 통째로 관측하므로 빈 값이 "비어 있더라"가 된다.
    */
   unobservedOptionFields: readonly ChannelCatalogUnobservedOptionField[];
 };

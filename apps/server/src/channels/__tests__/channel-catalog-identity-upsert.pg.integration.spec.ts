@@ -108,6 +108,7 @@ describe('channel catalog identity upsert (PG integration)', () => {
       channelAccountId,
       lastImportRunId: null,
       rawSource: 'mall_admin_listings',
+      // 선언하지 않은 칸의 null 은 "몰에서 비어 있는 것을 보았다"는 뜻이라 덮는다.
       unobservedOptionFields: [],
       products: [product('P-1', {})],
     }));
@@ -116,6 +117,43 @@ describe('channel catalog identity upsert (PG integration)', () => {
       where: { listingId: seeded.id },
       select: { sellerSku: true, salePrice: true },
     })).resolves.toEqual({ sellerSku: null, salePrice: null });
+  });
+
+  it('keeps a model number a mall list has no column for, and clears one the source read as empty', async () => {
+    const seeded = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId,
+        externalId: 'P-2',
+        rawJson: { source: 'coupang_catalog_basics' },
+      },
+      select: { id: true },
+    });
+    await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: seeded.id,
+        externalOptionId: 'P-2-O',
+        modelNumber: 'MODEL-77',
+        barcode: '8801234567890',
+        rawJson: { source: 'coupang_catalog_basics' },
+      },
+    });
+
+    // 사방넷 송신 기록에는 모델번호 칸이 없다. 바코드는 자기 상품코드에서 읽는다.
+    await prisma.$transaction((tx) => upsertChannelCatalogIdentities(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId,
+      lastImportRunId: null,
+      rawSource: 'sabangnet_mall_listings',
+      unobservedOptionFields: ['modelNumber'],
+      products: [product('P-2', {})],
+    }));
+
+    await expect(prisma.channelListingOption.findFirst({
+      where: { listingId: seeded.id },
+      select: { modelNumber: true, barcode: true },
+    })).resolves.toEqual({ modelNumber: 'MODEL-77', barcode: null });
   });
 });
 

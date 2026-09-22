@@ -144,6 +144,55 @@ describe('upsertChannelCatalogIdentities', () => {
     expect(sql).toContain('status = COALESCE(EXCLUDED.status, channel_listings.status)');
   });
 
+  it('assigns each option column from the observation the source declared', async () => {
+    const executeRaw = vi.fn().mockResolvedValue(1);
+    const tx = {
+      channelListing: {
+        findMany: vi.fn()
+          .mockResolvedValueOnce([{ id: 'listing-1', externalId: 'P-1', isActive: true }])
+          .mockResolvedValueOnce([{ id: 'listing-1', externalId: 'P-1' }])
+          .mockResolvedValueOnce([{
+            id: 'listing-1',
+            externalId: 'P-1',
+            masterProductId: 'master-1',
+            options: [{ id: 'option-1', externalOptionId: 'P-1' }],
+          }])
+          .mockResolvedValueOnce([{
+            id: 'listing-1',
+            options: [{ inventoryComponents: [{ masterProductId: 'master-1' }] }],
+          }]),
+      },
+      channelListingOption: {
+        findMany: vi.fn().mockResolvedValue([{
+          id: 'option-1',
+          externalOptionId: 'P-1',
+          isActive: true,
+          listing: { externalId: 'P-1' },
+        }]),
+      },
+      $executeRaw: executeRaw,
+    };
+
+    await upsertChannelCatalogIdentities(tx as never, {
+      ...input(),
+      unobservedOptionFields: ['salePrice', 'modelNumber'],
+    });
+
+    // 옵션 upsert 는 두 번째 문장이다. 보간된 SQL 조각이 어느 쪽을 고르는지 본다.
+    const [, ...values] = executeRaw.mock.calls[1] as [unknown, ...unknown[]];
+    const fragments = values
+      .map((value) => (value as { sql?: string }).sql)
+      .filter((sql): sql is string => typeof sql === 'string');
+    expect(fragments).toEqual([
+      'EXCLUDED.item_name',
+      'channel_listing_options.sale_price',
+      'EXCLUDED.seller_sku',
+      'EXCLUDED.barcode',
+      'channel_listing_options.model_number',
+      'EXCLUDED.status',
+    ]);
+  });
+
   it('does not allow an existing option identity to move to another parent', async () => {
     const tx = {
       channelListing: { findMany: vi.fn().mockResolvedValue([]) },

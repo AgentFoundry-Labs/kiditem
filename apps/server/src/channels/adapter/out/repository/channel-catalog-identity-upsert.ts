@@ -183,9 +183,8 @@ export async function upsertChannelCatalogBasics(
         existing,
         externalOptionId,
         itemName: option.optionName,
-        // basics 단계는 모든 칸을 COALESCE 로 합치므로 값이 없으면 저장값이 남는다.
-        salePrice: option.salePrice ?? null,
-        sellerSku: option.sellerSku ?? null,
+        salePrice: option.salePrice,
+        sellerSku: option.sellerSku,
         status: option.skuStatus,
         barcode: option.barcode,
         modelNumber: option.modelNumber,
@@ -992,22 +991,49 @@ function stableJson(value: unknown): string {
 }
 
 /**
+ * 옵션 칸마다 "이번 관측으로 덮는 식"과 "저장값을 지키는 식". 칸 이름이 닫힌 union 이고
+ * SQL 조각이 여기 한 번만 적히므로 식별자가 입력으로 새지 않는다.
+ */
+const OPTION_COLUMN_SQL: Record<
+  ChannelCatalogUnobservedOptionField,
+  { observed: Prisma.Sql; kept: Prisma.Sql }
+> = {
+  optionName: {
+    observed: Prisma.sql`EXCLUDED.item_name`,
+    kept: Prisma.sql`channel_listing_options.item_name`,
+  },
+  salePrice: {
+    observed: Prisma.sql`EXCLUDED.sale_price`,
+    kept: Prisma.sql`channel_listing_options.sale_price`,
+  },
+  sellerSku: {
+    observed: Prisma.sql`EXCLUDED.seller_sku`,
+    kept: Prisma.sql`channel_listing_options.seller_sku`,
+  },
+  barcode: {
+    observed: Prisma.sql`EXCLUDED.barcode`,
+    kept: Prisma.sql`channel_listing_options.barcode`,
+  },
+  modelNumber: {
+    observed: Prisma.sql`EXCLUDED.model_number`,
+    kept: Prisma.sql`channel_listing_options.model_number`,
+  },
+  skuStatus: {
+    observed: Prisma.sql`EXCLUDED.status`,
+    kept: Prisma.sql`channel_listing_options.status`,
+  },
+};
+
+/**
  * 원천이 읽지 않는다고 선언한 칸은 저장된 관측값을 그대로 두고, 그 밖의 칸은 이번 관측으로
- * 덮는다. 칸 이름은 닫힌 union 에서만 오므로 식별자가 입력으로 새지 않는다.
+ * 덮는다.
  */
 function observedOptionColumn(
   input: ChannelCatalogIdentityUpsertInput,
   field: ChannelCatalogUnobservedOptionField,
-  column: 'sale_price' | 'seller_sku',
 ): Prisma.Sql {
-  if (!input.unobservedOptionFields?.includes(field)) {
-    return column === 'sale_price'
-      ? Prisma.sql`EXCLUDED.sale_price`
-      : Prisma.sql`EXCLUDED.seller_sku`;
-  }
-  return column === 'sale_price'
-    ? Prisma.sql`channel_listing_options.sale_price`
-    : Prisma.sql`channel_listing_options.seller_sku`;
+  const column = OPTION_COLUMN_SQL[field];
+  return input.unobservedOptionFields.includes(field) ? column.kept : column.observed;
 }
 
 export async function upsertChannelCatalogIdentities(
@@ -1174,12 +1200,12 @@ export async function upsertChannelCatalogIdentities(
       FROM jsonb_array_elements(${payload}::jsonb) AS record
       ON CONFLICT (listing_id, external_option_id)
       DO UPDATE SET
-        item_name = EXCLUDED.item_name,
-        sale_price = ${observedOptionColumn(input, 'salePrice', 'sale_price')},
-        seller_sku = ${observedOptionColumn(input, 'sellerSku', 'seller_sku')},
-        barcode = EXCLUDED.barcode,
-        model_number = EXCLUDED.model_number,
-        status = EXCLUDED.status,
+        item_name = ${observedOptionColumn(input, 'optionName')},
+        sale_price = ${observedOptionColumn(input, 'salePrice')},
+        seller_sku = ${observedOptionColumn(input, 'sellerSku')},
+        barcode = ${observedOptionColumn(input, 'barcode')},
+        model_number = ${observedOptionColumn(input, 'modelNumber')},
+        status = ${observedOptionColumn(input, 'skuStatus')},
         attributes_json = EXCLUDED.attributes_json,
         raw_json = EXCLUDED.raw_json,
         last_import_run_id = COALESCE(

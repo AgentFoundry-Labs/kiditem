@@ -201,6 +201,8 @@ implements ChannelCatalogImportRepositoryPort {
         options.push({
           externalOptionId: row.externalSkuId,
           optionName: row.optionName,
+          salePrice: null,
+          sellerSku: null,
           barcode: row.barcode,
           modelNumber: row.modelNumber,
           skuStatus: row.skuStatus,
@@ -216,6 +218,7 @@ implements ChannelCatalogImportRepositoryPort {
         lastImportRunId: input.runId,
         rawSource: SOURCE_TYPE,
         // 윙 엑셀에는 판매자코드 칸도 판매가 칸도 없다. 브라우저 수집이 본 값을 지우지 않는다.
+        // 옵션명·판매상태·모델번호·바코드는 양식의 필수 칸이라 그대로 관측한다.
         unobservedOptionFields: ['sellerSku', 'salePrice'],
         products: canonicalParents.map((parent) => ({
           externalProductId: parent.externalProductId,

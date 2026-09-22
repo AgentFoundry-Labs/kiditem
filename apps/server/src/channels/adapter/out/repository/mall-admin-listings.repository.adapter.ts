@@ -207,8 +207,8 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
           channelAccountId: plan.channelAccountId,
           lastImportRunId: run.id,
           rawSource: SOURCE_TYPE,
-          // 몰 관리자 목록은 판매가와 판매자코드를 모두 내준다.
-          unobservedOptionFields: [],
+          // 몰 관리자 목록은 판매가와 판매자코드를 내주지만 바코드·모델번호 칸은 없다.
+          unobservedOptionFields: ['barcode', 'modelNumber'],
           products,
         });
         mappingChanged = upserted.mappingIdentityChanged;
