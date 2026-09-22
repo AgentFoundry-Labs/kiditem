@@ -30,6 +30,7 @@ import {
 import type { AuthUser } from '../../auth/auth.types';
 import type { Response } from 'express';
 import { z } from 'zod';
+import { orderCollectionOrderCount } from '@kiditem/shared/order-collection-source';
 import {
   OrderCollectionService,
   type OrderCollectionConversion,
@@ -262,10 +263,14 @@ export class OrderCollectionSourceController {
     // 이 수집이 몇 건을 실어 왔는지는 여기서야 안다. 장부에 적어 두지 않으면 성공한 수집도
     // 건수 0 으로 남아, 대시보드의 '오늘 주문' 이 그만큼 모자라게 센다(사장님 2026-09-21).
     // 0 건도 적는다 — "걷었는데 없었다" 는 측정이지 모름이 아니다.
+    //
+    // 적는 것은 **주문 수**다. 출력 줄을 그대로 적으면 묶음마다 붙는 택배비 줄만큼 부풀어
+    // 카드의 '당일' 이 '신규' 보다 커진다 — 아이스크림몰 38 대 18(사장님 2026-09-22).
+    // 셈법은 `orderCollectionOrderCount` 하나뿐이다.
     await this.source.recordCollectedRows({
       organizationId,
       attemptId,
-      rowCount: result.outputRows,
+      rowCount: orderCollectionOrderCount(result) ?? 0,
     });
     if (result.sourceRows === 0 && result.outputRows === 0) {
       setEmptyConversionHeaders(response, control.artifactId);

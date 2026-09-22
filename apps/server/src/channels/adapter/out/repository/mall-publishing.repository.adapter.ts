@@ -197,11 +197,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         .filter((listing) => listing.masterProductId !== null
           && selectedIds.includes(listing.masterProductId));
     const latestListingUpdatedAt = latestDatesByMasterProduct(listingRows);
-    selected.sort((left, right) =>
-      (latestListingUpdatedAt.get(right.masterProductId)?.getTime() ?? 0)
-        - (latestListingUpdatedAt.get(left.masterProductId)?.getTime() ?? 0)
-      || left.code.localeCompare(right.code)
-      || left.masterProductId.localeCompare(right.masterProductId));
+    selected.sort(byNewestCodeFirst);
     const total = selected.length;
     const records = selected.slice(query.offset, query.offset + query.limit);
     const listingByMasterProductId = groupListingRowsByMasterProductId(listingRows);
@@ -453,11 +449,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       return true;
     });
     const latestListingUpdatedAt = latestDatesByMasterProduct(listingRows);
-    filtered.sort((left, right) =>
-      (latestListingUpdatedAt.get(right.masterProductId)?.getTime() ?? 0)
-        - (latestListingUpdatedAt.get(left.masterProductId)?.getTime() ?? 0)
-      || left.code.localeCompare(right.code)
-      || left.masterProductId.localeCompare(right.masterProductId));
+    filtered.sort(byNewestCodeFirst);
     const total = filtered.length;
     const records = filtered.slice(query.offset, query.offset + query.limit);
     const stockByMaster = await this.readMatrixStock(
@@ -527,6 +519,26 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
   async countVisibleMasterProducts(organizationId: string): Promise<number> {
     return (await this.listVisibleProductIdentities(organizationId)).length;
   }
+}
+
+/**
+ * 표가 서는 차례 — **KID 번호가 큰 것부터**, 곧 나중에 만들어진 상품부터다
+ * (사장님 2026-09-22 "상품 최신순이 아닌거 같은데 정렬좀 해놔줘").
+ *
+ * 리스팅의 마지막 변경 시각을 1차 키로 쓰던 때는 최신순이 **한 번도 아니었다**. 몰 가져오기
+ * 한 번이 수천 줄에 같은 시각을 찍어서(실측: 한 값에 2,703 · 2,581 · 1,258건) 한 페이지가
+ * 통째로 동점이 되고, 그러면 2차 키인 코드 **오름차순**이 화면을 지배해 가장 오래된 번호가
+ * 맨 위로 왔다.
+ *
+ * 코드는 시퀀스(`kid_item_code_seq`)가 발급하므로 나중에 생긴 상품일수록 번호가 크다 —
+ * 마스터의 `createdAt` 은 일괄 적재 시각이라 오히려 덩어리로 뭉쳐 순서를 만들지 못한다.
+ */
+function byNewestCodeFirst(
+  left: Readonly<{ code: string; masterProductId: string }>,
+  right: Readonly<{ code: string; masterProductId: string }>,
+): number {
+  return right.code.localeCompare(left.code)
+    || right.masterProductId.localeCompare(left.masterProductId);
 }
 
 function latestDatesByMasterProduct(

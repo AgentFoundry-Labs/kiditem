@@ -63,8 +63,10 @@ export const InventorySkuSnapshotItemSchema = z.object({
   barcode: z.string().nullable(),
   currentStock: z.number().int().nonnegative(),
   purchasePrice: z.number().int().nonnegative().nullable(),
-  salePrice: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean(),
+  // 판매가 · 활성 여부는 이 원천이 내보내지 않는다. Products 가 셀피아 스냅샷에서 권위로
+  // 인정하는 것은 이름 · 옵션 · 바코드 · 재고 · 매입가뿐이다(products/CLAUDE.md). KID-275(#553)가
+  // 서버에서 두 칸을 떼면서 이 계약에 남겨 두어, `.strict()` 가 응답을 통째로 거절했다 —
+  // 그래서 쇼핑몰 현황의 셀피아 네 칸이 조용히 빈 줄이 됐다(라이브 2026-09-22).
   stockValue: z.number().int().nonnegative().nullable(),
   lastImportRunId: z.string().uuid().nullable(),
   lastImportedAt: zIsoDate.nullable(),

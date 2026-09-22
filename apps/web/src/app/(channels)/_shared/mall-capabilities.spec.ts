@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bulkNoteFor,
   capabilityTotals,
+  CAPABILITY_KEYS,
   mallCapabilities,
   ordersLabelFor,
   ordersNoteFor,
@@ -11,6 +12,7 @@ import {
   soldOutNoteFor,
   sortByCapability,
   type MallBulkSheetFacts,
+  type MallCapabilities,
   type MallManifestFacts,
 } from './mall-capabilities';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
@@ -363,5 +365,55 @@ describe('판매재개 칸', () => {
       manifest: manifest({ unverified: true, supports: { soldOut: false, resume: false } }),
     });
     expect(caps.resume).toBe('pending');
+  });
+});
+
+describe('몰 차례 — 칸을 왼쪽부터 훑어 되는 몰이 위로', () => {
+  /**
+   * 되는 일 **수**로만 세우면 같은 수인 몰이 무더기로 생기고, 그 안에서는 어느 칸이 켜졌는지와
+   * 무관하게 섞인다. 그러면 운송장 송신처럼 세 곳뿐인 칸을 세로로 훑을 때 그 셋이 표 여기저기에
+   * 흩어진다 — 사장님 2026-09-22: "운송장송신 보면 되는걸 위로 하면 3개가 연달아 보여야한다".
+   */
+  const rowOf = (mallName: string, capabilities: Partial<MallCapabilities>) => ({
+    channel: channel({ mallName }),
+    capabilities: Object.fromEntries(
+      CAPABILITY_KEYS.map((key) => [key, capabilities[key] ?? 'pending']),
+    ) as MallCapabilities,
+  });
+
+  it('⭐ 되는 일 수가 같아도 앞 칸이 되는 몰이 위에 선다', () => {
+    // 둘 다 셋씩 된다. 다른 것은 '어느 칸' 이 되느냐뿐이다.
+    const tracking = rowOf('송장되는몰', { orders: 'ready', tracking: 'ready', register: 'ready' });
+    const later = rowOf('뒤칸되는몰', { orders: 'ready', register: 'ready', soldout: 'ready' });
+
+    expect(sortByCapability([later, tracking]).map((row) => row.channel.mallName))
+      .toEqual(['송장되는몰', '뒤칸되는몰']);
+  });
+
+  it('⭐ 한 칸이 되는 몰끼리 붙어 선다 — 세로로 훑으면 위에서 끊기지 않는다', () => {
+    const rows = [
+      rowOf('가', { orders: 'ready' }),
+      rowOf('나', { orders: 'ready', tracking: 'ready' }),
+      rowOf('다', { orders: 'ready' }),
+      rowOf('라', { orders: 'ready', tracking: 'ready' }),
+      rowOf('마', { orders: 'ready', tracking: 'ready' }),
+    ];
+    const names = sortByCapability(rows).map((row) => row.channel.mallName);
+    const trackingRows = sortByCapability(rows)
+      .map((row, index) => (row.capabilities.tracking === 'ready' ? index : -1))
+      .filter((index) => index >= 0);
+
+    // 셋이 맨 위에 연달아 선다.
+    expect(trackingRows).toEqual([0, 1, 2]);
+    // 칸이 모두 같으면 이름순이다.
+    expect(names.slice(0, 3)).toEqual(['나', '라', '마']);
+  });
+
+  it("'그 몰에 없는 일' 은 '아직 안 만든 일' 보다 아래다", () => {
+    const pending = rowOf('아직', { orders: 'ready', tracking: 'pending' });
+    const unavailable = rowOf('불가', { orders: 'ready', tracking: 'unavailable' });
+
+    expect(sortByCapability([unavailable, pending]).map((row) => row.channel.mallName))
+      .toEqual(['아직', '불가']);
   });
 });

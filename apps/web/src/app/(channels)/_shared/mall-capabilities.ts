@@ -149,18 +149,41 @@ export function capabilityTotals(
 }
 
 /**
- * 다 되는 몰부터 세운다. 되는 일 수가 같으면 없는 일(빨강)이 적은 몰, 그다음 거래가
- * 있는 몰, 마지막은 이름순이다 — 같은 조건이면 늘 같은 자리에 서야 눈으로 찾는다.
+ * 몰을 세우는 차례 — **칸을 왼쪽부터 훑어 되는 몰을 위로** 올린다(사장님 2026-09-22).
+ *
+ * 되는 일 **수**로만 세우면 같은 수인 몰이 무더기로 생기고, 그 안에서는 어느 칸이 켜졌는지와
+ * 무관하게 섞인다. 그러면 운송장 송신처럼 세 곳뿐인 칸을 세로로 훑을 때 그 셋이 표 여기저기에
+ * 흩어져, 표가 정렬돼 보이지 않는다 — 사장님 말씀: "운송장송신 보면 되는걸 위로 하면 3개가
+ * 연달아 보여야한다는거야".
+ *
+ * 그래서 칸 차례(`CAPABILITY_KEYS`, 자주 보는 일부터)를 그대로 자릿수로 삼아 사전순으로 센다.
+ * 첫 칸이 되는 몰이 다 위에 서고, 그 안에서 둘째 칸이 되는 몰이 위에 서고… 이렇게 내려가면
+ * 어느 칸을 세로로 훑어도 켜진 몰이 위에 붙어 있다.
+ *
+ * 한 칸 안의 값 순서는 됨 · 아직 · 불가다. '그 몰에 없는 일'은 '아직 안 만든 일'보다 아래다 —
+ * 아래로 갈수록 할 일이 줄어야 표가 읽힌다.
+ *
+ * 칸이 전부 같으면 거래가 있는 몰, 마지막은 이름순이다 — 같은 조건이면 늘 같은 자리에 서야
+ * 눈으로 찾는다.
  */
+const CAPABILITY_RANK: Record<CapabilityState, number> = {
+  ready: 0,
+  pending: 1,
+  unavailable: 2,
+};
+
 export function sortByCapability<
   T extends { channel: MallChannelSummary; capabilities: MallCapabilities },
 >(rows: readonly T[]): T[] {
   const activity = (row: T) => row.channel.orderCount + row.channel.listingCount;
-  return [...rows].sort((a, b) =>
-    readyCount(b.capabilities) - readyCount(a.capabilities)
-    || countOf(a.capabilities, 'unavailable') - countOf(b.capabilities, 'unavailable')
-    || activity(b) - activity(a)
-    || a.channel.mallName.localeCompare(b.channel.mallName, 'ko'));
+  return [...rows].sort((a, b) => {
+    for (const key of CAPABILITY_KEYS) {
+      const gap = CAPABILITY_RANK[a.capabilities[key]] - CAPABILITY_RANK[b.capabilities[key]];
+      if (gap !== 0) return gap;
+    }
+    return activity(b) - activity(a)
+      || a.channel.mallName.localeCompare(b.channel.mallName, 'ko');
+  });
 }
 
 /**
