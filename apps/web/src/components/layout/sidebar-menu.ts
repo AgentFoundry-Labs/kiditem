@@ -1,10 +1,12 @@
 import {
   Bot,
+  Gauge,
   Workflow,
   BrainCircuit,
   Boxes,
   Building2,
   ClipboardList,
+  CheckSquare,
   Compass,
   FileSpreadsheet,
   Flame,
@@ -25,7 +27,6 @@ import {
   Settings,
   Share2,
   ShoppingCart,
-  Store,
   Sparkles,
   Target,
   TrendingUp,
@@ -55,12 +56,14 @@ export const menuSections: MenuSection[] = [
     collapsible: false,
     items: [
       { href: '/dashboard', label: '대시보드', icon: LayoutDashboard },
+      { href: '/todo', label: 'TO DO LIST', icon: CheckSquare },
     ],
   },
   {
     label: '소싱 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/sourcing', label: '에이전트 홈', icon: Gauge },
       { href: '/sourcing-ai', label: '소싱 홈', icon: Compass },
       { href: '/sourcing-ai/market', label: '시장 분석', icon: TrendingUp, groupLabel: '리서치' },
       { href: '/sourcing-ai/keywords', label: '키워드 분석', icon: Search },
@@ -81,29 +84,15 @@ export const menuSections: MenuSection[] = [
     label: '상품 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/product', label: '에이전트 홈', icon: Gauge },
       { href: '/product-pipeline/productgenerate', label: '상품 생성', icon: Plus },
       { href: '/product-pipeline/collected-products', label: '수집 상품', icon: Search },
       { href: '/product-pipeline/registered-products', label: '등록 상품', icon: Package },
       { href: '/product-pipeline/detail-template-generation', label: '상세 템플릿 생성', icon: Sparkles },
       { href: '/product-pipeline/thumbnail-ai', label: '썸네일 AI', icon: ImageIcon },
       { href: '/product-pipeline/thumbnail-generation', label: '썸네일 생성', icon: Wand2 },
-    ],
-  },
-  {
-    label: '마케팅 에이전트',
-    collapsible: true,
-    items: [
-      { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
-      { href: '/rank-tracking', label: '쿠팡 순위추적', icon: LineChart },
-    ],
-  },
-  {
-    label: '상품 관리',
-    collapsible: true,
-    items: [
-      { href: '/product-hub', label: '상품 관리', icon: Package },
+      { href: '/product-hub', label: '상품 분석', icon: Package },
       { href: '/product-hub/matching', label: '상품 매칭', icon: Link2 },
-      { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
     ],
   },
   {
@@ -112,39 +101,46 @@ export const menuSections: MenuSection[] = [
     items: [
       { href: '/mall-home', label: '쇼핑몰 홈', icon: Target },
       { href: '/mall-channels', label: '쇼핑몰 현황', icon: Share2 },
-      { href: '/mall-settings', label: '쇼핑몰 계정', icon: Store },
+      { href: '/product-hub/sales-products', label: '판매상품', icon: Boxes },
       { href: '/mall-listings', label: '상품 등록', icon: PackagePlus },
       { href: '/mall-availability', label: '품절 관리', icon: PackageX },
       { href: '/mall-tasks', label: '송신 내역', icon: ClipboardList },
-    ],
-  },
-  {
-    label: '주문관리',
-    collapsible: true,
-    items: [
       { href: '/order-collection', label: '주문수집', icon: FileSpreadsheet },
       { href: '/rocket-orders', label: '쿠팡 로켓', icon: Rocket },
+      { href: '/coupang-shipments', label: '쿠팡 쉽먼트', icon: PackageCheck },
     ],
   },
   {
-    label: '재고관리',
+    label: '재고관리 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/inventory', label: '에이전트 홈', icon: Gauge },
       { href: '/inventory-hub', label: '재고 관리', icon: Warehouse },
       { href: '/stock-ops', label: '재고 분석', icon: Boxes },
     ],
   },
   {
-    label: '출고반품',
+    label: '마케팅 에이전트',
     collapsible: true,
     items: [
-      { href: '/coupang-shipments', label: '쿠팡 쉽먼트', icon: PackageCheck },
+      { href: '/agents/marketing', label: '에이전트 홈', icon: Gauge },
+      { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
+      { href: '/rank-tracking', label: '쿠팡 순위추적', icon: LineChart },
     ],
   },
   {
-    label: '재무분석',
+    label: 'CS 에이전트',
     collapsible: true,
     items: [
+      { href: '/agents/cs', label: '에이전트 홈', icon: Gauge },
+      { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
+    ],
+  },
+  {
+    label: '재무분석 에이전트',
+    collapsible: true,
+    items: [
+      { href: '/agents/finance', label: '에이전트 홈', icon: Gauge },
       { href: '/profit-loss', label: '손익 분석', icon: TrendingUp },
       { href: '/sales-analysis', label: '매출 분석', icon: LineChart },
     ],
