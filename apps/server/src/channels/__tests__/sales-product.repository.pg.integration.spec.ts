@@ -564,4 +564,77 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     expect(unregistered.items.map((item) => item.id)).toEqual([mine.productId]);
     expect(unregistered.summary.unregistered).toBe(1);
   });
+
+  it('answers one sales product when the same collected product is promoted twice at once', async () => {
+    const candidateId = randomUUID();
+    const promote = () => service.createFromCandidates(TEST_ORGANIZATION_ID, {
+      items: [{
+        candidateId,
+        product: { name: '비눗방울총', optionAxes: [], options: [{ values: [], salePrice: 3_000 }] },
+      }],
+    });
+
+    const [left, right] = await Promise.all([promote(), promote()]);
+
+    const ids = new Set([left.products[0]!.salesProductId, right.products[0]!.salesProductId]);
+    expect(ids.size).toBe(1);
+    expect(left.created + right.created).toBe(1);
+    expect(await prisma.salesProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId } }))
+      .toBe(1);
+  });
+
+  it('keeps the KID, the option identities, the notice and KC input and the registration target across a send-back and a revival', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const candidateId = randomUUID();
+    const promoted = await service.createFromCandidates(TEST_ORGANIZATION_ID, {
+      items: [{
+        candidateId,
+        product: {
+          name: '비눗방울총',
+          optionAxes: ['색상'],
+          options: [{ values: ['빨강'], salePrice: 3_000 }, { values: ['파랑'], salePrice: 3_500 }],
+          noticeCategory: '01',
+          noticeValues: ['유아용품', '만 3세 이상'],
+          certifications: [{ number: 'CB012345-67890' }],
+        },
+      }],
+    });
+    const salesProductId = promoted.products[0]!.salesProductId;
+    const code = promoted.products[0]!.code;
+    const before = await repository.readOptionState(TEST_ORGANIZATION_ID, salesProductId);
+    const targetId = await new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService)
+      .create(TEST_ORGANIZATION_ID, {
+        salesProductId,
+        channelAccountId: accountId,
+        displayName: null,
+        registrationInput: {},
+        selectedOptions: [selected(before!.options[0]!.id)],
+      });
+
+    const sentBack = await prisma.salesProduct.findUniqueOrThrow({ where: { id: salesProductId } });
+    await service.demoteToCandidate(TEST_ORGANIZATION_ID, salesProductId, { expectedVersion: sentBack.version });
+    expect((await repository.list(TEST_ORGANIZATION_ID, listQuery('unregistered'))).items).toEqual([]);
+
+    const revived = await service.createFromCandidates(TEST_ORGANIZATION_ID, {
+      items: [{
+        candidateId,
+        product: { name: '다시 올린 이름', optionAxes: [], options: [{ values: [], salePrice: 9_900 }] },
+      }],
+    });
+
+    expect(revived.products[0]).toMatchObject({ salesProductId, code, created: false });
+    const after = await repository.readOptionState(TEST_ORGANIZATION_ID, salesProductId);
+    expect(after!.options.map((option) => option.id)).toEqual(before!.options.map((option) => option.id));
+    expect(after!.options.map((option) => option.optionCode)).toEqual(before!.options.map((option) => option.optionCode));
+    const row = await prisma.salesProduct.findUniqueOrThrow({ where: { id: salesProductId } });
+    expect(row).toMatchObject({
+      status: 'active',
+      name: '비눗방울총',
+      noticeCategory: '01',
+      noticeValues: ['유아용품', '만 3세 이상'],
+      certifications: [{ number: 'CB012345-67890' }],
+    });
+    expect(await prisma.registrationTarget.count({ where: { id: targetId, organizationId: TEST_ORGANIZATION_ID } }))
+      .toBe(1);
+  });
 });
