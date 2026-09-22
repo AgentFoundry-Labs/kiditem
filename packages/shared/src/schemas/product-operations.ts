@@ -253,6 +253,8 @@ export const MasterProductOperationsListItemSchema =
     isSelling: z.boolean(),
     monthly: ProductMonthlySalesSchema.nullable(),
     updatedAt: zIsoDate,
+    /** 등록된 때. 최신등록순 정렬과 신상품 묶음이 이 값을 쓴다. */
+    createdAt: zIsoDate,
     depletion: ProductDepletionProjectionSchema,
     channelOptionSummary: ChannelOptionSummarySchema,
     inventoryUnits: z.number().int().nonnegative().nullable(),

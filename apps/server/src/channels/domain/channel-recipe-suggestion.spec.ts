@@ -214,18 +214,18 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(result.proposals).toEqual([]);
   });
 
-  it('requires quantity review for an exact seller SKU without selling-unit evidence', () => {
+  it('uses an exact seller SKU as one unit when no pack multiplier is present', () => {
     const result = classifyChannelRecipeSuggestion(input({
       codeEvidence: [{ kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() }],
     }));
 
-    expect(result.status).toBe('quantity_review');
-    expect(result.automationDecision).toBe('quantity_review');
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(1);
     expect(result.proposals).toEqual([expect.objectContaining({
       masterProductId: sku().masterProductId,
-      requiresQuantityConfirmation: true,
-      recommendedQuantity: null,
+      requiresQuantityConfirmation: false,
+      recommendedQuantity: 1,
       evidence: [{
         kind: 'seller_sku_code',
         channelValue: 'SP-001',

@@ -7,12 +7,21 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { readRegistrationFailureCounts } from '../read/registration-execution.reader';
+import {
+  readRegistrationFailureCounts,
+  readUnresolvedCompositionOptionIds,
+} from '../read/registration-execution.reader';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
 const OTHER_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
 const SAME_CHANNEL_ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
+const SALES_PRODUCT_ID = '60000000-0000-4000-8000-000000000001';
+const OTHER_SALES_PRODUCT_ID = '60000000-0000-4000-8000-000000000002';
+const COMPOSITION_LISTING_ID = '70000000-0000-4000-8000-000000000001';
+const SECOND_COMPOSITION_LISTING_ID = '70000000-0000-4000-8000-000000000002';
+const PREPARING_LISTING_ID = '70000000-0000-4000-8000-000000000003';
+const NOT_STARTED_LISTING_ID = '70000000-0000-4000-8000-000000000004';
 
 const EXECUTION_IDS = [
   '40000000-0000-4000-8000-000000000001',
@@ -74,6 +83,60 @@ describe('registration execution reader (PostgreSQL)', () => {
         },
       ],
     });
+    await prisma.salesProduct.createMany({
+      data: [
+        {
+          id: SALES_PRODUCT_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'READER-TEST',
+          name: 'Reader fixture product',
+        },
+        {
+          id: OTHER_SALES_PRODUCT_ID,
+          organizationId: OTHER_ORGANIZATION_ID,
+          code: 'READER-OTHER',
+          name: 'Other reader fixture product',
+        },
+      ],
+    });
+    await prisma.productPreparation.createMany({
+      data: [
+        preparation('50000000-0000-4000-8000-000000000001', ACCOUNT_ID, SALES_PRODUCT_ID),
+        preparation('50000000-0000-4000-8000-000000000002', ACCOUNT_ID, SALES_PRODUCT_ID),
+        preparation('50000000-0000-4000-8000-000000000003', ACCOUNT_ID, SALES_PRODUCT_ID),
+        preparation('50000000-0000-4000-8000-000000000004', SECOND_ACCOUNT_ID, SALES_PRODUCT_ID),
+        preparation('50000000-0000-4000-8000-000000000005', SAME_CHANNEL_ACCOUNT_ID, SALES_PRODUCT_ID),
+        preparation('50000000-0000-4000-8000-000000000006', OTHER_ACCOUNT_ID, OTHER_SALES_PRODUCT_ID, OTHER_ORGANIZATION_ID),
+      ],
+    });
+    await prisma.channelListing.createMany({
+      data: [
+        {
+          id: COMPOSITION_LISTING_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: ACCOUNT_ID,
+          externalId: 'reader-composition-listing',
+        },
+        {
+          id: SECOND_COMPOSITION_LISTING_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: SECOND_ACCOUNT_ID,
+          externalId: 'reader-composition-listing-2',
+        },
+        {
+          id: PREPARING_LISTING_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: ACCOUNT_ID,
+          externalId: 'reader-composition-listing-preparing',
+        },
+        {
+          id: NOT_STARTED_LISTING_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: ACCOUNT_ID,
+          externalId: 'reader-composition-listing-not-started',
+        },
+      ],
+    });
   });
 
   it('counts current failed executions, excludes a later success, and fences organizations', async () => {
@@ -111,7 +174,139 @@ describe('registration execution reader (PostgreSQL)', () => {
       { channel: 'coupang', mallName: '쿠팡 WING', count: 1 },
     ]);
   });
+
+  it('holds only live uncertain composition transitions and releases them after success or failure', async () => {
+    const executionRows = [
+      compositionExecution(
+        '40000000-0000-4000-8000-000000000007',
+        '50000000-0000-4000-8000-000000000007',
+        COMPOSITION_LISTING_ID,
+        ACCOUNT_ID,
+        'executing',
+        'uncertain',
+        [{ channelListingOptionId: 'option-selected-a' }, { channelListingOptionId: 'option-selected-b' }],
+      ),
+      compositionExecution(
+        '40000000-0000-4000-8000-000000000008',
+        '50000000-0000-4000-8000-000000000008',
+        PREPARING_LISTING_ID,
+        ACCOUNT_ID,
+        'prepared',
+        'not_attempted',
+        [{ channelListingOptionId: 'option-preparing' }],
+      ),
+      compositionExecution(
+        '40000000-0000-4000-8000-000000000009',
+        '50000000-0000-4000-8000-000000000009',
+        NOT_STARTED_LISTING_ID,
+        ACCOUNT_ID,
+        'not_started',
+        'not_attempted',
+        [{ channelListingOptionId: 'option-not-started' }],
+      ),
+      compositionExecution(
+        '40000000-0000-4000-8000-000000000010',
+        '50000000-0000-4000-8000-000000000010',
+        SECOND_COMPOSITION_LISTING_ID,
+        SECOND_ACCOUNT_ID,
+        'reconciling',
+        'uncertain',
+        [{ channelListingOptionId: 'option-selected-c' }],
+      ),
+      compositionExecution(
+        '40000000-0000-4000-8000-000000000011',
+        '50000000-0000-4000-8000-000000000011',
+        COMPOSITION_LISTING_ID,
+        ACCOUNT_ID,
+        'succeeded',
+        'succeeded',
+        [{ channelListingOptionId: 'option-terminal-success' }],
+      ),
+      compositionExecution(
+        '40000000-0000-4000-8000-000000000012',
+        '50000000-0000-4000-8000-000000000012',
+        COMPOSITION_LISTING_ID,
+        ACCOUNT_ID,
+        'failed',
+        'definitive_failure',
+        [{ channelListingOptionId: 'option-terminal-failure' }],
+      ),
+    ];
+    await prisma.productPreparation.createMany({
+      data: executionRows.map((executionRow) => preparation(
+        executionRow.productPreparationId,
+        executionRow.channelAccountId,
+        SALES_PRODUCT_ID,
+      )),
+    });
+    await prisma.productRegistrationExecution.createMany({ data: executionRows });
+
+    const read = () => prisma.$transaction((tx) => readUnresolvedCompositionOptionIds(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingIds: [
+        COMPOSITION_LISTING_ID,
+        SECOND_COMPOSITION_LISTING_ID,
+        PREPARING_LISTING_ID,
+        NOT_STARTED_LISTING_ID,
+      ],
+    }));
+
+    await expect(read()).resolves.toEqual(new Set([
+      'option-selected-a', 'option-selected-b', 'option-selected-c',
+    ]));
+
+    await prisma.productRegistrationExecution.update({
+      where: { id: '40000000-0000-4000-8000-000000000007' },
+      data: { status: 'succeeded', providerOutcome: 'succeeded' },
+    });
+    await expect(read()).resolves.toEqual(new Set(['option-selected-c']));
+
+    await prisma.productRegistrationExecution.update({
+      where: { id: '40000000-0000-4000-8000-000000000010' },
+      data: { status: 'failed', providerOutcome: 'definitive_failure' },
+    });
+    await expect(read()).resolves.toEqual(new Set());
+  });
 });
+
+function preparation(
+  id: string,
+  channelAccountId: string,
+  salesProductId: string,
+  organizationId = TEST_ORGANIZATION_ID,
+) {
+  return {
+    id,
+    organizationId,
+    salesProductId,
+    channelAccountId,
+    registrationInput: {},
+  };
+}
+
+function compositionExecution(
+  id: string,
+  productPreparationId: string,
+  channelListingId: string,
+  channelAccountId: string,
+  status: string,
+  providerOutcome: string,
+  optionTransitions: readonly { channelListingOptionId: string }[],
+) {
+  return {
+    id,
+    organizationId: TEST_ORGANIZATION_ID,
+    productPreparationId,
+    channelAccountId,
+    channelListingId,
+    executionKind: 'composition_change',
+    idempotencyKey: `composition-${id}`,
+    requestHash: 'b'.repeat(64),
+    submissionPayloadJson: { optionTransitions },
+    status,
+    providerOutcome,
+  };
+}
 
 function execution(
   id: string,

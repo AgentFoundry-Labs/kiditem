@@ -28,10 +28,9 @@ import { lotteOnAdapter } from './lotte-on.adapter';
  * 위험한가" 를 소유하고, 어댑터는 "실제로 어떻게 보내는가" 를 소유한다.
  * 매니페스트에 있지만 어댑터가 없는 몰은 화면에서 '경로 없음' 으로 보인다.
  *
- * 마켓 판매자 시스템(쿠팡 마켓플레이스 · 쿠팡 로켓)은 이 목록에 없다 — 몰 등록 마법사가
- * 다루는 대상이 아니다(KID-250). 쿠팡 윙 리스팅은 등록현황 표에 읽기 전용 열로 계속 보이고,
- * 수집상품 모달의 쿠팡 WING 줄은 `coupangWingAdapter` 를 **제 입력칸 선언으로만** 쓴다
- * (보내는 길은 셀피아 SKU 확인 창을 거치는 별도 경로다).
+ * 쿠팡 로켓은 이 목록에 없다 — 발주 전용 채널이라 몰 등록 마법사가 다루는 대상이 아니다.
+ * 쿠팡 WING 은 엑셀을 만드는 수집상품 경로를 마법사에서 함께 보여 주되, 파일 생성은 등록
+ * 확인과 구분한다.
  */
 export const MALL_PUBLISH_ADAPTERS: readonly MallPublishAdapter[] = [
   kidsnoteAdapter,
@@ -54,25 +53,30 @@ export const MALL_PUBLISH_ADAPTERS: readonly MallPublishAdapter[] = [
   lotteOnAdapter,
 ];
 
-const BY_KEY = new Map(MALL_PUBLISH_ADAPTERS.map((adapter) => [adapter.mallKey, adapter]));
-
-/**
- * 상품이 올라가는 경로를 가진 어댑터 전부 — 마법사 목록에 쿠팡 WING 을 더한 것이다.
- *
- * 쿠팡 WING 은 마법사에 서지 않지만 수집상품 모달에서 실제로 등록된다. '이 몰에 상품등록이
- * 되는가' 를 마법사 목록으로만 물으면 되는 일을 '아직' 이라고 그린다.
- */
-const REGISTRATION_ADAPTERS: readonly MallPublishAdapter[] = [
+/** #554 등록 마법사에서 선택할 수 있는 경로. WING은 파일 생성 경로라 상태 표의 몰 열은 아니다. */
+export const MALL_REGISTRATION_ADAPTERS: readonly MallPublishAdapter[] = [
   ...MALL_PUBLISH_ADAPTERS,
   coupangWingAdapter,
 ];
 
+const BY_REGISTRATION_KEY = new Map(MALL_REGISTRATION_ADAPTERS.map((adapter) => [adapter.mallKey, adapter]));
+
+/**
+ * 상품이 올라가는 경로를 가진 어댑터 전부 — 마법사 목록에 쿠팡 WING 을 더한 것이다.
+ *
+ * 쿠팡 WING 은 파일 생성 경로지만 마법사에서 함께 고를 수 있다. 등록 확인은 별도 몰
+ * 재조회가 필요하며, 엑셀 생성 결과는 작업 목록에만 남긴다.
+ */
+const REGISTRATION_ADAPTERS: readonly MallPublishAdapter[] = [
+  ...MALL_REGISTRATION_ADAPTERS,
+];
+
 export function getMallPublishAdapter(mallKey: string): MallPublishAdapter | null {
-  return BY_KEY.get(mallKey) ?? null;
+  return BY_REGISTRATION_KEY.get(mallKey) ?? null;
 }
 
 export function hasMallPublishAdapter(mallKey: string): boolean {
-  return BY_KEY.has(mallKey);
+  return BY_REGISTRATION_KEY.has(mallKey);
 }
 
 /**

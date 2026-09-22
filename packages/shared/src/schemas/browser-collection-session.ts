@@ -19,6 +19,8 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'orders.coupang_rocket_po',
   'orders.coupang_shipment_summary',
   'orders.mall',
+  'orders.mall_admin_listings',
+  'orders.sabangnet_mall_listings',
   'orders.sellpia_manual_match',
   'orders.sellpia_product_profitability',
   'orders.sellpia_sales',

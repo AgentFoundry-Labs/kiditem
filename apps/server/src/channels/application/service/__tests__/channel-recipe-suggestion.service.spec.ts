@@ -68,7 +68,7 @@ describe('ChannelRecipeSuggestionService', () => {
     );
   });
 
-  it('strips a leading Sellpia price code but requires registration quantity confirmation', async () => {
+  it('strips a leading Sellpia price code and reads an unmarked exact name as one unit (KID-246)', async () => {
     const repository = { getContext: vi.fn() };
     const sellpiaSku = {
       masterProductId: '00000000-0000-4000-8000-000000000051',
@@ -93,9 +93,11 @@ describe('ChannelRecipeSuggestionService', () => {
     })).resolves.toMatchObject({
       channelListingOptionId: optionId,
       masterProductId: null,
-      status: 'quantity_review',
-      automationDecision: 'quantity_review',
-      recommendedQuantity: null,
+      // 이름이 그 상품 이름과 글자까지 같고(가격 접두만 다름) 어디에도 묶음 표기가 없으면
+      // 낱개 하나다(사장님 2026-09-17). 차감수량은 등록 화면에서 사람이 바꿀 수 있다.
+      status: 'high_confidence_name',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
       proposals: [{
         masterProductId: sellpiaSku.masterProductId,
         code: '10451-1',
@@ -130,12 +132,13 @@ describe('ChannelRecipeSuggestionService', () => {
 
     const result = await service.suggest(organizationId, optionId);
 
-    expect(result.status).toBe('quantity_review');
+    // 몰 상품코드 칸의 셀피아 코드가 맞으면 묶음 표기가 없어도 1개다(사장님 2026-09-19 "코드가 맞으면 1개로 잇는다").
+    expect(result.status).toBe('unique_code');
     expect(evidence.findByCodes).toHaveBeenCalledWith(organizationId, ['MODEL-001', 'SP-001']);
     expect(evidence.findByNormalizedBarcodes).toHaveBeenCalledWith(organizationId, ['001234567890']);
     expect(evidence.findByNormalizedNames).toHaveBeenCalledWith(organizationId, ['키즈식판']);
-    expect(result.proposals[0]?.requiresQuantityConfirmation).toBe(true);
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.proposals[0]?.requiresQuantityConfirmation).toBe(false);
+    expect(result.recommendedQuantity).toBe(1);
   });
 
   it('retains an incompatible barcode candidate as a blocking conflict', async () => {

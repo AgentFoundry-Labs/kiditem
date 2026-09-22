@@ -678,7 +678,8 @@
       "prismaType": "ProductRegistrationExecution",
       "relationNames": [
         "productRegistrationExecutions",
-        "requestedProductRegistrationExecutions"
+        "requestedProductRegistrationExecutions",
+        "executions"
       ],
       "reader": "apps/server/src/channels/read/registration-execution.reader.ts",
       "ownerPublications": [

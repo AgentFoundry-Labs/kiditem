@@ -12,11 +12,13 @@ import { queryKeys } from '@/lib/query-keys';
 
 const {
   createPreparationDraftMock,
+  ensureCandidateSalesProductMock,
   listAccountsMock,
   rejectMock,
   toastSuccessMock,
 } = vi.hoisted(() => ({
   createPreparationDraftMock: vi.fn(),
+  ensureCandidateSalesProductMock: vi.fn(),
   listAccountsMock: vi.fn(),
   rejectMock: vi.fn(),
   toastSuccessMock: vi.fn(),
@@ -34,6 +36,11 @@ vi.mock(
     },
   }),
 );
+
+vi.mock('@/lib/candidate-sales-product-registration', () => ({
+  candidateSalesProductGap: vi.fn().mockReturnValue(null),
+  ensureCandidateSalesProduct: (...args: unknown[]) => ensureCandidateSalesProductMock(...args),
+}));
 
 vi.mock('@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api', () => ({
   channelListingsApi: {
@@ -142,6 +149,7 @@ function renderHeader(
 describe('ProductEditHeader preparation draft action', () => {
   beforeEach(() => {
     createPreparationDraftMock.mockReset();
+    ensureCandidateSalesProductMock.mockReset();
     listAccountsMock.mockReset();
     rejectMock.mockReset();
     toastSuccessMock.mockReset();
@@ -160,6 +168,7 @@ describe('ProductEditHeader preparation draft action', () => {
         externalAccountId: 'vendor-rocket',
       },
     ]);
+    ensureCandidateSalesProductMock.mockResolvedValue({});
   });
 
   it('creates a draft for the explicitly selected account and stays in the candidate workspace', async () => {
@@ -197,6 +206,18 @@ describe('ProductEditHeader preparation draft action', () => {
         selectedDetailPageRevisionId: '66666666-6666-4666-8666-666666666666',
       }),
     ));
+    expect(ensureCandidateSalesProductMock).toHaveBeenCalledWith(
+      'candidate-1',
+      expect.any(Function),
+      expect.objectContaining({
+        findByCandidate: expect.any(Function),
+        update: expect.any(Function),
+        createFromCandidates: expect.any(Function),
+      }),
+    );
+    expect(ensureCandidateSalesProductMock.mock.invocationCallOrder[0]).toBeLessThan(
+      createPreparationDraftMock.mock.invocationCallOrder[0]!,
+    );
     const request = createPreparationDraftMock.mock.calls[0]?.[1];
     expect(request?.registrationInput).not.toHaveProperty('selectedThumbnailGenerationId');
     // 몰 등록 값은 후보에만 산다 — 준비로 복사하지 않는다.

@@ -1,0 +1,342 @@
+import { z } from 'zod';
+
+/**
+ * 몰 관리자 화면에서 등록 상품(몰 상품코드)을 직접 가져오는 원천의 계약(KID-246 2단계).
+ *
+ * 사방넷에 없는 몰은 그 몰의 상품 목록을 확장이 읽는다. 가져오기 한 번은 몰 계정 행
+ * (ADR-0012) 하나의 시도 하나이고, 완료 스냅샷은 그 몰의 상품 목록 전체다. 몰마다 읽는
+ * 방법은 확장의 읽기기가 알고, 몰이 준 상태 글자를 우리 어휘로 접는 것은 서버 도메인이 한다.
+ *
+ * 몰 상품 목록에는 셀피아 상품코드가 없다. 대신 몰마다 셀피아 상품 이름을 적어 두는 칸이
+ * 있어(키드키즈 송장용 상품명, 아이스크림몰 고시 품명) 옵션 이름으로 넘기면 기존 이름
+ * 매칭이 셀피아 SKU 에 잇는다.
+ */
+
+export const MALL_ADMIN_LISTINGS_SOURCE_TYPE = 'mall_admin_listings';
+export const MALL_ADMIN_LISTINGS_PARSER_VERSION = 'mall-admin-listings-v1';
+export const MALL_ADMIN_LISTINGS_PRODUCER = 'orders.mall_admin_listings';
+export const MALL_ADMIN_LISTING_ROW_LIMIT = 20_000;
+export const MALL_ADMIN_LISTING_PAGE_LIMIT = 1_000;
+
+/**
+ * 직접 읽기기가 있는 몰. 키는 몰 계정 행의 `channel` 이다.
+ *
+ * - `origin`: 읽는 관리자 서버. 확장 호스트 권한과 같아야 한다.
+ * - `pageSize`: 한 요청으로 읽는 상품 수의 상한. 두 몰 모두 상품 전체가 한 요청에 들어오도록
+ *   크게 둔다 — 키드키즈는 상품리스트 다운로드(엑셀)가 전체를 한 번에 주고, 아이스크림몰은
+ *   목록 API 가 한 쪽에 만 건까지 준다. 쪽을 나누면 정렬 동률로 상품이 겹치거나 빠진다.
+ * - `detailNames`: 셀피아 쪽 이름을 상품 상세 화면에서만 읽을 수 있는가.
+ */
+export const MALL_ADMIN_LISTING_READERS = {
+  kidkids: {
+    mallName: '키드키즈',
+    origin: 'https://partner.kidkids.net',
+    pageSize: 20_000,
+    detailNames: false,
+  },
+  'icecream-mall': {
+    mallName: '아이스크림몰',
+    origin: 'https://po.i-screammall.co.kr',
+    pageSize: 10_000,
+    detailNames: true,
+  },
+  /**
+   * 온채널 공급사. 등록 상품 관리 화면이 쪽 크기를 고르지 못해 15줄씩 46쪽을 다 돈다
+   * (라이브 2026-09-17: 687개). 쪽 경계가 상품코드로 갈려 겹치지 않는다.
+   */
+  onch: {
+    mallName: '온채널',
+    origin: 'https://www.onch3.co.kr',
+    pageSize: 15,
+    detailNames: false,
+  },
+  /**
+   * 꼬망세(EduPre) 입점관리자. 배송상품 목록이 쪽 크기를 받아 줘 전체가 한 번에 들어온다
+   * (라이브 2026-09-18: 2,602개).
+   */
+  kkomangse: {
+    mallName: '꼬망세',
+    origin: 'https://nstore.edupre.co.kr',
+    pageSize: 10_000,
+    detailNames: false,
+  },
+  /**
+   * 올웨이즈 판매자센터. 상품 조회/수정 화면이 부르는 목록 API(백엔드 alwayz-seller-back)를 화면 안에서 쪽마다
+   * 읽는다 — 100개씩 1쪽부터(라이브 2026-09-19: 197개 = 100 + 97). 토큰은 화면 안에서만 쓴다.
+   */
+  always: {
+    mallName: '올웨이즈',
+    origin: 'https://alwayzseller.ilevit.com',
+    pageSize: 100,
+    detailNames: false,
+  },
+  /**
+   * 아트공구(카페24 공급사 관리자). 상품목록(ProductManage)을 100개씩 1쪽부터 끝까지 읽는다
+   * (라이브 2026-09-19: 550개 = 6쪽, 겹침 없음). 몰 상품코드는 카페24 상품번호(product_no)다.
+   */
+  art09: {
+    mallName: '아트공구',
+    origin: 'https://zzogzzog1.cafe24.com',
+    pageSize: 100,
+    detailNames: false,
+  },
+  /**
+   * 떠리몰(샵바이 파트너 어드민). 상품정보 조회/수정 화면이 부르는 상품 검색 API(`admin-api.e-ncp.com`
+   * `POST /products/search`)를 화면 안에서 100개씩 1쪽부터 읽는다(라이브 2026-09-19: 479개 = 5쪽). 몰 상품코드는
+   * 샵바이 상품번호(mallProductNo)다. 토큰은 화면 쿠키에서 화면 안에서만 쓴다.
+   */
+  thirtymall: {
+    mallName: '떠리몰',
+    origin: 'https://partner.shopby.co.kr',
+    pageSize: 100,
+    detailNames: false,
+  },
+  /*
+    사방넷으로만 가져오던 몰(사장님 2026-09-19 "사방넷 이제 안쓸거야 … 상품 가져오기 버튼들 들어오면 바로 동기화").
+    몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들은 확장
+    1.2.22(`mallAdminListingsMallsV2`)부터 읽고, 첫 라이브에서 고친 롯데ON(거래처로 좁히기 · 로그인 탭 빌리기) · 스마트스토어 ·
+    티쳐몰은 1.2.23(`mallAdminListingsMallsV3`)부터 읽는다.
+  */
+  /** 도매꾹 상품공급사센터. 목록 조회를 500개씩(라이브 2026-09-19: 493개 = 1쪽). 몰 상품코드는 도매꾹 상품번호. */
+  domeggook: {
+    mallName: '도매꾹',
+    origin: 'https://www.domeggook.com',
+    pageSize: 500,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 키즈노트(WISA). 판매 상품 내역을 100개씩(라이브 2026-09-19: 1,107개 = 12쪽). 몰 상품코드는 상품번호(pno). */
+  kidsnote: {
+    mallName: '키즈노트',
+    origin: 'https://shop.kidsnote.com',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 11번가 셀러오피스. 목록 조회를 100개씩 앞에서부터(라이브 2026-09-19: 900개). 전체 수를 따로 주지 않는다. */
+  '11st': {
+    mallName: '11번가',
+    origin: 'https://soffice.11st.co.kr',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /**
+   * 지마켓 · 옥션(ESM Plus). 마스터 상품 목록을 500개씩 읽고 그 사이트에 올라간 것만 고른다(라이브 2026-09-19: 마스터
+   * 1,584 · 지마켓 934 · 옥션 754). 몰 상품코드는 사방넷 모양 `{사이트상품번호}_{마스터상품번호}`.
+   */
+  gmarket: {
+    mallName: '지마켓',
+    origin: 'https://item.esmplus.com',
+    pageSize: 500,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  auction: {
+    mallName: '옥션',
+    origin: 'https://item.esmplus.com',
+    pageSize: 500,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 카카오 톡스토어 판매자센터. 목록 API 를 100개씩(라이브 2026-09-19: 386개 = 4쪽). 몰 상품코드는 상품번호(id). */
+  kakao: {
+    mallName: '카카오 톡스토어',
+    origin: 'https://shopping-seller.kakao.com',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV2',
+  },
+  /** 롯데ON 판매자센터. 상품 조회를 100개씩(화면 안에서). 몰 상품코드는 판매자상품번호(`LO…`). */
+  'lotte-on': {
+    mallName: '롯데ON',
+    origin: 'https://store.lotteon.com',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV3',
+  },
+  /** 스마트스토어센터. 원상품 목록 검색을 100개씩(화면 안에서). 몰 상품코드는 채널상품번호(원상품번호는 다른 코드). */
+  smartstore: {
+    mallName: '스마트스토어',
+    origin: 'https://sell.smartstore.naver.com',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV3',
+  },
+  /** 티쳐몰(퍼스트몰 selleradmin). 판매상품 목록을 100개씩. 몰 상품코드는 상품번호(goods_seq). */
+  'teacher-mall': {
+    mallName: '티쳐몰',
+    origin: 'https://shop.teacherville.co.kr',
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV3',
+  },
+} as const satisfies Record<string, {
+  mallName: string;
+  origin: string;
+  pageSize: number;
+  detailNames: boolean;
+  /** 이 몰을 읽는 확장 기능 이름. 없으면 첫 읽기기(`mallAdminListingsSourceOwnerV1`)부터 읽는다. */
+  capability?: string;
+}>;
+export type MallAdminListingMallKey = keyof typeof MALL_ADMIN_LISTING_READERS;
+export const MALL_ADMIN_LISTING_MALL_KEYS = Object.keys(
+  MALL_ADMIN_LISTING_READERS,
+) as [MallAdminListingMallKey, ...MallAdminListingMallKey[]];
+
+export function isMallAdminListingMallKey(value: unknown): value is MallAdminListingMallKey {
+  return typeof value === 'string' && Object.hasOwn(MALL_ADMIN_LISTING_READERS, value);
+}
+
+const MallKeySchema = z.enum(MALL_ADMIN_LISTING_MALL_KEYS);
+const YYYY_MM_DD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const boundedText = (max: number) => z.string().trim().max(max);
+const requiredText = (max: number) => boundedText(max).min(1);
+
+export const MallAdminListingsBeginSchema = z.object({
+  mallKey: MallKeySchema,
+}).strict();
+export type MallAdminListingsBegin = z.infer<typeof MallAdminListingsBeginSchema>;
+
+export const MallAdminListingsPlanSchema = z.object({
+  sourceType: z.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
+  parserVersion: z.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
+  mallKey: MallKeySchema,
+  /** 몰 허브가 고르는 그 몰의 계정 행. 완료할 때 같은 행인지 다시 본다. */
+  channelAccountId: z.string().uuid(),
+  sourceOrigin: z.string().url(),
+  pageSize: z.number().int().positive().max(20_000),
+}).strict().superRefine((plan, ctx) => {
+  const reader = MALL_ADMIN_LISTING_READERS[plan.mallKey];
+  if (plan.sourceOrigin !== reader.origin) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sourceOrigin'], message: 'Unknown mall origin' });
+  }
+  if (plan.pageSize !== reader.pageSize) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pageSize'], message: 'Unexpected page size' });
+  }
+});
+export type MallAdminListingsPlan = z.infer<typeof MallAdminListingsPlanSchema>;
+
+export const MallAdminListingsAttemptSchema = z.object({
+  attemptId: z.string().uuid(),
+  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
+  generation: z.string().regex(/^\d+$/),
+  plan: MallAdminListingsPlanSchema,
+  expiresAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+  errorCode: boundedText(100).nullable(),
+  errorMessage: boundedText(300).nullable(),
+}).strict();
+export type MallAdminListingsAttempt = z.infer<typeof MallAdminListingsAttemptSchema>;
+
+/** 확장만 받는 시도 모양. 쓰기 토큰이 붙는다. */
+export const MallAdminListingsControlSchema = MallAdminListingsAttemptSchema.extend({
+  attemptToken: z.string().uuid(),
+}).strict();
+export type MallAdminListingsControl = z.infer<typeof MallAdminListingsControlSchema>;
+
+/** 완료한 가져오기가 남긴 결과. */
+export const MallAdminListingsPublicationSchema = z.object({
+  /** 이번에 받은 몰 상품코드 수. */
+  listings: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+  /** 전에 받았는데 이번 목록에 없어 끈 리스팅 수. */
+  deactivated: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+  /** 셀피아 쪽 이름을 읽지 못한 상품 수. 그 상품은 상품명으로만 잇는다. */
+  missingNames: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+  /**
+   * 몰에 셀피아 코드가 심겨 있어 코드로 정확히 이을 수 있는 상품 수.
+   *
+   * 이 칸이 생기기 전에 저장된 발행 결과에도 기본값으로 붙는다 — 새 칸 하나 때문에 옛
+   * 결과를 통째로 못 읽으면 화면이 "0개 가져옴"이라고 거짓말을 한다.
+   */
+  codedListings: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT).default(0),
+  /** 우리 상태 글자별 상품 수. */
+  statuses: z.record(requiredText(20), z.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT))
+    .refine((value) => Object.keys(value).length <= 20, 'Too many statuses'),
+}).strict();
+export type MallAdminListingsPublication = z.infer<typeof MallAdminListingsPublicationSchema>;
+
+export const MallAdminListingsSourceMallSchema = z.object({
+  mallKey: MallKeySchema,
+  mallName: requiredText(40),
+  /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
+  channelAccountId: z.string().uuid().nullable(),
+  latestAttempt: MallAdminListingsAttemptSchema.nullable(),
+  latestComplete: MallAdminListingsAttemptSchema.nullable(),
+  /** `latestComplete` 가 남긴 결과. */
+  latestPublication: MallAdminListingsPublicationSchema.nullable(),
+}).strict();
+export type MallAdminListingsSourceMall = z.infer<typeof MallAdminListingsSourceMallSchema>;
+
+/** 직접 읽기기가 있는 몰 전부의 현재. 화면 하나가 이 목록 하나를 읽는다. */
+export const MallAdminListingsSourceSchema = z.object({
+  malls: z.array(MallAdminListingsSourceMallSchema),
+}).strict();
+export type MallAdminListingsSource = z.infer<typeof MallAdminListingsSourceSchema>;
+
+/**
+ * 몰 상품 한 줄. 몰 화면에서 이 칸만 고른다.
+ *
+ * `statusWords` 는 몰이 준 상태 글자 그대로다(키드키즈 상품리스트 `정상` · `일시품절` ·
+ * `영구품절` · `보류`, 아이스크림몰 `판매중` · `전시안함`). 우리 어휘로 접는 것은 서버가 한다.
+ */
+export const MallAdminListingRowSchema = z.object({
+  /** 몰 상품코드. 옵션 외부 ID 칸이 60자다. */
+  mallProductCode: requiredText(60),
+  /**
+   * 같은 상품을 다른 번호로 가져온 적이 있을 때 그 번호(사방넷이 ESM 사이트번호만 · 스마트스토어 원상품번호로 준 것).
+   * 그 번호로 이미 이어진 리스팅이 있으면 서버가 그 번호를 쓴다 — 레시피가 그 리스팅에 붙어 있다.
+   */
+  alternateCodes: z.array(requiredText(60)).max(3).optional(),
+  productName: requiredText(400),
+  /** 몰에 적어 둔 셀피아 상품 이름 — 키드키즈 송장용 상품명, 아이스크림몰 고시 품명. */
+  sellpiaName: requiredText(400).nullable(),
+  /**
+   * 몰의 자체상품코드 칸에 우리가 심어 둔 셀피아 SKU 코드(키드키즈 `P 코드`, 아이스크림몰
+   * `업체상품코드`). 사방넷이 `모델명`에 셀피아 코드를 넣어 보낸 것과 같은 자리다 — 이 값이
+   * 있으면 이름이 아니라 코드로 정확히 잇는다. 아직 안 심은 상품은 비어 있다.
+   */
+  sellerCode: requiredText(60).nullable(),
+  salePrice: z.number().int().nonnegative().max(1_000_000_000).nullable(),
+  statusWords: z.array(requiredText(20)).min(1).max(4),
+  registeredOn: YYYY_MM_DD.nullable(),
+  /** 몰이 들고 있는 대표 사진. 목록에 사진이 있는 몰만 싣는다. */
+  imageUrl: z.string().url().max(2_000).optional(),
+}).strict();
+export type MallAdminListingRow = z.infer<typeof MallAdminListingRowSchema>;
+
+export const MallAdminListingsCollectionSchema = z.object({
+  collectionRunId: z.string().uuid(),
+  /** 몰이 알린 전체 상품 수. */
+  totalRecords: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+  /** 실제로 읽은 상품 줄 수. */
+  recordsRead: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+  pagesRead: z.number().int().min(0).max(MALL_ADMIN_LISTING_PAGE_LIMIT),
+  totalPages: z.number().int().min(0).max(MALL_ADMIN_LISTING_PAGE_LIMIT),
+  /** 셀피아 쪽 이름을 읽으려고 연 상세 화면 가운데 읽은 수와 읽지 못한 수. */
+  detailsRead: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+  detailsMissing: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+}).strict();
+export type MallAdminListingsCollection = z.infer<typeof MallAdminListingsCollectionSchema>;
+
+export const MallAdminListingsSubmissionSchema = z.object({
+  collection: MallAdminListingsCollectionSchema,
+  rows: z.array(MallAdminListingRowSchema).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+  proof: z.object({
+    mallKey: MallKeySchema,
+    pageSize: z.number().int().positive().max(20_000),
+    validatedList: z.literal(true),
+  }).strict(),
+}).strict();
+export type MallAdminListingsSubmission = z.infer<typeof MallAdminListingsSubmissionSchema>;
+
+/** 확장이 돌려주는 실패 이유. 화면이 한국어 문장으로 바꾼다. */
+export const MALL_ADMIN_LISTINGS_FAILURE_CODES = [
+  'mall_login_required',
+  'mall_contract_drift',
+  'mall_total_changed',
+  'mall_invalid_snapshot',
+  'mall_timeout',
+  'mall_network_failed',
+] as const;
+export type MallAdminListingsFailureCode = (typeof MALL_ADMIN_LISTINGS_FAILURE_CODES)[number];

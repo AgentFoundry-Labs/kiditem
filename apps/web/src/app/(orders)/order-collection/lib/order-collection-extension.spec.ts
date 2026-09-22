@@ -37,6 +37,8 @@ describe('order collection extension session bridge', () => {
     await expect(detectOrderCollectionSessionExtension()).resolves.toBe(
       'order-extension',
     );
+    // The known extension gets 8 s: during collect-all a busy worker answers a
+    // ping late, and late is not missing (2026-09-18 GS샵 · 쿠팡직배송).
     expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(
       1200,
       [
@@ -44,6 +46,7 @@ describe('order collection extension session bridge', () => {
         'orderCollectionFailureEvidenceV1',
         'orderCollectionConfirmedCoverageV1',
       ],
+      8_000,
     );
   });
 
@@ -131,7 +134,7 @@ describe('order collection extension session bridge', () => {
         deferTerminal: true,
         date: '2026-07-28',
       }),
-      45000,
+      75_000,
     );
   });
 

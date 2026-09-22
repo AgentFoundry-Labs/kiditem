@@ -6,9 +6,14 @@ import { AlertCircle, ArrowLeft, ArrowRight, RotateCcw, Send } from 'lucide-reac
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
+import { ensureCandidateSalesProduct } from '@/lib/candidate-sales-product-registration';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
+import { registrationTargetApi } from '@/lib/registration-target-api';
+import { prepareSavedCandidateDetailImage } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow';
+import { salesProductInputFromCandidate } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/candidate-sales-products';
 import { productsApi } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import { mallPublishingApi } from '../../_shared/mall-publishing-api';
-import { MALL_PUBLISH_ADAPTERS, getMallPublishAdapter } from '../../_shared/adapters';
+import { MALL_REGISTRATION_ADAPTERS, getMallPublishAdapter } from '../../_shared/adapters';
 import {
   defaultAdapterValues,
   missingRequiredFields,
@@ -16,13 +21,19 @@ import {
   type MallPublishItem,
 } from '../../_shared/mall-publish-adapter';
 import { buildPublishPlan, summarizePublishRun } from '../lib/publish-plan';
+import {
+  detectMallFormSubmitMalls,
+} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import { useMallPublishRun } from '../hooks/use-mall-publish-run';
 import { StepProducts } from './StepProducts';
 import { StepMalls } from './StepMalls';
 import { StepValues } from './StepValues';
 import { StepDispatch } from './StepDispatch';
+import type { RegistrationTarget } from '@kiditem/shared/sales-product';
 
 const PAGE_SIZE = 25;
+
+type ProductSource = 'sales_product' | 'candidate';
 
 const STEPS = [
   { id: 1, label: '상품' },
@@ -33,7 +44,7 @@ const STEPS = [
 
 function initialValues(): Record<string, Record<string, string>> {
   const values: Record<string, Record<string, string>> = {};
-  for (const adapter of MALL_PUBLISH_ADAPTERS) {
+  for (const adapter of MALL_REGISTRATION_ADAPTERS) {
     values[adapter.mallKey] = defaultAdapterValues(adapter);
   }
   return values;
@@ -61,14 +72,28 @@ export function RegistrationWizard() {
   const [selectedItems, setSelectedItems] = useState<Map<string, MallPublishItem>>(new Map());
   const [selectedMalls, setSelectedMalls] = useState<ReadonlySet<string>>(new Set());
   const [valuesByMall, setValuesByMall] = useState(initialValues);
+  const [editedValuesByMall, setEditedValuesByMall] = useState<Record<string, Record<string, string>>>({});
+  const [registrationTargetIdsByMall, setRegistrationTargetIdsByMall] = useState<Record<string, Record<string, string>>>({});
   const [activeMallKey, setActiveMallKey] = useState('');
 
   const run = useMallPublishRun();
+
+  // 판매상품(ADR-0014)이 기본이다 — 한 번 편집한 상품을 몰로 보낸다. 수집상품에서 바로 보내는 길은 남겨 둔다.
+  const [source, setSource] = useState<ProductSource>('sales_product');
+  const [search, setSearch] = useState('');
 
   const productsQuery = useQuery({
     queryKey: queryKeys.sourcing.list({ page: String(page), limit: String(PAGE_SIZE), surface: 'mall-listings' }),
     queryFn: () => productsApi.list({ page, limit: PAGE_SIZE }),
     placeholderData: keepPreviousData,
+    enabled: source === 'candidate',
+  });
+
+  const salesQuery = useQuery({
+    queryKey: salesProductKeys.list({ page, limit: PAGE_SIZE, query: search || undefined, focus: 'all' }),
+    queryFn: () => salesProductApi.list({ page, limit: PAGE_SIZE, query: search || undefined, focus: 'all' }),
+    placeholderData: keepPreviousData,
+    enabled: source === 'sales_product',
   });
 
   const targetsQuery = useQuery({
@@ -76,16 +101,42 @@ export function RegistrationWizard() {
     queryFn: mallPublishingApi.targets,
   });
 
+  // 확장이 [등록]까지 누르는 몰(ADR-0015) — 확장 핑이 알려 주는 폼 스펙 이름을 몰 계정 키로 바꾼다.
+  const submitMallsQuery = useQuery({
+    queryKey: ['mall-listings', 'form-submit-malls'],
+    queryFn: detectMallFormSubmitMalls,
+    staleTime: 60_000,
+  });
+  const autoSubmitMalls = useMemo(() => new Set(
+    (Array.isArray(submitMallsQuery.data) ? submitMallsQuery.data : [])
+      .filter((mall): mall is string => typeof mall === 'string'),
+  ), [submitMallsQuery.data]);
+
   const pageItems = useMemo<MallPublishItem[]>(
-    () =>
-      (productsQuery.data?.items ?? []).map((product) => ({
+    () => source === 'sales_product'
+      ? (salesQuery.data?.items ?? []).map((product) => ({
+        candidateId: product.id,
+        name: product.name,
+        salePrice: product.salePrice,
+        thumbnailUrl: product.imageUrl,
+        source: 'sales_product' as const,
+        optionCount: product.optionAxes.length > 0 ? product.optionCount : 1,
+      }))
+      : (productsQuery.data?.items ?? []).map((product) => ({
         candidateId: product.id,
         name: product.name,
         salePrice: product.price_krw ?? null,
         thumbnailUrl: product.thumbnailUrl ?? null,
+        source: 'candidate' as const,
       })),
-    [productsQuery.data],
+    [source, productsQuery.data, salesQuery.data],
   );
+
+  const changeSource = useCallback((next: ProductSource) => {
+    setSource(next);
+    setPage(1);
+    setSelectedItems(new Map());
+  }, []);
 
   const items = useMemo(() => [...selectedItems.values()], [selectedItems]);
 
@@ -97,15 +148,78 @@ export function RegistrationWizard() {
     [selectedMalls],
   );
 
+  const registrationTargetChoicesQuery = useQuery({
+    queryKey: ['mall-listings', 'registration-target-choices', items
+      .map((item) => `${item.source ?? 'candidate'}:${item.candidateId}`)
+      .sort()],
+    enabled: step === 3 && items.length > 0 && adapters.some((adapter) => adapter.mode === 'form'),
+    queryFn: async () => Promise.all(items.map(async (item) => {
+      const salesProduct = item.source === 'sales_product'
+        ? null
+        : await salesProductApi.findByCandidate(item.candidateId);
+      const salesProductId = item.source === 'sales_product' ? item.candidateId : salesProduct?.id;
+      if (!salesProductId) return { candidateId: item.candidateId, targets: [] as RegistrationTarget[] };
+      return {
+        candidateId: item.candidateId,
+        targets: await registrationTargetApi.list(salesProductId),
+      };
+    })),
+  });
+
+  const registrationTargetsByItem = useMemo(
+    () => Object.fromEntries((registrationTargetChoicesQuery.data ?? []).map((entry) => [entry.candidateId, entry.targets])),
+    [registrationTargetChoicesQuery.data],
+  );
+  const registrationTargetSelectionRequiredByMall = useMemo(() => Object.fromEntries(adapters.map((adapter) => {
+    if (adapter.mode !== 'form') return [adapter.mallKey, [] as string[]];
+    const accountId = (targetsQuery.data ?? []).find((target) => target.manifest.key === adapter.mallKey)?.channelAccountId;
+    const requiredItemIds = accountId
+      ? items.filter((item) => (registrationTargetsByItem[item.candidateId] ?? [])
+        .filter((target) => target.channelAccountId === accountId).length > 1)
+        .map((item) => item.candidateId)
+      : [];
+    return [adapter.mallKey, requiredItemIds];
+  })), [adapters, items, registrationTargetsByItem, targetsQuery.data]);
+  const validRegistrationTargetIdsByMall = useMemo(() => Object.fromEntries(adapters.map((adapter) => {
+    const accountId = (targetsQuery.data ?? []).find((target) => target.manifest.key === adapter.mallKey)?.channelAccountId;
+    const ids = Object.fromEntries(items.flatMap((item) => {
+      const selectedId = registrationTargetIdsByMall[adapter.mallKey]?.[item.candidateId];
+      const existsForAccount = (registrationTargetsByItem[item.candidateId] ?? [])
+        .some((target) => target.id === selectedId && target.channelAccountId === accountId);
+      return selectedId && existsForAccount ? [[item.candidateId, selectedId]] : [];
+    }));
+    return [adapter.mallKey, ids];
+  })), [adapters, items, registrationTargetIdsByMall, registrationTargetsByItem, targetsQuery.data]);
+
   const plan = useMemo(
-    () => buildPublishPlan({ items, adapters, valuesByMall }),
-    [items, adapters, valuesByMall],
+    () => buildPublishPlan({
+      items,
+      adapters,
+      valuesByMall,
+      editedValuesByMall,
+      registrationTargetSelectionRequiredByMall,
+      registrationTargetIdsByMall: validRegistrationTargetIdsByMall,
+      channelAccountIds: Object.fromEntries((targetsQuery.data ?? []).map((target) => [
+        target.manifest.key,
+        target.channelAccountId,
+      ])),
+    }),
+    [
+      items,
+      adapters,
+      valuesByMall,
+      editedValuesByMall,
+      registrationTargetSelectionRequiredByMall,
+      validRegistrationTargetIdsByMall,
+      targetsQuery.data,
+    ],
   );
 
   const missingByMall = useMemo(
     () => adapters.filter((adapter) => missingRequiredFields(adapter, valuesByMall[adapter.mallKey] ?? {}).length > 0),
     [adapters, valuesByMall],
   );
+  const hasFormAdapter = adapters.some((adapter) => adapter.mode === 'form');
 
   const toggleProduct = useCallback((candidateId: string) => {
     setSelectedItems((current) => {
@@ -147,7 +261,30 @@ export function RegistrationWizard() {
       ...current,
       [mallKey]: { ...(current[mallKey] ?? {}), [fieldKey]: value },
     }));
+    setEditedValuesByMall((current) => ({
+      ...current,
+      [mallKey]: { ...(current[mallKey] ?? {}), [fieldKey]: value },
+    }));
   }, []);
+
+  const selectRegistrationTarget = useCallback((mallKey: string, candidateId: string, targetId: string) => {
+    setRegistrationTargetIdsByMall((current) => ({
+      ...current,
+      [mallKey]: { ...(current[mallKey] ?? {}), [candidateId]: targetId },
+    }));
+  }, []);
+
+  const ensureCandidateForRegistration = useCallback(async (candidateId: string) => (
+    ensureCandidateSalesProduct(candidateId, async (id) => {
+      const detail = await productsApi.getDetail(id);
+      const rendered = await prepareSavedCandidateDetailImage(id, detail).catch(() => null);
+      return salesProductInputFromCandidate(detail, rendered?.status === 'ready' ? rendered.imageUrl : null);
+    }, {
+      findByCandidate: salesProductApi.findByCandidate,
+      update: salesProductApi.update,
+      createFromCandidates: salesProductApi.createFromCandidates,
+    })
+  ), []);
 
   const restart = useCallback(() => {
     run.reset();
@@ -158,7 +295,9 @@ export function RegistrationWizard() {
   const canAdvance =
     step === 1 ? items.length > 0
       : step === 2 ? adapters.length > 0
-        : step === 3 ? plan.sendCount > 0 && missingByMall.length === 0
+        : step === 3 ? plan.sendCount > 0
+          && missingByMall.length === 0
+          && (!hasFormAdapter || (targetsQuery.isSuccess && registrationTargetChoicesQuery.isSuccess))
           : false;
 
   return (
@@ -168,17 +307,33 @@ export function RegistrationWizard() {
       {targetsQuery.isError ? (
         <ErrorBox error={targetsQuery.error} fallback="몰 목록을 불러오지 못했습니다." />
       ) : null}
-      {productsQuery.isError ? (
+      {source === 'candidate' && productsQuery.isError ? (
         <ErrorBox error={productsQuery.error} fallback="수집 상품을 불러오지 못했습니다." />
+      ) : null}
+      {source === 'sales_product' && salesQuery.isError ? (
+        <ErrorBox error={salesQuery.error} fallback="판매상품을 불러오지 못했습니다." />
+      ) : null}
+      {step === 3 && registrationTargetChoicesQuery.isError ? (
+        <ErrorBox error={registrationTargetChoicesQuery.error} fallback="기존 등록 설정을 확인하지 못했습니다." />
+      ) : null}
+      {step === 3 && hasFormAdapter && registrationTargetChoicesQuery.isLoading ? (
+        <p role="status" className="text-xs text-slate-500">기존 등록 설정을 확인하고 있습니다.</p>
       ) : null}
 
       {step === 1 ? (
         <StepProducts
+          source={source}
+          onSourceChange={changeSource}
+          search={search}
+          onSearch={(next) => {
+            setSearch(next);
+            setPage(1);
+          }}
           items={pageItems}
-          total={productsQuery.data?.total ?? 0}
+          total={(source === 'sales_product' ? salesQuery.data?.total : productsQuery.data?.total) ?? 0}
           page={page}
           limit={PAGE_SIZE}
-          loading={productsQuery.isLoading}
+          loading={source === 'sales_product' ? salesQuery.isLoading : productsQuery.isLoading}
           selected={new Set(selectedItems.keys())}
           onPageChange={setPage}
           onToggle={toggleProduct}
@@ -192,6 +347,7 @@ export function RegistrationWizard() {
           selected={selectedMalls}
           productCount={items.length}
           onToggle={toggleMall}
+          autoSubmitMalls={autoSubmitMalls}
         />
       ) : null}
 
@@ -202,8 +358,12 @@ export function RegistrationWizard() {
           activeMallKey={activeMallKey || adapters[0]?.mallKey || ''}
           valuesByMall={valuesByMall}
           blocks={plan.blocks}
+          channelAccountId={targetsQuery.data?.find((target) => target.manifest.key === (activeMallKey || adapters[0]?.mallKey))?.channelAccountId ?? null}
+          registrationTargetsByItem={registrationTargetsByItem}
+          selectedRegistrationTargetIds={registrationTargetIdsByMall[activeMallKey || adapters[0]?.mallKey || ''] ?? {}}
           onSelectMall={setActiveMallKey}
           onChangeValue={changeValue}
+          onSelectRegistrationTarget={(candidateId, targetId) => selectRegistrationTarget(activeMallKey || adapters[0]?.mallKey || '', candidateId, targetId)}
         />
       ) : null}
 
@@ -223,7 +383,7 @@ export function RegistrationWizard() {
         onNext={() => setStep((current) => Math.min(4, current + 1))}
         onSend={() => {
           setStep(4);
-          void run.start(plan.tasks);
+          void run.start(plan.tasks, { ensureCandidateSalesProduct: ensureCandidateForRegistration });
         }}
         onCancel={run.cancel}
         onRestart={restart}

@@ -95,6 +95,31 @@ describe('useProductHubPageState', () => {
     expect(result.current.overviewErrorMessage).toBeNull();
   });
 
+  it('줄 세우기를 바꿔도 위 요약 카드가 사라지지 않는다', () => {
+    // 요약은 거른 전체를 센 값이라 순서와 무관하다. 줄 세우기를 조건에 넣어 두면 정렬을
+    // 누를 때마다 카드가 통째로 비었다가 다시 붙고, 같은 계산이 30초마다 두 번 돈다
+    // (2026-09-21 점검).
+    navigation.params = new URLSearchParams('sort=revenue');
+    const listData = { total: 3, summary: { abcGradeCounts: { A: 1, B: 2, C: 0, unclassified: 0 } } };
+    vi.mocked(useQuery).mockImplementation((options) => {
+      const params = options.queryKey.at(-1) as Record<string, string>;
+      const isOverview = params.limit === '1';
+      return {
+        data: isOverview ? undefined : listData,
+        error: null,
+        isFetching: false,
+        isLoading: false,
+        isPlaceholderData: false,
+        refetch: isOverview ? refetchMocks.overview : refetchMocks.list,
+      } as unknown as ReturnType<typeof useQuery>;
+    });
+
+    const { result } = renderHook(() => useProductHubPageState());
+
+    expect((vi.mocked(useQuery).mock.calls[1]?.[0] as { enabled?: boolean }).enabled).toBe(false);
+    expect(result.current.overviewData).toBe(listData);
+  });
+
   it('keeps the independent overview while the default list is placeholder data', () => {
     const placeholderListData = { total: 1, summary: { abcGradeCounts: { A: 1, B: 0, C: 0, unclassified: 0 } } };
     const overviewData = { total: 3, summary: { abcGradeCounts: { A: 1, B: 2, C: 0, unclassified: 0 } } };
@@ -183,6 +208,7 @@ describe('useProductHubPageState', () => {
         activeStatus: 'active',
         inventoryFocus: 'attention',
         adStatus: 'unconfigured',
+        sort: 'latest',
         query: '우산',
         sort: 'latest',
         abcGrade: 'B',
@@ -220,6 +246,27 @@ describe('useProductHubPageState', () => {
       },
     ]);
     expect(overviewOptions.queryFn.toString()).toContain('/api/products/masters');
+  });
+
+  it('줄 세우기를 바꾸면 주소에 남고 첫 쪽으로 돌아간다', () => {
+    navigation.params = new URLSearchParams('page=4');
+    const { result } = renderHook(() => useProductHubPageState());
+
+    act(() => result.current.setSort('revenue'));
+    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?page=1&sort=revenue');
+
+    // 기본값은 주소를 더럽히지 않는다.
+    navigation.params = new URLSearchParams('sort=revenue&page=2');
+    act(() => result.current.setSort('latest'));
+    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?page=1');
+  });
+
+  it('주소에 모르는 줄 세우기가 들어와도 최신 등록순으로 읽는다', () => {
+    navigation.params = new URLSearchParams('sort=%EB%AA%A8%EB%A6%84');
+
+    const { result } = renderHook(() => useProductHubPageState());
+
+    expect(result.current.sort).toBe('latest');
   });
 
   it('opens the data-status modal through URL state and keeps the grade filter independent', () => {

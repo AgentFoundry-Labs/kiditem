@@ -2,46 +2,70 @@ import { channelRegistersListings, findChannel } from '@kiditem/shared/channel-r
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 
 /**
- * 연결된 몰 한 곳으로 **무엇이 되는가** — 사방넷 스케줄러와 같은 칸이다(사장님 2026-09-17):
- * 주문수집 · 클레임수집 · 운송장 송신 · 문의수집 · 문의답변 · 상품등록 · 상품수정 ·
- * 상품상태송신(품절 · 판매중지) · 재고송신.
+ * 연결된 몰 한 곳으로 **무엇이 되는가** — 사방넷 스케줄러와 같은 칸이다(사장님 2026-09-17).
+ * 칸 순서는 자주 보는 일부터다(사장님 2026-09-19): 주문수집 · 운송장 송신 · 상품등록 · 품절관리 ·
+ * 판매재개, 그 뒤에 클레임수집 · 문의수집 · 문의답변 · 상품수정 · 재고송신. 사방넷의 상품상태송신 한 칸을 품절관리 · 판매재개 둘로 가른다 —
+ * 몰마다 둘이 따로 되는지가 보여야 한다(사장님 2026-09-19: "품절관리랑 판매재개 기능 구별해서 되는지
+ * 구별해놔줘").
  *
  * 상태는 셋뿐이다.
  *  - `ready`(초록): 지금 된다. 경로가 실제로 있다.
  *  - `pending`(회색): 아직 안 된다. 만들면 되는 일이다.
  *  - `unavailable`(빨강): 그 몰에는 그 일이 없다. 만들 수도 없다.
  *
- * 근거는 전부 이미 있는 권위에서 온다. 주문수집·송장전송은 서버가 채널 레지스트리에서
- * 내려주는 값(`collectsOrders`·`uploadsTracking`, 주문이 셀피아로 들어오는 몰은
- * `orderCollectionVia`), 상품등록은 등록 어댑터 레지스트리, '없는 일'은 채널
- * 레지스트리가 '등록 개념이 없다'고 확인한 채널(쿠팡 로켓·쿠팡직배송처럼 우리가 발주를
- * 받는 사입 채널)이다. 화면이 몰 이름을 보고 추측하지 않는다 — 추측으로 칠한 초록은
- * 눌러도 안 된다.
+ * 근거는 전부 이미 있는 권위에서 온다. 주문수집·송장전송은 서버 매니페스트
+ * (`collectsOrders`·`uploadsTracking`, 주문이 셀피아로 들어오는 몰은 `orderCollectionVia`),
+ * 상품등록은 등록 어댑터 레지스트리, '없는 일'은
+ * 매니페스트의 `applicable: false`(쿠팡 로켓·쿠팡직배송처럼 우리가 발주를 받는 사입
+ * 채널)다. 화면이 몰 이름을 보고 추측하지 않는다 — 추측으로 칠한 초록은 눌러도 안 된다.
  */
 export type CapabilityState = 'ready' | 'pending' | 'unavailable';
 
 export const CAPABILITY_KEYS = [
   'orders',
-  'claims',
   'tracking',
+  'register',
+  'bulk',
+  'soldout',
+  'resume',
+  'claims',
   'inquiries',
   'inquiryReplies',
-  'register',
   'update',
-  'soldout',
   'stock',
 ] as const;
 export type CapabilityKey = (typeof CAPABILITY_KEYS)[number];
 
 export type MallCapabilities = Record<CapabilityKey, CapabilityState>;
 
-/** 서버 매니페스트에서 이 판정에 쓰는 조각. 몰 방식(품절)만 답한다. */
+/** 서버 매니페스트에서 이 판정에 쓰는 조각. */
 export interface MallManifestFacts {
   applicable: boolean;
   /** 몰 방식이 아직 확인되지 않았다. 이때 `supports` 는 비어 있다(모름). */
   unverified: boolean;
-  supports: { soldOut: boolean };
+  /** `resume` 은 몰이 품절 해제를 자동으로 받는가. false 면 사람이 몰에서 풀어야 한다. */
+  supports: { soldOut: boolean; resume?: boolean };
+  /**
+   * 우리가 그 몰 관리자에 품절을 쓰는 구현을 만들었는가.
+   *
+   * `supports.soldOut`(그 몰이 품절을 지원하는가)과 다르다. 지원하는데 우리가 아직
+   * 안 뚫은 몰이 대부분이라, 이 칸의 초록은 **이 값**만 보고 켠다.
+   */
+  soldOutRoute?: 'mall_admin' | null;
+  /** 판매 재개(품절 해제)를 보내는 길. 판매재개 칸의 초록은 이 값만 보고 켠다. */
+  resumeRoute?: 'mall_admin' | null;
   hazards: { soldOutDeletesListing: boolean };
+}
+
+/**
+ * 몰 대량등록 엑셀(판매상품 → 몰 양식)의 판정 근거 — 서버의 몰 엑셀 목록. 양식을 붙인 몰은 됨, 신규 등록 엑셀이
+ * 없는 몰은 불가, 나머지는 아직이다. 목록을 못 받았으면 null — 그때는 전부 아직이다.
+ */
+export interface MallBulkSheetFacts {
+  /** 몰 키 → 그 몰이 들어가는 엑셀(ESM 은 G마켓 · 옥션이 한 파일). */
+  sheets: ReadonlyMap<string, { label: string; mallKeys: readonly string[] }>;
+  /** 몰 키 → 신규 등록 엑셀이 없는 까닭. */
+  unavailable: ReadonlyMap<string, string>;
 }
 
 export function mallCapabilities(
@@ -51,15 +75,19 @@ export function mallCapabilities(
     hasAdapter: boolean;
     /** 서버 매니페스트. 못 받았으면 null — 그때는 없는 일로 단정하지 않는다. */
     manifest: MallManifestFacts | null;
+    /** 몰 대량등록 엑셀 목록. 못 받았으면 없음(null) — 대량등록 칸은 아직이다. */
+    bulkSheets?: MallBulkSheetFacts | null;
   },
 ): MallCapabilities {
   const { manifest } = context;
-  // '그 일이 없다' 는 채널 레지스트리가 답한다. 마켓 판매자 시스템(쿠팡 로켓)은 몰 등록
-  // 매니페스트를 갖지 않으므로, 매니페스트 유무로 판정하면 사입 채널의 빨강이 회색이 된다.
+  // 채널 레지스트리가 발주 전용 채널의 등록 개념 여부를 정한다.
   const entry = findChannel(channel.mallKey);
   const applicable = entry ? channelRegistersListings(entry) : manifest?.applicable ?? true;
   // 확인된 몰인데 품절을 안 받는다고 하면 없는 일이다. 확인 전이면 모른다.
   const takesSoldOut = !manifest || manifest.unverified || manifest.supports?.soldOut !== false;
+  // 품절은 받아도 해제를 자동으로 못 받는다고 확인된 몰은 판매재개가 없는 일이다 — 몰에서 사람이 푼다.
+  const takesResume = takesSoldOut
+    && (!manifest || manifest.unverified || manifest.supports?.resume !== false);
   // 발주를 받는 사입 채널(쿠팡 로켓 · 직배송)에는 고객 클레임 · 문의도, 우리가 고칠 상품
   // 페이지도, 우리가 보낼 재고도 없다. 그 칸은 빨강이다.
   const onlyWhereApplicable: CapabilityState = applicable ? 'pending' : 'unavailable';
@@ -76,10 +104,22 @@ export function mallCapabilities(
     register: !applicable
       ? 'unavailable'
       : context.hasAdapter ? 'ready' : 'pending',
+    // 대량등록은 판매상품으로 그 몰 양식을 채워 받을 수 있을 때만 초록이다(서버의 몰 엑셀 목록). 몰에 신규 등록
+    // 엑셀이 없다고 확인된 곳은 빨강이다 — 그 몰은 상품등록(폼)으로 간다.
+    bulk: !applicable || context.bulkSheets?.unavailable.has(channel.mallKey)
+      ? 'unavailable'
+      : context.bulkSheets?.sheets.has(channel.mallKey) ? 'ready' : 'pending',
     update: onlyWhereApplicable,
-    // ⚠️ 품절 송신 경로는 아직 어느 몰에도 없다 — 서버에 송신 API 가 없고 품절 관리 화면은
-    // 미리보기만 한다(2026-09-11). 몰이 품절을 안 받는다고 확인된 곳은 빨강이다.
-    soldout: !applicable || !takesSoldOut ? 'unavailable' : 'pending',
+    // 품절 송신은 확장이 그 몰 관리자에 직접 쓰는 몰만 초록이다(`soldOutRoute`).
+    // 몰이 품절을 받는다는 사실만으로 켜지 않는다 — 그건 몰의 사정이고, 이 칸은
+    // **우리가 지금 보낼 수 있는가**를 말한다. 몰이 안 받는다고 확인된 곳은 빨강이다.
+    soldout: !applicable || !takesSoldOut
+      ? 'unavailable'
+      : manifest?.soldOutRoute === 'mall_admin' ? 'ready' : 'pending',
+    // 판매재개도 같은 기준이다 — 그 몰 관리자에 해제를 보내는 길(`resumeRoute`)이 있어야 초록이다.
+    resume: !applicable || !takesResume
+      ? 'unavailable'
+      : manifest?.resumeRoute === 'mall_admin' ? 'ready' : 'pending',
     stock: onlyWhereApplicable,
   };
 }
@@ -169,9 +209,44 @@ export function registerNoteFor(
  */
 export function soldOutNoteFor(manifest: MallManifestFacts | null): string | null {
   if (!manifest || !manifest.applicable) return null;
+  // 경로가 있는 몰에 "경로가 아직 없다" · "확인 전"을 적으면 초록 칸이 거짓말을 한다. 그때는 칸의 기본 설명을 쓴다 —
+  // 몰 API 는 확인 전이어도(지마켓 · 옥션 · 11번가 · 스마트스토어) 관리자 화면의 품절 길은 확인했다.
+  if (manifest.soldOutRoute === 'mall_admin') return null;
   if (manifest.unverified) return '이 몰의 품절 방식은 아직 확인 전입니다.';
   if (manifest.supports?.soldOut === false) return null;
   return manifest.hazards?.soldOutDeletesListing
     ? '몰은 품절을 받지만 완전품절이 영구삭제라 판매중지로 보내야 합니다. 우리 송신 경로는 아직 없습니다.'
     : '몰은 품절·해제를 받습니다. 우리 송신 경로가 아직 없습니다.';
+}
+
+/**
+ * 대량등록 줄에 붙는 사연 — 어디서 받는지(판매상품 화면), 한 파일에 함께 들어가는 몰, 엑셀이 없는 까닭.
+ */
+export function bulkNoteFor(
+  mallKey: string,
+  facts: MallBulkSheetFacts | null,
+  mallNameOf: (key: string) => string,
+): string | null {
+  if (!facts) return null;
+  const unavailable = facts.unavailable.get(mallKey);
+  if (unavailable) return unavailable;
+  const sheet = facts.sheets.get(mallKey);
+  if (!sheet) return null;
+  const together = sheet.mallKeys.length > 1 ? ` — ${sheet.mallKeys.map(mallNameOf).join('·')} 한 파일` : '';
+  return `판매상품 화면 [몰 대량등록 엑셀] › ${sheet.label}${together}에서 이 몰 양식을 채워 받습니다.`;
+}
+
+/**
+ * 판매재개 줄에 붙는 사연. 몰이 해제를 자동으로 받지 않는 곳은 사람이 몰에서 풀어야 한다고 적는다 —
+ * 품절관리는 초록인데 판매재개가 빨강이면 이유가 보여야 한다.
+ */
+export function resumeNoteFor(manifest: MallManifestFacts | null): string | null {
+  if (!manifest || !manifest.applicable) return null;
+  if (manifest.resumeRoute === 'mall_admin') return null;
+  if (manifest.unverified) return '이 몰의 판매재개 방식은 아직 확인 전입니다.';
+  if (manifest.supports?.soldOut === false) return null;
+  if (manifest.supports?.resume === false) {
+    return '몰이 품절 해제를 자동으로 받지 않습니다 — 몰 관리자에서 직접 풀어야 합니다.';
+  }
+  return '몰은 판매재개를 받습니다. 우리 송신 경로가 아직 없습니다.';
 }

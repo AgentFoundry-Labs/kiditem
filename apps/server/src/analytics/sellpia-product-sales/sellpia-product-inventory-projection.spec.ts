@@ -68,6 +68,10 @@ describe('Sellpia product inventory projection', () => {
         salesRowCount: 2,
         inventoryProduct: { masterProductId: SKU_ID },
       },
+      // 같은 SKU 로 해소된 두 판매행을 월별로 합친 [50, 50] 의 평균이다 — 행마다 따로
+      // 세지 않는다. 재고 100 ÷ 50 = 2개월.
+      monthlyOutflow: 50,
+      outflowMonthCount: 2,
       monthsOfAvailableStockLeft: 2,
       reorderPoint: 75,
       needsReorder: false,

@@ -404,18 +404,27 @@ export async function detectOrderCollectionExtensionId(
 export async function detectOrderCollectionExtensionRuntime(
   timeoutMs = 1200,
   requiredCapabilities: string[] = ['orderCollectionIcecreamMall'],
+  /**
+   * How long the extension this browser already knows gets to answer. A worker
+   * busy with other malls answers a ping late; late is not missing. Discovery
+   * of an unknown extension keeps `timeoutMs`.
+   */
+  knownProbeTimeoutMs = timeoutMs,
 ): Promise<ExtensionRuntimeStatus> {
   if (typeof window === 'undefined') return { status: 'not_found' };
   const capabilities = [...new Set([
     'kiditemEnvironmentProfilesV1',
     ...requiredCapabilities,
   ])];
-  const probe = async (extensionId: string): Promise<ExtensionRuntimeStatus | null> => {
+  const probe = async (
+    extensionId: string,
+    probeTimeoutMs = timeoutMs,
+  ): Promise<ExtensionRuntimeStatus | null> => {
     try {
       const response = await sendToExtension<ExtensionPingResponse>(
         extensionId,
         { action: 'ping' },
-        timeoutMs,
+        probeTimeoutMs,
       );
       if (!response?.success) return null;
       const version = typeof response.version === 'string' && response.version.length > 0
@@ -433,7 +442,7 @@ export async function detectOrderCollectionExtensionRuntime(
   };
 
   const stored = safeStorageGet('local', KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY);
-  const storedStatus = stored ? await probe(stored) : null;
+  const storedStatus = stored ? await probe(stored, knownProbeTimeoutMs) : null;
   if (storedStatus?.status === 'ready') return storedStatus;
 
   const fromHandshake = await requestExtensionIdsFromHandshake({

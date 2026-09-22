@@ -87,6 +87,7 @@ function productAbcRead(prisma: PrismaClient): ProductAbcReadPort {
         publication: publication.publication,
         products: publication.products.map((product) => ({
           masterProductId: product.masterProductId,
+          saleStartDate: product.evaluation?.saleStartDate ?? null,
           contributionEligible: product.contributionEligible,
           abc: buildProductAbcReadModel({
             evaluation: product.evaluation,

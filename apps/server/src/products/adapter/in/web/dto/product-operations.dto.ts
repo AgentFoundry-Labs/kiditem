@@ -21,6 +21,7 @@ const ACTIVE_STATUSES = ProductOperationsActiveStatusSchema.options;
 const INVENTORY_STATUSES = ProductInventoryStatusSchema.options;
 const INVENTORY_FOCUSES = ProductOperationsInventoryFocusSchema.options;
 const AD_STATUSES = ProductOperationsAdStatusSchema.options;
+const SORTS = ProductOperationsSortSchema.options;
 const PERIOD_DAYS = [7, 14, 30] as const;
 const ABC_STATUSES = ProductOperationsAbcCalculationStatusFilterSchema.options;
 
@@ -31,9 +32,6 @@ export class ProductOperationsDataStatusQueryDto {
 }
 
 export class ProductOperationsListQueryDto {
-  @IsIn(ProductOperationsSortSchema.options)
-  sort: (typeof ProductOperationsSortSchema.options)[number] = 'latest';
-
   @Type(() => Number)
   @IsInt()
   @IsPositive()
@@ -75,4 +73,7 @@ export class ProductOperationsListQueryDto {
 
   @IsIn(AD_STATUSES)
   adStatus: (typeof AD_STATUSES)[number] = 'all';
+
+  @IsIn(SORTS)
+  sort: (typeof SORTS)[number] = 'latest';
 }

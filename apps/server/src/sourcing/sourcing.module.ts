@@ -1,3 +1,4 @@
+import { ChannelsRegistrationPreparationModule } from "../channels/channels-registration-preparation.module";
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
@@ -91,7 +92,6 @@ import { SourcingDecisionBatchRepositoryAdapter } from "./adapter/out/repository
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from "./adapter/out/repository/sourcing-browser-source-attempt.repository.adapter";
 import { Sourcing1688SearchResultRepositoryAdapter } from "./adapter/out/repository/sourcing-1688-search-result.repository.adapter";
 import { LiveCommerceRepositoryAdapter } from "./adapter/out/repository/live-commerce.repository.adapter";
-import { ProductPreparationRepositoryAdapter } from "./adapter/out/repository/product-preparation.repository.adapter";
 import { CoupangMomentumAdapter } from "./adapter/out/advertising/coupang-momentum.adapter";
 import { RegistrationContentWorkspaceAdapter } from "./adapter/out/ai/registration-content-workspace.adapter";
 import { CandidateContentAssetAdapter } from "./adapter/out/ai/candidate-content-asset.adapter";
@@ -114,7 +114,6 @@ import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from "./application/port/out/cross
 import { SOURCING_SUPPLY_INTELLIGENCE_PORT } from "./application/port/out/cross-domain/sourcing-supply-intelligence.port";
 import { TREND_COLLECTION_PORT } from "./application/port/in/trend-collection.port";
 import { LIVE_COMMERCE_REPOSITORY_PORT } from "./application/port/out/repository/live-commerce.repository.port";
-import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "./application/port/out/repository/product-preparation.repository.port";
 import { SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-collection-source-control.repository.port";
 import { SOURCING_KEYWORD_PREFERENCE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-keyword-preference.repository.port";
 import { SOURCING_KEYWORD_SUGGESTION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-keyword-suggestion.repository.port";
@@ -125,7 +124,7 @@ import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "./application/port/out/
 import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-browser-source-attempt.repository.port";
 import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-1688-search-result.repository.port";
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
-import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "./application/port/out/cross-domain/registration-content-workspace.port";
+import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "./application/port/in/registration-content-workspace.port";
 import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cross-domain/candidate-content-asset.port";
 
 /**
@@ -149,6 +148,7 @@ import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cr
  */
 @Module({
   imports: [
+    ChannelsRegistrationPreparationModule,
     PrismaModule,
     AlertsModule,
     SourcingAgentRuntimeModule,
@@ -241,7 +241,6 @@ import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cr
     SourcingBrowserSourceAttemptRepositoryAdapter,
     Sourcing1688SearchResultRepositoryAdapter,
     LiveCommerceRepositoryAdapter,
-    ProductPreparationRepositoryAdapter,
     CoupangMomentumAdapter,
     RegistrationContentWorkspaceAdapter,
     CandidateContentAssetAdapter,
@@ -338,10 +337,6 @@ import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cr
     {
       provide: LIVE_COMMERCE_REPOSITORY_PORT,
       useExisting: LiveCommerceRepositoryAdapter,
-    },
-    {
-      provide: PRODUCT_PREPARATION_REPOSITORY_PORT,
-      useExisting: ProductPreparationRepositoryAdapter,
     },
     {
       provide: COUPANG_MOMENTUM_PORT,

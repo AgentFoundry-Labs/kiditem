@@ -27,7 +27,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 2 |
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 22 |
-| [Channels](erd/channels.md) | 25 |
+| [Channels](erd/channels.md) | 31 |
 | [Core](erd/core.md) | 9 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 3 |
@@ -35,7 +35,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Products](erd/products.md) | 6 |
 | [Sourcing](erd/sourcing.md) | 34 |
 | [Supply](erd/supply.md) | 13 |
-| [System](erd/system.md) | 4 |
+| [System](erd/system.md) | 5 |
 
 ## Model Index
 
@@ -45,6 +45,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ExecutionTask | Advertising | `execution_tasks` | - |
 | CapabilityInvocation | AgentOS | `capability_invocations` | Exact request-driven mutation admission and replay receipt. |
 | AiDirectJob | AI | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
+| AiUsageRecord | AI | `ai_usage_records` | Append-only metering of one Gemini call: tokens and an estimated cost, attributed to the agent whose request or job made it. Cost is null when the model has no registered price. |
 | ContentAsset | AI | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
 | ContentGeneration | AI | `content_generations` | - |
 | ContentGenerationAssetUsage | AI | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
@@ -56,7 +57,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | DetailPageImageArtifact | AI | `detail_page_image_artifacts` | Durable single-JPEG marketplace rendition for one immutable detail-page revision and renderer variant. |
 | DetailPageImageRenderIntent | AI | `detail_page_image_render_intents` | Short-lived organization-scoped claim that binds a browser renderer to one exact detail-page revision and object key. |
 | DetailPageRevision | AI | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
-| ProductPreparation | AI | `product_preparations` | Product pipeline preparation state. Stores operator-confirmed registration inputs and selected generated assets before marketplace listing. |
 | Thumbnail | AI | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | AI | `thumbnail_generations` | 상태: status=pending/running/succeeded/failed/cancelled, phase=ready/applied. method=generate/creative/auto. |
@@ -84,9 +84,15 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | CoupangWingSalesRankDailySnapshot | Channels | `coupang_wing_sales_rank_daily_snapshots` | Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다. |
 | CoupangWingTrackedProduct | Channels | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | Channels | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
-| ProductRegistrationExecution | Channels | `product_registration_executions` | 채널 계정 하나에 초안 하나를 최대 한 번만 제출하는 등록 실행 울타리. 동결 payload·SHA-256·idempotency key·lease·provider 결과를 보존한다. |
+| ProductPreparation | Channels | `product_preparations` | Persistent registration target with explicit marketplace overrides. Executions freeze submitted values separately (ADR-0020). |
+| ProductPreparationOption | Channels | `product_preparation_options` | Selected common option and explicit price overrides for one persistent registration target. |
+| ProductRegistrationExecution | Channels | `product_registration_executions` | One frozen registration intent. A reusable target has many executions; one active execution per target and idempotent requests prevent duplicate submissions (ADR-0020). |
 | RocketPoCatalogLine | Channels | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
 | RocketPoCatalogSnapshot | Channels | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
+| SalesProduct | Channels | `sales_products` | Channels-owned common selling product identified by its KID. Reusable registration targets select its options and override its defaults; inventory and ABC remain Products-owned (ADR-0020). |
+| SalesProductOption | Channels | `sales_product_options` | Selling composition with a stable UUID, issued KID and final option price. Its template is not operational inventory; confirmed channel recipes own that composition (ADR-0020). |
+| SalesProductOptionComponent | Channels | `sales_product_option_components` | Declared source composition for a selling option. Applied to an empty channel recipe only by an explicit request; never a capacity source (ADR-0020). |
+| SalesProductPublicImage | Channels | `sales_product_public_images` | Public copy of a sales-product image or detail image that malls can download (우리 저장소는 사무실 밖에서 열리지 않는다). Keyed by our storage URL; the sales product keeps its own URL and mall bulk sheets use the copy (ADR-0014). |
 | SellpiaManualMatchAlias | Channels | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
 | SellpiaManualMatchSnapshot | Channels | `sellpia_manual_match_snapshots` | Current organization-scoped, read-only Sellpia manual-match evidence restricted to exact aliases used by current channel listings. |
 | SellpiaProductMonthlySales | Channels | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
@@ -173,6 +179,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | DataMigrationRun | System | `data_migration_runs` | 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다. |
 | FeatureGate | System | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | SystemSetting | System | `system_settings` | - |
+| TodoItem | System | `todo_items` | 할 일 한 줄(TO DO LIST 화면). 사장님이 해 줘야 하는 일과 우리가 만들 일을 한 곳에 적는다 — 몰 대량등록처럼 여러 화면에 걸친 일의 남은 조각을 잊지 않으려고 둔다. |
 
 ## Mermaid ER Diagram
 
@@ -216,6 +223,18 @@ erDiagram
     String lastErrorMessage
     DateTime createdAt
     DateTime updatedAt
+  }
+  AiUsageRecord {
+    String id PK
+    String organizationId FK
+    String agentKey
+    String provider
+    String model
+    String operation
+    Int inputTokens
+    Int outputTokens
+    BigInt costMicroUsd
+    DateTime createdAt
   }
   Alert {
     String id PK
@@ -368,6 +387,7 @@ erDiagram
     DateTime updatedAt
   }
   ChannelListing {
+    String salesProductId FK
     String id PK
     String organizationId FK
     String channelAccountId FK
@@ -378,6 +398,7 @@ erDiagram
     String category
     String brand
     String manufacturer
+    String imageUrl
     Json rawJson
     String lastImportRunId FK
     String status
@@ -449,6 +470,7 @@ erDiagram
     DateTime updatedAt
   }
   ChannelListingOption {
+    String salesProductOptionId FK
     String id PK
     String listingId FK
     String organizationId FK
@@ -1228,17 +1250,19 @@ erDiagram
   ProductPreparation {
     String id PK
     String organizationId FK
-    String sourceCandidateId FK
+    String salesProductId FK
+    Int version
+    String sourceCandidateId
     String channelAccountId FK
-    String sourceContentWorkspaceId FK
+    String sourceContentWorkspaceId
     DateTime closedAt
     String displayName
     String selectedThumbnailUrl
-    String selectedThumbnailGenerationId FK
-    String selectedThumbnailGenerationCandidateId FK
-    String selectedDetailPageArtifactId FK
-    String selectedDetailPageRevisionId FK
-    String selectedDetailPageGenerationId FK
+    String selectedThumbnailGenerationId
+    String selectedThumbnailGenerationCandidateId
+    String selectedDetailPageArtifactId
+    String selectedDetailPageRevisionId
+    String selectedDetailPageGenerationId
     Json registrationInput
     String reviewPayloadHash
     DateTime approvedAt
@@ -1249,10 +1273,20 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ProductPreparationOption {
+    String id PK
+    String organizationId FK
+    String productPreparationId FK
+    String salesProductOptionId FK
+    Int sortOrder
+    Int salePrice
+    Int normalPrice
+    Int supplyPrice
+  }
   ProductRegistrationExecution {
     String id PK
     String organizationId FK
-    String productPreparationId
+    String productPreparationId FK
     String channelAccountId FK
     String channelListingId FK
     String executionKind
@@ -1494,6 +1528,80 @@ erDiagram
     String notes
     DateTime createdAt
     DateTime updatedAt
+  }
+  SalesProduct {
+    String id PK
+    String organizationId FK
+    String code
+    String ownCode
+    String sabangnetGoodsNo
+    String name
+    String shortName
+    String englishName
+    String printName
+    String modelName
+    String modelNo
+    String brand
+    String manufacturer
+    String originCountry
+    String originRegion
+    StringArray keywords
+    String standardCategory
+    String status
+    String taxType
+    String deliveryFeeType
+    Int deliveryFee
+    StringArray optionAxes
+    Boolean stockManaged
+    Boolean optionsLocked
+    StringArray imageUrls
+    String detailHtml
+    StringArray extraDetailHtml
+    String noticeCategory
+    StringArray noticeValues
+    Json certifications
+    String importDeclarationNo
+    String adminMemo
+    Json sourceRaw
+    String sourceCandidateId
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductOption {
+    String id PK
+    String organizationId FK
+    String salesProductId FK
+    String optionCode
+    String sabangnetOptionCode
+    StringArray values
+    String optionKey
+    String alias
+    String barcode
+    Int salePrice
+    Int normalPrice
+    String supplyStatus
+    Int safetyStock
+    Int sortOrder
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductOptionComponent {
+    String id PK
+    String organizationId FK
+    String salesProductOptionId FK
+    String masterProductId
+    Int quantity
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductPublicImage {
+    String id PK
+    String organizationId FK
+    String sourceUrl
+    String publicUrl
+    String host
+    DateTime createdAt
   }
   SellpiaInventoryState {
     String organizationId PK,FK
@@ -2417,6 +2525,19 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  TodoItem {
+    String id PK
+    String organizationId FK
+    String owner
+    String area
+    String title
+    String detail
+    String status
+    Int sortOrder
+    DateTime doneAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   TrendSeedKeyword {
     String id PK
     String organizationId FK
@@ -2504,7 +2625,6 @@ erDiagram
   ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
   ContentGeneration o|--o| DetailPageArtifact : "sourceContentGeneration"
   ContentGeneration o|--o{ DetailPageRevision : "contentGeneration"
-  ContentGeneration o|--o{ ProductPreparation : "selectedDetailPageGeneration"
   ContentGenerationGroup o|--o{ ContentAsset : "originGenerationGroup"
   ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
   ContentWorkspace ||--o{ ContentGeneration : "contentWorkspace"
@@ -2512,7 +2632,6 @@ erDiagram
   ContentWorkspace o|--o{ ContentWorkspace : "originWorkspace"
   ContentWorkspace ||--o{ ContentWorkspaceThumbnailSelection : "contentWorkspace"
   ContentWorkspace ||--o{ DetailPageArtifact : "contentWorkspace"
-  ContentWorkspace ||--o{ ProductPreparation : "sourceContentWorkspace"
   ContentWorkspace ||--o{ ThumbnailAnalysis : "contentWorkspace"
   ContentWorkspace ||--o{ ThumbnailGeneration : "contentWorkspace"
   ContentWorkspaceThumbnailSelection o|--o| ContentWorkspace : "currentThumbnailSelection"
@@ -2522,13 +2641,11 @@ erDiagram
   DetailPageArtifact o|--o{ ContentWorkspace : "currentDetailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageImageRenderIntent : "detailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
-  DetailPageArtifact o|--o{ ProductPreparation : "selectedDetailPageArtifact"
   DetailPageImageArtifact o|--o{ DetailPageImageRenderIntent : "completedArtifact"
   DetailPageRevision o|--o{ ContentWorkspace : "currentDetailPageRevision"
   DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
   DetailPageRevision ||--o{ DetailPageImageArtifact : "revision"
   DetailPageRevision ||--o{ DetailPageImageRenderIntent : "revision"
-  DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
   MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcEvaluation : "formulaVersion"
@@ -2537,6 +2654,7 @@ erDiagram
   Order ||--o{ OrderLineItem : "order"
   Organization ||--o{ AdAction : "organization"
   Organization ||--o{ AiDirectJob : "organization"
+  Organization ||--o{ AiUsageRecord : "organization"
   Organization ||--o{ Alert : "organization"
   Organization ||--o{ CandidateImage : "organization"
   Organization ||--o{ CapabilityInvocation : "organization"
@@ -2592,6 +2710,7 @@ erDiagram
   Organization ||--o{ OrganizationMembership : "organization"
   Organization ||--o{ ProcurementTestIntent : "organization"
   Organization ||--o{ ProductPreparation : "organization"
+  Organization ||--o{ ProductPreparationOption : "organization"
   Organization ||--o{ ProductRegistrationExecution : "organization"
   Organization ||--o{ PurchaseOrder : "organization"
   Organization ||--o{ PurchaseOrderItem : "organization"
@@ -2606,6 +2725,10 @@ erDiagram
   Organization ||--o{ RocketPurchaseConfirmationLine : "organization"
   Organization ||--o{ RocketPurchaseConfirmationTransmission : "organization"
   Organization ||--o{ SalesPlan : "organization"
+  Organization ||--o{ SalesProduct : "organization"
+  Organization ||--o{ SalesProductOption : "organization"
+  Organization ||--o{ SalesProductOptionComponent : "organization"
+  Organization ||--o{ SalesProductPublicImage : "organization"
   Organization ||--o{ SellpiaInventoryState : "organization"
   Organization ||--o{ SellpiaManualMatchAlias : "organization"
   Organization ||--|| SellpiaManualMatchSnapshot : "organization"
@@ -2659,8 +2782,11 @@ erDiagram
   Organization ||--o{ ThumbnailTracking : "organization"
   Organization ||--o{ ThumbnailTrackingDailySnapshot : "organization"
   Organization ||--o{ TiktokCreativeTrendDailySnapshot : "organization"
+  Organization ||--o{ TodoItem : "organization"
   Organization ||--o{ TrendSeedKeyword : "organization"
   Organization ||--o{ Warehouse : "organization"
+  ProductPreparation ||--o{ ProductPreparationOption : "preparation"
+  ProductPreparation o|--o{ ProductRegistrationExecution : "preparation"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
@@ -2669,6 +2795,12 @@ erDiagram
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationTransmission : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
+  SalesProduct o|--o{ ChannelListing : "salesProduct"
+  SalesProduct ||--o{ ProductPreparation : "salesProduct"
+  SalesProduct ||--o{ SalesProductOption : "salesProduct"
+  SalesProductOption o|--o{ ChannelListingOption : "salesProductOption"
+  SalesProductOption ||--o{ ProductPreparationOption : "option"
+  SalesProductOption ||--o{ SalesProductOptionComponent : "salesProductOption"
   SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
   SourceImportRun ||--o{ ChannelAdListingProductMonthlyFact : "sourceImportRun"
@@ -2683,7 +2815,7 @@ erDiagram
   SourceImportRun o|--o{ CoupangKeywordSerpDailySnapshot : "sourceImportRun"
   SourceImportRun o|--o{ CoupangShipmentDateSummary : "sourceImportRun"
   SourceImportRun o|--o{ CoupangWingSalesRankDailySnapshot : "sourceImportRun"
-  SourceImportRun ||--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
   SourceImportRun ||--o{ MasterProductAbcEvaluation : "sellpiaSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedAdvertisingSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedSellpiaSourceImportRun"
@@ -2708,7 +2840,6 @@ erDiagram
   SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"
   SourcingCandidate o|--o{ ContentWorkspace : "sourceCandidate"
   SourcingCandidate ||--o{ DetailPageImageRenderIntent : "sourceCandidate"
-  SourcingCandidate ||--o{ ProductPreparation : "sourceCandidate"
   SourcingCandidate o|--o{ SourcingLaunchCandidate : "sourceCandidate"
   SourcingCandidate o|--o{ ThumbnailGeneration : "sourceCandidate"
   SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
@@ -2760,14 +2891,12 @@ erDiagram
   SupplierOfferSkuSnapshot ||--o{ SourcingLaunchCandidate : "supplierOfferSkuSnapshot"
   SupplierOfferSkuSnapshot ||--o{ SupplierOfferPriceTier : "supplierOfferSkuSnapshot"
   ThumbnailGeneration o|--o{ ContentWorkspaceThumbnailSelection : "sourceGeneration"
-  ThumbnailGeneration o|--o{ ProductPreparation : "selectedThumbnailGeneration"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
   ThumbnailGenerationCandidate o|--o{ ContentWorkspaceThumbnailSelection : "sourceCandidate"
-  ThumbnailGenerationCandidate o|--o{ ProductPreparation : "selectedThumbnailGenerationCandidate"
   ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
   User ||--o{ AuthSession : "user"

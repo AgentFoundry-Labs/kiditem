@@ -1,3 +1,4 @@
+import { readUnresolvedCompositionOptionIds } from "../../../read/registration-execution.reader";
 import {
   BadRequestException,
   Inject,
@@ -47,6 +48,28 @@ const READ_TRANSACTION_OPTIONS = {
   ...TRANSACTION_OPTIONS,
   isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
 } as const;
+
+/**
+ * Loading a listing with all options and recipe components in one query can exceed PostgreSQL's
+ * parameter limit. Read the ordered ids first, then hydrate them in bounded batches.
+ */
+const LISTING_LOAD_BATCH = 2_000;
+
+async function loadByIdBatches<T extends { id: string }>(
+  ids: readonly string[],
+  load: (chunk: string[]) => Promise<T[]>,
+): Promise<T[]> {
+  const byId = new Map<string, T>();
+  for (let start = 0; start < ids.length; start += LISTING_LOAD_BATCH) {
+    for (const row of await load(ids.slice(start, start + LISTING_LOAD_BATCH))) {
+      byId.set(row.id, row);
+    }
+  }
+  return ids.flatMap((id) => {
+    const row = byId.get(id);
+    return row ? [row] : [];
+  });
+}
 
 function listingSelect(organizationId: string) {
   return {
@@ -522,14 +545,21 @@ implements ChannelProductMatchingRepositoryPort {
       listingIds?: string[];
     },
   ): Promise<ChannelAvailabilityRepositoryRow[]> {
-    const rawListings = await this.prisma.$transaction(
-      (tx) => this.loadListings(tx, organizationId, query, 'availability'),
+    const { rawListings, unresolvedOptions } = await this.prisma.$transaction(
+      async (tx) => {
+        const rawListings = await this.loadListings(tx, organizationId, query, 'availability');
+        const unresolvedOptions = await readUnresolvedCompositionOptionIds(tx, {
+          organizationId, channelListingIds: rawListings.map(listing => listing.id),
+        });
+        return { rawListings, unresolvedOptions };
+      },
       READ_TRANSACTION_OPTIONS,
     );
     const listings = await this.hydrateListings(organizationId, rawListings);
     return listings.flatMap((listing) => listing.options
       .filter((option) => !query.optionIds || query.optionIds.includes(option.id))
       .map((option) => ({
+      compositionUnconfirmed: unresolvedOptions.has(option.id),
       channelAccount: listing.channelAccount,
       listing: {
         id: listing.id,
@@ -621,35 +651,43 @@ implements ChannelProductMatchingRepositoryPort {
     scope: 'matching' | 'availability',
   ): Promise<ListingRow[]> {
     const search = query.search?.trim();
-    const listings: RawListingRow[] = await prisma.channelListing.findMany({
-      where: {
-        ...(scope === 'matching'
-          ? matchingListingWhere(organizationId)
-          : availabilityListingWhere(organizationId, query.channelAccountId)),
-        ...(query.listingIds ? { id: { in: query.listingIds } } : {}),
-        ...(query.optionIds ? {
-          options: { some: { organizationId, id: { in: query.optionIds } } },
-        } : {}),
-        ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
-        ...(search ? {
-          OR: [
-            { externalId: { contains: search, mode: 'insensitive' } },
-            { displayName: { contains: search, mode: 'insensitive' } },
-            { channelName: { contains: search, mode: 'insensitive' } },
-            { options: { some: {
-              organizationId,
-              OR: [
-                { externalOptionId: { contains: search, mode: 'insensitive' } },
-                { sellerSku: { contains: search, mode: 'insensitive' } },
-                { itemName: { contains: search, mode: 'insensitive' } },
-              ],
-            } } },
-          ],
-        } : {}),
-      },
-      select: listingSelect(organizationId),
+    const where: Prisma.ChannelListingWhereInput = {
+      ...(scope === 'matching'
+        ? matchingListingWhere(organizationId)
+        : availabilityListingWhere(organizationId, query.channelAccountId)),
+      ...(query.listingIds ? { id: { in: query.listingIds } } : {}),
+      ...(query.optionIds ? {
+        options: { some: { organizationId, id: { in: query.optionIds } } },
+      } : {}),
+      ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
+      ...(search ? {
+        OR: [
+          { externalId: { contains: search, mode: 'insensitive' } },
+          { displayName: { contains: search, mode: 'insensitive' } },
+          { channelName: { contains: search, mode: 'insensitive' } },
+          { options: { some: {
+            organizationId,
+            OR: [
+              { externalOptionId: { contains: search, mode: 'insensitive' } },
+              { sellerSku: { contains: search, mode: 'insensitive' } },
+              { itemName: { contains: search, mode: 'insensitive' } },
+            ],
+          } } },
+        ],
+      } : {}),
+    };
+    const orderedIds = (await prisma.channelListing.findMany({
+      where,
+      select: { id: true },
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-    });
+    })).map((row) => row.id);
+    const listings: RawListingRow[] = await loadByIdBatches(
+      orderedIds,
+      (chunk) => prisma.channelListing.findMany({
+        where: { organizationId, id: { in: chunk } },
+        select: listingSelect(organizationId),
+      }),
+    );
     return listings.map((rawListing) => {
       const listing = withListingProductSummary(rawListing);
       return {

@@ -261,28 +261,18 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       sourcingCandidate: {
         findFirst: vi.fn().mockResolvedValue(candidateRow({
           images: [],
-          productPreparations: [preparation],
         })),
       },
-      // 등록 상태는 울타리 리더가 답한다(ADR-0014). 리더가 실제로 부르는 findMany 를
-      // 그대로 흉내 내야 경계가 바뀌면 이 테스트가 먼저 깨진다.
-      productRegistrationExecution: {
-        findMany: vi.fn().mockResolvedValue([{
-          id: 'execution-1',
-          productPreparationId: 'prep-1',
-          channelAccountId: 'account-1',
-          channelListingId: 'listing-1',
-          executionKind: 'external_wing',
-          status: 'succeeded',
-          providerOutcome: 'succeeded',
-          providerSubmissionId: null,
-          externalListingId: '427011919',
-          resultJson: { source: 'coupang-wing-extension' },
-          createdAt: new Date('2026-05-17T00:45:00.000Z'),
-        }]),
-      },
     };
-    const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+    const candidateRegistrations = {
+      readForCandidates: vi.fn().mockResolvedValue(new Map([
+        ['candidate-1', { preparations: [preparation], registrationState: 'registered' }],
+      ])),
+    };
+    const repository = new SourcingCandidateRepositoryAdapter(
+      prisma as never,
+      candidateRegistrations as never,
+    );
 
     const row = await repository.findById('candidate-1', 'org-1');
 
@@ -290,17 +280,89 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       where: { id: 'candidate-1', organizationId: 'org-1', isDeleted: false },
       include: {
         images: { where: { isDeleted: false }, orderBy: { sortOrder: 'asc' } },
-        productPreparations: {
-          where: { organizationId: 'org-1', isDeleted: false },
-          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-        },
       },
     });
+    expect(candidateRegistrations.readForCandidates).toHaveBeenCalledWith(
+      'org-1',
+      ['candidate-1'],
+    );
     expect(row?.productPreparation).toEqual(preparation);
     expect(row?.productPreparations).toEqual([preparation]);
     expect(row?.productPreparation).not.toHaveProperty('masterId');
     // 초안 행은 'product_registered' 라고 말하지만 근거는 실행 장부다.
     expect(row?.registrationState).toBe('registered');
+  });
+
+  it('hydrates a sourced page through the registration owner while preserving page order and total', async () => {
+    const rows = [
+      candidateRow({ id: 'candidate-1', images: [] }),
+      candidateRow({ id: 'candidate-2', name: 'Second toy', images: [] }),
+    ];
+    const prisma = {
+      sourcingCandidate: {
+        count: vi.fn().mockResolvedValue(4),
+        findMany: vi.fn().mockResolvedValue(rows),
+      },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const candidateRegistrations = {
+      readForCandidates: vi.fn().mockResolvedValue(new Map([
+        ['candidate-1', {
+          preparations: [],
+          registrationState: 'none',
+        }],
+        ['candidate-2', {
+          preparations: [{
+            id: 'prep-2',
+            sourceCandidateId: 'candidate-2',
+            channelAccountId: 'account-2',
+            sourceContentWorkspaceId: null,
+            channelListingId: null,
+            displayName: null,
+            status: 'draft',
+            selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
+            selectedThumbnailGenerationCandidateId: null,
+            selectedDetailPageArtifactId: null,
+            selectedDetailPageRevisionId: null,
+            selectedDetailPageGenerationId: null,
+            registrationInput: {},
+            createdAt: new Date('2026-05-17T00:00:00.000Z'),
+            updatedAt: new Date('2026-05-17T00:00:00.000Z'),
+          }],
+          registrationState: 'preparing',
+        }],
+      ])),
+    };
+    const repository = new SourcingCandidateRepositoryAdapter(
+      prisma as never,
+      candidateRegistrations as never,
+    );
+
+    const page = await repository.listSourced({
+      organizationId: 'org-1',
+      page: 2,
+      limit: 2,
+      sort: 'oldest',
+    });
+
+    expect(page.total).toBe(4);
+    expect(page.items.map((item) => item.id)).toEqual(['candidate-1', 'candidate-2']);
+    expect(page.items[1]?.productPreparation?.sourceCandidateId).toBe('candidate-2');
+    expect(page.items[1]?.registrationState).toBe('preparing');
+    expect(prisma.sourcingCandidate.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: { createdAt: 'asc' },
+      skip: 2,
+      take: 2,
+      where: expect.objectContaining({
+        organizationId: 'org-1',
+        status: 'sourced',
+      }),
+    }));
+    expect(candidateRegistrations.readForCandidates).toHaveBeenCalledWith(
+      'org-1',
+      ['candidate-1', 'candidate-2'],
+    );
   });
 
   describe('updateManualBasics', () => {

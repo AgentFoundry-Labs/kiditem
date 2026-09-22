@@ -89,7 +89,8 @@ export class DetailPageGenerationService {
     productGenerationIdentity?: ProductGenerationChildIdentity,
   ): Promise<DetailPageGenerationDto> {
     const heroImageMode = dto.heroImageMode ?? 'llm-pick';
-    const templateId = dto.templateId ?? 'kids-playful';
+    // 안 고르면 KIDITEM DESIGN 이다 — 화면 기본값 · 상품 생성 기본값과 같다(사장님 2026-09-20).
+    const templateId = dto.templateId ?? 'bold-vertical';
     const generationMode = dto.generationMode ?? 'full';
     const ageGroup: DetailPageAgeGroup = dto.ageGroup ?? 'age-8-plus';
     const detailImageCount: DetailImageCount = dto.detailImageCount ?? '2';

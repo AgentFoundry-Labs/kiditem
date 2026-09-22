@@ -8,7 +8,11 @@ const accountId = '00000000-0000-4000-8000-000000000004';
 const masterProductId = '00000000-0000-4000-8000-000000000005';
 const skuId = '00000000-0000-4000-8000-000000000006';
 
-function row(overrides: { masterProductId?: string | null; components?: unknown[] } = {}) {
+function row(overrides: {
+  masterProductId?: string | null;
+  components?: unknown[];
+  compositionUnconfirmed?: boolean;
+} = {}) {
   return {
     channelAccount: { id: accountId, channel: 'rocket', name: 'Rocket' },
     listing: {
@@ -21,6 +25,7 @@ function row(overrides: { masterProductId?: string | null; components?: unknown[
         ? masterProductId
         : overrides.masterProductId,
     },
+    compositionUnconfirmed: overrides.compositionUnconfirmed ?? false,
     option: {
       id: optionId,
       externalOptionId: 'OPTION-1',
@@ -90,6 +95,38 @@ describe('ChannelSkuAvailabilityService', () => {
       recipeStatus: 'matched',
       sku: { mappingStatus: 'matched', sellableStock: 5 },
     });
+  });
+
+  it('holds only the option selected by an unresolved composition execution', async () => {
+    const secondOptionId = '00000000-0000-4000-8000-000000000007';
+    const selected = row({ compositionUnconfirmed: true });
+    const unaffected = {
+      ...row(),
+      option: { ...row().option, id: secondOptionId, externalOptionId: 'OPTION-2' },
+    };
+    const { service } = dependencies([selected, unaffected]);
+
+    const results = await service.findByChannelSkuIds(organizationId, [optionId, secondOptionId]);
+    const selectedResult = results.find((result) => result.sku.id === optionId);
+    const unaffectedResult = results.find((result) => result.sku.id === secondOptionId);
+
+    expect(selectedResult).toMatchObject({
+      recipeStatus: 'review_required',
+      sku: { mappingStatus: 'needs_review', sellableStock: null },
+      components: [{ currentStock: 10, quantity: 2, componentCapacity: 5, isBottleneck: null }],
+      warnings: ['composition_unconfirmed'],
+    });
+    expect(unaffectedResult).toMatchObject({
+      recipeStatus: 'matched',
+      sku: { mappingStatus: 'matched', sellableStock: 5 },
+      components: [{ currentStock: 10, quantity: 2, componentCapacity: 5, isBottleneck: true }],
+      warnings: [],
+    });
+
+    await expect(service.list(organizationId, { status: 'all', page: 1, limit: 50 }))
+      .resolves.toMatchObject({
+        summary: { total: 2, inStock: 1, outOfStock: 0, needsReview: 1 },
+      });
   });
 
   it('marks a linked option without a recipe as configuration required', async () => {

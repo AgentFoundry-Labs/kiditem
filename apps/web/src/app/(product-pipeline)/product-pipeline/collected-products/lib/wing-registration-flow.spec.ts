@@ -4,6 +4,7 @@ import {
   detectWingFormExtensionId,
   sendToExtensionViaPort,
 } from '@/lib/extension-bridge';
+import { salesProductApi } from '@/lib/sales-product-api';
 import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
 import { buildGenerationHistoryHtml } from '../../_shared/lib/generated-detail-html';
 import {
@@ -33,6 +34,12 @@ import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
 import type { WingProduct } from './wing-registration-excel';
 import { resolveWingCategories } from './wing-category-resolution';
 
+const { findCandidateSalesProductMock, updateSalesProductMock, createCandidateSalesProductMock } = vi.hoisted(() => ({
+  findCandidateSalesProductMock: vi.fn(),
+  updateSalesProductMock: vi.fn(),
+  createCandidateSalesProductMock: vi.fn(),
+}));
+
 vi.mock('@/lib/extension-bridge', () => ({
   KIDITEM_WING_FORM_PORT_NAME: 'kiditem-wing-form-v1',
   detectWingFormExtensionId: vi.fn().mockResolvedValue('extension-1'),
@@ -42,6 +49,14 @@ vi.mock('@/lib/extension-bridge', () => ({
 
 vi.mock('./detail-page-image-api', () => ({
   renderCandidateDetailImageOnServer: vi.fn(),
+}));
+
+vi.mock('@/lib/sales-product-api', () => ({
+  salesProductApi: {
+    findByCandidate: (...args: unknown[]) => findCandidateSalesProductMock(...args),
+    update: (...args: unknown[]) => updateSalesProductMock(...args),
+    createFromCandidates: (...args: unknown[]) => createCandidateSalesProductMock(...args),
+  },
 }));
 
 vi.mock('../../_shared/lib/content-workspaces-api', () => ({
@@ -110,6 +125,16 @@ beforeEach(() => {
   vi.mocked(registrationExecutionApi.markUnresolved).mockClear();
   vi.mocked(detectWingFormExtensionId).mockResolvedValue('extension-1');
   vi.mocked(productsApi.getDetail).mockReset();
+  findCandidateSalesProductMock.mockReset();
+  updateSalesProductMock.mockReset();
+  createCandidateSalesProductMock.mockReset();
+  findCandidateSalesProductMock.mockImplementation(async (candidateId: string) => ({
+    id: '22222222-2222-4222-8222-222222222222',
+    sourceCandidateId: candidateId,
+    status: 'active',
+    version: 1,
+    options: [{ id: 'sales-option-1', salePrice: 2200, supplyStatus: 'selling' }],
+  }));
   vi.mocked(renderCandidateDetailImageOnServer).mockReset();
   vi.mocked(contentWorkspacesApi.get).mockReset();
   vi.mocked(buildGenerationHistoryHtml).mockReset();
@@ -924,6 +949,63 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
           wingCategoryKey: '77390',
         }),
       }),
+    );
+  });
+
+  it('creates a missing candidate sales product from the confirmed Wing price at submission time', async () => {
+    vi.mocked(sendToExtensionViaPort).mockResolvedValueOnce({ ok: true });
+    const linked = {
+      id: '22222222-2222-4222-8222-222222222222',
+      sourceCandidateId: 'candidate-1',
+      status: 'active',
+      version: 1,
+      options: [{ id: 'sales-option-1', salePrice: 4900, supplyStatus: 'selling' }],
+    };
+    findCandidateSalesProductMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(linked);
+    createCandidateSalesProductMock.mockResolvedValueOnce({
+      products: [{
+        candidateId: 'candidate-1',
+        salesProductId: linked.id,
+        code: 'K-1',
+        created: true,
+      }],
+      created: 1,
+      reused: 0,
+    });
+    vi.mocked(productsApi.getDetail).mockResolvedValueOnce(
+      detail(basics({ salePrice: 0, originalPrice: 0 })),
+    );
+    const draft = {
+      candidateId: 'candidate-1',
+      idempotencyKey: '33333333-3333-4333-8333-333333333333',
+      product: product(),
+      overrides: buildWingRegistrationOverrides(product()),
+      extensionId: 'ext-1',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      sellpiaMatchPreview: {
+        status: 'matched' as const,
+        reason: 'one match',
+        sellpiaMatch: PREPARED_WING_RESPONSE.sellpiaMatch,
+        proposals: [],
+      },
+      detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
+      registrationInput: { salePrice: 2200, category: '키링' },
+    };
+
+    await submitWingRegistration(draft, { ...draft.overrides, salePrice: 4900 });
+
+    const request = createCandidateSalesProductMock.mock.calls[0]?.[0] as {
+      items: Array<{ product: { options: Array<{ salePrice: number }>; imageUrls: string[]; detailHtml: string | null } }>;
+    };
+    expect(request.items[0]?.product).toMatchObject({
+      options: [{ salePrice: 4900 }],
+      imageUrls: [SOURCE_IMAGE],
+      detailHtml: '<center><img src="http://localhost:9000/rendered/detail-780.jpg"></center>',
+    });
+    expect(createCandidateSalesProductMock.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(registrationExecutionApi.prepare).mock.invocationCallOrder[0]!,
     );
   });
 });

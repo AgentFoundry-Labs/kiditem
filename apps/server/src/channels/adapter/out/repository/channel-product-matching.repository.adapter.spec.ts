@@ -160,6 +160,9 @@ function withPublishedInventory(prisma: unknown) {
     store.sourceImportRun ??= {
       findFirst: vi.fn().mockResolvedValue({ id: 'inventory-run' }),
     };
+    store.productRegistrationExecution ??= {
+      findMany: vi.fn().mockResolvedValue([]),
+    };
     return store;
   };
   const wrapped = wrap(client);
@@ -238,6 +241,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany,
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -291,6 +296,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -337,6 +344,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -392,6 +401,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -439,6 +450,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([]) },
         channelListingOptionInventoryComponent: { updateMany },
       })),
@@ -477,6 +490,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -528,6 +543,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -573,6 +590,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([
           {
             id: '00000000-0000-4000-8000-000000000102',
@@ -580,7 +599,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
             name: '키즈 식판',
             optionName: null,
             barcode: null,
-            masterProductId: 'master-product',
+            masterProductId: 'master-product-code',
           },
           {
             id: '00000000-0000-4000-8000-000000000103',
@@ -588,7 +607,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
             name: '키즈 식판',
             optionName: null,
             barcode: '8801234567890',
-            masterProductId: 'master-product',
+            masterProductId: 'master-product-barcode',
           },
         ]) },
         channelListingOptionInventoryComponent: { create },
@@ -628,6 +647,8 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
           updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         },
         sellpiaManualMatchAlias: { findMany: vi.fn().mockResolvedValue([]) },
+        // 자동 매칭은 활성 마스터 상품을 가리키는 제안만 적용한다(KID-246).
+        masterProduct: { findMany: vi.fn().mockResolvedValue([{ id: 'master-product' }]) },
         sellpiaInventorySku: { findMany: vi.fn().mockResolvedValue([{
           id: '00000000-0000-4000-8000-000000000101',
           code: 'SP-001',
@@ -651,16 +672,21 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
   });
 
   it('does not use record lifecycle state to omit channel products or options from the matching queue', async () => {
-    const findMany = vi.fn().mockResolvedValue([]);
+    const findMany = vi.fn()
+      .mockResolvedValueOnce([{ id: 'listing-1' }])
+      .mockResolvedValue([]);
     const repository = new ChannelProductMatchingRepositoryAdapter({
       channelListing: { findMany },
     } as never);
 
     await repository.listQueue(organizationId, {});
 
-    const query = findMany.mock.calls[0]![0];
-    expect(query.where).not.toHaveProperty('isActive');
-    expect(JSON.stringify(query.where)).not.toContain('"isActive":true');
+    // 조건은 번호만 읽는 첫 쿼리에, 옵션 · 구성품 모양은 묶음으로 불러오는 쿼리에 있다.
+    const [idQuery, query] = findMany.mock.calls.map((call) => call[0]);
+    expect(idQuery.where).not.toHaveProperty('isActive');
+    expect(JSON.stringify(idQuery.where)).not.toContain('"isActive":true');
+    expect(idQuery.select).toEqual({ id: true });
+    expect(query.where).toEqual({ organizationId, id: { in: ['listing-1'] } });
     expect(query.select.options).not.toHaveProperty('where');
     expect(query.select.options.select).toMatchObject({
       id: true,
@@ -709,6 +735,29 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
       },
       inventoryComponents: [],
     });
+  });
+
+  /**
+   * 리스팅 16,081 · 옵션 17,098 에서 한 번에 관계까지 읽은 쿼리가 PostgreSQL 파라미터 한도를 넘어 품절 관리 미리보기가
+   * 500 이 났다(2026-09-19, Prisma P2029). 번호를 먼저 순서대로 읽고 2,000개씩 불러와 그 순서로 되돌린다.
+   */
+  it('loads availability listings in id batches under the parameter limit and keeps the ordered read', async () => {
+    const ids = Array.from({ length: 4_500 }, (_, index) => `listing-${index}`);
+    const base = listing({ masterProductId: null, masterProduct: null, options: [unlinkedOption({})] });
+    const findMany = vi.fn(async (query: { select: Record<string, unknown>; where: { id?: { in: string[] } } }) => {
+      if (query.select.id === true && !query.select.options) return ids.map((id) => ({ id }));
+      // 묶음은 순서를 뒤집어 돌려준다 — 결과는 첫 쿼리의 순서여야 한다.
+      return [...query.where.id!.in].reverse().map((id) => ({ ...base, id }));
+    });
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      $transaction: vi.fn(async (callback) => callback({ channelListing: { findMany } })),
+    } as never);
+
+    const rows = await repository.listAvailabilityRows(organizationId, {});
+
+    const batches = findMany.mock.calls.slice(1).map((call) => call[0].where.id!.in);
+    expect(batches.map((batch) => batch.length)).toEqual([2_000, 2_000, 500]);
+    expect(rows.map((row) => row.listing.id)).toEqual(ids);
   });
 
   it('keeps browser, basics and partially published detail identities in availability targets', async () => {

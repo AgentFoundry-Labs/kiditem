@@ -1,14 +1,12 @@
-import {
-  fillMallRegistrationForm,
-  prepareMallRegistration,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { prepareRegistration } from '../sales-product-registration';
+import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   TEACHERVILLE_DEFAULT_CATEGORY,
   teachervilleFormFromDraft,
   teachervilleSupplyPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/teacherville-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -118,7 +116,7 @@ export const teacherMallAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'teacher-mall');
     const form = teachervilleFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),
       ...(parsePositive(values.consumerPrice, 0) > 0
@@ -126,14 +124,7 @@ export const teacherMallAdapter: MallPublishAdapter = {
         : {}),
       ...(values.categoryPath?.trim() ? { categoryPath: values.categoryPath.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('teacher-mall', draft, form);
-    return {
-      ok: result.ok,
-      // 폼을 채운 것은 등록이 아니다. 사람이 저장해야 등록이다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    const result = await fillMallRegistrationForm('teacher-mall', draft, form, mallFormExecutionOptions(item));
+    return registrationOutcome(result);
   },
 };

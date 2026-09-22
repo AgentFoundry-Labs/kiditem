@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ChannelsRegistrationPreparationModule } from '../channels/channels-registration-preparation.module';
 import { AiAgentRuntimeModule } from '../ai/ai-agent-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
@@ -27,6 +28,7 @@ import { SourcingAgentReadCapabilityModule } from './sourcing-agent-read-capabil
 
 @Module({
   imports: [
+    ChannelsRegistrationPreparationModule,
     PrismaModule,
     AiAgentRuntimeModule,
     SourcingAgentReadCapabilityModule,

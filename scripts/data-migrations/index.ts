@@ -20,11 +20,16 @@ import { backfillThumbnailTrackingInconclusiveMarkMigration } from "./v0.1.31/01
 import { backfillAdActionExecutionTasksMigration } from "./v0.1.31/011_backfill_ad_action_execution_tasks";
 import { constrainSourceImportRunStatusMigration } from "./v0.1.31/012_constrain_source_import_run_status";
 import { removeRetiredAccountKpiAndAdTierRowsMigration } from "./v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows";
+import { backfillChannelListingImageFromDiscoveryMigration } from "./v0.1.31/014_backfill_channel_listing_image_from_discovery";
+import { activateAdFreeProductAbcFormula } from "./v0.1.31/016_activate_ad_free_product_abc_formula";
 import { removeRowsBlockingRequiredColumnsMigration } from "./v0.1.31/014_remove_rows_blocking_required_columns";
 import { closeStaleAdApprovalsAtCutoverMigration } from "./v0.1.31/015_close_stale_ad_approvals_at_cutover";
 import { migrateMasterProductInventoryCutoverMigration } from "./v0.1.31/016_master_product_inventory_cutover";
 import { simplifyProductReferencesMigration } from "./v0.1.31/017_simplify_product_references";
 import { consolidateRegistrationExecutionMigration } from "./v0.1.31/018_consolidate_registration_execution";
+import { prepareSellingCatalogSourcesMigration } from './v0.1.31/019_prepare_selling_catalog_sources';
+import { linkRegistrationTargetsMigration } from './v0.1.31/021_link_registration_targets';
+import { sellingCatalogCutoverMigration } from './v0.1.31/020_selling_catalog_cutover';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -58,13 +63,19 @@ export const dataMigrations: readonly DataMigration[] = [
   backfillAdActionExecutionTasksMigration,
   constrainSourceImportRunStatusMigration,
   removeRetiredAccountKpiAndAdTierRowsMigration,
+  backfillChannelListingImageFromDiscoveryMigration,
   removeRowsBlockingRequiredColumnsMigration,
   closeStaleAdApprovalsAtCutoverMigration,
+  // 019 captures template references before 016 removes the legacy source table.
+  prepareSellingCatalogSourcesMigration,
   migrateMasterProductInventoryCutoverMigration,
   simplifyProductReferencesMigration,
   consolidateRegistrationExecutionMigration,
+  sellingCatalogCutoverMigration,
+  linkRegistrationTargetsMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
+  activateAdFreeProductAbcFormula,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

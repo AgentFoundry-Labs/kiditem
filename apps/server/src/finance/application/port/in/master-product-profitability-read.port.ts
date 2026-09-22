@@ -76,5 +76,11 @@ export interface ProfitabilityEvidence {
   load(input: {
     organizationId: string;
     targetCutoff: string;
+    /**
+     * `excluded` pairs Sellpia alone and prices advertising at nothing — only
+     * for an ABC formula that excludes advertising. Source readiness still
+     * reports advertising as it is. Defaults to `required`.
+     */
+    advertising?: 'required' | 'excluded';
   }): Promise<ProfitabilityEvidenceSnapshot>;
 }

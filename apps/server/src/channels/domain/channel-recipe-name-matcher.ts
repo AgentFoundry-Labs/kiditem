@@ -41,20 +41,50 @@ export type ChannelRecipeNameIndex = {
 };
 
 const SALES_UNIT_TOKEN = /(?:\d+\s*(?:개입|개|입|팩|pcs?|p|ea|세트|묶음|권|매|장|봉)(?![\p{L}\p{N}])|\bx\s*\d+\b)/giu;
-const LEADING_PRICE = /^\s*\d{3,6}(?=[^\d]|$)/u;
+/**
+ * 셀피아가 상품 이름 앞에 붙여 두는 값(`2000늘어나는파스텔슬라임`). 몰 이름에는 없을 때가
+ * 많아 양쪽에서 똑같이 걷어낸다.
+ *
+ * 숫자 앞에 글자가 아닌 것이 남아 있어도 걷어낸다 — 브랜드 표기를 뺀 자리에 괄호가 남아
+ * (`[키드아이템] 2000…` → `[] 2000…`) 값이 붙은 채로 살아남았고, 그래서 같은 상품이
+ * 이름은 비슷한데 정확히 같지는 않은 것으로 읽혀 자동으로 잇지 못했다(라이브 2026-09-17).
+ */
+const LEADING_PRICE = /^[^\p{L}\p{N}]*\d{3,6}(?=[^\d]|$)/u;
 const SINGLE_UNIT_LABEL = /(?:단품|단일상품|낱개)\s*$/giu;
+
+/**
+ * 우리 브랜드 표기. 몰마다 철자가 달라 상품명 앞에 붙은 채로 남으면 같은 상품을 다른
+ * 이름으로 읽는다 — 아이스크림몰 고시 품명이 `[kiditem] 해피글로우야광꽈배기프로펠라`
+ * 인데 셀피아는 `해피글로우야광꽈배기프로펠라` 라서 안 맞았다(라이브 2026-09-17, 48건).
+ */
+const BRAND_TOKEN = /(?:ky\s*i\s*&\s*d|kiditem|키드아이템)/giu;
 
 export function normalizeChannelRecipeName(value: string | null): string {
   if (!value) return '';
   return value
     .normalize('NFKC')
     .toLocaleLowerCase()
-    .replace(/ky\s*i\s*&\s*d/giu, '')
+    .replace(BRAND_TOKEN, '')
     .replace(LEADING_PRICE, '')
     .replace(/\b(?:pack|box)\b/giu, '')
     .replace(SALES_UNIT_TOKEN, '')
     .replace(SINGLE_UNIT_LABEL, '')
     .replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+/**
+ * 몰 제목 안에 셀피아 상품 이름이 그대로 들어 있는가. 몰 제목은 셀피아 이름에 설명을 덧붙인 것이 많아(`톡톡 팝콘 플레이
+ * 장난감 어린이 완구 …` ⇢ `3000톡톡팝콘플레이`) 이름 점수는 낮아도 같은 상품이다(라이브 2026-09-19: 셀피아 코드가 맞는
+ * 판매중 옵션 556개 중 137개). 값 · 묶음 표기를 뗀 셀피아 이름이 세 글자 이상일 때만 본다.
+ */
+export function channelTitleContainsSkuName(
+  options: readonly ChannelRecipeNameOption[],
+  skuName: string | null,
+): boolean {
+  const name = normalizeChannelRecipeName(skuName);
+  if (name.length < 3) return false;
+  return options.some((option) => [option.listingName, option.itemName]
+    .some((value) => normalizeChannelRecipeName(value).includes(name)));
 }
 
 export function scoreChannelRecipeNameCandidate(

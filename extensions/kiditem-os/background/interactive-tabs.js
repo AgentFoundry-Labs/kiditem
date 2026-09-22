@@ -14,6 +14,8 @@
     TRACKING_MUTATION: "tracking_mutation",
     MANUAL_PRODUCT_COLLECTION: "manual_product_collection",
     MALL_PRODUCT_REGISTER: "mall_product_register",
+    // 품절을 보내려고 목록을 읽는 탭. 보내고 나면 우리가 닫는다.
+    MALL_AVAILABILITY_SEND: "mall_availability_send",
   });
   const allowedReasons = new Set(Object.values(reasons));
 

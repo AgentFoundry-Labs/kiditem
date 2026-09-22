@@ -1,3 +1,5 @@
+import type { PrepareListingAvailabilityInput, ListingAvailabilityExecution, ReportListingAvailabilityInput } from '@kiditem/shared/sales-product';
+import type { PrepareTargetExecutionInput, ReportTargetExecutionInput, TargetExecutionResult, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 import type { MarketplaceSubmissionResult } from '@kiditem/shared/channel-listing';
 import type { ProductPreparationStatus } from '@kiditem/shared/sourcing';
 import type { ChannelsRepositoryTransaction } from '../transaction/repository-transaction';
@@ -82,6 +84,22 @@ export interface ClosedRegistrationExecutionResult {
 }
 
 export interface RegistrationExecutionRepositoryPort {
+  prepareListingAvailability(input: { organizationId: string; requestedByUserId: string | null; request: PrepareListingAvailabilityInput }): Promise<ListingAvailabilityExecution>;
+  listListingAvailability(input: { organizationId: string; requestedByUserId: string | null; channelAccountId: string; externalListingId: string }): Promise<ListingAvailabilityExecution[]>;
+  startListingAvailability(input: { organizationId: string; requestedByUserId: string | null; executionId: string }): Promise<ListingAvailabilityExecution>;
+  reportListingAvailability(input: { organizationId: string; requestedByUserId: string | null; executionId: string; report: ReportListingAvailabilityInput }): Promise<ListingAvailabilityExecution>;
+
+  findTargetReplay(input: { organizationId: string; requestedByUserId: string | null; targetId: string; request: PrepareTargetExecutionInput }): Promise<TargetExecutionResult | null>;
+  /** Persist this server-resolved snapshot only if target and common product versions still match. */
+  prepareTarget(input: {
+    organizationId: string; requestedByUserId: string | null; request: PrepareTargetExecutionInput;
+    snapshot: TargetExecutionSnapshot;
+  }): Promise<TargetExecutionResult>;
+  startTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult>;
+  listTarget(input: { organizationId: string; targetId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult[]>;
+  getTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult>;
+  reportTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null; report: ReportTargetExecutionInput }): Promise<TargetExecutionResult>;
+
   /**
    * 후보 삭제 준비. 제출 흔적이 전혀 없는 외부 등록 의사만 취소한다.
    * 호출자(Sourcing)의 트랜잭션에서 실행되어 후보 종료와 함께 커밋된다.
@@ -149,6 +167,7 @@ export interface RegistrationExecutionRepositoryPort {
   loadFrozenSubmission(
     organizationId: string,
     preparationId: string,
+    executionId?: string,
   ): Promise<FrozenRegistrationSubmission>;
 
   markProviderAttemptStarted(
@@ -162,6 +181,7 @@ export interface RegistrationExecutionRepositoryPort {
     preparationId: string,
     submissionLeaseToken: string,
     result: MarketplaceSubmissionResult,
+    executionId?: string,
   ): Promise<FrozenRegistrationSubmission>;
 
   markFailed(input: {
@@ -169,6 +189,7 @@ export interface RegistrationExecutionRepositoryPort {
     preparationId: string;
     submissionLeaseToken: string;
     error: string;
+    executionId?: string;
     providerOutcome?: 'definitive_failure';
   }): Promise<{ preparationId: string; status: 'failed' }>;
 
@@ -179,5 +200,6 @@ export interface RegistrationExecutionRepositoryPort {
     finalize: (
       tx: ChannelsRepositoryTransaction,
     ) => Promise<{ listingId: string }>,
+    executionId?: string,
   ): Promise<RegistrationExecutionRegisteredResult>;
 }

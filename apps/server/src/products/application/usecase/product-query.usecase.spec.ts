@@ -163,7 +163,7 @@ describe('ProductQueryUseCase', () => {
         makeCatalogDisplayMedia() as never,
         { read: vi.fn().mockResolvedValue(status) } as never,
         makeContributionRead() as never,
-          { readMonthlySales: vi.fn().mockResolvedValue(new Map()) } as never,
+        { readMonthlySales: vi.fn().mockResolvedValue(new Map()) } as never,
     );
       const result = await service.listProducts(organizationId, {
         page: 1,
@@ -236,12 +236,16 @@ describe('ProductQueryUseCase', () => {
           coverage: 'ready',
           needsReorder: true,
           reorderSkuCount: 1,
+          monthlyOutflow: null,
+          outflowMonthCount: 0,
           minMonthsOfAvailableStockLeft: 0.2,
         }],
         [secondId, {
           coverage: 'shared',
           needsReorder: false,
           reorderSkuCount: 0,
+          monthlyOutflow: null,
+          outflowMonthCount: 0,
           minMonthsOfAvailableStockLeft: 1,
         }],
       ])),
@@ -582,17 +586,10 @@ function makeContributionRead() {
   return { readContribution: vi.fn().mockResolvedValue(contributionAnalytics()) };
 }
 
-function makeRecipeMutations() {
-  return {
-    replaceRecipe: vi.fn().mockResolvedValue({ masterProductId: productId }),
-  };
-}
-
 function makeService(
   repository: ReturnType<typeof makeRepository>,
   media = makeCatalogDisplayMedia(),
   contribution = makeContributionRead(),
-  recipeMutations = makeRecipeMutations(),
 ) {
   return new ProductQueryUseCase(
     repository as never,
@@ -609,7 +606,7 @@ function makeService(
     makeDataStatusRepository() as never,
     contribution as never,
     { readMonthlySales: vi.fn().mockResolvedValue(new Map()) } as never,
-    );
+  );
 }
 
 function inventoryAvailability(masterProductId: string, currentStock: number) {

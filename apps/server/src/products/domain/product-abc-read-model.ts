@@ -31,6 +31,8 @@ export type ProductAbcEvidenceView = Readonly<{
   mappingGeneration: string | null;
   sellpia: ProductAbcSourceEvidence;
   advertising: ProductAbcSourceEvidence;
+  /** False when the active formula excludes advertising. */
+  advertisingRequired?: boolean;
 }>;
 
 export type ProductAbcFormulaStateView = Readonly<{
@@ -77,6 +79,7 @@ export function buildProductAbcReadModel(
     sources: {
       sellpia: sourceReadiness(evidence.sellpia),
       advertising: sourceReadiness(evidence.advertising),
+      ...(evidence.advertisingRequired === false ? { advertisingRequired: false } : {}),
       mapping: {
         valid: input.mappingValid,
         currentMappingGeneration: formulaState.mappingGeneration,

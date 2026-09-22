@@ -136,6 +136,8 @@ function listItemWithTrafficFreshness(traffic: Record<string, unknown>) {
     isSelling: true,
     monthly: null,
     updatedAt: '2026-09-15T00:00:00.000Z',
+    createdAt: '2026-07-16T00:00:00.000Z',
+    monthly: null,
     depletion: {
       coverage: 'no_direct_sales',
       needsReorder: false,
@@ -245,6 +247,8 @@ describe('product operations contracts', () => {
         isSelling: true,
         monthly: null,
         updatedAt: '2026-07-16T00:00:00.000Z',
+        createdAt: '2026-07-16T00:00:00.000Z',
+        monthly: null,
         depletion: {
           coverage: 'no_direct_sales',
           needsReorder: false,
@@ -457,6 +461,8 @@ describe('product operations contracts', () => {
       isSelling: true,
       monthly: null,
       updatedAt: '2026-07-16T00:00:00.000Z',
+      createdAt: '2026-07-16T00:00:00.000Z',
+      monthly: null,
       depletion: {
         coverage: 'shared',
         needsReorder: true,

@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   blocksCandidateTerminalTransition,
   candidateRegistrationState,
+  countFrozenSalesProductOptionReferences,
+  readSalesProductOptionExecutionCounts,
+  readUnresolvedCompositionOptionIds,
   type RegistrationExecutionFact,
 } from './registration-execution.reader';
 
@@ -107,6 +110,134 @@ describe('registration execution reader', () => {
       expect(blocksCandidateTerminalTransition([
         fact({ status: 'failed', hasResult: true }),
       ])).toBe(true);
+    });
+  });
+
+  describe('countFrozenSalesProductOptionReferences', () => {
+    it('counts each option once per immutable target execution', () => {
+      const counts = countFrozenSalesProductOptionReferences([
+        {
+          submissionPayloadJson: {
+            product: { options: [{ id: 'option-1' }, { id: 'option-2' }] },
+            supplyPrices: [
+              { salesProductOptionId: 'option-1', supplyPrice: 1_000 },
+              { salesProductOptionId: 'option-2', supplyPrice: null },
+            ],
+          },
+        },
+        {
+          submissionPayloadJson: {
+            product: { options: [{ id: 'option-1' }] },
+            supplyPrices: [{ salesProductOptionId: 'option-1', supplyPrice: 1_200 }],
+          },
+        },
+        { submissionPayloadJson: { registrationInput: { optionLinks: [] } } },
+      ]);
+
+      expect([...counts.entries()]).toEqual([
+        ['option-1', 2],
+        ['option-2', 1],
+      ]);
+    });
+
+    it('ignores malformed and non-target snapshots', () => {
+      const counts = countFrozenSalesProductOptionReferences([
+        { submissionPayloadJson: null },
+        { submissionPayloadJson: { product: { options: [{ id: 7 }, {}] } } },
+        { submissionPayloadJson: { supplyPrices: [{ salesProductOptionId: 9 }] } },
+      ]);
+
+      expect([...counts.entries()]).toEqual([]);
+    });
+
+    it('reads only executions whose preparation belongs to the product', async () => {
+      const findMany = vi.fn().mockResolvedValue([
+        { submissionPayloadJson: { product: { options: [{ id: 'option-1' }] } } },
+      ]);
+
+      const counts = await readSalesProductOptionExecutionCounts({
+        productRegistrationExecution: { findMany },
+      } as never, { organizationId: 'org-1', salesProductId: 'product-1' });
+
+      expect(findMany).toHaveBeenCalledWith({
+        where: {
+          organizationId: 'org-1',
+          preparation: { salesProductId: 'product-1' },
+        },
+        select: { submissionPayloadJson: true },
+      });
+      expect(counts.get('option-1')).toBe(1);
+    });
+  });
+
+  describe('readUnresolvedCompositionOptionIds', () => {
+    it('reads only the selected external options from live uncertain composition executions', async () => {
+      const findMany = vi.fn().mockResolvedValue([
+        {
+          submissionPayloadJson: {
+            optionTransitions: [{ channelListingOptionId: 'option-a' }],
+          },
+        },
+        {
+          submissionPayloadJson: {
+            optionTransitions: [{ channelListingOptionId: 'option-b' }],
+          },
+        },
+      ]);
+
+      const unresolved = await readUnresolvedCompositionOptionIds({
+        productRegistrationExecution: { findMany },
+      } as never, {
+        organizationId: 'org-1',
+        channelListingIds: ['listing-a', 'listing-b'],
+      });
+
+      expect(findMany).toHaveBeenCalledWith({
+        where: {
+          organizationId: 'org-1',
+          channelListingId: { in: ['listing-a', 'listing-b'] },
+          executionKind: 'composition_change',
+          status: { in: ['executing', 'reconciling'] },
+          providerOutcome: 'uncertain',
+        },
+        select: { submissionPayloadJson: true },
+      });
+      expect([...unresolved]).toEqual(['option-a', 'option-b']);
+    });
+
+    it('clears a composition hold after the ledger no longer returns a live uncertain execution', async () => {
+      const findMany = vi.fn()
+        .mockResolvedValueOnce([{
+          submissionPayloadJson: {
+            optionTransitions: [{ channelListingOptionId: 'option-a' }],
+          },
+        }])
+        .mockResolvedValueOnce([]);
+      const tx = { productRegistrationExecution: { findMany } } as never;
+      const input = { organizationId: 'org-1', channelListingIds: ['listing-a'] };
+
+      await expect(readUnresolvedCompositionOptionIds(tx, input))
+        .resolves.toEqual(new Set(['option-a']));
+      await expect(readUnresolvedCompositionOptionIds(tx, input))
+        .resolves.toEqual(new Set());
+    });
+
+    it('returns no hold when preparing, not-started, or terminal executions are excluded by the ledger query', async () => {
+      const findMany = vi.fn().mockResolvedValue([]);
+
+      await expect(readUnresolvedCompositionOptionIds({
+        productRegistrationExecution: { findMany },
+      } as never, {
+        organizationId: 'org-1',
+        channelListingIds: ['listing-a'],
+      })).resolves.toEqual(new Set());
+
+      expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          status: { in: ['executing', 'reconciling'] },
+          providerOutcome: 'uncertain',
+        }),
+      }));
     });
   });
 });

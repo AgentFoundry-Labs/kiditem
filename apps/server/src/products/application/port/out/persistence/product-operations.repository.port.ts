@@ -58,6 +58,9 @@ export type ProductOperationsRepositoryListItem = Omit<
   | 'inventoryUnits'
   | 'inventory'
   | 'activeChannels'
+  // 등록 시각은 `abcCreatedAt` 로 들어오고, 그달 장사는 서비스가 붙인다.
+  | 'createdAt'
+  | 'monthly'
 > & {
   abcCreatedAt: Date;
   activeChannelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>;

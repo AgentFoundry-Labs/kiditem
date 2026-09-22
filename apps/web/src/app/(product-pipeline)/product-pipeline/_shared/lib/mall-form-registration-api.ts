@@ -1,4 +1,3 @@
-import type { ChannelKey } from '@kiditem/shared/channel-registry';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { loadMallLoginCredentials } from '@/lib/mall-login-credentials';
 import {
@@ -12,6 +11,7 @@ import {
   mallProductDraftGaps,
   type MallProductDraft,
 } from './mall-product-draft';
+import type { ChannelKey } from '@kiditem/shared/channel-registry';
 
 /**
  * 도매꾹·온채널 상품등록 폼 자동 채움 호출.
@@ -45,8 +45,16 @@ export interface MallFormRegistrationResult {
   ok: boolean;
   mall: MallFormRegisterMall;
   tabId?: number;
-  /** 폼을 채운 것은 등록이 아니다. 언제나 false 다. */
+  /** 확장이 몰 [등록]을 눌렀는가. 누른 것도 등록 확인은 아니다. */
   submitted: boolean;
+  /** 몰이 받았다고 답했나(true) · 거절했나(false) · 모르나(null). */
+  accepted?: boolean | null;
+  /** 몰이 준 새 상품번호(보이면). */
+  productNo?: string | null;
+  /** 몰이 띄운 말(알림 · 확인 창). */
+  mallMessage?: string | null;
+  /** 부탁했는데 누르지 않은 까닭. */
+  submitSkipped?: string | null;
   steps: string[];
   warnings: string[];
   manualSteps: string[];
@@ -57,10 +65,27 @@ interface ExtensionResponse {
   ok?: boolean;
   success?: boolean;
   tabId?: number;
+  submitted?: boolean;
+  accepted?: boolean | null;
+  productNo?: string | null;
+  mallMessage?: string | null;
+  submitSkipped?: string;
   steps?: string[];
   warnings?: string[];
   manualSteps?: string[];
   error?: string;
+}
+
+/** Server-issued registration lease carried through the provider bridge. */
+export interface MallRegistrationExecutionContext {
+  executionId: string;
+  payloadHash: string;
+  leaseToken: string;
+}
+
+export interface MallFormRegistrationOptions {
+  submit?: boolean;
+  executionContext?: MallRegistrationExecutionContext;
 }
 
 /** 확장에 넘기는 폼 지시. 몰마다 모양이 달라 최소 계약만 요구한다. */
@@ -73,6 +98,7 @@ export async function fillMallRegistrationForm(
   mall: MallFormRegisterMall,
   draft: MallProductDraft,
   form: MallRegistrationFormPayload,
+  options: MallFormRegistrationOptions = {},
 ): Promise<MallFormRegistrationResult> {
   // 초안이 비어 있으면 확장을 부르지 않는다. 반쯤 빈 폼이 열리면 사람이 그걸
   // 그대로 제출할 수 있고, 그건 우리가 만든 사고다.
@@ -112,6 +138,8 @@ export async function fillMallRegistrationForm(
         // `formSpec` 을 거친다) — 양쪽에서 접으면 접는 규칙이 두 곳이 된다.
         mall,
         form,
+        ...(options.submit ? { submit: true } : {}),
+        ...(options.executionContext ? { executionContext: options.executionContext } : {}),
         accountKey: mall,
         ...(credentials ? { credentials } : {}),
       },
@@ -131,12 +159,23 @@ export async function fillMallRegistrationForm(
   }
 
   const ok = response?.ok === true || response?.success === true;
+  // A fill-only caller must stay fill-only even if an older/newer extension reports
+  // a stray `submitted` field. Submission is a caller-owned intent and only the
+  // explicit #554 path may classify the extension's submit result.
+  const submitted = options.submit === true && response?.submitted === true;
   return {
     ok,
     mall,
     ...(typeof response?.tabId === 'number' ? { tabId: response.tabId } : {}),
-    // 확장은 제출하지 않는다. 응답이 어떻든 제출됐다고 보고하지 않는다.
-    submitted: false,
+    submitted,
+    ...(submitted
+      ? {
+        accepted: response?.accepted ?? null,
+        productNo: response?.productNo ?? null,
+        mallMessage: response?.mallMessage ?? null,
+      }
+      : {}),
+    ...(response?.submitSkipped ? { submitSkipped: response.submitSkipped } : {}),
     steps: response?.steps ?? [],
     warnings: response?.warnings ?? [],
     manualSteps: response?.manualSteps ?? form.manualSteps,
@@ -162,4 +201,21 @@ export async function prepareMallRegistration(
     detailImageUrl,
   });
   return { draft, detailImageUrl };
+}
+
+/** [등록]까지 누를 수 있는 몰 목록. 확장 capability를 읽기만 한다. */
+export async function detectMallFormSubmitMalls(): Promise<string[]> {
+  const extensionId = await detectOrderCollectionExtensionId().catch(() => null);
+  if (!extensionId) return [];
+  try {
+    const response = await sendToExtension<{ success?: boolean; capabilities?: Record<string, unknown> }>(
+      extensionId,
+      { action: 'ping' },
+      1500,
+    );
+    const malls = response?.capabilities?.mallFormSubmitMalls;
+    return Array.isArray(malls) ? malls.filter((mall): mall is string => typeof mall === 'string') : [];
+  } catch {
+    return [];
+  }
 }

@@ -288,6 +288,7 @@ describe('MasterProductProfitabilityReadService', () => {
       sellpiaGenerations: readonly ReturnType<typeof sellpiaGeneration>[],
       advertisingGenerations: readonly ReturnType<typeof advertisingGeneration>[],
       targetCutoff = '2026-09-06',
+      advertisingMode?: 'required' | 'excluded',
     ) => {
       const sellpiaByRun = new Map(sellpiaGenerations.map((generation) => [generation.sourceImportRunId, generation]));
       const advertisingByRun = new Map(advertisingGenerations.map((generation) => [generation.sourceImportRunId, generation]));
@@ -335,7 +336,8 @@ describe('MasterProductProfitabilityReadService', () => {
         sellpia as never,
         advertising as never,
         prisma as never,
-       new ProductTransactionalReadRepositoryAdapter()).load({ organizationId: 'organization-1', targetCutoff });
+        new ProductTransactionalReadRepositoryAdapter(),
+      ).load({ organizationId: 'organization-1', targetCutoff, advertising: advertisingMode });
     };
     const sellpiaThrough5 = sellpiaGeneration('00000000-0000-4000-8000-000000000031', '11', '2026-09-05');
     const sellpiaThrough6 = sellpiaGeneration('00000000-0000-4000-8000-000000000033', '12', '2026-09-06');
@@ -400,5 +402,20 @@ describe('MasterProductProfitabilityReadService', () => {
       [advertisingGeneration('00000000-0000-4000-8000-000000000036', '23', '2026-08-31')],
       '2026-09-02',
     )).resolves.toMatchObject({ actualCutoff: '2026-08-31' });
+
+    // A formula that excludes advertising pairs Sellpia alone — no advertising
+    // generation has to exist — while readiness still reports advertising as it is.
+    await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [], '2026-09-06', 'excluded')).resolves.toMatchObject({
+      actualCutoff: '2026-09-06',
+      sourceVector: {
+        sellpia: { sourceImportRunId: sellpiaThrough6.sourceImportRunId },
+        advertising: { sourceImportRunId: null },
+      },
+      sources: { sellpia: { ready: true }, advertising: { ready: false } },
+    });
+    // The same sources under a formula that counts advertising have no pair.
+    await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [], '2026-09-06')).resolves.toMatchObject({
+      actualCutoff: null,
+    });
   });
 });

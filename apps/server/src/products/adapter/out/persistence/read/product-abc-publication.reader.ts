@@ -11,7 +11,8 @@ export type PublishedProductAbcFacts = Readonly<{
   officialCutoffDate: string;
   publishedAt: string;
   sellpiaSourceImportRunId: string;
-  advertisingSourceImportRunId: string;
+  /** Null under a formula that excludes advertising. */
+  advertisingSourceImportRunId: string | null;
   mappingGeneration: string;
   formulaRevision: number | null;
   formula: ProductAbcFormulaPayload | null;
@@ -168,7 +169,7 @@ function publicationEnvelope(state: Readonly<{
 }> | null): Omit<PublishedProductAbcFacts, 'formulaRevision' | 'formula'> | null {
   if (!state || state.publicationRevision <= 0 || !state.officialCutoffDate
     || !state.publishedAt || !state.publishedSellpiaSourceImportRunId
-    || !state.publishedAdvertisingSourceImportRunId
+    // Advertising is absent under a formula that excludes it.
     || state.publishedMappingGeneration === null) return null;
   return {
     publicationRevision: state.publicationRevision,
@@ -189,7 +190,7 @@ function matchesPublication(
     publicationRevision: number;
     gradeBasisCutoffDate: Date;
     sellpiaSourceImportRunId: string;
-    advertisingSourceImportRunId: string;
+    advertisingSourceImportRunId: string | null;
     mappingGeneration: bigint;
   }>,
   state: Readonly<{

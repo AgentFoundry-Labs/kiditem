@@ -34,14 +34,25 @@ import type {
 import { ProductImageInputs } from './ProductImageInputs';
 import {
   Field,
+  GroupTitle,
+  MoneyInput,
+  OptionInput,
   SelectField,
   SizeInput,
+  TextInput,
   formatSizeFields,
   joinOptions,
   parseSizeFields,
   splitOptions,
   type ProductSizeFields,
 } from './ProductInputFields';
+import {
+  BRAND_OPTIONS,
+  CERTIFICATION_FIELD_OPTIONS,
+  CERTIFICATION_ISSUER_OPTIONS,
+  MANUFACTURER_OPTIONS,
+  ORIGIN_COUNTRY_OPTIONS,
+} from '../lib/product-field-options';
 import { TemplatePreviewModal } from './TemplatePreviewModal';
 import { useProductImageUploads } from './useProductImageUploads';
 
@@ -81,6 +92,33 @@ interface ProductInputSectionProps {
   setColorVariantStatus: (value: ColorVariantStatus) => void;
   colorVariantNames: string;
   setColorVariantNames: (value: string) => void;
+  // 사방넷 신규등록과 같은 칸 — 여기서 받으면 판매상품까지 간다.
+  salePrice: string;
+  setSalePrice: (value: string) => void;
+  tagPrice: string;
+  setTagPrice: (value: string) => void;
+  costPrice: string;
+  setCostPrice: (value: string) => void;
+  brand: string;
+  setBrand: (value: string) => void;
+  manufacturer: string;
+  setManufacturer: (value: string) => void;
+  originCountry: string;
+  setOriginCountry: (value: string) => void;
+  modelName: string;
+  setModelName: (value: string) => void;
+  ownCode: string;
+  setOwnCode: (value: string) => void;
+  taxType: 'taxable' | 'tax_free';
+  setTaxType: (value: 'taxable' | 'tax_free') => void;
+  deliveryFee: string;
+  setDeliveryFee: (value: string) => void;
+  deliveryFeeType: 'free' | 'prepay' | 'collect' | 'collect_or_prepay';
+  setDeliveryFeeType: (value: 'free' | 'prepay' | 'collect' | 'collect_or_prepay') => void;
+  certificationIssuer: string;
+  setCertificationIssuer: (value: string) => void;
+  certificationField: string;
+  setCertificationField: (value: string) => void;
   rawOptions: string;
   setRawOptions: (value: string) => void;
   images: string[];
@@ -166,6 +204,32 @@ export default function ProductInputSection({
   setColorVariantStatus,
   colorVariantNames,
   setColorVariantNames,
+  salePrice,
+  setSalePrice,
+  tagPrice,
+  setTagPrice,
+  costPrice,
+  setCostPrice,
+  brand,
+  setBrand,
+  manufacturer,
+  setManufacturer,
+  originCountry,
+  setOriginCountry,
+  modelName,
+  setModelName,
+  ownCode,
+  setOwnCode,
+  taxType,
+  setTaxType,
+  deliveryFee,
+  setDeliveryFee,
+  deliveryFeeType,
+  setDeliveryFeeType,
+  certificationIssuer,
+  setCertificationIssuer,
+  certificationField,
+  setCertificationField,
   rawOptions,
   setRawOptions,
   images,
@@ -219,7 +283,7 @@ export default function ProductInputSection({
   };
 
   return (
-    <section className="w-full max-w-[960px]">
+    <section className="w-full max-w-[1120px]">
       <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-6 pb-6 pt-10 shadow-sm">
         <div className="mb-5 text-center">
           <h1 className="text-2xl font-black text-[var(--text-primary)]">
@@ -339,6 +403,7 @@ export default function ProductInputSection({
             />
           </Field>
 
+          <GroupTitle>상세페이지</GroupTitle>
           <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr_0.8fr]">
             <Field label="사용 연령">
               <div className="grid grid-cols-2 gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-1">
@@ -407,6 +472,80 @@ export default function ProductInputSection({
             </Field>
           </div>
 
+          <Field label="제품 주요 특징">
+            <textarea
+              value={rawDescription}
+              onChange={(e) => setRawDescription(e.target.value)}
+              rows={5}
+              placeholder="비워두면 AI가 채워요. 핵심 특징을 직접 적어도 됩니다."
+              className="min-h-[132px] w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
+            />
+          </Field>
+
+          {/* 여기부터는 사방넷 신규등록과 같은 칸이다. 비워 두면 수집상품 상세에서 채운다. */}
+          <GroupTitle>가격</GroupTitle>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="판매가">
+              <MoneyInput value={salePrice} onChange={setSalePrice} placeholder="예: 3900" />
+            </Field>
+            <Field label="TAG가(소비자가)">
+              <MoneyInput value={tagPrice} onChange={setTagPrice} placeholder="예: 5900" />
+            </Field>
+            <Field label="원가(공급가)">
+              <MoneyInput value={costPrice} onChange={setCostPrice} placeholder="예: 1800" />
+            </Field>
+          </div>
+
+          <GroupTitle>제조 · 식별</GroupTitle>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="브랜드">
+              <OptionInput value={brand} onChange={setBrand} placeholder="비우면 키드아이템" options={BRAND_OPTIONS} />
+            </Field>
+            <Field label="제조사">
+              <OptionInput value={manufacturer} onChange={setManufacturer} placeholder="비우면 해피프랜즈" options={MANUFACTURER_OPTIONS} />
+            </Field>
+            <Field label="원산지(제조국)">
+              <OptionInput value={originCountry} onChange={setOriginCountry} placeholder="중국" options={ORIGIN_COUNTRY_OPTIONS} />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="모델명">
+              <TextInput value={modelName} onChange={setModelName} placeholder="예: 10290-1" />
+            </Field>
+            <Field label="자체상품코드">
+              <TextInput value={ownCode} onChange={setOwnCode} placeholder="바코드 등. 비우면 판매상품코드를 씁니다" />
+            </Field>
+            <Field label="세금구분">
+              <SelectField
+                value={taxType}
+                onChange={(value) => setTaxType(value === 'tax_free' ? 'tax_free' : 'taxable')}
+                options={[{ value: 'taxable', label: '과세' }, { value: 'tax_free', label: '면세' }]}
+              />
+            </Field>
+          </div>
+
+          <GroupTitle>배송</GroupTitle>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="배송비">
+              <MoneyInput value={deliveryFee} onChange={setDeliveryFee} placeholder="예: 3000" />
+            </Field>
+            <Field label="배송비 구분">
+              <SelectField
+                value={deliveryFeeType}
+                onChange={(value) => setDeliveryFeeType(value as 'free' | 'prepay' | 'collect' | 'collect_or_prepay')}
+                options={[
+                  { value: 'prepay', label: '선결제' },
+                  { value: 'free', label: '무료' },
+                  { value: 'collect', label: '착불' },
+                  { value: 'collect_or_prepay', label: '착불 또는 선결제' },
+                ]}
+              />
+            </Field>
+          </div>
+
+          {/* KC 는 번호 · 발급기관 · 제도(분야)가 한 벌이다. 몰이 셋을 따로 받으므로 한 자리에 모은다. */}
+          <GroupTitle>KC 인증</GroupTitle>
           <Field label="KC 인증번호">
             <div className="grid gap-3 md:grid-cols-[0.8fr_1.2fr]">
               <SelectField
@@ -434,17 +573,26 @@ export default function ProductInputSection({
               </div>
             </div>
           </Field>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="인증기관" trailing="KC 번호를 발급한 시험기관">
+              <OptionInput
+                value={certificationIssuer}
+                onChange={setCertificationIssuer}
+                placeholder="예: FITI시험연구원"
+                options={CERTIFICATION_ISSUER_OPTIONS}
+              />
+            </Field>
+            <Field label="인증분야" trailing="그 KC 가 어느 제도인지">
+              <OptionInput
+                value={certificationField}
+                onChange={setCertificationField}
+                placeholder="예: [어린이제품]안전확인"
+                options={CERTIFICATION_FIELD_OPTIONS}
+              />
+            </Field>
+          </div>
 
-          <Field label="제품 주요 특징">
-            <textarea
-              value={rawDescription}
-              onChange={(e) => setRawDescription(e.target.value)}
-              rows={5}
-              placeholder="비워두면 AI가 채워요. 핵심 특징을 직접 적어도 됩니다."
-              className="min-h-[132px] w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-4 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--primary)]"
-            />
-          </Field>
-
+          <GroupTitle>제품 사양</GroupTitle>
           <Field label="제품 사이즈">
             <div className="grid gap-3 md:grid-cols-3">
               <SizeInput
@@ -516,6 +664,7 @@ export default function ProductInputSection({
             </Field>
           </div>
 
+          <GroupTitle>사진</GroupTitle>
           <ProductImageInputs
             thumbnailImages={thumbnailImages}
             maxThumbnailImages={maxThumbnailImages}

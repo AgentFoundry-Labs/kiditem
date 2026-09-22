@@ -1,12 +1,10 @@
-import {
-  fillMallRegistrationForm,
-  prepareMallRegistration,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { prepareRegistration } from '../sales-product-registration';
+import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   artgongguFormFromDraft,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/artgonggu-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -131,7 +129,7 @@ export const art09Adapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'art09');
     const form = artgongguFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),
       ...(values.namePrefix?.trim() ? { namePrefix: values.namePrefix.trim() } : {}),
@@ -140,14 +138,7 @@ export const art09Adapter: MallPublishAdapter = {
         ? { supplyPrice: parsePositive(values.supplyPrice, 0) }
         : {}),
     });
-    const result = await fillMallRegistrationForm('art09', draft, form);
-    return {
-      ok: result.ok,
-      // 폼을 채운 것은 등록이 아니다. 사람이 제출해야 등록이다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    const result = await fillMallRegistrationForm('art09', draft, form, mallFormExecutionOptions(item));
+    return registrationOutcome(result);
   },
 };

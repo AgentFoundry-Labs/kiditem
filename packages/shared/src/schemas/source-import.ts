@@ -69,6 +69,8 @@ export const SourceImportTypeSchema = z.enum([
   'coupang_rocket_catalog_seed',
   'coupang_rocket_po_catalog',
   'coupang_rocket_matching_csv',
+  'sabangnet_mall_listings',
+  'mall_admin_listings',
 ]);
 export type SourceImportType = z.infer<typeof SourceImportTypeSchema>;
 

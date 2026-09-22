@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import { CHANNELS_CAPABILITIES } from "../domain/capability/channels.capabilities";
 
 describe("Channels final capability definitions", () => {
-  it("owns only browser-confirmed marketplace mutations with real strict schemas", () => {
+  it("owns registration execution and browser-confirmed marketplace capabilities with strict schemas", () => {
     expect(CHANNELS_CAPABILITIES.map((capability) => capability.key)).toEqual([
       "channels.register_confirmed_listing",
       "channels.submit_wing_thumbnail",
+      'channels.prepare_target_execution',
+      'channels.get_target_execution',
+      'channels.start_target_execution',
+      'channels.report_target_execution',
     ]);
     for (const capability of CHANNELS_CAPABILITIES) {
       expect(capability.ownerDomain).toBe("channels");
@@ -13,7 +17,7 @@ describe("Channels final capability definitions", () => {
         capability.inputSchema.safeParse({ organizationId: "forged" }).success,
       ).toBe(false);
       expect(capability.outputSchema.safeParse({}).success).toBe(false);
-      expect(capability.idempotency).toBe("required");
+      if (capability.effects.some(effect => effect === 'db_write')) expect(capability.idempotency).toBe("required");
     }
   });
 

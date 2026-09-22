@@ -61,7 +61,8 @@ type AdvertisingGeneration = Readonly<{
 
 type SelectedPair = Readonly<{
   sellpia: SellpiaGeneration;
-  advertising: AdvertisingGeneration;
+  /** Null when advertising is excluded: the pair is Sellpia alone. */
+  advertising: AdvertisingGeneration | null;
   actualCutoff: string;
   mappingGeneration: string;
 }>;
@@ -118,7 +119,9 @@ export class MasterProductProfitabilityReadService
   async load(input: {
     organizationId: string;
     targetCutoff: string;
+    advertising?: 'required' | 'excluded';
   }): Promise<ProfitabilityEvidenceSnapshot> {
+    const advertisingExcluded = input.advertising === 'excluded';
     const organizationId = requiredOrganizationId(input.organizationId);
     const targetCutoff = parseClosedCutoff(input.targetCutoff);
     const months = calendarMonthRange(targetCutoff, MAX_CALENDAR_MONTHS);
@@ -137,12 +140,14 @@ export class MasterProductProfitabilityReadService
     const sellpiaGenerations = sellpiaCatalog.completeGenerations.map(normalizeSellpiaGeneration);
     const advertisingGenerations = advertisingSnapshot.completeGenerations
       .map(normalizeAdvertisingGeneration);
-    const selected = selectCompatiblePair(
-      sellpiaGenerations,
-      advertisingGenerations,
-      targetCutoff,
-      mappingGeneration,
-    );
+    const selected = advertisingExcluded
+      ? selectSellpiaAlone(sellpiaGenerations, targetCutoff, mappingGeneration)
+      : selectCompatiblePair(
+        sellpiaGenerations,
+        advertisingGenerations,
+        targetCutoff,
+        mappingGeneration,
+      );
     const latestSellpia = sellpiaGenerations[0] ?? null;
     const latestAdvertising = advertisingGenerations[0] ?? null;
     // Readiness is each source's own: its newest generation on the current
@@ -206,15 +211,20 @@ export class MasterProductProfitabilityReadService
         .map((product) => product.id),
       yearMonths: evidenceMonths,
     });
-    const advertisingGeneration = await this.advertising.readGeneration({
-      organizationId,
-      sourceImportRunId: selected.advertising.metadata.sourceImportRunId,
-    });
     assertSelectedSellpiaGeneration(sellpiaFacts, selected.sellpia.metadata);
-    if (!advertisingGeneration) {
-      throw new UnprocessableEntityException('SOURCE_GENERATION_NOT_FOUND');
+    const selectedAdvertising = selected.advertising;
+    const advertisingGeneration = selectedAdvertising
+      ? await this.advertising.readGeneration({
+        organizationId,
+        sourceImportRunId: selectedAdvertising.metadata.sourceImportRunId,
+      })
+      : null;
+    if (selectedAdvertising) {
+      if (!advertisingGeneration) {
+        throw new UnprocessableEntityException('SOURCE_GENERATION_NOT_FOUND');
+      }
+      assertSelectedAdvertisingGeneration(advertisingGeneration, selectedAdvertising.metadata);
     }
-    assertSelectedAdvertisingGeneration(advertisingGeneration, selected.advertising.metadata);
 
     const sellpiaByProduct = aggregateSellpiaFacts(
       sellpiaFacts.facts,
@@ -222,11 +232,9 @@ export class MasterProductProfitabilityReadService
       evidenceMonths,
       products.filter((product) => product.mappingValid).map((product) => product.id),
     );
-    const advertisingByProduct = aggregateAdvertisingFacts(
-      advertisingGeneration,
-      selected,
-      evidenceMonths,
-    );
+    const advertisingByProduct = advertisingGeneration
+      ? aggregateAdvertisingFacts(advertisingGeneration, selected, evidenceMonths)
+      : new Map<string, Map<string, AdvertisingMonth>>();
     const productEvidence = products.map((product) => buildProductEvidence({
       product,
       sellpia: sellpiaByProduct.get(product.id) ?? new Map(),
@@ -237,9 +245,10 @@ export class MasterProductProfitabilityReadService
         evidenceMonths,
         selected,
       ),
-      advertisingCoverageStartDate: selected.advertising.view.coverageStartDate,
+      // Without advertising the Sellpia coverage is the whole requirement.
+      advertisingCoverageStartDate: (selected.advertising ?? selected.sellpia).view.coverageStartDate,
       advertisingCoverageEndDate: minDate(
-        selected.advertising.view.coverageEndDate,
+        (selected.advertising ?? selected.sellpia).view.coverageEndDate,
         selected.actualCutoff,
       ),
     }));
@@ -251,7 +260,7 @@ export class MasterProductProfitabilityReadService
       contributionBasis: fullMonthContributionBasis(selected),
       sourceVector: {
         sellpia: selected.sellpia.view,
-        advertising: selected.advertising.view,
+        advertising: selected.advertising?.view ?? emptyGeneration(),
       },
       sources,
       products: productEvidence,
@@ -312,7 +321,7 @@ function requiredOrganizationId(value: string): string {
 function fullMonthContributionBasis(selected: SelectedPair) {
   const from = maxDate(
     selected.sellpia.view.coverageStartDate,
-    selected.advertising.view.coverageStartDate,
+    selected.advertising?.view.coverageStartDate ?? null,
   );
   if (!from || from > selected.actualCutoff) return null;
   const windowStart = calendarMonthRange(selected.actualCutoff, MAX_CALENDAR_MONTHS)[0]!;
@@ -410,7 +419,7 @@ function selectCompatiblePair(
   targetCutoff: string,
   currentMappingGeneration: string,
 ): SelectedPair | null {
-  const pairs: SelectedPair[] = [];
+  const pairs: (SelectedPair & { advertising: AdvertisingGeneration })[] = [];
   for (const sellpiaGeneration of sellpia) {
     for (const advertisingGeneration of advertising) {
       if (sellpiaGeneration.metadata.mappingGeneration
@@ -543,7 +552,7 @@ function aggregateAdvertisingFacts(
   selected: SelectedPair,
   months: readonly string[],
 ): Map<string, Map<string, AdvertisingMonth>> {
-  if (generation.summary.sourceImportRunId !== selected.advertising.metadata.sourceImportRunId) {
+  if (generation.summary.sourceImportRunId !== selected.advertising?.metadata.sourceImportRunId) {
     throw new UnprocessableEntityException('SOURCE_GENERATION_MISMATCH');
   }
   const allowedMonths = new Set(months);
@@ -660,11 +669,11 @@ function evaluationBuckets(
 ): EvaluationBucket[] {
   const sourceStart = maxDate(
     selected.sellpia.view.coverageStartDate,
-    selected.advertising.view.coverageStartDate,
+    selected.advertising?.view.coverageStartDate ?? null,
   );
   const sourceEnd = minDate(
     selected.sellpia.view.coverageEndDate,
-    selected.advertising.view.coverageEndDate,
+    selected.advertising?.view.coverageEndDate ?? null,
     selected.actualCutoff,
   );
   if (!sourceStart || !sourceEnd || sourceStart > sourceEnd) return [];
@@ -725,11 +734,38 @@ function parseDate(value: string, code: string): string {
 function coversCutoffMonth(
   actualCutoff: string,
   sellpia: SellpiaGeneration,
-  advertising: AdvertisingGeneration,
+  advertising: AdvertisingGeneration | null,
 ): boolean {
   return actualCutoff === kstMonthEnd(actualCutoff.slice(0, 7))
     || (sellpia.view.coverageEndDate === actualCutoff
-      && advertising.view.coverageEndDate === actualCutoff);
+      && (advertising === null || advertising.view.coverageEndDate === actualCutoff));
+}
+
+/**
+ * The newest Sellpia generation on the current mapping, alone — for a formula
+ * that excludes advertising. Same cutoff rule as a pair, with one source.
+ */
+function selectSellpiaAlone(
+  sellpia: readonly SellpiaGeneration[],
+  targetCutoff: string,
+  currentMappingGeneration: string,
+): SelectedPair | null {
+  const candidates: SelectedPair[] = [];
+  for (const generation of sellpia) {
+    if (generation.metadata.mappingGeneration !== currentMappingGeneration) continue;
+    const actualCutoff = minDate(targetCutoff, generation.view.coverageEndDate);
+    if (!actualCutoff || !coversCutoffMonth(actualCutoff, generation, null)) continue;
+    candidates.push({
+      sellpia: generation,
+      advertising: null,
+      actualCutoff,
+      mappingGeneration: generation.metadata.mappingGeneration,
+    });
+  }
+  return candidates.sort((left, right) =>
+    right.actualCutoff.localeCompare(left.actualCutoff)
+    || compareSequence(right.sellpia.metadata.publicationSequence, left.sellpia.metadata.publicationSequence),
+  )[0] ?? null;
 }
 
 function minDate(...values: readonly (string | null)[]): string | null {

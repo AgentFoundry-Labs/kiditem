@@ -57,6 +57,7 @@ erDiagram
     DateTime updatedAt
   }
   ChannelListingOption {
+    String salesProductOptionId FK
     String id PK
     String listingId FK
     String organizationId FK
@@ -179,12 +180,12 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| ChannelAccount | channelAccount | referenced by external | AI | ProductPreparation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelListing |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
+| ChannelAccount | channelAccount | referenced by external | Channels | ProductPreparation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ProductRegistrationExecution |
 | ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |
 | ChannelAccount | channelAccount | referenced by external | Orders | CoupangDirectTransportReceipt |
@@ -199,9 +200,11 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
+| ChannelListingOption | salesProductOption | references external | Channels | SalesProductOption |
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | AgentOS | CapabilityInvocation |
 | Organization | organization | referenced by external | AI | AiDirectJob |
+| Organization | organization | referenced by external | AI | AiUsageRecord |
 | Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
 | Organization | organization | referenced by external | AI | ContentGenerationAssetUsage |
@@ -213,7 +216,6 @@ erDiagram
 | Organization | organization | referenced by external | AI | DetailPageImageArtifact |
 | Organization | organization | referenced by external | AI | DetailPageImageRenderIntent |
 | Organization | organization | referenced by external | AI | DetailPageRevision |
-| Organization | organization | referenced by external | AI | ProductPreparation |
 | Organization | organization | referenced by external | AI | Thumbnail |
 | Organization | organization | referenced by external | AI | ThumbnailAnalysis |
 | Organization | organization | referenced by external | AI | ThumbnailGeneration |
@@ -241,9 +243,15 @@ erDiagram
 | Organization | organization | referenced by external | Channels | CoupangWingSalesRankDailySnapshot |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProduct |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
+| Organization | organization | referenced by external | Channels | ProductPreparation |
+| Organization | organization | referenced by external | Channels | ProductPreparationOption |
 | Organization | organization | referenced by external | Channels | ProductRegistrationExecution |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
+| Organization | organization | referenced by external | Channels | SalesProduct |
+| Organization | organization | referenced by external | Channels | SalesProductOption |
+| Organization | organization | referenced by external | Channels | SalesProductOptionComponent |
+| Organization | organization | referenced by external | Channels | SalesProductPublicImage |
 | Organization | organization | referenced by external | Channels | SellpiaManualMatchAlias |
 | Organization | organization | referenced by external | Channels | SellpiaManualMatchSnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaProductMonthlySales |
@@ -319,6 +327,7 @@ erDiagram
 | Organization | organization | referenced by external | Supply | SupplierProduct |
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | SystemSetting |
+| Organization | organization | referenced by external | System | TodoItem |
 | SourceImportRun | advertisingSourceImportRun | referenced by external | Products | MasterProductAbcEvaluation |
 | SourceImportRun | effectSourceImportRun | referenced by external | Orders | CoupangDirectTransportReceipt |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Products | SellpiaInventoryState |
@@ -351,7 +360,7 @@ erDiagram
 | User | activeSyncOwner | referenced by external | Products | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
-| User | approvedByUser | referenced by external | AI | ProductPreparation |
+| User | approvedByUser | referenced by external | Channels | ProductPreparation |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | createdBy | referenced by external | AI | DetailPageImageArtifact |
@@ -360,7 +369,7 @@ erDiagram
 | User | createdByUser | referenced by external | AI | ContentWorkspaceThumbnailSelection |
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
-| User | createdByUser | referenced by external | AI | ProductPreparation |
+| User | createdByUser | referenced by external | Channels | ProductPreparation |
 | User | createdByUser | referenced by external | Sourcing | SourcingLaunchCandidate |
 | User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | User | initiatingUser | referenced by external | AgentOS | CapabilityInvocation |

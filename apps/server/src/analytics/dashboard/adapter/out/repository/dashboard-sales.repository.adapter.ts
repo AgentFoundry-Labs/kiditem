@@ -3,6 +3,8 @@ import { readListingProductIds } from '../../../../../channels/read/listing-prod
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../../prisma/prisma.service";
+import { businessDateKey } from "../../../../../common/kst";
+import { readCurrentSellpiaProductMonthlyFacts } from "../../../../sellpia-product-sales/read/sellpia-product-monthly-facts";
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
@@ -19,8 +21,43 @@ import {
 import type { TopProduct } from "@kiditem/shared/dashboard";
 import type {
   DashboardSalesRepositoryPort,
+  SellpiaTopProductsRead,
   TodayKpiRow,
 } from "../../../application/port/out/repository/dashboard-sales.repository.port";
+
+interface SellpiaTopProductRow {
+  productCode: string;
+  name: string;
+  nameOptionCode: string;
+  revenue: number;
+  revenueByMasterProduct: Map<string, number>;
+}
+
+/**
+ * A Sellpia ranking is one monthly snapshot only when every source row shares
+ * the same captured business-date window. Mixed or absent coverage is
+ * unavailable, so the caller can keep the Orders ranking.
+ */
+function sharedCoverage(
+  facts: readonly Readonly<{
+    coverageStartDate: Date | null;
+    coverageEndDate: Date | null;
+  }>[],
+): SellpiaTopProductsRead["coverage"] | null {
+  const first = facts[0];
+  if (!first?.coverageStartDate || !first.coverageEndDate) return null;
+  const startDate = businessDateKey(first.coverageStartDate);
+  const endDate = businessDateKey(first.coverageEndDate);
+  return facts.every(
+    (fact) =>
+      fact.coverageStartDate !== null &&
+      fact.coverageEndDate !== null &&
+      businessDateKey(fact.coverageStartDate) === startDate &&
+      businessDateKey(fact.coverageEndDate) === endDate,
+  )
+    ? { startDate, endDate }
+    : null;
+}
 
 interface TopProductRawRow {
   id: string;
@@ -112,6 +149,101 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
         abcEvaluation: abc?.evaluation ?? null,
       } satisfies TopProduct;
     });
+  }
+
+  /**
+   * Top-N (10) products for a whole calendar month from Sellpia's published
+   * monthly facts. These facts cover every channel, so this ranking is used
+   * when the selected period is a complete month. The source currently
+   * publishes revenue and quantity, but no stored sale-time cost; monthly
+   * profit therefore stays unavailable rather than borrowing current product
+   * pricing.
+   */
+  async fetchSellpiaTopProducts(
+    organizationId: string,
+    yearMonth: string,
+  ): Promise<SellpiaTopProductsRead | null> {
+    const { facts } = await this.prisma.$transaction(
+      (tx) =>
+        readCurrentSellpiaProductMonthlyFacts(tx, {
+          organizationId,
+          scope: { yearMonths: [yearMonth] },
+        }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    const coverage = sharedCoverage(facts);
+    if (!coverage) return null;
+
+    const grouped = new Map<string, SellpiaTopProductRow>();
+    for (const fact of facts) {
+      const current = grouped.get(fact.productCode) ?? {
+        productCode: fact.productCode,
+        name: fact.productName,
+        nameOptionCode: fact.optionCode,
+        revenue: 0,
+        revenueByMasterProduct: new Map<string, number>(),
+      };
+      if (fact.optionCode < current.nameOptionCode) {
+        current.nameOptionCode = fact.optionCode;
+        current.name = fact.productName;
+      }
+      current.revenue += fact.orderAmount;
+      if (fact.masterProductId) {
+        current.revenueByMasterProduct.set(
+          fact.masterProductId,
+          (current.revenueByMasterProduct.get(fact.masterProductId) ?? 0)
+            + fact.orderAmount,
+        );
+      }
+      grouped.set(fact.productCode, current);
+    }
+
+    const rows = [...grouped.values()]
+      .filter((row) => row.revenue > 0)
+      .sort(
+        (left, right) =>
+          right.revenue - left.revenue
+          || left.productCode.localeCompare(right.productCode),
+      )
+      .slice(0, 10);
+    const masterProductIds = [
+      ...new Set(rows.flatMap((row) => [...row.revenueByMasterProduct.keys()])),
+    ];
+    const snapshot = masterProductIds.length
+      ? await this.productAbc.readAbc({ organizationId, masterProductIds })
+      : null;
+    const abcByMasterProductId = new Map(
+      snapshot?.products.map((product) => [product.masterProductId, product.abc]) ?? [],
+    );
+
+    return {
+      coverage,
+      products: rows.map((row) => {
+        const orderedMasterProductIds = [...row.revenueByMasterProduct.entries()]
+          .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+          .map(([masterProductId]) => masterProductId);
+        const abcViews = orderedMasterProductIds.map(
+          (masterProductId) => abcByMasterProductId.get(masterProductId) ?? null,
+        );
+        const firstAbc = abcViews[0] ?? null;
+        const abc = firstAbc && abcViews.every(
+          (view) => view?.abcGrade === firstAbc.abcGrade,
+        )
+          ? firstAbc
+          : null;
+        return {
+          id: `sellpia:${row.productCode}`,
+          name: row.name,
+          organization: "셀피아",
+          abc,
+          grade: abc?.abcGrade ?? null,
+          abcEvaluation: abc?.evaluation ?? null,
+          revenue: row.revenue,
+          netProfit: null,
+          profitRate: null,
+        } satisfies TopProduct;
+      }),
+    };
   }
 
   private async fetchTopProductsSnapshot(

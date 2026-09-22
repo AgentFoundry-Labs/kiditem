@@ -1,3 +1,10 @@
+import { z } from 'zod';
+import {
+  TargetExecutionResultSchema,
+  type PrepareTargetExecutionInput,
+  type ReportTargetExecutionInput,
+  type TargetExecutionResult,
+} from '@kiditem/shared/sales-product';
 import { apiClient } from '@/lib/api-client';
 
 /**
@@ -14,6 +21,18 @@ import { apiClient } from '@/lib/api-client';
 
 const base = (candidateId: string) =>
   `/api/channels/candidates/${encodeURIComponent(candidateId)}/registration-executions`;
+
+const targetBase = (targetId: string) =>
+  `/api/channels/registration-targets/${encodeURIComponent(targetId)}/executions`;
+
+const executionBase = (executionId: string) =>
+  `/api/channels/registration-executions/${encodeURIComponent(executionId)}`;
+
+export const registrationExecutionKeys = {
+  targetHistory: (targetId: string) => ['registration-target-executions', 'history', targetId] as const,
+};
+
+const TargetExecutionResultListSchema = z.array(TargetExecutionResultSchema);
 
 /** 셀피아 재고 SKU 한 줄. 울타리가 동결하는 vendorItemCode 의 출처다. */
 export interface SellpiaInventoryRef {
@@ -58,7 +77,48 @@ export interface PrepareRegistrationExecutionBody {
   sellpiaQuantity?: number;
 }
 
+/**
+ * Public target execution client.  A target execution is a separate contract from
+ * the legacy candidate/WING fence above: the server freezes the complete product
+ * payload before the provider adapter is allowed to do any I/O.
+ */
+export const targetRegistrationExecutionApi = {
+  prepare: (targetId: string, input: PrepareTargetExecutionInput): Promise<TargetExecutionResult> =>
+    apiClient.post<unknown>(targetBase(targetId), input)
+      .then((response) => TargetExecutionResultSchema.parse(response)),
+
+  start: (executionId: string): Promise<TargetExecutionResult> =>
+    apiClient.post<unknown>(`${executionBase(executionId)}/start`, {})
+      .then((response) => TargetExecutionResultSchema.parse(response)),
+
+  get: (executionId: string): Promise<TargetExecutionResult> =>
+    apiClient.getParsed(executionBase(executionId), TargetExecutionResultSchema),
+
+  list: (targetId: string): Promise<TargetExecutionResult[]> =>
+    apiClient.getParsed(targetBase(targetId), TargetExecutionResultListSchema),
+
+  report: (executionId: string, input: ReportTargetExecutionInput): Promise<TargetExecutionResult> =>
+    apiClient.post<unknown>(`${executionBase(executionId)}/result`, input)
+      .then((response) => TargetExecutionResultSchema.parse(response)),
+};
+
 export const registrationExecutionApi = {
+  /** Prepare an immutable registration-target snapshot. */
+  prepareTarget: targetRegistrationExecutionApi.prepare,
+  prepareTargetExecution: targetRegistrationExecutionApi.prepare,
+  /** Claim the provider-I/O lease for a target execution. */
+  startTarget: targetRegistrationExecutionApi.start,
+  startTargetExecution: targetRegistrationExecutionApi.start,
+  /** Read an execution when the provider needs reconciliation. */
+  getTarget: targetRegistrationExecutionApi.get,
+  getTargetExecution: targetRegistrationExecutionApi.get,
+  /** Read the recent attempts for a saved target, newest first. */
+  listTargetExecutions: targetRegistrationExecutionApi.list,
+  listTargetExecutionHistory: targetRegistrationExecutionApi.list,
+  /** Report the provider result using the frozen payload hash and lease. */
+  reportTarget: targetRegistrationExecutionApi.report,
+  reportTargetExecution: targetRegistrationExecutionApi.report,
+
   /** 제출본을 동결하고 실행 장부를 연다. 아직 마켓에 아무것도 보내지 않는다. */
   prepare: (candidateId: string, body: PrepareRegistrationExecutionBody) =>
     apiClient.post<PreparedRegistrationExecution>(`${base(candidateId)}/prepare`, body),
@@ -114,3 +174,6 @@ export const registrationExecutionApi = {
     { evidence },
   ),
 };
+
+/** Target execution history is the only resumable registration-attempt read path. */
+export const listRegistrationTargetExecutions = targetRegistrationExecutionApi.list;

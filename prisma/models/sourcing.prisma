@@ -44,7 +44,6 @@ model SourcingCandidate {
   contentGenerationSources     ContentGenerationSource[]
   contentGenerations           ContentGeneration[]           @relation("ContentGenerationPrimarySourcingCandidate")
   contentWorkspaces            ContentWorkspace[]            @relation("ContentWorkspaceSourcingCandidate")
-  productPreparations          ProductPreparation[]
   thumbnailGenerations         ThumbnailGeneration[]         @relation("ThumbnailGenerationSourcingCandidate")
   channelListings              ChannelListing[]
   detailPageImageRenderIntents DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentCandidate")

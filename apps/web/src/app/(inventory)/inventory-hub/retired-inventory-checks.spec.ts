@@ -34,10 +34,9 @@ const survivingConsumers = [
 const liveLinkConsumers = [
   'apps/web/src/app/(inventory)/stock-ops/page.tsx',
   'apps/web/src/components/RebuildReadinessBanner.tsx',
-  // The dashboard's inventory link moved out of the page and into the warning
-  // table that renders the 셀피아 재고 0 row. The rule is unchanged — only the
-  // canonical workspace is linked — so the guard follows the link.
-  'apps/web/src/app/(analytics)/dashboard/components/DashboardWarningTable.tsx',
+  // DashboardWarningTable left this list with the dashboard's '지금 손이 필요한 것'
+  // table (2026-09-18): the dashboard was simplified and that table went with it,
+  // so the dashboard no longer links to the inventory workspace at all.
   // DashboardSidePanel left this list: it linked to the inventory workspace only
   // through a fallback keyed on `type: 'stock_low'`, an alert type nothing
   // writes. The source owner names the destination now, so the panel links

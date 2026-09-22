@@ -90,3 +90,27 @@ model DataMigrationRun {
   @@index([completedAt])
   @@map("data_migration_runs")
 }
+
+/// @namespace System
+/// @describe 할 일 한 줄(TO DO LIST 화면). 사장님이 해 줘야 하는 일과 우리가 만들 일을 한 곳에 적는다 — 몰 대량등록처럼 여러 화면에 걸친 일의 남은 조각을 잊지 않으려고 둔다.
+model TodoItem {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  /// 누가 하는 일인가 — `operator` 사장님 · `kiditem` 우리(개발).
+  owner          String    @db.VarChar(20)
+  /// 어느 일에 딸린 것인가(`몰 대량등록` 처럼). 화면이 이 이름으로 묶는다.
+  area           String    @db.VarChar(60)
+  title          String
+  detail         String?
+  /// `open` 할 일 · `doing` 하는 중 · `done` 끝.
+  status         String    @default("open") @db.VarChar(20)
+  sortOrder      Int       @default(0) @map("sort_order")
+  doneAt         DateTime? @map("done_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, sortOrder])
+  @@map("todo_items")
+}

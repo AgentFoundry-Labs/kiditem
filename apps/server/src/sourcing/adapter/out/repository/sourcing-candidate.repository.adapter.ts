@@ -1,17 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
-  candidateRegistrationState,
-  readRegistrationExecutionFacts,
-  registrationDraftState,
-  type CandidateRegistrationState,
-} from '../../../../channels/read/registration-execution.reader';
+  CANDIDATE_REGISTRATION_PORT,
+  type CandidateRegistrationPort,
+  type ProductPreparationRow,
+} from '../../../../channels/application/port/in/candidate-registration.port';
 import { upsertSourcedCandidateIn, ensureSourcedCandidateImages } from './sourcing-candidate-upsert.transaction';
 import type {
   CandidateImageRow,
   CandidateRow,
-  ProductPreparationRow,
   SourcingCandidateRepositoryPort,
   SourcingCandidateStateRow,
   UpsertCandidateInput,
@@ -21,7 +19,11 @@ import type { SourcingRepositoryTransaction } from '../../../application/port/ou
 
 @Injectable()
 export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(CANDIDATE_REGISTRATION_PORT)
+    private readonly candidateRegistrations?: CandidateRegistrationPort,
+  ) {}
 
   runInTransaction<T>(
     operation: (tx: SourcingRepositoryTransaction) => Promise<T>,
@@ -244,15 +246,14 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       where: { id, organizationId, isDeleted: false },
       include: {
         images: { where: { isDeleted: false }, orderBy: { sortOrder: 'asc' } },
-        productPreparations: {
-          where: { organizationId, isDeleted: false },
-          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-        },
       },
     });
     if (!row) return null;
-    const states = await this.readRegistrationStates(organizationId, [row]);
-    return { ...hydrateCandidate(row), registrationState: states.get(row.id) ?? 'none' };
+    const registrations = await this.readCandidateRegistrations(organizationId, [row.id]);
+    return {
+      ...hydrateCandidate(row, registrations.get(row.id)),
+      registrationState: registrations.get(row.id)?.registrationState ?? 'none',
+    };
   }
 
   async listSourced(query: {
@@ -289,20 +290,19 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         take: query.limit,
         include: {
           images: { where: { isDeleted: false }, orderBy: { sortOrder: 'asc' } },
-          productPreparations: {
-            where: { organizationId: query.organizationId, isDeleted: false },
-            orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-          },
         },
       }),
     ]);
-    // 페이지 전체를 한 번에 읽는다. 후보별 조회는 N+1 이다.
-    const states = await this.readRegistrationStates(query.organizationId, rows);
+    // 페이지 전체의 등록 준비를 소유자 포트로 한 번에 읽는다.
+    const registrations = await this.readCandidateRegistrations(
+      query.organizationId,
+      rows.map((row) => row.id),
+    );
     return {
       total,
       items: rows.map((row) => ({
-        ...hydrateCandidate(row),
-        registrationState: states.get(row.id) ?? 'none',
+        ...hydrateCandidate(row, registrations.get(row.id)),
+        registrationState: registrations.get(row.id)?.registrationState ?? 'none',
       })),
     };
   }
@@ -313,42 +313,15 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
    * 실행 장부는 Channels 것이라 등록된 리더로만 읽는다(ADR-0009). 초안의 제출 칸은
    * 울타리가 함께 갱신하는 거울이라, 그 둘이 갈라지면 화면이 거짓말을 한다.
    */
-  private async readRegistrationStates(
+  private async readCandidateRegistrations(
     organizationId: string,
-    rows: Array<{ id: string; productPreparations: Array<{ id: string; closedAt: Date | null; status?: string; channelListingId?: string | null }> }>,
-  ): Promise<Map<string, CandidateRegistrationState>> {
-    const candidateOf = new Map<string, string>();
-    for (const row of rows) {
-      for (const preparation of row.productPreparations) {
-        candidateOf.set(preparation.id, row.id);
-      }
+    candidateIds: readonly string[],
+  ): Promise<Awaited<ReturnType<CandidateRegistrationPort['readForCandidates']>>> {
+    if (candidateIds.length === 0) return new Map();
+    if (!this.candidateRegistrations) {
+      throw new Error('candidate_registration_port_missing');
     }
-    const states = new Map<string, CandidateRegistrationState>();
-    if (candidateOf.size === 0) return states;
-    const facts = await readRegistrationExecutionFacts(this.prisma, {
-      organizationId,
-      productPreparationIds: [...candidateOf.keys()],
-    });
-    const byPreparation = new Map(facts.map((fact) => [fact.productPreparationId, fact]));
-    for (const row of rows) {
-      for (const preparation of row.productPreparations) {
-        const execution = byPreparation.get(preparation.id);
-        preparation.status = registrationDraftState(preparation.closedAt, execution);
-        preparation.channelListingId = execution?.channelListingId ?? null;
-      }
-    }
-    const byCandidate = new Map<string, typeof facts[number][]>();
-    for (const fact of facts) {
-      const candidateId = candidateOf.get(fact.productPreparationId);
-      if (!candidateId) continue;
-      const bucket = byCandidate.get(candidateId);
-      if (bucket) bucket.push(fact);
-      else byCandidate.set(candidateId, [fact]);
-    }
-    for (const [candidateId, candidateFacts] of byCandidate) {
-      states.set(candidateId, candidateRegistrationState(candidateFacts));
-    }
-    return states;
+    return this.candidateRegistrations.readForCandidates(organizationId, candidateIds);
   }
 
   async archiveSourcedWorkspace(
@@ -466,8 +439,11 @@ function receiptCandidateResult(value: Prisma.JsonValue): { candidateId: string 
   throw new Error('sourcing_owner_idempotency_receipt_invalid');
 }
 
-function hydrateCandidate(row: any) {
-  const productPreparations = row.productPreparations.map(toProductPreparationRow);
+function hydrateCandidate(
+  row: any,
+  registration: { preparations: ProductPreparationRow[] } | undefined,
+) {
+  const productPreparations = registration?.preparations ?? [];
   return {
     ...toRow(row),
     images: row.images.map(toImageRow),
@@ -518,27 +494,6 @@ function toImageRow(image: any): CandidateImageRow {
     source: image.source,
     isPrimary: image.isPrimary,
     isDeleted: image.isDeleted,
-  };
-}
-
-function toProductPreparationRow(preparation: any): ProductPreparationRow {
-  return {
-    id: preparation.id,
-    sourceCandidateId: preparation.sourceCandidateId,
-    channelAccountId: preparation.channelAccountId,
-    sourceContentWorkspaceId: preparation.sourceContentWorkspaceId,
-    channelListingId: preparation.channelListingId,
-    displayName: preparation.displayName,
-    status: preparation.status,
-    selectedThumbnailUrl: preparation.selectedThumbnailUrl,
-    selectedThumbnailGenerationId: preparation.selectedThumbnailGenerationId,
-    selectedThumbnailGenerationCandidateId: preparation.selectedThumbnailGenerationCandidateId,
-    selectedDetailPageArtifactId: preparation.selectedDetailPageArtifactId,
-    selectedDetailPageRevisionId: preparation.selectedDetailPageRevisionId,
-    selectedDetailPageGenerationId: preparation.selectedDetailPageGenerationId,
-    registrationInput: preparation.registrationInput,
-    createdAt: preparation.createdAt,
-    updatedAt: preparation.updatedAt,
   };
 }
 

@@ -626,6 +626,60 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       .resolves.toMatchObject({ currentStock: 27 });
   });
 
+  it('leaves an option whose source product was deleted for review and still links the rest (KID-246)', async () => {
+    const active = await createProduct('10162-1', '할로윈 아트 네일팁');
+    const activeSku = await createInventorySku('10162-1', 5, active.id);
+    const retired = await createProduct('9151-1', '할로윈 LED 거미줄');
+    await prisma.masterProduct.delete({ where: { id: retired.id } });
+    const linked = await createListing({ displayName: '할로윈 아트 네일팁 1p' });
+    const linkedOption = await createOption(linked.id, {
+      itemName: '할로윈 아트 네일팁 1p',
+      sellerSku: '10162-1',
+    });
+    const held = await createListing({ displayName: '할로윈 LED 거미줄 1p' });
+    const heldOption = await createOption(held.id, {
+      itemName: '할로윈 LED 거미줄 1p',
+      sellerSku: '9151-1',
+    });
+
+    await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
+      .resolves.toMatchObject({ evaluatedListings: 2, configuredOptions: 1 });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: { in: [linkedOption.id, heldOption.id] } },
+      select: { channelListingOptionId: true, masterProductId: true },
+    })).resolves.toEqual([
+      { channelListingOptionId: linkedOption.id, masterProductId: activeSku.id },
+    ]);
+  });
+
+  it('links a mall listing by the Sellpia name the mall keeps as its option name, with the title pack count (KID-246)', async () => {
+    const waxPop = await createProduct('10271-1', '왁스팝 말랑이');
+    const mask = await createProduct('792-1', '스크림가면');
+    const waxPopSku = await createInventorySku('10271-1', 20, waxPop.id, { name: '3000왁스팝 말랑이' });
+    const maskSku = await createInventorySku('792-1', 20, mask.id);
+    const single = await createListing({
+      channelName: '[키드아이템] 왁스팝 말랑이 1p 왁뿌',
+      displayName: '[키드아이템] 왁스팝 말랑이 1p 왁뿌',
+    });
+    const singleOption = await createOption(single.id, { itemName: '3000왁스팝 말랑이' });
+    const pack = await createListing({
+      channelName: '[키드아이템] 스크림 가면 [12개] 할로윈가면',
+      displayName: '[키드아이템] 스크림 가면 [12개] 할로윈가면',
+    });
+    const packOption = await createOption(pack.id, { itemName: '스크림가면' });
+
+    await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
+      .resolves.toMatchObject({ evaluatedListings: 2, configuredOptions: 2 });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: { in: [singleOption.id, packOption.id] } },
+      select: { channelListingOptionId: true, masterProductId: true, quantity: true },
+      orderBy: { quantity: 'asc' },
+    })).resolves.toEqual([
+      { channelListingOptionId: singleOption.id, masterProductId: waxPopSku.id, quantity: 1 },
+      { channelListingOptionId: packOption.id, masterProductId: maskSku.id, quantity: 12 },
+    ]);
+  });
+
   it('rejects incompatible provider and confirmed CSV barcodes without writing recipes or stock changes', async () => {
     const product = await createProduct('KI-BARCODE-REJECT', '퓨어 클리어 슬라임');
     const listing = await createListing({
@@ -870,7 +924,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     }
   });
 
-  it('leaves duplicate normalized names and unknown selling quantities for review', async () => {
+  it('leaves duplicate normalized names for review, and reads an unmarked exact name as one unit (KID-246)', async () => {
     const first = await createProduct('KI-NAME-DUP-1', '키즈 식판');
     const second = await createProduct('KI-NAME-DUP-2', '키즈 식판');
     await Promise.all([
@@ -885,10 +939,16 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     await createInventorySku('SP-NAME-QUANTITY', 9, quantityProduct.id, { name: '유아 접시' });
 
     await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
-      .resolves.toEqual({ evaluatedListings: 2, matchedListings: 0, configuredOptions: 0 });
+      .resolves.toEqual({ evaluatedListings: 2, matchedListings: 1, configuredOptions: 1 });
+    // 같은 이름이 SKU 둘에 걸리면 어느 쪽인지 모른다 — 그대로 사람 확인으로 남긴다.
     expect(await prisma.channelListingOptionInventoryComponent.count({
-      where: { channelListingOptionId: { in: [duplicateOption.id, quantityOption.id] } },
+      where: { channelListingOptionId: duplicateOption.id },
     })).toBe(0);
+    // 이름이 그 상품 이름과 글자까지 같고 묶음 표기가 없으면 낱개 하나다(사장님 2026-09-17).
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: quantityOption.id },
+      select: { quantity: true },
+    })).resolves.toEqual([{ quantity: 1 }]);
   });
 
   it('leaves a high-scoring color mismatch for review', async () => {

@@ -102,6 +102,9 @@ export const queryKeys = {
     sellpiaProductProfitabilitySource: () =>
       [...queryKeys.inventory.all, 'sellpia-product-profitability-source'] as const,
   },
+  aiUsage: {
+    summary: (params: Record<string, string>) => ['ai-usage', 'summary', params] as const,
+  },
   dashboard: {
     all: ['dashboard'] as const,
     // Sales
@@ -298,6 +301,10 @@ export const queryKeys = {
     listingMatrix: (params: Record<string, string>) =>
       [...queryKeys.mallPublishing.all, 'listing-matrix', params] as const,
     channelOverview: () => [...queryKeys.mallPublishing.all, 'channel-overview'] as const,
+    sabangnetListingsSource: () =>
+      [...queryKeys.mallPublishing.all, 'sabangnet-listings-source'] as const,
+    mallAdminListingsSource: () =>
+      [...queryKeys.mallPublishing.all, 'mall-admin-listings-source'] as const,
   },
   coupangAccount: {
     all: ['coupangAccount'] as const,

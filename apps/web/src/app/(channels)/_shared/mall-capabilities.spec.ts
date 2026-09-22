@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import {
+  bulkNoteFor,
   capabilityTotals,
   mallCapabilities,
   ordersLabelFor,
   ordersNoteFor,
   readyCount,
   registerNoteFor,
+  resumeNoteFor,
   soldOutNoteFor,
   sortByCapability,
+  type MallBulkSheetFacts,
   type MallManifestFacts,
 } from './mall-capabilities';
+import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 
 const channel = (overrides: Partial<MallChannelSummary> = {}): MallChannelSummary => ({
   mallKey: 'x',
@@ -25,6 +28,10 @@ const channel = (overrides: Partial<MallChannelSummary> = {}): MallChannelSummar
   listingCount: 0,
   orderCount: 0,
   productCount: 0,
+  optionCount: 0,
+  matchedOptionCount: 0,
+  onSaleOptionCount: 0,
+  onSaleMatchedOptionCount: 0,
   readiness: 'unsupported',
   ...overrides,
 });
@@ -50,10 +57,42 @@ describe('mallCapabilities', () => {
       inquiries: 'pending',
       inquiryReplies: 'pending',
       register: 'pending',
+      bulk: 'pending',
       update: 'pending',
       soldout: 'pending',
+      resume: 'pending',
       stock: 'pending',
     });
+  });
+
+  const bulkSheets: MallBulkSheetFacts = {
+    sheets: new Map([
+      ['gmarket', { label: 'G마켓 · 옥션', mallKeys: ['gmarket', 'auction'] }],
+      ['auction', { label: 'G마켓 · 옥션', mallKeys: ['gmarket', 'auction'] }],
+    ]),
+    unavailable: new Map([['lotte-on', '롯데ON은 신규 등록 엑셀이 없습니다(일괄수정만).']]),
+  };
+
+  it('대량등록은 몰 엑셀 목록에 있는 몰만 됨, 신규 등록 엑셀이 없는 몰은 불가, 목록을 못 받으면 아직이다', () => {
+    const bulk = (mallKey: string, facts: MallBulkSheetFacts | null = bulkSheets, facts2: MallManifestFacts | null = manifest()) =>
+      mallCapabilities(channel({ mallKey }), { hasAdapter: true, manifest: facts2, bulkSheets: facts }).bulk;
+    expect(bulk('auction')).toBe('ready');
+    expect(bulk('lotte-on')).toBe('unavailable');
+    expect(bulk('ssg')).toBe('pending');
+    expect(bulk('auction', null)).toBe('pending');
+    // Canonical registry identifies Gmarket as a retail listing channel even with stale manifest data.
+    expect(bulk('gmarket', bulkSheets, notApplicable)).toBe('ready');
+    expect(bulk('rocket', bulkSheets, null)).toBe('unavailable');
+  });
+
+  it('대량등록 사연은 받는 곳과 한 파일에 함께 들어가는 몰, 또는 엑셀이 없는 까닭이다', () => {
+    const names = (key: string) => ({ gmarket: 'G마켓', auction: '옥션' } as Record<string, string>)[key] ?? key;
+    expect(bulkNoteFor('auction', bulkSheets, names)).toBe(
+      '판매상품 화면 [몰 대량등록 엑셀] › G마켓 · 옥션 — G마켓·옥션 한 파일에서 이 몰 양식을 채워 받습니다.',
+    );
+    expect(bulkNoteFor('lotte-on', bulkSheets, names)).toBe('롯데ON은 신규 등록 엑셀이 없습니다(일괄수정만).');
+    expect(bulkNoteFor('ssg', bulkSheets, names)).toBeNull();
+    expect(bulkNoteFor('auction', null, names)).toBeNull();
   });
 
   it('상품등록은 등록 어댑터가 있어야 초록이다', () => {
@@ -64,10 +103,11 @@ describe('mallCapabilities', () => {
    * 쿠팡 로켓·쿠팡직배송은 우리가 발주를 받는 사입 채널이라 상품등록·품절 송신 개념이 없다
    * (매니페스트 `applicable: false`). 회색으로 두면 "언젠가 된다" 로 읽힌다.
    */
-  it('⭐ 개념이 없는 채널은 상품등록·품절관리가 빨강이다 — 어댑터가 있어도', () => {
+  it('⭐ 개념이 없는 채널은 상품등록·품절관리·판매재개가 빨강이다 — 어댑터가 있어도', () => {
     const caps = mallCapabilities(channel(), { hasAdapter: true, manifest: notApplicable });
     expect(caps.register).toBe('unavailable');
     expect(caps.soldout).toBe('unavailable');
+    expect(caps.resume).toBe('unavailable');
   });
 
   /** 발주를 받는 사입 채널에는 고객 클레임 · 문의도, 우리가 고칠 상품 페이지도, 보낼 재고도 없다. */
@@ -116,8 +156,10 @@ describe('mallCapabilities', () => {
       inquiries: 'pending',
       inquiryReplies: 'pending',
       register: 'pending',
+      bulk: 'pending',
       update: 'pending',
       soldout: 'pending',
+      resume: 'pending',
       stock: 'pending',
     });
   });
@@ -147,6 +189,7 @@ describe('capabilityTotals', () => {
     expect(totals.tracking).toEqual({ ready: 0, pending: 3, unavailable: 0 });
     expect(totals.register).toEqual({ ready: 1, pending: 1, unavailable: 1 });
     expect(totals.soldout).toEqual({ ready: 0, pending: 2, unavailable: 1 });
+    expect(totals.resume).toEqual({ ready: 0, pending: 2, unavailable: 1 });
   });
 });
 
@@ -230,5 +273,95 @@ describe('soldOutNoteFor', () => {
   it('개념이 없는 채널과 매니페스트가 없을 때는 사연이 없다', () => {
     expect(soldOutNoteFor(notApplicable)).toBeNull();
     expect(soldOutNoteFor(null)).toBeNull();
+  });
+
+  /** 초록 칸에 "경로가 아직 없다"를 적으면 칸이 거짓말을 한다(2026-09-19 전에는 그렇게 적혔다). */
+  it('⭐ 우리 길이 있는 몰에는 "경로가 없다" 사연을 붙이지 않는다', () => {
+    expect(soldOutNoteFor(manifest({ soldOutRoute: 'mall_admin' }))).toBeNull();
+    // 몰 API 는 확인 전이어도 관리자 화면의 품절 길은 확인했다(지마켓 · 옥션 · 11번가 · 스마트스토어) — "확인 전" 도 아니다.
+    expect(soldOutNoteFor(manifest({ unverified: true, soldOutRoute: 'mall_admin' }))).toBeNull();
+    expect(resumeNoteFor(manifest({ unverified: true, supports: { soldOut: true, resume: true }, resumeRoute: 'mall_admin' })))
+      .toBeNull();
+  });
+});
+
+describe('resumeNoteFor', () => {
+  it('몰이 해제를 자동으로 받지 않으면 몰에서 직접 풀어야 한다고 적는다', () => {
+    expect(resumeNoteFor(manifest({ supports: { soldOut: true, resume: false }, soldOutRoute: 'mall_admin' })))
+      .toContain('직접 풀어야');
+  });
+
+  it('길이 있으면 사연이 없고, 없으면 경로가 아직 없다고 적는다', () => {
+    expect(resumeNoteFor(manifest({ supports: { soldOut: true, resume: true }, resumeRoute: 'mall_admin' }))).toBeNull();
+    expect(resumeNoteFor(manifest({ supports: { soldOut: true, resume: true } })))
+      .toBe('몰은 판매재개를 받습니다. 우리 송신 경로가 아직 없습니다.');
+    expect(resumeNoteFor(manifest({ unverified: true, supports: { soldOut: false } })))
+      .toBe('이 몰의 판매재개 방식은 아직 확인 전입니다.');
+  });
+
+  it('개념이 없는 채널 · 품절을 안 받는 몰 · 매니페스트가 없을 때는 사연이 없다', () => {
+    expect(resumeNoteFor(notApplicable)).toBeNull();
+    expect(resumeNoteFor(manifest({ supports: { soldOut: false } }))).toBeNull();
+    expect(resumeNoteFor(null)).toBeNull();
+  });
+});
+
+describe('품절 송신 칸', () => {
+  it('우리가 그 몰 관리자를 뚫은 몰만 초록이다', () => {
+    const wired = mallCapabilities(channel(), {
+      hasAdapter: true,
+      manifest: manifest({ supports: { soldOut: true }, soldOutRoute: 'mall_admin' }),
+    });
+    expect(wired.soldout).toBe('ready');
+  });
+
+  it('몰이 품절을 받아도 우리 경로가 없으면 초록이 아니다', () => {
+    // 이 칸은 몰의 사정이 아니라 **우리가 지금 보낼 수 있는가**를 말한다.
+    const noRoute = mallCapabilities(channel(), {
+      hasAdapter: true,
+      manifest: manifest({ supports: { soldOut: true }, soldOutRoute: null }),
+    });
+    expect(noRoute.soldout).toBe('pending');
+  });
+
+  it('품절을 안 받는다고 확인된 몰은 경로와 무관하게 빨강이다', () => {
+    const refuses = mallCapabilities(channel(), {
+      hasAdapter: true,
+      manifest: manifest({ supports: { soldOut: false }, soldOutRoute: 'mall_admin' }),
+    });
+    expect(refuses.soldout).toBe('unavailable');
+    expect(refuses.resume).toBe('unavailable');
+  });
+});
+
+/** 사장님 2026-09-19: "품절관리랑 판매재개 기능 구별해서 되는지 구별해놔줘". */
+describe('판매재개 칸', () => {
+  it('⭐ 해제 길(resumeRoute)이 있는 몰만 초록이다 — 품절 길과 따로 본다', () => {
+    const both = mallCapabilities(channel(), {
+      hasAdapter: false,
+      manifest: manifest({ supports: { soldOut: true, resume: true }, soldOutRoute: 'mall_admin', resumeRoute: 'mall_admin' }),
+    });
+    expect(both).toMatchObject({ soldout: 'ready', resume: 'ready' });
+    const soldOutOnly = mallCapabilities(channel(), {
+      hasAdapter: false,
+      manifest: manifest({ supports: { soldOut: true, resume: true }, soldOutRoute: 'mall_admin', resumeRoute: null }),
+    });
+    expect(soldOutOnly).toMatchObject({ soldout: 'ready', resume: 'pending' });
+  });
+
+  it('⭐ 몰이 품절 해제를 자동으로 받지 않는다고 확인되면 판매재개만 빨강이다', () => {
+    const caps = mallCapabilities(channel(), {
+      hasAdapter: false,
+      manifest: manifest({ supports: { soldOut: true, resume: false }, soldOutRoute: 'mall_admin', resumeRoute: null }),
+    });
+    expect(caps).toMatchObject({ soldout: 'ready', resume: 'unavailable' });
+  });
+
+  it('확인 전인 몰은 해제를 안 받는다고 단정하지 않는다', () => {
+    const caps = mallCapabilities(channel(), {
+      hasAdapter: false,
+      manifest: manifest({ unverified: true, supports: { soldOut: false, resume: false } }),
+    });
+    expect(caps.resume).toBe('pending');
   });
 });

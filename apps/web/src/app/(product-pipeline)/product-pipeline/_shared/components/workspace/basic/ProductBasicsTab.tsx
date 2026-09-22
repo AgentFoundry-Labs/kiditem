@@ -137,6 +137,11 @@ export default function ProductBasicsTab({
                   suffix="%"
                   onChange={(value) => onDraftChange('discountRate', value)}
                 />
+                <MoneyInput
+                  label="원가(공급가)"
+                  value={draft.costPrice}
+                  onChange={(value) => onDraftChange('costPrice', value)}
+                />
               </div>
             ) : (
               <InlineValueList
@@ -144,6 +149,7 @@ export default function ProductBasicsTab({
                   ['판매가', moneyDisplayValue(draft.salePrice)],
                   ['정상가', moneyDisplayValue(draft.originalPrice)],
                   ['할인율', percentDisplayValue(draft.discountRate)],
+                  ['원가', moneyDisplayValue(draft.costPrice)],
                 ]}
               />
             )}
@@ -264,6 +270,33 @@ export default function ProductBasicsTab({
               />
             )}
           </InfoRow>
+          <InfoRow label="인증기관 · 분야">
+            {isEditing ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input
+                  aria-label="인증기관"
+                  value={draft.certificationIssuer}
+                  placeholder="예: FITI시험연구원"
+                  onChange={(event) => onDraftChange('certificationIssuer', event.target.value)}
+                  className={fieldClassName}
+                />
+                <input
+                  aria-label="인증분야"
+                  value={draft.certificationField}
+                  placeholder="예: [어린이제품]안전확인"
+                  onChange={(event) => onDraftChange('certificationField', event.target.value)}
+                  className={fieldClassName}
+                />
+              </div>
+            ) : (
+              <InlineValueList
+                items={[
+                  ['기관', draft.certificationIssuer || '미입력'],
+                  ['분야', draft.certificationField || '미입력'],
+                ]}
+              />
+            )}
+          </InfoRow>
           <InfoRow label="KC 인증 이미지">
             <KcImageField
               value={draft.kcCertificationImageUrl}
@@ -277,6 +310,64 @@ export default function ProductBasicsTab({
                 }
               }}
             />
+          </InfoRow>
+          <InfoRow label="브랜드 · 제조사 · 원산지">
+            {isEditing ? (
+              <div className="grid gap-2 sm:grid-cols-3">
+                <input aria-label="브랜드" value={draft.brand} placeholder="비우면 키드아이템" onChange={(event) => onDraftChange('brand', event.target.value)} className={fieldClassName} />
+                <input aria-label="제조사" value={draft.manufacturer} placeholder="비우면 해피프랜즈" onChange={(event) => onDraftChange('manufacturer', event.target.value)} className={fieldClassName} />
+                <input aria-label="원산지" value={draft.originCountry} placeholder="예: 중국" onChange={(event) => onDraftChange('originCountry', event.target.value)} className={fieldClassName} />
+              </div>
+            ) : (
+              <InlineValueList
+                items={[
+                  ['브랜드', draft.brand || '미입력'],
+                  ['제조사', draft.manufacturer || '미입력'],
+                  ['원산지', draft.originCountry || '미입력'],
+                ]}
+              />
+            )}
+          </InfoRow>
+          <InfoRow label="모델명 · 자체코드 · 세금">
+            {isEditing ? (
+              <div className="grid gap-2 sm:grid-cols-3">
+                <input aria-label="모델명" value={draft.modelName} placeholder="예: 10290-1" onChange={(event) => onDraftChange('modelName', event.target.value)} className={fieldClassName} />
+                <input aria-label="자체상품코드" value={draft.ownCode} placeholder="바코드 등" onChange={(event) => onDraftChange('ownCode', event.target.value)} className={fieldClassName} />
+                <select aria-label="세금구분" value={draft.taxType} onChange={(event) => onDraftChange('taxType', event.target.value)} className={fieldClassName}>
+                  <option value="taxable">과세</option>
+                  <option value="tax_free">면세</option>
+                </select>
+              </div>
+            ) : (
+              <InlineValueList
+                items={[
+                  ['모델명', draft.modelName || '미입력'],
+                  ['자체코드', draft.ownCode || '미입력'],
+                  ['세금', draft.taxType === 'tax_free' ? '면세' : '과세'],
+                ]}
+              />
+            )}
+          </InfoRow>
+          <InfoRow label="배송비">
+            {isEditing ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <MoneyInput label="배송비" value={draft.deliveryFee} onChange={(value) => onDraftChange('deliveryFee', value)} />
+                <select aria-label="배송비 구분" value={draft.deliveryFeeType} onChange={(event) => onDraftChange('deliveryFeeType', event.target.value)} className={fieldClassName}>
+                  <option value="">미입력</option>
+                  <option value="prepay">선결제</option>
+                  <option value="free">무료</option>
+                  <option value="collect">착불</option>
+                  <option value="collect_or_prepay">착불 또는 선결제</option>
+                </select>
+              </div>
+            ) : (
+              <InlineValueList
+                items={[
+                  ['배송비', moneyDisplayValue(draft.deliveryFee)],
+                  ['구분', deliveryFeeTypeLabel(draft.deliveryFeeType)],
+                ]}
+              />
+            )}
           </InfoRow>
           <InfoRow label="제품 사이즈">
             {isEditing ? (
@@ -624,6 +715,15 @@ function kcStatusLabel(value: string): string {
   if (value === 'unknown') return '확인 필요';
   if (value === 'none') return '없음';
   if (value === 'exists') return '있음';
+  return '미입력';
+}
+
+/** 사방넷 배송비구분과 같은 뜻. */
+function deliveryFeeTypeLabel(value: string): string {
+  if (value === 'prepay') return '선결제';
+  if (value === 'free') return '무료';
+  if (value === 'collect') return '착불';
+  if (value === 'collect_or_prepay') return '착불 또는 선결제';
   return '미입력';
 }
 

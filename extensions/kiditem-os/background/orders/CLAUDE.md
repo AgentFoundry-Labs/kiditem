@@ -24,30 +24,36 @@ registration, and Coupang cookie-overflow recovery.
   (`ok` · `rejected` · `unknown`) and `checkLogin` (`in` · `out` · `unknown`),
   answering from one shared set of reason codes. Its one-row-per-mall spec
   (`entryUrl` · `loginUrl` · `loggedInSignal` · `fields` · `headers`) is the only
-  place a mall's login address and logged-in signal are written — add a mall
-  there, never in a second table. Tabs, frame injection, dialog swallowing, and
-  the one quiet read are its driver seam (`worker.js`, `mall-session-probe.js`).
-  Retry spacing and blocking a rejected mall stay in the web.
+  place a mall's login address and logged-in signal are written. Tabs, frame
+  injection, dialog swallowing, and the one quiet read are its driver seam
+  (`worker.js`, `mall-session-probe.js`). Retry spacing and blocking a rejected
+  mall stay in the web.
 - A `loggedInSignal` answers `in` only on a positive admin marker and `out` only
-  on a login signal; anything else stays `unknown`, so an unrecognized page never
-  reads as signed in. When the quiet read cannot tell, the module opens the admin
-  screen — the spec's `entryUrl` or the operator's saved site address, and only
-  when that origin is inside `host_permissions` — in an inactive tab, and closes
-  it. Never add export, audit-logging, or mutating URLs to a spec.
+  on a login signal; anything else stays `unknown`. When the quiet read cannot
+  tell, the module opens the admin screen — the spec's `entryUrl` or the
+  operator's saved site address, and only when that origin is inside
+  `host_permissions` — in an inactive tab, and closes it. Never add export,
+  audit-logging, or mutating URLs to a spec.
 - The check the web sees (`checkMallLogin`) answers one of `signed_in`,
-  `verification_required`, or `signed_out` — never "unknown"; a mall the module
+  `verification_required`, or `signed_out` — never `unknown`; a mall the module
   could not tell about is `signed_out` with its reason. It never fills, types,
-  clicks, or returns a URL, body, or header, and never runs the login path.
-- Stored-credential login reports what it did, not a verdict: `submitted` for the
-  click and `verified` for whether the login form was gone afterwards. A form that
-  stays, or a page that stops answering (a dialog), is `verified: false` — not a
-  wrong password, because mall screens after a login differ too much to judge from
-  the page. The web decides what to do with that and limits how often the same
-  mall is tried. The account screen's login test uses `testMallLogin`, which runs
-  outside a collection attempt and sends nothing to KidItem. Registration form
-  fill logs in only when the form is absent (`noForm`); a form that fails to fill
-  is never a login prompt.
-
+  clicks, or returns a URL, body, or header, and never runs the login path. A
+  frozen page counts as signed in only by a per-mall signed-in tab title (never
+  returned).
+- Stored-credential login reports what it did, not a verdict: `submitted` for
+  the click and `verified` for whether the login form was gone afterwards. A
+  form that stays, or a page that stops answering (a dialog), is `verified:
+  false` — not a wrong password. The web decides what to do with that and
+  limits how often the same mall is tried. The account screen's login test uses
+  `testMallLogin`, which runs outside a collection attempt and sends nothing to
+  KidItem. Registration form fill logs in only when the form is absent (`noForm`);
+  a form that fails to fill is never a login prompt.
+- Registration presses a mall's own register button only when the web asks
+  `submit: true`, that mall's form spec declares a verified `submit`, and the
+  fill left no warnings or manual steps
+  ([ADR-0015](../../../../docs/adr/0015-mall-registrations-submit-all-the-way.md)).
+  Report pressed, accepted, and refused separately; publication is a later
+  re-read. Never press delete, sale-ban, or other irreversible controls.
 ## Collection Contract
 
 - Success with zero rows requires authenticated evidence. Missing/unloaded
@@ -66,6 +72,49 @@ registration, and Coupang cookie-overflow recovery.
 - The detailed failure-code, capability, evidence-field, tab-lifecycle, and
   range-completeness matrices are executable in
   [the extension order tests](../../../tests/).
+
+## Sabangnet Listing Import
+
+- `orders.sabangnet_mall_listings` (Channels owner) reads Sabangnet's send
+  records — one row per mall × product with the mall product code — from the
+  fixed list API on the frozen plan's origin, all pages, in a fresh inactive
+  tab. It never opens send, save, or delete screens.
+- That list response also carries mall login IDs and passwords. Copy only the
+  schema's whitelisted fields; never return, log, or forward the rest. The
+  Sabangnet session token stays inside the injected function.
+- A total that moves between pages, a short page, or an unknown response code
+  stops the run; the owner publishes only a complete list.
+
+## Mall Admin Listing Import
+
+- `orders.mall_admin_listings` (Channels owner) reads registered products
+  directly from a mall admin for malls Sabangnet does not carry (KID-246 step
+  2). One import is one attempt for one mall account; the frozen plan names the
+  mall, its origin, and its page-size cap. It opens only list and read-only
+  product-view screens, never save, approval, or delete.
+- The reader lives in `mall-admin-listings.js`, keyed by mall in `READERS`.
+  Adding a mall is one reader plus one key there and one contract entry in
+  `@kiditem/shared/mall-admin-listings`; the reader's origin and page size must
+  match that contract, which the owner re-validates.
+- Kidkids paginates its list by modification date with many ties, so paging
+  drops rows; the reader instead replays the seller's own "상품리스트 다운받기"
+  link (a complete EUC-KR HTML table) and cross-checks its row count against
+  the list counter. i-Scream reads its JSON list API in one page. Both carry
+  the Sellpia product name the mall keeps (Kidkids 송장용 상품명, i-Scream the
+  goods-notice 품명), and only whitelisted columns are returned. Alwayz reads its
+  seller-center list API page by page inside the seller page; the access token
+  stays in that page and is never returned. 아트공구 (Cafe24 supplier admin)
+  reads the product list 100 rows per page; each row's checkbox carries the
+  product number and its display/selling state, and an overlapping page stops
+  the run. 떠리몰 (Shopby partner admin) calls the list screen's admin API
+  (`admin-api.e-ncp.com`) from inside the partner page with the partner
+  cookie token and the list screen as `ClientLocation` (omitting it is a 403);
+  the token never leaves that page. Malls that Sabangnet used to carry (도매꾹,
+  키즈노트, 11번가, 지마켓·옥션, 카카오, 롯데ON, 스마트스토어, 티쳐몰) need
+  `mallAdminListingsMallsV2` and must emit Sabangnet's product-code shape (ESM
+  `{site}_{master}`; other numbers go in `alternateCodes`) so existing recipes
+  survive. 11번가 and 롯데ON give no total, so a short page ends the read.
+  롯데ON and 스마트스토어 run in the page's MAIN world (page header functions).
 
 ## Sellpia And Rocket Boundaries
 

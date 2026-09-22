@@ -107,6 +107,10 @@ import { AiDirectJobInputAssetsService } from './application/service/ai-direct-j
 import { AiDirectJobPayloadHydratorService } from './application/service/ai-direct-job-payload-hydrator.service';
 import { AiDirectJobProcessorService } from './application/service/ai-direct-job-processor.service';
 import { AiDirectJobWorkerService } from './application/service/ai-direct-job-worker.service';
+import { AiUsageService } from './application/service/ai-usage.service';
+import { AI_USAGE_REPOSITORY_PORT } from './application/port/out/repository/ai-usage.repository.port';
+import { AiUsageRepositoryAdapter } from './adapter/out/repository/ai-usage.repository.adapter';
+import { AiUsageController } from './adapter/in/http/ai-usage.controller';
 import { AiDirectJobWakeRegistrationService } from './application/service/ai-direct-job-wake-registration.service';
 import { CatalogDisplayMediaService } from './application/service/catalog-display-media.service';
 import {
@@ -210,6 +214,9 @@ export class AiAgentRuntimeModule {}
 @Module({
   imports: [AiAgentRuntimeModule],
   providers: [
+    AiUsageRepositoryAdapter,
+    { provide: AI_USAGE_REPOSITORY_PORT, useExisting: AiUsageRepositoryAdapter },
+    AiUsageService,
     ImageAiService,
     ImageEditDirectGenerationExecutorService,
     ImageEditDirectGenerationJobService,
@@ -341,6 +348,7 @@ export class AiAgentRuntimeModule {}
     { provide: CATALOG_DISPLAY_MEDIA_PORT, useExisting: CatalogDisplayMediaService },
   ],
   controllers: [
+    AiUsageController,
     ContentArchiveController,
     ContentArchiveLinkageController,
     ContentAssetController,

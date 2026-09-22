@@ -4,7 +4,7 @@ import type {
   RegistrationExecutionRepositoryPort,
 } from '../port/out/repository/registration-execution.repository.port';
 import type { ChannelsMarketplaceRegistrationCapabilityPort } from '../port/in/capability/marketplace-registration.port';
-import type { RegistrationDraftPort } from '../port/out/cross-domain/registration-draft.port';
+import type { RegistrationDraftPort } from '../port/out/persistence/registration-draft.port';
 import { RegistrationExecutionService } from './registration-execution.service';
 
 const ORG_ID = 'org-1';
@@ -120,7 +120,12 @@ function setup(overrides: {
     ...overrides.drafts,
   } as RegistrationDraftPort;
   return {
-    service: new RegistrationExecutionService(executions, registration, drafts),
+    service: new RegistrationExecutionService(executions, registration, drafts, {
+      list: vi.fn(), findByCandidate: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
+      replaceOptions: vi.fn(), createFromCandidates: vi.fn(), demoteToCandidate: vi.fn(), mallCategories: vi.fn(),
+    }, {
+      resolve: vi.fn(), list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
+    }),
     executions,
     registration,
     drafts,
@@ -284,6 +289,7 @@ describe('RegistrationExecutionService', () => {
           },
         }),
       }),
+      'execution-1',
     );
   });
 
@@ -388,6 +394,7 @@ describe('RegistrationExecutionService', () => {
       expect.objectContaining({
         rawResult: expect.objectContaining({ source: 'synced-channel-listing' }),
       }),
+      'execution-1',
     );
   });
 

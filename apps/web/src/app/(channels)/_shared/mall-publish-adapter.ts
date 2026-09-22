@@ -1,4 +1,5 @@
 import type { MallProductDraft } from '../../(product-pipeline)/product-pipeline/_shared/lib/mall-product-draft';
+import type { TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 
 /**
  * 몰 등록 어댑터.
@@ -74,10 +75,26 @@ export interface MallPreviewRow {
 
 /** 어댑터에 넘기는 상품 한 건. 목록에서 바로 얻을 수 있는 것만 담는다. */
 export interface MallPublishItem {
+  /** 수집상품 id, 또는 `source: 'sales_product'` 이면 판매상품 id. */
   candidateId: string;
   name: string;
   salePrice: number | null;
   thumbnailUrl: string | null;
+  /** 어디서 온 상품인가. 없으면 수집상품이다(ADR-0014 이전과 같다). */
+  source?: 'candidate' | 'sales_product';
+  /** 판매상품의 쓰는 단품 수. 둘 이상이면 옵션을 채우는 몰에만 보낸다. */
+  optionCount?: number;
+  /**
+   * Target execution context attached after the server has frozen the payload and
+   * granted the provider-I/O lease. Adapters must use this snapshot instead of
+   * re-reading the mutable sales product.
+   */
+  targetExecution?: {
+    executionId: string;
+    payloadHash: string;
+    leaseToken: string;
+    snapshot: TargetExecutionSnapshot;
+  };
 }
 
 export interface MallSendInput {
@@ -85,8 +102,31 @@ export interface MallSendInput {
   values: Readonly<Record<string, string>>;
 }
 
+/** Keep the target lease alongside the explicit #554 submit intent. */
+export function mallFormExecutionOptions(item: MallPublishItem): {
+  submit: true;
+  executionContext?: { executionId: string; payloadHash: string; leaseToken: string };
+} {
+  return {
+    submit: true,
+    ...(item.targetExecution ? {
+      executionContext: {
+        executionId: item.targetExecution.executionId,
+        payloadHash: item.targetExecution.payloadHash,
+        leaseToken: item.targetExecution.leaseToken,
+      },
+    } : {}),
+  };
+}
+
 export interface MallSendOutcome {
   ok: boolean;
+  /** 확장이 몰 [등록]을 눌렀는가(ADR-0015). 누른 것도 `confirmed` 는 아니다. */
+  submitted?: boolean;
+  /** 몰이 받았다고 답했나 · 거절했나 · 모르나. */
+  accepted?: boolean | null;
+  /** 몰이 준 새 상품번호(보이면). */
+  productNo?: string | null;
   /**
    * 몰에 실제로 등록됐음이 확인됐는가.
    *
@@ -131,6 +171,10 @@ export interface MallPublishAdapter {
   batchSize: number;
   /** 마지막 제출을 사람이 눌러야 하는가. 승인제 몰은 항상 true. */
   requiresOperatorSubmit: boolean;
+  /** 옵션 여러 개(단품 둘 이상)를 몰 폼 · 파일에 채울 수 있는가. */
+  supportsOptions?: boolean;
+  /** 판매상품(ADR-0014)에서 보낼 수 있는가. */
+  acceptsSalesProducts?: boolean;
   /** 이 몰이 요구하는 값. 화면이 이 선언으로 입력칸을 그린다. */
   fields: readonly MallFieldSpec[];
   /** 송신 없이 값만 보여준다. */
@@ -147,6 +191,18 @@ export function defaultAdapterValues(
   const values: Record<string, string> = {};
   for (const field of adapter.fields) values[field.key] = field.defaultValue;
   return values;
+}
+
+/** 상품의 출처 · 옵션 수로 이 몰에 못 보내는 이유. */
+export function itemSourceProblem(adapter: MallPublishAdapter, item: MallPublishItem): string | null {
+  if (item.source !== 'sales_product') return null;
+  if (adapter.acceptsSalesProducts === false) {
+    return `${adapter.mallName}는 아직 판매상품에서 보낼 수 없습니다(수집상품만).`;
+  }
+  if ((item.optionCount ?? 1) > 1 && !adapter.supportsOptions) {
+    return `옵션 ${item.optionCount}개 상품입니다. ${adapter.mallName} 옵션 채우기가 아직 없어 보내지 않습니다.`;
+  }
+  return null;
 }
 
 /**
@@ -176,3 +232,41 @@ export function missingRequiredFields(
 }
 
 export type { MallProductDraft };
+
+/** 폼 채움 · [등록] 누르기 결과 → 송신 결과. 결과는 화면 작업 목록에만 남긴다. */
+export function registrationOutcome(result: {
+  ok: boolean;
+  submitted: boolean;
+  accepted?: boolean | null;
+  productNo?: string | null;
+  mallMessage?: string | null;
+  submitSkipped?: string | null;
+  manualSteps: string[];
+  warnings: string[];
+  error?: string;
+}): MallSendOutcome {
+  if (result.submitted && result.accepted === false) {
+    return {
+      ok: false,
+      confirmed: false,
+      submitted: true,
+      accepted: false,
+      manualSteps: [],
+      warnings: result.warnings,
+      error: result.mallMessage
+        ? `몰이 등록을 받지 않았습니다: ${result.mallMessage}`
+        : '몰이 등록을 받지 않았습니다. 열어 둔 화면에서 까닭을 확인하세요.',
+    };
+  }
+  return {
+    ok: result.ok,
+    confirmed: false,
+    submitted: result.submitted,
+    ...(result.submitted ? { accepted: result.accepted ?? null, productNo: result.productNo ?? null } : {}),
+    manualSteps: result.submitted
+      ? []
+      : [...(result.submitSkipped ? [result.submitSkipped] : []), ...result.manualSteps],
+    warnings: result.warnings,
+    ...(result.error ? { error: result.error } : {}),
+  };
+}

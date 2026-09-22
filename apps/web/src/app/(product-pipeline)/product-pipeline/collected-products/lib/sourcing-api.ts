@@ -187,12 +187,26 @@ export interface ProductBasics {
   /**
    * `salePrice` 출처. 서버 파생 값이라 읽기 전용이다(수정 API 로 보내지 않는다).
    *   - `input`:   수기 입력값
-   *   - `sellpia`: 이름이 정확히 일치한 셀피아 재고 SKU 판매가 폴백
-   *   - `none`:    매칭 실패. `salePrice` 는 0이다.
+   *   - `none`:    입력값 없음. `salePrice` 는 0이다.
    * 구버전 응답에는 없을 수 있다.
    */
   salePriceSource?: SalePriceSource;
   discountRate: number;
+  /** 사방넷 신규등록과 같은 칸(상품 등록 초안에서 받는다). 판매상품으로 만들 때 그대로 간다. */
+  costPrice?: number;
+  brand?: string;
+  manufacturer?: string;
+  originCountry?: string;
+  modelName?: string;
+  ownCode?: string;
+  /** `taxable` 과세 · `tax_free` 면세. */
+  taxType?: string;
+  /** 사방넷 `배송비`(VAT 포함)와 `배송비구분`(free · prepay · collect · collect_or_prepay). */
+  deliveryFee?: number;
+  deliveryFeeType?: string;
+  /** 사방넷 인증정보의 인증기관 · 인증분야. */
+  certificationIssuer?: string;
+  certificationField?: string;
   rocketBundleQuantity: number;
   rocketUnitCost: number;
   thumbnailUrls: string[];
@@ -245,6 +259,17 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'boxSetQuantity'
   | 'salePrice'
   | 'originalPrice'
+  | 'costPrice'
+  | 'brand'
+  | 'manufacturer'
+  | 'originCountry'
+  | 'modelName'
+  | 'ownCode'
+  | 'taxType'
+  | 'deliveryFee'
+  | 'deliveryFeeType'
+  | 'certificationIssuer'
+  | 'certificationField'
   | 'discountRate'
   | 'rocketBundleQuantity'
   | 'rocketUnitCost'
@@ -529,6 +554,18 @@ function normalizeProductBasics(
     discountRate: numberOrZero(basics.discountRate),
     rocketBundleQuantity: numberOrZero(basics.rocketBundleQuantity),
     rocketUnitCost: numberOrZero(basics.rocketUnitCost),
+    // 사방넷 신규등록과 같은 칸. 여기서 빠뜨리면 화면이 값을 들고도 '미입력'으로 보인다.
+    costPrice: numberOrZero(basics.costPrice),
+    brand: typeof basics.brand === 'string' ? basics.brand : '',
+    manufacturer: typeof basics.manufacturer === 'string' ? basics.manufacturer : '',
+    originCountry: typeof basics.originCountry === 'string' ? basics.originCountry : '',
+    modelName: typeof basics.modelName === 'string' ? basics.modelName : '',
+    ownCode: typeof basics.ownCode === 'string' ? basics.ownCode : '',
+    taxType: typeof basics.taxType === 'string' ? basics.taxType : '',
+    deliveryFee: numberOrZero(basics.deliveryFee),
+    deliveryFeeType: typeof basics.deliveryFeeType === 'string' ? basics.deliveryFeeType : '',
+    certificationIssuer: typeof basics.certificationIssuer === 'string' ? basics.certificationIssuer : '',
+    certificationField: typeof basics.certificationField === 'string' ? basics.certificationField : '',
     thumbnailUrls,
     thumbnailPreviewUrls: explicitThumbnailUrls,
     registrationImages: normalizeRegistrationImages(basics.registrationImages),

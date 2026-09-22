@@ -1,3 +1,4 @@
+import { aiUsageMeter } from '../../../application/usage/ai-usage-meter';
 import { Injectable } from '@nestjs/common';
 import { GoogleGenAI, Modality } from '@google/genai';
 import {
@@ -34,6 +35,7 @@ export class ThumbnailImageGenerationAdapter implements ThumbnailImageGeneration
           httpOptions: { timeout: PROVIDER_TIMEOUT_MS },
         },
       });
+    aiUsageMeter.recordGemini({ model: command.model, operation: 'thumbnail_generation', usage: response.usageMetadata });
     return (response.candidates?.[0]?.content?.parts ?? []) as ThumbnailPromptPart[];
   }
 

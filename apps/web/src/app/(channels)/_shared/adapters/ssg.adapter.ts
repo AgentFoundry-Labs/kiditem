@@ -1,7 +1,5 @@
-import {
-  fillMallRegistrationForm,
-  prepareMallRegistration,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { prepareRegistration } from '../sales-product-registration';
+import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   SSG_BRAND_NAME,
   SSG_DEFAULT_DISPLAY_CATEGORY,
@@ -12,7 +10,7 @@ import {
   ssgSupplyPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/ssg-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -170,7 +168,7 @@ export const ssgAdapter: MallPublishAdapter = {
     if (!display || !standard) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '신세계 카테고리 형식이 틀렸습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'ssg');
     const certNumber = values.certNumber?.trim();
     const form = ssgFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),
@@ -178,14 +176,7 @@ export const ssgAdapter: MallPublishAdapter = {
       standardCategory: standard,
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('ssg', draft, form);
-    return {
-      ok: result.ok,
-      // 폼을 채운 것은 등록이 아니다. [저장] 은 사람이 누르고, 그 뒤에도 MD 승인이 남는다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    const result = await fillMallRegistrationForm('ssg', draft, form, mallFormExecutionOptions(item));
+    return registrationOutcome(result);
   },
 };

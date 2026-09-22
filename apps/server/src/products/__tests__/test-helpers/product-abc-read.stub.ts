@@ -37,6 +37,7 @@ export function stubProductAbcRead(
           return {
             masterProductId,
             contributionEligible: grade !== null,
+            saleStartDate: null,
             abc: buildProductAbcReadModel({
               evaluation: grade === null ? null : publishedEvaluation(grade),
               mappingValid: grade !== null,
@@ -74,6 +75,7 @@ export function stubMissingProductAbcRead(): ProductAbcReadPort {
         products: masterProductIds.map((masterProductId) => ({
           masterProductId,
           contributionEligible: false,
+          saleStartDate: null,
           abc: buildProductAbcReadModel({
             evaluation: null,
             mappingValid: false,

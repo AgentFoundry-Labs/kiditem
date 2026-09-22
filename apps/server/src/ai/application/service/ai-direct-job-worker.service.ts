@@ -1,4 +1,5 @@
 import { hostname } from 'node:os';
+import { aiUsageMeter } from '../usage/ai-usage-meter';
 import { randomUUID } from 'node:crypto';
 import {
   Inject,
@@ -92,8 +93,13 @@ export class AiDirectJobWorkerService
       );
       providerTimeout.unref?.();
       try {
+        // Direct jobs are product media work (thumbnails, detail pages, image
+        // edits): the 상품 agent's spend, metered to the job's organization.
         const rawResult =
-          job.result ?? (await this.processor.execute(job, controller.signal));
+          job.result ?? (await aiUsageMeter.run(
+            { organizationId: job.organizationId, agentKey: 'product' },
+            () => this.processor.execute(job, controller.signal),
+          ));
         const result = validateCheckpointResult(job.jobType, rawResult);
         if (job.result == null) {
           const checkpointed = await this.repository.checkpointResult({

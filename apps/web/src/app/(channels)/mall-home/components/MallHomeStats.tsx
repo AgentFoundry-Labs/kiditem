@@ -5,6 +5,7 @@ import { AlertTriangle, BellRing, KeyRound, PackageX } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import type { MallAlertFilter } from '../lib/mall-alerts';
 import type { LoginNeededCount } from '../lib/mall-session';
+import { MALL_ACCOUNT_SETTINGS_HREF } from '../../_shared/mall-account-settings-link';
 
 const TILE = 'card block w-full rounded-2xl p-4 text-left transition hover:border-slate-300';
 
@@ -60,7 +61,7 @@ export function MallHomeStats({
           caption="다시 성공하면 닫힙니다"
         />
       </button>
-      <Link href="/mall-settings" className={TILE}>
+      <Link href={MALL_ACCOUNT_SETTINGS_HREF} className={TILE}>
         <TileBody
           label="로그인 필요"
           value={loginNeeded ? loginNeeded.total : null}

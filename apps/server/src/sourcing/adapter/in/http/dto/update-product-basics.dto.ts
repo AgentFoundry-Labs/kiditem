@@ -104,6 +104,63 @@ export class UpdateProductBasicsDto {
   @Min(0)
   originalPrice?: number;
 
+  // 사방넷 신규등록과 같은 칸 — 상품 등록 초안에서 받고 수집상품 상세에서 고친다.
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  costPrice?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  brand?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  manufacturer?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  originCountry?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  modelName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  ownCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  taxType?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  deliveryFee?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  deliveryFeeType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  certificationIssuer?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  certificationField?: string;
+
   @IsOptional()
   @IsNumber()
   @Min(0)

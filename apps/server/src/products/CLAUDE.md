@@ -87,6 +87,11 @@ retains warehouse records only; no second mutable source stock exists.
   collection that held its closed day as unreported therefore delays a refresh
   on a newer Sellpia generation by one day unless an older Sellpia generation
   ends on the held end.
+- Formula version 3 (`historicalAdvertisingPolicy: EXCLUDED_V1`) grades on
+  Sellpia alone: evidence loads with `advertising: 'excluded'`, the evaluation
+  and publication carry no advertising provenance (null, never invented), and
+  display status does not wait on advertising (`advertisingRequired: false`).
+  Only that formula may omit advertising; version 2 still refuses without it.
 - Source readiness is each source's own, not the selected pair's: `sources[x]`
   judges the source's newest complete generation on the current mapping
   generation. Sellpia is due through the latest closed KST day and advertising

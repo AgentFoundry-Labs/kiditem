@@ -1168,7 +1168,33 @@
     Object.assign(state, next);
   }
 
+  /**
+   * 잠깐 실패한 것과 정말 못 읽는 것을 가른다.
+   *
+   * 라이브(2026-09-17) 상세 수집이 두 번 다 상품 하나에서 멈췄는데 이유가 서로 달랐다 —
+   * 한 번은 응답이 JSON 이 아니었고(`missing_model`), 한 번은 쿠팡이 503 을 줬다. 상품이
+   * 나쁜 게 아니라 **쿠팡이 잠깐 막은 것**이라, 같은 상품을 잠시 뒤 다시 물으면 온다.
+   * 한 번 만에 1,254건을 통째로 버리지 않는다.
+   */
+  const DETAIL_TRANSIENT_ATTEMPTS = 3;
+  const DETAIL_TRANSIENT_BACKOFF_MS = [2_000, 6_000];
+
+  function transientDetailResult(result) {
+    if (result?.kind === "missing_model") return true;
+    return result?.kind === "http" && Number(result.status) >= 500;
+  }
+
   async function collectSellerProduct(tabId, state, dependencies, externalProductId) {
+    for (let attempt = 1; attempt < DETAIL_TRANSIENT_ATTEMPTS; attempt += 1) {
+      const probe = await requestSellerProduct(tabId, state, dependencies, externalProductId);
+      if (!transientDetailResult(probe.result)) return probe.resolve();
+      await delay(DETAIL_TRANSIENT_BACKOFF_MS[attempt - 1] ?? 6_000);
+      await assertActive(state, dependencies);
+    }
+    return (await requestSellerProduct(tabId, state, dependencies, externalProductId)).resolve();
+  }
+
+  async function requestSellerProduct(tabId, state, dependencies, externalProductId) {
     await assertActive(state, dependencies);
     const stage = catalogStage(state);
     const detailFormat = stage === "details" ? "JSON" : "HTML";
@@ -1187,6 +1213,10 @@
     });
     await assertActive(state, dependencies);
     const result = results?.[0]?.result;
+    return { result, resolve: () => resolveSellerProduct(result, stage, detailFormat, externalProductId) };
+  }
+
+  function resolveSellerProduct(result, stage, detailFormat, externalProductId) {
     if (result?.kind === "ok" && result.product) return result;
     if (result?.kind === "login") return { pendingLogin: true };
     if (result?.kind === "rate_limited") {
@@ -1211,9 +1241,10 @@
       throw new Error(`Wing 상품 상세 ${detailFormat} 요청 실패 (${result.status || "unknown"})`);
     }
     if (result?.kind === "missing_model") {
+      const why = [result.reason, result.sample].filter(Boolean).join(" · ");
       throw new Error(stage === "details"
-        ? "Wing 상품 상세 JSON 데이터를 읽을 수 없습니다"
-        : "Wing 상품 상세 oSellerProduct 데이터를 읽을 수 없습니다");
+        ? `Wing 상품 상세 JSON 데이터를 읽을 수 없습니다 (상품 ${externalProductId}${why ? ` · ${why}` : ""})`
+        : `Wing 상품 상세 oSellerProduct 데이터를 읽을 수 없습니다 (상품 ${externalProductId})`);
     }
     throw new Error(result?.message || `Wing 상품 상세 ${detailFormat} 수집에 실패했습니다`);
   }
@@ -1467,11 +1498,18 @@
       try {
         product = JSON.parse(body);
       } catch {
-        return { kind: "missing_model" };
+        // 읽지 못한 이유를 남긴다. 어느 상품에서 왜 막혔는지 모르면 같은 자리에서 계속 멈춘다.
+        return { kind: "missing_model", reason: "not_json", sample: body.slice(0, 120) };
       }
-      if (!product || typeof product !== "object" || Array.isArray(product) ||
-        String(product.sellerProductId || "") !== String(externalProductId)) {
-        return { kind: "missing_model" };
+      if (!product || typeof product !== "object" || Array.isArray(product)) {
+        return { kind: "missing_model", reason: "not_object" };
+      }
+      if (String(product.sellerProductId || "") !== String(externalProductId)) {
+        return {
+          kind: "missing_model",
+          reason: "identity",
+          sample: `sellerProductId=${String(product.sellerProductId ?? "")} keys=${Object.keys(product).slice(0, 8).join(",")}`,
+        };
       }
       return { kind: "ok", product };
     } catch (error) {

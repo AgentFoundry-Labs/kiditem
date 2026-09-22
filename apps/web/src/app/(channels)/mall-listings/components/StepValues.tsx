@@ -1,7 +1,10 @@
 'use client';
 
+import { useId } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Ban } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
   MALL_VALUE_ORIGIN_LABEL,
   missingRequiredFields,
@@ -9,6 +12,7 @@ import {
   type MallPublishItem,
   type MallValueOrigin,
 } from '../../_shared/mall-publish-adapter';
+import type { RegistrationTarget } from '@kiditem/shared/sales-product';
 import type { PublishBlock } from '../lib/publish-plan';
 
 const PREVIEW_ROWS = 5;
@@ -27,6 +31,10 @@ interface StepValuesProps {
   blocks: PublishBlock[];
   onSelectMall: (mallKey: string) => void;
   onChangeValue: (mallKey: string, fieldKey: string, value: string) => void;
+  channelAccountId: string | null;
+  registrationTargetsByItem: Readonly<Record<string, readonly RegistrationTarget[]>>;
+  selectedRegistrationTargetIds: Readonly<Record<string, string>>;
+  onSelectRegistrationTarget: (candidateId: string, targetId: string) => void;
 }
 
 /**
@@ -47,6 +55,10 @@ export function StepValues({
   blocks,
   onSelectMall,
   onChangeValue,
+  channelAccountId,
+  registrationTargetsByItem,
+  selectedRegistrationTargetIds,
+  onSelectRegistrationTarget,
 }: StepValuesProps) {
   const active = adapters.find((adapter) => adapter.mallKey === activeMallKey) ?? adapters[0];
   if (!active) return null;
@@ -56,6 +68,13 @@ export function StepValues({
   const mallBlocks = blocks.filter((block) => block.mallKey === active.mallKey);
   const previewItems = items.slice(0, PREVIEW_ROWS);
   const headers = previewItems[0] ? active.preview(previewItems[0], values) : [];
+  const targetChoices = active.mode === 'form' && channelAccountId
+    ? items.flatMap((item) => {
+      const targets = (registrationTargetsByItem[item.candidateId] ?? [])
+        .filter((target) => target.channelAccountId === channelAccountId);
+      return targets.length > 1 ? [{ item, targets }] : [];
+    })
+    : [];
 
   return (
     <section className="grid grid-cols-1 gap-4 lg:grid-cols-[200px_1fr]">
@@ -116,6 +135,13 @@ export function StepValues({
                       </option>
                     ))}
                   </select>
+                ) : field.key === CATEGORY_FIELD_KEY ? (
+                  <CategoryPathInput
+                    mallKey={active.mallKey}
+                    value={values[field.key] ?? ''}
+                    required={field.required}
+                    onChange={(value) => onChangeValue(active.mallKey, field.key, value)}
+                  />
                 ) : (
                   <input
                     value={values[field.key] ?? ''}
@@ -141,6 +167,36 @@ export function StepValues({
             </p>
           ) : null}
         </div>
+
+        {targetChoices.length > 0 ? (
+          <section className="rounded-xl border border-slate-200 bg-white p-4" aria-label={`${active.mallName} 등록 설정`}>
+            <h3 className="text-sm font-semibold text-slate-900">기존 등록 설정</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              같은 계정에 저장된 설정이 여러 개인 상품만 사용할 설정을 골라 주세요.
+            </p>
+            <div className="mt-3 space-y-3">
+              {targetChoices.map(({ item, targets }) => (
+                <label key={item.candidateId} className="block">
+                  <span className="block text-xs font-medium text-slate-700">{item.name}</span>
+                  <select
+                    aria-label={`${item.name} 등록 설정`}
+                    required
+                    value={selectedRegistrationTargetIds[item.candidateId] ?? ''}
+                    onChange={(event) => onSelectRegistrationTarget(item.candidateId, event.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-200 px-2 py-2 text-sm outline-none focus:border-purple-400"
+                  >
+                    <option value="">등록 설정을 선택하세요</option>
+                    {targets.map((target, index) => (
+                      <option key={target.id} value={target.id}>
+                        등록 설정 {index + 1} · {target.displayName || target.resolved.name} · 옵션 {target.selectedOptions.length}개
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {headers.length > 0 ? (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -207,5 +263,59 @@ export function StepValues({
         ) : null}
       </div>
     </section>
+  );
+}
+
+/** 어댑터가 분류 경로를 받는 칸 이름. 몰마다 같은 이름을 쓴다(`>` 로 잇는 경로). */
+const CATEGORY_FIELD_KEY = 'categoryPath';
+
+/**
+ * 분류 칸 — 이 몰에서 판매상품이 쓰던 분류(사방넷 송신 기록에서 옮긴 것)를 많이 쓴 순으로 고를거리로 보인다.
+ * 고르지 않고 직접 적어도 된다. 값을 대신 채우지는 않는다.
+ */
+function CategoryPathInput({
+  mallKey,
+  value,
+  required,
+  onChange,
+}: {
+  mallKey: string;
+  value: string;
+  required: boolean;
+  onChange: (value: string) => void;
+}) {
+  const listId = useId();
+  const suggestions = useQuery({
+    queryKey: salesProductKeys.mallCategories(mallKey),
+    queryFn: () => salesProductApi.mallCategories(mallKey),
+    staleTime: 5 * 60_000,
+  });
+  const categories = suggestions.data?.categories ?? [];
+  return (
+    <>
+      <input
+        value={value}
+        list={categories.length > 0 ? listId : undefined}
+        onChange={(event) => onChange(event.target.value)}
+        className={cn(
+          'mt-1 w-full rounded-md border px-2 py-2 text-sm outline-none focus:border-purple-400',
+          required && !value.trim() ? 'border-red-300' : 'border-slate-200',
+        )}
+      />
+      {categories.length > 0 ? (
+        <>
+          <datalist id={listId}>
+            {categories.map((category) => (
+              <option key={category.path} value={category.path}>
+                {category.title ? `${category.title} · ` : ''}{category.count}개 상품
+              </option>
+            ))}
+          </datalist>
+          <span className="mt-1 block text-[11px] text-purple-700">
+            사방넷에서 쓰던 분류 {categories.length}개 — 칸을 누르면 고를 수 있습니다.
+          </span>
+        </>
+      ) : null}
+    </>
   );
 }

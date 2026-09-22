@@ -36,6 +36,7 @@ model Organization {
   thumbnailTrackingDailySnapshots    ThumbnailTrackingDailySnapshot[]
   reviews                            Review[]
   alerts                             Alert[]
+  todoItems                          TodoItem[]
 
   // Sourcing & Content
   contentGenerations                  ContentGeneration[]
@@ -46,12 +47,14 @@ model Organization {
   contentWorkspaces                   ContentWorkspace[]
   contentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[]
   productPreparations                 ProductPreparation[]
+  productPreparationOptions           ProductPreparationOption[]
   productRegistrationExecutions       ProductRegistrationExecution[]       @relation("ProductRegistrationExecutionOrganization")
   detailPageArtifacts                 DetailPageArtifact[]
   detailPageRevisions                 DetailPageRevision[]
   detailPageImageArtifacts            DetailPageImageArtifact[]
   detailPageImageRenderIntents        DetailPageImageRenderIntent[]
   aiDirectJobs                        AiDirectJob[]
+  aiUsageRecords                      AiUsageRecord[]
 
   // Agent OS — exact capability mutation admission and replay receipts.
   capabilityInvocations CapabilityInvocation[]
@@ -112,6 +115,12 @@ model Organization {
   channelListingOptionInventoryComponents     ChannelListingOptionInventoryComponent[]
   channelRegistrationOwnerIdempotencyReceipts ChannelRegistrationOwnerIdempotencyReceipt[] @relation("ChannelRegistrationOwnerIdempotencyReceiptOrganization")
   channelListingDeletionOperations            ChannelListingDeletionOperation[]            @relation("ChannelListingDeletionOperationOrganization")
+  salesProducts                               SalesProduct[]
+  salesProductPublicImages                    SalesProductPublicImage[]
+  salesProductOptions                         SalesProductOption[]
+  salesProductOptionComponents                SalesProductOptionComponent[]
+
+  // Channels — 몰별 상품등록·품절 송신 (Phase 0)
 
   // Channels — 몰별 상품등록·품절 송신 (Phase 0)
 
@@ -569,9 +578,10 @@ model MasterProductAbcEvaluation {
   /// always provide it.
   saleStartDate                DateTime? @map("sale_start_date") @db.Date
   sellpiaSourceImportRunId     String    @map("sellpia_source_import_run_id") @db.Uuid
-  advertisingSourceImportRunId String    @map("advertising_source_import_run_id") @db.Uuid
+  /// Null only under an ABC formula that excludes advertising (formula version 3).
+  advertisingSourceImportRunId String?   @map("advertising_source_import_run_id") @db.Uuid
   sellpiaGeneration            BigInt    @map("sellpia_generation") @db.BigInt
-  advertisingGeneration        BigInt    @map("advertising_generation") @db.BigInt
+  advertisingGeneration        BigInt?   @map("advertising_generation") @db.BigInt
   mappingGeneration            BigInt    @map("mapping_generation") @db.BigInt
   calculatedAt                 DateTime  @default(now()) @map("calculated_at") @db.Timestamptz
 
@@ -579,7 +589,7 @@ model MasterProductAbcEvaluation {
   masterProduct              MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
   formulaVersion             MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionEvaluations", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sellpiaSourceImportRun     SourceImportRun                @relation("MasterProductAbcEvaluationSellpiaSourceImport", fields: [sellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  advertisingSourceImportRun SourceImportRun                @relation("MasterProductAbcEvaluationAdvertisingSourceImport", fields: [advertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  advertisingSourceImportRun SourceImportRun?               @relation("MasterProductAbcEvaluationAdvertisingSourceImport", fields: [advertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([masterProductId, organizationId])
   @@index([organizationId, formulaVersionId])
@@ -636,10 +646,12 @@ model MasterProductAbcGradeHistory {
 /// @namespace Channels
 /// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
 model ChannelListing {
-  id                String  @id @default(uuid()) @db.Uuid
-  organizationId    String  @map("organization_id") @db.Uuid
-  channelAccountId  String  @map("channel_account_id") @db.Uuid
-  sourceCandidateId String? @map("source_candidate_id") @db.Uuid
+  salesProductId    String?       @map("sales_product_id") @db.Uuid
+  salesProduct      SalesProduct? @relation("ChannelListingSalesProduct", fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  id                String        @id @default(uuid()) @db.Uuid
+  organizationId    String        @map("organization_id") @db.Uuid
+  channelAccountId  String        @map("channel_account_id") @db.Uuid
+  sourceCandidateId String?       @map("source_candidate_id") @db.Uuid
 
   externalId String @map("external_id")
 
@@ -648,6 +660,8 @@ model ChannelListing {
   category        String?
   brand           String?
   manufacturer    String?
+  /// 몰이 들고 있는 대표 사진. 상품 화면이 콘텐츠 작업물 다음으로 이 값을 쓴다.
+  imageUrl        String? @map("image_url")
   rawJson         Json?   @map("raw_json")
   lastImportRunId String? @map("last_import_run_id") @db.Uuid
 
@@ -691,6 +705,7 @@ model ChannelListing {
   @@unique([organizationId, sourceCandidateId, channelAccountId], map: "channel_listings_org_source_account_active_key", where: raw("source_candidate_id IS NOT NULL AND is_active = true"))
   @@unique([id, organizationId], map: "channel_listings_id_org_key")
   @@unique([id, organizationId, channelAccountId], map: "channel_listings_id_org_account_key")
+  @@index([organizationId, salesProductId])
   @@index([organizationId])
   @@index([channelAccountId])
   @@index([sourceCandidateId])
@@ -703,9 +718,10 @@ model ChannelListing {
 /// @namespace Core
 /// @describe One sellable SKU under a channel listing.
 model ChannelListingOption {
-  id             String @id @default(uuid()) @db.Uuid
-  listingId      String @map("listing_id") @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
+  salesProductOptionId String? @map("sales_product_option_id") @db.Uuid
+  id                   String  @id @default(uuid()) @db.Uuid
+  listingId            String  @map("listing_id") @db.Uuid
+  organizationId       String  @map("organization_id") @db.Uuid
 
   externalOptionId String  @map("external_option_id") @db.VarChar(60)
   kidItemCode      String? @map("kid_item_code") @db.VarChar(11)
@@ -725,6 +741,7 @@ model ChannelListingOption {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   listing                         ChannelListing                           @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  salesProductOption              SalesProductOption?                      @relation("ChannelListingOptionSalesProductOption", fields: [salesProductOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   organization                    Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   inventoryComponents             ChannelListingOptionInventoryComponent[]
   lastImportRun                   SourceImportRun?                         @relation("ChannelSkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
@@ -745,6 +762,7 @@ model ChannelListingOption {
   @@index([organizationId, externalOptionId])
   @@index([externalOptionId])
   @@index([lastImportRunId])
+  @@index([organizationId, salesProductOptionId])
   @@map("channel_listing_options")
 }
 

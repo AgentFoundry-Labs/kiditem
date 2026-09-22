@@ -38,6 +38,38 @@ implements ChannelOptionRecipeRepositoryPort {
     private readonly productTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
+  async replaceConfirmedCompositionInTransaction(transaction: object, input: {
+    organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
+    kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
+  }): Promise<void> {
+    const tx = transaction as Prisma.TransactionClient;
+    await lockProductMapping(tx, input.organizationId);
+    const commonOption = await tx.salesProductOption.findFirst({
+      where: { id: input.salesProductOptionId, organizationId: input.organizationId, optionCode: input.kidItemCode },
+      select: { id: true, components: { select: { masterProductId: true, quantity: true } } },
+    });
+    if (!commonOption || !sameRecipe(commonOption.components, input.components)) {
+      throw new BadRequestException('Confirmed composition does not match its frozen common option identity');
+    }
+    await validateRecipeTargetsInTransaction(tx, input, this.productTransactionalRead);
+    const option = await tx.channelListingOption.findFirst({
+      where: { id: input.channelListingOptionId, organizationId: input.organizationId },
+      select: { id: true },
+    });
+    if (!option) throw new NotFoundException('Channel listing option was not found');
+    await tx.channelListingOptionInventoryComponent.deleteMany({
+      where: { organizationId: input.organizationId, channelListingOptionId: input.channelListingOptionId },
+    });
+    if (input.components.length > 0) await tx.channelListingOptionInventoryComponent.createMany({
+      data: input.components.map(component => ({ ...component, organizationId: input.organizationId, channelListingOptionId: input.channelListingOptionId })),
+    });
+    await tx.channelListingOption.update({
+      where: { id: input.channelListingOptionId, organizationId: input.organizationId },
+      data: { salesProductOptionId: input.salesProductOptionId, kidItemCode: input.kidItemCode },
+    });
+    await advanceProductMappingGeneration(tx, input.organizationId);
+  }
+
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;
@@ -268,9 +300,13 @@ implements ChannelOptionRecipeRepositoryPort {
         option.kidItemCode = mutation.preparedKidItemCode;
         codeChanged = true;
       }
-      codeChanged = await this.synchronizeOptionCode(
-        tx, input.organizationId, option, mutation.components,
-      ) || codeChanged;
+      // A frozen registration already issued the common option's identity.
+      // Initial source linking must not replace that KID with the source code.
+      if (!mutation.preparedKidItemCode) {
+        codeChanged = await this.synchronizeOptionCode(
+          tx, input.organizationId, option, mutation.components,
+        ) || codeChanged;
+      }
     }
     const currentProducts = await readListingProductIds(tx, {
       organizationId: input.organizationId, listingIds: [...listingIds],

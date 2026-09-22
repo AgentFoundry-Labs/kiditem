@@ -1,5 +1,10 @@
 import { apiClient } from '@/lib/api-client';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { salesProductApi } from '@/lib/sales-product-api';
+import {
+  ensureCandidateSalesProduct,
+  type CandidateSalesProductRegistrationDeps,
+} from '@/lib/candidate-sales-product-registration';
 import {
   detectWingFormExtensionId,
   isChromeExtensionRuntimeAvailable,
@@ -23,6 +28,7 @@ import {
   type ProductDetailResponse,
   type SellpiaInventorySearchItem,
 } from './sourcing-api';
+import { salesProductInputFromCandidate } from './candidate-sales-products';
 import { resolveWingCategories } from './wing-category-resolution';
 import {
   getWingCategoryDefinition,
@@ -57,6 +63,12 @@ const TEMPLATE_URL = '/coupang-wing-bulk-template-v4.6.xlsm';
  * 폼이 계속 채워지는 중인데 웹만 먼저 실패한다.
  */
 export const WING_FORM_FILL_TIMEOUT_MS = 180_000;
+
+const CANDIDATE_SALES_PRODUCT_DEPS: CandidateSalesProductRegistrationDeps = {
+  findByCandidate: salesProductApi.findByCandidate,
+  update: salesProductApi.update,
+  createFromCandidates: salesProductApi.createFromCandidates,
+};
 
 /**
  * 판매가는 `ProductPreparation.registrationInput.salePrice` 하나에서만 온다.
@@ -858,6 +870,16 @@ export async function submitWingRegistration(
       draft.idempotencyKey = createSecureRandomUuid();
     }
     draft.idempotencyFingerprint = fingerprint;
+    await ensureCandidateSalesProduct(
+      draft.candidateId,
+      async (candidateId) => {
+        const detail = await productsApi.getDetail(candidateId);
+        return salesProductInputFromCandidate(detail, draft.detailImageUrl, {
+          salePrice: product.variants[0]?.salePrice,
+        });
+      },
+      CANDIDATE_SALES_PRODUCT_DEPS,
+    );
     execution = await registrationExecutionApi.prepare(draft.candidateId, {
       ...request,
       idempotencyKey: draft.idempotencyKey,

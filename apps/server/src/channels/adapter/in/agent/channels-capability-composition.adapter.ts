@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { REGISTRATION_EXECUTION_PORT, type RegistrationExecutionPort } from '../../../application/port/in/capability/registration-execution.port';
 import {
   defineCapabilityComposition,
   type CapabilityExecutionContext,
@@ -27,6 +28,8 @@ export class ChannelsCapabilityCompositionAdapter
     private readonly finalListings: ChannelsFinalCapabilityPort,
     @Inject(CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT)
     private readonly wingThumbnails: ChannelsWingThumbnailCapabilityPort,
+    @Inject(REGISTRATION_EXECUTION_PORT)
+    private readonly executions: RegistrationExecutionPort,
   ) {
     this.compositions = [
       defineCapabilityComposition(CHANNELS_CAPABILITIES[0], this.finalListings, {
@@ -53,6 +56,24 @@ export class ChannelsCapabilityCompositionAdapter
             ownerIdempotencyKey: requiredOwnerIdempotencyKey(context),
             requestHash: requiredOwnerInputHash(context),
           }),
+      }),
+      defineCapabilityComposition(CHANNELS_CAPABILITIES[2], this.executions, {
+        capabilityKey: 'channels.prepare_target_execution', ownerInputPort: 'channels.prepareTargetExecution',
+        invoke: ({ context, input: { targetId, ...input } }) => this.executions.prepareTargetExecution(
+          context.organizationId, targetId, context.initiatingUserId,
+          { ...input, idempotencyKey: requiredOwnerIdempotencyKey(context) }),
+      }),
+      defineCapabilityComposition(CHANNELS_CAPABILITIES[3], this.executions, {
+        capabilityKey: 'channels.get_target_execution', ownerInputPort: 'channels.getTargetExecution',
+        invoke: ({ context, input }) => this.executions.getTargetExecution(context.organizationId, input.executionId, context.initiatingUserId),
+      }),
+      defineCapabilityComposition(CHANNELS_CAPABILITIES[4], this.executions, {
+        capabilityKey: 'channels.start_target_execution', ownerInputPort: 'channels.startTargetExecution',
+        invoke: ({ context, input }) => this.executions.startTargetExecution(context.organizationId, input.executionId, context.initiatingUserId),
+      }),
+      defineCapabilityComposition(CHANNELS_CAPABILITIES[5], this.executions, {
+        capabilityKey: 'channels.report_target_execution', ownerInputPort: 'channels.reportTargetExecution',
+        invoke: ({ context, input: { executionId, ...report } }) => this.executions.reportTargetExecution(context.organizationId, executionId, context.initiatingUserId, report),
       }),
     ];
   }

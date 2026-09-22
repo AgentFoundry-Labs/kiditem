@@ -15,13 +15,18 @@ import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { groupUrlAssetKey } from '../domain/content-asset-key';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 
 describe('AI content ownership constraints (PG integration)', () => {
   let prisma: PrismaClient;
+  let registrationContent: RegistrationContentWorkspaceRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    registrationContent = new RegistrationContentWorkspaceRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
   });
 
   afterAll(async () => prisma?.$disconnect());
@@ -127,18 +132,49 @@ describe('AI content ownership constraints (PG integration)', () => {
         normalizedTitle: 'localpreparationcandidate',
       },
     });
-
-    await expect(prisma.productPreparation.create({
+    const localProduct = await prisma.salesProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: localCandidate.id,
-        channelAccountId: localAccount.id,
-        sourceContentWorkspaceId: localWorkspace.id,
-        displayName: 'Cross-tenant preparation',
-        registrationInput: {},
-        selectedDetailPageArtifactId: foreignArtifact.id,
+        code: 'LOCAL-PREPARATION-CANDIDATE',
+        name: 'Local preparation candidate',
       },
-    })).rejects.toMatchObject({ code: 'P2003' });
+    });
+    await prisma.salesProductOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        salesProductId: localProduct.id,
+        optionCode: 'LOCAL-PREPARATION-CANDIDATE-1',
+        values: ['단품'],
+        optionKey: '단품',
+        salePrice: 1000,
+      },
+    });
+
+    await expect(prisma.$transaction(async (tx) => {
+      const selections = await registrationContent.resolveSourceSelections(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceWorkspaceId: localWorkspace.id,
+        selectedThumbnailUrl: null,
+        selectedThumbnailGenerationId: null,
+        selectedThumbnailGenerationCandidateId: null,
+        selectedDetailPageArtifactId: foreignArtifact.id,
+        selectedDetailPageRevisionId: null,
+        selectedDetailPageGenerationId: null,
+      });
+      return tx.productPreparation.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          salesProductId: localProduct.id,
+          sourceCandidateId: localCandidate.id,
+          channelAccountId: localAccount.id,
+          sourceContentWorkspaceId: localWorkspace.id,
+          displayName: 'Cross-tenant preparation',
+          registrationInput: {},
+          ...selections,
+        },
+      });
+    })).rejects.toThrow('Selected detail artifact is not source-owned.');
 
     expect(await prisma.productPreparation.count({
       where: { organizationId: TEST_ORGANIZATION_ID },

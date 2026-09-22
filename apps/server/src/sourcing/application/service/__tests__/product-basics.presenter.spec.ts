@@ -107,7 +107,7 @@ describe('buildProductBasics', () => {
     expect(result.thumbnailPreviewUrls).toEqual([]);
   });
 
-  describe('salePrice 셀피아 폴백', () => {
+  describe('salePrice 입력 출처', () => {
     const candidate = {
       id: 'candidate-1',
       name: '4000과일바구니딸깍이키링',
@@ -130,7 +130,7 @@ describe('buildProductBasics', () => {
         },
       });
 
-      // 사용자가 고친 값을 폴백이 덮어쓰면 안 된다.
+      // 사용자가 고친 값을 서버 기본값이 덮어쓰면 안 된다.
       expect(result.salePrice).toBe(12900);
       expect(result.salePriceSource).toBe('input');
     });
@@ -220,7 +220,7 @@ describe('buildProductBasics', () => {
       expect(result.rocketUnitCost).toBe(1500);
     });
 
-    it('manualBasics 판매가는 셀피아 폴백보다 우선한다(수기 입력 취급)', () => {
+    it('manualBasics 판매가는 수기 입력으로 유지한다', () => {
       const result = buildProductBasics({
         candidate: { ...candidate, rawData: { manualBasics: { salePrice: 4900 } } },
         preparation: null,

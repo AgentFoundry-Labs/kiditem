@@ -66,6 +66,8 @@ export interface MallProductDraft {
   candidateId: string;
   /** 구매자에게 보이는 이름. */
   displayName: string;
+  /** 11번가 홍보문구 override. Other adapters may ignore it. */
+  promoText?: string;
   /** 판매자 내부 관리용 이름(수집 원본명). */
   sellerProductName: string;
   brand: string;

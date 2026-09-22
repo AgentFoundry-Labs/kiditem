@@ -22,7 +22,7 @@ import {
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
-} from '../port/out/cross-domain/registration-content-workspace.port';
+} from '../port/in/registration-content-workspace.port';
 import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,

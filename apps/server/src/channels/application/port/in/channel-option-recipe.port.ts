@@ -23,6 +23,11 @@ export const CHANNEL_OPTION_RECIPE_PORT = Symbol(
 );
 
 export interface ChannelOptionRecipePort {
+  /** Called only by the execution owner after a confirmed external composition transition. */
+  replaceConfirmedCompositionInTransaction(transaction: object, input: {
+    organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
+    kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
+  }): Promise<void>;
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;

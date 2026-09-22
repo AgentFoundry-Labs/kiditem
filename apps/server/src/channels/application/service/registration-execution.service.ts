@@ -1,5 +1,9 @@
-import { preparedRegistrationRecipe } from '../../domain/registration-item-code';
+import type { PrepareListingAvailabilityInput, ReportListingAvailabilityInput } from '@kiditem/shared/sales-product';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { SALES_PRODUCT_PORT, type SalesProductPort } from '../port/in/sales-product.port';
+import { REGISTRATION_TARGET_PORT, type RegistrationTargetPort } from '../port/in/registration-target.port';
+import { RegistrationTargetException } from '../exception/registration-target.exception';
+import { preparedRegistrationRecipe } from '../../domain/registration-item-code';
 import {
   REGISTRATION_EXECUTION_REPOSITORY_PORT,
   type FrozenRegistrationSubmission,
@@ -12,7 +16,8 @@ import {
 import {
   REGISTRATION_DRAFT_PORT,
   type RegistrationDraftPort,
-} from '../port/out/cross-domain/registration-draft.port';
+} from '../port/out/persistence/registration-draft.port';
+import type { PrepareTargetExecutionInput, ReportTargetExecutionInput, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 import type { ChannelsRepositoryTransaction } from '../port/out/transaction/repository-transaction';
 import type {
   ConfirmRegistrationExecutionInput,
@@ -24,8 +29,8 @@ import type {
 /**
  * 등록 실행 울타리.
  *
- * 채널 계정 하나에 초안 하나를 최대 한 번만 보낸다. 준비(payload 동결) · 시작(리스) ·
- * 확정 · 미해결 · 미제출 종료가 전부 여기를 지난다
+ * 재사용 등록 대상의 실행마다 제출 내용을 동결한다. 같은 요청의 재전송은
+ * 기존 실행을 반환하고, 시작·확정·미해결·미제출 종료가 이 계약을 통과한다
  * ([ADR-0014](../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
  */
 @Injectable()
@@ -37,7 +42,100 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
     private readonly registration: ChannelsMarketplaceRegistrationCapabilityPort,
     @Inject(REGISTRATION_DRAFT_PORT)
     private readonly drafts: RegistrationDraftPort,
+    @Inject(SALES_PRODUCT_PORT) private readonly salesProducts: SalesProductPort,
+    @Inject(REGISTRATION_TARGET_PORT) private readonly targets: RegistrationTargetPort,
   ) {}
+
+  prepareListingAvailability(organizationId: string, userId: string | null, input: PrepareListingAvailabilityInput) {
+    return this.executions.prepareListingAvailability({ organizationId, requestedByUserId: userId, request: input });
+  }
+  listListingAvailability(organizationId: string, userId: string | null, channelAccountId: string, externalListingId: string) {
+    return this.executions.listListingAvailability({ organizationId, requestedByUserId: userId, channelAccountId, externalListingId });
+  }
+  startListingAvailability(organizationId: string, userId: string | null, executionId: string) {
+    return this.executions.startListingAvailability({ organizationId, requestedByUserId: userId, executionId });
+  }
+  reportListingAvailability(organizationId: string, userId: string | null, executionId: string, input: ReportListingAvailabilityInput) {
+    return this.executions.reportListingAvailability({ organizationId, requestedByUserId: userId, executionId, report: input });
+  }
+
+  async prepareTargetExecution(organizationId: string, targetId: string, userId: string | null, input: PrepareTargetExecutionInput) {
+    if (input.kind !== 'register' && !input.channelListingId) {
+      throw new RegistrationTargetException('invalid', '기존 쇼핑몰 상품을 선택하세요.');
+    }
+    if ((input.kind === 'update') !== Boolean(input.updateFields?.length)) {
+      throw new RegistrationTargetException('invalid', '가격 수정 실행은 변경할 판매가 항목을 지정해야 합니다.');
+    }
+    const transitions = input.optionTransitions ?? [];
+    if (input.kind === 'composition_change' ? transitions.length === 0 : transitions.length > 0) {
+      throw new RegistrationTargetException('invalid', '구성 전환에는 변경할 쇼핑몰 옵션과 새 판매옵션을 지정해야 합니다.');
+    }
+    if (new Set(transitions.map(item => item.channelListingOptionId)).size !== transitions.length
+      || new Set(transitions.map(item => item.salesProductOptionId)).size !== transitions.length) {
+      throw new RegistrationTargetException('invalid', '구성 전환 옵션을 중복 지정할 수 없습니다.');
+    }
+    const replay = await this.executions.findTargetReplay({ organizationId, requestedByUserId: userId, targetId, request: input });
+    if (replay) return replay;
+    const target = await this.targets.get(organizationId, targetId);
+    if (target.version !== input.expectedVersion) throw new RegistrationTargetException('conflict', '등록 설정이 변경됐습니다. 다시 불러오세요.');
+    const product = await this.salesProducts.get(organizationId, target.salesProductId);
+    if (target.selectedOptions.length === 0) throw new RegistrationTargetException('invalid', '실행할 옵션을 선택하세요.');
+    const options = new Map(product.options.map(option => [option.id, option]));
+    if (transitions.some(item => !target.selectedOptions.some(option => option.salesProductOptionId === item.salesProductOptionId))) {
+      throw new RegistrationTargetException('invalid', '새 판매옵션이 등록 대상에 선택되어 있지 않습니다.');
+    }
+    if (input.kind === 'update') {
+      const listing = product.channelListings.find(item => item.id === input.channelListingId
+        && item.channelAccountId === target.channelAccountId);
+      const optionId = listing?.options.length === 1 ? listing.options[0]?.salesProductOptionId : null;
+      const selection = target.selectedOptions.find(item => item.salesProductOptionId === optionId);
+      const option = optionId ? options.get(optionId) : undefined;
+      if (!listing || !selection || !option) {
+        throw new RegistrationTargetException('invalid', '가격 수정은 등록 대상에 선택된 단일 옵션의 몰 상품만 지원합니다.');
+      }
+      const price = selection.salePrice ?? option.salePrice;
+      if (!['kakao', 'kidsnote'].includes(listing.mallKey) || price < 10 || price > 10_000_000) {
+        throw new RegistrationTargetException('invalid', '이 몰 또는 판매가는 현재 가격 전송 범위에 포함되지 않습니다.');
+      }
+    }
+    const snapshot: TargetExecutionSnapshot = {
+      targetId, targetVersion: target.version, channelAccountId: target.channelAccountId,
+      kind: input.kind, channelListingId: input.channelListingId ?? null,
+      ...(input.updateFields ? { updateFields: input.updateFields } : {}),
+      ...(input.adapterDefaults ? { adapterDefaults: input.adapterDefaults } : {}),
+      ...(input.adapterValues ? { adapterValues: input.adapterValues } : {}),
+      applyCompositionTemplate: input.applyCompositionTemplate,
+      optionTransitions: transitions,
+      product: {
+        ...product, name: target.displayName ?? product.name,
+        // Target-specific values are already resolved below and in registrationInput.
+        // The account summary must never override a frozen option price a second time.
+        channelOverrides: [],
+        options: target.selectedOptions.map(selection => {
+          const option = options.get(selection.salesProductOptionId);
+          if (!option) throw new RegistrationTargetException('invalid', '선택한 옵션이 해당 판매상품에 없습니다.');
+          return { ...option, salePrice: selection.salePrice ?? option.salePrice, normalPrice: selection.normalPrice ?? option.normalPrice };
+        }),
+      },
+      registrationInput: target.registrationInput,
+      supplyPrices: target.selectedOptions.map(selection => ({ salesProductOptionId: selection.salesProductOptionId, supplyPrice: selection.supplyPrice })),
+    };
+    return this.executions.prepareTarget({ organizationId, requestedByUserId: userId, request: input, snapshot });
+  }
+
+  startTargetExecution(organizationId: string, executionId: string, userId: string | null) {
+    return this.executions.startTarget({ organizationId, executionId, requestedByUserId: userId });
+  }
+  listTargetExecutions(organizationId: string, targetId: string, userId: string | null) {
+    return this.executions.listTarget({ organizationId, targetId, requestedByUserId: userId });
+  }
+
+  getTargetExecution(organizationId: string, executionId: string, userId: string | null) {
+    return this.executions.getTarget({ organizationId, executionId, requestedByUserId: userId });
+  }
+  reportTargetExecution(organizationId: string, executionId: string, userId: string | null, input: ReportTargetExecutionInput) {
+    return this.executions.reportTarget({ organizationId, executionId, requestedByUserId: userId, report: input });
+  }
 
   cancelUnstartedExecutions(
     tx: ChannelsRepositoryTransaction,
@@ -246,6 +344,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
     const submission = await this.executions.loadFrozenSubmission(
       organizationId,
       operation.preparationId,
+      input.executionId,
     );
     if (submission.executionId !== input.executionId || submission.channelAccountId === '') {
       throw new Error('External registration execution does not match its frozen preparation.');
@@ -297,9 +396,10 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
             syncedListing,
           },
         },
+        submission.executionId,
       );
     } catch (error) {
-      return this.fail(organizationId, submission.preparationId, submissionLeaseToken, error);
+      return this.fail(organizationId, submission.preparationId, submissionLeaseToken, error, submission.executionId);
     }
 
     try {
@@ -333,9 +433,10 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
           });
           return { listingId: listing.listingId };
         },
+        submission.executionId,
       );
     } catch (error) {
-      return this.fail(organizationId, submission.preparationId, submissionLeaseToken, error);
+      return this.fail(organizationId, submission.preparationId, submissionLeaseToken, error, submission.executionId);
     }
   }
 
@@ -344,9 +445,11 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
     preparationId: string,
     submissionLeaseToken: string,
     error: unknown,
+    executionId: string,
     providerOutcome?: 'definitive_failure',
   ): Promise<{ preparationId: string; status: 'failed' }> {
     return this.executions.markFailed({
+      executionId,
       organizationId,
       preparationId,
       submissionLeaseToken,

@@ -72,6 +72,32 @@ function ProductGeneratePageContent() {
     duplicateWorkspace,
     handleDuplicateCheck,
     handleLoadDuplicateLatest,
+    salePrice,
+    setSalePrice,
+    tagPrice,
+    setTagPrice,
+    costPrice,
+    setCostPrice,
+    brand,
+    setBrand,
+    manufacturer,
+    setManufacturer,
+    originCountry,
+    setOriginCountry,
+    modelName,
+    setModelName,
+    ownCode,
+    setOwnCode,
+    taxType,
+    setTaxType,
+    deliveryFee,
+    setDeliveryFee,
+    deliveryFeeType,
+    setDeliveryFeeType,
+    certificationIssuer,
+    setCertificationIssuer,
+    certificationField,
+    setCertificationField,
   } = form;
 
   return (
@@ -121,6 +147,32 @@ function ProductGeneratePageContent() {
           setColorVariantStatus={setColorVariantStatus}
           colorVariantNames={colorVariantNames}
           setColorVariantNames={setColorVariantNames}
+          salePrice={salePrice}
+          setSalePrice={setSalePrice}
+          tagPrice={tagPrice}
+          setTagPrice={setTagPrice}
+          costPrice={costPrice}
+          setCostPrice={setCostPrice}
+          brand={brand}
+          setBrand={setBrand}
+          manufacturer={manufacturer}
+          setManufacturer={setManufacturer}
+          originCountry={originCountry}
+          setOriginCountry={setOriginCountry}
+          modelName={modelName}
+          setModelName={setModelName}
+          ownCode={ownCode}
+          setOwnCode={setOwnCode}
+          taxType={taxType}
+          setTaxType={setTaxType}
+          deliveryFee={deliveryFee}
+          setDeliveryFee={setDeliveryFee}
+          deliveryFeeType={deliveryFeeType}
+          setDeliveryFeeType={setDeliveryFeeType}
+          certificationIssuer={certificationIssuer}
+          setCertificationIssuer={setCertificationIssuer}
+          certificationField={certificationField}
+          setCertificationField={setCertificationField}
           rawOptions={rawOptions}
           setRawOptions={setRawOptions}
           images={images}

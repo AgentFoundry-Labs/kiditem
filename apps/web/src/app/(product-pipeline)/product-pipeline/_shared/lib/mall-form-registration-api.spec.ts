@@ -110,4 +110,38 @@ describe('fillMallRegistrationForm', () => {
     expect(result.submitted).toBe(false);
     expect(result.ok).toBe(true);
   });
+
+  it('명시한 등록 경로만 [등록] 결과와 상품번호를 분류한다', async () => {
+    bridge.sendToExtension.mockResolvedValue({
+      ok: true,
+      submitted: true,
+      accepted: true,
+      productNo: 'mall-123',
+    });
+
+    const result = await fillMallRegistrationForm('domeggook', draft(), form, { submit: true });
+
+    expect(lastMessage()).toMatchObject({ submit: true });
+    expect(result).toMatchObject({ submitted: true, accepted: true, productNo: 'mall-123' });
+  });
+
+  it('carries the server execution lease through an explicit submit request', async () => {
+    await fillMallRegistrationForm('domeggook', draft(), form, {
+      submit: true,
+      executionContext: {
+        executionId: '11111111-1111-4111-8111-111111111111',
+        payloadHash: 'frozen-hash',
+        leaseToken: '22222222-2222-4222-8222-222222222222',
+      },
+    });
+
+    expect(lastMessage()).toMatchObject({
+      submit: true,
+      executionContext: {
+        executionId: '11111111-1111-4111-8111-111111111111',
+        payloadHash: 'frozen-hash',
+        leaseToken: '22222222-2222-4222-8222-222222222222',
+      },
+    });
+  });
 });

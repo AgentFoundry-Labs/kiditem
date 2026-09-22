@@ -7,6 +7,15 @@ import { basename, extname } from 'path';
 import type { MulterFile } from '../../common/types';
 import { KIDSNOTE_SUMMARY_INFO, KIDSNOTE_DOC_SUMMARY_INFO } from './kidsnote-sellpia-meta';
 
+/**
+ * A day with nothing to convert. It is not a failed conversion: the code tells
+ * the collector so, and the attempt ends as NO_NEW_ORDERS rather than
+ * CONVERSION_FAILED (꼬망세 read as a failed mall for an empty day).
+ */
+function noNewOrders(message: string): BadRequestException {
+  return new BadRequestException({ code: 'NO_NEW_ORDERS', message });
+}
+
 const OUTPUT_HEADERS = [
   'No',
   '주문번호',
@@ -380,7 +389,7 @@ export class OrderCollectionService {
   convertKidsnoteOrders(input: KidsnoteConvertInput): OrderCollectionConversion {
     const orders = Array.isArray(input?.orders) ? input.orders : [];
     if (orders.length === 0) {
-      throw new BadRequestException('변환할 키즈노트 주문이 없습니다.');
+      throw noNewOrders('변환할 키즈노트 주문이 없습니다.');
     }
     if (orders.length > 5_000) {
       throw new BadRequestException('한 번에 변환할 수 있는 주문은 5,000건까지입니다.');
@@ -422,7 +431,7 @@ export class OrderCollectionService {
   convertOnchannelOrders(input: OnchannelConvertInput): OrderCollectionConversion {
     const orders = Array.isArray(input?.orders) ? input.orders : [];
     if (orders.length === 0) {
-      throw new BadRequestException('변환할 온채널 주문이 없습니다.');
+      throw noNewOrders('변환할 온채널 주문이 없습니다.');
     }
     if (orders.length > 5_000) {
       throw new BadRequestException('한 번에 변환할 수 있는 주문은 5,000건까지입니다.');
@@ -438,7 +447,7 @@ export class OrderCollectionService {
   convertKidkidsOrders(input: KidkidsConvertInput): OrderCollectionConversion {
     const orders = Array.isArray(input?.orders) ? input.orders : [];
     if (orders.length === 0) {
-      throw new BadRequestException('변환할 키드키즈 주문이 없습니다.');
+      throw noNewOrders('변환할 키드키즈 주문이 없습니다.');
     }
     if (orders.length > 5_000) {
       throw new BadRequestException('한 번에 변환할 수 있는 주문은 5,000건까지입니다.');
@@ -458,7 +467,7 @@ export class OrderCollectionService {
   convertHaebeopOrders(input: HaebeopConvertInput): OrderCollectionConversion {
     const orders = Array.isArray(input?.orders) ? input.orders : [];
     if (orders.length === 0) {
-      throw new BadRequestException('변환할 해법몰 주문이 없습니다.');
+      throw noNewOrders('변환할 해법몰 주문이 없습니다.');
     }
     if (orders.length > 5_000) {
       throw new BadRequestException('한 번에 변환할 수 있는 주문은 5,000건까지입니다.');
@@ -491,7 +500,7 @@ export class OrderCollectionService {
       defval: '',
     });
     if (aoa.length <= 1) {
-      throw new BadRequestException('도매꾹 CSV 에 주문이 없습니다.');
+      throw noNewOrders('도매꾹 CSV 에 주문이 없습니다.');
     }
     const headers = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim());
     const dateIdx = headers.indexOf('주문일시');
@@ -505,7 +514,7 @@ export class OrderCollectionService {
       return true;
     });
     if (dataRows.length === 0) {
-      throw new BadRequestException(
+      throw noNewOrders(
         date ? `${date} 도매꾹 신규 주문이 없습니다.` : '변환할 도매꾹 주문이 없습니다.',
       );
     }
@@ -552,7 +561,7 @@ export class OrderCollectionService {
       .slice(1)
       .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
     if (dataRows.length === 0) {
-      throw new BadRequestException('보리보리 신규 주문이 없습니다.');
+      throw noNewOrders('보리보리 신규 주문이 없습니다.');
     }
     const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
@@ -592,7 +601,7 @@ export class OrderCollectionService {
       .slice(1)
       .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
     if (dataRows.length === 0) {
-      throw new BadRequestException('티쳐몰 신규 주문이 없습니다.');
+      throw noNewOrders('티쳐몰 신규 주문이 없습니다.');
     }
     const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
@@ -625,14 +634,14 @@ export class OrderCollectionService {
       defval: '',
     });
     if (aoa.length <= 1) {
-      throw new BadRequestException('롯데ON 신규 주문이 없습니다.');
+      throw noNewOrders('롯데ON 신규 주문이 없습니다.');
     }
     const headers = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim());
     const dataRows = aoa
       .slice(1)
       .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
     if (dataRows.length === 0) {
-      throw new BadRequestException('롯데ON 신규 주문이 없습니다.');
+      throw noNewOrders('롯데ON 신규 주문이 없습니다.');
     }
     const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
@@ -670,7 +679,7 @@ export class OrderCollectionService {
       defval: '',
     });
     if (aoa.length <= 1) {
-      throw new BadRequestException('GS샵 신규 주문이 없습니다.');
+      throw noNewOrders('GS샵 신규 주문이 없습니다.');
     }
     const headers = (aoa[0] as unknown[]).map((h) => String(h ?? '').trim());
     // 셀피아 참조양식과 헤더명 일치: GS 현행 "속성상품코드" → 참조 "상품상세코드" (같은 위치, 라벨만 통일).
@@ -680,7 +689,7 @@ export class OrderCollectionService {
       .slice(1)
       .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
     if (dataRows.length === 0) {
-      throw new BadRequestException('GS샵 신규 주문이 없습니다.');
+      throw noNewOrders('GS샵 신규 주문이 없습니다.');
     }
     const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
@@ -718,7 +727,7 @@ export class OrderCollectionService {
       .slice(1)
       .filter((row) => (row as (string | number)[]).some((c) => String(c ?? '').trim() !== ''));
     if (dataRows.length === 0) {
-      throw new BadRequestException('올웨이즈 신규 주문이 없습니다.');
+      throw noNewOrders('올웨이즈 신규 주문이 없습니다.');
     }
     const outSheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     outSheet['!cols'] = headers.map((h) => ({ wch: Math.min(42, Math.max(10, h.length + 6)) }));
@@ -946,7 +955,7 @@ function convertKkomangseRows(
     ]);
   }
   if (aoa.length <= 1) {
-    throw new BadRequestException(
+    throw noNewOrders(
       dateFilter ? `${dateFilter} 꼬망세 신규 주문이 없습니다.` : '변환할 꼬망세 주문이 없습니다.',
     );
   }
@@ -1007,7 +1016,7 @@ function convertOnchannelRows(
     }
   }
   if (aoa.length <= 1) {
-    throw new BadRequestException('변환할 온채널 주문이 없습니다.');
+    throw noNewOrders('변환할 온채널 주문이 없습니다.');
   }
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
   // 내용 다 보이게 열 너비 넉넉히 (한글은 글자당 폭이 넓어 여유 둠).
@@ -1123,7 +1132,7 @@ function convertKidkidsRows(
     dateRows.push(aoa.length - 1);
   }
   if (aoa.length <= 1) {
-    throw new BadRequestException('변환할 키드키즈 주문이 없습니다.');
+    throw noNewOrders('변환할 키드키즈 주문이 없습니다.');
   }
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
   // 주문일자(B열)=날짜서식, 주문번호(A열)=숫자+뒤 공백 서식(원본 셀피아 export 표기와 동일)
@@ -1269,7 +1278,7 @@ function convertHaebeopRows(
     dateRows.push(aoa.length - 1);
   }
   if (aoa.length <= 1) {
-    throw new BadRequestException('변환할 해법몰 주문이 없습니다.');
+    throw noNewOrders('변환할 해법몰 주문이 없습니다.');
   }
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
   // 주문일자(V열, index 21) 날짜+시각 서식

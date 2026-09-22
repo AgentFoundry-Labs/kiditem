@@ -174,12 +174,19 @@ export async function detectOrderCollectionSessionExtension(): Promise<string | 
   return status.status === 'ready' ? status.extensionId : null;
 }
 
+/**
+ * 전체 수집 중에는 확장 워커가 다른 몰 파일을 만드느라 핑에 늦게 답한다. 이미 아는 확장이
+ * 1.2초 안에 답하지 않았다고 '확장을 찾지 못했다'고 하면, 멀쩡한 몰이 시작도 못 하고 실패한다
+ * (2026-09-18 GS샵 · 쿠팡직배송). 아는 확장은 8초까지 기다리고, 처음 찾는 확장만 짧게 본다.
+ */
+const KNOWN_ORDER_EXTENSION_PING_TIMEOUT_MS = 8_000;
+
 export async function detectOrderCollectionSessionExtensionStatus(): Promise<ExtensionRuntimeStatus> {
   return detectOrderCollectionExtensionRuntime(1200, [
     'browserCollectionSessions',
     'orderCollectionFailureEvidenceV1',
     'orderCollectionConfirmedCoverageV1',
-  ]);
+  ], KNOWN_ORDER_EXTENSION_PING_TIMEOUT_MS);
 }
 
 export function orderCollectionExtensionUnavailableMessage(
@@ -333,7 +340,9 @@ export async function ensureMallLoggedInViaExtension(
         ...(run ? { attemptId: run.attemptId, deferTerminal: true } : {}),
         date: run?.date ?? null,
       },
-      45000,
+      // 확장 쪽 예산: 탭 준비 10초 + 1초 + 로그인 35초 + 서버 확인 몇 번. 45초로는 바쁜
+      // 워커에서 멀쩡히 로그인된 몰도 시간 초과로 떨어졌다.
+      75_000,
     );
     return response ?? { success: false, error: '자동 로그인 응답이 없습니다.' };
   } catch (error) {

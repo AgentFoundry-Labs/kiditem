@@ -25,6 +25,7 @@ export type ChannelProductCandidateContext = Readonly<{
 }>;
 
 export type ChannelAvailabilityRepositoryRow = Readonly<{
+  compositionUnconfirmed?: boolean;
   channelAccount: { id: string; channel: string; name: string };
   listing: {
     id: string;

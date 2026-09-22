@@ -3,6 +3,7 @@ import {
   normalizeChannelRecipeName,
   rankChannelRecipeNameCandidates,
   scoreChannelRecipeNameCandidate,
+  channelTitleContainsSkuName,
 } from './channel-recipe-name-matcher';
 
 const sku = (code: string, name: string, optionName: string | null = null) => ({
@@ -80,5 +81,28 @@ describe('channel recipe name matcher', () => {
     expect(result[0]?.kind).toBe('contained_name');
     expect(result[1]?.kind).toBe('contained_name');
     expect(result[0]!.score - result[1]!.score).toBeLessThan(0.12);
+  });
+
+  it('⭐ 우리 브랜드 표기는 철자가 달라도 걷어낸다 (KID-246, 아이스크림몰 고시 품명)', () => {
+    // 아이스크림몰 고시 품명은 `[kiditem] …`, 키드키즈 상품명은 `[키드아이템] …` 로 붙는다.
+    expect(normalizeChannelRecipeName('[kiditem] 해피글로우야광꽈배기프로펠라'))
+      .toBe(normalizeChannelRecipeName('해피글로우야광꽈배기프로펠라'));
+    expect(normalizeChannelRecipeName('[키드아이템] 병아리스마트만능패드'))
+      .toBe(normalizeChannelRecipeName('병아리스마트만능패드'));
+    expect(normalizeChannelRecipeName('KY I&D 할로윈호박열쇠고리'))
+      .toBe(normalizeChannelRecipeName('할로윈호박열쇠고리'));
+  });
+
+});
+
+describe('channelTitleContainsSkuName', () => {
+  it('셀피아 이름(값 · 묶음 표기를 뗀 것)이 몰 제목 안에 그대로 있으면 같은 상품이다', () => {
+    const title = [{ listingName: '톡톡 팝콘 플레이 장난감 어린이 완구 크리스마스 어린이날선물', itemName: null }];
+    expect(channelTitleContainsSkuName(title, '3000톡톡팝콘플레이')).toBe(true);
+    expect(channelTitleContainsSkuName(title, '2500머그컵딸깍키링')).toBe(false);
+  });
+
+  it('너무 짧은 셀피아 이름은 보지 않는다', () => {
+    expect(channelTitleContainsSkuName([{ listingName: '공 놀이 세트', itemName: null }], '1000공')).toBe(false);
   });
 });

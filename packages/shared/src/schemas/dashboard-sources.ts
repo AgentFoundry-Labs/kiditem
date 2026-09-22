@@ -13,6 +13,7 @@ export type DashboardSourceName =
   | 'wing_traffic'
   | 'coupang_ads'
   | 'sellpia_sales'
+  | 'sellpia_product_sales'
   | 'products'
   | 'product_abc'
   | 'channel_listings'
@@ -43,6 +44,13 @@ export const COUPANG_ADS_SOURCE = 'coupang_ads' satisfies DashboardSourceName;
 export const SELLPIA_SALES_SOURCE = 'sellpia_sales' satisfies DashboardSourceName;
 
 /**
+ * Sellpia's per-product monthly sales (`stat_prd_profit`) — the published
+ * profitability generation. Monthly, so it can only answer a whole calendar
+ * month, and it carries no settlement costs.
+ */
+export const SELLPIA_PRODUCT_SALES_SOURCE = 'sellpia_product_sales' satisfies DashboardSourceName;
+
+/**
  * Products' master catalogue rows — the active product set. Reading its
  * official grade also names `product_abc`, the Products-owned retained
  * evaluation publication.
@@ -69,7 +77,5 @@ export const SELLPIA_INVENTORY_SOURCE = 'sellpia_inventory' satisfies DashboardS
 /** Alert rows published by the alert owner. */
 export const ALERTS_SOURCE = 'alerts' satisfies DashboardSourceName;
 
-/** Complete Sellpia monthly product sales publication. */
-export const SELLPIA_PRODUCT_SALES_SOURCE = 'sellpia_product_sales' satisfies DashboardSourceName;
 /** Channels registration execution ledger. */
 export const CHANNEL_REGISTRATIONS_SOURCE = 'channel_registrations' satisfies DashboardSourceName;

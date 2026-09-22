@@ -48,6 +48,14 @@ export interface MallListingAccountRow {
   listingCount: number;
   /** 이 계정에 올라간 서로 다른 상품 수. */
   productCount: number;
+  /** Number of products with at least one published listing. */
+  onSaleProductCount: number;
+  onSaleListingCount: number;
+  onSaleLinkedListingCount: number;
+  optionCount: number;
+  matchedOptionCount: number;
+  onSaleOptionCount: number;
+  onSaleMatchedOptionCount: number;
 }
 
 export interface MallMatrixQuery {
@@ -67,11 +75,15 @@ export interface MallMatrixListingRow {
   externalId: string;
   category: string | null;
   updatedAt: Date;
+  /** Storefront product number when it differs from the external listing id. */
+  storefrontProductId: string | null;
 }
 
 export interface MallMatrixProductRow {
   masterProductId: string;
   code: string;
+  /** 이 마스터에 이어진 셀피아 상품코드 가운데 번호가 가장 큰 것. 없으면 null. */
+  sellpiaCode: string | null;
   name: string;
   /** 몰 리스팅 콘텐츠에서 회수한 대표 이미지. 없으면 null. */
   imageUrl: string | null;
@@ -104,6 +116,8 @@ export interface MallPublishingRepositoryPort {
   ): Promise<{ rows: MallMatrixProductRow[]; total: number }>;
   /** 계정별 주문 건수. */
   countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]>;
-  /** 등록 현황 표에 서는 상품 마스터 수. 허브 중앙 숫자이고 표의 `total` 과 같은 집합이다. */
+  /** Active MasterProduct count used by the hub. */
+  countActiveMasterProducts(organizationId: string): Promise<number>;
+  /** Visible MasterProduct count used by the matrix total. */
   countVisibleMasterProducts(organizationId: string): Promise<number>;
 }

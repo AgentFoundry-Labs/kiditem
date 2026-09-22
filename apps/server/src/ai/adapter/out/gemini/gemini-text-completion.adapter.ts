@@ -1,3 +1,5 @@
+import { aiUsageMeter } from '../../../application/usage/ai-usage-meter';
+import type { GeminiUsageMetadata } from '../../../domain/ai-usage';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import type {
   TextCompletionPort,
@@ -9,6 +11,7 @@ interface GeminiResponse {
   candidates?: Array<{
     content?: { parts?: Array<{ text?: string }> };
   }>;
+  usageMetadata?: GeminiUsageMetadata;
 }
 
 const PROVIDER_TIMEOUT_MS = 120_000;
@@ -64,6 +67,7 @@ export class GeminiTextCompletionAdapter implements TextCompletionPort {
     }
 
     const data = (await res.json()) as GeminiResponse;
+    aiUsageMeter.recordGemini({ model: request.model, operation: 'text_completion', usage: data.usageMetadata });
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
       throw new HttpException(

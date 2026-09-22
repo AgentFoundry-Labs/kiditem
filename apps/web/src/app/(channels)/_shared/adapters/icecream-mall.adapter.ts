@@ -1,7 +1,5 @@
-import {
-  fillMallRegistrationForm,
-  prepareMallRegistration,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { prepareRegistration } from '../sales-product-registration';
+import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   ICECREAM_DEFAULT_CATEGORY,
   ICECREAM_DEFAULT_CATEGORY_CODE,
@@ -9,7 +7,7 @@ import {
   icecreamSupplyPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/icecream-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -158,7 +156,7 @@ export const icecreamMallAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'icecream-mall');
     // 공통 안전인증번호 칸은 초안 고시로 넘긴다 — 몰 폼 빌더는 초안만 본다.
     const certNumber = values.certNumber?.trim();
     const withCert = certNumber
@@ -173,14 +171,7 @@ export const icecreamMallAdapter: MallPublishAdapter = {
         : {}),
       ...(values.naverMinPriceUrl?.trim() ? { naverMinPriceUrl: values.naverMinPriceUrl.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('icecream-mall', withCert, form);
-    return {
-      ok: result.ok,
-      // 폼을 채운 것은 등록이 아니다. 사람이 등록하고 승인요청까지 해야 한다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    const result = await fillMallRegistrationForm('icecream-mall', withCert, form, mallFormExecutionOptions(item));
+    return registrationOutcome(result);
   },
 };

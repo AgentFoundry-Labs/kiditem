@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { isChannelSkuOutOfStock } from '@kiditem/shared/channel-sku-availability';
 import type {
   MallAdapterManifestView,
   MallChannelOverview,
@@ -20,10 +21,12 @@ import {
   MALL_ADAPTER_MANIFESTS,
   getMallAdapterManifest,
   resolveSoldOutCommand,
+  soldOutSendsByOption,
   type MallAdapterManifest,
   mallInboundSupports,
 } from '../../domain/mall/mall-adapter-manifest';
 import { filledListingProfileFields } from '../../domain/mall/mall-listing-profile';
+import { mallProductUrl } from '../../domain/mall/mall-product-url';
 import {
   evaluateMallPreflight,
   isKcReady,
@@ -74,6 +77,7 @@ function toColumnActions(manifest: MallAdapterManifest | null | undefined) {
       setStock: false,
       soldOutDeletesListing: false,
       requiresOperatorApproval: false,
+      soldOutRoute: null,
     };
   }
   return {
@@ -82,8 +86,9 @@ function toColumnActions(manifest: MallAdapterManifest | null | undefined) {
     soldOut: manifest.supports.soldOut,
     resume: manifest.supports.resume,
     setStock: manifest.supports.setStock !== null,
-    soldOutDeletesListing: manifest.hazards.soldOutDeletesListing,
+    soldOutDeletesListing: manifest.hazards.soldOutDeletesListing && manifest.soldOutRoute !== 'mall_admin',
     requiresOperatorApproval: manifest.hazards.requiresOperatorApproval,
+    soldOutRoute: manifest.soldOutRoute,
   };
 }
 
@@ -247,11 +252,21 @@ export class MallPublishingService {
       limit,
     });
 
+    // 상품 단위 품절 경로는 다른 옵션이 살아 있으면 안전하게 막는다. 옵션 단위
+    // 경로(쿠팡 WING)는 해당 옵션만 전환하므로 그대로 보낸다.
+    const listingIds = [...new Set(page.items.map((item) => item.product.id))];
+    const liveOptions = new Map<string, number>();
+    for (const option of await this.availability.findByListingIds(organizationId, listingIds)) {
+      if (isChannelSkuOutOfStock(option)) continue;
+      liveOptions.set(option.product.id, (liveOptions.get(option.product.id) ?? 0) + 1);
+    }
+
     const candidates = page.items.map<MallAvailabilityCandidate>((item) => {
       const manifest = getMallAdapterManifest(item.channelAccount.channel);
       const channel = findChannel(item.channelAccount.channel);
       const base = {
         channelListingOptionId: item.sku.id,
+        channelAccountId: item.channelAccount.id,
         mallKey: item.channelAccount.channel,
         mallName: manifest?.name ?? channel?.name ?? item.channelAccount.channel,
         channelAccountName: item.channelAccount.name,
@@ -260,6 +275,8 @@ export class MallPublishingService {
           ?? item.product.externalProductId,
         optionName: item.sku.optionName ?? item.sku.sellerSku ?? item.sku.externalSkuId,
         sellerSku: item.sku.sellerSku,
+        mallProductCode: item.product.externalProductId,
+        mallOptionCode: item.sku.externalSkuId,
         sellableStock: item.sku.sellableStock,
         bottleneckCodes: item.components
           .filter((component) => component.isBottleneck)
@@ -272,19 +289,26 @@ export class MallPublishingService {
           ...base,
           sendable: false,
           effectiveState: null,
-          // 마켓 판매자 시스템(쿠팡 윙 · 로켓)은 몰 등록 매니페스트를 갖지 않는다. 그건
-          // 빠뜨린 것이 아니라 그 채널의 성질이므로 그렇게 말한다.
           blockedReason: channel
             ? `${channel.name}은(는) 몰 상품등록·품절 송신 대상이 아닙니다.`
             : `${item.channelAccount.channel} 매니페스트가 없습니다.`,
         };
       }
       const resolved = resolveSoldOutCommand(manifest);
-      return resolved.allowed
-        ? { ...base, sendable: true, effectiveState: resolved.downgradedTo, blockedReason: null }
-        : { ...base, sendable: false, effectiveState: null, blockedReason: resolved.reason };
+      if (!resolved.allowed) {
+        return { ...base, sendable: false, effectiveState: null, blockedReason: resolved.reason };
+      }
+      const live = soldOutSendsByOption(manifest.key) ? 0 : liveOptions.get(item.product.id) ?? 0;
+      if (live > 0) {
+        return {
+          ...base,
+          sendable: false,
+          effectiveState: null,
+          blockedReason: `이 상품의 다른 옵션 ${live}개는 품절이 아니라(재고 있음 · 모름) 상품 전체를 멈추지 않습니다.`,
+        };
+      }
+      return { ...base, sendable: true, effectiveState: resolved.downgradedTo, blockedReason: null };
     });
-
     return {
       candidates,
       total: page.total,
@@ -356,6 +380,9 @@ export class MallPublishingService {
           state: resolved.state,
           rawStatus: listing?.status ?? null,
           externalId: listing?.externalId ?? null,
+          productUrl: listing
+            ? mallProductUrl(column.mallKey, listing.externalId, listing.storefrontProductId)
+            : null,
           warning: resolved.warning,
           updatedAt: listing?.updatedAt.toISOString() ?? null,
         } satisfies MallListingMatrixCell;
@@ -364,6 +391,7 @@ export class MallPublishingService {
       return {
         masterProductId: row.masterProductId,
         code: row.code,
+        sellpiaCode: row.sellpiaCode,
         name: row.name,
         imageUrl: row.imageUrl,
         // 카테고리는 마스터에 저장돼 있지 않다. 리스팅이 들고 있는 값을 회수한다.
@@ -501,6 +529,13 @@ export class MallPublishingService {
         listingCount,
         orderCount,
         productCount: account?.productCount ?? 0,
+        onSaleProductCount: account?.onSaleProductCount ?? 0,
+        onSaleListingCount: account?.onSaleListingCount ?? 0,
+        onSaleLinkedListingCount: account?.onSaleLinkedListingCount ?? 0,
+        optionCount: account?.optionCount ?? 0,
+        matchedOptionCount: account?.matchedOptionCount ?? 0,
+        onSaleOptionCount: account?.onSaleOptionCount ?? 0,
+        onSaleMatchedOptionCount: account?.onSaleMatchedOptionCount ?? 0,
         readiness: manifest ? mallReadiness(manifest, mallAccount) : 'unsupported',
       } satisfies MallChannelSummary];
     });

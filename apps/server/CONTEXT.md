@@ -119,9 +119,7 @@ _Avoid_: company, seller
 
 **Channel account**:
 Marketplace or store identity. One row per mall or marketplace seller system;
-every mall-scoped record hangs off that row, except observed mall outcomes,
-which key on the mall's channel key because some — a registration fill among
-them — are recorded for a mall that has no row
+every mall-scoped record hangs off that row
 ([ADR-0012](../../docs/adr/0012-one-channel-account-row-per-mall.md)).
 _Avoid_: shop, store, seller account, mall account
 
@@ -133,13 +131,17 @@ registered, and whether that has been verified. It does not answer how to sign
 in or how to fill a form — that is the extension's spec, keyed the same way.
 _Avoid_: mall registry, mall list
 
+**Selling product**:
+A common marketplace authoring definition with reusable selling options and content, distinct from a source inventory product.
+_Avoid_: master inventory, source SKU
+
+**Registration target**:
+A persistent set of selected options and marketplace-specific values for one selling product and channel account. Multiple separate targets may use the same product and account.
+_Avoid_: one-shot draft, account override
+
 **Registration execution**:
-The submission fence that sends one draft to one channel account at most once;
-owned by Channels. It freezes the reviewed payload and its hash, holds the
-idempotency key and the lease, and records what the provider answered
-([ADR-0014](../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
-Filling a mall form without submitting does not open one.
-_Avoid_: registration run, sourcing execution
+One explicit submission intent and its immutable submitted content and provider result. Repeated delivery of that intent remains the same execution; later edits or submissions do not rewrite its evidence.
+_Avoid_: sourcing execution, form-fill result
 
 **Source owner**:
 The single module that owns one external source's collection attempts,

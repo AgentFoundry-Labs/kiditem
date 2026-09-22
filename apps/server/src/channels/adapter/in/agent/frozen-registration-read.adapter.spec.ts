@@ -71,6 +71,7 @@ describe("FrozenRegistrationReadAdapter", () => {
     expect(executions.loadFrozenSubmission).toHaveBeenCalledWith(
       organizationId,
       preparationId,
+      executionId,
     );
     expect(executions.get).toHaveBeenCalledWith({
       organizationId,

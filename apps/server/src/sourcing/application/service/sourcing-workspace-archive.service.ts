@@ -8,9 +8,9 @@ import {
   type SourcingCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-candidate.repository.port';
 import {
-  PRODUCT_PREPARATION_REPOSITORY_PORT,
-  type ProductPreparationRepositoryPort,
-} from '../port/out/repository/product-preparation.repository.port';
+  CANDIDATE_REGISTRATION_PORT,
+  type CandidateRegistrationPort,
+} from '../../../channels/application/port/in/candidate-registration.port';
 import {
   REGISTRATION_EXECUTION_PORT,
   type RegistrationExecutionPort,
@@ -33,8 +33,8 @@ export class SourcingWorkspaceArchiveService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_AI_WORKSPACE_ARCHIVE_PORT)
     private readonly aiArchive: SourcingAiWorkspaceArchivePort,
-    @Inject(PRODUCT_PREPARATION_REPOSITORY_PORT)
-    private readonly preparations: ProductPreparationRepositoryPort,
+    @Inject(CANDIDATE_REGISTRATION_PORT)
+    private readonly preparations: CandidateRegistrationPort,
     @Inject(REGISTRATION_EXECUTION_PORT)
     private readonly executions: RegistrationExecutionPort,
   ) {}

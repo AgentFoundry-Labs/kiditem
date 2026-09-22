@@ -1,7 +1,7 @@
 import { NotImplementedException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import type { ProductPreparationRepositoryPort } from '../../port/out/repository/product-preparation.repository.port';
-import type { RegistrationContentWorkspacePort } from '../../port/out/cross-domain/registration-content-workspace.port';
+import type { CandidateRegistrationPort } from '../../../../channels/application/port/in/candidate-registration.port';
+import type { RegistrationContentWorkspacePort } from '../../port/in/registration-content-workspace.port';
 import { ProductPreparationService } from '../product-preparation.service';
 
 const ORG_ID = 'org-1';
@@ -19,7 +19,7 @@ const DRAFT_INPUT = {
 };
 
 function setup(overrides: {
-  repository?: Partial<ProductPreparationRepositoryPort>;
+  repository?: Partial<CandidateRegistrationPort>;
   content?: Partial<RegistrationContentWorkspacePort>;
 } = {}) {
   const repository = {
@@ -46,7 +46,7 @@ function setup(overrides: {
     replaceDraftInput: vi.fn().mockResolvedValue({ preparationId: PREPARATION_ID, status: 'draft' }),
     assertCandidateTerminalTransitionAllowed: vi.fn().mockResolvedValue(undefined),
     ...overrides.repository,
-  } as ProductPreparationRepositoryPort;
+  } as CandidateRegistrationPort;
   const content = {
     resolveSourceSelections: vi.fn().mockImplementation(async (_tx, input) => ({
       selectedThumbnailUrl: input.selectedThumbnailUrl,

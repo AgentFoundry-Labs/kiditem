@@ -171,6 +171,25 @@ function makeXlsUploadFileFromRows(rows: string[][], originalname: string): Mult
 }
 
 describe('OrderCollectionService', () => {
+  // A day with nothing to convert must reach the collector as NO_NEW_ORDERS,
+  // not as an uncoded 400 the extension records as CONVERSION_FAILED — which is
+  // how an empty 꼬망세 day showed up as a failed mall (2026-09-18).
+  it('codes an empty conversion as NO_NEW_ORDERS, keeping its message', () => {
+    const service = new OrderCollectionService();
+    let thrown: unknown;
+    try {
+      service.convertKidsnoteOrders({ orders: [] } as never);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(BadRequestException);
+    expect((thrown as BadRequestException).getResponse()).toEqual({
+      code: 'NO_NEW_ORDERS',
+      message: '변환할 키즈노트 주문이 없습니다.',
+    });
+    expect((thrown as BadRequestException).message).toBe('변환할 키즈노트 주문이 없습니다.');
+  });
+
   it('converts every product order row into deliveryMgmt1 rows with shipping-fee rows', async () => {
     const service = new OrderCollectionService();
     const result = await service.convertIcecreamMallOrderFile(makeUploadFile([

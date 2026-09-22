@@ -53,6 +53,9 @@ export function buildMockDashboardSalesRepo(): MockDashboardSalesRepo {
   return {
     fetchTodayKpis: vi.fn(),
     fetchTopProducts: vi.fn(),
+    // Most summaries rank orders; a case that exercises the Sellpia month
+    // ranking resolves its own read.
+    fetchSellpiaTopProducts: vi.fn().mockResolvedValue(null),
   };
 }
 

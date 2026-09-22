@@ -1,7 +1,5 @@
-import {
-  fillMallRegistrationForm,
-  prepareMallRegistration,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { prepareRegistration } from '../sales-product-registration';
+import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   GSSHOP_BRAND,
   GSSHOP_DEFAULT_CATEGORY,
@@ -14,7 +12,7 @@ import {
   parseGsshopSection,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/gsshop-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -195,7 +193,7 @@ export const gsShopAdapter: MallPublishAdapter = {
         error: codeProblem ?? 'GS샵 분류·전시 카테고리 형식이 틀렸습니다.',
       };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'gs-shop');
     const certNumber = values.certNumber?.trim();
     const supplierProductCode = values.gsshopSupplierCode?.trim();
     const form = gsshopFormFromDraft(draft, {
@@ -205,14 +203,7 @@ export const gsShopAdapter: MallPublishAdapter = {
       ...(supplierProductCode ? { supplierProductCode } : {}),
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('gs-shop', draft, form);
-    return {
-      ok: result.ok,
-      // 폼을 채운 것은 등록이 아니다. [전체저장] 은 사람이 누르고, 그 뒤 GS MD 승인이 남는다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    const result = await fillMallRegistrationForm('gs-shop', draft, form, mallFormExecutionOptions(item));
+    return registrationOutcome(result);
   },
 };

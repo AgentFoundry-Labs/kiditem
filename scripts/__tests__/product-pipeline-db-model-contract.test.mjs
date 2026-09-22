@@ -28,12 +28,13 @@ describe('product pipeline DB model contract', () => {
     assert.doesNotMatch(aiSchema, /registrationWorkspaceId\s+String\?\s+@map\("registration_workspace_id"\)/);
   });
 
-  it('defines ProductPreparation as a channel-scoped content and approval record', () => {
-    const aiSchema = readModelFile('prisma/models/ai.prisma');
-    const model = extractModel(aiSchema, 'ProductPreparation');
+  it('defines ProductPreparation as a reusable Channels selling-product target', () => {
+    const channelsSchema = readModelFile('prisma/models/channels.prisma');
+    const model = extractModel(channelsSchema, 'ProductPreparation');
 
     for (const field of [
       'sourceCandidateId',
+      'salesProductId',
       'channelAccountId',
       'sourceContentWorkspaceId',
       'displayName',
@@ -51,19 +52,19 @@ describe('product pipeline DB model contract', () => {
       /\bmasterId\b|\bcontentWorkspaceId\b|isCurrentForMaster|appliedToMasterAt|submissionKey|providerSubmissionId|lastError|registrationResult|submissionPayloadJson/,
     );
     assert.doesNotMatch(model, /^\s*(?:status|channelListingId)\s+/m);
-    assert.doesNotMatch(model, /ProductRegistrationExecution|registrationExecution|executionId/);
-    assert.match(
-      model,
-      /@@unique\(\[organizationId,\s*sourceCandidateId,\s*channelAccountId\].*where: raw\("closed_at IS NULL AND is_deleted = false"\)\)/,
-    );
+    assert.match(model, /salesProductId\s+String\s+@map/);
+    assert.match(model, /sourceCandidateId\s+String\?/);
+    assert.match(model, /executions\s+ProductRegistrationExecution\[\]/);
+    assert.doesNotMatch(model, /@@unique\(\[organizationId,\s*(?:sourceCandidateId|salesProductId),\s*channelAccountId\]/);
   });
 
   it('indexes all final ProductPreparation foreign keys', () => {
-    const aiSchema = readModelFile('prisma/models/ai.prisma');
-    const model = extractModel(aiSchema, 'ProductPreparation');
+    const channelsSchema = readModelFile('prisma/models/channels.prisma');
+    const model = extractModel(channelsSchema, 'ProductPreparation');
 
     for (const index of [
       '@@index([organizationId, closedAt, isDeleted])',
+      '@@index([salesProductId, organizationId])',
       '@@index([sourceCandidateId])',
       '@@index([channelAccountId])',
       '@@index([sourceContentWorkspaceId])',

@@ -20,6 +20,9 @@ import type {
 } from '../application/port/out/persistence/master-product-abc.repository.port';
 
 const CUTOFF = latestClosedKstDate();
+type FixtureSourceFences = Omit<ProductAbcPublicationInput['sourceFences'], 'advertising'> & {
+  advertising: NonNullable<ProductAbcPublicationInput['sourceFences']['advertising']>;
+};
 
 describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -521,7 +524,7 @@ async function fixture(prisma: PrismaClient): Promise<{
   skuCode: string;
   listingId: string;
   formulaVersionId: string;
-  sources: ProductAbcPublicationInput['sourceFences'];
+  sources: FixtureSourceFences;
 }> {
   const formulaVersion = await prisma.masterProductAbcFormulaVersion.create({
     data: {
@@ -584,7 +587,7 @@ function publication(overrides: Partial<ProductAbcPublicationInput>): ProductAbc
 
 function candidate(
   productId: string,
-  sources: ProductAbcPublicationInput['sourceFences'],
+  sources: FixtureSourceFences,
   abcGrade: 'A' | 'B' | 'C',
 ) {
   return {

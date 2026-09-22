@@ -4,16 +4,8 @@ import type {
   MallPreflightRule,
   MallPublishTarget,
 } from '@kiditem/shared/mall-publishing';
+import { channelLogoPath } from '@kiditem/shared/channel-registry';
 
-/**
- * 몰 카드의 준비 상태 한 줄.
- *
- * 라벨은 몰이 지금 어떤가를 말한다. 우리 화면이 아직 없다는 사정은 사장님이 읽을 말이 아니다.
- *
- * `needs_profile` 은 막는 것이 아니다 — 등록 기본값(`config.listingProfile`)이 없을 뿐이고
- * 송신 전 점검도 이것으로는 막지 않는다. 저장하는 화면은 KID-235 가 만든다. 그래서 할 일을
- * 부르는 호박색이 아니라 '보낼 수 있다'와 같은 색으로 둔다.
- */
 export const MALL_READINESS_LABEL: Record<MallPublishTarget['readiness'], string> = {
   ready: '송신 준비됨',
   needs_profile: '등록 기본값 없음 — 송신에는 영향 없음',
@@ -139,9 +131,9 @@ export function mallHazardBadges(manifest: MallAdapterManifestView): MallHazardB
 /**
  * 매트릭스 칸 하나의 표시.
  *
- * 색은 사람이 무엇을 해야 하는지로 정한다 — 초록은 손댈 것 없음, 빨강은 지금
- * 고쳐야 함, 호박색은 확인이 필요함, 회색은 아직 시작하지 않음. 상태 이름이
- * 아니라 대응이 기준이다.
+ * 색은 사람이 무엇을 해야 하는지로 정한다 — 초록은 손댈 것 없음, 빨강은 못 파는 것(품절 · 판매중지)과
+ * 고쳐야 할 오류, 주황은 확인이 필요함, 하늘은 승인 · 판매 시작을 기다림, 회색은 끝났거나 아직 시작하지
+ * 않음. 가져온 원문이 아는 말이면 이 표 대신 `listingStatePill` 이 그 말로 적는다.
  */
 export interface MallListingStatePresentation {
   label: string;
@@ -159,53 +151,123 @@ export const MALL_LISTING_STATE_PRESENTATION: Record<
 > = {
   published: {
     label: '등록',
-    tone: 'bg-green-50 text-green-700',
+    // 쇼핑몰 현황의 ON 스위치처럼 꽉 찬 초록(사장님 2026-09-19 "색상 좀 진하게 쇼핑몰 현황처럼").
+    tone: 'bg-emerald-600 text-white',
     dot: 'bg-green-600',
     attention: false,
   },
   reviewing: {
     label: '검수중',
-    tone: 'bg-amber-50 text-amber-700',
-    dot: 'bg-amber-500',
+    tone: 'bg-sky-600 text-white',
+    dot: 'bg-sky-500',
     attention: false,
   },
   preparing: {
     label: '준비중',
-    tone: 'bg-slate-100 text-slate-600',
+    tone: 'bg-slate-500 text-white',
     dot: 'bg-slate-400',
     attention: false,
   },
   error: {
     label: '오류',
-    tone: 'bg-red-50 text-red-700',
+    tone: 'bg-red-600 text-white',
     dot: 'bg-red-600',
     attention: true,
   },
   paused: {
     label: '판매중지',
-    tone: 'bg-slate-100 text-slate-600',
-    dot: 'bg-slate-400',
+    tone: 'bg-rose-600 text-white',
+    dot: 'bg-rose-500',
     attention: false,
   },
   discontinued: {
     label: '단종',
-    tone: 'bg-slate-100 text-slate-500',
+    tone: 'bg-slate-400 text-white',
     dot: 'bg-slate-300',
     attention: false,
   },
   unknown: {
     label: '확인필요',
-    tone: 'bg-orange-50 text-orange-700',
+    tone: 'bg-orange-500 text-white',
     dot: 'bg-orange-500',
     attention: true,
   },
   unregistered: {
     label: '미등록',
-    tone: 'bg-slate-50 text-slate-400',
+    // 없는 것은 비워 둔 칸처럼 옅게 — 꽉 찬 칸 사이에서 '아직 안 올린 곳'이 한눈에 비어 보이게.
+    tone: 'bg-slate-100 text-slate-400',
     dot: 'bg-slate-200',
     attention: false,
   },
 };
+
+/**
+ * 칸이 "지금 못 사는" 까닭의 갈래. 사방넷 · 몰 관리자에서 가져온 상태와 확장이 몰에서 지금 읽은 상태가 같은 말 · 같은 색을
+ * 쓴다 — 같은 판매중지가 여기선 빨강, 저기선 회색이면 안 되고, 옥션이 막은 판매불가를 품절로 적어서도 안 된다(사장님
+ * 2026-09-19 "품절이 아니라 미승인이나 판매불가로 해줘야지" · "색상 같은데?").
+ */
+export type MallStopKind = 'sold_out' | 'partial' | 'blocked' | 'pending' | 'ended';
+
+export const MALL_STOP_TONE: Record<MallStopKind, string> = {
+  // 품절 처리가 만드는 것(품절 · 판매중지)은 빨강이다(사장님 2026-09-18 "품절은 빨간색으로"). 칸은 쇼핑몰 현황 스위치처럼
+  // 꽉 찬 색에 흰 글씨다(사장님 2026-09-19 "색상 좀 진하게").
+  sold_out: 'bg-rose-600 text-white',
+  partial: 'bg-amber-500 text-white',
+  // 몰이 막은 것 — 판매 재개로 풀리지 않고 몰에서 까닭을 봐야 한다.
+  blocked: 'bg-orange-600 text-white',
+  pending: 'bg-sky-600 text-white',
+  ended: 'bg-slate-500 text-white',
+};
+
+export interface MallStopBadge {
+  kind: MallStopKind;
+  /** 칸 알약의 말. 승인 전 상태는 사장님 말로 '미승인', 사방넷 일시중지는 몰이 받는 말 그대로 '판매중지'. */
+  label: string;
+}
+
+const STOP_WORDS: Readonly<Record<string, MallStopBadge>> = {
+  품절: { kind: 'sold_out', label: '품절' },
+  SKU품절: { kind: 'sold_out', label: 'SKU품절' },
+  완전품절: { kind: 'sold_out', label: '완전품절' },
+  판매중지: { kind: 'sold_out', label: '판매중지' },
+  일시중지: { kind: 'sold_out', label: '판매중지' },
+  비활성: { kind: 'sold_out', label: '판매중지' },
+  판매불가: { kind: 'blocked', label: '판매불가' },
+  판매금지: { kind: 'blocked', label: '판매금지' },
+  보류: { kind: 'blocked', label: '보류' },
+  반려: { kind: 'blocked', label: '반려' },
+  승인반려: { kind: 'blocked', label: '승인반려' },
+  승인거부: { kind: 'blocked', label: '승인거부' },
+  등록대기: { kind: 'pending', label: '미승인' },
+  승인대기: { kind: 'pending', label: '미승인' },
+  대기중: { kind: 'pending', label: '미승인' },
+  판매대기: { kind: 'pending', label: '판매대기' },
+  전시전: { kind: 'pending', label: '전시전' },
+  판매종료: { kind: 'ended', label: '판매종료' },
+  단종: { kind: 'ended', label: '단종' },
+  숨김: { kind: 'ended', label: '숨김' },
+  미노출: { kind: 'ended', label: '미노출' },
+};
+
+/** 몰 · 사방넷이 준 상태 글자 하나의 갈래. 아는 말이 아니면 null(`사방넷 ` 머리는 떼고 본다). */
+export function mallStopBadge(word: string | null | undefined): MallStopBadge | null {
+  const key = String(word ?? '').replace(/^사방넷\s+/, '').trim();
+  return Object.prototype.hasOwnProperty.call(STOP_WORDS, key) ? STOP_WORDS[key] : null;
+}
+
+/**
+ * 가져온 상태의 칸 알약. 판매중 · 미등록이 아닌데 원문이 아는 말이면 그 말과 그 갈래 색으로(몰 관리자 품절이 '판매중지',
+ * 판매종료가 '단종' 으로 접히지 않게), 아니면 우리 어휘 표로 적는다.
+ */
+export function listingStatePill(
+  state: MallListingState,
+  rawStatus: string | null | undefined,
+): { label: string; tone: string; kind: MallStopKind | null } {
+  const stop = state === 'published' || state === 'unregistered' ? null : mallStopBadge(rawStatus);
+  if (stop) return { label: stop.label, tone: MALL_STOP_TONE[stop.kind], kind: stop.kind };
+  const presentation = MALL_LISTING_STATE_PRESENTATION[state];
+  return { label: presentation.label, tone: presentation.tone, kind: null };
+}
 
 /**
  * 몰 표시색.
@@ -257,4 +319,25 @@ export function productMonogram(productName: string): string {
   const source = withoutPriceCode || trimmed;
   const first = source[0] ?? '?';
   return /[A-Za-z]/.test(first) ? source.slice(0, 2).toUpperCase() : first;
+}
+
+/**
+ * 몰 로고.
+ *
+ * 각 몰의 공식 파비콘을 `apps/web/public/mall-logos/` 에 받아 두고 쓴다. 외부에서
+ * 실시간으로 불러오면 몰이 경로를 바꾸는 날 표가 통째로 깨지고, 우리 화면이 남의
+ * 서버 상태에 묶인다.
+ *
+ * 파일이 없는 몰은 null 이고 화면이 머리글자 타일로 대신한다. 지금 없는 곳은
+ * 원폴라리스뿐이다 — 사이트(`officeone.co.kr`)가 접속되지 않는다. 아무 아이콘이나
+ * 붙이지 않고 비워 둔다.
+ *
+ * `/favicon.ico` 를 안 내주는 몰은 **그 페이지가 선언한 아이콘**을 받았다(2026-09-11).
+ * 지마켓·옥션은 봇을 막아 브라우저로 받았고, 키즈노트는 쇼핑(`shop.kidsnote.com`)에
+ * 아이콘이 없어 본사이트(`kidsnote.com`) 것을, 해법몰은 운영 사이트인 지니마켓
+ * (`genimarket.co.kr`) 것을 쓴다. 올웨이즈 판매자센터 파비콘은 React 기본 아이콘이라
+ * 공식 사이트(`alwayz.co`) 로고로 바꿨다.
+ */
+export function mallLogoPath(mallKey: string): string | null {
+  return channelLogoPath(mallKey);
 }

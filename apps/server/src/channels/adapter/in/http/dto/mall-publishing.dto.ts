@@ -54,7 +54,8 @@ export class MallAvailabilityPreviewQueryDto {
   @IsOptional()
   @IsInt()
   @IsPositive()
-  @Max(100)
+  // Availability actions need every option for a listing, while the matrix itself remains paged.
+  @Max(3_000)
   limit = 50;
 }
 

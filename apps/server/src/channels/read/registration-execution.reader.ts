@@ -1,6 +1,6 @@
 import { findChannel } from '@kiditem/shared/channel-registry';
-import type { Prisma } from '@prisma/client';
 import { LIVE_REGISTRATION_EXECUTION_STATUSES } from '../domain/registration-execution-state';
+import type { Prisma } from '@prisma/client';
 
 /**
  * `ProductRegistrationExecution` 원장의 등록 리더(ADR-0009).
@@ -47,6 +47,116 @@ export const REGISTRATION_EXECUTION_FACT_SELECT = {
   createdAt: true,
 } satisfies Prisma.ProductRegistrationExecutionSelect;
 
+/** The only execution column needed when a caller checks option identity use. */
+export const REGISTRATION_EXECUTION_OPTION_SNAPSHOT_SELECT = {
+  submissionPayloadJson: true,
+} satisfies Prisma.ProductRegistrationExecutionSelect;
+
+export type RegistrationExecutionOptionSnapshotRow = Readonly<{
+  submissionPayloadJson: unknown;
+}>;
+
+/**
+ * Count option identities retained by immutable target execution snapshots.
+ *
+ * A target snapshot carries the selected options under `product.options` and
+ * repeats their identities under `supplyPrices`. Count an option once per
+ * execution, even when both fields contain it. Older external-registration
+ * payloads do not have a product snapshot and therefore contribute no option
+ * reference.
+ */
+export function countFrozenSalesProductOptionReferences(
+  rows: readonly RegistrationExecutionOptionSnapshotRow[],
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const optionIds = frozenSalesProductOptionIds(row.submissionPayloadJson);
+    for (const optionId of optionIds) {
+      counts.set(optionId, (counts.get(optionId) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+/**
+ * Read execution references for one selling product through the registered
+ * Channels ledger reader. The caller owns the transaction and any product
+ * lock; this function only reads the frozen JSON and never mutates the ledger.
+ */
+export async function readSalesProductOptionExecutionCounts(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; salesProductId: string },
+): Promise<ReadonlyMap<string, number>> {
+  const rows = await tx.productRegistrationExecution.findMany({
+    where: {
+      organizationId: input.organizationId,
+      preparation: { salesProductId: input.salesProductId },
+    },
+    select: REGISTRATION_EXECUTION_OPTION_SNAPSHOT_SELECT,
+  });
+  return countFrozenSalesProductOptionReferences(rows);
+}
+
+/** A started composition change makes only its selected external options uncertain. */
+export async function readUnresolvedCompositionOptionIds(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; channelListingIds: readonly string[] },
+): Promise<ReadonlySet<string>> {
+  if (input.channelListingIds.length === 0) return new Set();
+  const rows = await tx.productRegistrationExecution.findMany({
+    where: {
+      organizationId: input.organizationId,
+      channelListingId: { in: [...input.channelListingIds] },
+      executionKind: 'composition_change',
+      status: { in: ['executing', 'reconciling'] },
+      providerOutcome: 'uncertain',
+    },
+    select: REGISTRATION_EXECUTION_OPTION_SNAPSHOT_SELECT,
+  });
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const transitions = record(row.submissionPayloadJson)?.optionTransitions;
+    if (!Array.isArray(transitions) || transitions.length === 0) {
+      throw new Error('Unresolved composition execution is missing its frozen option transitions.');
+    }
+    for (const transition of transitions) {
+      const id = record(transition)?.channelListingOptionId;
+      if (typeof id !== 'string' || !id) throw new Error('Invalid frozen composition option identity.');
+      ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function frozenSalesProductOptionIds(value: unknown): readonly string[] {
+  const payload = record(value);
+  if (!payload) return [];
+  const product = record(payload.product);
+  const ids = [
+    ...(Array.isArray(product?.options)
+      ? product.options.flatMap((option) => {
+        const optionRecord = record(option);
+        return typeof optionRecord?.id === 'string' ? [optionRecord.id] : [];
+      })
+      : []),
+    ...(Array.isArray(payload.supplyPrices)
+      ? payload.supplyPrices.flatMap((price) => {
+        const priceRecord = record(price);
+        return typeof priceRecord?.salesProductOptionId === 'string'
+          ? [priceRecord.salesProductOptionId]
+          : [];
+      })
+      : []),
+  ];
+  return [...new Set(ids)];
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
 /**
  * 초안 id 로 실행을 읽는다. 초안은 다른 owner 의 행이라 관계 join 이 없다
  * (ADR-0013) — 호출자가 자기 초안 id 를 넘긴다.
@@ -64,7 +174,7 @@ export async function readRegistrationExecutionFacts(
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: REGISTRATION_EXECUTION_FACT_SELECT,
   });
-  return rows.map((row) => ({
+  return rows.flatMap((row) => row.productPreparationId === null ? [] : [{
     executionId: row.id,
     productPreparationId: row.productPreparationId,
     channelAccountId: row.channelAccountId,
@@ -76,7 +186,7 @@ export async function readRegistrationExecutionFacts(
     externalListingId: row.externalListingId,
     hasResult: row.resultJson !== null,
     createdAt: row.createdAt,
-  }));
+  }]);
 }
 
 /**

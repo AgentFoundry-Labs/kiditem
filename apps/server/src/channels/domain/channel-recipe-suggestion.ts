@@ -42,6 +42,8 @@ type CodeEvidence = {
   kind: 'seller_sku_code' | 'model_number_code';
   channelValue: string;
   nameCompatibilityScore?: number | null;
+  /** 셀피아 상품 이름이 몰 제목 안에 그대로 들어 있다 — 이름 점수가 낮아도 이름이 맞는 것으로 본다. */
+  skuNameInTitle?: boolean;
   sku: ChannelRecipeSuggestionSku;
 };
 
@@ -258,10 +260,14 @@ export function classifyChannelRecipeSuggestion(
       return decision(base, strongEvidence, 'identifier_name_mismatch', 'operator_review', null,
         'The exact identifier points to a Sellpia SKU with an incompatible product name');
     }
+    // 몰 상품코드 칸에 셀피아 코드가 그대로 적혀 있으면(사방넷 모델명 · 몰 자체코드) 셀피아는 주문 하나에 그 코드 하나를
+    // 뺀다. 제목에 묶음 수가 없거나 서로 어긋나도 1개로 잇는다(사장님 2026-09-19 "코드가 맞으면 1개로 잇는다").
+    const sellerCodeUnit = strongEvidence.some((item) => item.evidence.kind === 'seller_sku_code') ? 1 : null;
     const quantity = manualMatchQuantity
       ?? inferRecipeQuantity(
         input.options.flatMap((option) => [option.listingName, option.itemName]),
-      );
+      )
+      ?? sellerCodeUnit;
     if (quantity === null) {
       return decision(base, strongEvidence, 'quantity_review', 'quantity_review', null,
         'The channel pack cannot be converted to a verified Sellpia unit quantity');
@@ -431,7 +437,7 @@ function titleQuantityCounts(value: string): number[] {
 function identifierNameMismatch(input: ChannelRecipeSuggestionInput): boolean {
   if (input.nameOptionEvidence.length > 0) return false;
   const scores = [
-    ...input.codeEvidence.map((item) => item.nameCompatibilityScore),
+    ...input.codeEvidence.map((item) => (item.skuNameInTitle ? 1 : item.nameCompatibilityScore)),
     ...input.barcodeEvidence
       .filter((item) => isBarcodeEvidenceNameCompatible(item.nameCompatibilityScore))
       .map((item) => item.nameCompatibilityScore),
@@ -484,9 +490,8 @@ function decideSimilarity(
     return similarityDecision(base, evidence, 'name_review_only', 'operator_review', null,
       'Name candidates are close or below the automatic confidence threshold');
   }
-  const quantity = inferRecipeQuantity(
-    input.options.flatMap((option) => [option.listingName, option.itemName]),
-  );
+  const names = input.options.flatMap((option) => [option.listingName, option.itemName]);
+  const quantity = inferRecipeQuantity(names) ?? singleUnitForExactName(best, names);
   if (quantity === null) {
     return similarityDecision(base, evidence, 'quantity_review', 'quantity_review', null,
       'The matched name has an unverified channel-to-Sellpia pack ratio');
@@ -594,6 +599,24 @@ function extractComparableAttributes(values: Array<string | null>): {
   const measure = new Set([...normalized.matchAll(MEASURE_ATTRIBUTE)]
     .map((match) => `${match[1]}${match[2]}`));
   return { color, measure };
+}
+
+/**
+ * 채널 이름이 그 셀피아 상품 이름과 **글자까지 같고** 어디에도 묶음 표기가 없으면 낱개 하나다.
+ *
+ * 몰은 묶음을 팔 때 제목에 그 수를 적는다(`1p` · `[12개]` · `(12개입)`). 그 표기가 하나도
+ * 없는데 이름이 상품 이름과 정확히 일치하면, 그 리스팅은 그 상품 하나다 — 키드키즈의
+ * 송장용 상품명이 대표적이다(사장님 2026-09-17: "송장명이 맞는거 같은데").
+ *
+ * 수가 적혀 있는데 서로 어긋날 때(`2개입`과 `5개`가 같이 있는 경우)는 여기서 1로 접지
+ * 않는다 — 그건 모르는 것이지 낱개라는 뜻이 아니다. 이름이 정확히 같지 않은 후보
+ * (포함 · 유사)도 제외한다.
+ */
+function singleUnitForExactName(
+  best: SimilarityEvidence,
+  names: Array<string | null>,
+): number | null {
+  return best.kind === 'normalized_name' && packCounts(names).length === 0 ? 1 : null;
 }
 
 function bestSimilarityPerSku(evidence: SimilarityEvidence[]): SimilarityEvidence[] {

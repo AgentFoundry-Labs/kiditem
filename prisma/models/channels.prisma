@@ -822,11 +822,11 @@ model ChannelListingDeletionOperation {
 // 브라우저 몰 작업 기록 하나뿐이다.
 
 /// @namespace Channels
-/// @describe 채널 계정 하나에 초안 하나를 최대 한 번만 제출하는 등록 실행 울타리. 동결 payload·SHA-256·idempotency key·lease·provider 결과를 보존한다.
+/// @describe One frozen registration intent. A reusable target has many executions; one active execution per target and idempotent requests prevent duplicate submissions (ADR-0020).
 model ProductRegistrationExecution {
   id                   String  @id @default(uuid()) @db.Uuid
   organizationId       String  @map("organization_id") @db.Uuid
-  productPreparationId String  @map("product_preparation_id") @db.Uuid
+  productPreparationId String? @map("product_preparation_id") @db.Uuid
   channelAccountId     String  @map("channel_account_id") @db.Uuid
   channelListingId     String? @map("channel_listing_id") @db.Uuid
 
@@ -856,13 +856,14 @@ model ProductRegistrationExecution {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization    @relation("ProductRegistrationExecutionOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount  ChannelAccount  @relation("ChannelAccountProductRegistrationExecutions", fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  channelListing  ChannelListing? @relation("ChannelListingProductRegistrationExecutions", fields: [channelListingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
-  requestedByUser User?           @relation("ProductRegistrationExecutionRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  organization    Organization        @relation("ProductRegistrationExecutionOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount      @relation("ChannelAccountProductRegistrationExecutions", fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelListing  ChannelListing?     @relation("ChannelListingProductRegistrationExecutions", fields: [channelListingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
+  requestedByUser User?               @relation("ProductRegistrationExecutionRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  preparation     ProductPreparation? @relation(fields: [productPreparationId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
 
   @@unique([organizationId, idempotencyKey], map: "product_registration_executions_org_idempotency_key")
-  @@unique([organizationId, productPreparationId], map: "product_registration_executions_org_preparation_key")
+  @@unique([organizationId, productPreparationId], map: "product_registration_executions_target_pending_key", where: raw("status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
   @@unique([organizationId, channelListingId], map: "product_registration_executions_active_listing_key", where: raw("channel_listing_id IS NOT NULL AND status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
   @@unique([organizationId, channelAccountId, externalListingId], map: "product_registration_executions_active_external_listing_key", where: raw("external_listing_id IS NOT NULL AND status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
   @@index([productPreparationId])
@@ -871,4 +872,233 @@ model ProductRegistrationExecution {
   @@index([requestedByUserId])
   @@index([organizationId, status, createdAt])
   @@map("product_registration_executions")
+}
+
+/// @namespace Channels
+/// @describe Channels-owned common selling product identified by its KID. Reusable registration targets select its options and override its defaults; inventory and ABC remain Products-owned (ADR-0020).
+model SalesProduct {
+  id                  String   @id @default(uuid()) @db.Uuid
+  organizationId      String   @map("organization_id") @db.Uuid
+  /// 판매상품코드. 사방넷에서 옮긴 상품은 사방넷 품번코드다.
+  code                String   @db.VarChar(60)
+  /// 자체상품코드(사방넷에서 중복 불가). 비어 있을 수 있다.
+  ownCode             String?  @map("own_code") @db.VarChar(100)
+  sabangnetGoodsNo    String?  @map("sabangnet_goods_no") @db.VarChar(30)
+  name                String   @db.VarChar(255)
+  shortName           String?  @map("short_name") @db.VarChar(255)
+  englishName         String?  @map("english_name") @db.VarChar(255)
+  printName           String?  @map("print_name") @db.VarChar(255)
+  modelName           String?  @map("model_name") @db.VarChar(60)
+  modelNo             String?  @map("model_no") @db.VarChar(60)
+  brand               String?  @db.VarChar(50)
+  manufacturer        String?  @db.VarChar(50)
+  originCountry       String?  @map("origin_country") @db.VarChar(50)
+  originRegion        String?  @map("origin_region") @db.VarChar(50)
+  keywords            String[] @default([])
+  standardCategory    String?  @map("standard_category") @db.VarChar(40)
+  /// draft | active | paused | sold_out | unused | archived
+  status              String   @default("active")
+  /// taxable | tax_free | zero_rated | unknown
+  taxType             String   @default("taxable") @map("tax_type")
+  /// free | collect | prepay | collect_or_prepay
+  deliveryFeeType     String?  @map("delivery_fee_type")
+  deliveryFee         Int?     @map("delivery_fee")
+  /// 옵션 단 제목(최대 3). 비어 있으면 옵션 없는 단일 상품이다.
+  optionAxes          String[] @default([]) @map("option_axes")
+  stockManaged        Boolean  @default(false) @map("stock_managed")
+  optionsLocked       Boolean  @default(false) @map("options_locked")
+  /// [0] 대표, 그다음 추가 사진 순서.
+  imageUrls           String[] @default([]) @map("image_urls")
+  detailHtml          String?  @map("detail_html")
+  extraDetailHtml     String[] @default([]) @map("extra_detail_html")
+  /// 사방넷 속성분류코드(상품정보고시)와 그 순서대로의 값.
+  noticeCategory      String?  @map("notice_category") @db.VarChar(10)
+  noticeValues        String[] @default([]) @map("notice_values")
+  /// 인증 문서 목록(번호 · 기관 · 분야 · 유효기간 · 발급일 · 인증일 · 이미지).
+  certifications      Json?
+  importDeclarationNo String?  @map("import_declaration_no") @db.VarChar(60)
+  adminMemo           String?  @map("admin_memo")
+  /// 가져온 원문 한 줄(사방넷 엑셀 칸 그대로). 화면은 읽지 않는다.
+  sourceRaw           Json?    @map("source_raw")
+  /// 수집상품에서 만든 판매상품이면 그 수집상품 id(Sourcing 소유, 외래키 없이 id 만). 같은 수집상품은 판매상품 하나다.
+  sourceCandidateId   String?  @map("source_candidate_id") @db.Uuid
+  version             Int      @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  options             SalesProductOption[]
+  registrationTargets ProductPreparation[]
+  channelListings     ChannelListing[]     @relation("ChannelListingSalesProduct")
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, ownCode], map: "sales_products_org_own_code_key", where: raw("own_code IS NOT NULL"))
+  @@unique([organizationId, sabangnetGoodsNo], map: "sales_products_org_sabangnet_goods_key", where: raw("sabangnet_goods_no IS NOT NULL"))
+  @@unique([organizationId, sourceCandidateId], map: "sales_products_org_source_candidate_key", where: raw("source_candidate_id IS NOT NULL"))
+  @@unique([id, organizationId], map: "sales_products_id_org_key")
+  @@index([organizationId, status])
+  @@index([organizationId, updatedAt, id])
+  @@map("sales_products")
+}
+
+/// @namespace Channels
+/// @describe Selling composition with a stable UUID, issued KID and final option price. Its template is not operational inventory; confirmed channel recipes own that composition (ADR-0020).
+model SalesProductOption {
+  id                  String   @id @default(uuid()) @db.Uuid
+  organizationId      String   @map("organization_id") @db.Uuid
+  salesProductId      String   @map("sales_product_id") @db.Uuid
+  /// Issued KID code. External bootstrap identity is stored separately below.
+  optionCode          String   @map("option_code") @db.VarChar(80)
+  sabangnetOptionCode String?  @map("sabangnet_option_code") @db.VarChar(80)
+  /// SalesProduct.optionAxes 순서대로의 값.
+  values              String[] @default([])
+  /// values 를 ':' 로 이은 값. 옵션 없는 상품은 ''.
+  optionKey           String   @map("option_key") @db.VarChar(500)
+  alias               String?  @db.VarChar(100)
+  barcode             String?  @db.VarChar(60)
+  salePrice           Int      @map("sale_price")
+  normalPrice         Int?     @map("normal_price")
+  /// selling | sold_out | unused
+  supplyStatus        String   @default("selling") @map("supply_status")
+  safetyStock         Int?     @map("safety_stock")
+  sortOrder           Int      @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization           Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  salesProduct           SalesProduct                  @relation(fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  components             SalesProductOptionComponent[]
+  channelListingOptions  ChannelListingOption[]        @relation("ChannelListingOptionSalesProductOption")
+  registrationSelections ProductPreparationOption[]
+
+  @@unique([salesProductId, optionKey], map: "sales_product_options_active_key", where: raw("supply_status <> 'unused'"))
+  @@unique([id, organizationId], map: "sales_product_options_id_org_key")
+  @@index([organizationId, optionCode])
+  @@index([salesProductId, organizationId])
+  @@index([organizationId, barcode])
+  @@map("sales_product_options")
+}
+
+/// @namespace Channels
+/// @describe Declared source composition for a selling option. Applied to an empty channel recipe only by an explicit request; never a capacity source (ADR-0020).
+model SalesProductOptionComponent {
+  id                   String   @id @default(uuid()) @db.Uuid
+  organizationId       String   @map("organization_id") @db.Uuid
+  salesProductOptionId String   @map("sales_product_option_id") @db.Uuid
+  masterProductId      String   @map("master_product_id") @db.Uuid
+  quantity             Int
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  salesProductOption SalesProductOption @relation(fields: [salesProductOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([salesProductOptionId, masterProductId])
+  @@index([organizationId, salesProductOptionId], map: "sales_product_option_components_org_option_idx")
+  @@index([organizationId, masterProductId], map: "sales_product_option_components_org_master_product_idx")
+  @@map("sales_product_option_components")
+}
+
+/// @namespace Channels
+/// @describe Public copy of a sales-product image or detail image that malls can download (우리 저장소는 사무실 밖에서 열리지 않는다). Keyed by our storage URL; the sales product keeps its own URL and mall bulk sheets use the copy (ADR-0014).
+model SalesProductPublicImage {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  /// 우리 저장소 주소(판매상품 사진 · 상세설명 속 사진).
+  sourceUrl      String   @map("source_url")
+  /// 몰이 가져갈 수 있는 공개 주소.
+  publicUrl      String   @map("public_url")
+  /// 올린 곳(`kidsnote` = 키즈노트 첨부 저장소).
+  host           String   @db.VarChar(40)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sourceUrl])
+  @@map("sales_product_public_images")
+}
+
+/// @namespace Channels
+/// @describe Persistent registration target with explicit marketplace overrides. Executions freeze submitted values separately (ADR-0020).
+model ProductPreparation {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  salesProductId String @map("sales_product_id") @db.Uuid
+  version        Int    @default(1)
+
+  sourceCandidateId        String? @map("source_candidate_id") @db.Uuid
+  channelAccountId         String  @map("channel_account_id") @db.Uuid
+  sourceContentWorkspaceId String? @map("source_content_workspace_id") @db.Uuid
+
+  closedAt DateTime? @map("closed_at") @db.Timestamptz
+
+  displayName String? @map("display_name")
+
+  selectedThumbnailUrl                   String? @map("selected_thumbnail_url")
+  selectedThumbnailGenerationId          String? @map("selected_thumbnail_generation_id") @db.Uuid
+  selectedThumbnailGenerationCandidateId String? @map("selected_thumbnail_generation_candidate_id") @db.Uuid
+  selectedDetailPageArtifactId           String? @map("selected_detail_page_artifact_id") @db.Uuid
+  selectedDetailPageRevisionId           String? @map("selected_detail_page_revision_id") @db.Uuid
+  selectedDetailPageGenerationId         String? @map("selected_detail_page_generation_id") @db.Uuid
+
+  registrationInput Json @default("{}") @map("registration_input")
+
+  reviewPayloadHash String?   @map("review_payload_hash")
+  approvedAt        DateTime? @map("approved_at") @db.Timestamptz
+  approvedByUserId  String?   @map("approved_by_user_id") @db.Uuid
+  createdByUserId   String?   @map("created_by_user_id") @db.Uuid
+  isDeleted         Boolean   @default(false) @map("is_deleted")
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  approvedByUser User?          @relation("ProductPreparationApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  createdByUser  User?          @relation("ProductPreparationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  salesProduct    SalesProduct                   @relation(fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedOptions ProductPreparationOption[]
+  executions      ProductRegistrationExecution[]
+
+  @@unique([id, organizationId])
+  @@unique([id, organizationId, channelAccountId], map: "product_preparations_id_org_account_key")
+  @@index([salesProductId, organizationId])
+  @@index([organizationId, closedAt, isDeleted])
+  @@index([sourceCandidateId])
+  @@index([channelAccountId])
+  @@index([sourceContentWorkspaceId])
+  @@index([selectedDetailPageArtifactId])
+  @@index([selectedDetailPageRevisionId])
+  @@index([selectedDetailPageGenerationId])
+  @@index([selectedThumbnailGenerationId])
+  @@index([selectedThumbnailGenerationCandidateId])
+  @@index([approvedByUserId])
+  @@index([createdByUserId])
+  @@map("product_preparations")
+}
+
+/// @namespace Channels
+/// @describe Selected common option and explicit price overrides for one persistent registration target.
+model ProductPreparationOption {
+  id                   String @id @default(uuid()) @db.Uuid
+  organizationId       String @map("organization_id") @db.Uuid
+  productPreparationId String @map("product_preparation_id") @db.Uuid
+  salesProductOptionId String @map("sales_product_option_id") @db.Uuid
+  sortOrder            Int    @default(0) @map("sort_order")
+  salePrice            Int?   @map("sale_price")
+  normalPrice          Int?   @map("normal_price")
+  supplyPrice          Int?   @map("supply_price")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  preparation  ProductPreparation @relation(fields: [productPreparationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  option       SalesProductOption @relation(fields: [salesProductOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([productPreparationId, salesProductOptionId])
+  @@index([salesProductOptionId, organizationId])
+  @@index([organizationId])
+  @@map("product_preparation_options")
 }

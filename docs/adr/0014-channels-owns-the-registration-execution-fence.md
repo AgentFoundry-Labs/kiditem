@@ -49,3 +49,8 @@ registration completion closes it atomically with the execution transition.
 The pre-schema 018 migration moves legacy submission evidence into executions
 and closes terminal drafts before schema contraction; uncertain submissions
 remain reconciliation work and never become fresh provider creates.
+
+
+The one-shot draft lifetime and candidate/account uniqueness described above are
+superseded by [ADR-0020](0020-channels-owns-reusable-registration-targets.md).
+The single Channels submission fence, frozen evidence and idempotency remain in force.

@@ -5,15 +5,17 @@ import Link from 'next/link';
 import { ArrowRight, Target } from 'lucide-react';
 import { useMallAgentLoop } from '@/hooks/use-mall-agent-loop';
 import { formatNumber } from '@/lib/utils';
+import { useMallLoginTest } from '../../(orders)/mall-settings/hooks/use-mall-login-test';
 import { AgentPipeline } from './components/AgentPipeline';
-import { MallAgentLoopCard } from './components/MallAgentLoopCard';
+import { MallAgentCostCard } from './components/MallAgentCostCard';
+import { MallAgentLoopControls } from './components/MallAgentLoopControls';
 import { MallAlertPanel } from './components/MallAlertPanel';
 import { MallHomeStats } from './components/MallHomeStats';
 import { MallStatusBoard } from './components/MallStatusBoard';
 import { PrinciplesSection } from './components/PrinciplesSection';
 import { useMallAlerts } from './hooks/use-mall-alerts';
 import { buildAgentPipeline } from './lib/agent-pipeline';
-import { needsAttention, type MallAlertFilter } from './lib/mall-alerts';
+import { needsAttention, type MallAlertFilter, type MallStatusTile } from './lib/mall-alerts';
 import { buildMallAgentMissions } from './lib/mall-agent-missions';
 
 /**
@@ -24,8 +26,11 @@ import { buildMallAgentMissions } from './lib/mall-agent-missions';
  * 파이프라인(미션 → 감지 → 판단 → 도구 → 사람 승인 → 기억)이 서고, 단계마다 그 단계의 일이
  * 아래로 적힌다. 미션은 파이프라인 첫 칸이다.
  *
- * 화면을 열면 확장이 몰마다 로그인 상태를 조용히 확인해 몰별 상태에 붙인다 — 로그인은 하지
- * 않는다. 풀린 몰은 빨갛게 서고, 알림판과 위 칸이 '로그인 필요'를 말한다.
+ * 로그인 상태는 '로그인 확인'을 누를 때 확장이 몰마다 확인해 몰별 상태에 붙인다 — 화면을 열었다고 묻지 않고
+ * (사장님 2026-09-19), 로그인은 하지 않는다. 풀린 몰은 빨갛게 서고, 알림판과 위 칸이 '로그인 필요'를 말한다.
+ * 풀린 몰 타일을 누르면 그때만 쇼핑몰 계정의 로그인 테스트와 같은 길로 그 몰에 로그인을 다시 해 보고, 끝나면
+ * 그 몰만 다시 확인한다. 쇼핑몰 에이전트의 이번 달 AI 비용은 알림판 위에 작게, 자동 운전 스위치는 머리에 선다(에이전트 홈 ·
+ * 자동 운전 카드 대신, 사장님 2026-09-19).
  *
  * 몰 판정과 숫자는 쇼핑몰 현황과 같은 곳(`useMallCapabilityRows`)에서, 알림은 전역 알림판과
  * 같은 스트림에서 몰 일만 골라 읽는다 — 화면마다 다른 말을 하지 않게. 머리글의 한 줄도
@@ -37,6 +42,7 @@ export default function MallHomePage() {
   const loop = useMallAgentLoop();
   const [filter, setFilter] = useState<MallAlertFilter>('all');
   const [mallKey, setMallKey] = useState<string | null>(null);
+  const loginTest = useMallLoginTest();
   const missions = useMemo(
     () => buildMallAgentMissions(home.overview ? home.totals : null),
     [home.overview, home.totals],
@@ -85,6 +91,11 @@ export default function MallHomePage() {
     setMallKey(next);
     if (next) setFilter('all');
   };
+  // 한 번에 한 몰만. 결과(로그인됨 · 비밀번호 거부 · 인증 필요)는 로그인 테스트가 알리고 기록한다.
+  const retryLogin = (tile: MallStatusTile) => {
+    if (loginTest.testingKey) return;
+    void loginTest.test(tile.mallKey, tile.mallName).then(() => home.session.recheck());
+  };
 
   return (
     <div className="space-y-6">
@@ -98,16 +109,17 @@ export default function MallHomePage() {
             <p className="mt-0.5 text-sm text-slate-500">{headline}</p>
           </div>
         </div>
-        <Link
-          href="/mall-channels"
-          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          쇼핑몰 현황
-          <ArrowRight size={14} />
-        </Link>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <MallAgentLoopControls loop={loop} />
+          <Link
+            href="/mall-channels"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            쇼핑몰 현황
+            <ArrowRight size={14} />
+          </Link>
+        </div>
       </header>
-
-      <MallAgentLoopCard loop={loop} />
 
       <div className="grid gap-4 xl:grid-cols-4">
         <div className="min-w-0 space-y-4 xl:col-span-3">
@@ -125,17 +137,24 @@ export default function MallHomePage() {
             selectedMallKey={mallKey}
             onSelect={selectMall}
             session={home.session}
+            loggingInKey={loginTest.testingKey}
+            onRetryLogin={retryLogin}
           />
         </div>
-        <MallAlertPanel
-          alerts={home.alerts}
-          derived={home.derived}
-          ready={home.alertsReady}
-          filter={filter}
-          onFilterChange={setFilter}
-          mall={selected ? { key: selected.mallKey, name: selected.mallName } : null}
-          onClearMall={() => setMallKey(null)}
-        />
+        {/* 오른쪽 칸: 위 줄(확인 필요 · 열린 몰 알림)에 맞춰 AI 비용을 작게, 그 아래 알림판이 남은 높이를 채운다. */}
+        <div className="order-first flex min-w-0 flex-col gap-4 xl:order-none xl:col-span-1">
+          <MallAgentCostCard />
+          <MallAlertPanel
+            alerts={home.alerts}
+            derived={home.derived}
+            ready={home.alertsReady}
+            filter={filter}
+            onFilterChange={setFilter}
+            mall={selected ? { key: selected.mallKey, name: selected.mallName } : null}
+            onClearMall={() => setMallKey(null)}
+            className="flex-1"
+          />
+        </div>
       </div>
 
       <AgentPipeline stages={pipeline} missions={missions} />

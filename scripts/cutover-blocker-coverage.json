@@ -121,10 +121,11 @@
     {
       "train": "0.1.31",
       "keys": [
-        "unique:product_preparations_org_source_account_active_key"
+        "foreign-key:product_preparations_sales_product_id_organization_id_fkey",
+        "not-null:product_preparations.sales_product_id"
       ],
-      "coveredBy": "v0.1.31:018_consolidate_registration_execution",
-      "note": "018 preserves legacy submission evidence in the execution ledger, closes previously registered/cancelled/archived drafts and rejects duplicate remaining active drafts before replacing the partial unique predicate."
+      "coveredBy": "v0.1.31:021_link_registration_targets",
+      "note": "021 links existing preparations to organization-scoped selling products using explicit saved prices/options, aborts ambiguity, migrates legacy overrides, and verifies target/product/account/selection membership without rewriting execution evidence."
     }
   ]
 }

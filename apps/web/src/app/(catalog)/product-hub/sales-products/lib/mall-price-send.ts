@@ -1,0 +1,137 @@
+import {
+  detectOrderCollectionExtensionId,
+  detectOrderCollectionExtensionRuntime,
+  sendToExtension,
+} from '@/lib/extension-bridge';
+
+/**
+ * 몰 가격 보내기(KID-247) — 판매상품 화면에서 사람이 누른 가격만 확장이 그 몰 관리자에 보내고, 몰을 다시 읽어 확인한다.
+ * 보냈다(`sent`)와 몰에서 확인했다(`confirmed`)는 다르다.
+ */
+
+/** 가격을 보낼 수 있는 몰. 확장 `mall-availability-send.js` 의 `PRICE_MALL_KEYS` 와 같아야 한다. */
+export const MALL_PRICE_SEND_MALLS = ['kakao', 'kidsnote'] as const;
+
+export function canSendMallPrice(mallKey: string): boolean {
+  return (MALL_PRICE_SEND_MALLS as readonly string[]).includes(mallKey);
+}
+
+/** 이 몰로 가격을 보내는 확장만 가진 능력 — 옛 확장이 모르는 몰로 보내지 않게. */
+const PRICE_CAPABILITY: Record<string, string> = {
+  kakao: 'mallPriceSendV1',
+  kidsnote: 'mallPriceSendKidsnoteV1',
+};
+
+/**
+ * 가격을 바꾸면 몰이 따로 하는 일 — 보내기 전 확인 단계에 그대로 보인다. 키즈노트는 화면 문구 그대로(사장님 2026-09-20:
+ * 붙이되 경고, 시험은 다음 실제 가격 변경 때).
+ */
+export const MALL_PRICE_SEND_NOTE: Readonly<Record<string, string>> = {
+  kidsnote: '키즈노트는 가격을 바꾸면 본사 승인 전까지 그 상품 판매가 멈춥니다.',
+};
+
+/** 같은 가격을 다시 보내면 안 되는 몰 — 보내는 것만으로 판매가 멈추는 몰은 가격이 다를 때만 보낸다. */
+export function mallPriceResendAllowed(mallKey: string): boolean {
+  return !MALL_PRICE_SEND_NOTE[mallKey];
+}
+const SEND_TIMEOUT_MS = 180_000;
+
+export interface MallPriceSendResult {
+  /** Explicit extension evidence; absence means older transport / unknown. */
+  submissionAttempted?: boolean;
+  sent: number;
+  failed: number;
+  confirmed: number;
+  results: {
+    code: string;
+    before: number | null;
+    after: number | null;
+    confirmed: boolean;
+    /** The extension may report the actual provider tab URL; callers must never derive one. */
+    observedUrl?: string;
+  }[];
+  warnings: string[];
+}
+
+export interface MallPriceSendExecutionContext {
+  executionId: string;
+  payloadHash: string;
+  leaseToken: string;
+}
+
+/** A bridge error is unknown only when the extension call was reached and no response arrived. */
+export class MallPriceSendError extends Error {
+  readonly dispatchAttempted: boolean;
+
+  constructor(
+    message: string,
+    options: { dispatchAttempted?: boolean } = {},
+  ) {
+    super(message);
+    this.name = 'MallPriceSendError';
+    this.dispatchAttempted = options.dispatchAttempted ?? false;
+  }
+}
+
+interface SendResponse extends Partial<MallPriceSendResult> {
+  success?: boolean;
+  error?: string;
+}
+
+/**
+ * `ifPrice` 는 화면이 본 지금 몰 가격(몰 상품을 가져올 때 읽은 값)이다. 주면 몰 가격이 그 값일 때만 보낸다 — 그사이 몰에서
+ * 바뀐 가격을 모르고 덮어쓰지 않게.
+ */
+export async function sendMallPrice(
+  mallKey: string,
+  items: readonly { code: string; price: number; ifPrice?: number | null }[],
+  executionContext?: MallPriceSendExecutionContext,
+): Promise<MallPriceSendResult> {
+  if (!canSendMallPrice(mallKey)) throw new MallPriceSendError('이 몰은 아직 가격을 보낼 수 없습니다.');
+  const extensionId = await detectOrderCollectionExtensionId();
+  if (!extensionId) {
+    throw new MallPriceSendError('확장프로그램이 필요합니다. KidItem 확장을 켜고 그 몰 관리자에 로그인한 뒤 다시 보내세요.');
+  }
+  const runtime = await detectOrderCollectionExtensionRuntime(1200, [PRICE_CAPABILITY[mallKey] ?? 'mallPriceSendV1']);
+  if (runtime.status !== 'ready') {
+    throw new MallPriceSendError(
+      `설치된 KidItem 확장${runtime.status === 'incompatible' ? `(${runtime.version})` : ''}이 가격 보내기를 모릅니다. `
+      + 'chrome://extensions 에서 확장을 새로고침한 뒤 이 페이지도 새로고침(F5)하고 다시 보내세요.',
+    );
+  }
+  let response: SendResponse;
+  try {
+    response = await sendToExtension<SendResponse>(
+      extensionId,
+      {
+        action: 'sendMallPrice',
+        mallKey,
+        items: items.map((item) => ({ code: item.code, price: item.price, ifPrice: item.ifPrice ?? null })),
+        ...(executionContext ? { executionContext } : {}),
+      },
+      SEND_TIMEOUT_MS,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/message port closed/i.test(message)) {
+      throw new MallPriceSendError(
+        '설치된 확장이 아직 가격 보내기를 모릅니다. chrome://extensions 에서 KidItem 확장을 새로고침하세요.',
+        { dispatchAttempted: true },
+      );
+    }
+    throw new MallPriceSendError(message, { dispatchAttempted: true });
+  }
+  if (response?.success !== true) {
+    throw new MallPriceSendError(response?.error ?? '가격을 보내지 못했습니다.', {
+      dispatchAttempted: response?.submissionAttempted !== false || (response.sent ?? 0) > 0,
+    });
+  }
+  return {
+    ...(typeof response.submissionAttempted === 'boolean' ? { submissionAttempted: response.submissionAttempted } : {}),
+    sent: response.sent ?? 0,
+    failed: response.failed ?? 0,
+    confirmed: response.confirmed ?? 0,
+    results: response.results ?? [],
+    warnings: response.warnings ?? [],
+  };
+}

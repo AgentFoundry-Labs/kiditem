@@ -134,6 +134,16 @@ export const DashboardAlertItemSchema = z.object({
   updatedAt: zIsoDate.optional(),
 });
 
+/**
+ * Why a sold product carries no ABC grade. The owner sees a blank grade beside
+ * a large revenue and reads it as a bug, so the server says which gate the
+ * product did not pass (사장님 2026-09-21): it is out of stock and therefore
+ * out of the ranking, it has no Coupang/Rocket listing wired to a Sellpia
+ * recipe, or it is simply waiting for the next publication.
+ */
+export const TopProductGradeAbsenceSchema = z.enum(['out_of_stock', 'not_linked', 'pending']);
+export type TopProductGradeAbsence = z.infer<typeof TopProductGradeAbsenceSchema>;
+
 export const TopProductSchema = z.object({
   id: z.string(),
   masterProductId: z.string().uuid().nullable().optional(),
@@ -141,6 +151,14 @@ export const TopProductSchema = z.object({
   name: z.string(),
   organization: z.string(),
   grade: ProductAbcGradeSchema.nullable(),
+  /** Set only when `grade` is null; never a guess when the grade exists. */
+  gradeAbsence: TopProductGradeAbsenceSchema.nullable().optional(),
+  /**
+   * What the profit on this row is. `net` is settled profit from the listing
+   * helper. `gross` is 매출 − 셀피아 매입 원가: real, but before advertising and
+   * mall fees, so the screen must not call it 순이익 (사장님 2026-09-21).
+   */
+  profitKind: z.enum(['net', 'gross']).optional(),
   abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   revenue: z.number(),
   /**
@@ -241,10 +259,26 @@ export const PlanAchievementSchema = z.object({
   achieveRate: z.number(),
 });
 
+/** Products that entered and left one grade under the current publication. */
+export const GradeFlowSchema = z.object({
+  in: z.number().int().nonnegative(),
+  out: z.number().int().nonnegative(),
+});
+
+/** One grade transition under the current publication; `null` is unclassified. */
+export const GradeMoveSchema = z.object({
+  from: ProductAbcGradeSchema.nullable(),
+  to: ProductAbcGradeSchema.nullable(),
+  count: z.number().int().positive(),
+});
+
 export const GradeChangesSchema = z.object({
   upgraded: z.number(),
   downgraded: z.number(),
   total: z.number(),
+  byGrade: z.object({ A: GradeFlowSchema, B: GradeFlowSchema, C: GradeFlowSchema }).optional(),
+  /** Largest first. */
+  moves: z.array(GradeMoveSchema).optional(),
 });
 
 export const WarningsSchema = z.object({
@@ -473,6 +507,8 @@ export const DashboardInventorySummarySchema = z.object({
   abcFormula: ProductAbcFormulaPayloadSchema.nullable(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),
+  /** Ungraded because younger than the formula's minimum sale age — 신상품. */
+  newProductCount: z.number().int().nonnegative().optional(),
   alerts: z.array(DashboardAlertItemSchema),
   warnings: WarningsSchema,
   gradeChanges: GradeChangesSchema.optional(),
@@ -653,6 +689,12 @@ export const SellpiaSalesSummarySchema = z.object({
   range: z.object({ from: z.string(), to: z.string() }).nullable(),
   rocket: SellpiaSalesGroupSchema, // 쿠팡 로켓(쿠팡-직배송) 단독
   others: SellpiaSalesGroupSchema, // 쿠팡윙 + 기타 전체몰 합산 (malls = 드릴다운)
+  // 쿠팡에서 판 것 전부(로켓 + 윙)와 그 나머지. 위 로켓/그 외 버킷과 다른 자르기이고,
+  // 이 둘을 쌓으면 totalRevenue 다. 이 필드가 없던 서버의 응답도 읽히도록 비어 있을 수 있다.
+  coupang: SellpiaSalesGroupSchema.optional(),
+  nonCoupang: SellpiaSalesGroupSchema.optional(),
+  // 모든 판매처 하나로. `daily` 가 날마다의 총 매출 선이다(revenue 는 totalRevenue 와 같다).
+  total: SellpiaSalesGroupSchema.optional(),
   totalRevenue: z.number(),
   totalCost: z.number(), // 셀피아 매입금액 합계
   // 광고 계정 범위가 완전히 수집되지 않으면 광고비를 0으로 추정하지 않는다.

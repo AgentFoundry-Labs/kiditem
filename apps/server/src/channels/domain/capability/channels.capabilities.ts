@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PrepareTargetExecutionInputSchema, ReportTargetExecutionInputSchema, TargetExecutionResultSchema } from '@kiditem/shared/sales-product';
 import type { CapabilityDefinition } from "../../../common/capability-definition";
 
 const Uuid = z.string().uuid();
@@ -60,6 +61,38 @@ export const CHANNELS_CAPABILITIES = [
     effects: ["browser", "external_write", "db_write"],
     approvalRisk: "high",
     idempotency: "required",
+  },
+  {
+    key: 'channels.prepare_target_execution', ownerDomain: 'channels',
+    ownerInputPort: 'channels.prepareTargetExecution',
+    description: 'Freeze the selected registration target and option prices through the same execution port as the web UI. Does not submit to a marketplace.',
+    resultSummary: '등록 대상의 제출 내용을 고정했습니다.',
+    inputSchema: PrepareTargetExecutionInputSchema.omit({ idempotencyKey: true }).extend({ targetId: Uuid }).strict(),
+    outputSchema: TargetExecutionResultSchema, effects: ['db_write'], approvalRisk: 'low', idempotency: 'required',
+  },
+  {
+    key: 'channels.get_target_execution', ownerDomain: 'channels',
+    ownerInputPort: 'channels.getTargetExecution',
+    description: 'Read the frozen submission and its recorded provider outcome.',
+    resultSummary: '등록 실행 상태를 조회했습니다.',
+    inputSchema: z.object({ executionId: Uuid }).strict(),
+    outputSchema: TargetExecutionResultSchema, effects: ['read'], approvalRisk: 'none', idempotency: 'recommended',
+  },
+  {
+    key: 'channels.start_target_execution', ownerDomain: 'channels',
+    ownerInputPort: 'channels.startTargetExecution',
+    description: 'Claim a prepared execution once. Provider IO is allowed only when the result has maySubmit=true; retries never grant another submission.',
+    resultSummary: '등록 실행의 제출 가능 상태를 확인했습니다.',
+    inputSchema: z.object({ executionId: Uuid }).strict(),
+    outputSchema: TargetExecutionResultSchema, effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required',
+  },
+  {
+    key: 'channels.report_target_execution', ownerDomain: 'channels',
+    ownerInputPort: 'channels.reportTargetExecution',
+    description: 'Report collected provider evidence with the frozen payload hash and lease. A form fill or unknown result is not confirmation.',
+    resultSummary: '쇼핑몰의 확인 근거를 실행 기록에 반영했습니다.',
+    inputSchema: ReportTargetExecutionInputSchema.extend({ executionId: Uuid }).strict(),
+    outputSchema: TargetExecutionResultSchema, effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required',
   },
 ] as const satisfies readonly CapabilityDefinition[];
 

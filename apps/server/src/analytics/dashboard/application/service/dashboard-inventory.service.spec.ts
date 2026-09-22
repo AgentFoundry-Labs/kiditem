@@ -149,7 +149,18 @@ describe('DashboardInventoryService', () => {
     expect(result.warnings).toMatchObject({ outOfStockSkus: 7, mappingAttentionSkus: 3 });
     expect(result.channelLinkedProducts).toBe(8);
     expect(result).not.toHaveProperty('mappingStatusCounts');
-    expect(result.gradeChanges).toEqual({ upgraded: 2, downgraded: 2, total: 4 });
+    expect(result.gradeChanges).toEqual({
+      upgraded: 2,
+      downgraded: 2,
+      total: 4,
+      byGrade: { A: { in: 2, out: 1 }, B: { in: 0, out: 1 }, C: { in: 1, out: 1 } },
+      moves: [
+        { from: 'C', to: 'A', count: 1 },
+        { from: null, to: 'A', count: 1 },
+        { from: 'B', to: 'C', count: 1 },
+        { from: 'A', to: null, count: 1 },
+      ],
+    });
   });
 
   it('keeps stock unavailable while counting configured links before Inventory collection', async () => {

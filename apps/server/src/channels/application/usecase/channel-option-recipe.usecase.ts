@@ -17,6 +17,15 @@ implements ChannelOptionRecipePort {
     private readonly repository: ChannelOptionRecipeRepositoryPort,
   ) {}
 
+  replaceConfirmedCompositionInTransaction(transaction: object, input: {
+    organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
+    kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
+  }) {
+    validateComponents(input.components);
+    if (!/^KID[0-9]{8}$/.test(input.kidItemCode)) throw new BadRequestException('Invalid KID item code');
+    return this.repository.replaceConfirmedCompositionInTransaction(transaction, input);
+  }
+
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;

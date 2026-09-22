@@ -42,15 +42,16 @@ describe('MALL_ADAPTER_MANIFESTS', () => {
     }
   });
 
-  it('closes every write path on unverified malls regardless of the seed', () => {
+  it('closes registration writes on unverified malls while preserving verified admin stop routes', () => {
     for (const entry of MALL_ADAPTER_MANIFESTS.filter((candidate) => candidate.unverified)) {
+      const adminRoute = entry.soldOutRoute === 'mall_admin';
       expect(entry.supports).toEqual({
         createListing: false,
         updateListing: false,
         setStock: null,
-        setSaleStatus: null,
-        soldOut: false,
-        resume: false,
+        setSaleStatus: adminRoute ? 'listing' : null,
+        soldOut: adminRoute,
+        resume: adminRoute ? entry.supports.resume : false,
       });
     }
   });
@@ -89,14 +90,14 @@ describe('resolveSoldOutCommand', () => {
     expect(resolveSoldOutCommand(deletesOnSoldOut)).toEqual({ allowed: true, downgradedTo: 'suspended' });
   });
 
-  it('refuses an unverified mall even where the documented path would downgrade', () => {
+  it('preserves the admin stop path when an unverified mall downgrades dangerous sold-out commands', () => {
     const gmarket = getMallAdapterManifest('gmarket')!;
-    expect(resolveSoldOutCommand(gmarket).allowed).toBe(false);
+    expect(resolveSoldOutCommand(gmarket)).toEqual({ allowed: true, downgradedTo: 'suspended' });
   });
 
   it('refuses malls with no sold-out path at all', () => {
-    const alwayz = getMallAdapterManifest('always')!;
-    expect(resolveSoldOutCommand(alwayz).allowed).toBe(false);
+    const boribori = getMallAdapterManifest('boribori')!;
+    expect(resolveSoldOutCommand(boribori).allowed).toBe(false);
   });
 
   it('refuses a channel that does not sell products', () => {

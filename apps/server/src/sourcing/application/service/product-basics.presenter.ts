@@ -1,10 +1,9 @@
 /**
- * `salePrice` 가 어디서 왔는지. 프런트가 "셀피아 재고에서 가져온 값" 임을
- * 표시할 수 있어야 하므로 파생 값이지만 응답에 드러낸다.
+ * `salePrice` 가 직접 입력되었는지 여부를 프런트가 표시할 수 있도록
+ * 파생 값이지만 응답에 드러낸다.
  *
  *   - `input`:   수기 입력(`registrationInput.salePrice`)
- *   - `sellpia`: 이름이 정확히 일치한 셀피아 재고 SKU 판매가 폴백
- *   - `none`:    둘 다 없음. `salePrice` 는 0이다.
+ *   - `none`:    입력값 없음. `salePrice` 는 0이다.
  */
 export type SalePriceSource = 'input' | 'none';
 
@@ -28,6 +27,21 @@ export interface ProductBasics {
   originalPrice: number;
   salePrice: number;
   salePriceSource: SalePriceSource;
+  /** 사방넷 신규등록과 같은 칸(상품 등록 초안에서 받는다). 판매상품으로 만들 때 그대로 간다. */
+  costPrice: number;
+  brand: string;
+  manufacturer: string;
+  originCountry: string;
+  modelName: string;
+  ownCode: string;
+  /** `taxable` 과세 · `tax_free` 면세. */
+  taxType: string;
+  /** 사방넷 `배송비`(VAT 포함)와 `배송비구분`. */
+  deliveryFee: number;
+  deliveryFeeType: string;
+  /** 사방넷 인증정보의 인증기관 · 인증분야. 번호는 `kcCertificationNumber` 다. */
+  certificationIssuer: string;
+  certificationField: string;
   discountRate: number;
   rocketBundleQuantity: number;
   rocketUnitCost: number;
@@ -151,11 +165,6 @@ export function buildProductBasics({
   registrationImages?: RegistrationImages | null;
   /** 조회는 호출자(서비스) 몫이다. 프리젠터는 순수 함수로 남는다. */
   workspaceThumbnailSelection?: WorkspaceThumbnailSelection | null;
-  /**
-   * 이름이 정확히 일치한 셀피아 재고 SKU 의 판매가. 조회는 호출자(서비스) 몫이고
-   * 프리젠터는 순수 함수로 남는다. 매칭 실패는 `null`/`undefined` 이며, 추정하지
-   * 않고 0원으로 남긴다.
-   */
 }): ProductBasics {
   const raw = toRecord(candidate.rawData);
   // `ProductPreparation` 이 없는 후보가 기본정보를 저장하는 곳. 후보 워크스페이스
@@ -176,9 +185,12 @@ export function buildProductBasics({
     candidate.imageUrl,
   ].filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
 
-  // Registration prices come only from reviewed operator input.
-  const salePrice = num(input.salePrice) || num(manual.salePrice);
-  const salePriceSource: SalePriceSource = salePrice > 0 ? 'input' : 'none';
+  // 등록 입력과 후보 수기 저장값(manual)은 사용자 입력으로 취급하고, 사용자가
+  // 고친 값을 덮어쓰지 않는다.
+  // 상품 등록 초안이 적어 준 값도 사람이 넣은 값이다(rawData). 수기 저장값 다음 순서로 읽는다.
+  const inputSalePrice = num(input.salePrice) || num(manual.salePrice) || num(raw.salePrice);
+  const salePrice = inputSalePrice;
+  const salePriceSource: SalePriceSource = inputSalePrice > 0 ? 'input' : 'none';
 
   return {
     name: str(input.name) ?? str(input.title) ?? candidate.name,
@@ -201,7 +213,18 @@ export function buildProductBasics({
     colorVariantNames: str(input.colorVariantNames) ?? str(manual.colorVariantNames) ?? str(raw.colorVariantNames) ?? '',
     boxSetStatus: str(input.boxSetStatus) ?? str(manual.boxSetStatus) ?? str(raw.boxSetStatus) ?? '',
     boxSetQuantity: str(input.boxSetQuantity) ?? str(manual.boxSetQuantity) ?? str(raw.boxSetQuantity) ?? '',
-    originalPrice: num(input.originalPrice) || num(manual.originalPrice),
+    originalPrice: num(input.originalPrice) || num(manual.originalPrice) || num(raw.tagPrice),
+    costPrice: num(input.costPrice) || num(manual.costPrice) || num(raw.costPrice),
+    brand: str(input.brand) ?? str(manual.brand) ?? str(raw.brand) ?? '',
+    manufacturer: str(input.manufacturer) ?? str(manual.manufacturer) ?? str(raw.manufacturer) ?? '',
+    originCountry: str(input.originCountry) ?? str(manual.originCountry) ?? str(raw.originCountry) ?? '',
+    modelName: str(input.modelName) ?? str(manual.modelName) ?? str(raw.modelName) ?? '',
+    ownCode: str(input.ownCode) ?? str(manual.ownCode) ?? str(raw.ownCode) ?? '',
+    taxType: str(input.taxType) ?? str(manual.taxType) ?? str(raw.taxType) ?? 'taxable',
+    deliveryFee: num(input.deliveryFee) || num(manual.deliveryFee) || num(raw.deliveryFee),
+    deliveryFeeType: str(input.deliveryFeeType) ?? str(manual.deliveryFeeType) ?? str(raw.deliveryFeeType) ?? '',
+    certificationIssuer: str(input.certificationIssuer) ?? str(manual.certificationIssuer) ?? str(raw.certificationIssuer) ?? '',
+    certificationField: str(input.certificationField) ?? str(manual.certificationField) ?? str(raw.certificationField) ?? '',
     salePrice,
     salePriceSource,
     discountRate: num(input.discountRate) || num(manual.discountRate),

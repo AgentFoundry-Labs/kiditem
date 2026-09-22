@@ -181,9 +181,12 @@ describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
   it('⭐ 대시보드 3 : 알림판 1 — 알림판이 오른쪽 1/4 에 선다', () => {
     render(<MallHomePage />);
     const aside = panel();
-    expect(aside.className).toContain('xl:col-span-1');
-    expect(aside.parentElement?.className).toContain('xl:grid-cols-4');
-    expect(aside.parentElement?.firstElementChild?.className).toContain('xl:col-span-3');
+    const column = aside.parentElement as HTMLElement;
+    expect(column.className).toContain('xl:col-span-1');
+    expect(column.parentElement?.className).toContain('xl:grid-cols-4');
+    expect(column.parentElement?.firstElementChild?.className).toContain('xl:col-span-3');
+    expect(column.firstElementChild).toBe(screen.getByRole('region', { name: 'AI 비용' }));
+    expect(aside.className).toContain('flex-1');
   });
 
   it('⭐ 알림판은 몰 알림만 모은다 — 광고 알림은 빠진다', () => {
@@ -357,7 +360,7 @@ describe('쇼핑몰 홈 — 에이전트 파이프라인', () => {
   it('⭐ 알림판은 몰별 상태까지만 — 파이프라인은 그 아래 넓게 선다', () => {
     render(<MallHomePage />);
     const aside = panel();
-    const grid = aside.parentElement as HTMLElement;
+    const grid = aside.parentElement?.parentElement as HTMLElement;
     expect(within(grid.firstElementChild as HTMLElement).getByRole('heading', { name: /몰별 상태/ })).toBeInTheDocument();
     expect(aside.className).not.toContain('xl:sticky');
     const pipeline = screen.getByRole('list', { name: '에이전트 파이프라인' });
@@ -459,7 +462,7 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     expect(within(panel()).getByText('로그인이 풀린 몰 1곳')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /^로그인 필요.*세션 풀림 1 · 계정 정보 없음 0$/ })).toHaveAttribute(
       'href',
-      '/mall-settings',
+      '/mall-channels?account=all',
     );
     // 확장에는 몰 키와 쇼핑몰 계정에 저장된 사이트 주소만 간다.
     expect(mockProbeMall.mock.calls).toEqual(expect.arrayContaining([

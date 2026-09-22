@@ -56,6 +56,7 @@ import {
 import type { ProductQueryPort } from '../port/in/product-query.port';
 import { ProductInputException } from '../exception/product-input.exception';
 
+
 @Injectable()
 export class ProductQueryUseCase implements ProductQueryPort {
   private readonly logger = new Logger(ProductQueryUseCase.name);
@@ -161,7 +162,7 @@ export class ProductQueryUseCase implements ProductQueryPort {
       limit: query.limit,
       summary: {
         ...summarizeProducts(
-          items,
+          withMonthly,
           summarizeChannelProducts(raw.sellingChannelProducts ?? []),
           contributionOverview(contribution),
           dataStatus.displayDataAsOf,

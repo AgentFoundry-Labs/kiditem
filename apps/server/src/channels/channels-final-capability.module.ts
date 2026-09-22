@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ChannelsRegistrationExecutionModule } from './channels-registration-execution.module';
 import { ChannelsFrozenRegistrationReadModule } from './channels-frozen-registration-read.module';
 import { ChannelsFinalCapabilityAdapter } from './adapter/in/agent/channels-final-capability.adapter';
 import { ChannelsCapabilityCompositionAdapter } from './adapter/in/agent/channels-capability-composition.adapter';
@@ -8,7 +9,7 @@ import { ChannelsModule } from './channels.module';
 
 /** API-only composition: Channels mutation owner plus the fence's frozen read guard. */
 @Module({
-  imports: [ChannelsModule, ChannelsFrozenRegistrationReadModule],
+  imports: [ChannelsModule, ChannelsFrozenRegistrationReadModule, ChannelsRegistrationExecutionModule],
   providers: [
     ChannelsFinalCapabilityAdapter,
     ChannelsCapabilityCompositionAdapter,

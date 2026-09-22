@@ -1,7 +1,5 @@
-import {
-  fillMallRegistrationForm,
-  prepareMallRegistration,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { prepareRegistration } from '../sales-product-registration';
+import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   BORIBORI_DEFAULT_CATEGORY,
   BORIBORI_DEFAULT_CATEGORY_LABEL,
@@ -12,7 +10,7 @@ import {
   boriboriListPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/boribori-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -180,7 +178,7 @@ export const boriboriAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'boribori');
     const category = parseCategory(values.categoryCodes);
     const form = boriboriFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),
@@ -188,14 +186,7 @@ export const boriboriAdapter: MallPublishAdapter = {
       ...(values.decoWord?.trim() ? { decoWord: values.decoWord.trim() } : {}),
       ...(values.sellerCode?.trim() ? { sellerCode: values.sellerCode.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('boribori', draft, form);
-    return {
-      ok: result.ok,
-      // 1단계만 채웠다. 저장·상세정보·승인요청이 남아 있으니 등록이 아니다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    const result = await fillMallRegistrationForm('boribori', draft, form, mallFormExecutionOptions(item));
+    return registrationOutcome(result);
   },
 };

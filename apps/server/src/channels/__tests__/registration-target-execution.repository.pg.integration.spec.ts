@@ -1,0 +1,1427 @@
+import { randomUUID } from 'node:crypto';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
+import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
+import {
+  makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
+  resetDb,
+  seedBaseFixture,
+  TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
+} from '../../test-helpers/real-prisma';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type {
+  PrepareListingAvailabilityInput,
+  PrepareTargetExecutionInput,
+  ReportTargetExecutionInput,
+  TargetExecutionSnapshot,
+} from '@kiditem/shared/sales-product';
+import type { Prisma, PrismaClient } from '@prisma/client';
+
+describe('registration target execution repository (PostgreSQL)', () => {
+  let prisma: PrismaClient;
+  let targets: RegistrationTargetRepositoryAdapter;
+  let repository: RegistrationExecutionRepositoryAdapter;
+  let recipes: ChannelOptionRecipeUseCase;
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService);
+    recipes = new ChannelOptionRecipeUseCase(
+      new ChannelOptionRecipeRepositoryAdapter(
+        prisma as unknown as PrismaService,
+        new ProductTransactionalReadRepositoryAdapter(),
+      ),
+    );
+    repository = new RegistrationExecutionRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      {} as never,
+      recipes,
+    );
+  });
+
+  afterAll(async () => prisma?.$disconnect());
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+  });
+
+  it('freezes raw intent separately, claims a provider lease once, and replays the frozen snapshot', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const request = requestFor('target-intent-1');
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: fixture.snapshot,
+    });
+
+    expect(prepared).toMatchObject({
+      targetId: fixture.targetId,
+      channelAccountId: fixture.accountId,
+      status: 'prepared',
+      providerOutcome: 'not_attempted',
+      maySubmit: false,
+    });
+    const stored = await prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: { requestHash: true, submissionPayloadHash: true },
+    });
+    expect(stored.requestHash).not.toBe(stored.submissionPayloadHash);
+
+    const started = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    expect(started).toMatchObject({ status: 'executing', providerOutcome: 'uncertain', maySubmit: true });
+    expect(started.leaseToken).toEqual(expect.any(String));
+
+    const repeated = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    expect(repeated).toMatchObject({
+      executionId: started.executionId,
+      status: 'executing',
+      providerOutcome: 'uncertain',
+      maySubmit: false,
+      leaseToken: started.leaseToken,
+    });
+    await expect(repository.getTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).resolves.toMatchObject({ payload: fixture.snapshot, maySubmit: false });
+  });
+
+  it('replays an old intent after target and product edits while rejecting idempotency reuse', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const request = requestFor('target-replay-1');
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: fixture.snapshot,
+    });
+    await targets.update(TEST_ORGANIZATION_ID, fixture.targetId, {
+      expectedVersion: 1,
+      displayName: '수정된 실행 대상',
+      registrationInput: { changed: true },
+      selectedOptions: [{
+        salesProductOptionId: fixture.optionId,
+        salePrice: null,
+        normalPrice: null,
+        supplyPrice: 123,
+      }],
+    });
+    await prisma.salesProduct.update({
+      where: { id: fixture.productId },
+      data: { version: { increment: 1 } },
+    });
+    const changedSnapshot = {
+      ...fixture.snapshot,
+      targetVersion: 2,
+      product: { ...fixture.snapshot.product, version: 2, name: '변경된 공통 상품' },
+    };
+
+    await expect(repository.findTargetReplay({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      targetId: fixture.targetId,
+      request,
+    })).resolves.toMatchObject({ executionId: prepared.executionId, payload: fixture.snapshot });
+    await expect(repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: changedSnapshot,
+    })).resolves.toMatchObject({ executionId: prepared.executionId, payload: fixture.snapshot });
+    await expect(repository.findTargetReplay({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      targetId: fixture.targetId,
+      request: { ...request, kind: 'update' },
+    })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('freezes adapter defaults, including string zero keys and values, across live edits and replay', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const adapterDefaults = { '0': '0', fulfillmentMode: '0' };
+    const request: PrepareTargetExecutionInput = {
+      ...requestFor('target-adapter-defaults-1'),
+      adapterDefaults,
+    };
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: { ...fixture.snapshot, adapterDefaults },
+    });
+    expect(prepared.payload.adapterDefaults).toEqual(adapterDefaults);
+
+    await targets.update(TEST_ORGANIZATION_ID, fixture.targetId, {
+      expectedVersion: 1,
+      displayName: '수정된 실행 대상',
+      registrationInput: { changed: true },
+      selectedOptions: [{
+        salesProductOptionId: fixture.optionId,
+        salePrice: null,
+        normalPrice: null,
+        supplyPrice: 123,
+      }],
+    });
+    await prisma.salesProduct.update({
+      where: { id: fixture.productId },
+      data: { version: { increment: 1 } },
+    });
+
+    const changedSnapshot = {
+      ...fixture.snapshot,
+      targetVersion: 2,
+      adapterDefaults: { ...adapterDefaults },
+      product: { ...fixture.snapshot.product, version: 2, name: '변경된 공통 상품' },
+    };
+    await expect(repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: changedSnapshot,
+    })).resolves.toMatchObject({
+      executionId: prepared.executionId,
+      payload: {
+        targetVersion: 1,
+        adapterDefaults,
+        product: { version: 1, name: '공통 상품' },
+      },
+    });
+
+    const changedDefaults = { ...adapterDefaults, '0': '1' };
+    await expect(repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: { ...request, adapterDefaults: changedDefaults },
+      snapshot: { ...changedSnapshot, adapterDefaults: changedDefaults },
+    })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('freezes explicit per-run adapter values and never writes them into reusable target settings', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const adapterValues = { deliveryType: '이번 실행 값', '0': '0' };
+    const request: PrepareTargetExecutionInput = {
+      ...requestFor('target-adapter-values-1'),
+      adapterValues,
+    };
+    const snapshot: TargetExecutionSnapshot = { ...fixture.snapshot, adapterValues };
+
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot,
+    });
+
+    expect(prepared.payload.adapterValues).toEqual(adapterValues);
+    await expect(targets.get(TEST_ORGANIZATION_ID, fixture.targetId)).resolves.toMatchObject({
+      registrationInput: { categoryId: 'category-1' },
+    });
+    await expect(repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: { ...request, adapterValues: { ...adapterValues, deliveryType: '다른 실행 값' } },
+      snapshot: { ...snapshot, adapterValues: { ...adapterValues, deliveryType: '다른 실행 값' } },
+    })).rejects.toBeInstanceOf(ConflictException);
+    await expect(targets.get(TEST_ORGANIZATION_ID, fixture.targetId)).resolves.toMatchObject({
+      registrationInput: { categoryId: 'category-1' },
+    });
+  });
+
+  it('includes updateFields in the target intent and rejects conflicting idempotency reuse', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true });
+    const request: PrepareTargetExecutionInput = {
+      ...requestFor('target-price-update-1'),
+      kind: 'update',
+      channelListingId: fixture.listingId!,
+      updateFields: ['salePrice'],
+    };
+    const snapshot: TargetExecutionSnapshot = {
+      ...fixture.snapshot,
+      kind: 'update',
+      channelListingId: fixture.listingId,
+      updateFields: ['salePrice'],
+    };
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot,
+    });
+    expect(prepared.payload.updateFields).toEqual(['salePrice']);
+
+    await expect(repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: { ...request, updateFields: undefined },
+      snapshot: { ...snapshot, updateFields: undefined },
+    })).rejects.toBeInstanceOf(ConflictException);
+    await expect(repository.findTargetReplay({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      targetId: fixture.targetId,
+      request,
+    })).resolves.toMatchObject({
+      executionId: prepared.executionId,
+      payload: { updateFields: ['salePrice'] },
+    });
+  });
+
+  it.each([
+    { mode: 'omitted' as const },
+    { mode: 'partial' as const },
+  ])('rejects $mode provider option identities atomically for a templated registration', async ({ mode }) => {
+    const fixture = await createFixture(prisma, targets, { component: false });
+    const expanded = await addSecondSelectedOption(prisma, targets, fixture);
+    const request: PrepareTargetExecutionInput = {
+      ...requestFor(`target-template-${mode}-1`),
+      expectedVersion: 2,
+      applyCompositionTemplate: true,
+    };
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: { ...expanded.snapshot, applyCompositionTemplate: true },
+    });
+    const started = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    const evidence: ReportTargetExecutionInput['evidence'] = {
+      channelAccountId: fixture.accountId,
+      externalListingId: `template-${mode}-listing-1`,
+      providerAccountId: 'vendor-1',
+      observedUrl: 'https://wing.coupang.com/products/template-registration-1',
+      ...(mode === 'partial' ? {
+        options: [{
+          salesProductOptionId: fixture.optionId,
+          externalOptionId: 'template-first-option-1',
+        }],
+      } : {}),
+    };
+
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence,
+      },
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(prisma.channelListing.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalId: `template-${mode}-listing-1`,
+      },
+    })).resolves.toBe(0);
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: {
+        status: true,
+        providerOutcome: true,
+        channelListingId: true,
+        externalListingId: true,
+        resultJson: true,
+      },
+    })).resolves.toEqual({
+      status: 'executing',
+      providerOutcome: 'uncertain',
+      channelListingId: null,
+      externalListingId: null,
+      resultJson: null,
+    });
+  });
+
+  it.each([
+    { mode: 'wrong provider identity' as const, providerAccountId: 'vendor-2' },
+    { mode: 'missing provider identity' as const, providerAccountId: undefined },
+  ])('requires the frozen provider identity for a trusted mall URL ($mode)', async ({ providerAccountId }) => {
+    const fixture = await createFixture(prisma, targets, { channel: 'smartstore' });
+    const request = requestFor('target-frozen-provider-identity-1');
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: fixture.snapshot,
+    });
+    const started = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    await prisma.channelAccount.update({
+      where: { id: fixture.accountId },
+      data: { vendorId: 'vendor-2', externalAccountId: 'vendor-2' },
+    });
+
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: {
+          channelAccountId: fixture.accountId,
+          externalListingId: 'frozen-provider-listing-1',
+          observedUrl: 'https://sell.smartstore.naver.com/products/frozen-provider-listing-1',
+          ...(providerAccountId ? { providerAccountId } : {}),
+        },
+      },
+    })).rejects.toBeInstanceOf(ConflictException);
+    await expect(prisma.channelListing.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'frozen-provider-listing-1' },
+    })).resolves.toBe(0);
+  });
+
+  it('keeps a null frozen provider identity unknown after live account metadata changes', async () => {
+    const fixture = await createFixture(prisma, targets, {
+      channel: 'smartstore',
+      providerIdentity: null,
+    });
+    const request = requestFor('target-null-provider-identity-1');
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: fixture.snapshot,
+    });
+    const started = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    await prisma.channelAccount.update({
+      where: { id: fixture.accountId },
+      data: { vendorId: 'vendor-2', externalAccountId: 'vendor-2' },
+    });
+
+    const baseEvidence = {
+      channelAccountId: fixture.accountId,
+      externalListingId: 'null-provider-listing-1',
+      observedUrl: 'https://sell.smartstore.naver.com/products/null-provider-listing-1',
+    };
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: { ...baseEvidence, providerAccountId: 'vendor-2' },
+      },
+    })).rejects.toBeInstanceOf(ConflictException);
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: baseEvidence,
+      },
+    })).resolves.toMatchObject({ status: 'succeeded', providerOutcome: 'succeeded' });
+  });
+
+  it('keeps uncertain submissions reconciling, requires provider proof for confirmation, and applies recipes in the same transaction', async () => {
+    const fixture = await createFixture(prisma, targets, {
+      listing: true,
+      component: true,
+      existingOptionLink: false,
+    });
+    const request: PrepareTargetExecutionInput = {
+      ...requestFor('target-composition-1'),
+      kind: 'composition_change',
+      channelListingId: fixture.listingId!,
+      optionTransitions: [{
+        channelListingOptionId: fixture.listingOptionId!,
+        salesProductOptionId: fixture.optionId,
+      }],
+    };
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: {
+        ...fixture.snapshot,
+        kind: 'composition_change',
+        channelListingId: fixture.listingId,
+        optionTransitions: request.optionTransitions,
+      },
+    });
+    const started = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    const baseEvidence = {
+      channelAccountId: fixture.accountId,
+      externalListingId: 'provider-listing-1',
+      options: [{
+        salesProductOptionId: fixture.optionId,
+        externalOptionId: 'provider-option-1',
+        sellerSku: 'provider-echo-sku',
+      }],
+    };
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: randomUUID(),
+        payloadHash: started.payloadHash,
+        outcome: 'submitted',
+        evidence: { ...baseEvidence, providerAccountId: 'vendor-1' },
+      },
+    })).rejects.toThrow('lease');
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: 'stale-payload-hash',
+        outcome: 'submitted',
+        evidence: { ...baseEvidence, providerAccountId: 'vendor-1' },
+      },
+    })).rejects.toThrow('payload hash');
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: baseEvidence,
+      },
+    })).rejects.toThrow('frozen provider account identity');
+
+    const submitted = await repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'submitted',
+        evidence: { ...baseEvidence, providerAccountId: 'vendor-1' },
+      },
+    });
+    expect(submitted).toMatchObject({ status: 'reconciling', providerOutcome: 'uncertain', maySubmit: false });
+
+    const confirmed = await repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: { ...baseEvidence, providerAccountId: 'vendor-1' },
+      },
+    });
+    expect(confirmed).toMatchObject({ status: 'succeeded', providerOutcome: 'succeeded', leaseToken: null });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: fixture.listingOptionId! },
+      select: { salesProductOptionId: true, kidItemCode: true, sellerSku: true },
+    })).resolves.toEqual({
+      salesProductOptionId: fixture.optionId,
+      kidItemCode: 'KID00000001',
+      sellerSku: 'EXISTING-SKU',
+    });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: fixture.listingOptionId! },
+      select: { masterProductId: true, quantity: true },
+    })).resolves.toEqual([{ masterProductId: fixture.masterProductId, quantity: 1 }]);
+
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: randomUUID(),
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: { ...baseEvidence, providerAccountId: 'vendor-1' },
+      },
+    })).resolves.toMatchObject({ status: 'succeeded', maySubmit: false });
+
+    const templateRequest: PrepareTargetExecutionInput = {
+      ...requestFor('target-template-1'),
+      channelListingId: fixture.listingId!,
+      applyCompositionTemplate: true,
+    };
+    const templatePrepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: templateRequest,
+      snapshot: { ...fixture.snapshot, channelListingId: fixture.listingId, applyCompositionTemplate: true },
+    });
+    const templateStarted = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: templatePrepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    await repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: templatePrepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: templateStarted.leaseToken!,
+        payloadHash: templateStarted.payloadHash,
+        outcome: 'confirmed',
+        evidence: {
+          channelAccountId: fixture.accountId,
+          externalListingId: 'provider-listing-1',
+          providerAccountId: 'vendor-1',
+          options: [{
+            salesProductOptionId: fixture.optionId,
+            externalOptionId: 'provider-option-1',
+          }],
+        },
+      },
+    });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: fixture.listingOptionId! },
+    })).resolves.toHaveLength(1);
+  });
+
+  it.each([
+    { channel: 'smartstore', origin: 'https://sell.smartstore.naver.com', applyTemplate: true },
+    { channel: 'kidkids', origin: 'https://partner.kidkids.net', applyTemplate: true },
+    { channel: 'kidkids', origin: 'https://partner.kidkids.net', applyTemplate: false },
+  ])('creates canonical listing and option links for a new $channel registration using its registered admin origin', async ({ channel, origin, applyTemplate }) => {
+    const fixture = await createFixture(prisma, targets, { component: true, channel });
+    const request: PrepareTargetExecutionInput = {
+      ...requestFor('target-new-listing-1'),
+      applyCompositionTemplate: applyTemplate,
+    };
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: { ...fixture.snapshot, applyCompositionTemplate: applyTemplate },
+    });
+    const started = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    const confirmed = await repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: {
+          channelAccountId: fixture.accountId,
+          externalListingId: `${channel}-listing-1`,
+          observedUrl: `${origin}/products/${channel}-listing-1`,
+          providerAccountId: 'vendor-1',
+          observedStatus: 'active',
+          options: [{
+            salesProductOptionId: fixture.optionId,
+            externalOptionId: `${channel}-option-1`,
+            sellerSku: `${channel}-SKU-1`,
+          }],
+        },
+      },
+    });
+
+    const listing = await prisma.channelListing.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: fixture.accountId,
+        externalId: `${channel}-listing-1`,
+      },
+      select: { id: true, salesProductId: true, channelName: true, displayName: true, status: true },
+    });
+    const option = await prisma.channelListingOption.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, listingId: listing.id, externalOptionId: `${channel}-option-1` },
+      select: { id: true, salesProductOptionId: true, sellerSku: true, kidItemCode: true },
+    });
+    const inventoryComponents = await prisma.channelListingOptionInventoryComponent.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id },
+    });
+    const execution = await prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: { channelListingId: true, resultJson: true },
+    });
+
+    expect(confirmed).toMatchObject({ status: 'succeeded', providerOutcome: 'succeeded' });
+    expect(listing).toMatchObject({
+      id: execution.channelListingId,
+      salesProductId: fixture.productId,
+      channelName: null,
+      displayName: null,
+      status: 'active',
+    });
+    expect(option).toMatchObject({ salesProductOptionId: fixture.optionId, sellerSku: `${channel}-SKU-1` });
+    expect(option.kidItemCode).toBe(fixture.snapshot.product.options[0].optionCode);
+    expect(inventoryComponents).toHaveLength(applyTemplate ? 1 : 0);
+    expect(execution.resultJson).toMatchObject({ outcome: 'confirmed' });
+  });
+
+  it('rolls back canonical confirmation writes when the real recipe target validation fails', async () => {
+    const fixture = await createFixture(prisma, targets, {
+      listing: true,
+      component: true,
+      existingOptionLink: false,
+    });
+    const request: PrepareTargetExecutionInput = {
+      ...requestFor('target-composition-rollback-1'),
+      kind: 'composition_change',
+      channelListingId: fixture.listingId!,
+      optionTransitions: [{
+        channelListingOptionId: fixture.listingOptionId!,
+        salesProductOptionId: fixture.optionId,
+      }],
+    };
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: {
+        ...fixture.snapshot,
+        kind: 'composition_change',
+        channelListingId: fixture.listingId,
+        optionTransitions: request.optionTransitions,
+      },
+    });
+    const started = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+
+    // The frozen common option still names this source identity, but the Products
+    // reader can no longer resolve it when the confirmation transaction runs.
+    await prisma.masterProduct.delete({ where: { id: fixture.masterProductId } });
+
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: {
+          channelAccountId: fixture.accountId,
+          externalListingId: 'provider-listing-1',
+          providerAccountId: 'vendor-1',
+          options: [{
+            salesProductOptionId: fixture.optionId,
+            externalOptionId: 'provider-option-1',
+          }],
+        },
+      },
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(prisma.channelListingOption.findUnique({
+      where: { id: fixture.listingOptionId! },
+      select: { salesProductOptionId: true },
+    })).resolves.toEqual({ salesProductOptionId: null });
+    await expect(prisma.channelListingOptionInventoryComponent.count({
+      where: { channelListingOptionId: fixture.listingOptionId! },
+    })).resolves.toBe(0);
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: { status: true, providerOutcome: true, channelListingId: true, resultJson: true },
+    })).resolves.toEqual({
+      status: 'executing',
+      providerOutcome: 'uncertain',
+      channelListingId: fixture.listingId,
+      resultJson: null,
+    });
+  });
+
+  it('leaves an existing link and recipe untouched when the provider result is unresolved', async () => {
+    const fixture = await createFixture(prisma, targets, {
+      listing: true,
+      component: true,
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: fixture.listingOptionId!,
+        masterProductId: fixture.masterProductId,
+        quantity: 2,
+      },
+    });
+    const request: PrepareTargetExecutionInput = {
+      ...requestFor('target-uncertain-existing-recipe-1'),
+      kind: 'update',
+      channelListingId: fixture.listingId!,
+    };
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: { ...fixture.snapshot, kind: 'update', channelListingId: fixture.listingId },
+    });
+    const started = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+
+    const unresolved = await repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'uncertain',
+        evidence: {
+          channelAccountId: fixture.accountId,
+          externalListingId: 'provider-listing-1',
+          providerAccountId: 'vendor-1',
+        },
+      },
+    });
+
+    expect(unresolved).toMatchObject({ status: 'reconciling', providerOutcome: 'uncertain' });
+    expect(unresolved.result).toMatchObject({ outcome: 'uncertain' });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: fixture.listingOptionId! },
+      select: { salesProductOptionId: true, kidItemCode: true, sellerSku: true },
+    })).resolves.toEqual({
+      salesProductOptionId: fixture.optionId,
+      kidItemCode: null,
+      sellerSku: 'EXISTING-SKU',
+    });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: fixture.listingOptionId! },
+      select: { masterProductId: true, quantity: true },
+    })).resolves.toEqual([{ masterProductId: fixture.masterProductId, quantity: 2 }]);
+  });
+
+  it('lists the actor-scoped target history with target execution kinds and a fifty-row cap', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const request = requestFor('target-history-prepared-1');
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: fixture.snapshot,
+    });
+    const baseTime = Date.now();
+    const payload = fixture.snapshot as unknown as Prisma.InputJsonValue;
+    await prisma.productRegistrationExecution.createMany({
+      data: Array.from({ length: 51 }, (_, index) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: fixture.targetId,
+        channelAccountId: fixture.accountId,
+        executionKind: 'register',
+        idempotencyKey: `target-history-${index}`,
+        requestHash: `target-history-request-${index}`,
+        submissionPayloadJson: payload,
+        submissionPayloadHash: prepared.payloadHash,
+        status: 'succeeded',
+        providerOutcome: 'succeeded',
+        requestedByUserId: TEST_USER_ID,
+        resultJson: { marker: index },
+        createdAt: new Date(baseTime + index * 1_000),
+      })),
+    });
+    await prisma.productRegistrationExecution.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: fixture.targetId,
+        channelAccountId: fixture.accountId,
+        executionKind: 'create',
+        idempotencyKey: 'target-history-legacy',
+        requestHash: 'target-history-legacy-request',
+        submissionPayloadJson: payload,
+        submissionPayloadHash: prepared.payloadHash,
+        status: 'succeeded',
+        providerOutcome: 'succeeded',
+        requestedByUserId: TEST_USER_ID,
+        resultJson: { marker: 'legacy' },
+        createdAt: new Date(baseTime + 100_000),
+      },
+    });
+
+    const history = await repository.listTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      targetId: fixture.targetId,
+      requestedByUserId: TEST_USER_ID,
+    });
+    expect(history).toHaveLength(50);
+    expect(history.map((item) => (item.result as { marker: number }).marker))
+      .toEqual(Array.from({ length: 50 }, (_, index) => 50 - index));
+    expect(history.every((item) => item.payload.kind === 'register')).toBe(true);
+    await expect(repository.listTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      targetId: fixture.targetId,
+      requestedByUserId: randomUUID(),
+    })).resolves.toEqual([]);
+    await expect(repository.listTarget({
+      organizationId: OTHER_ORGANIZATION_ID,
+      targetId: fixture.targetId,
+      requestedByUserId: TEST_USER_ID,
+    })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('freezes listing-only availability, fences one submit, and updates only observed canonical status', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true, channel: 'kidkids' });
+    const request: PrepareListingAvailabilityInput = {
+      channelAccountId: fixture.accountId,
+      externalListingId: 'provider-listing-1',
+      kind: 'sold_out',
+      optionCodes: ['provider-option-1'],
+      idempotencyKey: 'listing-availability-sold-out-1',
+    };
+    const prepared = await repository.prepareListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+    });
+    expect(prepared).toMatchObject({
+      channelAccountId: fixture.accountId,
+      status: 'prepared',
+      providerOutcome: 'not_attempted',
+      maySubmit: false,
+      payload: {
+        subject: 'channel_listing',
+        channelListingId: fixture.listingId,
+        channelAccountId: fixture.accountId,
+        mallKey: 'kidkids',
+        externalListingId: 'provider-listing-1',
+        kind: 'sold_out',
+        optionCodes: ['provider-option-1'],
+      },
+    });
+    const stored = await prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: { productPreparationId: true, channelListingId: true, expectedProviderAccountId: true },
+    });
+    expect(stored).toEqual({
+      productPreparationId: null,
+      channelListingId: fixture.listingId,
+      expectedProviderAccountId: 'vendor-1',
+    });
+    await expect(repository.getTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(repository.prepareListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: { ...request, optionCodes: ['not-an-option'] },
+    })).rejects.toBeInstanceOf(ConflictException);
+    await expect(repository.prepareListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: randomUUID(),
+      request,
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const started = await repository.startListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      executionId: prepared.executionId,
+    });
+    expect(started).toMatchObject({ status: 'executing', providerOutcome: 'uncertain', maySubmit: true });
+    await expect(repository.startListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      executionId: prepared.executionId,
+    })).resolves.toMatchObject({ status: 'executing', maySubmit: false, leaseToken: started.leaseToken });
+
+    await expect(repository.reportListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      executionId: prepared.executionId,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: {
+          channelAccountId: fixture.accountId,
+          externalListingId: 'provider-listing-1',
+          providerAccountId: 'wrong-vendor',
+        },
+      },
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const submitted = await repository.reportListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      executionId: prepared.executionId,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'awaiting_approval',
+        evidence: { channelAccountId: fixture.accountId, providerAccountId: 'vendor-1' },
+      },
+    });
+    expect(submitted).toMatchObject({ status: 'reconciling', providerOutcome: 'uncertain' });
+    expect(submitted.result).toMatchObject({ outcome: 'awaiting_approval' });
+    await expect(prisma.channelListing.findUniqueOrThrow({
+      where: { id: fixture.listingId! },
+      select: { status: true },
+    })).resolves.toEqual({ status: null });
+
+    const confirmed = await repository.reportListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      executionId: prepared.executionId,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: {
+          channelAccountId: fixture.accountId,
+          externalListingId: 'provider-listing-1',
+          providerAccountId: 'vendor-1',
+          observedStatus: '일시품절',
+        },
+      },
+    });
+    expect(confirmed).toMatchObject({ status: 'succeeded', providerOutcome: 'succeeded', leaseToken: null });
+    expect(confirmed.result).toMatchObject({ outcome: 'confirmed' });
+    await expect(prisma.channelListing.findUniqueOrThrow({
+      where: { id: fixture.listingId! },
+      select: { status: true, salesProductId: true },
+    })).resolves.toEqual({ status: '일시품절', salesProductId: fixture.productId });
+    await expect(repository.reportListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      executionId: prepared.executionId,
+      report: {
+        leaseToken: randomUUID(),
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: {
+          channelAccountId: fixture.accountId,
+          externalListingId: 'provider-listing-1',
+          providerAccountId: 'vendor-1',
+          observedStatus: '판매중',
+        },
+      },
+    })).resolves.toMatchObject({ status: 'succeeded', result: { outcome: 'confirmed' } });
+  });
+
+  it('rejects unsupported seller systems and keeps registration-target executions on their own API', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true });
+    await expect(repository.prepareListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: {
+        channelAccountId: fixture.accountId,
+        externalListingId: 'provider-listing-1',
+        kind: 'sold_out',
+        optionCodes: [],
+        idempotencyKey: 'listing-unsupported-coupang-1',
+      },
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const targetRequest: PrepareTargetExecutionInput = {
+      ...requestFor('shared-execution-contract-1'),
+      channelListingId: fixture.listingId!,
+    };
+    const targetExecution = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: targetRequest,
+      snapshot: { ...fixture.snapshot, channelListingId: fixture.listingId },
+    });
+    await expect(repository.prepareListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: {
+        channelAccountId: fixture.accountId,
+        externalListingId: 'provider-listing-1',
+        kind: 'sold_out',
+        optionCodes: [],
+        idempotencyKey: targetRequest.idempotencyKey,
+      },
+    })).rejects.toBeInstanceOf(ConflictException);
+    await expect(repository.listListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: fixture.accountId,
+      externalListingId: 'provider-listing-1',
+    })).resolves.toEqual([]);
+    await expect(repository.getTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: targetExecution.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).resolves.toMatchObject({ executionId: targetExecution.executionId });
+  });
+
+  it('lists only the actor-scoped listing history and caps it at the latest fifty rows', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true, channel: 'kidkids' });
+    const request: PrepareListingAvailabilityInput = {
+      channelAccountId: fixture.accountId,
+      externalListingId: 'provider-listing-1',
+      kind: 'sold_out',
+      optionCodes: [],
+      idempotencyKey: 'listing-history-failed-seed-1',
+    };
+    const prepared = await repository.prepareListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+    });
+    const started = await repository.startListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      executionId: prepared.executionId,
+    });
+    await repository.reportListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      executionId: prepared.executionId,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'not_submitted',
+        evidence: { channelAccountId: fixture.accountId },
+      },
+    });
+
+    const baseTime = Date.now();
+    const payload = prepared.payload as unknown as Prisma.InputJsonValue;
+    await prisma.productRegistrationExecution.createMany({
+      data: Array.from({ length: 51 }, (_, index) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        productPreparationId: null,
+        channelAccountId: fixture.accountId,
+        channelListingId: fixture.listingId,
+        executionKind: 'sold_out',
+        expectedProviderAccountId: 'vendor-1',
+        idempotencyKey: `listing-history-${index}`,
+        requestHash: `listing-history-request-${index}`,
+        submissionPayloadJson: payload,
+        submissionPayloadHash: prepared.payloadHash,
+        status: 'succeeded',
+        providerOutcome: 'succeeded',
+        externalListingId: 'provider-listing-1',
+        requestedByUserId: TEST_USER_ID,
+        resultJson: { marker: index },
+        createdAt: new Date(baseTime + index * 1_000),
+      })),
+    });
+
+    const history = await repository.listListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: fixture.accountId,
+      externalListingId: 'provider-listing-1',
+    });
+    expect(history).toHaveLength(50);
+    expect(history.map((item) => (item.result as { marker: number }).marker))
+      .toEqual(Array.from({ length: 50 }, (_, index) => 50 - index));
+    await expect(repository.listListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: randomUUID(),
+      channelAccountId: fixture.accountId,
+      externalListingId: 'provider-listing-1',
+    })).resolves.toEqual([]);
+    await expect(repository.listListingAvailability({
+      organizationId: OTHER_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: fixture.accountId,
+      externalListingId: 'provider-listing-1',
+    })).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+function requestFor(idempotencyKey: string): PrepareTargetExecutionInput {
+  return {
+    expectedVersion: 1,
+    kind: 'register',
+    idempotencyKey,
+    applyCompositionTemplate: false,
+    optionTransitions: [],
+  };
+}
+
+async function createFixture(
+  prisma: PrismaClient,
+  targets: RegistrationTargetRepositoryAdapter,
+  input: {
+    listing?: boolean;
+    component?: boolean;
+    channel?: string;
+    existingOptionLink?: boolean;
+    providerIdentity?: string | null;
+  } = {},
+) {
+  const accountId = randomUUID();
+  const productId = randomUUID();
+  const optionId = randomUUID();
+  const listingId = input.listing ? randomUUID() : null;
+  const listingOptionId = input.listing ? randomUUID() : null;
+  const masterProductId = randomUUID();
+  await prisma.channelAccount.create({
+    data: {
+      id: accountId,
+      organizationId: TEST_ORGANIZATION_ID,
+      channel: input.channel ?? 'coupang',
+      name: `${input.channel ?? 'Coupang'} test account`,
+      externalAccountId: input.providerIdentity === null ? null : 'vendor-1',
+      vendorId: input.providerIdentity === null ? null : (input.providerIdentity ?? 'vendor-1'),
+      status: 'active',
+    },
+  });
+  await prisma.salesProduct.create({
+    data: {
+      id: productId,
+      organizationId: TEST_ORGANIZATION_ID,
+      code: `SP-${productId.slice(0, 8)}`,
+      name: '공통 상품',
+      version: 1,
+    },
+  });
+  await prisma.salesProductOption.create({
+    data: {
+      id: optionId,
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId: productId,
+      optionCode: 'KID00000001',
+      optionKey: '파랑',
+      values: ['파랑'],
+      salePrice: 3_000,
+      normalPrice: 5_000,
+      supplyStatus: 'selling',
+      sortOrder: 0,
+    },
+  });
+  if (input.component) {
+    await seedSourceProduct(prisma, {
+      id: masterProductId,
+      organizationId: TEST_ORGANIZATION_ID,
+      code: `SOURCE-${productId.slice(0, 8)}`,
+      name: '원천 상품',
+      currentStock: 10,
+    });
+    await prisma.salesProductOptionComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        salesProductOptionId: optionId,
+        masterProductId,
+        quantity: 1,
+      },
+    });
+  }
+  if (listingId && listingOptionId) {
+    await prisma.channelListing.create({
+      data: {
+        id: listingId,
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: accountId,
+        salesProductId: productId,
+        externalId: 'provider-listing-1',
+        channelName: input.channel ?? 'coupang',
+        isActive: true,
+      },
+    });
+    await prisma.channelListingOption.create({
+      data: {
+        id: listingOptionId,
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId,
+        externalOptionId: 'provider-option-1',
+        ...(input.existingOptionLink !== false ? { salesProductOptionId: optionId } : {}),
+        sellerSku: 'EXISTING-SKU',
+        isActive: true,
+      },
+    });
+  }
+  const target = await targets.create(TEST_ORGANIZATION_ID, {
+    salesProductId: productId,
+    channelAccountId: accountId,
+    displayName: null,
+    registrationInput: { categoryId: 'category-1' },
+    selectedOptions: [{
+      salesProductOptionId: optionId,
+      salePrice: null,
+      normalPrice: null,
+      supplyPrice: null,
+    }],
+  });
+  const timestamp = new Date().toISOString();
+  const snapshot: TargetExecutionSnapshot = {
+    targetId: target,
+    targetVersion: 1,
+    channelAccountId: accountId,
+    kind: 'register',
+    channelListingId: listingId,
+    applyCompositionTemplate: false,
+    product: {
+      id: productId,
+      code: `SP-${productId.slice(0, 8)}`,
+      ownCode: null,
+      sabangnetGoodsNo: null,
+      sourceCandidateId: null,
+      name: '공통 상품',
+      shortName: null,
+      englishName: null,
+      printName: null,
+      modelName: null,
+      modelNo: null,
+      brand: null,
+      manufacturer: null,
+      originCountry: null,
+      originRegion: null,
+      keywords: [],
+      standardCategory: null,
+      status: 'active',
+      taxType: 'taxable',
+      deliveryFeeType: null,
+      deliveryFee: null,
+      optionAxes: ['색상'],
+      stockManaged: false,
+      optionsLocked: false,
+      imageUrls: [],
+      detailHtml: null,
+      extraDetailHtml: [],
+      noticeCategory: null,
+      noticeValues: [],
+      certifications: [],
+      importDeclarationNo: null,
+      adminMemo: null,
+      version: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      options: [{
+        id: optionId,
+        optionCode: 'KID00000001',
+        values: ['파랑'],
+        optionKey: '파랑',
+        alias: null,
+        barcode: null,
+        salePrice: 3_000,
+        normalPrice: 5_000,
+        supplyStatus: 'selling',
+        safetyStock: null,
+        sortOrder: 0,
+        components: input.component ? [{
+          masterProductId,
+          sellpiaCode: 'SELLPIA-1',
+          name: '원천 상품',
+          optionName: '파랑',
+          quantity: 1,
+          currentStock: 10,
+        }] : [],
+        linkedChannelOptionCount: input.listing ? 1 : 0,
+      }],
+      channelOverrides: [],
+      channelListings: [],
+    },
+    registrationInput: { categoryId: 'category-1' },
+    supplyPrices: [{ salesProductOptionId: optionId, supplyPrice: null }],
+  };
+  return {
+    accountId,
+    productId,
+    optionId,
+    targetId: target,
+    listingId,
+    listingOptionId,
+    masterProductId,
+    snapshot,
+  };
+}
+
+async function addSecondSelectedOption(
+  prisma: PrismaClient,
+  targets: RegistrationTargetRepositoryAdapter,
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+) {
+  const secondOptionId = randomUUID();
+  await prisma.salesProductOption.create({
+    data: {
+      id: secondOptionId,
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId: fixture.productId,
+      optionCode: 'KID00000002',
+      optionKey: '초록',
+      values: ['초록'],
+      salePrice: 4_000,
+      normalPrice: 6_000,
+      supplyStatus: 'selling',
+      sortOrder: 1,
+    },
+  });
+  await targets.update(TEST_ORGANIZATION_ID, fixture.targetId, {
+    expectedVersion: 1,
+    displayName: null,
+    registrationInput: fixture.snapshot.registrationInput,
+    selectedOptions: [
+      {
+        salesProductOptionId: fixture.optionId,
+        salePrice: null,
+        normalPrice: null,
+        supplyPrice: null,
+      },
+      {
+        salesProductOptionId: secondOptionId,
+        salePrice: null,
+        normalPrice: null,
+        supplyPrice: null,
+      },
+    ],
+  });
+  const firstOption = fixture.snapshot.product.options[0];
+  const secondOption = {
+    ...firstOption,
+    id: secondOptionId,
+    optionCode: 'KID00000002',
+    optionKey: '초록',
+    values: ['초록'],
+    components: [],
+    linkedChannelOptionCount: 0,
+  };
+  return {
+    ...fixture,
+    secondOptionId,
+    snapshot: {
+      ...fixture.snapshot,
+      targetVersion: 2,
+      product: {
+        ...fixture.snapshot.product,
+        options: [firstOption, secondOption],
+      },
+      supplyPrices: [
+        ...fixture.snapshot.supplyPrices,
+        { salesProductOptionId: secondOptionId, supplyPrice: null },
+      ],
+    },
+  };
+}

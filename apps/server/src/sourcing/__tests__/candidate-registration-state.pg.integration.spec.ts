@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -8,8 +7,10 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import type { PrismaService } from '../../prisma/prisma.service';
+import { ProductPreparationRepositoryAdapter } from '../../channels/adapter/out/persistence/candidate-registration.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -23,11 +24,19 @@ describe('candidate registration state (PG integration)', () => {
   let candidates: SourcingCandidateRepositoryAdapter;
   let candidateId: string;
   let workspaceId: string;
+  let salesProductId: string;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    candidates = new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService);
+    const registrations = new ProductPreparationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      { lock: async () => undefined, requireActive: async () => undefined },
+    );
+    candidates = new SourcingCandidateRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      registrations,
+    );
   });
 
   afterAll(async () => prisma?.$disconnect());
@@ -56,6 +65,25 @@ describe('candidate registration state (PG integration)', () => {
         status: 'sourced',
       },
     })).id;
+    const salesProduct = await prisma.salesProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidateId,
+        code: 'CANDIDATE-REGISTRATION-STATE',
+        name: 'Kids rain boots',
+      },
+    });
+    salesProductId = salesProduct.id;
+    await prisma.salesProductOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        salesProductId,
+        optionCode: 'CANDIDATE-REGISTRATION-STATE-1',
+        values: ['단품'],
+        optionKey: '단품',
+        salePrice: 1000,
+      },
+    });
     workspaceId = (await prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -132,6 +160,7 @@ describe('candidate registration state (PG integration)', () => {
     return (await prisma.productPreparation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        salesProductId,
         sourceCandidateId: candidateId,
         channelAccountId: ACCOUNT_ID,
         sourceContentWorkspaceId: workspaceId,

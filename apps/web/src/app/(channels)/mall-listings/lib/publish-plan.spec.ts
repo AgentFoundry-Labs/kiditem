@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import type {
-  MallPublishAdapter,
-  MallPublishItem,
-} from '../../_shared/mall-publish-adapter';
 import {
   buildPublishPlan,
   collectManualSteps,
   summarizePublishRun,
   type PublishTask,
 } from './publish-plan';
+import type {
+  MallPublishAdapter,
+  MallPublishItem,
+} from '../../_shared/mall-publish-adapter';
 
 function item(id: string, overrides: Partial<MallPublishItem> = {}): MallPublishItem {
   return { candidateId: id, name: `상품 ${id}`, salePrice: 1000, thumbnailUrl: null, ...overrides };
@@ -126,6 +126,55 @@ describe('buildPublishPlan', () => {
     });
   });
 
+  it('freezes the exact selected account and only values the operator edited', () => {
+    const plan = buildPublishPlan({
+      items: [item('a')],
+      adapters: [adapter({ mallKey: 'kidsnote' })],
+      valuesByMall: { kidsnote: { categoryPath: '기본값', returnFee: '3000' } },
+      editedValuesByMall: { kidsnote: { returnFee: '3000' } },
+      channelAccountIds: { kidsnote: 'channel-account-id' },
+    });
+
+    expect(plan.tasks[0]).toMatchObject({
+      channelAccountId: 'channel-account-id',
+      adapterValues: { returnFee: '3000' },
+    });
+    expect(plan.tasks[0]?.adapterValues).not.toHaveProperty('categoryPath');
+  });
+
+  it('blocks an item until one of its multiple account settings is explicitly selected', () => {
+    const plan = buildPublishPlan({
+      items: [item('a')],
+      adapters: [adapter({ mallKey: 'kidsnote' })],
+      valuesByMall: {},
+      channelAccountIds: { kidsnote: 'account-1' },
+      registrationTargetSelectionRequiredByMall: { kidsnote: ['a'] },
+    });
+
+    expect(plan.tasks).toHaveLength(0);
+    expect(plan.sendCount).toBe(0);
+    expect(plan.blocks).toMatchObject([{
+      mallKey: 'kidsnote',
+      candidateId: 'a',
+      reasons: ['여러 등록 설정 중 사용할 설정을 선택하세요.'],
+    }]);
+  });
+
+  it('freezes the exact explicitly selected registration target on the task', () => {
+    const plan = buildPublishPlan({
+      items: [item('a'), item('b')],
+      adapters: [adapter({ mallKey: 'kidsnote', batchSize: 1 })],
+      valuesByMall: {},
+      registrationTargetSelectionRequiredByMall: { kidsnote: ['a', 'b'] },
+      registrationTargetIdsByMall: { kidsnote: { a: 'target-a', b: 'target-b' } },
+    });
+
+    expect(plan.tasks.map((entry) => entry.registrationTargetIdsByItem)).toEqual([
+      { a: 'target-a' },
+      { b: 'target-b' },
+    ]);
+  });
+
   it('보낼 것이 하나도 없으면 작업이 없다', () => {
     const plan = buildPublishPlan({
       items: [],
@@ -142,8 +191,10 @@ function task(overrides: Partial<PublishTask> = {}): PublishTask {
     id: 'mall#0',
     mallKey: 'mall',
     mallName: '몰',
+    channelAccountId: 'channel-account-id',
     items: [item('a')],
     values: {},
+    adapterValues: {},
     status: 'pending',
     outcome: null,
     error: null,

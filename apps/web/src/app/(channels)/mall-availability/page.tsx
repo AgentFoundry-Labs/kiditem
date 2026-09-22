@@ -8,6 +8,7 @@ import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { mallPublishingApi } from '../_shared/mall-publishing-api';
+import { MallAvailabilitySend } from '../_shared/MallAvailabilitySend';
 
 const PREVIEW_LIMIT = 100;
 
@@ -49,7 +50,7 @@ export default function MallAvailabilityPage() {
             품절 관리
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            판매 가능 재고가 0인 옵션을 몰에 반영합니다. 해제는 품절과 같은 명령입니다.
+            판매 가능 재고가 0인 옵션을 골라 둡니다. 해제는 품절과 같은 명령입니다.
           </p>
         </div>
         <button
@@ -63,9 +64,32 @@ export default function MallAvailabilityPage() {
         </button>
       </div>
 
+      {/*
+        확장이 몰 화면을 열어 줄을 골라 두는 데까지가 우리 몫이다. 마지막 버튼은 사람이
+        누른다 — 잘못 보낸 품절은 되돌리는 데 사람 손이 들고 그동안 그 상품은 팔리지
+        않는다. 이 안내가 표 아래가 아니라 숫자 **위**에 서는 이유도 같다: 100줄 밑에
+        적힌 "제출은 안 합니다"는 읽히지 않는다.
+      */}
+      <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+        <Info size={15} className="mt-0.5 flex-none" />
+        <div>
+          <strong>몰 버튼을 누르면 그 몰에 품절을 보냅니다.</strong> 사장님이 몰마다 들어가실
+          필요가 없습니다. 해제는 같은 명령이라 재고가 들어오면 같은 자리에서 되돌립니다.
+          보낸 뒤에는 몰을 다시 가져와 반영을 확인한 것만 완료로 셉니다 — 보낸 것과 반영된 것은
+          다른 사실입니다.
+        </div>
+      </div>
+
+      <MallAvailabilitySend />
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <SummaryCard label="품절 후보" value={preview?.total ?? 0} hint="전체" />
-        <SummaryCard label="보낼 수 있음" value={preview?.sendableCount ?? 0} tone="emerald" hint={windowHint} />
+        {/*
+          ⚠️ 여기 초록을 칠하지 않는다. 보낼 경로가 없는데 '보낼 수 있음' 을 초록으로 적으면
+          눌러도 아무 일이 안 일어나는 숫자를 다 된 일처럼 읽는다. 쇼핑몰 현황의 품절 송신 칸도
+          같은 상황을 '아직'(회색)으로 칠한다 — 두 화면이 같은 말을 해야 한다.
+        */}
+        <SummaryCard label="규칙상 막힘 없음" value={preview?.sendableCount ?? 0} hint={windowHint} />
         <SummaryCard label="판매중지로 강등" value={downgraded} tone="amber" hint={windowHint} />
         <SummaryCard label="차단됨" value={preview?.blockedCount ?? 0} tone="red" hint={windowHint} />
         {/* 레시피가 없는 옵션은 재고로 판정할 수 없어 후보에 오르지 않는다. 0 으로 숨기지 않고 센다. */}
@@ -101,14 +125,6 @@ export default function MallAvailabilityPage() {
         <CandidateTable candidates={candidates} />
       )}
 
-      <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-        <Info size={15} className="mt-0.5 flex-none" />
-        <div>
-          <strong>지금은 미리보기만 합니다.</strong> 실제 송신은 몰별 어댑터가 붙는 다음 단계에
-          열리고, 그때도 보내기 전에 이 표를 먼저 확인하는 순서는 그대로입니다. 보낸 뒤에는
-          몰을 다시 조회해 반영을 확인한 것만 완료로 셉니다.
-        </div>
-      </div>
     </div>
   );
 }
@@ -162,7 +178,7 @@ function CandidateTable({ candidates }: { candidates: MallAvailabilityCandidate[
                     title={
                       candidate.effectiveState === candidate.desiredState
                         ? undefined
-                        : '완전품절이 영구삭제인 몰이라 판매중지로 강등했습니다.'
+                        : '이 몰은 품절을 판매중지로 보냅니다(완전품절이 영구삭제이거나, 관리자 화면의 품절 길이 판매중지인 몰).'
                     }
                   >
                     {STATE_LABEL[candidate.effectiveState]}

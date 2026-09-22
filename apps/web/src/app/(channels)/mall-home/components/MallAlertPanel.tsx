@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowRight, Bell, CheckCircle2, CircleAlert, Loader2, ShieldCheck, X } from 'lucide-react';
-import type { AlertItem } from '@kiditem/shared/alerts';
 import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
+import type { AlertItem } from '@kiditem/shared/alerts';
 import { useDismissAlert } from '@/lib/alerts-api';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
 import {
@@ -45,6 +45,7 @@ export function MallAlertPanel({
   onFilterChange,
   mall,
   onClearMall,
+  className,
 }: {
   alerts: readonly AlertItem[];
   derived: readonly DerivedMallAlert[];
@@ -54,16 +55,18 @@ export function MallAlertPanel({
   onFilterChange: (filter: MallAlertFilter) => void;
   mall: { key: string; name: string } | null;
   onClearMall: () => void;
+  /** 둘러싼 칸이 높이를 나눠 줄 때(쇼핑몰 홈 오른쪽 칸: AI 비용 아래 남은 높이). */
+  className?: string;
 }) {
-  // 계정 행을 함께 쓰는 몰(쿠팡직배송)의 알림은 그 행의 키로 접어 견준다 — 사람이 누르는
-  // 카드는 그 행의 몰(로켓)이라, 접지 않으면 직배송 알림을 어느 카드로도 볼 수 없다.
   const inMall = (item: AlertItem) => {
     if (!mall) return true;
     const key = mallKeyOfAlert(item);
     return key !== null && channelOutcomeKey(key) === channelOutcomeKey(mall.key);
   };
   const scopedAlerts = alerts.filter(inMall);
-  const scopedDerived = mall ? derived.filter((item) => item.mallKeys.includes(mall.key)) : derived;
+  const scopedDerived = mall
+    ? derived.filter((item) => item.mallKeys.some((key) => channelOutcomeKey(key) === channelOutcomeKey(mall.key)))
+    : derived;
   const counts: Record<MallAlertFilter, number> = {
     all: scopedDerived.length + scopedAlerts.length,
     attention: scopedDerived.length + scopedAlerts.filter(needsAttention).length,
@@ -77,7 +80,7 @@ export function MallAlertPanel({
     <aside
       id="mall-alerts"
       aria-label="쇼핑몰 알림"
-      className="relative order-first min-w-0 scroll-mt-6 xl:order-none xl:col-span-1 xl:min-h-[24rem]"
+      className={cn('relative min-w-0 scroll-mt-6 xl:min-h-[24rem]', className)}
     >
       <div className="flex flex-col rounded-xl border border-slate-200 bg-white xl:absolute xl:inset-0">
         <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">

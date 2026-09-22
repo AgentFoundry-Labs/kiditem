@@ -25,6 +25,13 @@ function account(overrides: Partial<MallListingAccountRow> = {}): MallListingAcc
     name: 'Coupang Wing',
     listingCount: 1230,
     productCount: 456,
+    onSaleProductCount: 0,
+    onSaleListingCount: 0,
+    onSaleLinkedListingCount: 0,
+    optionCount: 0,
+    matchedOptionCount: 0,
+    onSaleOptionCount: 0,
+    onSaleMatchedOptionCount: 0,
     ...overrides,
   };
 }
@@ -44,6 +51,7 @@ function product(overrides: Partial<MallMatrixProductRow> = {}): MallMatrixProdu
   return {
     masterProductId: 'mp-1',
     code: 'INV-SELLPIA-1',
+    sellpiaCode: 'INV-SELLPIA-1',
     name: '3000샤이닝반짝이풀펜',
     imageUrl: null,
     stock: 120,
@@ -87,6 +95,7 @@ function build(overrides: {
       limit: 25,
       summary: { total: 0, inStock: 0, outOfStock: 0, unmatched: 0, needsReview: 0 },
     }),
+    findByListingIds: async () => [],
   } as unknown as ChannelSkuAvailabilityPort;
 
   return new MallPublishingService(repository, availability);
@@ -210,6 +219,7 @@ describe('listingMatrix — 칸', () => {
       mallAccounts: [mallAccount()],
       matrixProducts: [product({
         listings: [{
+          storefrontProductId: null,
           channelAccountId: 'acc-coupang',
           status: '승인완료',
           externalId: '16290876620',
@@ -235,6 +245,7 @@ describe('listingMatrix — 칸', () => {
       mallAccounts: [mallAccount(), mallAccount({ mallKey: 'rocket', channelAccountId: 'acc-rocket' })],
       matrixProducts: [product({
         listings: [{
+          storefrontProductId: null,
           channelAccountId: 'acc-coupang', status: '승인완료',
           externalId: 'x', category: null, updatedAt: new Date(),
         }],
@@ -253,6 +264,7 @@ describe('listingMatrix — 칸', () => {
       mallAccounts: [mallAccount()],
       matrixProducts: [product({
         listings: [{
+          storefrontProductId: null,
           channelAccountId: 'acc-coupang', status: '활성',
           externalId: 'x', category: '문구/사무용품', updatedAt: new Date(),
         }],

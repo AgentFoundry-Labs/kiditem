@@ -106,6 +106,9 @@ export interface MallAdapterManifest {
   /** 상품등록·품절 개념 자체가 없는 채널(발주 전용 등). */
   readonly applicable: boolean;
   readonly supports: MallAdapterSupports;
+  /** The direct mall-admin route implemented by the extension, when present. */
+  readonly soldOutRoute: 'mall_admin' | null;
+  readonly resumeRoute: 'mall_admin' | null;
   readonly hazards: MallAdapterHazards;
   readonly limits: MallAdapterLimits;
   readonly preflightRules: readonly MallPreflightRule[];
@@ -199,6 +202,29 @@ const NO_LIMIT: MallAdapterLimits = {
   minStockValue: null,
 };
 
+/** Direct mall-admin routes implemented by the extension. */
+const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
+  'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
+  'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore', 'thirtymall',
+]);
+const SUSPENSION_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore', 'thirtymall']);
+const OPTION_LEVEL_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['coupang']);
+
+export function soldOutSendsByOption(key: string): boolean {
+  return OPTION_LEVEL_SOLD_OUT_KEYS.has(key);
+}
+
+function soldOutRouteFor(key: string, applicable: boolean): 'mall_admin' | null {
+  return applicable && MALL_ADMIN_SOLD_OUT_KEYS.has(key) ? 'mall_admin' : null;
+}
+
+function resumeRouteFor(
+  soldOutRoute: 'mall_admin' | null,
+  supports: MallAdapterSupports,
+): 'mall_admin' | null {
+  return soldOutRoute === 'mall_admin' && supports.resume ? 'mall_admin' : null;
+}
+
 /**
  * 어댑터 사정만 담는다. 키 · 이름 · 실행 경로 · 검증 여부 · 등록 개념 유무는 채널
  * 레지스트리가 답한다 — 여기 다시 적으면 둘이 갈라진다.
@@ -227,9 +253,16 @@ function manifest(entry: ChannelRegistryEntry, seed: ManifestSeed): MallAdapterM
   const applicable = channelRegistersListings(entry);
   // 확인 안 된 몰과 해당 없는 채널은 supports 를 열지 않는다. 시드에 뭐가 적혀
   // 있든 닫는다 — 매니페스트 실수가 몰 송신으로 이어지지 않게 하는 마지막 방어선.
-  const supports = unverified || !applicable
+  const soldOutRoute = soldOutRouteFor(entry.key, applicable);
+  // Keep the verified registry gate for listing writes, while preserving the
+  // separately verified mall-admin stop/resume paths for unverified malls.
+  const supports = !applicable
     ? NO_SUPPORT
-    : { ...NO_SUPPORT, ...seed.supports };
+    : unverified
+      ? soldOutRoute === 'mall_admin'
+        ? { ...NO_SUPPORT, setSaleStatus: 'listing' as const, soldOut: true, resume: seed.supports?.resume === true }
+        : NO_SUPPORT
+      : { ...NO_SUPPORT, ...seed.supports };
   return {
     key: entry.key,
     name: entry.name,
@@ -238,6 +271,8 @@ function manifest(entry: ChannelRegistryEntry, seed: ManifestSeed): MallAdapterM
     unverified,
     applicable,
     supports,
+    soldOutRoute,
+    resumeRoute: resumeRouteFor(soldOutRoute, supports),
     hazards: { ...NO_HAZARD, ...seed.hazards },
     limits: { ...NO_LIMIT, ...seed.limits },
     preflightRules: applicable ? [...BASE_RULES, ...(seed.extraRules ?? [])] : [],
@@ -493,7 +528,7 @@ export function resolveSoldOutCommand(
   if (!manifest.supports.soldOut) {
     return { allowed: false, reason: `${manifest.name} 품절 송신 경로가 아직 없습니다.` };
   }
-  if (!manifest.hazards.soldOutDeletesListing) {
+  if (!manifest.hazards.soldOutDeletesListing && !SUSPENSION_SOLD_OUT_KEYS.has(manifest.key)) {
     return { allowed: true, downgradedTo: 'sold_out' };
   }
   if (manifest.supports.setSaleStatus === null) {

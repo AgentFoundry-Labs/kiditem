@@ -126,6 +126,8 @@ function salesRow() {
       },
       destinations: [destination],
     },
+    monthlyOutflow: null,
+    outflowMonthCount: 0,
     monthsOfAvailableStockLeft: 2.5,
     monthlyOutflow: 12,
     outflowMonthCount: 2,

@@ -7,16 +7,23 @@ import {
   Loader2,
   Minus,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
   Store,
   XCircle,
 } from 'lucide-react';
 import { MALL_SESSION_PROBE_CAPABILITY } from '@/lib/mall-session-probe';
-import { cn, formatNumber, timeAgo } from '@/lib/utils';
+import { cn, formatNumber, formatTime, timeAgo } from '@/lib/utils';
 import { channelLogoPath } from '@kiditem/shared/channel-registry';
 import { mallAccentClass, mallMonogram } from '../../_shared/mall-presentation';
 import type { MallStatusTile, MallTileTone, TileLoginState } from '../lib/mall-alerts';
 import type { MallSessionView } from '../lib/mall-session';
+
+type MallSessionBoardView = MallSessionView & {
+  /** #554 session shape, when the login retry view is still available. */
+  checkedAtByMall?: Readonly<Record<string, number>>;
+  recheckFailed?: () => void;
+};
 
 const TONE: Record<MallTileTone, { text: string; Icon: typeof Minus }> = {
   failed: { text: 'text-red-600', Icon: XCircle },
@@ -54,14 +61,34 @@ const LOGIN: Record<TileLoginState, { word: string; chip: string; Icon: typeof M
   },
 };
 
+/** 로그인을 다시 시도하는 동안의 칩. */
+const LOGGING_IN = {
+  word: '로그인 중',
+  chip: 'bg-blue-50 text-blue-700',
+  Icon: Loader2,
+  title: '저장된 계정으로 로그인을 다시 시도하는 중입니다.',
+};
+
+/** 로그인이 풀렸다고 나온 몰 — 누르면 알림판을 거르지 않고 로그인을 다시 시도한다. */
+function needsLogin(tile: MallStatusTile): boolean {
+  return tile.login === 'signed_out' || tile.login === 'verification';
+}
+
+/** 확인한 시각(09:05) — 로그인됨이 언제 사실이었는지. */
+function clock(at: number): string {
+  return formatTime(at, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
+
 /**
  * 몰별 상태 — 연결된 몰마다 지금 어떤지 한 줄씩, 그리고 로그인 상태.
  *
  * 상태는 그 몰의 가장 최근 알림 · 기억과 지금 상태(로그인 정보 등)에서 나온다. 로그인 상태는
  * 확장이 몰 관리자 화면을 조용히 읽고, 그걸로 모르면 화면을 열어 본다 — 로그인은 하지 않는다.
  * 확인한 몰은 로그인됨 · 인증 필요 · 로그인 필요 셋 중 하나다.
- * 색만으로 말하지 않고 아이콘과 글로 함께 적는다. 타일을 누르면 오른쪽 알림판이 그 몰 알림만
- * 보여 준다.
+ * 로그인됨 칩에는 확인한 시각을 함께 적는다.
+ * 색만으로 말하지 않고 아이콘과 글로 함께 적는다. 로그인 필요 · 인증 필요 타일을 누르면 그 몰만
+ * 저장된 계정으로 로그인을 다시 시도하고(사람이 누를 때만), 다른 타일은 오른쪽 알림판이 그 몰
+ * 알림만 보여 준다.
  */
 export function MallStatusBoard({
   tiles,
@@ -69,14 +96,20 @@ export function MallStatusBoard({
   selectedMallKey,
   onSelect,
   session,
+  loggingInKey,
+  onRetryLogin,
 }: {
   tiles: readonly MallStatusTile[];
   /** 몰 목록을 받았는가. 못 받았으면 빈 목록을 '몰 없음'으로 읽지 않게 한다. */
   hasOverview: boolean;
   selectedMallKey: string | null;
   onSelect: (mallKey: string | null) => void;
-  session: MallSessionView;
+  session: MallSessionBoardView;
+  /** 지금 로그인을 다시 시도하는 몰. 한 번에 한 몰만 한다. */
+  loggingInKey: string | null;
+  onRetryLogin: (tile: MallStatusTile) => void;
 }) {
+  const loginKey = loggingInKey ?? null;
   const troubled = tiles.filter((tile) => tile.tone === 'failed' || tile.tone === 'attention').length;
   return (
     <section id="mall-status" className="card scroll-mt-6 rounded-2xl">
@@ -97,7 +130,10 @@ export function MallStatusBoard({
         </div>
         {tiles.length > 0 ? <LoginSummary session={session} /> : null}
       </div>
-      <p className="mt-1.5 text-xs text-slate-400">누르면 오른쪽 알림판이 그 몰 알림만 보여 줍니다.</p>
+      <p className="mt-1.5 text-xs text-slate-400">
+        로그인 필요 몰을 누르면 저장된 계정으로 로그인을 다시 시도합니다. 다른 몰은 누르면 오른쪽 알림판이 그 몰
+        알림만 보여 줍니다.
+      </p>
 
       {tiles.length > 0 ? (
         <ul className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-3 2xl:grid-cols-5">
@@ -106,7 +142,14 @@ export function MallStatusBoard({
               <MallTile
                 tile={tile}
                 selected={tile.mallKey === selectedMallKey}
-                onClick={() => onSelect(tile.mallKey === selectedMallKey ? null : tile.mallKey)}
+                checkedAt={session.checkedAtByMall?.[tile.mallKey] ?? session.checkedAt}
+                loggingIn={tile.mallKey === loginKey}
+                busy={loginKey !== null && needsLogin(tile)}
+                onClick={() =>
+                  needsLogin(tile) && onRetryLogin
+                    ? onRetryLogin(tile)
+                    : onSelect(tile.mallKey === selectedMallKey ? null : tile.mallKey)
+                }
               />
             </li>
           ))}
@@ -124,8 +167,10 @@ export function MallStatusBoard({
  * 로그인 상태 한 줄 — 로그인됨 · 인증 필요 · 로그인 필요 몰 수와 확인한 때.
  * 확장이 없으면 없다고, 옛 버전이면 그 버전과 빠진 기능을 적는다 — 둘을 섞지 않는다.
  */
-function LoginSummary({ session }: { session: MallSessionView }) {
+function LoginSummary({ session }: { session: MallSessionBoardView }) {
   const { status, counts, checkedAt, extensionVersion, recheck } = session;
+  const recheckFailed = session.recheckFailed ?? recheck;
+  const failed = counts.signedOut + counts.verification;
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
       <span role="status" aria-label="로그인 상태" className="inline-flex items-center gap-1.5">
@@ -143,17 +188,28 @@ function LoginSummary({ session }: { session: MallSessionView }) {
             {checkedAt !== null ? ` · ${timeAgo(new Date(checkedAt))} 확인` : ''}
           </span>
         ) : (
-          <span>{pendingText(status, counts.checking, extensionVersion)}</span>
+          <span title={status === 'idle' ? "로그인 상태는 '로그인 확인'을 누르면 몰마다 확인합니다." : undefined}>
+            {pendingText(status, counts.checking, extensionVersion)}
+          </span>
         )}
       </span>
       <button
         type="button"
+        onClick={recheckFailed}
+        disabled={status !== 'done' || failed === 0}
+        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <RotateCcw size={12} aria-hidden />
+        실패만 다시 확인
+      </button>
+      <button
+        type="button"
         onClick={recheck}
-        disabled={status === 'idle' || status === 'running'}
+        disabled={status === 'running'}
         className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <RefreshCw size={12} className={cn(status === 'running' && 'animate-spin')} aria-hidden />
-        다시 확인
+        {status === 'idle' ? '로그인 확인' : '다시 확인'}
       </button>
     </div>
   );
@@ -168,21 +224,32 @@ function pendingText(status: MallSessionView['status'], checking: number, versio
     case 'outdated':
       return `확장 ${version ?? '(버전 모름)'}에는 로그인 확인(${MALL_SESSION_PROBE_CAPABILITY})이 없습니다. 확장을 다시 불러오면 확인합니다.`;
     default:
-      return '로그인 상태 확인 준비 중';
+      // 열었다고 몰에 묻지 않는다(사장님 2026-09-19) — 누를 때만 확인한다. 풀이는 마우스를 올리면 보인다.
+      return '로그인 확인 전';
   }
 }
 
 function MallTile({
   tile,
   selected,
+  checkedAt,
+  loggingIn,
+  busy,
   onClick,
 }: {
   tile: MallStatusTile;
   selected: boolean;
+  /** 이 몰을 마지막으로 확인한 때. */
+  checkedAt: number | null;
+  /** 이 몰에 로그인을 다시 시도하는 중. */
+  loggingIn: boolean;
+  /** 다른 몰 로그인을 시도하는 중이라 지금은 누를 수 없다. */
+  busy: boolean;
   onClick: () => void;
 }) {
   const { text, Icon } = TONE[tile.tone];
-  const login = tile.login ? LOGIN[tile.login] : null;
+  const login = loggingIn ? LOGGING_IN : tile.login ? LOGIN[tile.login] : null;
+  const signedInAt = !loggingIn && tile.login === 'signed_in' && checkedAt !== null ? clock(checkedAt) : null;
   const LoginIcon = login?.Icon;
   const logo = channelLogoPath(tile.mallKey);
   // 문제 있는 몰(실패 · 확인 필요 · 로그인 풀림)은 타일 전체를 빨갛게 — 한눈에 골라 보이게.
@@ -192,9 +259,12 @@ function MallTile({
       type="button"
       aria-pressed={selected}
       aria-label={`${tile.mallName} ${tile.label}${login ? `, 로그인 상태 ${login.word}` : ''}`}
+      title={needsLogin(tile) ? '누르면 저장된 계정으로 로그인을 다시 시도합니다.' : undefined}
       onClick={onClick}
+      disabled={busy}
       className={cn(
-        'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition',
+        // 칸마다 줄 수가 달라도 높이가 같게 — 세 줄(이름 · 상태 · 때와 로그인) 높이로 고정한다.
+        'flex h-[76px] w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-wait disabled:opacity-60',
         selected
           ? 'border-primary bg-primary-soft'
           : problem
@@ -242,14 +312,19 @@ function MallTile({
             <span className="truncate text-[11px] tabular-nums text-slate-400">{tile.at ? timeAgo(tile.at) : ''}</span>
             {login && LoginIcon ? (
               <span
-                title={login.title}
+                title={signedInAt ? `${login.title} (${signedInAt} 확인)` : login.title}
                 className={cn(
                   'inline-flex flex-none items-center gap-0.5 rounded-full px-1.5 py-px text-[11px] font-medium',
                   login.chip,
                 )}
               >
-                <LoginIcon size={10} className={cn('flex-none', tile.login === 'checking' && 'animate-spin')} aria-hidden />
+                <LoginIcon
+                  size={10}
+                  className={cn('flex-none', (loggingIn || tile.login === 'checking') && 'animate-spin')}
+                  aria-hidden
+                />
                 {login.word}
+                {signedInAt ? <span className="ml-0.5 tabular-nums">{signedInAt}</span> : null}
               </span>
             ) : null}
           </span>

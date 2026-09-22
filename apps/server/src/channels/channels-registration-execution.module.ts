@@ -1,6 +1,9 @@
 import { Module } from '@nestjs/common';
+import { SalesProductModule } from './sales-product.module';
+import { ChannelOptionRecipeModule } from './channel-option-recipe.module';
+import { RegistrationTargetExecutionController } from './adapter/in/web/registration-target-execution.controller';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SourcingRegistrationDraftModule } from '../sourcing/sourcing-registration-draft.module';
+import { ChannelsRegistrationPreparationModule } from './channels-registration-preparation.module';
 import { ChannelsModule } from './channels.module';
 import { ChannelRegistrationExecutionController } from './adapter/in/http/channel-registration-execution.controller';
 import { RegistrationExecutionRepositoryAdapter } from './adapter/out/repository/registration-execution.repository.adapter';
@@ -15,8 +18,8 @@ import { REGISTRATION_EXECUTION_REPOSITORY_PORT } from './application/port/out/r
  * 따로 서 있다. 이 모듈만 실행 행을 쓴다.
  */
 @Module({
-  imports: [PrismaModule, ChannelsModule, SourcingRegistrationDraftModule],
-  controllers: [ChannelRegistrationExecutionController],
+  imports: [PrismaModule, ChannelsModule, ChannelsRegistrationPreparationModule, SalesProductModule, ChannelOptionRecipeModule],
+  controllers: [ChannelRegistrationExecutionController, RegistrationTargetExecutionController],
   providers: [
     RegistrationExecutionRepositoryAdapter,
     RegistrationExecutionService,

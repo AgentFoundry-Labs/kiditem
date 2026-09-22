@@ -4,13 +4,13 @@ import type {
   UpdateProductPreparationInput,
 } from '@kiditem/shared/sourcing';
 import {
-  PRODUCT_PREPARATION_REPOSITORY_PORT,
-  type ProductPreparationRepositoryPort,
-} from '../port/out/repository/product-preparation.repository.port';
+  CANDIDATE_REGISTRATION_PORT,
+  type CandidateRegistrationPort,
+} from '../../../channels/application/port/in/candidate-registration.port';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
-} from '../port/out/cross-domain/registration-content-workspace.port';
+} from '../port/in/registration-content-workspace.port';
 
 /**
  * 수집후보의 등록 초안.
@@ -22,8 +22,8 @@ import {
 @Injectable()
 export class ProductPreparationService {
   constructor(
-    @Inject(PRODUCT_PREPARATION_REPOSITORY_PORT)
-    private readonly preparations: ProductPreparationRepositoryPort,
+    @Inject(CANDIDATE_REGISTRATION_PORT)
+    private readonly preparations: CandidateRegistrationPort,
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly contentWorkspaces: RegistrationContentWorkspacePort,
   ) {}

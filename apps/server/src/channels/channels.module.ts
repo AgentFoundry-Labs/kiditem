@@ -1,3 +1,4 @@
+import { SalesProductModule } from './sales-product.module';
 import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
 import { AlertsModule } from '../alerts/alerts.module';
@@ -11,6 +12,8 @@ import { ChannelAccountController } from './adapter/in/http/channel-account.cont
 import { ChannelAccountListController } from './adapter/in/http/channel-account-list.controller';
 import { RocketAccountController } from './adapter/in/http/rocket-account.controller';
 import { RocketPoSourceController } from './adapter/in/http/rocket-po-source.controller';
+import { SabangnetMallListingsController } from './adapter/in/http/sabangnet-mall-listings.controller';
+import { MallAdminListingsController } from './adapter/in/http/mall-admin-listings.controller';
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
 import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
 import { RocketSellpiaMatchingCsvImportController } from './adapter/in/http/rocket-sellpia-matching-csv-import.controller';
@@ -55,6 +58,14 @@ import { RocketPoCatalogService } from './application/service/rocket-po-catalog.
 import { RocketPoCatalogRepositoryAdapter } from './adapter/out/repository/rocket-po-catalog.repository.adapter';
 import { ROCKET_PO_CATALOG_PORT } from './application/port/in/rocket-po-catalog.port';
 import { ROCKET_PO_CATALOG_REPOSITORY_PORT } from './application/port/out/repository/rocket-po-catalog.repository.port';
+import { SabangnetMallListingsService } from './application/service/sabangnet-mall-listings.service';
+import { SabangnetMallListingsRepositoryAdapter } from './adapter/out/repository/sabangnet-mall-listings.repository.adapter';
+import { SABANGNET_MALL_LISTINGS_PORT } from './application/port/in/sabangnet-mall-listings.port';
+import { SABANGNET_MALL_LISTINGS_REPOSITORY_PORT } from './application/port/out/repository/sabangnet-mall-listings.repository.port';
+import { MallAdminListingsService } from './application/service/mall-admin-listings.service';
+import { MallAdminListingsRepositoryAdapter } from './adapter/out/repository/mall-admin-listings.repository.adapter';
+import { MALL_ADMIN_LISTINGS_PORT } from './application/port/in/mall-admin-listings.port';
+import { MALL_ADMIN_LISTINGS_REPOSITORY_PORT } from './application/port/out/repository/mall-admin-listings.repository.port';
 import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/marketplace-registration.port';
 import { CHANNEL_CATALOG_IMPORT_PORT } from './application/port/in/channel-catalog-import.port';
 import { ROCKET_SELLPIA_MATCHING_CSV_IMPORT_PORT } from './application/port/in/rocket-sellpia-matching-csv-import.port';
@@ -83,7 +94,7 @@ import { ChannelsWingThumbnailCapabilityAdapter } from './adapter/in/agent/chann
 import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/capability/wing-thumbnail.port';
 
 @Module({
-  imports: [
+  imports: [SalesProductModule,
     AiModule,
     InventoryModule,
     ProductCollectionRuntimeModule,
@@ -97,6 +108,8 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     ChannelAccountListController,
     RocketAccountController,
     RocketPoSourceController,
+    SabangnetMallListingsController,
+    MallAdminListingsController,
     ChannelListingController,
     ChannelCatalogImportController,
     RocketSellpiaMatchingCsvImportController,
@@ -208,6 +221,20 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
       useExisting: RocketPoCatalogRepositoryAdapter,
     },
     { provide: ROCKET_PO_CATALOG_PORT, useExisting: RocketPoCatalogService },
+    SabangnetMallListingsService,
+    SabangnetMallListingsRepositoryAdapter,
+    {
+      provide: SABANGNET_MALL_LISTINGS_REPOSITORY_PORT,
+      useExisting: SabangnetMallListingsRepositoryAdapter,
+    },
+    { provide: SABANGNET_MALL_LISTINGS_PORT, useExisting: SabangnetMallListingsService },
+    MallAdminListingsService,
+    MallAdminListingsRepositoryAdapter,
+    {
+      provide: MALL_ADMIN_LISTINGS_REPOSITORY_PORT,
+      useExisting: MallAdminListingsRepositoryAdapter,
+    },
+    { provide: MALL_ADMIN_LISTINGS_PORT, useExisting: MallAdminListingsService },
     MallPublishingService,
     MallPublishingRepositoryAdapter,
     {

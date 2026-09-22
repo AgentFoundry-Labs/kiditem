@@ -1,3 +1,4 @@
+import { aiUsageMeter } from '../../../application/usage/ai-usage-meter';
 import {
   BadRequestException,
   Inject,
@@ -73,6 +74,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
         httpOptions: { timeout: PROVIDER_TIMEOUT_MS },
       },
     });
+    aiUsageMeter.recordGemini({ model: command.model, operation: 'image_edit', usage: response.usageMetadata });
 
     const inlineData = response.candidates?.[0]?.content?.parts
       ?.find((part) => part.inlineData?.data)

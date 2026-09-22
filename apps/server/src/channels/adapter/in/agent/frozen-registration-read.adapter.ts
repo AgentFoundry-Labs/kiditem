@@ -46,6 +46,7 @@ export class FrozenRegistrationReadAdapter implements FrozenRegistrationReadPort
     const frozen = await this.executions.loadFrozenSubmission(
       input.organizationId,
       input.preparationId,
+      input.executionId,
     );
     if (
       frozen.executionId !== input.executionId ||

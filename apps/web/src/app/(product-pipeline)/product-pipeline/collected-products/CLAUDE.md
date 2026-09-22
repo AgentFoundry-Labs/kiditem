@@ -71,6 +71,15 @@ execution projection. A product appears in registered-products only after the
 execution succeeds with a real `ChannelListing`; registered navigation uses the
 listing/content-workspace identifiers.
 
+## Mall Bulk Sheet
+
+[몰 대량등록] turns each selected candidate's neutral mall draft into a sales
+product through the Products-owned
+`POST /api/products/sales-products/from-candidates` (the same candidate reuses
+its sales product and revives one sent back to 수집상품), skipping candidates
+without a sale price, then opens the shared mall bulk-sheet dialog for those
+sales products. It never changes candidate status or creates a preparation.
+
 ## Boundary Rules
 
 - Deleting a collected card calls `DELETE /api/sourcing/candidates/{id}` and

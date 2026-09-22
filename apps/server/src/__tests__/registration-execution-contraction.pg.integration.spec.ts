@@ -13,6 +13,8 @@ import { consolidateRegistrationExecutionMigration } from '../../../../scripts/d
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_ACCOUNT_ID = '77777777-7777-4777-8777-777777777777';
 const SOURCE_CANDIDATE_ID = '22222222-2222-4222-8222-222222222222';
+const SALES_PRODUCT_ID = '88888888-8888-4888-8888-888888888001';
+const SALES_PRODUCT_OPTION_ID = '88888888-8888-4888-8888-888888888002';
 const LISTING_ID = '33333333-3333-4333-8333-333333333333';
 const ACTIVE_PREPARATION_ID = '44444444-4444-4444-8444-444444444001';
 const REGISTERED_PREPARATION_ID = '44444444-4444-4444-8444-444444444002';
@@ -499,6 +501,7 @@ describe('v0.1.31:018 registration execution contraction (PostgreSQL)', () => {
     const closed = await prisma.productPreparation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        salesProductId: SALES_PRODUCT_ID,
         sourceCandidateId: SOURCE_CANDIDATE_ID,
         channelAccountId: ACCOUNT_ID,
         sourceContentWorkspaceId: workspace.id,
@@ -513,6 +516,7 @@ describe('v0.1.31:018 registration execution contraction (PostgreSQL)', () => {
     const replacement = await prisma.productPreparation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        salesProductId: SALES_PRODUCT_ID,
         sourceCandidateId: SOURCE_CANDIDATE_ID,
         channelAccountId: ACCOUNT_ID,
         sourceContentWorkspaceId: workspace.id,
@@ -566,6 +570,26 @@ describe('v0.1.31:018 registration execution contraction (PostgreSQL)', () => {
         status: 'sourced',
       },
     });
+    await prisma.salesProduct.create({
+      data: {
+        id: SALES_PRODUCT_ID,
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: SOURCE_CANDIDATE_ID,
+        code: 'REGISTRATION-EXECUTION-CONTRACTION',
+        name: 'Legacy registration candidate',
+      },
+    });
+    await prisma.salesProductOption.create({
+      data: {
+        id: SALES_PRODUCT_OPTION_ID,
+        organizationId: TEST_ORGANIZATION_ID,
+        salesProductId: SALES_PRODUCT_ID,
+        optionCode: 'REGISTRATION-EXECUTION-CONTRACTION-1',
+        values: ['단품'],
+        optionKey: '단품',
+        salePrice: 1000,
+      },
+    });
     await prisma.channelListing.create({
       data: {
         id: LISTING_ID,
@@ -589,6 +613,18 @@ describe('v0.1.31:018 registration execution contraction (PostgreSQL)', () => {
     resultJson: Record<string, string> | null;
     leaseToken: string | null;
   }): Promise<void> {
+    await prisma.productPreparation.upsert({
+      where: { id: input.preparationId },
+      create: {
+        id: input.preparationId,
+        organizationId: TEST_ORGANIZATION_ID,
+        salesProductId: SALES_PRODUCT_ID,
+        sourceCandidateId: SOURCE_CANDIDATE_ID,
+        channelAccountId: ACCOUNT_ID,
+        registrationInput: {},
+      },
+      update: {},
+    });
     await prisma.productRegistrationExecution.create({
       data: {
         id: input.id,
@@ -650,6 +686,13 @@ describe('v0.1.31:018 registration execution contraction (PostgreSQL)', () => {
     rows: ReadonlyArray<LegacyRow>,
   ): Promise<void> {
     for (const row of rows) {
+      await tx.$executeRaw`
+        INSERT INTO public.product_preparations
+          (id, organization_id, sales_product_id, source_candidate_id, channel_account_id, registration_input)
+        VALUES (${row.id}::uuid, ${TEST_ORGANIZATION_ID}::uuid, ${SALES_PRODUCT_ID}::uuid,
+          ${SOURCE_CANDIDATE_ID}::uuid, ${(row.channelAccountId ?? ACCOUNT_ID)}::uuid, '{}'::jsonb)
+        ON CONFLICT (id) DO NOTHING
+      `;
       const payloadJson = row.submissionPayloadJson === null
         ? null
         : JSON.stringify(row.submissionPayloadJson);

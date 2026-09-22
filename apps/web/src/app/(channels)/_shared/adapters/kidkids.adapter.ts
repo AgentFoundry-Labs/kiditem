@@ -1,7 +1,5 @@
-import {
-  fillMallRegistrationForm,
-  prepareMallRegistration,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { prepareRegistration } from '../sales-product-registration';
+import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   KIDKIDS_DEFAULT_CATEGORY,
   KIDKIDS_DEFAULT_CATEGORY_LABEL,
@@ -13,7 +11,7 @@ import {
   kidkidsSupplyPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/kidkids-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -174,7 +172,7 @@ export const kidkidsAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'kidkids');
     const certNumber = values.certNumber?.trim();
     const category = parseCategory(values.categoryCodes);
     const form = kidkidsFormFromDraft(draft, {
@@ -183,14 +181,7 @@ export const kidkidsAdapter: MallPublishAdapter = {
       ...(category ? { categoryCodes: category } : {}),
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('kidkids', draft, form);
-    return {
-      ok: result.ok,
-      // 폼을 채운 것은 등록이 아니다. [등록] 은 사람이 누른다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    const result = await fillMallRegistrationForm('kidkids', draft, form, mallFormExecutionOptions(item));
+    return registrationOutcome(result);
   },
 };

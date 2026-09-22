@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { AiUsageContextInterceptor } from './ai/adapter/in/http/ai-usage-context.interceptor';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AdvertisingModule } from './advertising/advertising.module';
@@ -7,6 +8,7 @@ import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-ht
 import { AgentOsRuntimeHttpModule } from './agent-os/agent-os-runtime-http.module';
 import { AiModule } from './ai/ai.module';
 import { AlertsModule } from './alerts/alerts.module';
+import { TodoModule } from './todo/todo.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
 import { OrganizationScopeGuard } from './auth/guards/organization-scope.guard';
@@ -44,6 +46,7 @@ function apiThrottleLimitPerMinute(): number {
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: apiThrottleLimitPerMinute() }]),
     PrismaModule,
     AlertsModule,
+    TodoModule,
     AuthModule,
     CommonModule,
     StorageModule,
@@ -71,6 +74,8 @@ function apiThrottleLimitPerMinute(): number {
     { provide: APP_GUARD, useClass: RebuildReadinessGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Guards have resolved the organization by the time interceptors run.
+    { provide: APP_INTERCEPTOR, useClass: AiUsageContextInterceptor },
   ],
 })
 export class ApiApplicationModule implements NestModule {

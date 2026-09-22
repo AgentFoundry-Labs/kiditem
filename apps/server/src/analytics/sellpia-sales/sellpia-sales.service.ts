@@ -38,6 +38,7 @@ import {
   kstDayStart,
   parseBusinessDate,
 } from '../../common/kst';
+import { isCoupangSeller } from './domain/channel-group';
 
 /**
  * Sellpia 판매현황(sale_summary) read model.
@@ -115,6 +116,23 @@ export class SellpiaSalesService {
       coverageDates,
       sellpiaBasis,
     );
+    // 쿠팡에서 판 것 전부(로켓 + 윙). 윙이 others 에 섞여 있어 버킷만으로는 '쿠팡 매출'이
+    // 안 나온다. 화면이 판매처 이름으로 합치지 않게 여기서 묶어 낸다.
+    const coupang = buildGroup(
+      salesRows.filter((r) => isCoupangSeller(r.sellerName)),
+      totalRevenue,
+      coverageDates,
+      sellpiaBasis,
+    );
+    // 전체. 날마다의 총 매출 선을 화면이 몰들을 더해 만들지 않게 그대로 낸다.
+    const total = buildGroup(salesRows, totalRevenue, coverageDates, sellpiaBasis);
+    // 그 나머지. 둘을 쌓으면 전체 매출이다 — 화면이 전체에서 쿠팡을 빼서 만들지 않게 낸다.
+    const nonCoupang = buildGroup(
+      salesRows.filter((r) => !isCoupangSeller(r.sellerName)),
+      totalRevenue,
+      coverageDates,
+      sellpiaBasis,
+    );
     const dailySales = aggregateSalesByDate(salesRows, coverageDates);
     // A failed ad read is named as a failed source. With no usable ad date the
     // intersection below has no included date, and the derived status is
@@ -153,6 +171,9 @@ export class SellpiaSalesService {
       range: { from, to },
       rocket,
       others,
+      total,
+      coupang,
+      nonCoupang,
       totalRevenue,
       totalCost,
       adCost,
@@ -213,6 +234,9 @@ function emptySellpiaSalesSummary(knownThrough: string): SellpiaSalesSummary {
     range: null,
     rocket: emptyGroup,
     others: { ...emptyGroup },
+    total: { ...emptyGroup },
+    coupang: { ...emptyGroup },
+    nonCoupang: { ...emptyGroup },
     totalRevenue: 0,
     totalCost: 0,
     adCost: null,
@@ -478,6 +502,15 @@ function buildMetricBasis(args: {
     others: args.sellpiaBasis,
     'others.daily': args.sellpiaBasis,
     'others.malls': args.sellpiaBasis,
+    total: args.sellpiaBasis,
+    'total.daily': args.sellpiaBasis,
+    'total.malls': args.sellpiaBasis,
+    coupang: args.sellpiaBasis,
+    'coupang.daily': args.sellpiaBasis,
+    'coupang.malls': args.sellpiaBasis,
+    nonCoupang: args.sellpiaBasis,
+    'nonCoupang.daily': args.sellpiaBasis,
+    'nonCoupang.malls': args.sellpiaBasis,
   };
   return metricBasis;
 }

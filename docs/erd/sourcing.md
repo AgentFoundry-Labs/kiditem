@@ -706,7 +706,6 @@ erDiagram
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentWorkspace |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageImageRenderIntent |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | ProductPreparation |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | Channels | ChannelListing |
 | SourcingCandidate | triggeredByUser | references external | Core | User |

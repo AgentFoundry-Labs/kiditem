@@ -1,4 +1,3 @@
-import { SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT } from './sellpia-product-sales-summary-read.port';
 import { MASTER_PRODUCT_MONTHLY_SALES_READ_PORT } from '../application/port/in/master-product-monthly-sales-read.port';
 import { Module } from '@nestjs/common';
 import { ProductAbcReadModule } from '../../products/product-abc-read.module';
@@ -9,6 +8,7 @@ import { SellpiaProductSalesController } from './sellpia-product-sales.controlle
 import { SellpiaProductSalesService } from './sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from './sellpia-product-inventory-reader';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from './sellpia-product-depletion-read.port';
+import { SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT } from './sellpia-product-sales-summary-read.port';
 import { SellpiaMasterProductProfitFactReader } from './sellpia-master-product-profit-fact.reader';
 import { SellpiaProfitabilitySourceModule } from './sellpia-profitability-source.module';
 

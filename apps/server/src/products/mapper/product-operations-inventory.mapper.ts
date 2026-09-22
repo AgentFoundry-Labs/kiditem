@@ -55,10 +55,10 @@ export function mapProductOperationsListItem(
   product: ProductOperationsRepositoryListItem,
   inventoryBySkuId: AvailabilityBySkuId,
   depletion: ProductDepletionProjection,
-): Omit<MasterProductOperationsListItem, 'abc' | 'abcGrade' | 'abcEvaluation' | 'contribution'> {
+): Omit<MasterProductOperationsListItem, 'abc' | 'abcGrade' | 'abcEvaluation' | 'contribution' | 'monthly'> {
   const {
     activeChannelProducts,
-    abcCreatedAt: _abcCreatedAt,
+    abcCreatedAt,
     inventorySkuIds,
     inventoryOptions: rawOptions,
     ...metadata
@@ -70,10 +70,11 @@ export function mapProductOperationsListItem(
   const inventory = projectCanonicalInventory(inventorySkuIds, inventoryBySkuId);
   return {
     ...metadata,
+    // 등록된 때 — 최신등록순과 신상품 묶음이 읽는다(사장님 2026-09-21).
+    createdAt: abcCreatedAt,
     activeChannels: uniqueActiveChannels(activeChannelProducts),
     displayImageUrls: [...product.imageUrls],
     depletion,
-    monthly: null,
     channelOptionSummary: {
       total: options.length,
       active: options.filter((option) => option.isActive).length,

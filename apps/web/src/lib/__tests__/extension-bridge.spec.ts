@@ -153,6 +153,36 @@ describe('universal extension discovery', () => {
     });
   });
 
+  /**
+   * 2026-09-18 전체 수집: 다른 몰 파일을 만드느라 바쁜 워커가 핑에 1.2초를 넘겨 답했고, 멀쩡한
+   * 확장이 '찾지 못했습니다'로 떨어져 GS샵 · 쿠팡직배송이 시작도 못 했다. 이미 아는 확장은
+   * 더 기다린다 — 늦게 답한 것은 없는 것이 아니다.
+   */
+  it('waits longer for the extension it already knows than for discovery', async () => {
+    window.localStorage.setItem(KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY, 'order-extension');
+    Object.defineProperty(window, 'chrome', {
+      configurable: true,
+      value: {
+        runtime: {
+          lastError: undefined,
+          sendMessage: (_id: string, _message: unknown, callback: (value: PingResponse) => void) => {
+            // A busy worker: answers after 60 ms, past a 20 ms discovery window.
+            window.setTimeout(() => callback({
+              success: true,
+              version: '1.2.2',
+              capabilities: { kiditemEnvironmentProfilesV1: true, browserCollectionSessions: true },
+            }), 60);
+          },
+        },
+      },
+    });
+
+    await expect(detectOrderCollectionExtensionRuntime(20, ['browserCollectionSessions']))
+      .resolves.toEqual({ status: 'not_found' });
+    await expect(detectOrderCollectionExtensionRuntime(20, ['browserCollectionSessions'], 500))
+      .resolves.toEqual({ status: 'ready', extensionId: 'order-extension', version: '1.2.2' });
+  });
+
   it('reports a compatible order extension with its loaded version', async () => {
     window.localStorage.setItem(
       KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,

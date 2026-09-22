@@ -50,6 +50,8 @@ const OPERATION_ID = '00000000-0000-4000-8000-000000000004';
 const PREPARATION_ID = '00000000-0000-4000-8000-000000000005';
 const RECOMMENDATION_RUN_ID = '00000000-0000-4000-8000-000000000006';
 const PURCHASE_ORDER_ID = '00000000-0000-4000-8000-000000000007';
+const CHANNEL_ACCOUNT_ID = '00000000-0000-4000-8000-000000000012';
+const SALES_PRODUCT_OPTION_ID = '00000000-0000-4000-8000-000000000013';
 const NOW = new Date('2026-08-28T00:00:00.000Z');
 const SOURCE_URL = 'https://detail.1688.com/offer/712345678901.html';
 
@@ -64,12 +66,99 @@ const snapshot: SourcingSourceSnapshot = {
   contentHash: 'a'.repeat(64),
 };
 
+const targetExecutionResult = {
+  executionId: OPERATION_ID,
+  targetId: PREPARATION_ID,
+  channelAccountId: CHANNEL_ACCOUNT_ID,
+  status: 'prepared' as const,
+  providerOutcome: 'not_attempted' as const,
+  payloadHash: 'c'.repeat(64),
+  payload: {
+    targetId: PREPARATION_ID,
+    targetVersion: 1,
+    channelAccountId: CHANNEL_ACCOUNT_ID,
+    kind: 'register' as const,
+    channelListingId: null,
+    applyCompositionTemplate: false,
+    product: {
+      id: CANDIDATE_ID,
+      code: 'TOY-1',
+      ownCode: null,
+      sabangnetGoodsNo: null,
+      sourceCandidateId: null,
+      name: 'Toy',
+      shortName: null,
+      englishName: null,
+      printName: null,
+      modelName: null,
+      modelNo: null,
+      brand: null,
+      manufacturer: null,
+      originCountry: null,
+      originRegion: null,
+      keywords: [],
+      standardCategory: null,
+      status: 'active' as const,
+      taxType: 'taxable' as const,
+      deliveryFeeType: null,
+      deliveryFee: null,
+      optionAxes: [],
+      stockManaged: false,
+      optionsLocked: false,
+      imageUrls: [],
+      detailHtml: null,
+      extraDetailHtml: [],
+      noticeCategory: null,
+      noticeValues: [],
+      certifications: [],
+      importDeclarationNo: null,
+      adminMemo: null,
+      version: 1,
+      createdAt: '2026-08-28T00:00:00.000Z',
+      updatedAt: '2026-08-28T00:00:00.000Z',
+      options: [{
+        id: SALES_PRODUCT_OPTION_ID,
+        optionCode: 'TOY-1-0001',
+        values: [],
+        optionKey: '',
+        alias: null,
+        barcode: null,
+        salePrice: 1_000,
+        normalPrice: null,
+        supplyStatus: 'selling' as const,
+        safetyStock: null,
+        sortOrder: 0,
+        components: [],
+        linkedChannelOptionCount: 0,
+      }],
+      channelOverrides: [],
+      channelListings: [],
+    },
+    registrationInput: {},
+    supplyPrices: [{ salesProductOptionId: SALES_PRODUCT_OPTION_ID, supplyPrice: null }],
+  },
+  leaseToken: null,
+  maySubmit: false,
+  externalListingId: null,
+  result: null,
+  createdAt: '2026-08-28T00:00:00.000Z',
+};
+
 const scenarios: readonly InvocationScenario[] = [
   scenario('analytics.readOverview', 'analytics.readOverview', 'none', { period: 'today' }, {
     sales: { revenue: 1, orders: 1 },
     inventory: { outOfStockSkus: 0, mappingAttentionSkus: 0 },
     freshness: { lastSync: null },
   }),
+  scenario('channels.get_target_execution', 'channels.getTargetExecution', 'none', {
+    executionId: OPERATION_ID,
+  }, targetExecutionResult),
+  scenario('channels.prepare_target_execution', 'channels.prepareTargetExecution', 'low', {
+    targetId: PREPARATION_ID,
+    expectedVersion: 1,
+    kind: 'register',
+    applyCompositionTemplate: false,
+  }, targetExecutionResult),
   scenario('channels.register_confirmed_listing', 'channels.registerConfirmedListing', 'medium', {
     registrationExecutionId: OPERATION_ID,
     preparationId: PREPARATION_ID,
@@ -79,6 +168,16 @@ const scenarios: readonly InvocationScenario[] = [
       wingIdentitySource: 'dom:data-vendor-id',
     },
   }, { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' }),
+  scenario('channels.report_target_execution', 'channels.reportTargetExecution', 'medium', {
+    executionId: OPERATION_ID,
+    leaseToken: CHANNEL_ACCOUNT_ID,
+    payloadHash: 'c'.repeat(64),
+    outcome: 'uncertain',
+    evidence: { channelAccountId: CHANNEL_ACCOUNT_ID },
+  }, targetExecutionResult),
+  scenario('channels.start_target_execution', 'channels.startTargetExecution', 'medium', {
+    executionId: OPERATION_ID,
+  }, targetExecutionResult),
   scenario('channels.submit_wing_thumbnail', 'channels.submitWingThumbnail', 'high', { generationId: 'generation-1' }, {
     success: true,
     screenshotPath: null,
@@ -141,7 +240,7 @@ const scenarios: readonly InvocationScenario[] = [
 ];
 
 describe('actual capability MCP wire matrix', () => {
-  it('discovers and invokes all 13 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
+  it('discovers and invokes all 17 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
     const runtime = matrixRuntime();
     try {
       const catalog = await call(runtime.handler, 'tools/call', {
@@ -163,7 +262,7 @@ describe('actual capability MCP wire matrix', () => {
         expect.any(SupplyCapabilityCompositionAdapter),
       ]);
       expect(runtime.compositionProviders.flatMap((provider) => provider.compositions))
-        .toHaveLength(13);
+        .toHaveLength(17);
 
       for (const entry of scenarios) {
         expect(entry.definition.ownerInputPort).toBe(entry.expectedOwnerInputPort);
@@ -400,6 +499,28 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
       { success: true, screenshotPath: null },
     ),
   };
+  const executions = {
+    prepareTargetExecution: typedOwnerExecutionPortMethod(
+      typedOwnerPortCalls,
+      'channels.prepare_target_execution',
+      targetExecutionResult,
+    ),
+    getTargetExecution: typedOwnerExecutionPortMethod(
+      typedOwnerPortCalls,
+      'channels.get_target_execution',
+      targetExecutionResult,
+    ),
+    startTargetExecution: typedOwnerExecutionPortMethod(
+      typedOwnerPortCalls,
+      'channels.start_target_execution',
+      targetExecutionResult,
+    ),
+    reportTargetExecution: typedOwnerExecutionPortMethod(
+      typedOwnerPortCalls,
+      'channels.report_target_execution',
+      targetExecutionResult,
+    ),
+  };
   const products: ProductsListingGenerationCapabilityPort = {
     createListingGenerationPackage: typedOwnerPortMethod(
       typedOwnerPortCalls,
@@ -476,7 +597,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
 
   return [
     new AnalyticsCapabilityCompositionAdapter(analytics),
-    new ChannelsCapabilityCompositionAdapter(channels, wing),
+    new ChannelsCapabilityCompositionAdapter(channels, wing, executions as never),
     new ProductsCapabilityCompositionAdapter(products),
     new SourcingCapabilityCompositionAdapter(sourcing),
     new SupplyCapabilityCompositionAdapter(supply),
@@ -489,6 +610,22 @@ function typedOwnerPortMethod<Input, Output>(
   output: Output,
 ): (input: Input) => Promise<Output> {
   return vi.fn(async (input: Input) => {
+    const existing = calls.get(capabilityKey);
+    if (existing) {
+      existing.push(input);
+    } else {
+      calls.set(capabilityKey, [input]);
+    }
+    return output;
+  });
+}
+
+function typedOwnerExecutionPortMethod<Output>(
+  calls: TypedOwnerPortCalls,
+  capabilityKey: string,
+  output: Output,
+): (...input: unknown[]) => Promise<Output> {
+  return vi.fn(async (...input: unknown[]) => {
     const existing = calls.get(capabilityKey);
     if (existing) {
       existing.push(input);
@@ -519,8 +656,26 @@ function expectedTypedOwnerPortCall(
   switch (entry.definition.key) {
     case 'analytics.readOverview':
       return { organizationId: ORGANIZATION_ID, ...input };
+    case 'channels.prepare_target_execution': {
+      const context = mutationContext();
+      const { targetId, ...request } = input;
+      return [
+        ORGANIZATION_ID,
+        targetId,
+        USER_ID,
+        { ...request, idempotencyKey: context.ownerIdempotencyKey },
+      ];
+    }
+    case 'channels.get_target_execution':
+      return [ORGANIZATION_ID, input.executionId, USER_ID];
     case 'channels.register_confirmed_listing':
       return { context: mutationContext(), input };
+    case 'channels.report_target_execution': {
+      const { executionId, ...report } = input;
+      return [ORGANIZATION_ID, executionId, USER_ID, report];
+    }
+    case 'channels.start_target_execution':
+      return [ORGANIZATION_ID, input.executionId, USER_ID];
     case 'channels.submit_wing_thumbnail': {
       const context = mutationContext();
       return {

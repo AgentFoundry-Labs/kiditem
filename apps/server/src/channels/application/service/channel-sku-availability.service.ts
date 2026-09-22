@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type {
-  ChannelSkuAvailabilityItem,
-  ChannelSkuAvailabilityListResponse,
-  ChannelSkuAvailabilityQuery,
+import {
+  isChannelSkuOutOfStock,
+  type ChannelSkuAvailabilityItem,
+  type ChannelSkuAvailabilityListResponse,
+  type ChannelSkuAvailabilityQuery,
 } from '@kiditem/shared/channel-sku-availability';
 import type { ChannelSkuAvailabilityPort } from '../port/in/channel-sku-availability.port';
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
@@ -50,9 +51,7 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
         inStock: projected.filter((item) =>
           item.sku.mappingStatus === 'matched'
           && (item.sku.sellableStock ?? 0) > 0).length,
-        outOfStock: projected.filter((item) =>
-          item.sku.mappingStatus === 'matched'
-          && item.sku.sellableStock === 0).length,
+        outOfStock: projected.filter(isChannelSkuOutOfStock).length,
         unmatched: projected.filter((item) => item.sku.mappingStatus === 'unmatched').length,
         needsReview: projected.filter(
           (item) => item.sku.mappingStatus === 'needs_review',
@@ -116,7 +115,9 @@ function toAvailabilityItem(
     row.inventoryComponents,
     inventoryByMasterProductId,
   );
-  const recipeStatus = components.length === 0
+  const recipeStatus = row.compositionUnconfirmed && row.listing.masterProductId
+    ? 'review_required' as const
+    : components.length === 0
     ? row.listing.masterProductId
       ? 'configuration_required' as const
       : 'unmatched' as const
@@ -174,7 +175,9 @@ function toAvailabilityItem(
         ? capacity === sellableStock
         : null,
     })),
-    warnings: recipeStatus === 'configuration_required'
+    warnings: row.compositionUnconfirmed
+      ? ['composition_unconfirmed']
+      : recipeStatus === 'configuration_required'
       ? ['configuration_required']
       : components.some((component) => component.currentStock === null)
           ? ['inventory_unavailable']
@@ -192,5 +195,5 @@ function matchesStatus(
   if (status === 'in_stock') {
     return item.sku.mappingStatus === 'matched' && (item.sku.sellableStock ?? 0) > 0;
   }
-  return item.sku.mappingStatus === 'matched' && item.sku.sellableStock === 0;
+  return isChannelSkuOutOfStock(item);
 }

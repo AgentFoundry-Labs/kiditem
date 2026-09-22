@@ -43,6 +43,14 @@ export const MallPreflightRuleSchema = z.enum([
 ]);
 export type MallPreflightRule = z.infer<typeof MallPreflightRuleSchema>;
 
+/**
+ * 품절을 보내는 길. 매니페스트가 소유하고 화면은 읽기만 한다.
+ *
+ * `mall_admin` 하나뿐인 것이 방침이다 — 사방넷 기능을 흡수하고 사방넷을 그만 쓴다(KID-251).
+ */
+export const MallSoldOutRouteSchema = z.enum(['mall_admin']).nullable();
+export type MallSoldOutRoute = z.infer<typeof MallSoldOutRouteSchema>;
+
 export const MallAdapterManifestSchema = z.object({
   key: z.string(),
   name: z.string(),
@@ -58,6 +66,12 @@ export const MallAdapterManifestSchema = z.object({
     soldOut: z.boolean(),
     resume: z.boolean(),
   }),
+  soldOutRoute: MallSoldOutRouteSchema,
+  /**
+   * 판매 재개(품절 해제)를 보내는 길. 품절 길이 있고 몰이 해제를 받으면 같은 길이다 — 쇼핑몰 현황이
+   * 품절관리 · 판매재개를 칸 둘로 가른다(사장님 2026-09-19).
+   */
+  resumeRoute: MallSoldOutRouteSchema,
   hazards: z.object({
     soldOutDeletesListing: z.boolean(),
     suspendAutoDeletesAfterDays: z.number().nullable(),
@@ -189,6 +203,13 @@ export const MallListingMatrixColumnSchema = z.object({
     setStock: z.boolean(),
     soldOutDeletesListing: z.boolean(),
     requiresOperatorApproval: z.boolean(),
+    /**
+     * 품절을 어느 길로 보내는가.
+     *
+     * `mall_admin` 은 우리가 그 몰 관리자에 직접 쓰는 구현이 있다는 뜻이고, `null` 은
+     * 아직 그 몰을 뚫지 않았다는 뜻이다. 화면은 이 값으로 **왜** 버튼이 없는지 말한다.
+     */
+    soldOutRoute: MallSoldOutRouteSchema,
   }),
 });
 export type MallListingMatrixColumn = z.infer<typeof MallListingMatrixColumnSchema>;
@@ -199,6 +220,8 @@ export const MallListingMatrixCellSchema = z.object({
   /** 몰이 준 원문 상태. 우리 어휘로 접기 전 값이라 툴팁에 그대로 쓴다. */
   rawStatus: z.string().nullable(),
   externalId: z.string().nullable(),
+  /** 몰 매장의 상품 페이지 주소. 확인한 규칙이 있는 몰만 — 모르면 null(옛 API 는 이 칸이 없다). */
+  productUrl: z.string().nullable().default(null),
   warning: z.string().nullable(),
   updatedAt: z.string().nullable(),
 });
@@ -208,6 +231,12 @@ export const MallListingMatrixRowSchema = z.object({
   masterProductId: z.string(),
   name: z.string(),
   code: z.string(),
+  /**
+   * 셀피아 상품코드(`10487-1`). 표가 이 번호가 큰 것부터 서므로 화면에 보여야 순서가
+   * 읽힌다 — 마스터 코드(`INV-SELLPIA-<uuid>`)는 아무것도 알려주지 않는다.
+   * 셀피아 재고에 이어지지 않은 마스터는 null.
+   */
+  sellpiaCode: z.string().nullable().default(null),
   /**
    * 상품 사진.
    *
@@ -269,6 +298,24 @@ export const MallChannelSummarySchema = z.object({
   orderCount: z.number(),
   /** 이 몰에 올라간 서로 다른 상품 수. */
   productCount: z.number(),
+  /**
+   * 그 가운데 판매중 리스팅이 있는 상품 수 — 등록 상품 칸은 '판매중/전체'다(사장님 2026-09-19).
+   * 옛 API 가 이 칸을 안 보내도 화면이 서도록 기본값을 둔다.
+   */
+  onSaleProductCount: z.number().default(0),
+  /** 활성 리스팅 가운데 판매중인 리스팅 수 — 등록 상품 칸은 '판매중/전체' 리스팅이다. */
+  onSaleListingCount: z.number().default(0),
+  /** 판매중 리스팅 가운데 활성 옵션이 모두 셀피아 재고에 이어진 리스팅 수 — 매칭률의 분자. */
+  onSaleLinkedListingCount: z.number().default(0),
+  /**
+   * 매칭률 — 이 몰의 활성 옵션 가운데 셀피아 재고 레시피가 붙은 비율의 재료다.
+   * 옛 API 가 이 칸을 안 보내도 화면이 서도록 기본값을 둔다(그때는 0/0 이라 '—').
+   */
+  optionCount: z.number().default(0),
+  matchedOptionCount: z.number().default(0),
+  /** 판매중 리스팅의 옵션 수와 그 가운데 이어진 수. 화면이 보여 주는 매칭률이다. */
+  onSaleOptionCount: z.number().default(0),
+  onSaleMatchedOptionCount: z.number().default(0),
   readiness: MallPublishReadinessSchema,
 });
 export type MallChannelSummary = z.infer<typeof MallChannelSummarySchema>;
@@ -287,12 +334,26 @@ export type MallChannelOverview = z.infer<typeof MallChannelOverviewSchema>;
 /** 품절 송신 후보 한 줄. Phase 0 에서는 dry-run 표시만 하고 보내지 않는다. */
 export const MallAvailabilityCandidateSchema = z.object({
   channelListingOptionId: z.string(),
+  channelAccountId: z.string().uuid(),
   mallKey: z.string(),
   mallName: z.string(),
   channelAccountName: z.string(),
   productName: z.string(),
   optionName: z.string(),
   sellerSku: z.string().nullable(),
+  /**
+   * 몰이 이 상품에 매긴 코드(`ChannelListing.externalId`).
+   *
+   * 품절을 보낼 때 몰 화면에서 줄을 짚는 유일한 열쇠다. 몰 관리자에서 직접 가져온
+   * 몰(키드키즈·아이스크림몰·꼬망세·온채널)은 `sellerSku` 가 비어 있어서 이 값이
+   * 없으면 어느 줄을 골라야 하는지 알 수 없다.
+   */
+  mallProductCode: z.string(),
+  /**
+   * 몰이 이 옵션에 매긴 코드(`ChannelListingOption.externalOptionId`, 쿠팡은 옵션ID = vendorItemId).
+   * 옵션 단위로 품절을 보내는 몰(쿠팡 윙 = 옵션 재고 0)이 이 줄을 짚는다.
+   */
+  mallOptionCode: z.string(),
   sellableStock: z.number().nullable(),
   bottleneckCodes: z.array(z.string()),
   desiredState: z.enum(['sold_out', 'on_sale', 'suspended']),

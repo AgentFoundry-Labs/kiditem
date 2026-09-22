@@ -1,3 +1,6 @@
+import { MALL_ADMIN_LISTING_STATUS } from '../mall-admin-listings';
+import { SABANGNET_STATUS_PREFIX } from '../sabangnet-mall-listings';
+
 /**
  * 상품 하나가 몰 하나에서 어떤 상태인가.
  *
@@ -10,6 +13,13 @@
  *     쿠팡 WING  승인완료 478 · 승인반려 5
  *     쿠팡 로켓  observed 157 · 활성 117 · 비활성 87 · 단종 22 · 미확인 5
  *  2. `normalizeCoupangProductStatus` 를 거친 값: active · paused · deleted · draft
+ *  3. 사방넷 송신 기록에서 가져온 값(KID-246): `사방넷 ` + 사방넷 공급상태
+ *     (공급중 · 일시중지 · 완전품절 · 대기중). 몰 상품코드는 몰이 사방넷에 돌려준
+ *     값이라 등록 사실의 근거가 되지만, 몰 화면에서 직접 바꾼 상태는 모른다 — 그래서
+ *     접되 경고를 늘 붙인다.
+ *  4. 몰 관리자 화면에서 직접 읽은 값(KID-246 2단계): 몰 글자를 `mall-admin-listings`
+ *     가 판매중 · 품절 · 미노출 · 보류 · 승인대기 · 판매종료 · 반려로 먼저 접는다. 몰이
+ *     직접 준 상태라 경고를 붙이지 않는다.
  *
  * ⚠️ 그 정규화가 `UNDER_EXAMINATION`(심사중)과 `REJECTED`(반려)를 **둘 다
  * `draft`** 로 접는다(domain/coupang-normalization.ts). 검수중과 오류는 운영자가
@@ -40,6 +50,11 @@ const LISTING_STATUS_MAP: Record<string, MallListingState> = {
   '활성': 'published',
   active: 'published',
   approved: 'published',
+  // Wing 상품 목록 API 가 주는 값. 쿠팡 적재 파일은 같은 뜻을 `승인완료` 라고 적어, 같은 몰이
+  // 원천에 따라 다른 글자를 준다(라이브 2026-09-17: 목록 수집 뒤 1,228건이 통째로 바뀜).
+  on_sale: 'published',
+  // 옵션 일부만 판매중이어도 그 상품은 팔리고 있다.
+  partial_on_sale: 'published',
   '승인반려': 'error',
   rejected: 'error',
   '비활성': 'paused',
@@ -49,6 +64,19 @@ const LISTING_STATUS_MAP: Record<string, MallListingState> = {
   '단종': 'discontinued',
   '판매중지': 'discontinued',
   deleted: 'discontinued',
+  [`${SABANGNET_STATUS_PREFIX}공급중`]: 'published',
+  [`${SABANGNET_STATUS_PREFIX}일시중지`]: 'paused',
+  [`${SABANGNET_STATUS_PREFIX}완전품절`]: 'discontinued',
+  [`${SABANGNET_STATUS_PREFIX}대기중`]: 'reviewing',
+  // 품절 · 미노출 · 보류는 몰이 다시 열 수 있는 멈춤이고, 판매종료는 끝난 것이다.
+  [MALL_ADMIN_LISTING_STATUS.selling]: 'published',
+  [MALL_ADMIN_LISTING_STATUS.soldOut]: 'paused',
+  [MALL_ADMIN_LISTING_STATUS.hidden]: 'paused',
+  [MALL_ADMIN_LISTING_STATUS.held]: 'paused',
+  [MALL_ADMIN_LISTING_STATUS.awaitingApproval]: 'reviewing',
+  [MALL_ADMIN_LISTING_STATUS.ended]: 'discontinued',
+  [MALL_ADMIN_LISTING_STATUS.rejected]: 'error',
+  [MALL_ADMIN_LISTING_STATUS.stopped]: 'paused',
   // 크롤로 존재만 확인한 리스팅. 몰이 상태를 준 적이 없다.
   observed: 'unknown',
   '미확인': 'unknown',
@@ -64,6 +92,10 @@ const UNKNOWN_REASON: Record<string, string> = {
   observed: '목록에서 존재만 확인했습니다. 몰이 준 상태가 아닙니다.',
   '미확인': '몰이 상태를 주지 않았습니다.',
 };
+
+/** 사방넷에서 가져온 상태에 붙는 경고. 판정은 하되 근거가 사방넷이라는 것을 남긴다. */
+const SABANGNET_STATUS_NOTE =
+  '사방넷 송신 기록 기준입니다. 몰 화면에서 바꾼 상태는 반영되지 않습니다.';
 
 const PREPARATION_STATUS_MAP: Record<string, MallListingState> = {
   draft: 'preparing',
@@ -137,7 +169,9 @@ export function resolveMallListingState(input: MallListingStateInput): MallListi
       ? '최근 수정 전송이 실패했습니다.'
       : fromListing === 'unknown'
         ? unknownReason(input.listingStatus)
-        : null;
+        : (input.listingStatus ?? '').trim().startsWith(SABANGNET_STATUS_PREFIX)
+          ? SABANGNET_STATUS_NOTE
+          : null;
     return { state: fromListing, basis: 'listing', warning };
   }
 
@@ -157,3 +191,28 @@ export function countPublished(states: readonly MallListingState[]): number {
 export function needsAttention(state: MallListingState): boolean {
   return state === 'error' || state === 'unknown';
 }
+
+/**
+ * 지금 팔리고 있다는 뜻의 몰 원문 상태. 원천마다 글자가 다르다 — 쿠팡 `승인완료`,
+ * 사방넷 `사방넷 공급중`, 몰 관리자 `판매중`, 로켓 `활성`.
+ *
+ * 세는 쪽(판매중 기준 매칭률)이 이 목록을 다시 적지 않게 접는 표에서 뽑는다. 상태 하나를
+ * 더 접으면 세는 곳도 같이 따라온다.
+ */
+export const PUBLISHED_LISTING_STATUSES: readonly string[] = [
+  ...new Set(Object.entries(LISTING_STATUS_MAP)
+    .filter(([, state]) => state === 'published')
+    // 접는 표는 소문자로 비교하지만 저장된 값은 원문 그대로다(`ON_SALE`). 세는 쪽은 글자를
+    // 그대로 맞춰야 하므로 대문자도 함께 둔다.
+    .flatMap(([status]) => [status, status.toUpperCase()])),
+];
+
+/**
+ * 몰이 등록을 거절했다는 뜻의 원문 상태(쿠팡 `승인반려` · `REJECTED`, 몰 관리자 `반려`).
+ * 매트릭스 칸이 `error` 로 읽는 리스팅을 세는 쪽이 같은 표에서 뽑는다.
+ */
+export const ERROR_LISTING_STATUSES: readonly string[] = [
+  ...new Set(Object.entries(LISTING_STATUS_MAP)
+    .filter(([, state]) => state === 'error')
+    .flatMap(([status]) => [status, status.toUpperCase()])),
+];

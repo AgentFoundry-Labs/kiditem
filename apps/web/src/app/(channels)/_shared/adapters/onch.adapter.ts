@@ -1,13 +1,11 @@
-import {
-  fillMallRegistrationForm,
-  prepareMallRegistration,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { prepareRegistration } from '../sales-product-registration';
+import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   onchannelFormFromDraft,
   type OnchannelCategoryPath,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/onchannel-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -154,7 +152,7 @@ export const onchAdapter: MallPublishAdapter = {
     if (!item) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { draft } = await prepareMallRegistration(item.candidateId);
+    const { draft } = await prepareRegistration(item, 'onch');
     const form = onchannelFormFromDraft(draft, {
       supplyPrice: parsePositive(values.supplyPrice, 0),
       packQuantity: parsePositive(values.packQuantity, 1),
@@ -163,13 +161,7 @@ export const onchAdapter: MallPublishAdapter = {
         ? { category: parseCategoryPath(values.categoryPath) as OnchannelCategoryPath }
         : {}),
     });
-    const result = await fillMallRegistrationForm('onch', draft, form);
-    return {
-      ok: result.ok,
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    const result = await fillMallRegistrationForm('onch', draft, form, mallFormExecutionOptions(item));
+    return registrationOutcome(result);
   },
 };

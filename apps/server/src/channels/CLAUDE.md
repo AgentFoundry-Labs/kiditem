@@ -4,7 +4,7 @@ Before working in this directory, always read this document first rather than re
 
 `src/channels/` owns marketplace accounts, listing/option identity, Coupang
 catalog publication/import, matching, account-scoped browser registration,
-channel capacity projections and dashboard reads. Coupang Open API product, order, return, and deletion
+channel capacity projections, shared selling-product authoring and dashboard reads. Coupang Open API product, order, return, and deletion
 verification are unsupported; the legacy sync HTTP routes return 501 without
 IO. Wing/browser evidence and approved internal sources remain supported.
 
@@ -45,9 +45,10 @@ sync, registration, matching, and capacity behavior is executable in
 
 - Every submission to a channel account passes the registration execution fence
   (`ProductRegistrationExecution`), which opens the transaction, writes the
-  execution row itself, and touches the draft only through
-  `REGISTRATION_DRAFT_PORT`; a form fill without a submission returns only the current browser result
-  ([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
+  execution row itself. Channels also owns reusable registration targets:
+  successful execution does not close the target, and new intent creates a new
+  frozen execution (ADR-0020). A form fill without submission returns only the
+  current browser result; it is not confirmed registration.
 - Selected accounts must exist and be active. `ChannelAccount` stores the Wing
   vendor identity used to fence browser evidence; Open API credentials are not
   accepted or resolved.
@@ -69,6 +70,9 @@ sync, registration, matching, and capacity behavior is executable in
 - Candidate rows are transient evidence. Automatic matching may fill an empty
   recipe when a typed identifier or one clearly separated name candidate has
   no identifier/spec/option conflict and the selling quantity is confirmed.
+  A name-corroborated Sellpia code in `sellerSku` counts as one unit, and a
+  same-title listing in another mall may lend its single recipe (see the
+  runbook).
   Ambiguous evidence, conflicting options, unknown quantities, raw aliases,
   and AI output require review. Never rewrite a confirmed recipe automatically.
 - Confirmed recipes survive recollection. Matching state derives from recipe
@@ -99,7 +103,28 @@ sync, registration, matching, and capacity behavior is executable in
 - Wing and Rocket account rows remain distinct. Shared vendor identity may be
   claimed only from complete authenticated evidence under the publication
   lock; a mismatch conflicts.
+- The Sabangnet listing import (KID-246) is one organization attempt whose
+  plan freezes the mall account rows the hub picks
+  (`read/mall-account-rows.ts`, any status). Completion publishes each mall's
+  send records as listings with one option (`sellerSku` = Sabangnet model =
+  Sellpia SKU code) and turns off only listings this source created that left
+  the list. Its statuses carry the `사방넷 ` prefix and fold with a
+  Sabangnet-basis warning.
+- The mall admin listing import (KID-246 step 2) is one attempt per mall
+  account for malls Sabangnet does not carry (`mall_admin_listings`, readers in
+  `@kiditem/shared/mall-admin-listings`). Completion publishes that mall's
+  products as listings with one option whose `itemName` is the Sellpia name the
+  mall keeps, and turns off only listings this source created that left the
+  list (shared `deactivateSourceAbsence`). It sets no `sellerSku`; matching
+  links by that name. Statuses come from the mall itself and fold without a
+  Sabangnet warning.
 - Rocket PO reads select the latest COMPLETE before filtering rows; an empty
   COMPLETE replaces the current view. Preserve prior snapshots for exact
   source/workbook references. Publication changes source facts and identities,
   not recipes, reservations, provider confirmation, or physical stock.
+
+## Selling Catalog
+
+- Channels owns common selling products, their KID options and registration templates. Templates may initialize an empty confirmed recipe only on explicit application; they never supply operational capacity.
+- Source products remain Products-owned. Catalog storage references MasterProduct UUIDs without a cross-owner foreign key; names and barcodes do not establish source identity.
+- Marketplace transport preserves its existing per-provider stock behavior. Internal capacity does not replace the submitted stock value or mutate source stock.

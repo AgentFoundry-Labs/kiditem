@@ -54,6 +54,43 @@ describe('resolveMallListingState', () => {
       .toContain('존재만 확인');
   });
 
+  it.each([
+    ['사방넷 공급중', 'published'],
+    ['사방넷 일시중지', 'paused'],
+    ['사방넷 완전품절', 'discontinued'],
+    ['사방넷 대기중', 'reviewing'],
+  ] as const)('사방넷에서 가져온 %s 를 %s 로 접고, 근거가 사방넷이라고 남긴다', (status, expected) => {
+    const result = resolveMallListingState({ hasListing: true, listingStatus: status });
+    expect(result.state).toBe(expected);
+    expect(result.warning).toContain('사방넷 송신 기록 기준');
+  });
+
+  it.each([
+    ['판매중', 'published'],
+    ['품절', 'paused'],
+    ['미노출', 'paused'],
+    ['보류', 'paused'],
+    ['승인대기', 'reviewing'],
+    ['판매종료', 'discontinued'],
+    ['반려', 'error'],
+    // 판매자가 멈춘 것(떠리몰 판매중지). 쿠팡 원문 `판매중지`(단종)와 다른 글자다.
+    ['일시중지', 'paused'],
+  ] as const)('몰 화면에서 직접 읽은 %s 를 %s 로 접고, 경고를 붙이지 않는다', (status, expected) => {
+    const result = resolveMallListingState({ hasListing: true, listingStatus: status });
+    expect(result.state).toBe(expected);
+    expect(result.warning).toBeNull();
+  });
+
+  it('몰 화면 글자가 접히지 않으면(임시저장 · 전시) 확인필요로 둔다', () => {
+    expect(resolveMallListingState({ hasListing: true, listingStatus: '임시저장 · 전시' }).state)
+      .toBe('unknown');
+  });
+
+  it('사방넷 표시가 붙은 모르는 상태는 확인필요로 둔다', () => {
+    expect(resolveMallListingState({ hasListing: true, listingStatus: '사방넷 처음보는상태' }).state)
+      .toBe('unknown');
+  });
+
   it('모르는 상태 문자열을 발행으로 추측하지 않는다', () => {
     expect(resolveMallListingState({ hasListing: true, listingStatus: '처음보는상태' }).state)
       .toBe('unknown');

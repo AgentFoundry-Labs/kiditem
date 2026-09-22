@@ -19,6 +19,8 @@ export type ProductAbcDisplayStatusFacts = Readonly<{
     mapping: Readonly<{ valid: boolean }>;
     sellpia: Readonly<{ ready: boolean }>;
     advertising: Readonly<{ ready: boolean }>;
+    /** False when the formula excludes advertising; absent means required. */
+    advertisingRequired?: boolean;
   }>;
 }>;
 
@@ -32,7 +34,9 @@ export function productAbcDisplayStatus(
 ): ProductAbcDisplayStatus {
   if (!facts.sources.mapping.valid) return 'SOURCE_UNMAPPED';
   if (!facts.sources.sellpia.ready) return 'SELLPIA_SOURCE_STALE';
-  if (!facts.sources.advertising.ready) return 'AD_SOURCE_STALE';
+  if (facts.sources.advertisingRequired !== false && !facts.sources.advertising.ready) {
+    return 'AD_SOURCE_STALE';
+  }
   // A product the evaluation has not graded is one still gathering evidence,
   // whether because it is young or because its months are short. Both wait.
   return facts.evaluation !== null ? 'READY' : 'INSUFFICIENT_EVIDENCE';

@@ -1,3 +1,5 @@
+import type { PrepareListingAvailabilityInput, ListingAvailabilityExecution, ReportListingAvailabilityInput } from '@kiditem/shared/sales-product';
+import type { PrepareTargetExecutionInput, ReportTargetExecutionInput, TargetExecutionResult } from '@kiditem/shared/sales-product';
 import type { ChannelsRepositoryTransaction } from '../../out/transaction/repository-transaction';
 import type {
   ClosedRegistrationExecutionResult,
@@ -38,6 +40,17 @@ export interface ConfirmRegistrationExecutionInput {
  * 제출 없이 폼만 채운 것은 울타리가 아니라 관찰 기록이다.
  */
 export interface RegistrationExecutionPort {
+  prepareListingAvailability(organizationId: string, userId: string | null, input: PrepareListingAvailabilityInput): Promise<ListingAvailabilityExecution>;
+  listListingAvailability(organizationId: string, userId: string | null, channelAccountId: string, externalListingId: string): Promise<ListingAvailabilityExecution[]>;
+  startListingAvailability(organizationId: string, userId: string | null, executionId: string): Promise<ListingAvailabilityExecution>;
+  reportListingAvailability(organizationId: string, userId: string | null, executionId: string, input: ReportListingAvailabilityInput): Promise<ListingAvailabilityExecution>;
+
+  prepareTargetExecution(organizationId: string, targetId: string, userId: string | null, input: PrepareTargetExecutionInput): Promise<TargetExecutionResult>;
+  startTargetExecution(organizationId: string, executionId: string, userId: string | null): Promise<TargetExecutionResult>;
+  listTargetExecutions(organizationId: string, targetId: string, userId: string | null): Promise<TargetExecutionResult[]>;
+  getTargetExecution(organizationId: string, executionId: string, userId: string | null): Promise<TargetExecutionResult>;
+  reportTargetExecution(organizationId: string, executionId: string, userId: string | null, input: ReportTargetExecutionInput): Promise<TargetExecutionResult>;
+
   /**
    * 후보 삭제 준비. 제출 흔적이 없는 실행만 취소한다. 호출자의 트랜잭션에서
    * 실행되어 후보 종료와 같은 커밋에 들어간다.

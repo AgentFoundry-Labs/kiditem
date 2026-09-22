@@ -11,6 +11,7 @@ import {
   ordersLabelFor,
   ordersNoteFor,
   registerNoteFor,
+  resumeNoteFor,
   soldOutNoteFor,
   sortByCapability,
 } from './mall-capabilities';
@@ -54,6 +55,7 @@ export function useMallCapabilityRows() {
             orders: ordersNoteFor(channel),
             register: registerNoteFor(channel.mallKey, adapter, mallNameOf),
             soldout: soldOutNoteFor(manifest),
+            resume: resumeNoteFor(manifest),
           },
           labels: {
             orders: ordersLabelFor(channel),
