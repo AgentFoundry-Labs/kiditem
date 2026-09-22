@@ -21,9 +21,13 @@ import { MallCategorySuggester, nameBigrams } from './mall-category-suggestions'
 import { MALL_BULK_SHEET_UNAVAILABLE, MALL_BULK_SHEETS } from './mall-bulk-sheet-registry';
 import {
   mallDisplayName,
+  mallTargetCategoryPath,
+  mallTargets,
   pendingPublicImages,
+  pickMallOverride,
   toMallSheetProduct,
   unreadableSheetImages,
+  unselectedMalls,
   type MallSheetSourceProduct,
 } from './mall-sheet-product';
 
@@ -178,6 +182,61 @@ function run(spec: MallBulkSheetSpec, input: MallSheetSourceProduct, fixed: Reco
   const context: MallSheetContext = { fixed: resolveFixedValues(spec, fixed), categories: lookup };
   return spec.rows(toMallSheetProduct(input, spec, lookup), context);
 }
+
+describe('choosing among several registration settings', () => {
+  function twoTargets(): MallSheetSourceProduct {
+    const gmarket = source().overrides.find((item) => item.mallKey === 'gmarket')!;
+    return source({
+      overrides: [
+        { ...gmarket, targetId: 'target-1', salePrice: 4200, adapterValues: { categoryPath: '장난감/완구>감각발달완구>기타감각발달완구' } },
+        { ...gmarket, targetId: 'target-2', salePrice: 9900, adapterValues: { categoryPath: '장난감/완구>감각발달완구>기타감각발달완구' } },
+        ...source().overrides.filter((item) => item.mallKey !== 'gmarket'),
+      ],
+    });
+  }
+
+  it('reads the settings of one mall in the order they were made', () => {
+    expect(mallTargets(twoTargets(), 'gmarket').map((item) => item.targetId)).toEqual(['target-1', 'target-2']);
+    expect(mallTargets(twoTargets(), 'teacher-mall')).toEqual([]);
+    expect(mallTargetCategoryPath(mallTargets(twoTargets(), 'gmarket')[0]!))
+      .toBe('장난감/완구>감각발달완구>기타감각발달완구');
+    expect(mallTargetCategoryPath(mallTargets(source(), 'gmarket')[0]!))
+      .toBe('장난감/완구 > 감각발달완구 > 기타감각발달완구');
+  });
+
+  it('tells "no setting" apart from "not chosen yet"', () => {
+    expect(pickMallOverride(source({ overrides: [] }), 'gmarket')).toEqual({ override: null, unselected: false });
+    expect(pickMallOverride(source(), 'gmarket').override?.salePrice).toBe(4200);
+    expect(pickMallOverride(twoTargets(), 'gmarket')).toEqual({ override: null, unselected: true });
+    expect(pickMallOverride(twoTargets(), 'gmarket', new Map([['gmarket', 'target-2']])).override?.salePrice).toBe(9900);
+    // 이 몰의 설정이 아닌 id 는 고른 것으로 치지 않는다.
+    expect(pickMallOverride(twoTargets(), 'gmarket', new Map([['gmarket', 'target-9']])))
+      .toEqual({ override: null, unselected: true });
+  });
+
+  it('lists only the malls that still need a choice', () => {
+    expect(unselectedMalls(twoTargets(), ['gmarket', 'auction'])).toEqual(['gmarket']);
+    expect(unselectedMalls(twoTargets(), ['gmarket', 'auction'], new Map([['gmarket', 'target-1']]))).toEqual([]);
+    expect(unselectedMalls(source(), ['gmarket', 'auction'])).toEqual([]);
+  });
+
+  it('prices the mall from the chosen setting and leaves an unchosen mall on common values', () => {
+    const chosen = toMallSheetProduct(twoTargets(), esmSheet, lookup, new Map(), new Map([['gmarket', 'target-2']]));
+    expect(chosen.malls.gmarket!.salePrice).toBe(9900);
+    const unchosen = toMallSheetProduct(twoTargets(), esmSheet, lookup);
+    expect(unchosen.malls.gmarket!.salePrice).toBe(3960);
+  });
+
+  it('does not borrow a category from a mall whose setting is ambiguous', () => {
+    const smartstore = source().overrides.find((item) => item.mallKey === 'smartstore');
+    const base = smartstore ?? { ...source().overrides[0]!, mallKey: 'smartstore' };
+    const borrowable = { ...base, adapterValues: { categoryPath: '출산/육아>완구/인형>감각발달완구>비눗방울' } };
+    const one = source({ overrides: [{ ...borrowable, targetId: 'target-1' }] });
+    const two = source({ overrides: [{ ...borrowable, targetId: 'target-1' }, { ...borrowable, targetId: 'target-2' }] });
+    expect(toMallSheetProduct(one, onchannelSheet, lookup).malls.onch!.categoryCode).toBe('50004224');
+    expect(toMallSheetProduct(two, onchannelSheet, lookup).malls.onch!.categoryCode).toBeNull();
+  });
+});
 
 describe('toMallSheetProduct', () => {
   it('prices each mall from its own value and falls back to Sabangnet images when ours are private', () => {
