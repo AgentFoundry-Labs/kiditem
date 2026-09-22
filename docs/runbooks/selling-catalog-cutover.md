@@ -47,7 +47,10 @@ workspace does not, or a draft that would end up with two active workspaces
 aborts the whole transaction and names what to fix. Only live workspaces need a
 draft: a deleted candidate leaves an archived workspace with no draft to move,
 so those rows keep their archived state and lose only the candidate column under
-the data-loss policy. Re-running after the push writes nothing. `ContentGenerationSource.source_candidate_id` and
+the data-loss policy. Those archived rows therefore keep
+`owner_type = 'sourcing_candidate'`, a legacy value no live workspace carries;
+reads name the owner types they want rather than excluding `sales_product`, so
+the rows stay out of the direct-workspace list. Re-running after the push writes nothing. `ContentGenerationSource.source_candidate_id` and
 `ThumbnailGenerationInputImage.candidate_image_id` stay as provenance.
 
 Legacy account overrides become registration targets with the same UUID. The old

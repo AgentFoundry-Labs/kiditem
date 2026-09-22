@@ -15,6 +15,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
+import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
 
 /**
  * KID-310: the content workspace is owned by a sales-product draft, not by a
@@ -47,6 +48,14 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
     );
   }
 
+  function lifecycle() {
+    return new ContentWorkspaceLifecycleRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      { findForListings: async () => [] } as never,
+      { readOwners: async () => [] } as never,
+    );
+  }
+
   async function seedListing() {
     const account = await prisma.channelAccount.create({
       data: {
@@ -76,6 +85,33 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
       createdByUserId: null,
     };
   }
+
+  /**
+   * 024 는 지운 후보의 보관 작업공간을 옮기지 않는다 — 옮길 초안이 없다. 그 줄만 legacy
+   * `owner_type='sourcing_candidate'` 로 남으므로, 초안이 아닌 작업공간 목록이 그것을 다시
+   * 꺼내 오면 안 된다.
+   */
+  it('keeps a legacy candidate-owned workspace out of the direct workspace list', async () => {
+    await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'sourcing_candidate',
+        displayName: '지운 후보의 작업공간',
+        normalizedTitle: '지운 후보의 작업공간',
+        status: 'archived',
+      },
+    });
+
+    const listed = await lifecycle().listActive({
+      organizationId: TEST_ORGANIZATION_ID,
+      status: 'archived',
+      normalizedTitle: null,
+      page: 1,
+      limit: 20,
+    });
+
+    expect({ total: listed.total, rows: listed.rows.length }).toEqual({ total: 0, rows: 0 });
+  });
 
   it('keeps one active workspace per sales product', async () => {
     const salesProductId = randomUUID();

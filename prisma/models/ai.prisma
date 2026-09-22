@@ -455,6 +455,9 @@ model ContentWorkspace {
   id                          String    @id @default(uuid()) @db.Uuid
   organizationId              String    @map("organization_id") @db.Uuid
   /// sales_product | channel_listing | direct_detail_page.
+  /// 이관(024)이 옮기지 못한 보관 줄에만 legacy `sourcing_candidate` 가 남는다 — 지운 후보에는
+  /// 옮겨 갈 초안이 없기 때문이다. 살아 있는 작업공간은 이 세 값뿐이므로, 목록은 빼는 조건이
+  /// 아니라 넣는 조건으로 걸러야 그 줄이 섞이지 않는다.
   ownerType                   String    @map("owner_type")
   /// 작업공간 소유자. channels.SalesProduct 의 id 이며 교차 owner 참조이므로 FK 가 없다.
   salesProductId              String?   @map("sales_product_id") @db.Uuid
