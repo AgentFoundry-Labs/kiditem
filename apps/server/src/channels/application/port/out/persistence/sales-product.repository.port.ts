@@ -34,6 +34,13 @@ export interface SalesProductBasicsRecord {
   originRegion: string | null;
   keywords: string[];
   standardCategory: string | null;
+  description: string;
+  targetAudience: string | null;
+  ageGroup: string | null;
+  productSize: string | null;
+  colorVariantNames: string[];
+  boxSetQuantity: number | null;
+  registrationDefaults: Record<string, unknown> | null;
   status: SalesProductStatus;
   taxType: SalesProductTaxType;
   deliveryFeeType: SalesProductDeliveryFeeType | null;
@@ -50,29 +57,33 @@ export interface SalesProductBasicsRecord {
 }
 
 export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
-  code: string;
+  /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 null 이다. */
+  code: string | null;
   sabangnetGoodsNo: string | null;
   optionAxes: string[];
-  sourceRaw: Record<string, string> | null;
-  /** 수집상품에서 만든 판매상품이면 그 수집상품 id. */
+  sourceRaw: Record<string, unknown> | null;
+  /** 이 초안을 만든 원천 기록(수집상품) id. */
   sourceCandidateId?: string | null;
-}
-
-/** 수집상품에서 만든 판매상품 — 다시 올릴 때 새로 만들지 않고 쓰는 데 필요한 것만. */
-export interface SalesProductFromCandidateRecord {
-  id: string;
-  code: string;
-  version: number;
-  status: SalesProductStatus;
-  imageUrls: string[];
-  detailHtml: string | null;
+  /** 원천 장터와 주소. 초안을 만들 때만 쓰고 바꾸지 않는다. */
+  sourcePlatform?: string | null;
+  sourceUrl?: string | null;
 }
 
 export interface SalesProductOptionState {
   productId: string;
-  productCode: string;
+  productCode: string | null;
+  productName: string;
+  status: SalesProductStatus;
   version: number;
   options: ExistingSalesProductOption[];
+}
+
+/** 후보 거절 · 삭제가 초안을 `unused` 로 내린 결과. */
+export interface SalesProductDraftRetireRow {
+  salesProductId: string | null;
+  retired: boolean;
+  activeListingCount: number;
+  activeExecutionCount: number;
 }
 
 export interface SabangnetImportProductWrite {
@@ -114,6 +125,11 @@ export interface SalesProductImportResult {
 export interface SalesProductRepositoryPort {
   /** Allocate from the shared noncycling KID sequence, never from existing row maxima. */
   allocateCode(organizationId: string): Promise<string>;
+  /**
+   * 팔기로 정한 시점에 KID 를 채운다(상품 + 파는 단품 전부). 이미 있으면 그대로 두는 멱등 연산이고,
+   * 판매상품 줄을 잠근 채 한 트랜잭션에서 끝난다.
+   */
+  ensureCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }>;
   readMasterProductCodes(organizationId: string, ids: readonly string[]): Promise<Map<string, string>>;
   list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse>;
   get(organizationId: string, salesProductId: string): Promise<SalesProduct | null>;
@@ -144,6 +160,8 @@ export interface SalesProductRepositoryPort {
     expectedVersion: number;
     optionAxes: string[];
     plan: SalesProductOptionReplacementPlan;
+    /** 저장 뒤 상태. 팔 옵션에 값이 다 차면 `active`, 아니면 `draft` 다. */
+    status: SalesProductStatus;
   }): Promise<boolean>;
   /** 이 조직의 활성 셀피아 SKU 가 맞는지. 아닌 id 를 돌려준다. */
   findInvalidMasterProductIds(organizationId: string, skuIds: readonly string[]): Promise<string[]>;
@@ -171,7 +189,7 @@ export interface SalesProductRepositoryPort {
   ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>>;
   /** 몰 가격 가져오기 후보: 판매상품(단품 추가금액 · 몰별 값)과 이어진 활성 몰 옵션의 가격. */
   readMallPriceCandidates(organizationId: string): Promise<{
-    products: (MallPriceCandidateProduct & { code: string; name: string })[];
+    products: (MallPriceCandidateProduct & { code: string | null; name: string })[];
     listingOptions: MallPriceCandidateListingOption[];
   }>;
   /** 명시한 대상·버전에 옵션별 최종가를 반영한다. 없거나 바뀐 대상은 거부한다. */
@@ -197,7 +215,7 @@ export interface SalesProductRepositoryPort {
   /** 가져오기: 자체상품코드 → 판매상품코드(이미 있는 것만). */
   findCodesByOwnCodes(organizationId: string, ownCodes: readonly string[]): Promise<Map<string, string>>;
   /** 사진 옮기기: 이 조직 판매상품의 사진 주소와 버전. */
-  listImageUrls(organizationId: string): Promise<{ id: string; code: string; version: number; imageUrls: string[]; detailHtml: string | null; extraDetailHtml: string[] }[]>;
+  listImageUrls(organizationId: string): Promise<{ id: string; code: string | null; version: number; imageUrls: string[]; detailHtml: string | null; extraDetailHtml: string[] }[]>;
   /** 버전이 같을 때만 사진 주소를 바꾸고 버전을 올린다. 버전이 다르면 false. */
   replaceImageUrls(input: {
     organizationId: string;
@@ -229,11 +247,13 @@ export interface SalesProductRepositoryPort {
   listMallCategoryPaths(
     organizationId: string,
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]>;
-  /** 수집상품 id → 그 수집상품에서 만든 판매상품(있는 것만, 수집상품으로 되돌린 것 포함). */
-  findBySourceCandidates(
-    organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, SalesProductFromCandidateRecord>>;
+  /** 원천 기록 id → 그 후보에서 만든 초안 id(있으면). 초안은 후보당 하나다. */
+  findIdBySourceCandidate(organizationId: string, candidateId: string): Promise<string | null>;
+  /**
+   * 후보에서 만든 초안을 `unused` 로 내린다. 활성 몰 상품이나 살아 있는 등록 실행이 있으면 내리지
+   * 않고 그 수를 돌려준다 — 후보 거절을 막지는 않는다.
+   */
+  retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireRow>;
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(있는 것만). */
   readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>>;
   /** 공개 복사본을 저장한다(같은 주소면 바꾼다). 쓴 수. */
@@ -243,10 +263,10 @@ export interface SalesProductRepositoryPort {
   ): Promise<number>;
   /**
    * 상품 × 몰 계정의 등록 설정에 `categoryPath` 하나만 쓴다(다른 칸은 그대로, 설정이 없으면 만든다). 쓴 줄 수.
-   * 설정이 둘 이상인 상품 × 몰은 `targetId` 로 하나를 가리켜야 하고, 그 설정에만 쓴다.
+   * 상품 × 몰 계정당 활성 설정은 하나라 고를 것이 없다.
    */
   setMallCategoryPaths(
     organizationId: string,
-    writes: readonly { salesProductId: string; channelAccountId: string; targetId?: string; path: string }[],
+    writes: readonly { salesProductId: string; channelAccountId: string; path: string }[],
   ): Promise<number>;
 }

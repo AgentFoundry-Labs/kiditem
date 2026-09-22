@@ -9,9 +9,15 @@ belong to Supply; supplier payments belong to Finance.
 
 ## Ownership
 
-- `SourcingCandidate` is the raw opportunity workspace. Its status is only
+- `SourcingCandidate` is the immutable source record: source identity, raw
+  payload, cost, images and launch evidence. Its status is only
   `sourced|rejected`; registration state is derived from the Channels execution
   fence and listings.
+- Editing a collected product happens on the Channels selling-product draft,
+  not on the candidate (KID-310). Capturing a candidate asks Channels for one
+  draft per candidate, and rejecting or deleting a candidate sends that draft
+  to `unused` unless a mall still holds it. Both go through
+  `application/port/out/cross-domain/sales-product-draft.port.ts`.
 - `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` are the
   append-only collection/evidence ledger. Supplier-offer snapshots, launch
   candidates, decisions, and procurement intents retain immutable provenance.
@@ -20,10 +26,11 @@ belong to Supply; supplier payments belong to Finance.
 - `SourcingDecisionBatch` and its items freeze server-derived baseline
   decisions. Coverage confidence is not a calibrated probability and cannot
   make a test order execution-eligible.
-- Channels owns `RegistrationTarget` as a reusable registration target and its
-  execution history (ADR-0020). Sourcing supplies candidate eligibility and
-  content through its interfaces. Candidate screens use the Channels capability
-  to edit registration settings; Sourcing never creates a `MasterProduct`.
+- Channels owns `RegistrationTarget` as a reusable registration target, one per
+  selling product and channel account, and its execution history. Sourcing
+  supplies candidate eligibility and content through its interfaces. Candidate
+  screens use the Channels capability to edit registration settings; Sourcing
+  never creates a `MasterProduct`.
 - Cross-domain reads and mutations use named owner interfaces. Sourcing does
   not write Supply, Products, Channels, AI, or Finance models directly.
 

@@ -53,7 +53,6 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId FK
-    String sourceCandidateId
     String externalId
     String channelName
     String displayName
@@ -289,9 +288,7 @@ erDiagram
     String organizationId FK
     String salesProductId FK
     Int version
-    String sourceCandidateId
     String channelAccountId FK
-    String sourceContentWorkspaceId
     DateTime archivedAt
     String displayName
     String selectedThumbnailUrl
@@ -333,6 +330,13 @@ erDiagram
     String originRegion
     StringArray keywords
     String standardCategory
+    String description
+    String targetAudience
+    String ageGroup
+    String productSize
+    StringArray colorVariantNames
+    Int boxSetQuantity
+    Json registrationDefaults
     String status
     String taxType
     String deliveryFeeType
@@ -349,6 +353,8 @@ erDiagram
     String adminMemo
     Json sourceRaw
     String sourceCandidateId
+    String sourcePlatform
+    String sourceUrl
     Int version
     DateTime createdAt
     DateTime updatedAt

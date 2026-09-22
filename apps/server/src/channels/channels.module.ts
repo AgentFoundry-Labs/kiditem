@@ -16,8 +16,6 @@ import { PRODUCT_AVAILABILITY_PORT } from '../products/application/port/in/produ
 import { SourcingRegistrationSourceModule } from '../sourcing/sourcing-registration-source.module';
 import { ChannelsDocumentsAdapter } from './adapter/out/documents/channel-documents.adapter';
 import { CHANNEL_DOCUMENTS_PORT } from './application/port/out/documents/channel-documents.port';
-import { RegistrationSourceAdapter } from './adapter/out/sourcing/registration-source.adapter';
-import { CHANNEL_REGISTRATION_SOURCE_PORT } from './application/port/out/sourcing/registration-source.port';
 import { ListingContentAdapter } from './adapter/out/content/listing-content.adapter';
 import { CHANNEL_LISTING_CONTENT_PORT } from './application/port/out/content/listing-content.port';
 import { AiListingContentQueryModule } from '../ai/ai-listing-content-query.module';
@@ -147,8 +145,6 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     { provide: CHANNEL_ACTIVITY_PORT, useExisting: ChannelActivityAdapter },
     ChannelsDocumentsAdapter,
     { provide: CHANNEL_DOCUMENTS_PORT, useExisting: ChannelsDocumentsAdapter },
-    RegistrationSourceAdapter,
-    { provide: CHANNEL_REGISTRATION_SOURCE_PORT, useExisting: RegistrationSourceAdapter },
     ListingContentAdapter,
     { provide: CHANNEL_LISTING_CONTENT_PORT, useExisting: ListingContentAdapter },
     { provide: ChannelDashboardService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelDashboardService>) => new ChannelDashboardService(...dependencies), inject: [CHANNEL_DASHBOARD_REPOSITORY_PORT] },

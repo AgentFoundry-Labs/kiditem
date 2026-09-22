@@ -191,13 +191,14 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
       let optionPlan;
       try {
         optionPlan = planSalesProductOptionReplacement({
-          productCode: product.create.code,
+          // 사방넷에서 옮긴 상품은 품번코드를 이미 들고 온다.
+          productCode: product.create.code!,
           existing: state?.options ?? [],
           options: product.options,
         });
       } catch (error) {
         if (!(error instanceof SalesProductOptionPlanError)) throw error;
-        issues.push({ kind: 'products', row: 0, code: product.create.code, message: error.message });
+        issues.push({ kind: 'products', row: 0, code: product.create.code!, message: error.message });
         continue;
       }
       const fingerprint = salesProductImportFingerprint({
@@ -210,9 +211,9 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
       if (state) {
         existingChangesByProductId.set(state.productId, {
           salesProductId: state.productId,
-          code: state.productCode,
+          code: state.productCode!,
           name: product.create.name,
-          sourceKey: sourceKeys.find((key) => states.get(key)?.productId === state.productId) ?? product.create.code,
+          sourceKey: sourceKeys.find((key) => states.get(key)?.productId === state.productId) ?? product.create.code!,
           expectedVersion: state.version,
           changed: !same,
         });

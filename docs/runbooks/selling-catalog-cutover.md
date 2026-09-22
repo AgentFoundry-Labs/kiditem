@@ -73,6 +73,39 @@ and rollback when an exact source mapping is missing. The companion
 bootstrap, override conversion, frozen execution preservation and repeatability. Follow the shared cutover
 runbook for the disposable local QA database and wider application checks.
 
+## Draft cutover (`023_sales_product_draft_cutover`, KID-310)
+
+Collected products and selling products no longer coexist. `023` runs pre-schema,
+after `022` has created the registration targets it tidies, and moves every
+candidate edit onto one selling-product draft:
+
+1. Stop if one candidate already has two selling products. Nobody can say which
+   one is canonical, so the whole migration rolls back before any mutation.
+2. Keep one active registration target per selling product and channel account:
+   the most recently updated row stays, the rest are archived with `archived_at`.
+   The count lands in the run details as `archivedDuplicateTargets` — this is an
+   accepted data discard under
+   [ADR-0010](../adr/0010-schema-cleanup-may-discard-office-data.md).
+3. Create one draft per live candidate without a selling product. Columns are
+   projected in priority order: the registration target's `registrationInput`,
+   then the candidate's `rawData.manualBasics`, then the raw payload. Options
+   come from the collected option names (one axis) or a single option, and the
+   image list is thumbnail → representative → `candidate_images` order.
+4. A candidate that already has a draft only gets its **empty** columns filled;
+   a value a person typed is never overwritten.
+5. `mallRegisterValues` merge into that mall account's registration target
+   (never creating one — choosing a mall account is a human decision), and
+   `mallRegisterShared` becomes the draft's `registrationDefaults`.
+6. The candidate's `rawData` keeps the raw payload only: `manualBasics`,
+   `registrationInput`, `mallRegisterValues` and `mallRegisterShared` are removed.
+
+KID codes are **not** issued here. A draft carries no `code` until somebody
+decides to sell it — the first registration target or the mall workbook file
+issues it (`ensureSalesProductCodes`). Re-running `023` changes nothing.
+
+The focused Testcontainers suite is
+`apps/server/src/channels/__tests__/sales-product-draft-cutover.pg.integration.spec.ts`.
+
 ## Recovery
 
 A schema/data failure keeps writers stopped. Runtime-only rollback cannot

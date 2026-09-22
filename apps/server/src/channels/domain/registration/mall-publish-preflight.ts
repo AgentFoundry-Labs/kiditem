@@ -17,13 +17,6 @@ import type {
  * 아직 없다 — 고시·KC 를 상품 사실로 어디에 둘지는 KID-168 이 정한다.
  */
 
-export interface PreflightKc {
-  /** 운영자가 고른 KC 상태(`exists` · `none` · `unknown`). 고르지 않았으면 null. */
-  status: string | null;
-  /** KC 인증번호. 몰 공통 칸의 안전인증번호도 여기로 모인다. 없으면 null. */
-  number: string | null;
-}
-
 export interface PreflightProduct {
   masterProductId: string;
   name: string;
@@ -32,8 +25,8 @@ export interface PreflightProduct {
   optionNames: readonly string[];
   /** 이 몰의 카테고리로 매핑돼 있는가. */
   hasMallCategory: boolean;
-  /** 이 상품에 이어진 수집상품의 KC 입력값. 이어진 수집상품이 없으면 null. */
-  kc: PreflightKc | null;
+  /** 판매상품이 들고 있는 인증 문서의 번호들. 비어 있으면 KC 를 아무도 확인하지 않았다는 뜻이다. */
+  certificationNumbers: readonly string[];
   /**
    * 발행된 셀피아 스냅샷의 재고. 재고 연결이 없거나 스냅샷에 없으면 null 이다.
    *
@@ -71,21 +64,20 @@ const PROFILE_FIELD_LABEL: Record<MallProfileField, string> = {
 };
 
 /**
- * KC 입력이 송신할 수 있는 상태인가.
+ * KC 가 송신할 수 있는 상태인가.
  *
- * 번호가 있거나, 해당 없음(`none`)을 명시적으로 골랐을 때만 통과다. 확인 필요(`unknown`)와
- * 미입력은 같은 뜻이다 — 아무도 확인하지 않았다.
+ * 판매상품의 인증 문서에 번호가 하나라도 있어야 통과다(KID-310). 수집상품 3단 조인을 걷어내면서
+ * 게이트가 아는 KC 출처는 `SalesProduct.certifications` 하나가 됐다. '해당 없음'을 명시하는 자리는
+ * 아직 없다 — 고시 · KC 를 상품 사실로 어디에 둘지는 KID-168 이 정한다.
  */
-export function isKcReady(kc: PreflightKc | null): boolean {
-  if (!kc) return false;
-  return kc.number !== null || kc.status === 'none';
+export function isKcReady(certificationNumbers: readonly string[]): boolean {
+  return certificationNumbers.some((number) => number.trim().length > 0);
 }
 
-function kcViolation(kc: PreflightKc | null): string | null {
-  if (isKcReady(kc)) return null;
-  if (!kc) return 'KC 인증 정보를 입력한 수집상품이 이 상품에 이어져 있지 않습니다.';
-  if (kc.status === 'exists') return 'KC 인증이 있다고 했지만 인증번호가 없습니다.';
-  return 'KC 인증 여부가 입력되지 않았습니다. 해당 없음도 명시적으로 선택해야 합니다.';
+function kcViolation(certificationNumbers: readonly string[]): string | null {
+  return isKcReady(certificationNumbers)
+    ? null
+    : '판매상품에 KC 인증 문서가 없습니다. 상품 정보에서 인증번호를 입력하세요.';
 }
 
 /**
@@ -114,7 +106,7 @@ const CHECKS: Record<MallPreflightRule, RuleCheck> = {
   mall_category_mapped: ({ product, manifest }) =>
     product.hasMallCategory ? null : `${manifest.name} 카테고리가 매핑되지 않았습니다.`,
 
-  kc_certification: ({ product }) => kcViolation(product.kc),
+  kc_certification: ({ product }) => kcViolation(product.certificationNumbers),
 
   images_present: ({ product }) =>
     product.imageCount > 0 ? null : '등록 이미지가 없습니다.',

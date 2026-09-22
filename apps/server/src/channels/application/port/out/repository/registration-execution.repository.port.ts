@@ -24,9 +24,13 @@ export interface RegistrationExecutionRegisteredResult {
 export interface FrozenRegistrationSubmission {
   executionId: string;
   preparationId: string;
-  sourceCandidateId: string;
+  /** 등록 설정의 주인(판매상품 초안). */
+  salesProductId: string;
+  /** 그 초안을 만든 원천 기록. 직접 만든 상품이면 null. */
+  sourceCandidateId: string | null;
   channelAccountId: string;
-  sourceContentWorkspaceId: string;
+  /** AI 콘텐츠 작업공간. 등록 설정 줄에 저장하지 않는다. */
+  sourceContentWorkspaceId: string | null;
   displayName: string;
   /** 초안이 지금 머무는 상태. 울타리는 그대로 비추기만 한다. */
   status: ProductPreparationStatus;
@@ -122,21 +126,21 @@ export interface RegistrationExecutionRepositoryPort {
 
   start(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    sourceCandidateId: string | null;
     executionId: string;
     requestedByUserId: string | null;
   }): Promise<RegistrationExecutionResult>;
 
   get(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    sourceCandidateId: string | null;
     executionId: string;
     requestedByUserId: string | null;
   }): Promise<RegistrationExecutionResult>;
 
   markUnresolved(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    sourceCandidateId: string | null;
     executionId: string;
     requestedByUserId: string | null;
     evidence: unknown;
@@ -155,7 +159,7 @@ export interface RegistrationExecutionRepositoryPort {
    */
   markNotSubmitted(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    sourceCandidateId: string | null;
     executionId: string;
     requestedByUserId: string | null;
     evidence: unknown;

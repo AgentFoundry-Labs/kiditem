@@ -21,7 +21,8 @@ export interface LinkCandidateListing {
 
 export interface LinkCandidateProduct {
   id: string;
-  code: string;
+  /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다. */
+  code: string | null;
   ownCode: string | null;
   options: {
     id: string;

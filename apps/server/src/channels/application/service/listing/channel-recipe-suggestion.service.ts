@@ -64,6 +64,11 @@ export class ChannelRecipeSuggestionService {
     return suggestion!;
   }
 
+  /**
+   * ⚠️ `sourceCandidateId` 는 이름만 그럴 뿐 **몰 옵션 id** 로 쓰인다(아래 두 자리). 후보와 아무
+   * 상관이 없다 — 호출 계약(`ExternalProductRegistrationPreflightInput`)까지 함께 고쳐야 해서
+   * KID-310 에서는 이름을 바로잡지 않고 기록만 남긴다.
+   */
   suggestRegistration(
     organizationId: string,
     input: {

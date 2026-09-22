@@ -4,8 +4,13 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { paginationParams } from '../../../common/pagination';
+import {
+  SALES_PRODUCT_DRAFT_PORT,
+  type SalesProductDraftPort,
+} from '../port/out/cross-domain/sales-product-draft.port';
 import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
@@ -32,7 +37,6 @@ import {
   canonicalSourcingCandidateIdentity,
 } from '../../domain/sourcing-candidate-identity';
 import { SourcingScrapeUrlService } from './sourcing-scrape-url.service';
-import { buildProductBasics } from './product-basics.presenter';
 import { SourcingAgentCommandService } from './sourcing-agent-command.service';
 import type {
   CreateProductGenerationCommand,
@@ -79,6 +83,8 @@ export class SourcingService {
     private readonly registrationContentWorkspaces: RegistrationContentWorkspacePort,
     private readonly agentCommands: SourcingAgentCommandService,
     private readonly scrapes: SourcingScrapeUrlService,
+    @Optional() @Inject(SALES_PRODUCT_DRAFT_PORT)
+    private readonly salesProductDrafts?: SalesProductDraftPort,
   ) {}
 
   async receiveExtensionData(
@@ -343,7 +349,7 @@ export class SourcingService {
     // Registration images come from ContentAsset.role, not from the scrape
     // originals on the candidate row. Missing assets stay empty so the caller
     // can fall back explicitly instead of shipping an off-spec source image.
-    const [registrationMedia, contentWorkspaceId] = await Promise.all([
+    const [registrationMedia, salesProductId] = await Promise.all([
       // 갤러리와 현재 대표를 하나의 미디어 읽기로 받아, 응답 중간에
       // 선택이 바뀌어도 등록 이미지와 `등록 대표` 배지가 엇갈리지 않게 한다.
       this.candidateContentAssets.loadRegistrationMedia({
@@ -352,11 +358,8 @@ export class SourcingService {
       }),
       // 후보가 이미 가진 content workspace. 없으면 null 이고, 읽기 경로에서
       // 새로 만들지 않는다. 워크스페이스 화면은 이 값이 있어야 썸네일 구성을
-      // 저장할 수 있다 — RegistrationTarget 이 없는 후보의 유일한 저장 위치다.
-      this.registrationContentWorkspaces.findCandidateWorkspaceId({
-        organizationId,
-        sourceCandidateId: productId,
-      }),
+      // 저장할 수 있다.
+      this.salesProductDrafts?.findDraftIdForSource(organizationId, productId) ?? null,
     ]);
     const {
       registrationImages,
@@ -364,35 +367,10 @@ export class SourcingService {
     } = registrationMedia;
     return {
       ...row,
-      contentWorkspaceId,
-      basicInfo: buildProductBasics({
-        candidate: row,
-        preparation: row.registrationTarget,
-        registrationImages,
-        workspaceThumbnailSelection,
-      }),
+      salesProductId,
+      registrationImages,
+      currentThumbnail: workspaceThumbnailSelection,
     };
-  }
-
-  /**
-   * `RegistrationTarget` 없이도 후보(수집상품)의 기본정보를 저장한다.
-   *
-   * 채널 계정 선택(=등록 준비)을 강제하지 않고 후보 자체에 수기 편집을 남긴다.
-   * 준비가 생기면 registrationInput 이 이 값을 이어받아 우선한다(프리젠터 우선순위).
-   */
-  async updateCandidateBasicInfo(
-    candidateId: string,
-    organizationId: string,
-    input: Record<string, unknown>,
-  ): Promise<{ ok: true }> {
-    const { basePreparationUpdatedAt: _ignored, ...basics } = input;
-    const updated = await this.candidates.updateManualBasics({
-      organizationId,
-      candidateId,
-      basics,
-    });
-    if (!updated) throw new NotFoundException('Sourcing candidate not found');
-    return { ok: true };
   }
 
   // ── helpers ──

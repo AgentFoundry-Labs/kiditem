@@ -33,10 +33,8 @@ describe('product pipeline DB model contract', () => {
     const model = extractModel(channelsSchema, 'RegistrationTarget');
 
     for (const field of [
-      'sourceCandidateId',
       'salesProductId',
       'channelAccountId',
-      'sourceContentWorkspaceId',
       'archivedAt',
       'displayName',
       'registrationInput',
@@ -51,12 +49,14 @@ describe('product pipeline DB model contract', () => {
     );
     assert.doesNotMatch(model, /^\s*(?:status|channelListingId)\s+/m);
     assert.match(model, /salesProductId\s+String\s+@map/);
-    assert.match(model, /sourceCandidateId\s+String\?/);
+    // 원천은 판매상품이 가리킨다(KID-310).
+    assert.doesNotMatch(model, /^\s*sourceCandidateId\s+/m);
     assert.match(model, /executions\s+ProductRegistrationExecution\[\]/);
     assert.match(model, /selectedOptions\s+RegistrationTargetOption\[\]/);
     assert.match(model, /channelAccount\s+ChannelAccount\s+@relation/);
     assert.match(model, /salesProduct\s+SalesProduct\s+@relation/);
-    assert.doesNotMatch(model, /@@unique\(\[organizationId,\s*(?:sourceCandidateId|salesProductId),\s*channelAccountId\]/);
+    // 상품 × 몰 계정당 활성 등록 설정은 하나다(KID-310).
+    assert.match(model, /@@unique\(\[organizationId, salesProductId, channelAccountId\]/);
   });
 
   it('indexes all final RegistrationTarget foreign keys', () => {
@@ -66,9 +66,7 @@ describe('product pipeline DB model contract', () => {
     for (const index of [
       '@@index([organizationId, archivedAt])',
       '@@index([salesProductId, organizationId])',
-      '@@index([sourceCandidateId])',
       '@@index([channelAccountId])',
-      '@@index([sourceContentWorkspaceId])',
       '@@index([selectedDetailPageArtifactId])',
       '@@index([selectedDetailPageRevisionId])',
       '@@index([selectedDetailPageGenerationId])',

@@ -495,7 +495,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         // 비활성 옵션의 100원은 대표가로 잡히면 안 된다.
         salePrice: 19900,
         // 수집상품이 이어지지 않은 상품은 KC 입력값을 모른다.
-        kc: null,
+        certificationNumbers: [],
       });
       expect(rows[0]?.optionNames).toEqual(expect.arrayContaining(['기본', '2개입']));
       expect(rows[0]?.optionNames).not.toContain('단종');
@@ -639,7 +639,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
           imageCount: row.imageCount,
           optionNames: row.optionNames,
           hasMallCategory: true,
-          kc: { status: 'none', number: null },
+          certificationNumbers: ['CB061R1234-1001'],
           stock: row.stock,
         },
         account: { listingProfileFields: ['shipping', 'releaseAddress', 'returnAddress'] },

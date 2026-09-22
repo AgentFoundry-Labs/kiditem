@@ -15,7 +15,8 @@ import {
 
 export interface ExistingSalesProductOption {
   id: string;
-  optionCode: string;
+  /** 발급된 KID. 초안의 단품은 아직 비어 있다. */
+  optionCode: string | null;
   sabangnetOptionCode?: string | null;
   optionKey: string;
   linkedChannelOptionCount: number;
@@ -23,6 +24,8 @@ export interface ExistingSalesProductOption {
   /** Persistent registration targets still select this option. */
   registrationSelectionCount?: number;
   supplyStatus?: string;
+  /** 초안은 아직 정하지 않아 비어 있을 수 있다. */
+  salePrice?: number | null;
   components?: readonly { masterProductId: string; quantity: number }[];
 }
 
@@ -33,7 +36,7 @@ export interface SalesProductOptionDraft {
   values: string[];
   alias?: string | null;
   barcode?: string | null;
-  salePrice: number;
+  salePrice: number | null;
   normalPrice: number | null;
   supplyStatus: SalesProductOptionSupplyStatus;
   safetyStock?: number | null;
@@ -45,13 +48,13 @@ export interface PlannedOptionWrite {
   id: string | null;
   /** A used composition remains an immutable historical option. */
   replacesOptionId?: string;
-  optionCode: string;
+  optionCode: string | null;
   sabangnetOptionCode?: string | null;
   optionKey: string;
   values: string[];
   alias: string | null;
   barcode: string | null;
-  salePrice: number;
+  salePrice: number | null;
   normalPrice: number | null;
   supplyStatus: SalesProductOptionSupplyStatus;
   safetyStock: number | null;
@@ -74,12 +77,12 @@ export class SalesProductOptionPlanError extends Error {}
  * 새 단품의 코드는 애플리케이션이 공통 KID 발급기로 채운다. 사방넷 번호는 별도 이관 식별자다.
  */
 export function planSalesProductOptionReplacement(input: {
-  productCode: string;
+  productCode: string | null;
   existing: readonly ExistingSalesProductOption[];
   options: readonly SalesProductOptionDraft[];
 }): SalesProductOptionReplacementPlan {
   const byId = new Map(input.existing.map((option) => [option.id, option]));
-  const byCode = new Map(input.existing.map((option) => [option.optionCode, option]));
+  const byCode = new Map(input.existing.filter((option) => option.optionCode).map((option) => [option.optionCode!, option]));
   const byKey = new Map(input.existing.filter((option) => option.supplyStatus !== 'unused').map((option) => [option.optionKey, option]));
   const claimed = new Set<string>();
   const bySourceCode = new Map(input.existing.filter(option => option.sabangnetOptionCode).map(option => [option.sabangnetOptionCode!, option]));
@@ -112,7 +115,7 @@ export function planSalesProductOptionReplacement(input: {
       && (target.components?.length ?? 0) > 0
       && compositionKey(target.components ?? []) !== compositionKey(option.components);
     if (replaceIdentity) replacedIds.add(target!.id);
-    const optionCode = replaceIdentity ? '' : target?.optionCode ?? '';
+    const optionCode = replaceIdentity ? null : target?.optionCode ?? null;
     return {
       id: replaceIdentity ? null : target?.id ?? null,
       ...(replaceIdentity ? { replacesOptionId: target!.id } : {}),
@@ -168,17 +171,17 @@ export function salesProductImportFingerprint(input: {
   basics: Record<string, unknown>;
   optionAxes: readonly string[];
   options: readonly {
-    optionCode: string;
+    optionCode: string | null;
     optionKey: string;
-    salePrice: number;
-  normalPrice: number | null;
+    salePrice: number | null;
+    normalPrice: number | null;
     supplyStatus: string;
     components: readonly { masterProductId: string; quantity: number }[];
   }[];
 }): string {
   const basics = Object.keys(input.basics).sort().map((key) => [key, input.basics[key] ?? null]);
   const options = [...input.options]
-    .sort((left, right) => left.optionCode.localeCompare(right.optionCode))
+    .sort((left, right) => (left.optionCode ?? '').localeCompare(right.optionCode ?? ''))
     .map((option) => [
       option.optionCode,
       option.optionKey,

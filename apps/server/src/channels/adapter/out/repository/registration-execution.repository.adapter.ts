@@ -1878,7 +1878,7 @@ export class RegistrationExecutionRepositoryAdapter
           id: result.listingId,
           organizationId,
           channelAccountId: current.channelAccountId,
-          sourceCandidateId: current.sourceCandidateId,
+          salesProductId: current.salesProductId,
           isActive: true,
         },
         select: { id: true },
@@ -1923,11 +1923,12 @@ export class RegistrationExecutionRepositoryAdapter
     handle: ChannelsRepositoryTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      sourceCandidateId: string | null;
       executionId: string;
       requestedByUserId?: string | null;
     },
   ): Promise<{ id: string; registrationTargetId: string } | null> {
+    if (input.sourceCandidateId === null) return null;
     const tx = ownerTransactionClient(handle);
     const execution = await tx.productRegistrationExecution.findFirst({
       where: {
@@ -2355,6 +2356,7 @@ function toFrozenSubmission(
   return {
     executionId: execution.id,
     preparationId: draft.preparationId,
+    salesProductId: draft.salesProductId,
     sourceCandidateId: draft.sourceCandidateId,
     channelAccountId: frozenChannelAccountId,
     sourceContentWorkspaceId: draft.sourceContentWorkspaceId,
@@ -2961,7 +2963,8 @@ async function resolveTargetConfirmationListing(
         listingId,
         externalOptionId: evidence.externalOptionId,
         salesProductOptionId: commonOption.id,
-        kidItemCode: commonOption.optionCode,
+        // 등록 확정 경로는 KID 발급 뒤에만 도달한다.
+        kidItemCode: commonOption.optionCode ?? '',
         ...(evidence.sellerSku !== undefined ? { sellerSku: evidence.sellerSku } : {}),
       },
       select: { id: true, externalOptionId: true, salesProductOptionId: true },
@@ -2997,7 +3000,8 @@ async function applyTargetConfirmationRecipes(
         organizationId,
         channelListingOptionId: localOption.id,
         salesProductOptionId: commonOption.id,
-        kidItemCode: commonOption.optionCode,
+        // 등록 확정 경로는 KID 발급 뒤에만 도달한다.
+        kidItemCode: commonOption.optionCode ?? '',
         components: commonOption.components.map((component) => ({
           masterProductId: component.masterProductId,
           quantity: component.quantity,
@@ -3011,7 +3015,8 @@ async function applyTargetConfirmationRecipes(
       .filter(({ localOption }) => localOption.inventoryComponents.length === 0)
       .map(({ localOption, commonOption }) => ({
         channelListingOptionId: localOption.id,
-        preparedKidItemCode: commonOption.optionCode,
+        // 등록 확정 경로는 KID 발급 뒤에만 도달한다.
+        preparedKidItemCode: commonOption.optionCode ?? '',
         components: commonOption.components.map((component) => ({
           masterProductId: component.masterProductId,
           quantity: component.quantity,

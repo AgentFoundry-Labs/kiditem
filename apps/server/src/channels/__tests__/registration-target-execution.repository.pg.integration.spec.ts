@@ -23,6 +23,7 @@ import type {
   TargetExecutionSnapshot,
 } from '@kiditem/shared/sales-product';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { productTransactionalRead } from './product-transactional-read.fake';
 
 describe('registration target execution repository (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -33,7 +34,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService);
+    targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead());
     recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
@@ -1400,6 +1401,15 @@ async function createFixture(
       code: `SP-${productId.slice(0, 8)}`,
       ownCode: null,
       sabangnetGoodsNo: null,
+      sourcePlatform: null,
+      sourceUrl: null,
+      description: '',
+      targetAudience: null,
+      ageGroup: null,
+      productSize: null,
+      colorVariantNames: [],
+      boxSetQuantity: null,
+      registrationDefaults: null,
       sourceCandidateId: null,
       name: '공통 상품',
       shortName: null,

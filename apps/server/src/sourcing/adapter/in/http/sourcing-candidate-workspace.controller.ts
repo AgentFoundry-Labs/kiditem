@@ -10,7 +10,6 @@ import {
   CreateProductPreparationDto,
   QuickProcessCandidateDto,
   RejectCandidateBodyDto,
-  UpdateProductBasicsDto,
   UpdateProductPreparationDto,
 } from './dto';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -68,15 +67,6 @@ export class SourcingCandidateWorkspaceController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.preparations.cancel(organizationId, id, user.id ?? null);
-  }
-
-  @Patch('candidates/:id/basic-info')
-  updateCandidateBasicInfo(
-    @Param('id') id: string,
-    @Body() body: UpdateProductBasicsDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.sourcingService.updateCandidateBasicInfo(id, organizationId, { ...body });
   }
 
   @Post('candidates/:id/reject')

@@ -46,7 +46,7 @@ function productRow(overrides: Partial<PreflightProductRow> = {}): PreflightProd
     imageCount: 4,
     salePrice: 24900,
     optionNames: ['기본'],
-    kc: { status: 'exists', number: 'CB061R1234-1001' },
+    certificationNumbers: ['CB061R1234-1001'],
     stock: 12,
     ...overrides,
   };
@@ -151,10 +151,10 @@ describe('MallPublishingService.preflight', () => {
       .toContain('mall_category_mapped');
   });
 
-  it('judges KC from the sourcing draft the operator filled in', async () => {
+  it('judges KC from the selling product certification document', async () => {
     const service = buildService({
       mallAccounts: [mallAccount()],
-      products: [productRow({ kc: { status: 'unknown', number: null } })],
+      products: [productRow({ certificationNumbers: [] })],
     });
     const response = await service.preflight(ORG, { mallKeys: ['kidsnote'], page: 1, limit: 25 }, ASOF);
     expect(response.products[0]?.hasCertification).toBe(false);

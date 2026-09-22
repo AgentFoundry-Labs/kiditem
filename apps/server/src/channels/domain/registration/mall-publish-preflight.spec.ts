@@ -15,7 +15,7 @@ function product(overrides: Partial<PreflightProduct> = {}): PreflightProduct {
     imageCount: 5,
     optionNames: ['기본'],
     hasMallCategory: true,
-    kc: { status: 'exists', number: 'CB061R1234-1001' },
+    certificationNumbers: ['CB061R1234-1001'],
     stock: 12,
     ...overrides,
   };
@@ -36,21 +36,24 @@ describe('evaluateMallPreflight', () => {
     expect(evaluate()).toMatchObject({ ok: true, violations: [] });
   });
 
-  it('passes when the operator explicitly chose 해당 없음', () => {
-    expect(evaluate({ kc: { status: 'none', number: null } }).ok).toBe(true);
+  /**
+   * KC 는 판매상품의 인증 문서에서만 읽는다(KID-310). 후보 3단 조인을 걷어내면서 게이트가 아는
+   * KC 출처는 `SalesProduct.certifications` 하나가 됐다. '해당 없음'을 명시하는 자리는 아직 없다 —
+   * 고시 · KC 정본을 어디에 둘지는 KID-168 이 정한다.
+   */
+  it('⭐ blocks a product with no certification document on its selling product', () => {
+    const result = evaluate({ certificationNumbers: [] });
+    expect(result.ok).toBe(false);
+    const violation = result.violations.find((entry) => entry.rule === 'kc_certification');
+    expect(violation?.message).toContain('인증');
+    // 게이트가 아는 KC 출처는 인증 문서 하나다. 다른 칸을 채워도 이 규칙은 풀리지 않는다.
+    expect(evaluate({ certificationNumbers: [], imageCount: 9, hasMallCategory: true, salePrice: 30_000 }).ok).toBe(false);
+    expect(isKcReady([])).toBe(false);
   });
 
-  it('blocks when KC was never entered — 해당 없음도 명시적으로 골라야 한다', () => {
-    for (const kc of [{ status: null, number: null }, { status: 'unknown', number: null }]) {
-      const result = evaluate({ kc });
-      expect(result.violations.map((violation) => violation.rule)).toContain('kc_certification');
-    }
-  });
-
-  it('blocks a KC status of 있음 without a certificate number', () => {
-    const violation = evaluate({ kc: { status: 'exists', number: null } }).violations
-      .find((entry) => entry.rule === 'kc_certification');
-    expect(violation?.message).toContain('인증번호');
+  it('blocks a certification document with a blank number', () => {
+    expect(evaluate({ certificationNumbers: ['  '] }).violations.map((entry) => entry.rule))
+      .toContain('kc_certification');
   });
 
   /**
@@ -68,26 +71,6 @@ describe('evaluateMallPreflight', () => {
   it('⭐ does not block a product with no inventory link', () => {
     expect(evaluate({ stock: null }).violations.map((entry) => entry.rule))
       .not.toContain('out_of_stock');
-  });
-
-  /** 수집상품이 이어지지 않은 정본 상품은 KC 를 입력할 곳이 없었다. 통과로 치지 않는다. */
-  it('⭐ blocks a product with no linked sourcing candidate', () => {
-    const violation = evaluate({ kc: null }).violations.find((entry) => entry.rule === 'kc_certification');
-    expect(violation?.message).toContain('수집상품');
-  });
-
-  /**
-   * 후보 없이 직접 만든 판매상품은 그 판매상품이 KC 인증번호를 들고 있어도 막힌다. 이 게이트가 읽는
-   * KC 는 수집상품 입력값 하나뿐이고, 판매상품의 `certifications` 를 읽게 만드는 것은 고시 · KC 정본을
-   * 고르는 일이라 KID-168 이 정한다. 그 결정 전에 조용히 통과시키지 않도록 지금 동작을 잠근다.
-   */
-  it('⭐ 후보 없는 상품은 KC 를 댈 길이 없다 — 통과시키려면 KID-168 이 정본을 정해야 한다', () => {
-    const result = evaluate({ kc: null });
-    expect(result.ok).toBe(false);
-    expect(result.violations.map((entry) => entry.rule)).toContain('kc_certification');
-    // 게이트가 아는 KC 출처는 `kc` 하나다. 다른 칸을 채워도 이 규칙은 풀리지 않는다.
-    expect(evaluate({ kc: null, imageCount: 9, hasMallCategory: true, salePrice: 30_000 }).ok).toBe(false);
-    expect(isKcReady(null)).toBe(false);
   });
 
   it("blocks the '단품' option name that malls silently reject", () => {
@@ -199,11 +182,10 @@ describe('evaluateMallPreflight', () => {
 });
 
 describe('isKcReady', () => {
-  it('accepts a number or an explicit 해당 없음 only', () => {
-    expect(isKcReady({ status: null, number: 'CB061R1234-1001' })).toBe(true);
-    expect(isKcReady({ status: 'none', number: null })).toBe(true);
-    expect(isKcReady({ status: 'exists', number: null })).toBe(false);
-    expect(isKcReady({ status: 'unknown', number: null })).toBe(false);
-    expect(isKcReady(null)).toBe(false);
+  it('accepts a certification document that carries a number', () => {
+    expect(isKcReady(['CB061R1234-1001'])).toBe(true);
+    expect(isKcReady(['', 'CB061R1234-1001'])).toBe(true);
+    expect(isKcReady([''])).toBe(false);
+    expect(isKcReady([])).toBe(false);
   });
 });

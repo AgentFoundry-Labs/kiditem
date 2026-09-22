@@ -52,6 +52,8 @@ import { Sourcing1688SearchResultService } from "./application/service/sourcing-
 import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingScrapeUrlService } from "./application/service/sourcing-scrape-url.service";
 import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
+import { SalesProductDraftAdapter } from "./adapter/out/channels/sales-product-draft.adapter";
+import { SALES_PRODUCT_DRAFT_PORT } from "./application/port/out/cross-domain/sales-product-draft.port";
 import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-workspace-archive.service";
 import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
@@ -203,6 +205,8 @@ import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cr
     Sourcing1688KeywordSearchService,
     Sourcing1688SearchResultService,
     SourcingPromotionService,
+    SalesProductDraftAdapter,
+    { provide: SALES_PRODUCT_DRAFT_PORT, useExisting: SalesProductDraftAdapter },
     SourcingWorkspaceArchiveService,
     SourcingEntryRecommendationService,
     SourcingRecommendationService,

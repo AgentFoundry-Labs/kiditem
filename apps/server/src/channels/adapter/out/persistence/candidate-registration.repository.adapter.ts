@@ -3,12 +3,25 @@ import {
   ConflictException,
   Injectable,
   Inject,
+  Optional,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma, type RegistrationTarget } from '@prisma/client';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../../sourcing/application/port/in/registration-source.port';
+import {
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+  type RegistrationContentWorkspacePort,
+} from '../../../../sourcing/application/port/in/registration-content-workspace.port';
+import {
+  SALES_PRODUCT_THUMBNAIL_SOURCE_PORT,
+  type SalesProductThumbnailSourcePort,
+} from '../../../application/port/out/ai/sales-product-thumbnail-source.port';
+import {
+  SelectedThumbnailError,
+  assertSelectedThumbnailAllowed,
+} from '../../../domain/registration/selected-thumbnail';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   blocksCandidateTerminalTransition as executionsBlockTerminalTransition,
@@ -21,7 +34,7 @@ import {
   blocksCandidateTerminalTransition,
 } from '../../../../sourcing/domain/product-preparation-state';
 import {
-  requireCandidateSalesProduct,
+  requireConfirmedProductForCandidate,
   findCandidateAccountPreparation,
   assertRegistrationIdentity,
   isUniqueConstraintError,
@@ -54,7 +67,37 @@ export class ProductPreparationRepositoryAdapter
   implements CandidateRegistrationPort
 {
   constructor(private readonly prisma: PrismaService,
-    @Inject(REGISTRATION_SOURCE_PORT) private readonly source: RegistrationSourcePort) {}
+    @Inject(REGISTRATION_SOURCE_PORT) private readonly source: RegistrationSourcePort,
+    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
+    private readonly contentWorkspaces: RegistrationContentWorkspacePort,
+    @Optional() @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
+    private readonly thumbnailSources?: SalesProductThumbnailSourcePort) {}
+
+  /**
+   * 몰에 나갈 대표 사진은 그 판매상품의 사진이어야 한다(KID-310). 손으로 적은 주소나 다른 상품의
+   * 사진을 그대로 얼리면 몰에서 엉뚱한 상품이 되고 되돌릴 방법이 없다.
+   */
+  private async assertThumbnailBelongsToProduct(
+    organizationId: string,
+    salesProductId: string,
+    selectedThumbnailUrl: string | null,
+  ): Promise<void> {
+    if (!selectedThumbnailUrl || !this.thumbnailSources) return;
+    const [product, generated] = await Promise.all([
+      this.prisma.salesProduct.findFirst({
+        where: { id: salesProductId, organizationId },
+        select: { imageUrls: true },
+      }),
+      this.thumbnailSources.listGeneratedThumbnailUrls(organizationId, salesProductId),
+    ]);
+    const allowed = [...(product?.imageUrls ?? []), ...generated];
+    try {
+      assertSelectedThumbnailAllowed(selectedThumbnailUrl, allowed);
+    } catch (error) {
+      if (error instanceof SelectedThumbnailError) throw new BadRequestException(error.message);
+      throw error;
+    }
+  }
 
   async readForCandidates(
     organizationId: string,
@@ -70,18 +113,24 @@ export class ProductPreparationRepositoryAdapter
     }
     if (ids.length === 0) return result;
 
+    // 후보 → 초안(판매상품) → 등록 설정. owner 를 넘는 조인이 아니라 Channels 안의 조인이다.
+    const drafts = await this.prisma.salesProduct.findMany({
+      where: { organizationId, sourceCandidateId: { in: ids } },
+      select: { id: true, sourceCandidateId: true },
+    });
+    const candidateByProduct = new Map(drafts.map((draft) => [draft.id, draft.sourceCandidateId!]));
+    if (candidateByProduct.size === 0) return result;
     const rows = await this.prisma.registrationTarget.findMany({
       where: {
         organizationId,
-        sourceCandidateId: { in: ids },
+        salesProductId: { in: [...candidateByProduct.keys()] },
         archivedAt: null,
       },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
-        sourceCandidateId: true,
+        salesProductId: true,
         channelAccountId: true,
-        sourceContentWorkspaceId: true,
         displayName: true,
         archivedAt: true,
         selectedThumbnailUrl: true,
@@ -95,9 +144,9 @@ export class ProductPreparationRepositoryAdapter
         updatedAt: true,
       },
     });
-    const candidateIdSet = new Set(ids);
-    const validRows = rows.filter((row): row is typeof row & { sourceCandidateId: string } =>
-      typeof row.sourceCandidateId === 'string' && candidateIdSet.has(row.sourceCandidateId));
+    const validRows = rows
+      .map((row) => ({ ...row, sourceCandidateId: candidateByProduct.get(row.salesProductId) }))
+      .filter((row): row is typeof row & { sourceCandidateId: string } => typeof row.sourceCandidateId === 'string');
     if (validRows.length === 0) return result;
 
     const facts = await readRegistrationExecutionFacts(this.prisma, {
@@ -135,9 +184,9 @@ export class ProductPreparationRepositoryAdapter
       const execution = latestByPreparation.get(row.id);
       candidate.preparations.push({
         id: row.id,
+        salesProductId: row.salesProductId,
         sourceCandidateId: row.sourceCandidateId,
         channelAccountId: row.channelAccountId,
-        sourceContentWorkspaceId: row.sourceContentWorkspaceId,
         channelListingId: execution?.channelListingId ?? null,
         displayName: row.displayName,
         status: registrationDraftState(row.archivedAt, execution),
@@ -166,7 +215,7 @@ export class ProductPreparationRepositoryAdapter
     const preparations = await tx.registrationTarget.findMany({
       where: {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        salesProduct: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId },
         archivedAt: null,
       },
       select: {
@@ -209,18 +258,14 @@ export class ProductPreparationRepositoryAdapter
         });
         if (!account) throw new NotFoundException('Channel account not found.');
 
-        const product = await requireCandidateSalesProduct(tx, input.organizationId, input.sourceCandidateId);
-        const existing = await findCandidateAccountPreparation(tx, input.organizationId, input.sourceCandidateId, input.input.channelAccountId);
+        const product = await requireConfirmedProductForCandidate(tx, input.organizationId, input.sourceCandidateId);
+        const existing = await findCandidateAccountPreparation(tx, input.organizationId, product.id, input.input.channelAccountId);
         if (existing) {
           const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: input.organizationId, registrationTargetIds: [existing.id] });
           if (registrationDraftState(existing.archivedAt, execution) !== 'draft') {
             throw new ConflictException('An active submission already exists for this account.');
           }
-          return {
-            preparationId: existing.id,
-            status: 'draft' as const,
-            sourceContentWorkspaceId: existing.sourceContentWorkspaceId ?? undefined,
-          };
+          return { preparationId: existing.id, status: 'draft' as const };
         }
 
         const sourceContentWorkspaceId = await resolveSourceWorkspace(
@@ -241,9 +286,7 @@ export class ProductPreparationRepositoryAdapter
             selectedOptions: { createMany: { data: product.options.map((option, sortOrder) => ({
               salesProductOptionId: option.id, sortOrder,
             })) } },
-            sourceCandidateId: input.sourceCandidateId,
             channelAccountId: input.input.channelAccountId,
-            sourceContentWorkspaceId,
             displayName: input.input.displayName,
             registrationInput: input.input.registrationInput as Prisma.InputJsonValue,
             ...resolvedSelectionData(resolvedSelections),
@@ -275,10 +318,11 @@ export class ProductPreparationRepositoryAdapter
           organizationId: input.organizationId,
           archivedAt: null,
         },
-        select: { sourceCandidateId: true },
+        select: { salesProduct: { select: { sourceCandidateId: true } } },
       });
       if (!identity) throw new NotFoundException('Product preparation not found.');
-      if (identity.sourceCandidateId) await this.source.lock(handle, input.organizationId, identity.sourceCandidateId);
+      const sourceCandidateId = identity.salesProduct?.sourceCandidateId ?? null;
+      if (sourceCandidateId) await this.source.lock(handle, input.organizationId, sourceCandidateId);
       await lockPreparation(tx, input.organizationId, input.preparationId);
       const current = await tx.registrationTarget.findFirst({
         where: {
@@ -309,12 +353,21 @@ export class ProductPreparationRepositoryAdapter
 
       assertPatchFresh(current, input.command.input);
       assertRegistrationIdentity(current);
-      if (current.sourceCandidateId) await this.source.requireActive(handle, input.organizationId, current.sourceCandidateId);
+      await this.assertThumbnailBelongsToProduct(
+        input.organizationId,
+        current.salesProductId,
+        mergedSelectionValues(current, input.command.input).selectedThumbnailUrl,
+      );
+      if (sourceCandidateId) await this.source.requireActive(handle, input.organizationId, sourceCandidateId);
+      const workspaceId = await this.contentWorkspaces.findSalesProductWorkspaceId({
+        organizationId: input.organizationId,
+        salesProductId: current.salesProductId,
+      });
       const resolvedSelections = await resolveSelections(
         handle,
         selectionResolutionInput(
           input.organizationId,
-          current.sourceContentWorkspaceId,
+          workspaceId ?? '',
           mergedSelectionValues(current, input.command.input),
         ),
       );

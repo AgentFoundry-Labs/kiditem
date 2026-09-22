@@ -11,7 +11,7 @@ export interface RegistrationTargetRecord {
   selectedOptions: RegistrationTargetCreateInput['selectedOptions'];
   product: {
     name: string;
-    options: { id: string; code: string; values: string[]; salePrice: number; normalPrice: number | null }[];
+    options: { id: string; code: string | null; values: string[]; salePrice: number | null; normalPrice: number | null }[];
   };
 }
 export interface RegistrationTargetRepositoryPort {

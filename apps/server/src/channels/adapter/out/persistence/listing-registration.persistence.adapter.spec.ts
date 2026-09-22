@@ -113,7 +113,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     });
   });
 
-  it("reactivates the account identity and attaches an immutable source candidate without a Master", async () => {
+  it("reactivates the account identity and attaches the selling product without a Master", async () => {
     const tx = {
       channelAccount: {
         findFirst: vi
@@ -127,15 +127,15 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
       channelListingDeletionOperation: {
         findFirst: vi.fn().mockResolvedValue(null),
       },
-      sourcingCandidate: {
-        findFirst: vi.fn().mockResolvedValue({ id: "candidate-1" }),
+      salesProduct: {
+        findFirst: vi.fn().mockResolvedValue({ id: "draft-1" }),
       },
       channelListing: {
         findFirst: vi
           .fn()
           .mockResolvedValueOnce({
             id: "listing-1",
-            sourceCandidateId: null,
+            salesProductId: null,
             channelAccountId: "account-1",
             channelAccount: { channel: "coupang" },
             externalId: "427011919",
@@ -144,7 +144,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
           })
           .mockResolvedValueOnce({
             id: "listing-1",
-            sourceCandidateId: null,
+            salesProductId: null,
             channelAccountId: "account-1",
             channelAccount: { channel: "coupang" },
             externalId: "427011919",
@@ -170,7 +170,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     await expect(
       repository.resolveProductRegistration(ownerTransaction(tx as never), {
         organizationId: "org-1",
-        sourceCandidateId: "candidate-1",
+        salesProductId: "draft-1",
         channelAccountId: "account-1",
         submissionKey: "submission-key-1",
         externalListingId: "427011919",
@@ -187,10 +187,10 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
       where: {
         id: "listing-1",
         organizationId: "org-1",
-        OR: [{ sourceCandidateId: null }, { sourceCandidateId: "candidate-1" }],
+        OR: [{ salesProductId: null }, { salesProductId: "draft-1" }],
       },
       data: {
-        sourceCandidateId: "candidate-1",
+        salesProductId: "draft-1",
         displayName: "Kids rain boots",
         status: "active",
         isActive: true,
@@ -198,15 +198,15 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     });
   });
 
-  it("rejects reassignment of a listing already sourced from another candidate", async () => {
+  it("rejects reassignment of a listing already owned by another selling product", async () => {
     const tx = {
       channelAccount: {
         findFirst: vi
           .fn()
           .mockResolvedValue({ id: "account-1", channel: "coupang" }),
       },
-      sourcingCandidate: {
-        findFirst: vi.fn().mockResolvedValue({ id: "candidate-1" }),
+      salesProduct: {
+        findFirst: vi.fn().mockResolvedValue({ id: "draft-1" }),
       },
       $queryRaw: vi.fn().mockResolvedValue([{ id: "listing-1" }]),
       channelListingDeletionOperation: {
@@ -215,7 +215,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
       channelListing: {
         findFirst: vi.fn().mockResolvedValue({
           id: "listing-1",
-          sourceCandidateId: "other-candidate",
+          salesProductId: "other-draft",
         }),
         findMany: vi.fn().mockResolvedValue([{ id: "listing-1", options: [] }]),
         updateMany: vi.fn(),
@@ -228,7 +228,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     await expect(
       repository.resolveProductRegistration(ownerTransaction(tx as never), {
         organizationId: "org-1",
-        sourceCandidateId: "candidate-1",
+        salesProductId: "draft-1",
         channelAccountId: "account-1",
         submissionKey: "submission-key-1",
         externalListingId: "427011919",
@@ -245,8 +245,8 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
           .fn()
           .mockResolvedValue({ id: "account-1", channel: "coupang" }),
       },
-      sourcingCandidate: {
-        findFirst: vi.fn().mockResolvedValue({ id: "candidate-1" }),
+      salesProduct: {
+        findFirst: vi.fn().mockResolvedValue({ id: "draft-1" }),
       },
       $queryRaw: vi.fn().mockResolvedValue([{ id: "listing-1" }]),
       channelListing: {
@@ -255,7 +255,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
           .mockResolvedValueOnce({ id: "listing-1" })
           .mockResolvedValueOnce({
             id: "listing-1",
-            sourceCandidateId: null,
+            salesProductId: null,
             channelAccountId: "account-1",
             channelAccount: { channel: "coupang" },
             externalId: "427011919",
@@ -275,7 +275,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     await expect(
       repository.resolveProductRegistration(ownerTransaction(tx as never), {
         organizationId: "org-1",
-        sourceCandidateId: "candidate-1",
+        salesProductId: "draft-1",
         channelAccountId: "account-1",
         submissionKey: "submission-key-1",
         externalListingId: "427011919",
@@ -293,8 +293,8 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
           .fn()
           .mockResolvedValue({ id: "account-1", channel: "coupang" }),
       },
-      sourcingCandidate: {
-        findFirst: vi.fn().mockResolvedValue({ id: "candidate-1" }),
+      salesProduct: {
+        findFirst: vi.fn().mockResolvedValue({ id: "draft-1" }),
       },
       masterProduct: {
         findFirst: vi
@@ -310,7 +310,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     await expect(
       repository.resolveProductRegistration(ownerTransaction(tx as never), {
         organizationId: "org-1",
-        sourceCandidateId: "candidate-1",
+        salesProductId: "draft-1",
         channelAccountId: "account-1",
         submissionKey: "submission-key-1",
         externalListingId: "427011919",

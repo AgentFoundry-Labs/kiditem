@@ -1,6 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
+import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 import type {
   RegistrationTargetCreateInput,
@@ -46,31 +51,45 @@ type Tx = Prisma.TransactionClient;
 
 @Injectable()
 export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly productTransactionalRead: ProductTransactionalReadPort,
+  ) {}
+
+  /** 셀피아 단품 id → 코드. KID 발급이 단품 하나짜리 구성의 원천 코드를 다시 쓸 때만 읽는다. */
+  private async readMasterProductCodes(
+    tx: Tx,
+    organizationId: string,
+    masterProductIds: readonly string[],
+  ): Promise<ReadonlyMap<string, string>> {
+    if (masterProductIds.length === 0) return new Map();
+    const identities = await this.productTransactionalRead.readSourceIdentities(
+      { client: tx },
+      { organizationId, selector: { kind: 'ids', values: [...masterProductIds] } },
+    );
+    return new Map(identities.map((identity) => [identity.masterProductId, identity.code]));
+  }
 
   async resolve(organizationId: string, input: RegistrationTargetResolveInput): Promise<string> {
     return this.prisma.$transaction(async (tx) => {
       const product = await validateReferences(tx, organizationId, input.salesProductId, input.channelAccountId, {
         allowArchivedProduct: true,
       });
-      const candidates = await tx.registrationTarget.findMany({
+      // 상품 × 몰 계정당 활성 설정은 하나다(부분 유일키). 고를 것이 없으니 찾거나 만든다.
+      const existing = await tx.registrationTarget.findFirst({
         where: {
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
           archivedAt: null,
-          ...(input.targetId ? { id: input.targetId } : {}),
         },
         select: { id: true },
-        take: 2,
       });
-      if (input.targetId && candidates.length === 0) {
-        throw new RegistrationTargetException('not_found', '이 상품과 쇼핑몰의 설정을 찾지 못했습니다.');
-      }
-      if (candidates.length > 1) {
-        throw new RegistrationTargetException('conflict', '이 쇼핑몰에 여러 판매 설정이 있습니다. 사용할 설정을 선택하세요.');
-      }
-      if (candidates[0]) return candidates[0].id;
+      if (existing) return existing.id;
+      // 첫 등록 설정을 만드는 순간이 곧 판매 결정이다 — 여기서 KID 를 발급한다(KID-310).
+      await ensureSalesProductCodesInTransaction(tx, organizationId, input.salesProductId,
+        (ids) => this.readMasterProductCodes(tx, organizationId, ids));
       if (product.status === 'archived') {
         throw new RegistrationTargetException('invalid', '보관된 판매상품에는 새 등록 설정을 만들 수 없습니다.');
       }
@@ -84,7 +103,6 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
-          sourceCandidateId: product.sourceCandidateId,
           displayName: null,
           registrationInput: {},
           selectedOptions: options.length === 0 ? undefined : {

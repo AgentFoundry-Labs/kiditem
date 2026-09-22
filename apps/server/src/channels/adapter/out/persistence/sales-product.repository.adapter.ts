@@ -1,5 +1,6 @@
 import { readSalesProductOptionExecutionCounts } from '../../../read/registration-execution.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
+import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -45,7 +46,7 @@ import type {
   SalesProductBasicsRecord,
   SalesProductChannelOverrideRecord,
   SalesProductCreateRecord,
-  SalesProductFromCandidateRecord,
+  SalesProductDraftRetireRow,
   SalesProductImportResult,
   SalesProductOptionState,
   SalesProductRepositoryPort,
@@ -141,10 +142,20 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return this.prisma.$transaction((tx) => allocateKidItemCode(tx));
   }
 
+  async ensureCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }> {
+    return this.prisma.$transaction(
+      (tx) => ensureSalesProductCodesInTransaction(tx, organizationId, salesProductId,
+        (ids) => readMasterProductCodesInTransaction(this.productTransactionalRead, tx, organizationId, ids)),
+      TRANSACTION_OPTIONS,
+    );
+  }
+
   async list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse> {
     const base: Prisma.SalesProductWhereInput = {
       organizationId,
       status: query.status ?? { not: 'archived' },
+      // 원천 탭(1688 · 쿠팡 · 사방넷)은 초안에 복사된 값으로 거른다 — Sourcing 조인이 없다.
+      ...(query.sourcePlatform ? { sourcePlatform: query.sourcePlatform } : {}),
     };
     const search = query.query?.trim();
     const searchWhere: Prisma.SalesProductWhereInput = search
@@ -171,18 +182,21 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     const unregistered: Prisma.SalesProductWhereInput = {
       channelListings: { none: {} },
     };
+    /** 아직 판매가를 정하지 않은 초안. */
+    const draftOnly: Prisma.SalesProductWhereInput = { status: 'draft' };
     const focusWhere = query.focus === 'with_options'
       ? withOptions
       : query.focus === 'unlinked'
         ? withUnlinked
         : query.focus === 'unregistered' ? unregistered : {};
     const where: Prisma.SalesProductWhereInput = { AND: [base, searchWhere, focusWhere] };
-    const [total, summaryTotal, summaryWithOptions, summaryUnlinked, summaryUnregistered, rows] = await Promise.all([
+    const [total, summaryTotal, summaryWithOptions, summaryUnlinked, summaryUnregistered, summaryDraft, rows] = await Promise.all([
       this.prisma.salesProduct.count({ where }),
       this.prisma.salesProduct.count({ where: base }),
       this.prisma.salesProduct.count({ where: { AND: [base, withOptions] } }),
       this.prisma.salesProduct.count({ where: { AND: [base, withUnlinked] } }),
       this.prisma.salesProduct.count({ where: { AND: [base, unregistered] } }),
+      this.prisma.salesProduct.count({ where: { AND: [base, draftOnly] } }),
       this.prisma.salesProduct.findMany({
         where,
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
@@ -193,6 +207,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           code: true,
           ownCode: true,
           sourceCandidateId: true,
+          sourcePlatform: true,
+          sourceUrl: true,
           name: true,
           status: true,
           imageUrls: true,
@@ -216,6 +232,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         code: row.code,
         ownCode: row.ownCode,
         sourceCandidateId: row.sourceCandidateId,
+        sourcePlatform: row.sourcePlatform,
+        sourceUrl: row.sourceUrl,
         name: row.name,
         status: row.status as SalesProductStatus,
         salePrice: minimumOptionPrice(row.options),
@@ -237,6 +255,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         withOptions: summaryWithOptions,
         withUnlinkedOptions: summaryUnlinked,
         unregistered: summaryUnregistered,
+        draft: summaryDraft,
       },
     };
   }
@@ -279,7 +298,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       where: { organizationId, code: { startsWith: prefix } },
       select: { code: true },
     });
-    return rows.map((row) => row.code);
+    return rows.flatMap((row) => row.code ? [row.code] : []);
   }
 
   async readMasterProductCodes(
@@ -344,6 +363,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         sabangnetGoodsNo: true,
         ownCode: true,
         code: true,
+        name: true,
+        status: true,
         version: true,
         options: {
           select: {
@@ -351,6 +372,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
             optionCode: true,
             sabangnetOptionCode: true,
             optionKey: true,
+            salePrice: true,
             supplyStatus: true,
             components: {
               orderBy: { createdAt: 'asc' },
@@ -366,12 +388,15 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return {
       productId: row.id,
       productCode: row.code,
+      productName: row.name,
+      status: row.status as SalesProductStatus,
       version: row.version,
       options: row.options.map((option) => ({
         id: option.id,
         optionCode: option.optionCode,
         sabangnetOptionCode: option.sabangnetOptionCode,
         optionKey: option.optionKey,
+        salePrice: option.salePrice,
         supplyStatus: option.supplyStatus as SalesProductOptionSupplyStatus,
         components: option.components.map((component) => ({
           masterProductId: component.masterProductId,
@@ -397,6 +422,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         sabangnetGoodsNo: true,
         ownCode: true,
         code: true,
+        name: true,
+        status: true,
           version: true,
           options: {
             select: {
@@ -404,6 +431,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
               optionCode: true,
               sabangnetOptionCode: true,
               optionKey: true,
+              salePrice: true,
               supplyStatus: true,
               components: {
                 orderBy: { createdAt: 'asc' },
@@ -419,12 +447,15 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         const state: SalesProductOptionState = {
           productId: row.id,
       productCode: row.code,
+      productName: row.name,
+      status: row.status as SalesProductStatus,
           version: row.version,
           options: row.options.map((option) => ({
             id: option.id,
             optionCode: option.optionCode,
             sabangnetOptionCode: option.sabangnetOptionCode,
             optionKey: option.optionKey,
+            salePrice: option.salePrice,
             supplyStatus: option.supplyStatus as SalesProductOptionSupplyStatus,
             components: option.components.map((component) => ({
               masterProductId: component.masterProductId,
@@ -450,12 +481,13 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     expectedVersion: number;
     optionAxes: string[];
     plan: SalesProductOptionReplacementPlan;
+    status: SalesProductStatus;
   }): Promise<boolean> {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const bumped = await tx.salesProduct.updateMany({
           where: { id: input.salesProductId, organizationId: input.organizationId, version: input.expectedVersion },
-          data: { optionAxes: input.optionAxes, version: { increment: 1 } },
+          data: { optionAxes: input.optionAxes, status: input.status, version: { increment: 1 } },
         });
         if (bumped.count !== 1) return false;
         await applyPlan(tx, input.organizationId, input.salesProductId, input.plan);
@@ -650,7 +682,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   }
 
   async readMallPriceCandidates(organizationId: string): Promise<{
-    products: (MallPriceCandidateProduct & { code: string; name: string })[];
+    products: (MallPriceCandidateProduct & { code: string | null; name: string })[];
     listingOptions: MallPriceCandidateListingOption[];
   }> {
     const [products, listingOptions] = await Promise.all([
@@ -860,7 +892,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         where: { organizationId, ownCode: { in: ownCodes.slice(start, start + 500) } },
         select: { code: true, ownCode: true },
       });
-      for (const row of rows) if (row.ownCode) codes.set(row.ownCode, row.code);
+      for (const row of rows) if (row.ownCode && row.code) codes.set(row.ownCode, row.code);
     }
     return codes;
   }
@@ -869,7 +901,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
   ): Promise<{
     id: string;
-    code: string;
+    code: string | null;
     version: number;
     imageUrls: string[];
     detailHtml: string | null;
@@ -975,6 +1007,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         code: true,
         ownCode: true,
         name: true,
+        status: true,
         brand: true,
         manufacturer: true,
         modelName: true,
@@ -1014,6 +1047,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       code: row.code,
       ownCode: row.ownCode,
       name: row.name,
+      status: row.status as SalesProductStatus,
       brand: row.brand,
       manufacturer: row.manufacturer,
       modelName: row.modelName,
@@ -1098,17 +1132,16 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
 
   async setMallCategoryPaths(
     organizationId: string,
-    writes: readonly { salesProductId: string; channelAccountId: string; targetId?: string; path: string }[],
+    writes: readonly { salesProductId: string; channelAccountId: string; path: string }[],
   ): Promise<number> {
     let written = 0;
     for (let start = 0; start < writes.length; start += MALL_VALUES_CHUNK) {
       const chunk = writes.slice(start, start + MALL_VALUES_CHUNK);
       for (const write of chunk) {
-        // 고른 설정이 있으면 그 설정만 — `resolve` 가 조직 · 상품 · 몰 계정 소속을 확인하고, 아니면 거절한다.
+        // 상품 × 몰 계정당 설정은 하나다 — `resolve` 가 조직 · 상품 · 몰 계정 소속을 확인하고 찾거나 만든다.
         const targetId = await this.registrationTargets.resolve(organizationId, {
           salesProductId: write.salesProductId,
           channelAccountId: write.channelAccountId,
-          ...(write.targetId ? { targetId: write.targetId } : {}),
         });
         const target = await this.registrationTargets.get(organizationId, targetId);
         if (!target) throw new NotFoundException('등록 설정을 찾을 수 없습니다.');
@@ -1125,23 +1158,53 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return written;
   }
 
-  async findBySourceCandidates(
-    organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, SalesProductFromCandidateRecord>> {
-    if (candidateIds.length === 0) return new Map();
-    const rows = await this.prisma.salesProduct.findMany({
-      where: { organizationId, sourceCandidateId: { in: [...candidateIds] } },
-      select: { id: true, code: true, version: true, status: true, imageUrls: true, detailHtml: true, sourceCandidateId: true },
+  async findIdBySourceCandidate(organizationId: string, candidateId: string): Promise<string | null> {
+    const row = await this.prisma.salesProduct.findFirst({
+      where: { organizationId, sourceCandidateId: candidateId },
+      select: { id: true },
     });
-    return new Map(rows.map((row) => [row.sourceCandidateId!, {
-      id: row.id,
-      code: row.code,
-      version: row.version,
-      status: row.status as SalesProductStatus,
-      imageUrls: row.imageUrls,
-      detailHtml: row.detailHtml,
-    }]));
+    return row?.id ?? null;
+  }
+
+  /**
+   * 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다.
+   *
+   * 몰에 올라가 있거나(활성 몰 상품) 살아 있는 등록 실행이 있으면 내리지 않는다 — 몰에 있는
+   * 상품의 기준을 잃으면 수정 보내기 · 품절을 어디에 걸지 모른다. 그래도 후보 거절은 막지 않는다.
+   */
+  async retireDraftForSource(
+    organizationId: string,
+    candidateId: string,
+  ): Promise<SalesProductDraftRetireRow> {
+    return this.prisma.$transaction(async (tx) => {
+      const product = await tx.salesProduct.findFirst({
+        where: { organizationId, sourceCandidateId: candidateId },
+        select: { id: true, status: true },
+      });
+      if (!product) {
+        return { salesProductId: null, retired: false, activeListingCount: 0, activeExecutionCount: 0 };
+      }
+      const [activeListingCount, activeExecutionCount] = await Promise.all([
+        tx.channelListing.count({ where: { organizationId, salesProductId: product.id, isActive: true } }),
+        tx.productRegistrationExecution.count({
+          where: {
+            organizationId,
+            status: { in: ['prepared', 'executing', 'reconciling'] },
+            preparation: { salesProductId: product.id },
+          },
+        }),
+      ]);
+      if (activeListingCount > 0 || activeExecutionCount > 0) {
+        return { salesProductId: product.id, retired: false, activeListingCount, activeExecutionCount };
+      }
+      if (product.status !== 'unused') {
+        await tx.salesProduct.updateMany({
+          where: { id: product.id, organizationId },
+          data: { status: 'unused', version: { increment: 1 } },
+        });
+      }
+      return { salesProductId: product.id, retired: true, activeListingCount: 0, activeExecutionCount: 0 };
+    }, TRANSACTION_OPTIONS);
   }
 
   async readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>> {
@@ -1204,7 +1267,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                   ...basicsData(write.create),
                   sabangnetGoodsNo: write.create.sabangnetGoodsNo,
                   optionAxes: write.create.optionAxes,
-                  sourceRaw: write.create.sourceRaw ?? Prisma.JsonNull,
+                  sourceRaw: (write.create.sourceRaw as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
                   version: { increment: 1 },
                 },
               });
@@ -1263,7 +1326,13 @@ function basicsData(record: Partial<SalesProductBasicsRecord>): Prisma.SalesProd
     'originCountry', 'originRegion', 'keywords', 'standardCategory', 'status', 'taxType', 'deliveryFeeType',
     'deliveryFee', 'stockManaged', 'imageUrls', 'detailHtml',
     'extraDetailHtml', 'noticeCategory', 'noticeValues', 'importDeclarationNo', 'adminMemo',
+    'description', 'targetAudience', 'ageGroup', 'productSize', 'colorVariantNames', 'boxSetQuantity',
   ] as const).forEach(assign);
+  if (record.registrationDefaults !== undefined) {
+    data.registrationDefaults = record.registrationDefaults === null
+      ? Prisma.JsonNull
+      : (record.registrationDefaults as Prisma.InputJsonValue);
+  }
   if (record.certifications !== undefined) {
     data.certifications = record.certifications.length > 0
       ? (record.certifications as Prisma.InputJsonValue)
@@ -1279,8 +1348,10 @@ function createData(record: SalesProductCreateRecord): Omit<Prisma.SalesProductU
     name: record.name,
     sabangnetGoodsNo: record.sabangnetGoodsNo,
     optionAxes: record.optionAxes,
-    sourceRaw: record.sourceRaw ?? Prisma.JsonNull,
+    sourceRaw: (record.sourceRaw as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
     sourceCandidateId: record.sourceCandidateId ?? null,
+    sourcePlatform: record.sourcePlatform ?? null,
+    sourceUrl: record.sourceUrl ?? null,
   };
 }
 
@@ -1572,6 +1643,8 @@ function toSalesProduct(
     ownCode: row.ownCode,
     sabangnetGoodsNo: row.sabangnetGoodsNo,
     sourceCandidateId: row.sourceCandidateId,
+    sourcePlatform: row.sourcePlatform,
+    sourceUrl: row.sourceUrl,
     name: row.name,
     shortName: row.shortName,
     englishName: row.englishName,
@@ -1584,6 +1657,13 @@ function toSalesProduct(
     originRegion: row.originRegion,
     keywords: row.keywords,
     standardCategory: row.standardCategory,
+    description: row.description,
+    targetAudience: row.targetAudience,
+    ageGroup: row.ageGroup,
+    productSize: row.productSize,
+    colorVariantNames: row.colorVariantNames,
+    boxSetQuantity: row.boxSetQuantity,
+    registrationDefaults: (row.registrationDefaults as Record<string, unknown> | null) ?? null,
     status: row.status as SalesProductStatus,
     taxType: row.taxType as SalesProductTaxType,
     deliveryFeeType: (row.deliveryFeeType as SalesProductDeliveryFeeType | null) ?? null,
@@ -1771,6 +1851,24 @@ function sabangnetImageUrls(sourceRaw: Prisma.JsonValue | null): string[] {
 }
 
 /** Listing/sheet transport projection; canonical prices remain on each option. */
-function minimumOptionPrice(options: readonly { salePrice: number }[]): number {
-  return options.length > 0 ? Math.min(...options.map(option => option.salePrice)) : 0;
+/** 팔 옵션 중 가장 싼 값. 초안이라 아직 정하지 않았으면 null 이다 — 0 은 공짜라는 뜻이라 쓰지 않는다. */
+function minimumOptionPrice(options: readonly { salePrice: number | null }[]): number | null {
+  const prices = options.map((option) => option.salePrice).filter((price): price is number => price !== null);
+  return prices.length > 0 ? Math.min(...prices) : null;
+}
+
+
+/** 셀피아 단품 id → 코드. KID 발급이 단품 하나짜리 구성의 원천 코드를 다시 쓸 때만 읽는다. */
+async function readMasterProductCodesInTransaction(
+  reader: ProductTransactionalReadPort,
+  tx: Tx,
+  organizationId: string,
+  masterProductIds: readonly string[],
+): Promise<ReadonlyMap<string, string>> {
+  if (masterProductIds.length === 0) return new Map();
+  const identities = await reader.readSourceIdentities(
+    { client: tx },
+    { organizationId, selector: { kind: 'ids', values: [...masterProductIds] } },
+  );
+  return new Map(identities.map((identity) => [identity.masterProductId, identity.code]));
 }

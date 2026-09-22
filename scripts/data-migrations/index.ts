@@ -28,6 +28,7 @@ import { migrateMasterProductInventoryCutoverMigration } from "./v0.1.31/016_mas
 import { simplifyProductReferencesMigration } from "./v0.1.31/017_simplify_product_references";
 import { prepareSellingCatalogSourcesMigration } from './v0.1.31/019_prepare_selling_catalog_sources';
 import { registrationTargetCutoverMigration } from './v0.1.31/022_registration_target_cutover';
+import { salesProductDraftCutoverMigration } from './v0.1.31/023_sales_product_draft_cutover';
 import { sellingCatalogCutoverMigration } from './v0.1.31/020_selling_catalog_cutover';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
@@ -71,6 +72,8 @@ export const dataMigrations: readonly DataMigration[] = [
   simplifyProductReferencesMigration,
   sellingCatalogCutoverMigration,
   registrationTargetCutoverMigration,
+  // 023 runs after 022 has created the registration targets it tidies.
+  salesProductDraftCutoverMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
   activateAdFreeProductAbcFormula,

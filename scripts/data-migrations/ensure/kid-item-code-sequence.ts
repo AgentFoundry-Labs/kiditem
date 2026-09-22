@@ -169,7 +169,9 @@ export const kidItemCodeSequenceStep: EnsureStep = {
     // sequence checks; only non-KID legacy values are temporarily tolerated.
     const salesCodesAreStrict = hasColumn(schema, 'sales_product_options', 'sabangnet_option_code');
     const invalid = codeRows.filter((row) => {
-      if (row.code === null) return true;
+      // KID 는 팔기로 정한 시점에 발급한다(KID-310). 아직 발급하지 않은 초안 줄은 건너뛴다 —
+      // 번호가 없다는 것은 값이 틀렸다는 뜻이 아니다.
+      if (row.code === null) return !isLegacySalesCode(row.kind);
       if (KID_ITEM_CODE_PATTERN.test(row.code)) return false;
       return salesCodesAreStrict || !isLegacySalesCode(row.kind);
     });

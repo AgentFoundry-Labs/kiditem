@@ -23,11 +23,13 @@ export const RegistrationTargetCreateInputSchema = z.object({
 }).strict();
 export type RegistrationTargetCreateInput = z.infer<typeof RegistrationTargetCreateInputSchema>;
 
-/** Normal registration resolves its account settings without a separate setup step. */
+/**
+ * 보통 등록은 따로 설정 단계를 거치지 않고 이 자리에서 설정을 찾거나 만든다.
+ * 상품 × 몰 계정당 활성 설정은 하나라 고를 것이 없다 — 행사용 등록은 별도 판매상품이다.
+ */
 export const RegistrationTargetResolveInputSchema = z.object({
   salesProductId: z.string().uuid(),
   channelAccountId: z.string().uuid(),
-  targetId: z.string().uuid().optional(),
 }).strict();
 export type RegistrationTargetResolveInput = z.infer<typeof RegistrationTargetResolveInputSchema>;
 export const RegistrationTargetUpdateInputSchema = z.object({
@@ -45,9 +47,11 @@ export const RegistrationTargetSchema = z.object({
     name: z.string(),
     options: z.array(z.object({
       salesProductOptionId: z.string().uuid(),
-      code: z.string(),
+      /** 발급된 KID. 아직 팔기로 하지 않은 초안의 단품은 비어 있다. */
+      code: z.string().nullable(),
       values: z.array(z.string()),
-      salePrice: money,
+      /** 초안이라 아직 정하지 않았으면 null. */
+      salePrice: money.nullable(),
       normalPrice: money.nullable(),
       supplyPrice: money.nullable(),
     })),
