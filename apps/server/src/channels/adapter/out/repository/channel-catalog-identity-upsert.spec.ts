@@ -16,6 +16,8 @@ function input() {
     channelAccountId,
     lastImportRunId: runId,
     rawSource: 'coupang_rocket_po_catalog',
+    // 발주서에는 판매가 칸이 없다.
+    unobservedOptionFields: ['salePrice' as const],
     products: [{
       externalProductId: 'P-1',
       registeredName: '상품 1',
