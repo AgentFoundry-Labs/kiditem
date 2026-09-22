@@ -172,7 +172,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
     const preflight = await this.registration.preflightExternalProductRegistration({
       organizationId,
       channelAccountId: input.channelAccountId,
-      sourceCandidateId: candidateId,
+      channelListingOptionId: candidateId,
       listingName,
       itemName,
       ...(input.sellpiaInventorySkuId
@@ -231,7 +231,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
   ) {
     return this.registration.previewExternalProductRegistrationMatch({
       organizationId,
-      sourceCandidateId: candidateId,
+      channelListingOptionId: candidateId,
       listingName: input.listingName,
       itemName: optionalString(input.itemName),
     });

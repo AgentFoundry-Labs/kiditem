@@ -64,24 +64,20 @@ export class ChannelRecipeSuggestionService {
     return suggestion!;
   }
 
-  /**
-   * ⚠️ `sourceCandidateId` 는 이름만 그럴 뿐 **몰 옵션 id** 로 쓰인다(아래 두 자리). 후보와 아무
-   * 상관이 없다 — 호출 계약(`ExternalProductRegistrationPreflightInput`)까지 함께 고쳐야 해서
-   * KID-310 에서는 이름을 바로잡지 않고 기록만 남긴다.
-   */
+  /** 아직 몰에 없는 상품의 추천. 이름만 있고 코드 · 바코드 · 기존 구성은 없다. */
   suggestRegistration(
     organizationId: string,
     input: {
-      sourceCandidateId: string;
+      channelListingOptionId: string;
       listingName: string;
       itemName: string | null;
     },
   ): Promise<ChannelRecipeSuggestionResponse> {
     return this.suggestContexts(organizationId, [{
       masterProductId: null,
-      selectedChannelListingOptionIds: [input.sourceCandidateId],
+      selectedChannelListingOptionIds: [input.channelListingOptionId],
       allLinkedOptions: [{
-        channelListingOptionId: input.sourceCandidateId,
+        channelListingOptionId: input.channelListingOptionId,
         listingName: input.listingName,
         itemName: input.itemName,
         sellerSku: null,

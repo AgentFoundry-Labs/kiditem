@@ -234,7 +234,7 @@ describe('RegistrationExecutionService', () => {
     expect(preflightExternalProductRegistration).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       channelAccountId: ACCOUNT_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      channelListingOptionId: CANDIDATE_ID,
       listingName: '꿀사과슬랑이',
       itemName: '꿀사과슬랑이 1p',
     });

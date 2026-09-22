@@ -88,7 +88,7 @@ describe('ChannelRecipeSuggestionService', () => {
     const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
 
     await expect(service.suggestRegistration(organizationId, {
-      sourceCandidateId: optionId,
+      channelListingOptionId: optionId,
       listingName: '꿀사과슬랑이',
       itemName: null,
     })).resolves.toMatchObject({

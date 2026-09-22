@@ -11,7 +11,7 @@ import type { ListingRegistrationPersistencePort } from '../../port/out/persiste
 import { RegistrationTargetException } from '../../exception/registration-target.exception';
 
 export interface RegistrationRecipeSuggestions {
-  suggestRegistration(organizationId: string, input: { sourceCandidateId: string; listingName: string; itemName: string | null }): Promise<ChannelRecipeSuggestionResponse>;
+  suggestRegistration(organizationId: string, input: { channelListingOptionId: string; listingName: string; itemName: string | null }): Promise<ChannelRecipeSuggestionResponse>;
   resolveSelectedRegistrationSku(organizationId: string, masterProductId: string): Promise<{ masterProductId: string; code: string; name: string; optionName: string | null; currentStock: number | null }>;
 }
 

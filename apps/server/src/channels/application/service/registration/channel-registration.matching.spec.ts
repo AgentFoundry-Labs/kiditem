@@ -33,7 +33,7 @@ describe('ChannelRegistrationService registration matching', () => {
 
     await expect(service.previewExternalProductRegistrationMatch({
       organizationId: 'org-1',
-      sourceCandidateId: 'candidate-1',
+      channelListingOptionId: 'candidate-1',
       listingName: '꿀사과슬랑이',
       itemName: null,
     })).resolves.toEqual({
@@ -88,7 +88,7 @@ describe('ChannelRegistrationService registration matching', () => {
     await expect(service.preflightExternalProductRegistration({
       organizationId: 'org-1',
       channelAccountId: 'account-1',
-      sourceCandidateId: 'candidate-1',
+      channelListingOptionId: 'candidate-1',
       listingName: '등록할 상품',
       itemName: null,
       selectedSellpiaInventorySkuId: selectedSku.masterProductId,
@@ -151,7 +151,7 @@ describe('ChannelRegistrationService registration matching', () => {
     await expect(service.preflightExternalProductRegistration({
       organizationId: 'org-1',
       channelAccountId: 'account-1',
-      sourceCandidateId: 'candidate-1',
+      channelListingOptionId: 'candidate-1',
       listingName: '꿀사과슬랑이',
       itemName: null,
     })).resolves.toEqual({
@@ -202,7 +202,7 @@ describe('ChannelRegistrationService registration matching', () => {
     await expect(service.preflightExternalProductRegistration({
       organizationId: 'org-1',
       channelAccountId: 'account-1',
-      sourceCandidateId: 'candidate-1',
+      channelListingOptionId: 'candidate-1',
       listingName: '알 수 없는 상품',
       itemName: null,
     })).rejects.toMatchObject({
