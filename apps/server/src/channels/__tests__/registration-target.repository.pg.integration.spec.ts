@@ -202,7 +202,7 @@ describe('registration target repository (PostgreSQL)', () => {
     })).rejects.toMatchObject({ code: 'invalid' });
   });
 
-  it('requires explicit target selection when multiple settings exist and fences targetId identity', async () => {
+  it('keeps exactly one active setting per product and account, and resolves it without a choice', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const otherAccountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const firstProduct = await createProduct(prisma, TEST_ORGANIZATION_ID);
@@ -212,12 +212,16 @@ describe('registration target repository (PostgreSQL)', () => {
       channelAccountId: accountId,
       selectedOptions: [selected(firstProduct.options[0]!.id)],
     }));
-    const secondTargetId = await repository.create(TEST_ORGANIZATION_ID, createInput({
+
+    // 행사용 등록은 별도 판매상품으로 만든다 — 같은 상품 × 몰에 설정을 둘 둘 수 없다.
+    await expect(repository.create(TEST_ORGANIZATION_ID, createInput({
       salesProductId: firstProduct.productId,
       channelAccountId: accountId,
       displayName: '두 번째 설정',
       selectedOptions: [selected(firstProduct.options[1]!.id)],
-    }));
+    }))).rejects.toBeTruthy();
+
+    // 다른 계정 · 다른 상품은 자기 설정을 가진다.
     const otherAccountTargetId = await repository.create(TEST_ORGANIZATION_ID, createInput({
       salesProductId: firstProduct.productId,
       channelAccountId: otherAccountId,
@@ -228,50 +232,23 @@ describe('registration target repository (PostgreSQL)', () => {
       channelAccountId: accountId,
       selectedOptions: [selected(secondProduct.options[0]!.id)],
     }));
+    expect(new Set([firstTargetId, otherAccountTargetId, otherProductTargetId]).size).toBe(3);
 
     await expect(repository.resolve(TEST_ORGANIZATION_ID, {
       salesProductId: firstProduct.productId,
       channelAccountId: accountId,
-    })).rejects.toMatchObject({ code: 'conflict' });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: secondTargetId,
-    })).resolves.toBe(secondTargetId);
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: randomUUID(),
-    })).rejects.toMatchObject({ code: 'not_found' });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: otherAccountTargetId,
-    })).rejects.toMatchObject({ code: 'not_found' });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: otherProductTargetId,
-    })).rejects.toMatchObject({ code: 'not_found' });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: firstTargetId,
     })).resolves.toBe(firstTargetId);
 
+    // 보관한 뒤에는 같은 자리에 새 설정을 만든다.
     await prisma.registrationTarget.update({
       where: { id: firstTargetId },
       data: { archivedAt: new Date() },
     });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
+    const replacement = await repository.resolve(TEST_ORGANIZATION_ID, {
       salesProductId: firstProduct.productId,
       channelAccountId: accountId,
-    })).resolves.toBe(secondTargetId);
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: firstTargetId,
-    })).rejects.toMatchObject({ code: 'not_found' });
+    });
+    expect(replacement).not.toBe(firstTargetId);
     await expect(repository.list(TEST_ORGANIZATION_ID, firstProduct.productId))
       .resolves.not.toEqual(expect.arrayContaining([expect.objectContaining({ id: firstTargetId })]));
     await expect(repository.get(TEST_ORGANIZATION_ID, firstTargetId)).resolves.toBeNull();

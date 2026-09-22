@@ -599,47 +599,14 @@ export const SalesProductMallSheetListSchema = z.object({
 export type SalesProductMallSheetList = z.infer<typeof SalesProductMallSheetListSchema>;
 
 export const SALES_PRODUCT_MALL_SHEET_MAX_IDS = 1000;
-/** 한 요청이 고를 수 있는 등록 설정 수 — 상품 하나가 이 파일이 다루는 몰마다 하나씩 고를 수 있다. */
-export const SALES_PRODUCT_MALL_SHEET_MAX_TARGETS = SALES_PRODUCT_MALL_SHEET_MAX_IDS * 4;
-
-/** 상품 × 몰에서 쓸 등록 설정 하나. 설정이 둘 이상인 상품 × 몰에만 보낸다. */
-export const SalesProductMallSheetTargetChoiceSchema = z.object({
-  salesProductId: z.string().uuid(),
-  mallKey: z.string().trim().min(1).max(40),
-  targetId: z.string().uuid(),
-}).strict();
-export type SalesProductMallSheetTargetChoice = z.infer<typeof SalesProductMallSheetTargetChoiceSchema>;
 
 export const SalesProductMallSheetRequestSchema = z.object({
   /** 비우면(확인만) 이 몰에 아직 없는 판매상품 — 몰 상품과 이어지지 않았고 사방넷이 보낸 적도 없는 것. */
   salesProductIds: z.array(z.string().uuid()).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS).optional(),
   /** 고정값. 빈 칸은 기본값을 쓴다. */
   fixed: z.record(z.string(), z.string().max(1000)).default({}),
-  /** 고른 등록 설정. 상품 × 몰마다 하나까지 — 설정이 둘 이상인 상품 × 몰은 반드시 있어야 한다. */
-  targetIds: z.array(SalesProductMallSheetTargetChoiceSchema).max(SALES_PRODUCT_MALL_SHEET_MAX_TARGETS).optional(),
 }).strict();
 export type SalesProductMallSheetRequest = z.infer<typeof SalesProductMallSheetRequestSchema>;
-
-/** 이 상품 × 몰에서 고를 수 있는 등록 설정 하나(ADR-0020). */
-export const SalesProductMallSheetTargetSchema = z.object({
-  id: z.string().uuid(),
-  /** 사람이 붙인 설정 이름. 없으면 만든 순서로 지은 이름. */
-  label: z.string(),
-  /** 이 설정이 고른 단품 수. */
-  optionCount: z.number().int(),
-  /** 이 설정에 적힌 몰 분류 경로. 없으면 null. */
-  categoryPath: z.string().nullable(),
-});
-export type SalesProductMallSheetTarget = z.infer<typeof SalesProductMallSheetTargetSchema>;
-
-/** 상품 × 몰의 등록 설정 고를거리. `selectionRequired` 면 사람이 하나를 골라야 파일을 만든다. */
-export const SalesProductMallSheetTargetsSchema = z.object({
-  mallKey: z.string(),
-  targets: z.array(SalesProductMallSheetTargetSchema),
-  /** 설정이 둘 이상이라 골라야 하는가. 0개(공통값) · 1개(자동)는 false. */
-  selectionRequired: z.boolean(),
-});
-export type SalesProductMallSheetTargets = z.infer<typeof SalesProductMallSheetTargetsSchema>;
 
 /**
  * 상품 × 몰 분류 — 몰 엑셀은 이 몰 분류가 있어야(번호로 받는 몰은 번호로 바뀌어야) 넣는다.
@@ -687,10 +654,8 @@ export const SalesProductMallSheetCheckSchema = z.object({
     warnings: z.array(z.string()),
     /** 이 파일에 들어갈 사진 중 몰이 못 읽어(우리 저장소) 막는 사진 수. [사진 올리기]가 공개 주소를 만든다. */
     unreadableImages: z.number().int(),
-    /** 이 파일이 다루는 몰마다의 분류. 아직 설정을 고르지 않은 몰은 빠진다. */
+    /** 이 파일이 다루는 몰마다의 분류. */
     categories: z.array(SalesProductMallSheetCategorySchema),
-    /** 이 파일이 다루는 몰마다의 등록 설정 고를거리. */
-    mallTargets: z.array(SalesProductMallSheetTargetsSchema),
   })),
   ready: z.number().int(),
   blocked: z.number().int(),
@@ -713,11 +678,6 @@ export const SalesProductMallCategoryAssignRequestSchema = z.object({
   mallKey: z.string().trim().min(1).max(40),
   path: z.string().trim().min(1).max(300),
   salesProductIds: z.array(z.string().uuid()).min(1).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS),
-  /** 고른 등록 설정. 이 몰 설정이 둘 이상인 상품은 반드시 있어야 하고, 그 설정에만 분류를 쓴다. */
-  targetIds: z.array(z.object({
-    salesProductId: z.string().uuid(),
-    targetId: z.string().uuid(),
-  }).strict()).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS).optional(),
 }).strict();
 export type SalesProductMallCategoryAssignRequest = z.infer<typeof SalesProductMallCategoryAssignRequestSchema>;
 

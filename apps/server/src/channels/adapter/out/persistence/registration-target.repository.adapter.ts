@@ -53,24 +53,17 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
       const product = await validateReferences(tx, organizationId, input.salesProductId, input.channelAccountId, {
         allowArchivedProduct: true,
       });
-      const candidates = await tx.registrationTarget.findMany({
+      // 상품 × 몰 계정당 활성 설정은 하나다(부분 유일키). 고를 것이 없으니 찾거나 만든다.
+      const existing = await tx.registrationTarget.findFirst({
         where: {
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
           archivedAt: null,
-          ...(input.targetId ? { id: input.targetId } : {}),
         },
         select: { id: true },
-        take: 2,
       });
-      if (input.targetId && candidates.length === 0) {
-        throw new RegistrationTargetException('not_found', '이 상품과 쇼핑몰의 설정을 찾지 못했습니다.');
-      }
-      if (candidates.length > 1) {
-        throw new RegistrationTargetException('conflict', '이 쇼핑몰에 여러 판매 설정이 있습니다. 사용할 설정을 선택하세요.');
-      }
-      if (candidates[0]) return candidates[0].id;
+      if (existing) return existing.id;
       if (product.status === 'archived') {
         throw new RegistrationTargetException('invalid', '보관된 판매상품에는 새 등록 설정을 만들 수 없습니다.');
       }

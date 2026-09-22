@@ -33,7 +33,8 @@ candidate KC facts through Sourcing and images through AI's content capability.
 - Channels owns each option's complete `ChannelListingOptionInventoryComponent`
   recipe, keyed by MasterProduct UUID and positive quantity. Products owns
   physical `MasterProduct.currentStock`; Channels never mutates it (ADR-0017).
-- Registration provenance in `sourceCandidateId` is immutable.
+- Registration provenance lives on `SalesProduct.sourceCandidateId` and is immutable.
+  A listing and a registration target reach their source through that selling product.
 
 The model authority is
 [prisma/models/channels.prisma](../../../../prisma/models/channels.prisma);
@@ -46,8 +47,11 @@ sync, registration, matching, and capacity behavior is executable in
   (`ProductRegistrationExecution`), which opens the transaction, writes the
   execution row itself. Channels also owns reusable registration targets:
   successful execution does not close the target, and new intent creates a new
-  frozen execution (ADR-0020). A form fill without submission returns only the
+  frozen execution. A form fill without submission returns only the
   current browser result; it is not confirmed registration.
+- A selling product has at most one active registration target per channel
+  account. Nothing chooses among settings; a promotional listing is its own
+  selling product.
 - Selected accounts must exist and be active. `ChannelAccount` stores the Wing
   vendor identity used to fence browser evidence; Open API credentials are not
   accepted or resolved.
@@ -143,8 +147,11 @@ sync, registration, matching, and capacity behavior is executable in
 - Channels owns common selling products, their KID options and registration templates. Templates may initialize an empty confirmed recipe only on explicit application; they never supply operational capacity.
 - Source products remain Products-owned. Catalog storage references MasterProduct UUIDs without a cross-owner foreign key; names and barcodes do not establish source identity.
 - Marketplace transport preserves its existing per-provider stock behavior. Internal capacity does not replace the submitted stock value or mutate source stock.
-- 몰 대량등록 엑셀은 상품 × 몰의 등록 설정이 여러 개면 요청이 고른 설정 하나로만 확인 · 파일 ·
-  분류 저장을 한다. 하나를 임의로 고르지 않고, 고른 설정이 그 조직 · 상품 · 몰의 것인지 확인한다.
+- 몰 대량등록 엑셀은 상품 × 몰 계정의 하나뿐인 등록 설정으로 확인 · 파일 · 분류 저장을 한다.
+  설정이 없으면 공통값으로 계산한다.
+- 수집과 직접 작성 모두 판매상품 초안(`status='draft'`) 하나를 만든다. 저장할 때마다 팔 옵션의
+  판매가로 상태를 다시 판정하고(`domain/sales-product/sales-product-draft.ts`), 등록 동결 · 몰
+  엑셀 파일 · 품절 송신은 같은 게이트(`requireConfirmedPrice`)로 초안을 거절한다.
 
 ## 쿠팡 윙 엑셀
 

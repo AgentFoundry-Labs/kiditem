@@ -257,10 +257,10 @@ export interface SalesProductRepositoryPort {
   ): Promise<number>;
   /**
    * 상품 × 몰 계정의 등록 설정에 `categoryPath` 하나만 쓴다(다른 칸은 그대로, 설정이 없으면 만든다). 쓴 줄 수.
-   * 설정이 둘 이상인 상품 × 몰은 `targetId` 로 하나를 가리켜야 하고, 그 설정에만 쓴다.
+   * 상품 × 몰 계정당 활성 설정은 하나라 고를 것이 없다.
    */
   setMallCategoryPaths(
     organizationId: string,
-    writes: readonly { salesProductId: string; channelAccountId: string; targetId?: string; path: string }[],
+    writes: readonly { salesProductId: string; channelAccountId: string; path: string }[],
   ): Promise<number>;
 }

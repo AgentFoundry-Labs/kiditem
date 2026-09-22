@@ -587,6 +587,8 @@ model RegistrationTarget {
 
   @@unique([id, organizationId])
   @@unique([id, organizationId, channelAccountId], map: "registration_targets_id_org_account_key")
+  /// 상품 × 몰 계정당 활성 등록 설정은 하나다. 행사용 등록은 별도 판매상품으로 만든다.
+  @@unique([organizationId, salesProductId, channelAccountId], map: "registration_targets_org_product_account_active_key", where: raw("archived_at IS NULL"))
   @@index([salesProductId, organizationId])
   @@index([organizationId, archivedAt])
   @@index([channelAccountId])

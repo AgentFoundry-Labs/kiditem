@@ -27,7 +27,6 @@ import {
   pickMallOverride,
   toMallSheetProduct,
   unreadableSheetImages,
-  unselectedMalls,
   type MallSheetSourceProduct,
 } from './mall-sheet-product';
 
@@ -183,48 +182,21 @@ function run(spec: MallBulkSheetSpec, input: MallSheetSourceProduct, fixed: Reco
   return spec.rows(toMallSheetProduct(input, spec, lookup), context);
 }
 
-describe('choosing among several registration settings', () => {
-  function twoTargets(): MallSheetSourceProduct {
-    const gmarket = source().overrides.find((item) => item.mallKey === 'gmarket')!;
-    return source({
-      overrides: [
-        { ...gmarket, targetId: 'target-1', salePrice: 4200, adapterValues: { categoryPath: '장난감/완구>감각발달완구>기타감각발달완구' } },
-        { ...gmarket, targetId: 'target-2', salePrice: 9900, adapterValues: { categoryPath: '장난감/완구>감각발달완구>기타감각발달완구' } },
-        ...source().overrides.filter((item) => item.mallKey !== 'gmarket'),
-      ],
-    });
-  }
-
+/**
+ * 상품 × 몰 계정당 활성 등록 설정은 하나다(KID-310) — 고를 것이 없다. 한 몰에 계정이 여럿이면
+ * 먼저 만든 설정을 쓴다.
+ */
+describe('one registration setting per product and mall', () => {
   it('reads the settings of one mall in the order they were made', () => {
-    expect(mallTargets(twoTargets(), 'gmarket').map((item) => item.targetId)).toEqual(['target-1', 'target-2']);
-    expect(mallTargets(twoTargets(), 'teacher-mall')).toEqual([]);
-    expect(mallTargetCategoryPath(mallTargets(twoTargets(), 'gmarket')[0]!))
-      .toBe('장난감/완구>감각발달완구>기타감각발달완구');
+    expect(mallTargets(source(), 'teacher-mall')).toEqual([]);
     expect(mallTargetCategoryPath(mallTargets(source(), 'gmarket')[0]!))
       .toBe('장난감/완구 > 감각발달완구 > 기타감각발달완구');
   });
 
-  it('tells "no setting" apart from "not chosen yet"', () => {
-    expect(pickMallOverride(source({ overrides: [] }), 'gmarket')).toEqual({ override: null, unselected: false });
-    expect(pickMallOverride(source(), 'gmarket').override?.salePrice).toBe(4200);
-    expect(pickMallOverride(twoTargets(), 'gmarket')).toEqual({ override: null, unselected: true });
-    expect(pickMallOverride(twoTargets(), 'gmarket', new Map([['gmarket', 'target-2']])).override?.salePrice).toBe(9900);
-    // 이 몰의 설정이 아닌 id 는 고른 것으로 치지 않는다.
-    expect(pickMallOverride(twoTargets(), 'gmarket', new Map([['gmarket', 'target-9']])))
-      .toEqual({ override: null, unselected: true });
-  });
-
-  it('lists only the malls that still need a choice', () => {
-    expect(unselectedMalls(twoTargets(), ['gmarket', 'auction'])).toEqual(['gmarket']);
-    expect(unselectedMalls(twoTargets(), ['gmarket', 'auction'], new Map([['gmarket', 'target-1']]))).toEqual([]);
-    expect(unselectedMalls(source(), ['gmarket', 'auction'])).toEqual([]);
-  });
-
-  it('prices the mall from the chosen setting and leaves an unchosen mall on common values', () => {
-    const chosen = toMallSheetProduct(twoTargets(), esmSheet, lookup, new Map(), new Map([['gmarket', 'target-2']]));
-    expect(chosen.malls.gmarket!.salePrice).toBe(9900);
-    const unchosen = toMallSheetProduct(twoTargets(), esmSheet, lookup);
-    expect(unchosen.malls.gmarket!.salePrice).toBe(3960);
+  it('takes the one setting, and stays on common values when there is none', () => {
+    expect(pickMallOverride(source({ overrides: [] }), 'gmarket')).toBeNull();
+    expect(pickMallOverride(source(), 'gmarket')?.salePrice).toBe(4200);
+    expect(toMallSheetProduct(source({ overrides: [] }), esmSheet, lookup).malls.gmarket!.salePrice).toBe(3960);
   });
 
   describe('borrowing a category from a mall with the same category tree', () => {
@@ -233,22 +205,15 @@ describe('choosing among several registration settings', () => {
     const donor = (targetId: string, categoryPath: string) => ({ ...base, targetId, adapterValues: { categoryPath } });
     const SHARED = '출산/육아>완구/인형>감각발달완구>비눗방울';
     const OTHER = '출산/육아>완구/인형>블록';
-    const code = (product: MallSheetSourceProduct, selection?: Map<string, string>) =>
-      toMallSheetProduct(product, onchannelSheet, lookup, new Map(), selection).malls.onch!.categoryCode;
+    const code = (product: MallSheetSourceProduct) =>
+      toMallSheetProduct(product, onchannelSheet, lookup).malls.onch!.categoryCode;
 
-    it('borrows from one setting, and from several settings that all point at the same category', () => {
+    it('borrows from that mall setting', () => {
       expect(code(source({ overrides: [donor('target-1', SHARED)] }))).toBe('50004224');
-      expect(code(source({ overrides: [donor('target-1', SHARED), donor('target-2', SHARED)] }))).toBe('50004224');
     });
 
-    it('does not borrow when the settings point at different categories', () => {
-      expect(code(source({ overrides: [donor('target-1', SHARED), donor('target-2', OTHER)] }))).toBeNull();
-    });
-
-    it('borrows from the setting the caller chose for that mall', () => {
-      const product = source({ overrides: [donor('target-1', OTHER), donor('target-2', SHARED)] });
-      expect(code(product, new Map([['smartstore', 'target-2']]))).toBe('50004224');
-      expect(code(product, new Map([['smartstore', 'target-1']]))).toBeNull();
+    it('does not borrow when a mall with several accounts points at different categories', () => {
+      expect(code(source({ overrides: [donor('target-1', OTHER), donor('target-2', SHARED)] }))).toBeNull();
     });
   });
 });
