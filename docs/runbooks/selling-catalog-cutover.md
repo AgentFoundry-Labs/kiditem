@@ -92,6 +92,12 @@ Collected products and selling products no longer coexist. `023` runs pre-schema
 after `022` has created the registration targets it tidies, and moves every
 candidate edit onto one selling-product draft:
 
+0. Expand first, the way `022` does: add the draft columns with
+   `ADD COLUMN IF NOT EXISTS` and drop the `NOT NULL` that `022` left on
+   `sales_products.code`, `sales_product_options.option_code` and
+   `sales_product_options.sale_price`. A draft exists without a KID and without
+   a price. If the columns are still missing afterwards the migration stops
+   before any mutation.
 1. Stop if one candidate already has two selling products. Nobody can say which
    one is canonical, so the whole migration rolls back before any mutation.
 2. Keep one active registration target per selling product and channel account:
@@ -106,18 +112,26 @@ candidate edit onto one selling-product draft:
    image list is thumbnail → representative → `candidate_images` order.
 4. A candidate that already has a draft only gets its **empty** columns filled;
    a value a person typed is never overwritten.
-5. `mallRegisterValues` merge into that mall account's registration target
-   (never creating one — choosing a mall account is a human decision), and
-   `mallRegisterShared` becomes the draft's `registrationDefaults`.
-6. The candidate's `rawData` keeps the raw payload only: `manualBasics`,
-   `registrationInput`, `mallRegisterValues` and `mallRegisterShared` are removed.
+5. Link every `channel_listings` row that still names a candidate to that
+   candidate's draft (`linkedListings`). The listing's own candidate column goes
+   away in the schema step, and a mall product with no draft would lose its KC
+   evidence for good.
+6. `mallRegisterValues` merge into that mall's registration target, creating the
+   one setting when the product and account has none, because the owner typed
+   those values for that mall. A mall with no account row has nowhere to put
+   them and is reported as `discardedMallValues`. Two active settings for one
+   product and account stop the migration. `mallRegisterShared` becomes the
+   draft's `registrationDefaults` (`movedDefaults`).
+7. The live candidate's `rawData` keeps the raw payload only: `manualBasics`,
+   `registrationInput`, `mallRegisterValues` and `mallRegisterShared` are
+   removed. A deleted candidate keeps its payload — nothing projected it.
 
 KID codes are **not** issued here. A draft carries no `code` until somebody
 decides to sell it — the first registration target or the mall workbook file
 issues it (`ensureSalesProductCodes`). Re-running `023` changes nothing.
 
 The focused Testcontainers suite is
-`apps/server/src/channels/__tests__/sales-product-draft-cutover.pg.integration.spec.ts`.
+`apps/server/src/__tests__/sales-product-draft-cutover.pg.integration.spec.ts`.
 
 ## Recovery
 

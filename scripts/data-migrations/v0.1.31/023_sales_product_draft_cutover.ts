@@ -39,7 +39,7 @@ export const salesProductDraftCutoverMigration: DataMigration = {
   phase: 'pre-schema',
   async run(tx) {
     const shape = await readShape(tx);
-    if (!shape.candidates || !shape.salesProducts) {
+    if (!shape.candidates || !shape.sales_products) {
       return { affectedRows: 0, details: { outcome: 'tables_absent' } };
     }
     await tx.$queryRaw`
@@ -47,6 +47,13 @@ export const salesProductDraftCutoverMigration: DataMigration = {
       SELECT pg_advisory_xact_lock(hashtextextended('kiditem.sales-product-draft-cutover', 0))::text AS "lock"
     `;
     await assertOneDraftPerCandidate(tx);
+    // 022 와 같은 expand 순서다: push 전에 우리가 쓸 칸을 만들고, 022 가 NOT NULL 로 세워 둔
+    // 코드 · 가격 칸을 푼다. 초안은 KID 없이 · 가격 없이 존재해야 한다(ADR-0022).
+    await expandDraftColumns(tx);
+    if (!(await readShape(tx)).draft_columns) {
+      throw new Error('The draft columns are still missing after expand; the draft cutover stopped before mutation.');
+    }
+    const linkedListings = shape.listings ? await backfillListingDrafts(tx) : 0;
     const archivedDuplicateTargets = shape.targets ? await archiveDuplicateTargets(tx) : 0;
 
     const candidates = await readCandidates(tx, shape);
@@ -54,6 +61,8 @@ export const salesProductDraftCutoverMigration: DataMigration = {
     let filledDrafts = 0;
     let movedMallValues = 0;
     let movedDefaults = 0;
+    let createdTargets = 0;
+    let discardedMallValues = 0;
     for (const candidate of candidates) {
       const raw = asRecord(candidate.raw_data);
       const manual = asRecord(raw.manualBasics);
@@ -66,22 +75,28 @@ export const salesProductDraftCutoverMigration: DataMigration = {
         createdDrafts += 1;
       }
       if (shape.targets) {
-        const moved = await moveMallValues(tx, candidate, manual);
+        const moved = await moveMallValues(tx, candidate, manual, projected);
         movedMallValues += moved.values;
         movedDefaults += moved.defaults;
+        createdTargets += moved.created;
+        discardedMallValues += moved.discarded;
       }
     }
     const strippedCandidates = await stripCandidateEdits(tx);
 
     return {
-      affectedRows: createdDrafts + filledDrafts + movedMallValues + movedDefaults + strippedCandidates,
+      affectedRows: createdDrafts + filledDrafts + movedMallValues + movedDefaults
+        + strippedCandidates + linkedListings,
       details: {
         createdDrafts,
         filledDrafts,
         movedMallValues,
         movedDefaults,
+        createdTargets,
+        discardedMallValues,
         strippedCandidates,
         archivedDuplicateTargets,
+        linkedListings,
         outcome: 'moved',
       },
     };
@@ -185,18 +200,74 @@ function certificationsOf(registrationInput: Json, manual: Json): Json[] | null 
 async function readShape(tx: Prisma.TransactionClient) {
   const [row] = await tx.$queryRaw<Array<{
     candidates: boolean; sales_products: boolean; targets: boolean; images: boolean;
-    draft_columns: boolean;
+    listings: boolean; draft_columns: boolean;
   }>>`
     SELECT to_regclass('sourcing_candidates') IS NOT NULL AS candidates,
       to_regclass('sales_products') IS NOT NULL AS sales_products,
       to_regclass('registration_targets') IS NOT NULL AS targets,
       to_regclass('candidate_images') IS NOT NULL AS images,
       EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'sales_products' AND column_name = 'target_audience'
-      ) AS draft_columns
+        SELECT 1 FROM pg_attribute
+        WHERE attrelid = to_regclass('channel_listings')
+          AND attname = 'source_candidate_id' AND attnum > 0 AND NOT attisdropped
+      ) AS listings,
+      (SELECT count(*) FROM pg_attribute
+        WHERE attrelid = to_regclass('sales_products')
+          AND attnum > 0 AND NOT attisdropped
+          AND attname IN ('target_audience', 'age_group', 'product_size',
+            'color_variant_names', 'box_set_quantity', 'registration_defaults')) = 6 AS draft_columns
   `;
   return row!;
+}
+
+/**
+ * push 전에 우리가 쓸 칸을 만든다(022 의 expand 패턴). 초안은 KID 도 가격도 없이 존재하므로
+ * 022 가 NOT NULL 로 세워 둔 코드 · 판매가도 여기서 푼다.
+ */
+async function expandDraftColumns(tx: Prisma.TransactionClient): Promise<void> {
+  const columns: Array<[string, string]> = [
+    ['description', `text NOT NULL DEFAULT ''`],
+    ['target_audience', 'text'],
+    ['age_group', 'text'],
+    ['product_size', 'text'],
+    ['color_variant_names', `text[] NOT NULL DEFAULT '{}'`],
+    ['box_set_quantity', 'integer'],
+    ['registration_defaults', 'jsonb'],
+    ['keywords', `text[] NOT NULL DEFAULT '{}'`],
+    ['notice_values', `text[] NOT NULL DEFAULT '{}'`],
+    ['certifications', 'jsonb'],
+    ['brand', 'text'], ['manufacturer', 'text'], ['model_name', 'text'], ['model_no', 'text'],
+    ['origin_country', 'text'], ['standard_category', 'text'], ['notice_category', 'text'],
+    ['import_declaration_no', 'text'], ['admin_memo', 'text'],
+    ['tax_type', `text NOT NULL DEFAULT 'taxable'`],
+    ['source_platform', 'text'], ['source_url', 'text'],
+  ];
+  for (const [column, definition] of columns) {
+    await tx.$executeRawUnsafe(
+      `ALTER TABLE sales_products ADD COLUMN IF NOT EXISTS "${column}" ${definition}`,
+    );
+  }
+  // 수집 초안은 코드를 발급하지 않고 판매가도 비어 있다(발급 시점 B).
+  await tx.$executeRaw`ALTER TABLE sales_products ALTER COLUMN code DROP NOT NULL`;
+  await tx.$executeRaw`ALTER TABLE sales_product_options ALTER COLUMN option_code DROP NOT NULL`;
+  await tx.$executeRaw`ALTER TABLE sales_product_options ALTER COLUMN sale_price DROP NOT NULL`;
+}
+
+/**
+ * 몰 상품은 이제 판매상품 초안을 거쳐 원천에 닿는다(KID-310). `source_candidate_id` 가
+ * 지워지기 전에 그 후보의 초안으로 이어 둔다 — 잇지 못하면 KC 근거가 영영 사라진다.
+ */
+async function backfillListingDrafts(tx: Prisma.TransactionClient): Promise<number> {
+  return tx.$executeRaw`
+    -- queryraw-tenancy-exempt: writer-stopped cutover across every organization.
+    UPDATE channel_listings AS listing
+    SET sales_product_id = product.id
+    FROM sales_products AS product
+    WHERE listing.sales_product_id IS NULL
+      AND listing.source_candidate_id IS NOT NULL
+      AND product.source_candidate_id = listing.source_candidate_id
+      AND product.organization_id = listing.organization_id
+  `;
 }
 
 /** 한 후보에 초안이 둘이면 어느 쪽이 정본인지 아무도 모른다 — 통째로 멈춘다. */
@@ -369,47 +440,131 @@ async function fillEmptyColumns(
         AND registration_defaults IS NULL
     `;
   }
+  if (draft.colorVariantNames.length > 0) {
+    written += await tx.$executeRaw`
+      UPDATE sales_products SET color_variant_names = ${draft.colorVariantNames}::text[]
+      WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
+        AND cardinality(color_variant_names) = 0
+    `;
+  }
+  if (draft.noticeValues.length > 0) {
+    written += await tx.$executeRaw`
+      UPDATE sales_products SET notice_values = ${draft.noticeValues}::text[]
+      WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
+        AND cardinality(notice_values) = 0
+    `;
+  }
+  if (draft.boxSetQuantity !== null) {
+    written += await tx.$executeRaw`
+      UPDATE sales_products SET box_set_quantity = ${draft.boxSetQuantity}
+      WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
+        AND box_set_quantity IS NULL
+    `;
+  }
+  if (draft.certifications !== null) {
+    written += await tx.$executeRaw`
+      UPDATE sales_products SET certifications = ${JSON.stringify(draft.certifications)}::jsonb
+      WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
+        AND (certifications IS NULL OR certifications = '[]'::jsonb)
+    `;
+  }
   return written;
 }
 
 /**
- * `mallRegisterValues` → 그 몰 계정의 등록 설정 `registration_input`,
+ * `mallRegisterValues` → 그 몰의 등록 설정 `registration_input`,
  * `mallRegisterShared` → 초안의 `registration_defaults`.
- * 설정이 없으면 만들지 않는다 — 몰 계정을 고르는 것은 사람이 하는 판단이다.
+ *
+ * 설정이 없으면 만든다 — 사장님이 그 몰에 쓰려고 적어 둔 값이라 갈 곳이 있어야 한다. 그 몰에
+ * 계정이 없으면 옮길 데가 없으므로 버린 건수로 보고한다. 같은 상품 · 같은 계정에 활성 설정이
+ * 둘 이상이면 어느 쪽 값인지 아무도 모르므로 통째로 멈춘다.
  */
 async function moveMallValues(
   tx: Prisma.TransactionClient,
   candidate: CandidateRow,
   manual: Json,
-): Promise<{ values: number; defaults: number }> {
+  draft: ProjectedDraft,
+): Promise<{ values: number; defaults: number; created: number; discarded: number }> {
   const byMall = asRecord(manual.mallRegisterValues);
-  if (Object.keys(byMall).length === 0) return { values: 0, defaults: 0 };
+  const defaults = draft.registrationDefaults === null ? 0 : 1;
+  if (Object.keys(byMall).length === 0) return { values: 0, defaults, created: 0, discarded: 0 };
+  const [product] = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id::text AS id FROM sales_products
+    WHERE source_candidate_id = ${candidate.id}::uuid
+      AND organization_id = ${candidate.organization_id}::uuid
+  `;
+  if (!product) return { values: 0, defaults, created: 0, discarded: Object.keys(byMall).length };
+
   let values = 0;
+  let created = 0;
+  let discarded = 0;
   for (const [mallKey, mallValues] of Object.entries(byMall)) {
     const payload = asRecordOrNull(mallValues);
     if (!payload) continue;
-    values += await tx.$executeRaw`
-      UPDATE registration_targets AS target
-      SET registration_input = target.registration_input || ${JSON.stringify(payload)}::jsonb
-      FROM channel_accounts AS account, sales_products AS product
-      WHERE target.channel_account_id = account.id
-        AND account.channel = ${mallKey}
-        AND target.sales_product_id = product.id
-        AND product.source_candidate_id = ${candidate.id}::uuid
-        AND target.organization_id = ${candidate.organization_id}::uuid
-        AND target.archived_at IS NULL
+    const accounts = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id::text AS id FROM channel_accounts
+      WHERE organization_id = ${candidate.organization_id}::uuid AND channel = ${mallKey}
+      ORDER BY created_at ASC, id ASC
     `;
+    if (accounts.length === 0) {
+      discarded += 1;
+      continue;
+    }
+    for (const account of accounts) {
+      const targets = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id::text AS id FROM registration_targets
+        WHERE organization_id = ${candidate.organization_id}::uuid
+          AND sales_product_id = ${product.id}::uuid
+          AND channel_account_id = ${account.id}::uuid
+          AND archived_at IS NULL
+      `;
+      if (targets.length > 1) {
+        throw new Error(
+          'One selling product and mall account has more than one active registration setting; the draft cutover stopped before mutation.',
+        );
+      }
+      if (targets.length === 1) {
+        values += await tx.$executeRaw`
+          UPDATE registration_targets
+          SET registration_input = registration_input || ${JSON.stringify(payload)}::jsonb
+          WHERE id = ${targets[0]!.id}::uuid
+            AND organization_id = ${candidate.organization_id}::uuid
+        `;
+        continue;
+      }
+      await tx.$executeRaw`
+        INSERT INTO registration_targets (
+          id, organization_id, sales_product_id, channel_account_id, display_name,
+          registration_input, version, created_at, updated_at
+        ) VALUES (
+          ${randomUUID()}::uuid, ${candidate.organization_id}::uuid, ${product.id}::uuid,
+          ${account.id}::uuid, ${draft.name},
+          ${JSON.stringify(payload)}::jsonb, 1, NOW(), NOW()
+        )
+      `;
+      created += 1;
+      values += 1;
+    }
   }
-  return { values, defaults: 0 };
+  return { values, defaults, created, discarded };
 }
 
-/** 후보의 `rawData` 에는 원문만 남긴다. 편집 키는 초안으로 옮겼으니 지운다. */
+/**
+ * 후보의 `rawData` 에는 원문만 남긴다. 편집 키는 초안으로 옮겼으니 지운다.
+ *
+ * 초안이 생긴 후보(살아 있는 후보)만 지운다 — 지운 후보의 편집값까지 없애면 이관이 옮기지
+ * 않은 값을 되찾을 방법이 사라진다.
+ */
 async function stripCandidateEdits(tx: Prisma.TransactionClient): Promise<number> {
   return tx.$executeRaw`
     -- queryraw-tenancy-exempt: writer-stopped cutover across every organization.
-    UPDATE sourcing_candidates
-    SET raw_data = raw_data - 'manualBasics' - 'registrationInput' - 'mallRegisterValues' - 'mallRegisterShared'
-    WHERE raw_data ?| ARRAY['manualBasics', 'registrationInput', 'mallRegisterValues', 'mallRegisterShared']
+    UPDATE sourcing_candidates AS candidate
+    SET raw_data = candidate.raw_data - 'manualBasics' - 'registrationInput' - 'mallRegisterValues' - 'mallRegisterShared'
+    FROM sales_products AS product
+    WHERE product.source_candidate_id = candidate.id
+      AND product.organization_id = candidate.organization_id
+      AND candidate.is_deleted = false
+      AND candidate.raw_data ?| ARRAY['manualBasics', 'registrationInput', 'mallRegisterValues', 'mallRegisterShared']
   `;
 }
 
