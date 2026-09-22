@@ -438,22 +438,28 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     }));
   }
 
-  private async upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {
-    const row = await this.prisma.$transaction(async (tx) => {
+  private upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {
+    return this.runInTransaction(async (tx, ownerTx) => {
+      const prismaTx = tx as Prisma.TransactionClient;
       if (input.idempotencyKey?.trim()) {
-        await advisoryLock(tx, input.organizationId, 'sourcing-candidate', input.idempotencyKey);
+        await advisoryLock(prismaTx, input.organizationId, 'sourcing-candidate', input.idempotencyKey);
       }
-      return toRow(await upsertSourcedCandidateIn(tx, input));
+      const row = toRow(await upsertSourcedCandidateIn(prismaTx, input));
+      // 후보와 그 초안은 한 커밋이다 — 초안을 만들지 못하면 후보도 남기지 않는다.
+      await this.ensureDraft(input, row.id, ownerTx);
+      return row;
     });
-    await this.ensureDraft(input, row.id);
-    return row;
   }
 
   /**
-   * 수집한 상품의 편집 정본은 판매상품 초안이다(KID-310). 후보를 담은 트랜잭션이 커밋된 뒤에
+   * 수집한 상품의 편집 정본은 판매상품 초안이다(KID-310). 후보를 담는 트랜잭션 안에서
    * Channels 에 초안을 부탁한다 — 멱등이라 다시 담아도 초안은 하나다.
    */
-  private async ensureDraft(input: UpsertCandidateInput, candidateId: string): Promise<void> {
+  private async ensureDraft(
+    input: UpsertCandidateInput,
+    candidateId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<void> {
     await this.salesProductDrafts.createFromSource(input.organizationId, {
       candidateId,
       name: input.name,
@@ -463,7 +469,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       sourceUrl: input.sourceUrl ?? null,
       costCny: input.costCny ?? null,
       rawBasics: (input.rawData as Record<string, unknown> | undefined) ?? null,
-    });
+    }, transaction);
   }
 
 }

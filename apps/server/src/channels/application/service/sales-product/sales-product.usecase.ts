@@ -53,8 +53,12 @@ export class SalesProductUseCase implements SalesProductPort {
     return this.repository.list(organizationId, query);
   }
 
-  async get(organizationId: string, salesProductId: string): Promise<SalesProduct> {
-    const product = await this.repository.get(organizationId, salesProductId);
+  async get(
+    organizationId: string,
+    salesProductId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<SalesProduct> {
+    const product = await this.repository.get(organizationId, salesProductId, transaction);
     if (!product) throw new NotFoundException('판매상품을 찾지 못했습니다.');
     return product;
   }
@@ -98,10 +102,17 @@ export class SalesProductUseCase implements SalesProductPort {
    *
    * 화면 입력과 달리 원천 값은 칸 너비를 지킨 적이 없다 — 1688 이름은 흔히 255 자를 넘는다.
    * 거절하면 그 상품을 담을 수 없으므로 이관(023)과 같은 규칙으로 자른다.
+   *
+   * `transaction` 을 주면 후보를 담는 그 트랜잭션에서 만든다 — 초안을 만들지 못하면 후보도
+   * 롤백되어, 후보만 있고 초안이 없는 중간 상태가 생기지 않는다.
    */
-  async createFromSource(organizationId: string, input: SalesProductDraftSource): Promise<SalesProduct> {
-    const existing = await this.repository.findIdBySourceCandidate(organizationId, input.candidateId);
-    if (existing) return this.get(organizationId, existing);
+  async createFromSource(
+    organizationId: string,
+    input: SalesProductDraftSource,
+    transaction?: OwnerTransaction,
+  ): Promise<SalesProduct> {
+    const existing = await this.repository.findIdBySourceCandidate(organizationId, input.candidateId, transaction);
+    if (existing) return this.get(organizationId, existing, transaction);
     const name = clampDraftText('name', input.name).value ?? '';
     const sourcePlatform = clampDraftText('sourcePlatform', input.sourcePlatform).value;
     const { optionAxes, optionValues } = planDraftOptions(input.optionNames);
@@ -140,9 +151,12 @@ export class SalesProductUseCase implements SalesProductPort {
         sourceCandidateId: input.candidateId,
         sourcePlatform,
         sourceUrl: input.sourceUrl ?? null,
-      }, plan);
-      return this.get(organizationId, id);
+      }, plan, transaction);
+      return this.get(organizationId, id, transaction);
     } catch (error) {
+      // 부르는 쪽 트랜잭션이면 그 트랜잭션은 이미 중단됐다 — 여기서 더 읽지 못한다.
+      // 후보를 담는 경로가 유일키 충돌을 잡아 처음부터 다시 돌리고, 그때 위에서 기존 초안을 찾는다.
+      if (transaction) throw error;
       // 같은 후보로 다른 요청이 먼저 만들었으면(유일키 충돌) 그것을 쓴다.
       const made = await this.repository.findIdBySourceCandidate(organizationId, input.candidateId);
       if (!made) throw error;

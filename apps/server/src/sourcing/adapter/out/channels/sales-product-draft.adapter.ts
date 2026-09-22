@@ -18,8 +18,9 @@ export class SalesProductDraftAdapter implements SalesProductDraftPort {
   async createFromSource(
     organizationId: string,
     input: SalesProductDraftSourceFacts,
+    transaction?: OwnerTransaction,
   ): Promise<{ salesProductId: string }> {
-    const draft = await this.salesProducts.createFromSource(organizationId, input);
+    const draft = await this.salesProducts.createFromSource(organizationId, input, transaction);
     return { salesProductId: draft.id };
   }
 

@@ -280,37 +280,48 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     };
   }
 
-  async get(organizationId: string, salesProductId: string): Promise<SalesProduct | null> {
-    const result = await this.prisma.$transaction(async (tx) => {
-      const context = { client: tx };
-      const lock = await this.productTransactionalRead.lock(context, organizationId);
-      const row = await tx.salesProduct.findFirst({
-        where: { id: salesProductId, organizationId },
-        include: DETAIL_INCLUDE,
-      });
-      if (!row) return null;
-
-      const masterProductIds = [...new Set(row.options.flatMap((option) =>
-        option.components.map((component) => component.masterProductId)))];
-      if (masterProductIds.length === 0) {
-        return { row, identities: [], availability: null };
-      }
-
-      const identities = await this.productTransactionalRead.readSourceIdentities(context, {
-        organizationId,
-        selector: { kind: 'ids', values: masterProductIds },
-      });
-      const availability = await this.productTransactionalRead.readAvailability(context, lock, {
-        organizationId,
-        masterProductIds,
-      });
-      return { row, identities, availability };
-    }, TRANSACTION_OPTIONS);
+  async get(
+    organizationId: string,
+    salesProductId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<SalesProduct | null> {
+    const read = (tx: Tx) => this.readDetail(tx, organizationId, salesProductId);
+    // 부르는 쪽이 트랜잭션을 쥐고 있으면 그 안에서 읽는다 — 아직 커밋되지 않은 초안은
+    // 다른 연결에서 보이지 않는다.
+    const result = transaction
+      ? await read(ownerTransactionClient(transaction) as Tx)
+      : await this.prisma.$transaction(read, TRANSACTION_OPTIONS);
     if (!result) return null;
     const identityById = new Map(result.identities.map((identity) => [identity.masterProductId, identity]));
     const stockById = new Map((result.availability?.items ?? []).map((item) =>
       [item.masterProductId, item.currentStock]));
     return toSalesProduct(result.row, identityById, stockById);
+  }
+
+  private async readDetail(tx: Tx, organizationId: string, salesProductId: string) {
+    const context = { client: tx };
+    const lock = await this.productTransactionalRead.lock(context, organizationId);
+    const row = await tx.salesProduct.findFirst({
+      where: { id: salesProductId, organizationId },
+      include: DETAIL_INCLUDE,
+    });
+    if (!row) return null;
+
+    const masterProductIds = [...new Set(row.options.flatMap((option) =>
+      option.components.map((component) => component.masterProductId)))];
+    if (masterProductIds.length === 0) {
+      return { row, identities: [], availability: null };
+    }
+
+    const identities = await this.productTransactionalRead.readSourceIdentities(context, {
+      organizationId,
+      selector: { kind: 'ids', values: masterProductIds },
+    });
+    const availability = await this.productTransactionalRead.readAvailability(context, lock, {
+      organizationId,
+      masterProductIds,
+    });
+    return { row, identities, availability };
   }
 
   async listCodesWithPrefix(organizationId: string, prefix: string): Promise<string[]> {
@@ -340,16 +351,21 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
     record: SalesProductCreateRecord,
     plan: SalesProductOptionReplacementPlan,
+    transaction?: OwnerTransaction,
   ): Promise<string> {
+    const write = async (tx: Tx) => {
+      const product = await tx.salesProduct.create({
+        data: { organizationId, ...createData(record) },
+        select: { id: true },
+      });
+      await writeOptions(tx, organizationId, product.id, plan.writes);
+      return product.id;
+    };
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const product = await tx.salesProduct.create({
-          data: { organizationId, ...createData(record) },
-          select: { id: true },
-        });
-        await writeOptions(tx, organizationId, product.id, plan.writes);
-        return product.id;
-      }, TRANSACTION_OPTIONS);
+      // 수집은 후보와 초안을 한 커밋에 넣는다 — 부르는 쪽 트랜잭션을 그대로 쓴다.
+      return transaction
+        ? await write(ownerTransactionClient(transaction) as Tx)
+        : await this.prisma.$transaction(write, TRANSACTION_OPTIONS);
     } catch (error) {
       throw translateUniqueViolation(error);
     }
@@ -1178,8 +1194,13 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return written;
   }
 
-  async findIdBySourceCandidate(organizationId: string, candidateId: string): Promise<string | null> {
-    const row = await this.prisma.salesProduct.findFirst({
+  async findIdBySourceCandidate(
+    organizationId: string,
+    candidateId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<string | null> {
+    const client = transaction ? ownerTransactionClient(transaction) as Tx : this.prisma;
+    const row = await client.salesProduct.findFirst({
       where: { organizationId, sourceCandidateId: candidateId },
       select: { id: true },
     });
