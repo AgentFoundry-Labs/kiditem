@@ -175,11 +175,23 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
     expect(result.items[0]).toEqual(expect.objectContaining({
       id: 'imported-listing-1',
       listingName: 'Wing import only',
+      thumbnailUrl: null,
       contentWorkspaceId: null,
       mappingStatus: 'unmatched',
       channelPrice: 9_900,
     }));
     expect(result.items[0]).not.toHaveProperty('masterId');
+  });
+
+  it('uses the listing thumbnail when a workspace has no managed image', async () => {
+    prisma.channelListing.findMany.mockResolvedValueOnce([listingRow({
+      contentWorkspaces: [],
+      thumbnails: [{ imageUrl: 'https://cdn.example.com/listing-thumbnail.jpg' }],
+    })]);
+
+    const result = await repository.list('org-1', listQuery());
+
+    expect(result.items[0]?.thumbnailUrl).toBe('https://cdn.example.com/listing-thumbnail.jpg');
   });
 
   it('treats complete option recipes as matched without a listing-level product summary', async () => {
@@ -293,6 +305,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
     }));
 
     const result = await repository.getWorkspace('org-1', 'listing-1');
+    if (!result) throw new Error('Expected a registered listing workspace.');
 
     expect(result.providerDetail).toEqual({
       category: null,

@@ -102,8 +102,11 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         }),
       { timeout: 10_000 },
     );
-  const currentThumbnail = () =>
-    catalog.getWorkspace(ORG, listingId).then((row) => row.thumbnailUrl);
+  const currentThumbnail = async () => {
+    const row = await catalog.getWorkspace(ORG, listingId);
+    if (!row) throw new Error('Expected an active listing workspace.');
+    return row.thumbnailUrl;
+  };
 
   it('retains legacy asset/workspace identity and manual/generated media while refreshing only the supplied listing', async () => {
     const firstRef = randomUUID();
