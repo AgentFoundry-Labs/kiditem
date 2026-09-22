@@ -732,6 +732,29 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       service.retireDraftForSource(ownerTransaction(tx), organizationId, candidateId));
   }
 
+  /**
+   * 같은 후보를 두 입구(Agent · 확장)가 동시에 담는다.
+   *
+   * 유일키에 기대면 진 쪽이 아직 커밋되지 않은 승자를 조회하다 못 찾고 그대로 던진다 — 수집이
+   * 실패로 보인다. 후보 id 로 직렬화해 두 번째가 첫 커밋 뒤에 읽게 한다.
+   */
+  it('⭐ 같은 후보를 동시에 담아도 초안은 하나이고 둘 다 그것을 돌려받는다', async () => {
+    const candidateId = randomUUID();
+
+    const [left, right] = await Promise.all([
+      service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '동시 수집' }),
+      service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '동시 수집' }),
+    ]);
+
+    expect(left.id).toBe(right.id);
+    expect(await prisma.salesProduct.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId },
+    })).toBe(1);
+    expect(await prisma.salesProductOption.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: left.id },
+    })).toBe(1);
+  });
+
   it('sends the draft to unused when its source candidate is rejected, and keeps it when a mall holds it', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const candidateId = randomUUID();
