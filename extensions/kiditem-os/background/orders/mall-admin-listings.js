@@ -2202,7 +2202,9 @@
         schDtAuto: "",
         strDt: FROM,
         endDt: today(),
-        currentIndex: 0,
+        // ⚠️ 쪽을 옮기는 것은 `currentIndex`(건너뛸 줄 수)다. `currentPage` 는 화면 표시용이라
+        // 그것만 올리면 몰이 같은 첫 쪽을 또 준다 — 쪽이 통째로 겹친다(실측 2026-09-22).
+        currentIndex: (page - 1) * plan.pageSize,
         currentPage: page,
         rowCount: plan.pageSize,
         ctgrTyp: "01",
