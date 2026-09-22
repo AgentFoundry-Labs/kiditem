@@ -142,6 +142,10 @@ export class SalesProductUseCase implements SalesProductPort {
     }
   }
 
+  findDraftIdForSource(organizationId: string, candidateId: string): Promise<string | null> {
+    return this.repository.findIdBySourceCandidate(organizationId, candidateId);
+  }
+
   /**
    * 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다.
    *

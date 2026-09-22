@@ -509,7 +509,11 @@ describe('SourcingService — candidate ingest', () => {
     expect(candidateContentAssets.findCurrentThumbnail).not.toHaveBeenCalled();
   });
 
-  describe('getProduct registration sale price', () => {
+  /**
+   * 수집상품 상세는 이제 값을 합치지 않는다(KID-310). 편집 정본은 그 후보에서 만든 판매상품
+   * 초안이고, 응답은 화면이 그 초안으로 넘어갈 id 만 준다.
+   */
+  describe('getProduct', () => {
     const candidateRow = {
       id: 'cand-1',
       name: '4000 과일바구니 딸깍이 키링',
@@ -523,18 +527,13 @@ describe('SourcingService — candidate ingest', () => {
       registrationTarget: null,
     };
 
-    it('leaves an unentered sale price empty without a source-price lookup', async () => {
+    it('points at the selling-product draft instead of merging edited values', async () => {
       repo.findById.mockResolvedValueOnce(candidateRow);
+
       const result = await service.getProduct('cand-1', 'org-1');
-      expect(result.basicInfo).toMatchObject({ salePrice: 0, salePriceSource: 'none' });
-    });
-    it('preserves a reviewed registration price', async () => {
-      repo.findById.mockResolvedValueOnce({ ...candidateRow, registrationTarget: {
-        registrationInput: { salePrice: 12900 }, selectedThumbnailUrl: null,
-        selectedDetailPageGenerationId: null,
-      } });
-      const result = await service.getProduct('cand-1', 'org-1');
-      expect(result.basicInfo).toMatchObject({ salePrice: 12900, salePriceSource: 'input' });
+
+      expect(result).toMatchObject({ id: 'cand-1', salesProductId: null });
+      expect(result).not.toHaveProperty('basicInfo');
     });
   });
 

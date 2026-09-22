@@ -10,6 +10,10 @@ import {
   type ProductPreparationRow,
 } from '../../../../channels/application/port/in/candidate-registration.port';
 import { upsertSourcedCandidateIn, ensureSourcedCandidateImages } from './sourcing-candidate-upsert.transaction';
+import {
+  SALES_PRODUCT_DRAFT_PORT,
+  type SalesProductDraftPort,
+} from '../../../application/port/out/cross-domain/sales-product-draft.port';
 import type {
   CandidateImageRow,
   CandidateRow,
@@ -28,6 +32,8 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     private readonly candidateRegistrations?: CandidateRegistrationPort,
     @Optional() @Inject(CHANNEL_LISTING_QUERY_PORT)
     private readonly channelListings?: ChannelListingQueryPort,
+    @Optional() @Inject(SALES_PRODUCT_DRAFT_PORT)
+    private readonly salesProductDrafts?: SalesProductDraftPort,
   ) {}
 
   runInTransaction<T>(
@@ -189,61 +195,6 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       await ensureSourcedCandidateImages(tx, updated.id, input.organizationId, input.images);
       return toRow(updated);
     });
-  }
-
-  async updateManualBasics(input: {
-    organizationId: string;
-    candidateId: string;
-    basics: Record<string, unknown>;
-  }): Promise<boolean> {
-    const existing = await this.prisma.sourcingCandidate.findFirst({
-      where: {
-        id: input.candidateId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      select: { rawData: true },
-    });
-    if (!existing) return false;
-    // 부분 저장(예: 보기 모드 KC 이미지 단독 저장)이 이전에 저장한 키워드·가격을
-    // 지우지 않도록 기존 manualBasics 에 병합한다. 전체 `수정` 저장은 모든 필드를
-    // 보내므로 병합/치환 결과가 같다. 명시적으로 빈 값(예: keywords=[])이면 덮어쓴다.
-    const priorRaw = existing.rawData && typeof existing.rawData === 'object' && !Array.isArray(existing.rawData)
-      ? existing.rawData as Record<string, unknown>
-      : {};
-    const priorManual = priorRaw.manualBasics && typeof priorRaw.manualBasics === 'object' && !Array.isArray(priorRaw.manualBasics)
-      ? priorRaw.manualBasics as Record<string, unknown>
-      : {};
-    const manualBasics = { ...priorManual, ...pruneUndefined(input.basics) };
-    const data: Prisma.SourcingCandidateUpdateManyMutationInput = {
-      rawData: mergeJson(existing.rawData, { manualBasics }) as Prisma.InputJsonValue,
-    };
-    // 후보 목록 카드/헤더는 실컬럼(name·category·description·tags)을 읽으므로
-    // manualBasics 만이 아니라 컬럼도 함께 맞춰준다. 나머지 등록용 필드
-    // (키워드·가격·KC 등)는 manualBasics 오버레이에만 남는다.
-    if (typeof input.basics.name === 'string' && input.basics.name.trim()) {
-      data.name = input.basics.name.trim();
-    }
-    if (typeof input.basics.category === 'string') {
-      data.category = input.basics.category.trim() || null;
-    }
-    if (typeof input.basics.description === 'string') {
-      data.description = input.basics.description;
-    }
-    if (Array.isArray(input.basics.tags)) {
-      data.tags = input.basics.tags.filter(
-        (tag): tag is string => typeof tag === 'string',
-      ) as unknown as Prisma.InputJsonValue;
-    }
-    const result = await this.prisma.sourcingCandidate.updateMany({
-      where: {
-        id: input.candidateId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      data,
-    });
-    return result.count > 0;
   }
 
   async findById(id: string, organizationId: string) {
@@ -417,12 +368,32 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     });
   }
 
-  private upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {
-    return this.prisma.$transaction(async (tx) => {
+  private async upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {
+    const row = await this.prisma.$transaction(async (tx) => {
       if (input.idempotencyKey?.trim()) {
         await advisoryLock(tx, input.organizationId, 'sourcing-candidate', input.idempotencyKey);
       }
       return toRow(await upsertSourcedCandidateIn(tx, input));
+    });
+    await this.ensureDraft(input, row.id);
+    return row;
+  }
+
+  /**
+   * 수집한 상품의 편집 정본은 판매상품 초안이다(KID-310). 후보를 담은 트랜잭션이 커밋된 뒤에
+   * Channels 에 초안을 부탁한다 — 멱등이라 다시 담아도 초안은 하나다.
+   */
+  private async ensureDraft(input: UpsertCandidateInput, candidateId: string): Promise<void> {
+    if (!this.salesProductDrafts) return;
+    await this.salesProductDrafts.createFromSource(input.organizationId, {
+      candidateId,
+      name: input.name,
+      description: input.description ?? '',
+      imageUrls: input.images.map((image) => image.url),
+      sourcePlatform: input.sourcePlatform ?? null,
+      sourceUrl: input.sourceUrl ?? null,
+      costCny: input.costCny ?? null,
+      rawBasics: (input.rawData as Record<string, unknown> | undefined) ?? null,
     });
   }
 

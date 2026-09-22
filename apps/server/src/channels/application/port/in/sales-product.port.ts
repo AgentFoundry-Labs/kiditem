@@ -49,6 +49,8 @@ export interface SalesProductPort {
    * 수집이 같은 상품을 다시 담아도 초안은 하나다.
    */
   createFromSource(organizationId: string, input: SalesProductDraftSource): Promise<SalesProduct>;
+  /** 원천 기록(수집상품)에서 만든 초안 id. 없으면 null. 수집 화면이 초안으로 넘어갈 때 쓴다. */
+  findDraftIdForSource(organizationId: string, candidateId: string): Promise<string | null>;
   /** 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다. 몰에 올라가 있으면 그대로 두고 이유를 돌려준다. */
   retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireResult>;
   /**
