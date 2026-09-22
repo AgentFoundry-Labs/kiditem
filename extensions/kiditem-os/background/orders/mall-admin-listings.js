@@ -2167,14 +2167,35 @@
       const day = String(now.getDate()).padStart(2, "0");
       return `${now.getFullYear()}/${month}/${day}`;
     }
-    /** 이 화면이 들고 있는 협력사 번호. 없으면 빈 값으로 두고 세션이 가리키게 한다. */
-    function sellerAccountNo() {
-      const form = document.getElementById("searchForm");
-      const value = String(form?.elements?.selAcntNo?.value ?? "").trim();
-      return /^\d{1,12}$/.test(value) ? value : "";
+    /**
+     * 협력사 번호. 조회에 반드시 실어야 한다 — 비우면 몰이 500 으로 답한다(실측).
+     *
+     * 상품관리 화면에서 읽지 않는다. 그 화면은 열리는 순간 브라우저를 붙들어서 이 읽기가
+     * 그 안에서 돌 수 없다(그래서 가벼운 첫 화면에서 돈다). 몰이 로그인한 판매사를 알려 주는
+     * 제 API 에서 받는다.
+     */
+    async function sellerAccountNo() {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const response = await fetch("/product/rest/productRegister/getMemberInfo", {
+          credentials: "include",
+          cache: "no-store",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+          signal: controller.signal,
+        });
+        if (response.status === 401 || response.status === 403) throw new Error("LOGIN_REQUIRED");
+        if (!response.ok) throw new Error("NETWORK_FAILED");
+        const payload = await response.json();
+        const value = String(payload?.data?.selAcntNo ?? "").trim();
+        if (!/^\d{1,12}$/.test(value)) drift("seller_account");
+        return value;
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
-    function body(page) {
+    function body(page, selAcntNo) {
       return {
         appId: "prdMngList",
         schDtTyp: "01",
@@ -2187,7 +2208,7 @@
         ctgrTyp: "01",
         prdCdTyp: "01",
         prdNmTyp: "01",
-        selAcntNo: sellerAccountNo(),
+        selAcntNo,
         siteCd: "", prdSelCd: "", prdCd: "", prdNm: "", brandCd: "", brandNm: "", brandNo: null,
         mdNo: "", regtr: "", attrCd: "", autoApprYn: "", bizTypCd: "", brandSearchTyp: "",
         ctgrNo1: "", ctgrNo2: "", ctgrNo3: "", dispYn: "", dlvTypCd: "", noDispResnCd: "",
@@ -2221,11 +2242,11 @@
     }
 
     /** 화면이 붙들려 30초를 넘기면 시계만 새로 주고 다시 청한다. */
-    async function pageWithRetry(number) {
+    async function pageWithRetry(number, selAcntNo) {
       let lastError = null;
       for (let attempt = 1; attempt <= PAGE_ATTEMPTS; attempt += 1) {
         try {
-          return await page(number);
+          return await page(number, selAcntNo);
         } catch (error) {
           if (error?.name !== "AbortError") throw error;
           lastError = error;
@@ -2235,7 +2256,7 @@
       throw lastError;
     }
 
-    async function page(number) {
+    async function page(number, selAcntNo) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
       try {
@@ -2244,7 +2265,7 @@
           credentials: "include",
           cache: "no-store",
           headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-          body: JSON.stringify(body(number)),
+          body: JSON.stringify(body(number, selAcntNo)),
           signal: controller.signal,
         });
         // 로그인이 풀리면 이 화면은 로그인으로 밀어낸다.
@@ -2269,7 +2290,8 @@
     try {
       if (location.origin !== plan.sourceOrigin) return fail("mall_login_required");
       await settle();
-      const first = await pageWithRetry(1);
+      const acntNo = await sellerAccountNo();
+      const first = await pageWithRetry(1, acntNo);
       if (first.total > ROW_LIMIT) drift("row_limit");
       const totalPages = Math.max(1, Math.ceil(first.total / plan.pageSize));
       if (totalPages > PAGE_LIMIT) drift("page_limit");
@@ -2278,7 +2300,7 @@
       const seen = new Set();
       for (let number = 1; number <= totalPages; number += 1) {
         if (number > 1 && requestDelayMs > 0) await wait(requestDelayMs);
-        const chunk = number === 1 ? first : await pageWithRetry(number);
+        const chunk = number === 1 ? first : await pageWithRetry(number, acntNo);
         // 읽는 사이 상품이 늘거나 줄면 한 번에 찍은 목록이 아니다.
         if (chunk.total !== first.total) return fail("mall_total_changed");
         for (const item of chunk.result) {
@@ -2479,14 +2501,19 @@
         }
       }
       rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      // 완전성 판정은 '한 목록을 쪽 단위로 끝까지 읽었나' 를 본다
+      // (`totalPages === ceil(totalRecords / pageSize)` · `pagesRead === totalPages`).
+      // 이 몰은 기간 창을 여러 번 도느라 실제로 부른 쪽 수가 그보다 많다. 거둔 줄이 담길
+      // 쪽 수로 적어 그 셈과 맞춘다 — 줄 수와 기록이 어긋나지 않는 것이 이 칸의 뜻이다.
+      const coveredPages = Math.max(1, Math.ceil(rows.length / plan.pageSize));
       return {
         success: true,
         snapshot: {
           collection: {
             totalRecords: rows.length,
             recordsRead: rows.length,
-            pagesRead,
-            totalPages: pagesRead,
+            pagesRead: coveredPages,
+            totalPages: coveredPages,
             detailsRead: 0,
             detailsMissing: 0,
           },
