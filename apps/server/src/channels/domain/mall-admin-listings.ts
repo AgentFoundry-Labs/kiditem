@@ -46,6 +46,31 @@ const STATUS_RULES: Record<
   MallAdminListingMallKey,
   ReadonlyArray<readonly [word: string, status: MallAdminListingStatus]>
 > = {
+  /**
+   * 보리보리: 판매상태(`prdSelNm`)와 상품상태(`prdStatNm`) 두 글자가 같이 온다. 화면 위 칸이
+   * 그 일곱 가지다 — 정보부족 · 승인대기 · 승인불가 · 판매중 · 자동품절 · 일시품절 · 판매종료
+   * (라이브 2026-09-22). 사람이 먼저 봐야 하는 심사 · 반려를 앞에 둔다.
+   */
+  boribori: [
+    ['승인불가', MALL_ADMIN_LISTING_STATUS.rejected],
+    ['정보부족', MALL_ADMIN_LISTING_STATUS.held],
+    ['승인대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['판매종료', MALL_ADMIN_LISTING_STATUS.ended],
+    ['자동품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['일시품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
+  /**
+   * GS샵: 판매상태(`saleStNm`)와 노출상태(`exposStNm`)가 같이 온다. 화면 위 칸이 그
+   * 다섯이다 — 임시저장 · 판매대기 · 판매중 · 일시품절 · 판매종료(라이브 2026-09-22).
+   */
+  'gs-shop': [
+    ['판매종료', MALL_ADMIN_LISTING_STATUS.ended],
+    ['임시저장', MALL_ADMIN_LISTING_STATUS.held],
+    ['판매대기', MALL_ADMIN_LISTING_STATUS.awaitingApproval],
+    ['일시품절', MALL_ADMIN_LISTING_STATUS.soldOut],
+    ['판매중', MALL_ADMIN_LISTING_STATUS.selling],
+  ],
   // 키드키즈: 상품리스트 다운로드의 품절여부 한 칸이 상태를 다 담는다 —
   // 정상 · 일시품절 · 영구품절 · 보류(라이브 실측 2026-09-17: 555 · 927 · 1,318 · 678).
   kidkids: [

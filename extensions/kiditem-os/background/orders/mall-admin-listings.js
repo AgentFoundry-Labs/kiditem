@@ -2140,6 +2140,10 @@
     const PAGE_LIMIT = 1_000;
     // 가게가 생기기 한참 전. 기간이 필수라 비울 수 없다.
     const FROM = "2015/01/01";
+    // 화면이 제 일을 마치기를 기다리는 예산과, 붙들렸을 때 다시 청하는 횟수.
+    const SETTLE_BUDGET_MS = 120_000;
+    const SETTLE_SETTLED_MS = 3_000;
+    const PAGE_ATTEMPTS = 3;
     const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
     const drift = (stage) => {
       throw new Error(`CONTRACT_DRIFT:${stage}`);
@@ -2199,6 +2203,38 @@
       };
     }
 
+    /**
+     * 갓 연 이 화면은 제 스크립트가 무거워 한동안 아무 것도 못 하게 붙든다(실측 2026-09-22:
+     * 45초 넘게 응답 없음). 그동안 보낸 요청은 30초 시계에 먼저 걸려 `mall_timeout` 으로 끝난다.
+     * 그래서 화면이 제 일을 마칠 때까지 기다렸다 읽는다.
+     */
+    async function settle() {
+      const deadline = Date.now() + SETTLE_BUDGET_MS;
+      while (Date.now() < deadline) {
+        if (document.readyState === "complete" && document.getElementById("searchForm")) {
+          // 한 박자 더 — 폼이 붙은 뒤에도 그리드가 첫 조회를 하는 동안은 여전히 바쁘다.
+          await wait(SETTLE_SETTLED_MS);
+          return;
+        }
+        await wait(500);
+      }
+    }
+
+    /** 화면이 붙들려 30초를 넘기면 시계만 새로 주고 다시 청한다. */
+    async function pageWithRetry(number) {
+      let lastError = null;
+      for (let attempt = 1; attempt <= PAGE_ATTEMPTS; attempt += 1) {
+        try {
+          return await page(number);
+        } catch (error) {
+          if (error?.name !== "AbortError") throw error;
+          lastError = error;
+          await wait(requestDelayMs > 0 ? requestDelayMs : 200);
+        }
+      }
+      throw lastError;
+    }
+
     async function page(number) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
@@ -2232,7 +2268,8 @@
 
     try {
       if (location.origin !== plan.sourceOrigin) return fail("mall_login_required");
-      const first = await page(1);
+      await settle();
+      const first = await pageWithRetry(1);
       if (first.total > ROW_LIMIT) drift("row_limit");
       const totalPages = Math.max(1, Math.ceil(first.total / plan.pageSize));
       if (totalPages > PAGE_LIMIT) drift("page_limit");
@@ -2241,7 +2278,7 @@
       const seen = new Set();
       for (let number = 1; number <= totalPages; number += 1) {
         if (number > 1 && requestDelayMs > 0) await wait(requestDelayMs);
-        const chunk = number === 1 ? first : await page(number);
+        const chunk = number === 1 ? first : await pageWithRetry(number);
         // 읽는 사이 상품이 늘거나 줄면 한 번에 찍은 목록이 아니다.
         if (chunk.total !== first.total) return fail("mall_total_changed");
         for (const item of chunk.result) {
@@ -2278,6 +2315,174 @@
             recordsRead: rows.length,
             pagesRead: totalPages,
             totalPages,
+            detailsRead: 0,
+            detailsMissing: 0,
+          },
+          rows,
+          proof: { mallKey: plan.mallKey, pageSize: plan.pageSize, validatedList: true },
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") return fail("mall_timeout");
+      if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
+      if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
+        return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));
+      }
+      return fail("mall_network_failed");
+    }
+  }
+
+
+  /**
+   * GS샵 파트너스 상품조회/수정 목록.
+   *
+   * 화면이 부르는 BFF 조회를 그대로 부른다 — `POST /bff/product/search?page&size`, 본문은
+   * 조회 조건 한 벌이고 응답은 `{ list, totalSize, totalPage, hasNextPage }` 다.
+   *
+   * ⚠️ 기간은 **최대 1년**이다(화면도 "(최대1년)"이라 적는다). 그래서 오늘부터 1년씩 뒤로
+   * 창을 물려 가며 읽고, 빈 창이 나오면 멈춘다(라이브 2026-09-22: 최근 1년 275 · 그 전 19 ·
+   * 그 전 141 · 그 전 0 = 435개).
+   *
+   * 몰 상품코드는 `prdCd`(GS상품코드) 다. 사방넷이 쓰던 번호와 같은 열 자리 수다.
+   * `supPrdCd`(협력사상품코드)는 다른 번호이므로 쓰지 않는다.
+   */
+  async function readGsShopListings(plan, requestTimeoutMs, requestDelayMs, _concurrency) {
+    const LIST_PATH = "/bff/product/search";
+    const ROW_LIMIT = 20_000;
+    const PAGE_LIMIT = 1_000;
+    // 1년씩 뒤로. 빈 창이 나오면 멈추되, 끝없이 돌지 않게 상한을 둔다.
+    const WINDOW_LIMIT = 12;
+    const fail = (errorCode, stage) => ({ success: false, errorCode, ...(stage ? { stage } : {}) });
+    const drift = (stage) => {
+      throw new Error(`CONTRACT_DRIFT:${stage}`);
+    };
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    function text(value, maximum) {
+      if (typeof value !== "string") return null;
+      const normalized = value.replace(/\s+/g, " ").trim();
+      return normalized && normalized.length <= maximum ? normalized : null;
+    }
+    function price(value) {
+      const normalized = String(value ?? "").replace(/[,\s원]/g, "");
+      if (!/^\d{1,10}$/.test(normalized)) return null;
+      const parsed = Number(normalized);
+      return parsed <= 1_000_000_000 ? parsed : null;
+    }
+    function day(date) {
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const dayOfMonth = String(date.getDate()).padStart(2, "0");
+      return `${date.getFullYear()}-${month}-${dayOfMonth}`;
+    }
+
+    function body(from, to, pageIndex) {
+      return {
+        periodCond: { target: "1", fromDtm: `${from}T00:00:00`, toDtm: `${to}T23:59:59` },
+        // 임시저장 · 판매대기 · 판매중 · 일시품절 · 판매종료 — 화면의 '전체'.
+        saleStCds: ["1", "2", "3", "5", "4"],
+        medias: ["EC", "CA"],
+        regSubjCds: ["GS", "SUP"],
+        prdCdCond: { target: "GS", codes: [] },
+        prdNmCond: { target: "1" },
+        saleEndRsnCds: [],
+        mdAprvStCd: "0",
+        cnsdrAprvStCd: "0",
+        qaAprvStCd: "0",
+        exposAprvStCd: "0",
+        pageIdx: pageIndex,
+        rowsPerPage: plan.pageSize,
+        prdClsCd: "",
+      };
+    }
+
+    async function page(from, to, pageIndex) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+      try {
+        const response = await fetch(`${LIST_PATH}?page=${pageIndex}&size=${plan.pageSize}`, {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body(from, to, pageIndex)),
+          signal: controller.signal,
+        });
+        const landed = new URL(response.url || location.href, location.href);
+        if (landed.origin !== plan.sourceOrigin) throw new Error("LOGIN_REQUIRED");
+        if (response.status === 401 || response.status === 403) throw new Error("LOGIN_REQUIRED");
+        if (!response.ok) throw new Error("NETWORK_FAILED");
+        const payload = await response.json();
+        const list = payload?.list;
+        const totalSize = payload?.totalSize;
+        if (!Array.isArray(list)) drift("list");
+        if (!Number.isSafeInteger(totalSize) || totalSize < 0) drift("total_size");
+        return { list, totalSize, totalPage: payload?.totalPage ?? 0 };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    try {
+      if (location.origin !== plan.sourceOrigin) return fail("mall_login_required");
+      const rows = [];
+      const seen = new Set();
+      let pagesRead = 0;
+      const end = new Date();
+      for (let window = 0; window < WINDOW_LIMIT; window += 1) {
+        const to = new Date(end);
+        to.setFullYear(to.getFullYear() - window);
+        const from = new Date(to);
+        from.setFullYear(from.getFullYear() - 1);
+        from.setDate(from.getDate() + 1);
+        const first = await page(day(from), day(to), 1);
+        pagesRead += 1;
+        // 이 창에 아무것도 없으면 더 옛날도 없다고 본다.
+        if (first.totalSize === 0) break;
+        const windowPages = Math.max(1, Math.ceil(first.totalSize / plan.pageSize));
+        if (windowPages > PAGE_LIMIT) drift("page_limit");
+        for (let index = 1; index <= windowPages; index += 1) {
+          if (index > 1) {
+            if (requestDelayMs > 0) await wait(requestDelayMs);
+            pagesRead += 1;
+          }
+          const chunk = index === 1 ? first : await page(day(from), day(to), index);
+          if (chunk.totalSize !== first.totalSize) return fail("mall_total_changed");
+          for (const item of chunk.list) {
+            const mallProductCode = text(String(item?.prdCd ?? ""), 60);
+            if (!mallProductCode || !/^\d{1,15}$/.test(mallProductCode)) drift("prdCd");
+            // 창이 겹치면(같은 상품이 두 창에) 건너뛴다 — 경계 하루는 겹칠 수 있다.
+            if (seen.has(mallProductCode)) continue;
+            seen.add(mallProductCode);
+            const productName = text(String(item?.prdNm ?? item?.exposPrdNm ?? ""), 400);
+            if (!productName) drift("prdNm");
+            const statusWords = [item?.saleStNm, item?.exposStNm]
+              .map((word) => text(String(word ?? ""), 40))
+              .filter(Boolean);
+            if (statusWords.length === 0) drift("status");
+            const sellerCode = text(String(item?.supPrdCd ?? ""), 60);
+            rows.push({
+              mallProductCode,
+              productName,
+              sellpiaName: null,
+              sellerCode,
+              salePrice: price(item?.salePrc),
+              statusWords,
+              registeredOn: text(String(item?.regDtm ?? "").slice(0, 10), 10),
+            });
+            if (rows.length > ROW_LIMIT) drift("row_limit");
+          }
+        }
+      }
+      rows.sort((left, right) => left.mallProductCode.localeCompare(right.mallProductCode));
+      return {
+        success: true,
+        snapshot: {
+          collection: {
+            totalRecords: rows.length,
+            recordsRead: rows.length,
+            pagesRead,
+            totalPages: pagesRead,
             detailsRead: 0,
             detailsMissing: 0,
           },
@@ -2427,10 +2632,19 @@
     boribori: Object.freeze({
       mallName: "보리보리",
       origin: "https://seller-club.co.kr",
-      // 목록 API 가 한 번에 500줄까지 준다(라이브 2026-09-22: 1,362개 = 3쪽).
-      pageSize: 500,
+      // 화면과 같은 100줄씩(라이브 2026-09-22: 1,362개 = 14쪽). 500줄로 받으면 몰이 30초
+      // 안에 답하지 못해 `mall_timeout` 으로 끝난다(실측).
+      pageSize: 100,
       startPath: "/product/productManagerList",
       read: readBoriboriListings,
+    }),
+    "gs-shop": Object.freeze({
+      mallName: "GS샵",
+      origin: "https://partners.gsshop.com",
+      // BFF 조회가 한 쪽에 100줄. 기간이 1년씩이라 창을 물려 가며 읽는다.
+      pageSize: 100,
+      startPath: "/product/products/list",
+      read: readGsShopListings,
     }),
     "teacher-mall": Object.freeze({
       mallName: "티쳐몰",

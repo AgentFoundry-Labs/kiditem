@@ -12,6 +12,7 @@ import {
   MALL_ADMIN_LISTINGS_SOURCE_TYPE,
   MallAdminListingsBeginSchema,
   MallAdminListingsPlanSchema,
+  MallAdminListingsStoredPlanSchema,
   type MallAdminListingsPlan,
   type MallAdminListingsPublication,
 } from '@kiditem/shared/mall-admin-listings';
@@ -318,7 +319,8 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
       where: { id: run.id, organizationId: run.organizationId },
       data: { status: SOURCE_IMPORT_RUN_FAILED_STATUS, errorCode: code, errorMessage: message },
     });
-    const plan = MallAdminListingsPlanSchema.parse(run.plan);
+    // 실패를 적는 길이다. 지난 계약으로 열린 시도라도 여기서 막히면 진짜 까닭이 가려진다.
+    const plan = MallAdminListingsStoredPlanSchema.parse(run.plan);
     await this.alerts.recordTerminalOutcome(tx, {
       code,
       organizationId: run.organizationId,

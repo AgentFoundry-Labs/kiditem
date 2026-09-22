@@ -4,7 +4,7 @@ import {
   MALL_ADMIN_LISTING_READERS,
   MALL_ADMIN_LISTINGS_PARSER_VERSION,
   MALL_ADMIN_LISTINGS_SOURCE_TYPE,
-  MallAdminListingsPlanSchema,
+  MallAdminListingsStoredPlanSchema,
   MallAdminListingsPublicationSchema,
   type MallAdminListingsAttempt,
   type MallAdminListingsControl,
@@ -65,7 +65,7 @@ export function mallAdminListingsAttempt(
         ? 'COMPLETE'
         : 'RUNNING',
     generation: String(run.freshnessGeneration ?? 0n),
-    plan: MallAdminListingsPlanSchema.parse(run.plan),
+    plan: MallAdminListingsStoredPlanSchema.parse(run.plan),
     expiresAt: (run.expiresAt ?? new Date(0)).toISOString(),
     completedAt: run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
       ? run.importedAt?.toISOString() ?? null

@@ -44,7 +44,7 @@ describe('MALL_ADMIN_LISTING_READERS', () => {
     expect(Object.keys(MALL_ADMIN_LISTING_READERS)).toEqual([
       'kidkids', 'icecream-mall', 'onch', 'kkomangse', 'always', 'art09', 'thirtymall',
       'domeggook', 'kidsnote', '11st', 'gmarket', 'auction', 'kakao', 'lotte-on',
-      'smartstore', 'teacher-mall', 'boribori',
+      'smartstore', 'teacher-mall', 'boribori', 'gs-shop',
     ]);
     expect(isMallAdminListingMallKey('kidkids')).toBe(true);
     expect(isMallAdminListingMallKey('icecream-mall')).toBe(true);
@@ -52,9 +52,9 @@ describe('MALL_ADMIN_LISTING_READERS', () => {
     expect(isMallAdminListingMallKey('art09')).toBe(true);
     expect(isMallAdminListingMallKey('thirtymall')).toBe(true);
     expect(isMallAdminListingMallKey('boribori')).toBe(true);
-    // 아직 직접 읽기기가 없는 몰 — 신세계 · GS샵 · 해법몰이 남았다(2026-09-22).
+    expect(isMallAdminListingMallKey('gs-shop')).toBe(true);
+    // 아직 직접 읽기기가 없는 몰 — 신세계 · 해법몰이 남았다(2026-09-22).
     expect(isMallAdminListingMallKey('ssg')).toBe(false);
-    expect(isMallAdminListingMallKey('gs-shop')).toBe(false);
     expect(isMallAdminListingMallKey('haebub-mall')).toBe(false);
     expect(isMallAdminListingMallKey('toString')).toBe(false);
   });

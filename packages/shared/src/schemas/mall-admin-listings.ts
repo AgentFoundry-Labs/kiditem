@@ -172,14 +172,28 @@ export const MALL_ADMIN_LISTING_READERS = {
     capability: 'mallAdminListingsMallsV3',
   },
   /**
-   * 보리보리(트라이시클 셀러클럽). 상품관리 목록이 부르는 조회 API 를 화면 안에서 500개씩
-   * 부른다(라이브 2026-09-22: 1,362개 = 3쪽). 몰 상품코드는 화면의 '상품코드'(`prdNo`)이고
-   * 사방넷이 쓰던 번호와 같다 — '업체상품코드'(`prdCd`)가 아니다.
+   * 보리보리(트라이시클 셀러클럽). 상품관리 목록이 부르는 조회 API 를 화면 안에서 100개씩
+   * 부른다(라이브 2026-09-22: 1,362개 = 14쪽). 한 번에 500줄을 청하면 몰이 30초 안에 답하지
+   * 못해 시간 초과로 끝난다. 몰 상품코드는 화면의 '상품코드'(`prdNo`)이고 사방넷이 쓰던
+   * 번호와 같다 — '업체상품코드'(`prdCd`)가 아니다.
    */
   boribori: {
     mallName: '보리보리',
     origin: 'https://seller-club.co.kr',
-    pageSize: 500,
+    pageSize: 100,
+    detailNames: false,
+    capability: 'mallAdminListingsMallsV4',
+  },
+  /**
+   * GS샵 파트너스. 상품조회/수정 화면이 부르는 BFF 조회를 100개씩 부른다. 기간이 **최대
+   * 1년**이라 오늘부터 1년씩 뒤로 창을 물려 가며 읽고 빈 창에서 멈춘다(라이브 2026-09-22:
+   * 275 + 19 + 141 = 435개). 몰 상품코드는 GS상품코드(`prdCd`)이고 사방넷이 쓰던 번호와
+   * 같다 — 협력사상품코드(`supPrdCd`)가 아니다.
+   */
+  'gs-shop': {
+    mallName: 'GS샵',
+    origin: 'https://partners.gsshop.com',
+    pageSize: 100,
     detailNames: false,
     capability: 'mallAdminListingsMallsV4',
   },
@@ -210,7 +224,7 @@ export const MallAdminListingsBeginSchema = z.object({
 }).strict();
 export type MallAdminListingsBegin = z.infer<typeof MallAdminListingsBeginSchema>;
 
-export const MallAdminListingsPlanSchema = z.object({
+const PlanShape = z.object({
   sourceType: z.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
   parserVersion: z.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
   mallKey: MallKeySchema,
@@ -218,22 +232,38 @@ export const MallAdminListingsPlanSchema = z.object({
   channelAccountId: z.string().uuid(),
   sourceOrigin: z.string().url(),
   pageSize: z.number().int().positive().max(20_000),
-}).strict().superRefine((plan, ctx) => {
-  const reader = MALL_ADMIN_LISTING_READERS[plan.mallKey];
-  if (plan.sourceOrigin !== reader.origin) {
+}).strict();
+
+function refuseUnknownOrigin(plan: z.infer<typeof PlanShape>, ctx: z.RefinementCtx): void {
+  if (plan.sourceOrigin !== MALL_ADMIN_LISTING_READERS[plan.mallKey].origin) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sourceOrigin'], message: 'Unknown mall origin' });
   }
-  if (plan.pageSize !== reader.pageSize) {
+}
+
+/** 새로 여는 시도의 계획. 지금 계약과 한 글자도 어긋나면 열지 않는다. */
+export const MallAdminListingsPlanSchema = PlanShape.superRefine((plan, ctx) => {
+  refuseUnknownOrigin(plan, ctx);
+  if (plan.pageSize !== MALL_ADMIN_LISTING_READERS[plan.mallKey].pageSize) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pageSize'], message: 'Unexpected page size' });
   }
 });
 export type MallAdminListingsPlan = z.infer<typeof MallAdminListingsPlanSchema>;
 
+/**
+ * 이미 적어 둔 시도의 계획.
+ *
+ * 쪽 크기는 **그때 그렇게 읽었다는 기록**이다. 오늘 계약과 다르다고 지난 기록을 못 읽게 하면,
+ * 쪽 크기를 한 번 바꾸는 순간 그 몰의 화면이 통째로 500 이 된다 — 보리보리를 500 에서 100 으로
+ * 낮추자 지난 실패 한 건 때문에 상태 읽기가 막혔다(라이브 2026-09-22). 몰과 origin 은 여전히
+ * 지금 계약으로 본다. 그것이 바뀌면 그 기록은 우리 것이 아니다.
+ */
+export const MallAdminListingsStoredPlanSchema = PlanShape.superRefine(refuseUnknownOrigin);
+
 export const MallAdminListingsAttemptSchema = z.object({
   attemptId: z.string().uuid(),
   state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
   generation: z.string().regex(/^\d+$/),
-  plan: MallAdminListingsPlanSchema,
+  plan: MallAdminListingsStoredPlanSchema,
   expiresAt: z.string().datetime(),
   completedAt: z.string().datetime().nullable(),
   errorCode: boundedText(100).nullable(),
