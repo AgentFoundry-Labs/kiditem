@@ -35,15 +35,10 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
-    private readonly productMapping?: ChannelsProductMappingGenerationPort,
+    private readonly productMapping: ChannelsProductMappingGenerationPort,
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly recipeMutations?: ChannelOptionRecipePort,
   ) {}
-  private requireProductMapping(): ChannelsProductMappingGenerationPort {
-    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
-    return this.productMapping;
-  }
-
 
   async assertActiveRegistrationAccount(input: {
     organizationId: string;
@@ -326,7 +321,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
       // Creating an active listing changes the frozen listing identity even
       // when the registration carries no option links or MasterProduct link.
       if (!recipeResult.mappingChanged) {
-        await this.requireProductMapping().advance(tx, input.organizationId);
+        await this.productMapping.advance(tx, input.organizationId);
       }
       if (input.preparedRecipe) await applyPreparedRecipeToOptions(transaction, requireRecipeMutations(this.recipeMutations), {
         organizationId: input.organizationId, channelListingId: created.id, recipe: input.preparedRecipe,
@@ -389,7 +384,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
     assertNoRecipeConflicts(recipeResult.conflictingChannelListingOptionIds);
     if ((listingMappingChanged || optionResult.mappingChanged)
       && !recipeResult.mappingChanged) {
-      await this.requireProductMapping().advance(tx, input.organizationId);
+      await this.productMapping.advance(tx, input.organizationId);
     }
     if (input.preparedRecipe) await applyPreparedRecipeToOptions(transaction, requireRecipeMutations(this.recipeMutations), {
       organizationId: input.organizationId, channelListingId: listing.id, recipe: input.preparedRecipe,

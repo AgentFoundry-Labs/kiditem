@@ -84,13 +84,8 @@ implements ChannelCatalogImportRepositoryPort {
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly recipes: ChannelOptionRecipePort,
     @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
-    private readonly productMapping?: ChannelsProductMappingGenerationPort,
+    private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
-  private requireProductMapping(): ChannelsProductMappingGenerationPort {
-    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
-    return this.productMapping;
-  }
-
 
   /**
    * One Wing catalog import per account: the claim runs under the same account
@@ -271,7 +266,7 @@ implements ChannelCatalogImportRepositoryPort {
       const deactivatedProductCount = absence.listings;
 
       if (mappingIdentityChanged || deactivatedSkuCount > 0 || deactivatedProductCount > 0) {
-        await this.requireProductMapping().advance(tx, input.organizationId);
+        await this.productMapping.advance(tx, input.organizationId);
       }
 
       const publicationSequence = await allocatePublicationSequence(

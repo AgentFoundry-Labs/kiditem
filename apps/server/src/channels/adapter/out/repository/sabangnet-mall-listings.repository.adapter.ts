@@ -62,13 +62,8 @@ export class SabangnetMallListingsRepositoryAdapter implements SabangnetMallList
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
     @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
-    private readonly productMapping?: ChannelsProductMappingGenerationPort,
+    private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
-  private requireProductMapping(): ChannelsProductMappingGenerationPort {
-    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
-    return this.productMapping;
-  }
-
 
   begin(input: Parameters<SabangnetMallListingsRepositoryPort['begin']>[0]) {
     const request = SabangnetMallListingsBeginSchema.parse(input.request);
@@ -244,7 +239,7 @@ export class SabangnetMallListingsRepositoryAdapter implements SabangnetMallList
           deactivated: deactivated.listings,
         });
       }
-      if (mappingChanged) await this.requireProductMapping().advance(tx, input.organizationId);
+      if (mappingChanged) await this.productMapping.advance(tx, input.organizationId);
 
       const complete = await tx.sourceImportRun.update({
         where: { id: run.id, organizationId: input.organizationId },
