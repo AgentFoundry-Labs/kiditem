@@ -22,6 +22,9 @@ export interface SalesProductPricedOption {
   salePrice: number | null;
 }
 
+/** 상태 판정에는 값만 있으면 된다 — 저장 전 계획(PlannedOptionWrite)도 그대로 넘긴다. */
+export type SalesProductOptionPrice = Pick<SalesProductPricedOption, 'supplyStatus' | 'salePrice'>;
+
 /**
  * 저장 뒤 상태. 판매(selling) 옵션에 판매가가 하나라도 비었거나 판매 옵션 자체가 없으면 `draft`,
  * 값이 다 차 있으면 `active` 다.
@@ -30,7 +33,7 @@ export interface SalesProductPricedOption {
  */
 export function resolveSalesProductStatus(input: {
   current: SalesProductStatus;
-  options: readonly SalesProductPricedOption[];
+  options: readonly SalesProductOptionPrice[];
 }): SalesProductStatus {
   if (!(DERIVED_STATUSES as readonly string[]).includes(input.current)) return input.current;
   const selling = input.options.filter((option) => option.supplyStatus === 'selling');

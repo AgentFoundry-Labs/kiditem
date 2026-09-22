@@ -354,6 +354,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         sabangnetGoodsNo: true,
         ownCode: true,
         code: true,
+        name: true,
+        status: true,
         version: true,
         options: {
           select: {
@@ -361,6 +363,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
             optionCode: true,
             sabangnetOptionCode: true,
             optionKey: true,
+            salePrice: true,
             supplyStatus: true,
             components: {
               orderBy: { createdAt: 'asc' },
@@ -410,6 +413,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         sabangnetGoodsNo: true,
         ownCode: true,
         code: true,
+        name: true,
+        status: true,
           version: true,
           options: {
             select: {
@@ -417,6 +422,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
               optionCode: true,
               sabangnetOptionCode: true,
               optionKey: true,
+              salePrice: true,
               supplyStatus: true,
               components: {
                 orderBy: { createdAt: 'asc' },
@@ -432,12 +438,15 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         const state: SalesProductOptionState = {
           productId: row.id,
       productCode: row.code,
+      productName: row.name,
+      status: row.status as SalesProductStatus,
           version: row.version,
           options: row.options.map((option) => ({
             id: option.id,
             optionCode: option.optionCode,
             sabangnetOptionCode: option.sabangnetOptionCode,
             optionKey: option.optionKey,
+            salePrice: option.salePrice,
             supplyStatus: option.supplyStatus as SalesProductOptionSupplyStatus,
             components: option.components.map((component) => ({
               masterProductId: component.masterProductId,
@@ -989,6 +998,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         code: true,
         ownCode: true,
         name: true,
+        status: true,
         brand: true,
         manufacturer: true,
         modelName: true,
@@ -1028,6 +1038,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       code: row.code,
       ownCode: row.ownCode,
       name: row.name,
+      status: row.status as SalesProductStatus,
       brand: row.brand,
       manufacturer: row.manufacturer,
       modelName: row.modelName,
@@ -1248,7 +1259,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                   ...basicsData(write.create),
                   sabangnetGoodsNo: write.create.sabangnetGoodsNo,
                   optionAxes: write.create.optionAxes,
-                  sourceRaw: write.create.sourceRaw ?? Prisma.JsonNull,
+                  sourceRaw: (write.create.sourceRaw as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
                   version: { increment: 1 },
                 },
               });

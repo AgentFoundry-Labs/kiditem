@@ -91,6 +91,7 @@ function toServerFrozenRegistration(
     executionId: frozen.executionId,
     preparationId: frozen.preparationId,
     sourceCandidateId: frozen.sourceCandidateId,
+    salesProductId: frozen.salesProductId,
     channelAccountId: frozen.channelAccountId,
     submissionKey: frozen.submissionKey,
     submissionPayloadHash: frozen.submissionPayloadHash,

@@ -12,9 +12,13 @@ export const REGISTRATION_DRAFT_PORT = Symbol('REGISTRATION_DRAFT_PORT');
 export interface RegistrationDraftRow {
   preparationId: string;
   organizationId: string;
-  sourceCandidateId: string;
+  /** 등록 설정의 주인. 초안 · 판매상품 하나가 곧 등록 대상이다. */
+  salesProductId: string;
+  /** 그 판매상품을 만든 원천 기록. 직접 만든 상품이면 null. */
+  sourceCandidateId: string | null;
   channelAccountId: string;
-  sourceContentWorkspaceId: string;
+  /** AI 콘텐츠 작업공간. 등록 설정 줄에 저장하지 않고 필요할 때 AI 계약에 묻는다. */
+  sourceContentWorkspaceId: string | null;
   displayName: string;
   status: string;
   closedAt: Date | null;

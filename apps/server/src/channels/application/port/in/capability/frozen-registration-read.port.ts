@@ -22,7 +22,10 @@ export interface FrozenRegistrationReference {
 export interface ServerFrozenRegistration {
   executionId: string;
   preparationId: string;
-  sourceCandidateId: string;
+  /** 등록 설정의 주인(판매상품 초안). 확정 트랜잭션이 몰 상품의 주인으로 쓴다. */
+  salesProductId: string;
+  /** 그 초안을 만든 원천 기록. 직접 만든 상품이면 null. */
+  sourceCandidateId: string | null;
   channelAccountId: string;
   submissionKey: string;
   submissionPayloadHash: string;

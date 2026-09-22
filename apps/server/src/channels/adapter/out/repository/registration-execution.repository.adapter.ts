@@ -1878,7 +1878,7 @@ export class RegistrationExecutionRepositoryAdapter
           id: result.listingId,
           organizationId,
           channelAccountId: current.channelAccountId,
-          sourceCandidateId: current.sourceCandidateId,
+          salesProductId: current.salesProductId,
           isActive: true,
         },
         select: { id: true },
@@ -1923,11 +1923,12 @@ export class RegistrationExecutionRepositoryAdapter
     handle: ChannelsRepositoryTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      sourceCandidateId: string | null;
       executionId: string;
       requestedByUserId?: string | null;
     },
   ): Promise<{ id: string; registrationTargetId: string } | null> {
+    if (input.sourceCandidateId === null) return null;
     const tx = ownerTransactionClient(handle);
     const execution = await tx.productRegistrationExecution.findFirst({
       where: {
@@ -2355,6 +2356,7 @@ function toFrozenSubmission(
   return {
     executionId: execution.id,
     preparationId: draft.preparationId,
+    salesProductId: draft.salesProductId,
     sourceCandidateId: draft.sourceCandidateId,
     channelAccountId: frozenChannelAccountId,
     sourceContentWorkspaceId: draft.sourceContentWorkspaceId,

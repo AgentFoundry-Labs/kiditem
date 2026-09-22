@@ -34,7 +34,7 @@ export interface ListingRegistrationPersistencePort {
     transaction: OwnerTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      salesProductId: string;
       channelAccountId: string;
       submissionKey: string;
   preparedRecipe?: PreparedRegistrationRecipe;
@@ -58,7 +58,7 @@ export interface ListingRegistrationPersistencePort {
     transaction: OwnerTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      salesProductId: string;
       channelAccountId: string;
       submissionKey: string;
   preparedRecipe?: PreparedRegistrationRecipe;

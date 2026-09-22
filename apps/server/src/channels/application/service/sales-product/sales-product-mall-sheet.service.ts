@@ -3,6 +3,10 @@ export type { MallSheetFile } from "../../port/in/sales-product/sales-product-ma
 import type { ChannelActivityPort } from '../../port/out/alerts/channel-activity.port';
 import { ChannelInputError as BadRequestException, ChannelNotFoundError as NotFoundException } from '../../../domain/exception/channel-business-error';
 import {
+  SalesProductDraftError,
+  requireConfirmedPrice,
+} from '../../../domain/sales-product/sales-product-draft';
+import {
   SALES_PRODUCT_SABANGNET_VALUE_KEYS,
   SalesProductMallCategoryAssignRequestSchema,
   SalesProductMallSheetRequestSchema,
@@ -155,6 +159,23 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     if (missingFixed.length) throw new BadRequestException(`비어 있는 고정값: ${missingFixed.join(', ')}`);
 
     if (sources.length !== new Set(ids).size) throw new NotFoundException('없는 판매상품이 섞여 있습니다.');
+    // 등록 동결 · 품절 송신과 같은 게이트다. 판매가를 정하지 않은 초안은 몰 파일에 들어가지 않는다.
+    for (const source of sources) {
+      try {
+        requireConfirmedPrice({
+          name: source.name,
+          status: source.status,
+          options: source.options.map((option) => ({
+            id: option.id ?? '',
+            supplyStatus: option.supplyStatus as 'selling' | 'sold_out' | 'unused',
+            salePrice: option.salePrice ?? null,
+          })),
+        });
+      } catch (error) {
+        if (error instanceof SalesProductDraftError) throw new BadRequestException(error.message);
+        throw error;
+      }
+    }
     const rows: MallSheetRow[] = [];
     const blocked: string[] = [];
     for (const source of sources) {

@@ -62,15 +62,15 @@ describe('Channels cross-owner fact query contracts', () => {
     expect(outside.channelListing.findMany).not.toHaveBeenCalled();
   });
 
-  it('includes direct and common-product sourcing provenance without inventing direct-sale provenance', async () => {
+  it('reads sourcing provenance only through the selling product that owns the listing', async () => {
     const { tx, listings, transaction } = fixture();
     tx.channelListing.findMany.mockResolvedValue([
-      { sourceCandidateId: 'direct', salesProduct: { organizationId: 'org', sourceCandidateId: 'common' } },
-      { sourceCandidateId: null, salesProduct: { organizationId: 'org', sourceCandidateId: 'common' } },
-      { sourceCandidateId: null, salesProduct: null },
-      { sourceCandidateId: null, salesProduct: { organizationId: 'other-org', sourceCandidateId: 'foreign' } },
+      { salesProduct: { organizationId: 'org', sourceCandidateId: 'common' } },
+      { salesProduct: { organizationId: 'org', sourceCandidateId: 'common' } },
+      { salesProduct: null },
+      { salesProduct: { organizationId: 'other-org', sourceCandidateId: 'foreign' } },
     ] as never);
-    expect(await listings.readRegisteredCandidateIds(transaction, { organizationId: 'org' })).toEqual(['direct', 'common']);
+    expect(await listings.readRegisteredCandidateIds(transaction, { organizationId: 'org' })).toEqual(['common']);
     expect(await listings.readRegisteredCandidateIds(transaction, { organizationId: 'org', candidateIds: ['common'] })).toEqual(['common']);
   });
 

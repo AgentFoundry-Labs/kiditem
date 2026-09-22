@@ -97,7 +97,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
         throw new RegistrationTargetException('invalid', '가격 수정은 등록 대상에 선택된 단일 옵션의 몰 상품만 지원합니다.');
       }
       const price = selection.salePrice ?? option.salePrice;
-      if (!['kakao', 'kidsnote'].includes(listing.mallKey) || price < 10 || price > 10_000_000) {
+      if (price === null || !['kakao', 'kidsnote'].includes(listing.mallKey) || price < 10 || price > 10_000_000) {
         throw new RegistrationTargetException('invalid', '이 몰 또는 판매가는 현재 가격 전송 범위에 포함되지 않습니다.');
       }
     }
@@ -413,14 +413,15 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
         async (tx) => {
           const listing = await this.registration.resolveProductRegistration(tx, {
             organizationId,
-            sourceCandidateId: submission.sourceCandidateId,
+            salesProductId: submission.salesProductId,
             channelAccountId: submission.channelAccountId,
             submissionKey: submission.submissionKey,
             preparedRecipe: preparedRegistrationRecipe(submission.submissionPayloadJson) ?? undefined,
             externalListingId,
             displayName: submission.displayName,
           });
-          await this.drafts.branchContentToListing(tx, {
+          // 콘텐츠 작업공간이 없는 초안(직접 작성)은 분기할 것이 없다.
+          if (submission.sourceContentWorkspaceId) await this.drafts.branchContentToListing(tx, {
             organizationId,
             sourceWorkspaceId: submission.sourceContentWorkspaceId,
             listingId: listing.listingId,

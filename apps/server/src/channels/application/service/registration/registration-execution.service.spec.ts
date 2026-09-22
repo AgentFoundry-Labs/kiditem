@@ -10,6 +10,7 @@ import { RegistrationExecutionService } from './registration-execution.service';
 const ORG_ID = 'org-1';
 const USER_ID = 'user-1';
 const CANDIDATE_ID = 'candidate-1';
+const SALES_PRODUCT_ID = 'draft-1';
 const PREPARATION_ID = 'preparation-1';
 const WORKSPACE_ID = 'workspace-1';
 const ACCOUNT_ID = 'account-1';
@@ -25,6 +26,7 @@ function frozenSubmission(
   return {
     executionId: 'execution-1',
     preparationId: PREPARATION_ID,
+    salesProductId: SALES_PRODUCT_ID,
     sourceCandidateId: CANDIDATE_ID,
     channelAccountId: ACCOUNT_ID,
     sourceContentWorkspaceId: WORKSPACE_ID,
@@ -315,7 +317,7 @@ describe('RegistrationExecutionService', () => {
       TX,
       expect.objectContaining({
         organizationId: ORG_ID,
-        sourceCandidateId: CANDIDATE_ID,
+        salesProductId: SALES_PRODUCT_ID,
         channelAccountId: ACCOUNT_ID,
         externalListingId: '427011919',
         preparedRecipe: { kidItemCode: 'KID00000999', masterProductId: '00000000-0000-4000-8000-000000000051', quantity: 2 },

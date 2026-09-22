@@ -16,9 +16,12 @@ const response: TargetExecutionResult = {
     channelListingId: null, applyCompositionTemplate: false, registrationInput: {}, supplyPrices: [],
     product: {
       id: id(7), code: 'KID00000001', ownCode: null, sabangnetGoodsNo: null, sourceCandidateId: null,
+      sourcePlatform: null, sourceUrl: null,
       name: '테스트 상품', shortName: null, englishName: null, printName: null, modelName: null,
       modelNo: null, brand: null, manufacturer: null, originCountry: null, originRegion: null,
-      keywords: [], standardCategory: null, status: 'active', taxType: 'taxable',
+      keywords: [], standardCategory: null, description: '', targetAudience: null, ageGroup: null,
+      productSize: null, colorVariantNames: [], boxSetQuantity: null, registrationDefaults: null,
+      status: 'active', taxType: 'taxable',
       deliveryFeeType: null, deliveryFee: null, optionAxes: [], stockManaged: false,
       imageUrls: [], detailHtml: null, extraDetailHtml: [], noticeCategory: null, noticeValues: [],
       certifications: [], importDeclarationNo: null, adminMemo: null, version: 1,

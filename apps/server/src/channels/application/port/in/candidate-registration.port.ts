@@ -16,7 +16,6 @@ export const CANDIDATE_REGISTRATION_PORT = Symbol(
 export interface ProductPreparationDraftResult {
   preparationId: string;
   status: 'draft';
-  sourceContentWorkspaceId?: string;
 }
 
 export interface ProductPreparationCancelledResult {
@@ -77,9 +76,10 @@ export interface CandidateRegistrationPort {
 
 export interface ProductPreparationRow {
   id: string;
+  /** 등록 설정의 주인. 초안 · 판매상품 하나가 곧 등록 대상이다. */
+  salesProductId: string;
   sourceCandidateId: string;
   channelAccountId: string;
-  sourceContentWorkspaceId: string | null;
   channelListingId: string | null;
   displayName: string | null;
   status: string;

@@ -84,7 +84,6 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
-          sourceCandidateId: product.sourceCandidateId,
           displayName: null,
           registrationInput: {},
           selectedOptions: options.length === 0 ? undefined : {

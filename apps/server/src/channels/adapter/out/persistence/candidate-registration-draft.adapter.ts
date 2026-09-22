@@ -14,7 +14,8 @@ import {
 } from '../../../../sourcing/application/port/in/registration-content-workspace.port';
 import {
   assertRegistrationIdentity,
-  requireCandidateSalesProduct,
+  requireConfirmedProductForCandidate,
+  requireConfirmedSalesProduct,
   findCandidateAccountPreparation,
   lockPreparation,
   resolvedSelectionData,
@@ -73,7 +74,36 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const row = await client(tx).registrationTarget.findFirst({
       where: { id: input.preparationId, organizationId: input.organizationId },
     });
-    return row ? toFrozenDraft(client(tx), row) : null;
+    return row ? toFrozenDraft(client(tx), row, await this.readSourceContext(tx, row)) : null;
+  }
+
+  /**
+   * 초안의 원천 기록과 콘텐츠 작업공간. 둘 다 등록 설정 줄에 저장하지 않는다 — 원천은 판매상품이
+   * 가리키고, 작업공간은 AI 소유라 필요할 때 그 계약에 묻는다.
+   */
+  private async readSourceContext(
+    tx: ChannelsRepositoryTransaction,
+    row: Pick<RegistrationTarget, 'organizationId' | 'salesProductId' | 'displayName'>,
+    options: { ensure?: boolean } = {},
+  ): Promise<{ sourceCandidateId: string | null; sourceContentWorkspaceId: string | null }> {
+    const product = await client(tx).salesProduct.findFirst({
+      where: { id: row.salesProductId, organizationId: row.organizationId },
+      select: { name: true, sourceCandidateId: true },
+    });
+    const sourceCandidateId = product?.sourceCandidateId ?? null;
+    if (!sourceCandidateId) return { sourceCandidateId: null, sourceContentWorkspaceId: null };
+    const workspaceId = options.ensure
+      ? await this.contentWorkspaces.ensureCandidateWorkspace(tx, {
+        organizationId: row.organizationId,
+        sourceCandidateId,
+        displayName: row.displayName ?? product?.name ?? '',
+        createdByUserId: null,
+      })
+      : await this.contentWorkspaces.findCandidateWorkspaceId({
+        organizationId: row.organizationId,
+        sourceCandidateId,
+      });
+    return { sourceCandidateId, sourceContentWorkspaceId: workspaceId };
   }
 
   async findDraftIds(
@@ -88,7 +118,8 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const rows = await client(tx).registrationTarget.findMany({
       where: {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        // 후보는 초안(판매상품)을 거쳐 닿는다 — 등록 설정은 판매상품에 걸린다.
+        salesProduct: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId },
         ...(input.isDeleted === undefined ? {} : {
           archivedAt: input.isDeleted ? { not: null } : null,
         }),
@@ -112,9 +143,15 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       status?: string;
     },
   ): Promise<FrozenRegistrationDraft | null> {
-    const row = await findCandidateAccountPreparation(client(tx), input.organizationId, input.sourceCandidateId, input.channelAccountId);
+    const product = await client(tx).salesProduct.findFirst({
+      where: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId },
+      select: { id: true },
+    });
+    if (!product) return null;
+    const row = await findCandidateAccountPreparation(client(tx), input.organizationId, product.id, input.channelAccountId);
     if (!row) return null;
-    const draft = await toFrozenDraft(client(tx), await this.ensureCandidateContext(tx, row));
+    const named = await this.ensureDisplayName(tx, row);
+    const draft = await toFrozenDraft(client(tx), named, await this.readSourceContext(tx, named));
     if (draft.reviewPayloadHash !== null && draft.status === 'draft') {
       throw new ConflictException('Approved preparation is missing its registration execution.');
     }
@@ -126,15 +163,14 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     input: FreezeRegistrationDraftInput,
   ): Promise<FrozenRegistrationDraft> {
     const tx = client(handle);
-    const product = await requireCandidateSalesProduct(tx, input.organizationId, input.sourceCandidateId);
-    const existing = await findCandidateAccountPreparation(tx, input.organizationId, input.sourceCandidateId, input.channelAccountId);
-    const sourceContentWorkspaceId = existing?.sourceContentWorkspaceId
-      ?? await this.contentWorkspaces.ensureCandidateWorkspace(handle, {
-        organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
-        displayName: input.displayName,
-        createdByUserId: input.requestedByUserId,
-      });
+    const product = await requireConfirmedProductForCandidate(tx, input.organizationId, input.sourceCandidateId);
+    const existing = await findCandidateAccountPreparation(tx, input.organizationId, product.id, input.channelAccountId);
+    const sourceContentWorkspaceId = await this.contentWorkspaces.ensureCandidateWorkspace(handle, {
+      organizationId: input.organizationId,
+      sourceCandidateId: input.sourceCandidateId,
+      displayName: input.displayName,
+      createdByUserId: input.requestedByUserId,
+    });
     const resolved = await this.contentWorkspaces.resolveSourceSelections(
       handle,
       selectionResolutionInput(input.organizationId, sourceContentWorkspaceId, {}),
@@ -149,7 +185,6 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
         where: { id: existing.id, organizationId: input.organizationId },
         data: {
           registrationInput: input.registrationInput as Prisma.InputJsonValue,
-          sourceContentWorkspaceId,
           ...(existing.displayName === null ? { displayName: input.displayName } : {}),
           ...resolvedSelectionData(resolved),
         },
@@ -161,28 +196,24 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
           selectedOptions: { createMany: { data: product.options.map((option, sortOrder) => ({
             salesProductOptionId: option.id, sortOrder,
           })) } },
-          sourceCandidateId: input.sourceCandidateId,
           channelAccountId: input.channelAccountId,
-          sourceContentWorkspaceId,
           createdByUserId: input.requestedByUserId,
           ...frozenColumns,
         },
       });
-    return toFrozenDraft(tx, row);
+    return toFrozenDraft(tx, row, {
+      sourceCandidateId: input.sourceCandidateId,
+      sourceContentWorkspaceId,
+    });
   }
 
-  private async ensureCandidateContext(handle: ChannelsRepositoryTransaction, row: RegistrationTarget): Promise<RegistrationTarget> {
-    if (row.sourceContentWorkspaceId && row.displayName) return row;
-    if (!row.sourceCandidateId) throw new ConflictException('Candidate identity is missing.');
-    const product = await requireCandidateSalesProduct(client(handle), row.organizationId, row.sourceCandidateId);
-    const workspaceId = row.sourceContentWorkspaceId ?? await this.contentWorkspaces.ensureCandidateWorkspace(
-      handle,
-      { organizationId: row.organizationId, sourceCandidateId: row.sourceCandidateId,
-        displayName: row.displayName ?? product.name, createdByUserId: row.createdByUserId },
-    );
+  /** 이름 없는 옛 설정에 판매상품 이름을 채운다. 가격 게이트는 여기서 함께 본다. */
+  private async ensureDisplayName(handle: ChannelsRepositoryTransaction, row: RegistrationTarget): Promise<RegistrationTarget> {
+    if (row.displayName) return row;
+    const product = await requireConfirmedSalesProduct(client(handle), row.organizationId, row.salesProductId);
     return client(handle).registrationTarget.update({
       where: { id: row.id, organizationId: row.organizationId },
-      data: { sourceContentWorkspaceId: workspaceId, displayName: row.displayName ?? product.name },
+      data: { displayName: product.name },
     });
   }
 
@@ -191,7 +222,9 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const updated = await client(tx).registrationTarget.updateMany({
       where: { id: input.preparationId, organizationId: input.organizationId,
         archivedAt: null,
-        ...(input.sourceCandidateId ? { sourceCandidateId: input.sourceCandidateId } : {}) },
+        ...(input.sourceCandidateId
+          ? { salesProduct: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId } }
+          : {}) },
       data: { archivedAt: input.closedAt },
     });
     return updated.count;
@@ -208,15 +241,19 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     if (!current) throw new NotFoundException('Product preparation not found.');
 
     if (input.reuseFrozenSubmission) {
-      return { draft: await toFrozenDraft(tx, current), frozen: null };
+      return { draft: await toFrozenDraft(tx, current, await this.readSourceContext(handle, current)), frozen: null };
     }
 
     assertRegistrationIdentity(current);
+    const context = await this.readSourceContext(handle, current, { ensure: true });
+    if (!context.sourceContentWorkspaceId) {
+      throw new ConflictException('이 판매상품에는 콘텐츠 작업공간이 없습니다.');
+    }
     const resolvedSelections = await this.contentWorkspaces.resolveSourceSelections(
       handle,
       selectionResolutionInput(
         input.organizationId,
-        current.sourceContentWorkspaceId,
+        context.sourceContentWorkspaceId,
         current,
       ),
     );
@@ -229,7 +266,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       ...resolvedSelectionData(resolvedSelections),
     });
     return {
-      draft: await toFrozenDraft(tx, updated),
+      draft: await toFrozenDraft(tx, updated, context),
       frozen: { payload: frozen.payload, hash: frozen.hash },
     };
   }
@@ -297,15 +334,20 @@ function buildSubmissionPayload(row: RegistrationTarget): RegistrationSubmission
   };
 }
 
-async function toFrozenDraft(tx: Prisma.TransactionClient, row: RegistrationTarget): Promise<FrozenRegistrationDraft> {
+async function toFrozenDraft(
+  tx: Prisma.TransactionClient,
+  row: RegistrationTarget,
+  context: { sourceCandidateId: string | null; sourceContentWorkspaceId: string | null },
+): Promise<FrozenRegistrationDraft> {
   assertRegistrationIdentity(row);
   const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: row.organizationId, registrationTargetIds: [row.id] });
   return {
     preparationId: row.id,
     organizationId: row.organizationId,
-    sourceCandidateId: row.sourceCandidateId,
+    salesProductId: row.salesProductId,
+    sourceCandidateId: context.sourceCandidateId,
     channelAccountId: row.channelAccountId,
-    sourceContentWorkspaceId: row.sourceContentWorkspaceId,
+    sourceContentWorkspaceId: context.sourceContentWorkspaceId,
     displayName: row.displayName,
     status: registrationDraftState(row.archivedAt, execution),
     closedAt: row.archivedAt,

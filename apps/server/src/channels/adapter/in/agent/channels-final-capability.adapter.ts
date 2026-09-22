@@ -108,7 +108,7 @@ function receiptResolutionInput(input: {
 }): ResolveProductRegistrationWithOwnerReceiptInput {
   return {
     organizationId: input.context.organizationId,
-    sourceCandidateId: input.frozen.sourceCandidateId,
+    salesProductId: input.frozen.salesProductId,
     channelAccountId: input.frozen.channelAccountId,
     submissionKey: input.frozen.submissionKey,
     externalListingId: input.externalListingId,

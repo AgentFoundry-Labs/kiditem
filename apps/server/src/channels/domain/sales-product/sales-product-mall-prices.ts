@@ -22,7 +22,7 @@ export interface MallPriceCandidateTarget {
 
 export interface MallPriceCandidateProduct {
   id: string;
-  options: { id: string; salePrice: number; normalPrice: number | null }[];
+  options: { id: string; salePrice: number | null; normalPrice: number | null }[];
   /** 살아 있는 등록 대상. 같은 계정에 여러 개가 있으면 채택하지 않는다. */
   targets: MallPriceCandidateTarget[];
 }

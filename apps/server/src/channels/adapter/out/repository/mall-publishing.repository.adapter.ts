@@ -1,5 +1,4 @@
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
-import { CHANNEL_REGISTRATION_SOURCE_PORT, type ChannelRegistrationSourcePort } from '../../../application/port/out/sourcing/registration-source.port';
 import { CHANNEL_LISTING_CONTENT_PORT, type ChannelListingContentPort } from '../../../application/port/out/content/listing-content.port';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -78,7 +77,6 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     private readonly productSourceRead: ProductSourceReadPort,
     @Inject(PRODUCT_AVAILABILITY_PORT)
     private readonly productAvailability: ProductAvailabilityPort,
-    @Inject(CHANNEL_REGISTRATION_SOURCE_PORT) private readonly source: ChannelRegistrationSourcePort,
     @Inject(CHANNEL_LISTING_CONTENT_PORT) private readonly content: ChannelListingContentPort,
   ) {}
 
@@ -140,7 +138,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         select: {
           id: true,
           updatedAt: true,
-          sourceCandidateId: true,
+          // KC 는 판매상품의 인증 문서에서만 읽는다(KID-310) — 후보 3단 조인을 걷어냈다.
+          salesProduct: { select: { certifications: true } },
           options: {
             where: { organizationId },
             select: {
@@ -158,9 +157,6 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         .map((listing) => withListingProductSummary(listing))
         .filter((listing) => listing.masterProductId !== null
           && selectedIds.includes(listing.masterProductId));
-    const candidateIds = [...new Set(listingRows.flatMap(row => row.sourceCandidateId ? [row.sourceCandidateId] : []))];
-    const basics = await this.prisma.$transaction(tx => this.source.readRegistrationBasics(ownerTransaction(tx), { organizationId, candidateIds }));
-    const basicsById = new Map(basics.map(row => [row.candidateId, row]));
     const latestListingUpdatedAt = latestDatesByMasterProduct(listingRows);
     selected.sort((left, right) =>
       (latestListingUpdatedAt.get(right.masterProductId)?.getTime() ?? 0)
@@ -186,9 +182,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       const prices = options
         .map((option) => option.salePrice)
         .filter((price): price is number => typeof price === 'number' && price > 0);
-      const candidate = productListings
-        .map((listing) => listing.sourceCandidateId ? basicsById.get(listing.sourceCandidateId) : undefined)
-        .find((entry) => entry !== undefined) ?? null;
+      const certificationNumbers = [...new Set(productListings
+        .flatMap((listing) => certificationNumbersOf(listing.salesProduct?.certifications)))];
       return {
         masterProductId: record.masterProductId,
         code: record.code,
@@ -197,7 +192,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         // 대표가는 최저가로 본다. 등록 시 실제 가격은 옵션별로 다시 정한다.
         salePrice: prices.length > 0 ? Math.min(...prices) : null,
         optionNames,
-        kc: candidate ? { status: candidate.kcStatus, number: candidate.kcNumber } : null,
+        certificationNumbers,
         // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
         stock: stockByMaster.get(record.masterProductId) ?? null,
       };
@@ -506,4 +501,13 @@ function storefrontProductIdOf(raw: unknown): string | null {
   const value = (raw as Record<string, unknown>).productId;
   if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
   return typeof value === 'string' && /^\d{1,15}$/.test(value) ? value : null;
+}
+
+
+/** 판매상품 인증 문서(JSON) 에서 번호만 꺼낸다. 모양이 다르면 없는 것으로 본다. */
+function certificationNumbersOf(certifications: unknown): string[] {
+  if (!Array.isArray(certifications)) return [];
+  return certifications
+    .map((entry) => (entry && typeof entry === 'object' ? (entry as { number?: unknown }).number : null))
+    .filter((number): number is string => typeof number === 'string' && number.trim().length > 0);
 }

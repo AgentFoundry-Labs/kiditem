@@ -25,7 +25,7 @@ function target(
 function setup(overrides = [target(FIRST, 3000), target(SECOND, 5000)]) {
   const source: MallSheetSourceProduct = { id: PRODUCT, code: 'KID00000001', ownCode: null,
     name: '테스트 상품', brand: null, manufacturer: null, modelName: null, modelNo: null,
-    originCountry: null, keywords: [], taxType: 'taxable', salePrice: 2000, tagPrice: null,
+    originCountry: null, keywords: [], status: 'active', taxType: 'taxable', salePrice: 2000, tagPrice: null,
     imageUrls: ['https://example.com/product.jpg'], detailHtml: '<p>상품 설명</p>', noticeCategory: null,
     certificationNumbers: [], optionAxes: [], sabangnetImageUrls: [],
     options: [{ id: OPTION, code: 'KID00000002', values: [], salePrice: 2000, barcode: null, supplyStatus: 'selling' }], overrides };

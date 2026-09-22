@@ -136,7 +136,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
     transaction: OwnerTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      salesProductId: string;
       channelAccountId: string;
       submissionKey: string;
       preparedRecipe?: PreparedRegistrationRecipe;
@@ -173,7 +173,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
       );
     }
     await lockProductMapping(tx, input.organizationId);
-    const [account, candidate] = await Promise.all([
+    const [account, salesProduct] = await Promise.all([
       tx.channelAccount.findFirst({
         where: {
           id: input.channelAccountId,
@@ -182,18 +182,14 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
         },
         select: { id: true, channel: true },
       }),
-      tx.sourcingCandidate.findFirst({
-        where: {
-          id: input.sourceCandidateId,
-          organizationId: input.organizationId,
-          isDeleted: false,
-        },
+      // 몰 상품의 주인은 판매상품 초안이다. 원천 후보 행은 Sourcing 것이라 여기서 읽지 않는다.
+      tx.salesProduct.findFirst({
+        where: { id: input.salesProductId, organizationId: input.organizationId },
         select: { id: true },
       }),
     ]);
     if (!account) throw new NotFoundException("Marketplace account not found.");
-    if (!candidate)
-      throw new NotFoundException("Sourcing candidate not found.");
+    if (!salesProduct) throw new NotFoundException("Sales product not found.");
     const optionLinks = exactLinks.optionLinks;
 
     const existingIdentity = await tx.channelListing.findFirst({
@@ -226,7 +222,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
           },
           select: {
             id: true,
-            sourceCandidateId: true,
+            salesProductId: true,
             channelAccountId: true,
             channelAccount: { select: { channel: true } },
             externalId: true,
@@ -265,11 +261,11 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
       })).get(existing.id) ?? null
       : null;
     if (
-      existing?.sourceCandidateId &&
-      existing.sourceCandidateId !== candidate.id
+      existing?.salesProductId &&
+      existing.salesProductId !== salesProduct.id
     ) {
       throw new ConflictException(
-        "Marketplace listing already belongs to another source candidate.",
+        "Marketplace listing already belongs to another sales product.",
       );
     }
     if (
@@ -285,7 +281,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
       const created = await tx.channelListing.create({
         data: {
           organizationId: input.organizationId,
-          sourceCandidateId: candidate.id,
+          salesProductId: salesProduct.id,
           channelAccountId: account.id,
           externalId,
           displayName: input.displayName,
@@ -341,10 +337,10 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
       where: {
         id: existing.id,
         organizationId: input.organizationId,
-        OR: [{ sourceCandidateId: null }, { sourceCandidateId: candidate.id }],
+        OR: [{ salesProductId: null }, { salesProductId: salesProduct.id }],
       },
       data: {
-        sourceCandidateId: candidate.id,
+        salesProductId: salesProduct.id,
         displayName: input.displayName,
         status: "active",
         isActive: true,
@@ -403,7 +399,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
     transaction: OwnerTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      salesProductId: string;
       channelAccountId: string;
       submissionKey: string;
       preparedRecipe?: PreparedRegistrationRecipe;

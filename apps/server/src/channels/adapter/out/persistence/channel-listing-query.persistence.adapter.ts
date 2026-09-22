@@ -23,7 +23,7 @@ const listingSelect = {
   category: true,
   brand: true,
   manufacturer: true,
-  sourceCandidateId: true,
+  salesProduct: { select: { sourceCandidateId: true } },
   status: true,
   exposureStatus: true,
   channelAccountId: true,
@@ -82,17 +82,13 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
     const candidateFilter = input.candidateIds ? { in: [...input.candidateIds] } : { not: null };
     const rows = await ownerTransactionClient(transaction).channelListing.findMany({
       where: { organizationId: input.organizationId, isActive: true,
-        OR: [
-          { sourceCandidateId: candidateFilter },
-          { salesProduct: { organizationId: input.organizationId, sourceCandidateId: candidateFilter } },
-        ] },
-      select: { sourceCandidateId: true, salesProduct: { select: { organizationId: true, sourceCandidateId: true } } },
+        salesProduct: { organizationId: input.organizationId, sourceCandidateId: candidateFilter } },
+      select: { salesProduct: { select: { organizationId: true, sourceCandidateId: true } } },
     });
     const requested = input.candidateIds ? new Set(input.candidateIds) : null;
-    return [...new Set(rows.flatMap(row => [
-      row.sourceCandidateId,
-      row.salesProduct?.organizationId === input.organizationId ? row.salesProduct.sourceCandidateId : null,
-    ]).filter((id): id is string => id !== null && (!requested || requested.has(id))))];
+    return [...new Set(rows
+      .map(row => row.salesProduct?.organizationId === input.organizationId ? row.salesProduct.sourceCandidateId : null)
+      .filter((id): id is string => id !== null && (!requested || requested.has(id))))];
   }
 
   async readOptionCandidates(transaction: Parameters<ChannelListingFactQueries['readOptionCandidates']>[0], input: Parameters<ChannelListingFactQueries['readOptionCandidates']>[1]) {
@@ -126,7 +122,7 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
           ...(input.activeAccountsOnly ? { status: 'active' } : {}) } },
       select: { id: true, channelAccountId: true, externalId: true, channelName: true, displayName: true,
         category: true, imageUrl: true, status: true, exposureStatus: true, isActive: true, rawJson: true,
-        sourceCandidateId: true, createdAt: true, updatedAt: true,
+        salesProduct: { select: { sourceCandidateId: true } }, createdAt: true, updatedAt: true,
         channelAccount: { select: { channel: true } },
         options: { where: { organizationId: input.organizationId, ...(input.activeOnly ? { isActive: true } : {}) },
           select: { id: true, externalOptionId: true, itemName: true, sellerSku: true, status: true,
@@ -135,7 +131,8 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
               select: { masterProductId: true, quantity: true }, orderBy: { masterProductId: 'asc' } } } } },
       orderBy: { id: 'asc' },
     });
-    return rows.map(({ channelAccountId, channelAccount, options, ...row }) => ({ ...row, accountId: channelAccountId,
+    return rows.map(({ channelAccountId, channelAccount, options, salesProduct, ...row }) => ({ ...row, accountId: channelAccountId,
+      sourceCandidateId: salesProduct?.sourceCandidateId ?? null,
       channel: channelAccount.channel, options: options.map(({ inventoryComponents, ...option }) => ({ ...option, components: inventoryComponents })) }));
   }
 
@@ -213,10 +210,16 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
   }
   async lockActiveOwner(transaction: Parameters<ChannelListingFactQueries['lockActiveOwner']>[0], input: Parameters<ChannelListingFactQueries['lockActiveOwner']>[1]) {
     const rows = await ownerTransactionClient(transaction).$queryRaw<Array<{ id: string; sourceCandidateId: string | null; accountId: string }>>(Prisma.sql`
-      SELECT id, source_candidate_id AS "sourceCandidateId", channel_account_id AS "accountId"
-      FROM channel_listings
-      WHERE id = ${input.listingId}::uuid AND organization_id = ${input.organizationId}::uuid AND is_active = true
-      FOR UPDATE
+      SELECT listing.id,
+             product.source_candidate_id AS "sourceCandidateId",
+             listing.channel_account_id AS "accountId"
+      FROM channel_listings AS listing
+      LEFT JOIN sales_products AS product
+        ON product.id = listing.sales_product_id AND product.organization_id = listing.organization_id
+      WHERE listing.id = ${input.listingId}::uuid
+        AND listing.organization_id = ${input.organizationId}::uuid
+        AND listing.is_active = true
+      FOR UPDATE OF listing
     `);
     if (rows.length !== 1) throw new NotFoundException('Channel listing owner not found.');
     return rows[0]!;
@@ -348,7 +351,7 @@ function toSummary(
     brand: row.brand,
     manufacturer: row.manufacturer,
     channelPrice: firstPrice(row.options),
-    sourceCandidateId: row.sourceCandidateId,
+    sourceCandidateId: row.salesProduct?.sourceCandidateId ?? null,
     contentWorkspaceId: null,
     status: row.status,
     exposureStatus: row.exposureStatus,

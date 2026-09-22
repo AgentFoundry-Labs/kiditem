@@ -45,9 +45,11 @@ export const RegistrationTargetSchema = z.object({
     name: z.string(),
     options: z.array(z.object({
       salesProductOptionId: z.string().uuid(),
-      code: z.string(),
+      /** 발급된 KID. 아직 팔기로 하지 않은 초안의 단품은 비어 있다. */
+      code: z.string().nullable(),
       values: z.array(z.string()),
-      salePrice: money,
+      /** 초안이라 아직 정하지 않았으면 null. */
+      salePrice: money.nullable(),
       normalPrice: money.nullable(),
       supplyPrice: money.nullable(),
     })),

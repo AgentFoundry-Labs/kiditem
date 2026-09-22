@@ -4,7 +4,8 @@ import type { ChannelListingRegistrationResult } from '@kiditem/shared/channel-l
 
 export interface ResolveProductRegistrationCapabilityInput {
   organizationId: string;
-  sourceCandidateId: string;
+  /** 등록 설정의 주인(판매상품 초안). 원천 후보가 아니라 이 상품이 몰 상품의 주인이 된다. */
+  salesProductId: string;
   channelAccountId: string;
   submissionKey: string;
   preparedRecipe?: PreparedRegistrationRecipe;
@@ -24,7 +25,7 @@ export interface ResolveProductRegistrationCapabilityInput {
  */
 export interface ResolveProductRegistrationWithOwnerReceiptInput {
   organizationId: string;
-  sourceCandidateId: string;
+  salesProductId: string;
   channelAccountId: string;
   submissionKey: string;
   preparedRecipe?: PreparedRegistrationRecipe;

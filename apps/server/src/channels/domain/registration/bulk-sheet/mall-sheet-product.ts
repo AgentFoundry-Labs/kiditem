@@ -1,4 +1,4 @@
-import { mallDisplayName, SALES_PRODUCT_SABANGNET_VALUE_KEYS } from '@kiditem/shared/sales-product';
+import { mallDisplayName, SALES_PRODUCT_SABANGNET_VALUE_KEYS, type SalesProductStatus } from '@kiditem/shared/sales-product';
 import {
   detailImageUrls,
   isPublicImageUrl,
@@ -20,8 +20,11 @@ export interface MallSheetSourceProduct {
   modelNo: string | null;
   originCountry: string | null;
   keywords: string[];
+  /** 판매상품 상태. 초안이면 파일을 만들지 않는다. */
+  status: SalesProductStatus;
   taxType: MallSheetProduct['taxType'];
-  salePrice: number;
+  /** 대표 판매가. 초안(판매가 미정)이면 null 이고, 서비스의 가격 게이트가 파일을 먼저 막는다. */
+  salePrice: number | null;
   tagPrice: number | null;
   imageUrls: string[];
   detailHtml: string | null;
@@ -33,7 +36,7 @@ export interface MallSheetSourceProduct {
     code: string;
     values: string[];
     /** canonical final price, before a mall target override is applied. */
-    salePrice?: number;
+    salePrice?: number | null;
     normalPrice?: number | null;
     /** legacy source-only delta; normalized to salePrice before transport. */
     extraPrice?: number;
@@ -228,15 +231,15 @@ export function toMallSheetProduct(
     .filter((option) => option.supplyStatus === 'selling')
     .map((option) => ({
       ...option,
-      salePrice: option.salePrice ?? source.salePrice + (option.extraPrice ?? 0),
+      salePrice: option.salePrice ?? (source.salePrice ?? 0) + (option.extraPrice ?? 0),
       normalPrice: option.normalPrice ?? source.tagPrice,
     }));
   const hasLegacyOptionDeltas = source.options.some((option) => option.salePrice === undefined);
   const canonicalBasePrice = hasLegacyOptionDeltas
-    ? source.salePrice
+    ? source.salePrice ?? 0
     : selling.length > 0
       ? Math.min(...selling.map((option) => option.salePrice))
-      : source.salePrice;
+      : source.salePrice ?? 0;
   for (const mallKey of spec.mallKeys) {
     // 설정이 둘 이상이면 고른 것만 쓴다. 고르지 않았으면 공통값으로 두고, 파일은 서비스가 막는다 —
     // 첫 번째를 조용히 고르면 다른 설정의 가격이 몰로 올라간다.

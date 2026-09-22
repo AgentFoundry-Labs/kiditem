@@ -1,5 +1,10 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma, type RegistrationTarget } from '@prisma/client';
+import {
+  SalesProductDraftError,
+  requireConfirmedPrice,
+} from '../../../domain/sales-product/sales-product-draft';
+import type { SalesProductStatus } from '@kiditem/shared/sales-product';
 import type { ResolvedRegistrationContentSelections } from '../../../../sourcing/application/port/in/registration-content-workspace.port';
 
 /**
@@ -9,45 +14,83 @@ import type { ResolvedRegistrationContentSelections } from '../../../../sourcing
 
 export const ACTIVE_PREPARATION_STATUSES = ['draft', 'submitting', 'failed'] as const;
 
-/** A candidate may initialize a registration only after its priced selling product exists. */
-export async function requireCandidateSalesProduct(
+export interface ConfirmedSalesProduct {
+  id: string;
+  name: string;
+  sourceCandidateId: string | null;
+  options: { id: string; salePrice: number }[];
+}
+
+/**
+ * 등록 준비가 쓰는 단일 가격 게이트. 판매상품 줄을 잠그고 초안(판매가 미정)이면 거절한다.
+ * 몰 엑셀 · 품절 송신도 같은 도메인 함수(`requireConfirmedPrice`)를 쓴다.
+ */
+export async function requireConfirmedSalesProduct(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  salesProductId: string,
+): Promise<ConfirmedSalesProduct> {
+  const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id FROM sales_products
+    WHERE organization_id = ${organizationId}::uuid
+      AND id = ${salesProductId}::uuid
+    FOR UPDATE
+  `);
+  if (locked.length !== 1) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+  const product = await tx.salesProduct.findFirstOrThrow({
+    where: { id: salesProductId, organizationId },
+    select: {
+      id: true, name: true, status: true, sourceCandidateId: true,
+      options: { where: { supplyStatus: { not: 'unused' } },
+        orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
+        select: { id: true, salePrice: true, supplyStatus: true } },
+    },
+  });
+  try {
+    return {
+      id: product.id,
+      name: product.name,
+      sourceCandidateId: product.sourceCandidateId,
+      options: requireConfirmedPrice({
+        name: product.name,
+        status: product.status as SalesProductStatus,
+        options: product.options.map((option) => ({
+          id: option.id,
+          supplyStatus: option.supplyStatus as 'selling' | 'sold_out' | 'unused',
+          salePrice: option.salePrice,
+        })),
+      }),
+    };
+  } catch (error) {
+    if (error instanceof SalesProductDraftError) throw new ConflictException(error.message);
+    throw error;
+  }
+}
+
+/** 원천 기록(후보)에서 만든 초안. 후보당 초안은 하나다. */
+export async function requireConfirmedProductForCandidate(
   tx: Prisma.TransactionClient,
   organizationId: string,
   sourceCandidateId: string,
-) {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id FROM sales_products
-    WHERE organization_id = ${organizationId}::uuid
-      AND source_candidate_id = ${sourceCandidateId}::uuid
-    FOR UPDATE
-  `);
-  if (rows.length !== 1) {
-    throw new ConflictException('수집상품 상세에서 판매가를 확인한 뒤 판매상품으로 준비해주세요.');
-  }
-  const product = await tx.salesProduct.findFirstOrThrow({
-    where: { id: rows[0]!.id, organizationId },
-    select: {
-      id: true, name: true, status: true,
-      options: { where: { supplyStatus: { not: 'unused' } },
-        orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
-        select: { id: true, salePrice: true } },
-    },
+): Promise<ConfirmedSalesProduct> {
+  const product = await tx.salesProduct.findFirst({
+    where: { organizationId, sourceCandidateId },
+    select: { id: true },
   });
-  if (product.status === 'archived' || product.options.length === 0
-    || product.options.some(option => option.salePrice <= 0)) {
-    throw new ConflictException('판매상품의 판매가와 사용할 옵션을 확인해주세요.');
+  if (!product) {
+    throw new ConflictException('이 수집상품의 판매상품이 없습니다. 판매상품을 먼저 만들어주세요.');
   }
-  return product;
+  return requireConfirmedSalesProduct(tx, organizationId, product.id);
 }
 
 export async function findCandidateAccountPreparation(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  sourceCandidateId: string,
+  salesProductId: string,
   channelAccountId: string,
 ) {
   const rows = await tx.registrationTarget.findMany({
-    where: { organizationId, sourceCandidateId, channelAccountId, archivedAt: null },
+    where: { organizationId, salesProductId, channelAccountId, archivedAt: null },
     take: 2,
   });
   if (rows.length > 1) {
@@ -79,17 +122,13 @@ export async function lockPreparation(
 }
 
 export function assertRegistrationIdentity(
-  row: Pick<
-    RegistrationTarget,
-    'sourceCandidateId' | 'channelAccountId' | 'sourceContentWorkspaceId' | 'displayName'
-  >,
+  row: Pick<RegistrationTarget, 'salesProductId' | 'channelAccountId' | 'displayName'>,
 ): asserts row is typeof row & {
-  sourceCandidateId: string;
+  salesProductId: string;
   channelAccountId: string;
-  sourceContentWorkspaceId: string;
   displayName: string;
 } {
-  if (!row.sourceCandidateId || !row.channelAccountId || !row.sourceContentWorkspaceId || !row.displayName) {
+  if (!row.salesProductId || !row.channelAccountId || !row.displayName) {
     throw new ConflictException('Preparation is missing account-scoped registration identity.');
   }
 }
