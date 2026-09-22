@@ -34,7 +34,7 @@ import {
   adSweepCoversChannelAccount,
   advertisingAppliesToSale,
 } from '../advertising/domain/ad-sweep-coverage';
-import { resolveOrderLineSalesCosts, resolveUnitCost } from './option-pricing-resolver';
+import { resolveOrderLineSalesCosts, resolveUnitCost } from '../products/domain/option-pricing-resolver';
 import type { ProductTransactionalReadPort } from '../products/application/port/in/product-transactional-read.port';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,

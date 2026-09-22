@@ -24,6 +24,8 @@ import { MallAdminListingsRepositoryAdapter } from '../adapter/out/repository/ma
 import { MALL_ADMIN_LISTINGS_PORT } from '../application/port/in/mall-admin-listings.port';
 import { MallAdminListingsService } from '../application/service/collection/mall-admin-listings.service';
 import { completedCatalogRunWhere } from '../adapter/out/repository/completed-catalog-run';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const KIDKIDS = '11111111-1111-4111-8111-111111111111';
 const KIDKIDS_LATER = '11111111-1111-4111-8111-111111111112';
@@ -86,6 +88,7 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     const repository = new MallAdminListingsRepositoryAdapter(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     const module = await Test.createTestingModule({
       controllers: [MallAdminListingsController],

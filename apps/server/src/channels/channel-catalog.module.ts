@@ -23,6 +23,8 @@ import { CHANNEL_OPTION_RECIPE_PORT } from './application/port/in/channel-option
 import { CHANNEL_OPTION_RECIPE_REPOSITORY_PORT, type ChannelOptionRecipeRepositoryPort } from './application/port/out/persistence/channel-option-recipe.repository.port';
 import { ChannelOptionRecipeRepositoryAdapter } from './adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeService } from './application/service/listing/channel-option-recipe.service';
+import { ChannelsProductMappingGenerationAdapter } from './adapter/out/products/product-mapping-generation.adapter';
+import { CHANNELS_PRODUCT_MAPPING_GENERATION_PORT } from './application/port/out/cross-domain/product-mapping-generation.port';
 
 /**
  * Catalog identity capabilities can be consumed without starting provider or AI execution.
@@ -63,6 +65,8 @@ import { ChannelOptionRecipeService } from './application/service/listing/channe
       provide: CHANNEL_OPTION_RECIPE_PORT,
       useExisting: ChannelOptionRecipeService,
     },
+    ChannelsProductMappingGenerationAdapter,
+    { provide: CHANNELS_PRODUCT_MAPPING_GENERATION_PORT, useExisting: ChannelsProductMappingGenerationAdapter },
   ],
   exports: [CHANNEL_CATALOG_IDENTITY_PORT, CHANNEL_ACCOUNT_PORT, CHANNEL_LISTING_QUERY_PORT, CHANNEL_LISTING_REPORT_READ_PORT, CHANNEL_OPTION_RECIPE_PORT],
 })

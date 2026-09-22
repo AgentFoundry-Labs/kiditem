@@ -29,6 +29,8 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ParsedWingCatalogRow } from '../adapter/out/documents/coupang-wing/workbook.parser';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -54,6 +56,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
       ),
     );
     const prismaService = prisma as unknown as PrismaService;
@@ -72,6 +75,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       prisma as unknown as PrismaService,
       alerts,
       recipes,
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     service = new ChannelCatalogImportService(repository, { parseWingWorkbook: (bytes: Uint8Array) => parsedWorkbooks.get(new TextDecoder().decode(bytes))! } as never);
   });

@@ -48,6 +48,8 @@ import {
   productAbcSaleAgeDays,
 } from '@kiditem/shared/product-abc';
 import type { SellpiaManualMatchSnapshot } from '@kiditem/shared/sellpia-manual-match';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -84,7 +86,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never));
     const productTransactions = new ProductTransactionalReadRepositoryAdapter();
     recipes = new ChannelOptionRecipeService(
-      new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions),
+      new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
     );
     matching = new ChannelProductMatchingRepositoryAdapter(
       prisma as never,
@@ -102,6 +104,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
       alerts,
       recipes,
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     const owner = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
@@ -1061,7 +1064,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     expect((await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)).body.state).toBe('RUNNING');
   });
   it('refuses a workbook import while the account browser import hands off to or runs its details stage, naming the root', async () => {
-    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes);
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const claim = () => importer.claimCoupangWingImport({
       organizationId: ORG,
       userId: USER,
@@ -1218,7 +1221,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     // One import runs per account: a browser import begins only once the file
     // import that claimed the account went stale, and that file import's later
     // publication still fences the browser snapshot out.
-    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes);
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const claim = await importer.claimCoupangWingImport({
       organizationId: ORG,
       userId: USER,

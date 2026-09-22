@@ -34,6 +34,8 @@ import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/per
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const BASE = '/api/reviews';
 const REVIEW_OPTION = 'VENDOR-ITEM-1';
@@ -52,10 +54,10 @@ function createReviewsService(prisma: PrismaClient) {
     products,
     channelListingQueries(prisma),
     new ChannelOptionRecipeService(
-      new ChannelOptionRecipeRepositoryAdapter(prisma as never, products),
+      new ChannelOptionRecipeRepositoryAdapter(prisma as never, products, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
     ),
     new ChannelAccountService(
-      new ChannelAccountPersistenceAdapter(prisma as never),
+      new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
       new ChannelCredentialsAdapter(),
     ),
   );

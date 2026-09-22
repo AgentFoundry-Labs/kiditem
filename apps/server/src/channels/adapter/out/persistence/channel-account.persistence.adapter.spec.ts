@@ -1,6 +1,8 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ChannelAccountPersistenceAdapter } from './channel-account.persistence.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 function makePrisma() {
@@ -32,7 +34,7 @@ describe('ChannelAccountPersistenceAdapter — Rocket account bootstrap', () => 
   it('creates the internal Rocket identity from the extension-detected primary Coupang vendor', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountPersistenceAdapter(prisma as never);
+    const service = new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const rocketAccount = {
       id: '11111111-1111-4111-8111-111111111111',
       channel: 'rocket',
@@ -81,7 +83,7 @@ describe('ChannelAccountPersistenceAdapter — Rocket account bootstrap', () => 
   it('reuses the matching active Rocket identity without creating a duplicate', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountPersistenceAdapter(prisma as never);
+    const service = new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const rocketAccount = {
       id: '11111111-1111-4111-8111-111111111111',
       channel: 'rocket',
@@ -120,7 +122,7 @@ describe('ChannelAccountPersistenceAdapter — Rocket account bootstrap', () => 
   it('fills a missing Rocket vendor column from the matching canonical external identity', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountPersistenceAdapter(prisma as never);
+    const service = new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) =>
       cb(tx),
@@ -164,7 +166,7 @@ describe('ChannelAccountPersistenceAdapter — Rocket account bootstrap', () => 
   it('does not invent a Rocket identity without a detected primary Coupang vendor', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountPersistenceAdapter(prisma as never);
+    const service = new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) =>
       cb(tx),
@@ -180,7 +182,7 @@ describe('ChannelAccountPersistenceAdapter — Rocket account bootstrap', () => 
   it('rejects conflicting Coupang identities and never rewrites them', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountPersistenceAdapter(prisma as never);
+    const service = new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) =>
       cb(tx),
@@ -199,7 +201,7 @@ describe('ChannelAccountPersistenceAdapter — Rocket account bootstrap', () => 
   it('preserves an explicitly paused matching Rocket account', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountPersistenceAdapter(prisma as never);
+    const service = new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<unknown>) =>
       cb(tx),
@@ -228,7 +230,7 @@ describe('ChannelAccountPersistenceAdapter — Coupang account settings', () => 
   it('stores only the Wing vendor identity and does not require Open API credentials', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountPersistenceAdapter(prisma as never);
+    const service = new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const stored = {
       id: 'account-1',
       organizationId: ORGANIZATION_ID,
@@ -264,7 +266,7 @@ describe('ChannelAccountPersistenceAdapter — Coupang account settings', () => 
   it('creates and switches to a distinct account when the Coupang store identity changes', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountPersistenceAdapter(prisma as never);
+    const service = new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const primary = {
       id: 'account-a',
       organizationId: ORGANIZATION_ID,

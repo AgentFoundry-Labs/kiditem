@@ -10,6 +10,8 @@ import { ReadinessService } from '../readiness.service';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const CATALOG_OWNER_PARSER = 'coupang-catalog-owner-v1';
 
@@ -110,7 +112,7 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
     const status = await new ReadinessService(
       prisma as never,
       new ChannelAccountService(
-        new ChannelAccountPersistenceAdapter(prisma as never),
+        new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
         new ChannelCredentialsAdapter(),
       ),
     ).getStatus(ORG);

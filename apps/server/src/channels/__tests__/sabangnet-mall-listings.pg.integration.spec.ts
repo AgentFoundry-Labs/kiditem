@@ -23,6 +23,8 @@ import { SabangnetMallListingsRepositoryAdapter } from '../adapter/out/repositor
 import { SABANGNET_MALL_LISTINGS_PORT } from '../application/port/in/sabangnet-mall-listings.port';
 import { SabangnetMallListingsService } from '../application/service/collection/sabangnet-mall-listings.service';
 import { completedCatalogRunWhere } from '../adapter/out/repository/completed-catalog-run';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const KIDSNOTE = '11111111-1111-4111-8111-111111111111';
 const KIDSNOTE_LATER = '11111111-1111-4111-8111-111111111112';
@@ -89,6 +91,7 @@ describe('Sabangnet mall listings owner — public HTTP + disposable PG', () => 
     const repository = new SabangnetMallListingsRepositoryAdapter(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     const module = await Test.createTestingModule({
       controllers: [SabangnetMallListingsController],

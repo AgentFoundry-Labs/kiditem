@@ -48,6 +48,8 @@ import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 /** Seeded catalog listings predate every Wing traffic attempt a case creates. */
 const CATALOG_SEEDED_AT = new Date('2026-08-01T00:00:00.000Z');
@@ -112,7 +114,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       new SellpiaMasterProductProfitFactReader(prismaService),
     );
     recipes = new ChannelOptionRecipeService(
-      new ChannelOptionRecipeRepositoryAdapter(prismaService, transactionalRead),
+      new ChannelOptionRecipeRepositoryAdapter(prismaService, transactionalRead, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
     );
   });
 

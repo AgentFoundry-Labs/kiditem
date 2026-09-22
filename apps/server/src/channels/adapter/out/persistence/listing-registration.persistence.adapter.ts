@@ -11,10 +11,11 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import { ownerTransactionClient } from "../../../../prisma/owner-transaction";
 import type { OwnerTransaction } from "../../../../common/owner-transaction";
+import { lockProductMapping } from "../../../../common/product-mapping-generation";
 import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from "../../../../common/product-mapping-generation";
+  CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
+  type ChannelsProductMappingGenerationPort,
+} from "../../../application/port/out/cross-domain/product-mapping-generation.port";
 import {
   CHANNEL_OPTION_RECIPE_PORT,
   type ChannelOptionRecipeMutation,
@@ -33,9 +34,16 @@ import type { ListingRegistrationPersistencePort } from "../../../application/po
 export class ListingRegistrationPersistenceAdapter implements ListingRegistrationPersistencePort {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
+    private readonly productMapping?: ChannelsProductMappingGenerationPort,
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly recipeMutations?: ChannelOptionRecipePort,
   ) {}
+  private requireProductMapping(): ChannelsProductMappingGenerationPort {
+    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
+    return this.productMapping;
+  }
+
 
   async assertActiveRegistrationAccount(input: {
     organizationId: string;
@@ -318,7 +326,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
       // Creating an active listing changes the frozen listing identity even
       // when the registration carries no option links or MasterProduct link.
       if (!recipeResult.mappingChanged) {
-        await advanceProductMappingGeneration(tx, input.organizationId);
+        await this.requireProductMapping().advance(tx, input.organizationId);
       }
       if (input.preparedRecipe) await applyPreparedRecipeToOptions(transaction, requireRecipeMutations(this.recipeMutations), {
         organizationId: input.organizationId, channelListingId: created.id, recipe: input.preparedRecipe,
@@ -381,7 +389,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
     assertNoRecipeConflicts(recipeResult.conflictingChannelListingOptionIds);
     if ((listingMappingChanged || optionResult.mappingChanged)
       && !recipeResult.mappingChanged) {
-      await advanceProductMappingGeneration(tx, input.organizationId);
+      await this.requireProductMapping().advance(tx, input.organizationId);
     }
     if (input.preparedRecipe) await applyPreparedRecipeToOptions(transaction, requireRecipeMutations(this.recipeMutations), {
       organizationId: input.organizationId, channelListingId: listing.id, recipe: input.preparedRecipe,

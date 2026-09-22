@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { ListingRegistrationPersistenceAdapter } from "./listing-registration.persistence.adapter";
 import { ownerTransaction } from "../../../../prisma/owner-transaction";
+import { ChannelsProductMappingGenerationAdapter } from "../products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 describe("ListingRegistrationPersistenceAdapter browser registration", () => {
   it("finds an active account-scoped listing by its synced seller SKU", async () => {
@@ -14,7 +16,9 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     ]);
     const repository = new ListingRegistrationPersistenceAdapter({
       channelListing: { findMany },
-    } as never);
+    } as never,
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
+    );
 
     await expect(
       repository.findExistingActiveListingBySellerSku({
@@ -62,7 +66,9 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
           },
         ]),
       },
-    } as never);
+    } as never,
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
+    );
 
     await expect(
       repository.findExistingActiveListingBySellerSku({
@@ -84,6 +90,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     };
     const repository = new ListingRegistrationPersistenceAdapter(
       {} as never,
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
       recipeMutations as never,
     );
 
@@ -165,6 +172,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     };
     const repository = new ListingRegistrationPersistenceAdapter(
       {} as never,
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
 
     await expect(
@@ -223,6 +231,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     };
     const repository = new ListingRegistrationPersistenceAdapter(
       {} as never,
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
 
     await expect(
@@ -270,6 +279,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     };
     const repository = new ListingRegistrationPersistenceAdapter(
       {} as never,
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
 
     await expect(
@@ -305,6 +315,7 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
     };
     const repository = new ListingRegistrationPersistenceAdapter(
       {} as never,
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
 
     await expect(

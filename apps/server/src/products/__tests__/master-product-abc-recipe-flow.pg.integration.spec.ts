@@ -39,6 +39,8 @@ import { ChannelOptionRecipeService } from '../../channels/application/service/l
 import { ProductQueryUseCase } from '../application/usecase/product-query.usecase';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const ACCEPTANCE_NOW = new Date('2026-09-13T03:00:00.000Z');
 const EXPECTED_CUTOFF = '2026-09-12';
@@ -110,6 +112,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       new ChannelOptionRecipeRepositoryAdapter(
         prismaService,
         new ProductTransactionalReadRepositoryAdapter(),
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
       ),
     );
     products = new ProductQueryUseCase(

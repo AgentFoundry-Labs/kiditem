@@ -9,6 +9,8 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ChannelAccountPersistenceAdapter } from '../adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 describe('ChannelAccountPersistenceAdapter mapping generation (PG integration)', () => {
   let prisma: PrismaClient;
@@ -19,6 +21,7 @@ describe('ChannelAccountPersistenceAdapter mapping generation (PG integration)',
     await prisma.$connect();
     repository = new ChannelAccountPersistenceAdapter(
       prisma as unknown as PrismaService,
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
   });
 

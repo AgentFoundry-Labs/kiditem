@@ -32,6 +32,8 @@ import { ChannelAccountService } from '../../channels/application/service/accoun
 import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const base = '/api/ads/keyword-rank/wing';
 describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', () => {
@@ -56,7 +58,7 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
           useValue: new ReadinessService(
             prisma as never,
             new ChannelAccountService(
-              new ChannelAccountPersistenceAdapter(prisma as never),
+              new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
               new ChannelCredentialsAdapter(),
             ),
           ),

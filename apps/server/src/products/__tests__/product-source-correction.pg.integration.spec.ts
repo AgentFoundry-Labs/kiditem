@@ -9,6 +9,8 @@ import type { ProductQueryPort } from '../application/port/in/product-query.port
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 describe('product source correction (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -22,7 +24,7 @@ describe('product source correction (PostgreSQL)', () => {
       {} as never,
       {} as never,
       new ChannelAccountService(
-        new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService),
+        new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
         new ChannelCredentialsAdapter(),
       ),
     );

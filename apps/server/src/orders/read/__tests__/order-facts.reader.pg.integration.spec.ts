@@ -25,6 +25,8 @@ import type { ChannelAccountPort } from '../../../channels/application/port/in/a
 import { ChannelAccountService } from '../../../channels/application/service/account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../../../channels/adapter/out/persistence/channel-account.persistence.adapter';
 import { ChannelCredentialsAdapter } from '../../../channels/adapter/out/credentials/channel-credentials.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const ACCOUNT_ID = '71000000-0000-4000-8000-000000000001';
 const SECOND_ACCOUNT_ID = '71000000-0000-4000-8000-000000000002';
@@ -41,7 +43,7 @@ describe('Order facts reader over disposable PostgreSQL', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     accounts = new ChannelAccountService(
-      new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService),
+      new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
       new ChannelCredentialsAdapter(),
     );
     accountsForWindowReads = accounts;

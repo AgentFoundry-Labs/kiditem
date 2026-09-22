@@ -34,6 +34,8 @@ import type {
   PutCoupangCatalogChunkRequest,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -52,6 +54,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
       ),
     );
     const prismaService = prisma as unknown as PrismaService;
@@ -71,6 +74,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
       alerts,
       recipes,
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     collection = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(

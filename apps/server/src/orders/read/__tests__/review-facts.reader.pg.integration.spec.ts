@@ -17,6 +17,8 @@ import { ChannelOptionRecipeRepositoryAdapter } from '../../../channels/adapter/
 import { ChannelAccountService } from '../../../channels/application/service/account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../../../channels/adapter/out/persistence/channel-account.persistence.adapter';
 import { ChannelCredentialsAdapter } from '../../../channels/adapter/out/credentials/channel-credentials.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const ACCOUNT_ID = '73000000-0000-4000-8000-000000000001';
 const SOURCE_ACCOUNT_ID = '73000000-0000-4000-8000-000000000002';
@@ -32,10 +34,10 @@ function createReviewsService(prisma: PrismaClient) {
     products,
     listings,
     new ChannelOptionRecipeService(
-      new ChannelOptionRecipeRepositoryAdapter(prisma as never, products),
+      new ChannelOptionRecipeRepositoryAdapter(prisma as never, products, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
     ),
     new ChannelAccountService(
-      new ChannelAccountPersistenceAdapter(prisma as never),
+      new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
       new ChannelCredentialsAdapter(),
     ),
   );

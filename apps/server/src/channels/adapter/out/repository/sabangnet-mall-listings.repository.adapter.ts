@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -25,10 +26,11 @@ import {
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, kstBusinessDate } from '../../../../common/kst';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
+import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from '../../../../common/product-mapping-generation';
+  CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
+  type ChannelsProductMappingGenerationPort,
+} from '../../../application/port/out/cross-domain/product-mapping-generation.port';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { SabangnetMallListingsRepositoryPort } from '../../../application/port/out/repository/sabangnet-mall-listings.repository.port';
@@ -59,7 +61,14 @@ export class SabangnetMallListingsRepositoryAdapter implements SabangnetMallList
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
+    private readonly productMapping?: ChannelsProductMappingGenerationPort,
   ) {}
+  private requireProductMapping(): ChannelsProductMappingGenerationPort {
+    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
+    return this.productMapping;
+  }
+
 
   begin(input: Parameters<SabangnetMallListingsRepositoryPort['begin']>[0]) {
     const request = SabangnetMallListingsBeginSchema.parse(input.request);
@@ -235,7 +244,7 @@ export class SabangnetMallListingsRepositoryAdapter implements SabangnetMallList
           deactivated: deactivated.listings,
         });
       }
-      if (mappingChanged) await advanceProductMappingGeneration(tx, input.organizationId);
+      if (mappingChanged) await this.requireProductMapping().advance(tx, input.organizationId);
 
       const complete = await tx.sourceImportRun.update({
         where: { id: run.id, organizationId: input.organizationId },

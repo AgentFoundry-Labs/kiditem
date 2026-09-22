@@ -10,7 +10,8 @@ import {
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
 import { buildPeriodBasis, periodBasisStatus, WING_TRAFFIC_SOURCE } from '@kiditem/shared/dashboard';
-import { advanceProductMappingGeneration, lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { advanceProductMappingGeneration } from './product-mapping-generation';
 import { ProductStateException } from '../../../application/exception/product-state.exception';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { listingProductIdFromRecipes } from '../../../../channels/domain/listing/listing-product-summary';

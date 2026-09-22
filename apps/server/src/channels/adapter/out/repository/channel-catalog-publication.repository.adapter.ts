@@ -18,10 +18,11 @@ import {
   type CatalogMediaPublicationPort,
 } from '../../../application/port/out/cross-domain/catalog-media-publication.port';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
+import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from '../../../../common/product-mapping-generation';
+  CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
+  type ChannelsProductMappingGenerationPort,
+} from '../../../application/port/out/cross-domain/product-mapping-generation.port';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import {
   assembleCompleteSnapshot,
@@ -76,7 +77,14 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
     private readonly alerts: SourceFailureAlerts,
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly recipes: ChannelOptionRecipePort,
+    @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
+    private readonly productMapping?: ChannelsProductMappingGenerationPort,
   ) {}
+  private requireProductMapping(): ChannelsProductMappingGenerationPort {
+    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
+    return this.productMapping;
+  }
+
 
   async publishDetailChunk(input: DetailChunkInput): Promise<ChannelCatalogPublicationResult> {
     const tx = transactionClient(input.transaction);
@@ -354,7 +362,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           presentExternalOptionIds: upserted.externalOptionIds,
         });
         if (upserted.mappingIdentityChanged || absence.listings > 0 || absence.options > 0) {
-          await advanceProductMappingGeneration(tx, input.organizationId);
+          await this.requireProductMapping().advance(tx, input.organizationId);
         }
         result = {
           sourceImportRunId: sourceRun.id,

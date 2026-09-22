@@ -40,6 +40,8 @@ import { RocketWorkbookProgressService } from '../../inventory/application/useca
 import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository.adapter';
 import { configureAgentRuntimeBodyParsers } from '../../common/http/agent-runtime-body-parser';
 import { FactConflictError } from '../../common/errors/fact-errors';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const base = '/api/channels/rocket-po';
@@ -80,7 +82,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     }) as unknown as PrismaClient;
     await prisma.$connect();
     const alerts = new SourceFailureAlerts(prisma as never);
-    accounts = new ChannelAccountService(new ChannelAccountPersistenceAdapter(prisma as never), {} as never);
+    accounts = new ChannelAccountService(new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())), {} as never);
     const repository = new RocketPoCatalogRepositoryAdapter(
       prisma as never,
       alerts,
@@ -160,7 +162,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         new ProductAvailabilityRepositoryAdapter(prisma as never),
       );
       const recipes = new ChannelOptionRecipeService(
-        new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions),
+        new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
       );
       const matching = new ChannelProductMatchingRepositoryAdapter(
         prisma as never,
@@ -626,7 +628,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
           new RocketWorkbookProgressRepositoryAdapter(),
         ),
         new ProductTransactionalReadRepositoryAdapter(),
-        new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter())),
+        new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter(), new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()))),
       ),
       catalog,
     );

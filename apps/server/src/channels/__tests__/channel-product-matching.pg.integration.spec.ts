@@ -22,6 +22,8 @@ import { ChannelProductMatchingService } from '../application/service/listing/ch
 import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
+import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 import { readListingProductIds } from '../adapter/out/persistence/listing-product-summary.reader';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { Prisma, PrismaClient } from '@prisma/client';
@@ -48,6 +50,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         new ChannelOptionRecipeRepositoryAdapter(
           prismaService,
           new ProductTransactionalReadRepositoryAdapter(),
+          new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
         ),
       ),
     );
@@ -884,6 +887,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         new ChannelOptionRecipeRepositoryAdapter(
           prisma as unknown as PrismaService,
           new ProductTransactionalReadRepositoryAdapter(),
+          new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
         ),
       ),
     );

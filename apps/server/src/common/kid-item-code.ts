@@ -1,7 +1,16 @@
 import { ConflictException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
-/** Shared noncycling allocator for source products and channel options. Gaps are allowed. */
+/**
+ * Shared noncycling allocator for source products and channel options. Gaps are allowed.
+ *
+ * Stays in `common/` rather than moving to either owner: Channels (e.g.
+ * `channels/adapter/out/persistence/sales-product-code-rows.ts`) and Products
+ * (`products/adapter/out/persistence/product-source-publication.repository.adapter.ts:216`)
+ * both allocate from the same `kid_item_code_seq` database sequence, so a
+ * single global allocator is the correct owner-neutral shape — splitting it
+ * per owner would risk two sequences or a cross-owner call for one raw query.
+ */
 export async function allocateKidItemCode(tx: Prisma.TransactionClient): Promise<string> {
   const rows = await tx.$queryRaw<Array<{ value: bigint }>>`
     -- queryraw-tenancy-exempt: global identifier sequence, no organization data is read.

@@ -35,6 +35,8 @@ import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const BASE = '/api/orders/collection';
 const ART09_BODY = {
@@ -61,7 +63,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    const accountPersistence = new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService);
+    const accountPersistence = new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     channelAccounts = new ChannelAccountService(accountPersistence, new ChannelCredentialsAdapter());
     owner = new OrderCollectionSourceRepository(prisma as never, alerts, channelAccounts);
     conversion = art09Conversion();

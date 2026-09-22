@@ -23,10 +23,11 @@ import type {
 } from '../../../application/port/out/repository/channel-catalog-import.repository.port';
 import type { ParsedWingCatalogRow } from '../documents/coupang-wing/workbook.parser';
 import { resolveCoupangVendorId } from '../../../domain/account/coupang-account-identity';
+import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from '../../../../common/product-mapping-generation';
+  CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
+  type ChannelsProductMappingGenerationPort,
+} from '../../../application/port/out/cross-domain/product-mapping-generation.port';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 import { deactivateCatalogAbsence } from './catalog-absence';
@@ -82,7 +83,14 @@ implements ChannelCatalogImportRepositoryPort {
     private readonly alerts: SourceFailureAlerts,
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly recipes: ChannelOptionRecipePort,
+    @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
+    private readonly productMapping?: ChannelsProductMappingGenerationPort,
   ) {}
+  private requireProductMapping(): ChannelsProductMappingGenerationPort {
+    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
+    return this.productMapping;
+  }
+
 
   /**
    * One Wing catalog import per account: the claim runs under the same account
@@ -263,7 +271,7 @@ implements ChannelCatalogImportRepositoryPort {
       const deactivatedProductCount = absence.listings;
 
       if (mappingIdentityChanged || deactivatedSkuCount > 0 || deactivatedProductCount > 0) {
-        await advanceProductMappingGeneration(tx, input.organizationId);
+        await this.requireProductMapping().advance(tx, input.organizationId);
       }
 
       const publicationSequence = await allocatePublicationSequence(

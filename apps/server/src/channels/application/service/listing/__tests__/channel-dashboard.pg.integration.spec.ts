@@ -20,6 +20,8 @@ import { ChannelListingQueryPersistenceAdapter } from '../../../../adapter/out/p
 import { ChannelListingQueryService } from '../channel-listing-query.service';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import type { PrismaClient } from '@prisma/client';
+import { ChannelsProductMappingGenerationAdapter } from "../../../../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const PRIMARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000001';
 const SECONDARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000002';
@@ -69,7 +71,7 @@ describe('Channel dashboard (PG integration)', () => {
         {
           provide: CHANNEL_ACCOUNT_PORT,
           useValue: new ChannelAccountService(
-            new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService),
+            new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
             new ChannelCredentialsAdapter(),
           ),
         },

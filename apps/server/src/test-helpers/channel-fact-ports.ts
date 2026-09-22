@@ -11,15 +11,18 @@ import { ChannelOptionRecipeService } from '../channels/application/service/list
 import { ChannelAccountPersistenceAdapter } from '../channels/adapter/out/persistence/channel-account.persistence.adapter';
 import { ChannelAccountService } from '../channels/application/service/account/channel-account.service';
 import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelsProductMappingGenerationAdapter } from '../channels/adapter/out/products/product-mapping-generation.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 
 /** Compose real owner fact capabilities for adapter/PG tests using one database client. */
 export function channelFactTestPorts(prisma: PrismaService) {
+  const productMapping = new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter());
   return {
     listings: new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma), {
       findForListings: async () => { throw new Error("Content projections are not part of fact reads"); },
     }),
-    recipes: new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(prisma, new ProductTransactionalReadRepositoryAdapter())),
-    accounts: new ChannelAccountService(new ChannelAccountPersistenceAdapter(prisma), {
+    recipes: new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(prisma, new ProductTransactionalReadRepositoryAdapter(), productMapping)),
+    accounts: new ChannelAccountService(new ChannelAccountPersistenceAdapter(prisma, productMapping), {
       isEncrypted: () => false,
       encrypt: () => { throw new Error('Credentials are not part of fact reads'); },
       decrypt: () => { throw new Error('Credentials are not part of fact reads'); },

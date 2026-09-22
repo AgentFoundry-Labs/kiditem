@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveOrderLineSalesCosts, resolveUnitCost } from '../option-pricing-resolver';
+import { resolveOrderLineSalesCosts, resolveUnitCost } from './option-pricing-resolver';
 
 describe('resolveUnitCost', () => {
   it('prices one sold unit as the recipe at Sellpia purchase prices', () => {

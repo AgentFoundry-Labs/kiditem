@@ -24,6 +24,8 @@ import type {
 } from '@kiditem/shared/sales-product';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { productTransactionalRead } from './product-transactional-read.fake';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 describe('registration target execution repository (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -39,6 +41,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
       ),
     );
     repository = new RegistrationExecutionRepositoryAdapter(

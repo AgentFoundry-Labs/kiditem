@@ -30,6 +30,8 @@ import type {
   CoupangCatalogProductV1,
   PutCoupangCatalogChunkRequest,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -49,6 +51,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as never,
         new ProductTransactionalReadRepositoryAdapter(),
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
       ),
     );
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
@@ -56,6 +59,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
       new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
       alerts,
       recipes,
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     collection = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
@@ -393,8 +397,10 @@ describe('Wing catalog private staging and atomic publication (public service + 
         new ChannelOptionRecipeRepositoryAdapter(
           measured as never,
           new ProductTransactionalReadRepositoryAdapter(),
+        new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
         ),
       ),
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     const owner = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts, measuredPublisher),

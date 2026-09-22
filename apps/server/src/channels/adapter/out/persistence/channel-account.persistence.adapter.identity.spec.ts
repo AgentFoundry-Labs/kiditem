@@ -2,6 +2,8 @@ import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { ChannelAccountPersistenceAdapter } from './channel-account.persistence.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 describe('ChannelAccountPersistenceAdapter account identity', () => {
   it('reads provider identity facts within the supplied owner transaction', async () => {
@@ -12,7 +14,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
       status: 'paused',
     }];
     const tx = { channelAccount: { findMany: vi.fn().mockResolvedValue(rows) } };
-    const persistence = new ChannelAccountPersistenceAdapter({} as never);
+    const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     await expect(persistence.readProviderIdentities(ownerTransaction(tx as never), {
       organizationId: 'org-1',
@@ -37,7 +39,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
         }),
       },
     };
-    const repository = new ChannelAccountPersistenceAdapter(prisma as never);
+    const repository = new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     await expect(repository.getCoupangSettings('org-1')).resolves.toEqual({
       configured: true,
@@ -58,7 +60,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
   it('reads requested account facts inside the supplied transaction, including paused history', async () => {
     const rows = [{ id: 'paused-row', name: 'Old Shop', channel: 'coupang', status: 'paused' }];
     const tx = { channelAccount: { findMany: vi.fn().mockResolvedValue(rows) } };
-    const persistence = new ChannelAccountPersistenceAdapter({} as never);
+    const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     await expect(persistence.findByIds(ownerTransaction(tx as never), {
       organizationId: 'org-1',
@@ -81,7 +83,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
         }),
       },
     };
-    const persistence = new ChannelAccountPersistenceAdapter({} as never);
+    const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     await expect(persistence.resolveActiveProvider(ownerTransaction(tx as never), {
       organizationId: 'org-1',
@@ -130,7 +132,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
         }),
       },
     };
-    const persistence = new ChannelAccountPersistenceAdapter({} as never);
+    const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     await expect(persistence.resolveActiveProvider(ownerTransaction(tx as never), {
       organizationId: 'org-1',
@@ -157,7 +159,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
       },
       masterProductAbcFormulaState: { upsert: vi.fn() },
     };
-    const persistence = new ChannelAccountPersistenceAdapter({} as never);
+    const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     await expect(persistence.claimProviderIdentity(ownerTransaction(tx as never), {
       organizationId: 'org-1',
@@ -193,7 +195,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
       },
       masterProductAbcFormulaState: { upsert: vi.fn() },
     };
-    const persistence = new ChannelAccountPersistenceAdapter({} as never);
+    const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const handle = ownerTransaction(tx as never);
 
     await expect(persistence.claimProviderIdentity(handle, {
@@ -216,7 +218,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
       },
       masterProductAbcFormulaState: { upsert: vi.fn().mockResolvedValue({ mappingGeneration: 2n }) },
     };
-    const persistence = new ChannelAccountPersistenceAdapter({} as never);
+    const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     await persistence.claimProviderIdentity(ownerTransaction(tx as never), {
       organizationId: 'org-1', accountId: 'wing-1', channel: 'coupang',
@@ -243,7 +245,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
         ]),
       },
     };
-    const persistence = new ChannelAccountPersistenceAdapter({} as never);
+    const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
     await expect(persistence.resolveMallIdentities(ownerTransaction(tx as never), {
       organizationId: 'org-1',
@@ -269,7 +271,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
         }),
       },
     };
-    const persistence = new ChannelAccountPersistenceAdapter({} as never);
+    const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const input = {
       organizationId: 'org-1',
       accountId: 'account-1',

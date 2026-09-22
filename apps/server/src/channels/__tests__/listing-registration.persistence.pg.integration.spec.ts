@@ -13,6 +13,8 @@ import { ListingRegistrationPersistenceAdapter } from '../adapter/out/persistenc
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
+import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const INACTIVE_OPTION_SKU_ID = '26000000-0000-4000-8000-000000000001';
@@ -211,10 +213,12 @@ describe('ListingRegistrationPersistenceAdapter (PG integration)', () => {
     const prismaService = client as unknown as PrismaService;
     return new ListingRegistrationPersistenceAdapter(
       prismaService,
+      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
       new ChannelOptionRecipeService(
         new ChannelOptionRecipeRepositoryAdapter(
           prismaService,
           new ProductTransactionalReadRepositoryAdapter(),
+          new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
         ),
       ),
     );

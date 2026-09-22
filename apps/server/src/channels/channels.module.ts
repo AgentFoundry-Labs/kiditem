@@ -22,6 +22,8 @@ import { AiListingContentQueryModule } from '../content/ai-listing-content-query
 import { ChannelCatalogModule } from './channel-catalog.module';
 import { ProductAvailabilityAdapter } from './adapter/out/products/product-availability.adapter';
 import { CHANNEL_PRODUCT_AVAILABILITY_PORT, type ChannelProductAvailabilityPort } from './application/port/out/products/product-availability.port';
+import { ChannelsProductMappingGenerationAdapter } from './adapter/out/products/product-mapping-generation.adapter';
+import { CHANNELS_PRODUCT_MAPPING_GENERATION_PORT } from './application/port/out/cross-domain/product-mapping-generation.port';
 import { SalesProductModule } from './sales-product.module';
 import { Module } from '@nestjs/common';
 import { AiModule } from '../content/ai.module';
@@ -166,6 +168,8 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     },
     ProductAvailabilityAdapter,
     { provide: CHANNEL_PRODUCT_AVAILABILITY_PORT, useExisting: ProductAvailabilityAdapter },
+    ChannelsProductMappingGenerationAdapter,
+    { provide: CHANNELS_PRODUCT_MAPPING_GENERATION_PORT, useExisting: ChannelsProductMappingGenerationAdapter },
     ChannelsWingThumbnailCapabilityAdapter,
     ChannelDashboardRepositoryAdapter,
     ChannelListingRepositoryAdapter,

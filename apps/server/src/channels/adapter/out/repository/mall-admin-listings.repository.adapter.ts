@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -22,10 +23,11 @@ import {
 } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
+import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from '../../../../common/product-mapping-generation';
+  CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
+  type ChannelsProductMappingGenerationPort,
+} from '../../../application/port/out/cross-domain/product-mapping-generation.port';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { MallAdminListingsRepositoryPort } from '../../../application/port/out/repository/mall-admin-listings.repository.port';
@@ -59,7 +61,14 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
+    private readonly productMapping?: ChannelsProductMappingGenerationPort,
   ) {}
+  private requireProductMapping(): ChannelsProductMappingGenerationPort {
+    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
+    return this.productMapping;
+  }
+
 
   begin(input: Parameters<MallAdminListingsRepositoryPort['begin']>[0]) {
     const request = MallAdminListingsBeginSchema.parse(input.request);
@@ -235,7 +244,7 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
         presentExternalOptionIds: present,
       });
       mappingChanged ||= deactivated.listings > 0 || deactivated.options > 0;
-      if (mappingChanged) await advanceProductMappingGeneration(tx, input.organizationId);
+      if (mappingChanged) await this.requireProductMapping().advance(tx, input.organizationId);
 
       const publication: MallAdminListingsPublication = {
         listings: products.length,

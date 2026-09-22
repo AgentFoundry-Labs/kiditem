@@ -12,6 +12,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
+import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 import { ListingException } from '../application/exception/listing.exception';
 import { readListingProductIds } from '../adapter/out/persistence/listing-product-summary.reader';
 import type { Prisma, PrismaClient } from '@prisma/client';
@@ -28,6 +30,7 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
+        new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
       ),
     );
   });

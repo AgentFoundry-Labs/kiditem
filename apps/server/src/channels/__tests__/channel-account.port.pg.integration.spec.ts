@@ -13,6 +13,8 @@ import { ChannelAccountService } from '../application/service/account/channel-ac
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { ChannelAccountPort } from '../application/port/in/account/channel-account.port';
 import { ownerTransaction } from '../../prisma/owner-transaction';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 describe('ChannelAccountPort + disposable Postgres', () => {
   let prisma: PrismaClient;
@@ -23,7 +25,7 @@ describe('ChannelAccountPort + disposable Postgres', () => {
     process.env.CHANNEL_CREDENTIALS_ENCRYPTION_KEY = Buffer.alloc(32, 13).toString('base64');
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const persistence = new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService);
+    const persistence = new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     port = new ChannelAccountService(
       persistence,
       new ChannelCredentialsAdapter(),

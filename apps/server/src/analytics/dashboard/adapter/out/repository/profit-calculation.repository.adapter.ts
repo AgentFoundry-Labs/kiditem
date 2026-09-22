@@ -53,7 +53,7 @@ import {
   resolveOrderLineSalesCosts,
   resolveUnitCost,
   type OrderLineSalesCosts,
-} from '../../../../../common/option-pricing-resolver';
+} from '../../../../../products/domain/option-pricing-resolver';
 import type {
   DailyProfitMetrics,
   ProfitCostIncompleteReason,

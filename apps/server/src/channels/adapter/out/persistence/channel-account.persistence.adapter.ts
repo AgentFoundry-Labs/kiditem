@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,10 +9,11 @@ import { Prisma } from '@prisma/client';
 import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from '../../../../common/product-mapping-generation';
+  CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
+  type ChannelsProductMappingGenerationPort,
+} from '../../../application/port/out/cross-domain/product-mapping-generation.port';
 import {
   ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER,
   orderCollectionMallAccountChannels,
@@ -82,7 +84,16 @@ function mappingBasisChanged(
 
 @Injectable()
 export class ChannelAccountPersistenceAdapter implements ChannelAccountPersistencePort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
+    private readonly productMapping?: ChannelsProductMappingGenerationPort,
+  ) {}
+  private requireProductMapping(): ChannelsProductMappingGenerationPort {
+    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
+    return this.productMapping;
+  }
+
 
   async readProviderIdentities(
     transaction: OwnerTransaction,
@@ -195,7 +206,7 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
     }
 
     if (input.channel === 'coupang') {
-      await advanceProductMappingGeneration(tx, input.organizationId);
+      await this.requireProductMapping().advance(tx, input.organizationId);
     }
   }
 
@@ -355,7 +366,7 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
 
       const mappingAfter = await readCoupangAccountMappingBasis(tx, organizationId);
       if (mappingBasisChanged(mappingBefore, mappingAfter)) {
-        await advanceProductMappingGeneration(tx, organizationId);
+        await this.requireProductMapping().advance(tx, organizationId);
       }
     });
     return this.getCoupangSettings(organizationId);

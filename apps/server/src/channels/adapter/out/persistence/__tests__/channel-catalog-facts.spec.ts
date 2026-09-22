@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import { ChannelListingQueryPersistenceAdapter } from '../channel-listing-query.persistence.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../channel-option-recipe.repository.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../../products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 function fixture() {
   const tx = {
@@ -13,7 +15,7 @@ function fixture() {
   const outside = { channelListing: { findMany: vi.fn() } };
   return { tx, outside, transaction: ownerTransaction(tx as never),
     listings: new ChannelListingQueryPersistenceAdapter(outside as never),
-    recipes: new ChannelOptionRecipeRepositoryAdapter(outside as never, {} as never) };
+    recipes: new ChannelOptionRecipeRepositoryAdapter(outside as never, {} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())) };
 }
 
 describe('Channels cross-owner fact query contracts', () => {

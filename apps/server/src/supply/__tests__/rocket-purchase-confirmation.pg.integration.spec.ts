@@ -18,6 +18,8 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 import type { RocketWorkbookDecisionRequest } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketWorkbookExportTransactionPort } from '../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const CHANNEL_ACCOUNT_ID = '21000000-0000-4000-8000-000000000001';
 const SOURCE_IMPORT_RUN_ID = '21000000-0000-4000-8000-000000000002';
@@ -43,7 +45,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       ),
       products,
       new ChannelOptionRecipeService(
-        new ChannelOptionRecipeRepositoryAdapter(prisma as never, products),
+        new ChannelOptionRecipeRepositoryAdapter(prisma as never, products, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
       ),
     );
   });
