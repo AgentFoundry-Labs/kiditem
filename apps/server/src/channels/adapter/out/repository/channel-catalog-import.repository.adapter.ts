@@ -44,7 +44,6 @@ import { applyRegisteredOptionRecipes } from '../persistence/registered-option-r
 const SOURCE_TYPE = 'coupang_wing_catalog';
 const CHANNEL = 'coupang';
 const CLAIM_READ_LIMIT = 3;
-const UPSERT_BATCH_SIZE = 500;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 } as const;
 
 type ClaimInput = Parameters<
