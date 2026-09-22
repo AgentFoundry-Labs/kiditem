@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import {
   classifyRelations,
   loadConfig,
-  parseModelOwners,
+  parseDeclaredModels,
   parseRelationEdges,
 } from '../check-cross-owner-fk.mjs';
 
@@ -21,15 +21,27 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const CONFIG = {
   owners: {
     ChannelAccount: 'channels',
+    ChannelListing: 'channels',
     MasterProduct: 'products',
     Organization: 'scope',
     OrganizationMembership: 'scope',
+    Order: 'orders',
+    OrderItem: 'orders',
     SourceImportRun: 'runs',
     User: 'scope',
   },
   scopeTargets: ['Organization', 'OrganizationMembership', 'User'],
   keptTargets: ['SourceImportRun'],
   allowlist: [],
+};
+
+const CHANNELS_FIXTURE_CONFIG = {
+  ...CONFIG,
+  owners: Object.fromEntries(
+    Object.entries(CONFIG.owners).filter(
+      ([model]) => model !== 'Order' && model !== 'OrderItem',
+    ),
+  ),
 };
 
 function write(root, relativePath, contents) {
@@ -64,6 +76,10 @@ model MasterProduct {
 const CHANNELS_SOURCE = `model ChannelAccount {
   id String @id @default(uuid()) @db.Uuid
 }
+
+model ChannelListing {
+  id String @id @default(uuid()) @db.Uuid
+}
 `;
 
 const CHANNELS_BOUNDARY_SOURCE = `model ChannelAccount {
@@ -79,6 +95,17 @@ model ChannelListing {
   id String @id @default(uuid()) @db.Uuid
 
   account ChannelAccount @relation(fields: [channelAccountId], references: [id])
+}
+`;
+
+const MIXED_OWNER_SOURCE = `model Order {
+  id String @id @default(uuid()) @db.Uuid
+
+  listing ChannelListing @relation(fields: [listingId], references: [id])
+}
+
+model ChannelListing {
+  id String @id @default(uuid()) @db.Uuid
 }
 `;
 
@@ -172,6 +199,19 @@ test('reads the model, field, and target of every @relation that owns fields', (
   );
 });
 
+test('declares model names without inferring an owner from the Prisma filename', () => {
+  assert.deepEqual(
+    [...parseDeclaredModels(SUPPORTING_SOURCE)],
+    [
+      'Organization',
+      'User',
+      'OrganizationMembership',
+      'SourceImportRun',
+      'MasterProduct',
+    ],
+  );
+});
+
 test('classifies scope, SourceImportRun, intra-owner, and cross-owner relations', () => {
   const { edges } = parseRelationEdges('orders.prisma', ORDERS_SOURCE);
   const result = classifyRelations({ edges, config: CONFIG });
@@ -197,20 +237,38 @@ test('classifies scope, SourceImportRun, intra-owner, and cross-owner relations'
   ]);
 });
 
+test('same-file models retain distinct configured owners regardless of filename', () => {
+  const classify = (fileName) => {
+    const { edges } = parseRelationEdges(fileName, MIXED_OWNER_SOURCE);
+    const result = classifyRelations({ edges, config: CONFIG });
+    return result.classifications.map(({ field, kind, sourceOwner, targetOwner, key }) => ({
+      field,
+      kind,
+      sourceOwner,
+      targetOwner,
+      key,
+    }));
+  };
+
+  const expected = [
+    {
+      field: 'listing',
+      kind: 'cross',
+      sourceOwner: 'orders',
+      targetOwner: 'channels',
+      key: 'orders.Order -> channels.ChannelListing',
+    },
+  ];
+  assert.deepEqual(classify('core.prisma'), expected);
+  assert.deepEqual(classify('orders.prisma'), expected);
+});
+
 test('Channels references to Organization, User, and SourceImportRun require exact transition entries', () => {
   const { edges } = parseRelationEdges(
     'channels.prisma',
     CHANNELS_BOUNDARY_SOURCE,
   );
-  const modelOwners = new Map([
-    ...parseModelOwners('core.prisma', SUPPORTING_SOURCE),
-    ...parseModelOwners('channels.prisma', CHANNELS_BOUNDARY_SOURCE),
-  ]);
-  const result = classifyRelations({
-    edges,
-    config: CONFIG,
-    modelOwners,
-  });
+  const result = classifyRelations({ edges, config: CONFIG });
 
   assert.deepEqual(
     result.classifications.map(({ field, kind }) => ({ field, kind })),
@@ -246,7 +304,6 @@ test('an undeclared scope target with no owner remains unknown', () => {
       ...CONFIG,
       scopeTargets: ['MissingScope'],
     },
-    modelOwners: new Map([['ChannelAccount', 'channels']]),
   });
 
   assert.deepEqual(
@@ -259,15 +316,31 @@ test('an undeclared scope target with no owner remains unknown', () => {
   ]);
 });
 
+test('a relation source without a configured owner is not scope-exempt', () => {
+  const { edges } = parseRelationEdges(
+    'orders.prisma',
+    `model UnownedSource {
+  organization Organization @relation(fields: [organizationId], references: [id])
+}
+`,
+  );
+  const result = classifyRelations({ edges, config: CONFIG });
+
+  assert.deepEqual(
+    result.classifications.map(({ field, kind }) => ({ field, kind })),
+    [{ field: 'organization', kind: 'unknown' }],
+  );
+  assert.equal(result.summary.scope, 0);
+  assert.deepEqual(result.unknownSources.map(({ model }) => model), [
+    'UnownedSource',
+  ]);
+});
+
 test('exact transitional entries permit existing Channels scope and run relations', () => {
   const { edges } = parseRelationEdges(
     'channels.prisma',
     CHANNELS_BOUNDARY_SOURCE,
   );
-  const modelOwners = new Map([
-    ...parseModelOwners('core.prisma', SUPPORTING_SOURCE),
-    ...parseModelOwners('channels.prisma', CHANNELS_BOUNDARY_SOURCE),
-  ]);
   const result = classifyRelations({
     edges,
     config: {
@@ -278,7 +351,6 @@ test('exact transitional entries permit existing Channels scope and run relation
         'channels.ChannelAccount -> runs.SourceImportRun',
       ],
     },
-    modelOwners,
   });
 
   assert.deepEqual(result.unlisted, []);
@@ -296,7 +368,7 @@ test('the CLI rejects new Channels foreign keys to scope and SourceImportRun', (
     write(
       root,
       'scripts/cross-owner-fk.json',
-      JSON.stringify({ version: 1, ...CONFIG }),
+      JSON.stringify({ version: 1, ...CHANNELS_FIXTURE_CONFIG }),
     );
 
     const result = runScanner(root);
@@ -469,7 +541,36 @@ test('fails when the data file names a model the schema does not declare', () =>
 
     assert.equal(result.status, 1);
     assert.match(result.stderr, /check:cross-owner-fk FAIL/);
-    assert.match(result.stderr, /unknown model in owners: RetiredModel/);
+    assert.match(result.stderr, /RetiredModel/);
+    assert.match(result.stderr, /unknown|undeclared/i);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('fails when a declared model without relations has no configured owner', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'kiditem-cross-owner-fk-'));
+
+  try {
+    writeSchema(root, ORDERS_SOURCE);
+    const owners = { ...CONFIG.owners };
+    delete owners.MasterProduct;
+    write(
+      root,
+      'scripts/cross-owner-fk.json',
+      JSON.stringify({
+        version: 1,
+        ...CONFIG,
+        owners,
+        allowlist: ['orders.Order -> channels.ChannelAccount'],
+      }),
+    );
+
+    const result = runScanner(root);
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /MasterProduct/);
+    assert.match(result.stderr, /no owner|missing owner/i);
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

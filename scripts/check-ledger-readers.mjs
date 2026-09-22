@@ -437,7 +437,15 @@ function validateManifest(root, input) {
     };
   });
 
-  return { scanRoots, prismaSchemaRoots, owners, ledgers };
+  const importExceptions = (input.importExceptions ?? []).map((entry, index) => ({
+    from: validateRelativePath(root, entry.from, `importExceptions[${index}].from`),
+    to: validateRelativePath(root, entry.to, `importExceptions[${index}].to`),
+    reason: requireString(entry.reason, `importExceptions[${index}].reason`),
+    removeWith: requireString(entry.removeWith, `importExceptions[${index}].removeWith`),
+  }));
+  const keys = importExceptions.map((entry) => `${entry.from} -> ${entry.to}`);
+  if (new Set(keys).size !== keys.length) throw new Error('duplicate import exception');
+  return { scanRoots, prismaSchemaRoots, owners, ledgers, importExceptions };
 }
 
 function listSourceFiles(root, scanRoots) {
@@ -1009,6 +1017,59 @@ function isOwnerReadSubtree(file, ownerRoot) {
   return !OWNER_NON_READ_SUBMODULE_NAMES.has(directories[0]);
 }
 
+/** Check import edges as well as the files containing database calls. */
+export function inspectOwnerImports({ root, files, exceptions = [] }) {
+  const violations = [];
+  const remaining = new Map(exceptions.map((entry) => [`${entry.from} -> ${entry.to}`, entry]));
+  const configured = new Set(remaining.keys());
+  const optionsByConfig = new Map();
+  const ownerOf = (file) => /^apps\/server\/src\/([^/]+)\//.exec(file)?.[1];
+  const concrete = (file) => /\/(?:adapter\/out|application\/(?:services?|usecases?)|services|read)\//.test(file);
+  for (const file of files) {
+    if (isTestOrSeed(file) || path.extname(file) === '.sql') continue;
+    const absolute = path.join(root, file);
+    const configFile = ts.findConfigFile(path.dirname(absolute), ts.sys.fileExists);
+    let options = { allowJs: true, moduleResolution: ts.ModuleResolutionKind.Node10 };
+    if (configFile) {
+      if (!optionsByConfig.has(configFile)) {
+        const config = ts.readConfigFile(configFile, ts.sys.readFile);
+        optionsByConfig.set(configFile, ts.parseJsonConfigFileContent(config.config ?? {}, ts.sys, path.dirname(configFile)).options);
+      }
+      options = optionsByConfig.get(configFile);
+    }
+    const source = ts.createSourceFile(file, readFileSync(absolute, 'utf8'), ts.ScriptTarget.Latest, true);
+    const check = (specifier, reexport = false) => {
+      if (!specifier || !ts.isStringLiteralLike(specifier)) return;
+      const resolved = ts.resolveModuleName(specifier.text, absolute, options, ts.sys).resolvedModule?.resolvedFileName;
+      if (!resolved) return;
+      const target = slash(path.relative(root, resolved));
+      const targetOwner = ownerOf(target);
+      if (!targetOwner || !concrete(target)) return;
+      const sourceOwner = ownerOf(file);
+      const crossOwner = sourceOwner !== targetOwner;
+      const inwardAdapter = /\/(?:application|domain|adapter\/in)\//.test(file) && /\/adapter\/out\//.test(target);
+      if (!crossOwner && !inwardAdapter && !reexport) return;
+      const key = `${file} -> ${target}`;
+      if (configured.has(key)) {
+        remaining.delete(key);
+        return;
+      }
+      if (!violations.some((entry) => entry.file === file && entry.target === target)) {
+        violations.push({ file, target, kind: 'owner implementation import' });
+      }
+    };
+    const visit = (node) => {
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) check(node.moduleSpecifier, ts.isExportDeclaration(node));
+      if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) check(node.moduleReference.expression);
+      if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) check(node.argument.literal);
+      if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) check(node.arguments[0]);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return { violations, staleExceptions: [...remaining.values()] };
+}
+
 export function inspectLedgerReaders({
   root,
   manifest,
@@ -1057,7 +1118,8 @@ export function inspectLedgerReaders({
     }
   }
 
-  return { violations, legacyViolations };
+  const imports = inspectOwnerImports({ root, files, exceptions: requireNoLegacy ? [] : manifest.importExceptions });
+  return { violations, legacyViolations, importViolations: imports.violations, staleImportExceptions: imports.staleExceptions };
 }
 
 export function loadManifest(root) {
@@ -1079,8 +1141,10 @@ function main() {
   }
 
   const result = inspectLedgerReaders({ ...options, manifest });
-  if (result.violations.length > 0 || result.legacyViolations.length > 0) {
+  if (result.violations.length > 0 || result.legacyViolations.length > 0 || result.importViolations.length > 0 || result.staleImportExceptions.length > 0) {
     console.error('check:ledger-readers FAIL');
+    for (const entry of result.importViolations) console.error(`${entry.file}: ${entry.kind} -> ${entry.target}; consume the owner's public input port`);
+    for (const entry of result.staleImportExceptions) console.error(`stale import exception: ${entry.from} -> ${entry.to}; remove the entry`);
     for (const violation of result.violations) {
       const guidance = LEDGER_MUTATION_ACCESS_KINDS.has(violation.kind)
         ? 'mutations are limited to registered owner publications'
@@ -1104,7 +1168,7 @@ function main() {
     0,
   );
   console.log(
-    `check:ledger-readers PASS (${ledgerCount} ledger${ledgerCount === 1 ? '' : 's'}, ${legacyCount} legacy read exception${legacyCount === 1 ? '' : 's'})`,
+    `check:ledger-readers PASS (${ledgerCount} ledger${ledgerCount === 1 ? '' : 's'}, ${legacyCount} legacy read exception${legacyCount === 1 ? '' : 's'}, ${manifest.importExceptions.length} transitional import exceptions)`,
   );
 }
 

@@ -411,7 +411,12 @@ preserve organization scope, complete generations, coverage, and required
 transaction evidence; one registered reader file per ledger is not required.
 The access guard permits canonical owner persistence queries and restricts
 writes to declared publication paths. Existing direct consumers are explicit
-migration exceptions, not reusable patterns.
+migration exceptions, not reusable patterns. The guard also resolves production
+imports and rejects cross-owner implementation imports and inward
+application/domain imports of output adapters. Existing edges are exact
+`from`/`to` exceptions with a removal issue; deleted edges fail as stale.
+`cross-owner-fk.json` declares every model owner explicitly, so schema file
+moves cannot silently change a business boundary.
 
 Existing `read/` helpers are internal pure transaction functions. The optional
 `<owner>/transaction/` helpers preserve caller-owned locks and fences; they are
@@ -425,7 +430,10 @@ policies are plain TypeScript; input adapters, persistence/provider adapters,
 and module composition contain framework and IO dependencies. The business
 areas are account, sales-product, registration, listing, and collection. Only
 implemented capabilities create directories; no parallel Marketplace business
-layer is part of the target structure.
+layer is part of the target structure. The initial listing query extraction
+preserves existing Content workspace/thumbnail joins and response behavior;
+KID-304 replaces those cross-owner joins through Content capabilities. This
+first extraction does not declare all Channels reads or schema relations migrated.
 
 Cross-owner Channels references retain scalar IDs and indexes while consumers
 move to owner input contracts through their own output adapters. Organization,
