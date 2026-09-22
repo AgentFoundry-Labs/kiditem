@@ -128,6 +128,7 @@ function setup(overrides: {
       replaceOptions: vi.fn(), createFromSource: vi.fn(), retireDraftForSource: vi.fn(), mallCategories: vi.fn(),
     }, {
       resolve: vi.fn(), list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
+      archive: vi.fn(),
     }, {
       preview: vi.fn(), prepare: vi.fn(), assertEligible: vi.fn(),
     }),

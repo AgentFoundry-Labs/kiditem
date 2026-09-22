@@ -66,7 +66,6 @@ import { SOURCING_CONFIRM_MESSENGER_PORT } from "./application/port/out/provider
 import { SourcingKeywordPreferenceService } from "./application/service/sourcing-keyword-preference.service";
 import { SourcingKeywordSuggestionService } from "./application/service/sourcing-keyword-suggestion.service";
 import { SourcingWingCatalogIngestService } from "./application/service/sourcing-wing-catalog-ingest.service";
-import { ProductPreparationService } from "./application/service/product-preparation.service";
 import { SourcingMarketDiscoveryService } from "./application/service/sourcing-market-discovery.service";
 import { SourcingRisingProductService } from "./application/service/sourcing-rising-product.service";
 import { SourcingCollectionSourceControlService } from "./application/service/sourcing-collection-source-control.service";
@@ -225,7 +224,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingTiktokSourceAttemptService,
     TrendQueryService,
     LiveCommerceService,
-    ProductPreparationService,
     NaverDatalabPopularKeywordAdapter,
     NaverDatalabTrendAdapter,
     NaverAutocompleteKeywordAdapter,

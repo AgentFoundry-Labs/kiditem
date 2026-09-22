@@ -23,6 +23,9 @@ export class RegistrationTargetUseCase implements RegistrationTargetPort {
   async create(organizationId: string, input: RegistrationTargetCreateInput): Promise<RegistrationTarget> {
     return this.get(organizationId, await this.repository.create(organizationId, input));
   }
+  async archive(organizationId: string, targetId: string): Promise<void> {
+    await this.repository.archive(organizationId, targetId);
+  }
   async update(organizationId: string, targetId: string, input: RegistrationTargetUpdateInput): Promise<RegistrationTarget> {
     await this.repository.update(organizationId, targetId, input);
     return this.get(organizationId, targetId);

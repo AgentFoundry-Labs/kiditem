@@ -198,6 +198,44 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
     }, TRANSACTION_OPTIONS);
   }
 
+  /**
+   * 이 몰에 더 보내지 않기로 한다.
+   *
+   * 준비 · 실행 중인 제출이 있으면 거절한다 — 나간 제출의 근거가 되는 설정을 치우면 그 결과를
+   * 어디에 이어 붙일지 알 수 없다. 지난 실행 이력은 보관해도 그대로 남는다.
+   */
+  async archive(organizationId: string, targetId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM registration_targets
+        WHERE id = ${targetId}::uuid AND organization_id = ${organizationId}::uuid
+        FOR UPDATE
+      `);
+      const current = await tx.registrationTarget.findFirst({
+        where: { id: targetId, organizationId, archivedAt: null },
+        select: { id: true },
+      });
+      if (!current) throw new RegistrationTargetException('not_found', '등록 설정을 찾지 못했습니다.');
+      const live = await tx.productRegistrationExecution.count({
+        where: {
+          organizationId,
+          registrationTargetId: targetId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+        },
+      });
+      if (live > 0) {
+        throw new RegistrationTargetException(
+          'conflict',
+          'An active execution must be resolved before archiving its target.',
+        );
+      }
+      await tx.registrationTarget.updateMany({
+        where: { id: targetId, organizationId, archivedAt: null },
+        data: { archivedAt: new Date() },
+      });
+    });
+  }
+
   async update(
     organizationId: string,
     targetId: string,

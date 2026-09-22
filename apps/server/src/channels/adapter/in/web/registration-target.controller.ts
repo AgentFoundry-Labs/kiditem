@@ -1,6 +1,6 @@
 import { UseFilters } from '@nestjs/common';
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
-import { BadRequestException, Body, ConflictException, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { RegistrationTargetCreateInputSchema, RegistrationTargetResolveInputSchema, RegistrationTargetUpdateInputSchema } from '@kiditem/shared/sales-product';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { REGISTRATION_TARGET_PORT, type RegistrationTargetPort } from '../../../application/port/in/registration-target.port';
@@ -36,6 +36,11 @@ export class RegistrationTargetController {
     const parsed = RegistrationTargetUpdateInputSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
     return translate(() => this.targets.update(organizationId, id, parsed.data));
+  }
+  /** 이 몰에 더 보내지 않는다. 살아 있는 제출이 있으면 거절한다. */
+  @Delete(':id')
+  archive(@CurrentOrganization() organizationId: string, @Param('id', new ParseUUIDPipe()) id: string) {
+    return translate(() => this.targets.archive(organizationId, id));
   }
 }
 

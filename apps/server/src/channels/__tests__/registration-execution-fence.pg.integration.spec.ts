@@ -1,3 +1,5 @@
+import { productTransactionalRead } from './product-transactional-read.fake';
+import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
 import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { randomUUID } from 'node:crypto';
@@ -36,6 +38,9 @@ const DIRECT_SALES_PRODUCT_OPTION_ID = '77777777-7777-4777-8777-777777777777';
 describe('registration execution fence (PG integration)', () => {
   let prisma: PrismaClient;
   let drafts: ProductPreparationRepositoryAdapter;
+  let targets: RegistrationTargetRepositoryAdapter;
+  /** 동결 시 선택값이 정본으로 바뀌는 것을 재는 테스트만 켠다. */
+  let canonicalThumbnailUrl: string | null = null;
   let repository: RegistrationExecutionRepositoryAdapter;
   let candidateRepository: SourcingCandidateRepositoryAdapter;
   let candidateId: string;
@@ -55,6 +60,10 @@ describe('registration execution fence (PG integration)', () => {
       prisma as unknown as PrismaService,
       new RegistrationDraftAdapter(registrationSource, workspaceFake()),
     );
+    targets = new RegistrationTargetRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      productTransactionalRead(),
+    );
     candidateRepository = new SourcingCandidateRepositoryAdapter(
       prisma as unknown as PrismaService,
       realSalesProductDraftPort(prisma),
@@ -64,6 +73,7 @@ describe('registration execution fence (PG integration)', () => {
   afterAll(async () => prisma?.$disconnect());
 
   beforeEach(async () => {
+    canonicalThumbnailUrl = null;
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     await prisma.channelAccount.createMany({
@@ -111,22 +121,19 @@ describe('registration execution fence (PG integration)', () => {
     });
   });
 
-  it('requires the candidate-linked non-archived sales product to have final prices before draft creation', async () => {
-    const input = createInput(ACCOUNT_ID);
-
+  /**
+   * 두 게이트가 사는 자리.
+   *
+   * 보관한 상품에는 등록 설정을 만들지 않고, 판매가를 정하지 않은 초안은 설정이 있어도 제출
+   * 동결에서 막는다 — 초안은 설정을 만들어 두고 값을 채워 가는 것이 정상이라 설정 생성에
+   * 가격을 요구하지 않는다(KID-310 · ADR-0022).
+   */
+  it('refuses a target on an archived product, and freezes only a priced draft', async () => {
     await prisma.salesProduct.update({
       where: { id: SALES_PRODUCT_ID },
-      data: { sourceCandidateId: null },
+      data: { status: 'archived' },
     });
-    await expect(drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections))
-      .rejects.toThrow('이 수집상품의 판매상품이 없습니다.');
-
-    await prisma.salesProduct.update({
-      where: { id: SALES_PRODUCT_ID },
-      data: { sourceCandidateId: candidateId, status: 'archived' },
-    });
-    await expect(drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections))
-      .rejects.toThrow('보관한 판매상품');
+    await expect(createTarget(ACCOUNT_ID)).rejects.toThrow('보관된 판매상품');
 
     await prisma.salesProduct.update({
       where: { id: SALES_PRODUCT_ID },
@@ -134,17 +141,23 @@ describe('registration execution fence (PG integration)', () => {
     });
     await prisma.salesProductOption.update({
       where: { id: SALES_PRODUCT_OPTION_ID },
-      data: { salePrice: 0 },
+      data: { salePrice: null },
     });
-    await expect(drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections))
-      .rejects.toThrow('아직 판매가를 정하지 않은 초안');
+    await expect(repository.prepare({
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId: SALES_PRODUCT_ID,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    })).rejects.toThrow('아직 판매가를 정하지 않은 초안');
   });
 
   it('returns one draft under concurrent same-account creation', async () => {
-    const input = createInput(ACCOUNT_ID);
     const [left, right] = await Promise.all([
-      drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections),
-      drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections),
+      createTarget(ACCOUNT_ID),
+      createTarget(ACCOUNT_ID),
     ]);
 
     expect(left.preparationId).toBe(right.preparationId);
@@ -154,17 +167,9 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('keeps independent active drafts for separate channel accounts', async () => {
-    const first = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const first = await createTarget(ACCOUNT_ID);
 
-    const second = await drafts.createOrGetActiveDraft(
-      createInput(SECOND_ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const second = await createTarget(SECOND_ACCOUNT_ID);
 
     expect(second.preparationId).not.toBe(first.preparationId);
     expect(await prisma.registrationTarget.count({
@@ -177,11 +182,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('keeps a failed execution frozen while reusing its editable registration settings', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const first = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -225,17 +226,7 @@ describe('registration execution fence (PG integration)', () => {
       where: { id: first.executionId },
       select: { submissionPayloadJson: true, submissionPayloadHash: true, idempotencyKey: true },
     });
-    const replacement = await drafts.replaceDraftInput(
-      {
-        organizationId: TEST_ORGANIZATION_ID,
-        preparationId: draft.preparationId,
-        userId: TEST_USER_ID,
-        command: { kind: 'replace', input: { registrationInput: { salePrice: 22900 } } },
-      },
-      resolveSelections,
-    );
-    expect(replacement.status).toBe('draft');
-    expect(replacement.preparationId).toBe(draft.preparationId);
+    await editTarget(draft.preparationId, { registrationInput: { salePrice: 22900 } });
     await expect(prisma.registrationTarget.findUniqueOrThrow({
       where: { id: draft.preparationId },
       select: { registrationInput: true },
@@ -252,11 +243,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('projects finalization inputs from frozen JSON instead of mutable compatibility columns', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const claimed = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -280,11 +267,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('rejects a second claim while an unrecorded provider submission is in flight', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -299,11 +282,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('keeps an in-flight execution frozen when registration settings are edited', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const claimed = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -314,16 +293,7 @@ describe('registration execution fence (PG integration)', () => {
       where: { id: claimed.executionId },
       select: { submissionPayloadJson: true, submissionPayloadHash: true },
     });
-    const edited = await drafts.replaceDraftInput(
-      {
-        organizationId: TEST_ORGANIZATION_ID,
-        preparationId: draft.preparationId,
-        userId: TEST_USER_ID,
-        command: { kind: 'replace', input: { displayName: 'Unsafe replacement' } },
-      },
-      resolveSelections,
-    );
-    expect(edited).toMatchObject({ preparationId: draft.preparationId, status: 'draft' });
+    await editTarget(draft.preparationId, { displayName: 'Unsafe replacement' });
     await expect(prisma.registrationTarget.findUniqueOrThrow({
       where: { id: draft.preparationId },
       select: { displayName: true },
@@ -343,11 +313,7 @@ describe('registration execution fence (PG integration)', () => {
     ['rejected', { status: 'rejected' }],
     ['deleted', { isDeleted: true, deletedAt: new Date() }],
   ])('blocks provider submission after the source candidate is %s', async (_label, candidateData) => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     await prisma.sourcingCandidate.update({
       where: { id: candidateId },
       data: candidateData,
@@ -361,11 +327,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('rolls listing/workspace creation back with finalization and reuses the recorded provider identity', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const claimed = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -436,26 +398,10 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('persists transaction-resolved selections before a draft can be frozen', async () => {
-    const requestedUrl = 'https://cdn.example.com/requested.png';
     const canonicalUrl = 'https://cdn.example.com/canonical.png';
-    const baseInput = createInput(ACCOUNT_ID);
-    const input = {
-      ...baseInput,
-      input: { ...baseInput.input, selectedThumbnailUrl: requestedUrl },
-    };
-
-    const draft = await drafts.createOrGetActiveDraft(
-      input,
-      ensureWorkspace,
-      async (_tx, selections) => ({
-        ...selections,
-        selectedThumbnailUrl: canonicalUrl,
-      }),
-    );
-    const row = await prisma.registrationTarget.findFirstOrThrow({
-      where: { id: draft.preparationId, organizationId: TEST_ORGANIZATION_ID },
-    });
-    expect(row.selectedThumbnailUrl).toBe(canonicalUrl);
+    const draft = await createTarget(ACCOUNT_ID);
+    // 선택값은 등록 설정을 만들 때가 아니라 제출을 동결할 때 정본으로 바뀐다.
+    canonicalThumbnailUrl = canonicalUrl;
 
     const claimed = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
@@ -464,14 +410,13 @@ describe('registration execution fence (PG integration)', () => {
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
     expect(claimed.selectedThumbnailUrl).toBe(canonicalUrl);
+    expect(await prisma.registrationTarget.findFirstOrThrow({
+      where: { id: draft.preparationId, organizationId: TEST_ORGANIZATION_ID },
+    })).toMatchObject({ selectedThumbnailUrl: canonicalUrl });
   });
 
   it('reclaims an expired pre-provider lease with the same frozen key and hash', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const first = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -515,11 +460,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('rejects an idempotency-key replay when the compatibility payload hash drifts', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const claimed = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -551,7 +492,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('rejects a closed preparation without an execution instead of creating a new submission', async () => {
-    const draft = await drafts.createOrGetActiveDraft(createInput(ACCOUNT_ID), ensureWorkspace, resolveSelections);
+    const draft = await createTarget(ACCOUNT_ID);
     const archivedAt = new Date('2026-07-30T12:00:00.000Z');
     await prisma.registrationTarget.update({
       where: { id: draft.preparationId },
@@ -563,11 +504,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('reclaims an expired in-provider lease as uncertain and retains the same submission identity', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const first = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -603,11 +540,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('allows settings edits without changing an uncertain execution and blocks new submissions', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const claimed = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -637,16 +570,7 @@ describe('registration execution fence (PG integration)', () => {
       where: { id: claimed.executionId },
       select: { submissionPayloadJson: true, submissionPayloadHash: true },
     });
-    const edited = await drafts.replaceDraftInput(
-      {
-        organizationId: TEST_ORGANIZATION_ID,
-        preparationId: draft.preparationId,
-        userId: TEST_USER_ID,
-        command: { kind: 'replace', input: { displayName: 'Unsafe replacement' } },
-      },
-      resolveSelections,
-    );
-    expect(edited).toMatchObject({ preparationId: draft.preparationId, status: 'draft' });
+    await editTarget(draft.preparationId, { displayName: 'Unsafe replacement' });
     await expect(prisma.registrationTarget.findUniqueOrThrow({
       where: { id: draft.preparationId },
       select: { displayName: true },
@@ -671,23 +595,12 @@ describe('registration execution fence (PG integration)', () => {
       draft.preparationId,
       replay.submissionLeaseToken!,
     )).rejects.toThrow('prior outcome is uncertain or succeeded');
-    await expect(drafts.replaceDraftInput(
-      {
-        organizationId: TEST_ORGANIZATION_ID,
-        preparationId: draft.preparationId,
-        userId: TEST_USER_ID,
-        command: { kind: 'cancel' },
-      },
-      resolveSelections,
-    )).rejects.toThrow('An active execution must be resolved before archiving its target.');
+    await expect(targets.archive(TEST_ORGANIZATION_ID, draft.preparationId))
+      .rejects.toThrow('An active execution must be resolved before archiving its target.');
   });
 
   it('rechecks the locked candidate before finalization and never invokes the callback after rejection', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const claimed = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -726,11 +639,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('serializes candidate terminal initiation ahead of a concurrent submission claim', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     let releaseTerminal!: () => void;
     let reportCandidateLocked!: () => void;
     const terminalRelease = new Promise<void>((resolve) => {
@@ -1442,7 +1351,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('rejects a claim when the execution has lost its frozen approval snapshot', async () => {
-    const draft = await drafts.createOrGetActiveDraft(createInput(ACCOUNT_ID), ensureWorkspace, resolveSelections);
+    const draft = await createTarget(ACCOUNT_ID);
     const first = await repository.claimForSubmission(TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID);
     if (first.status === 'registered') throw new Error('unexpected registered state');
 
@@ -1464,11 +1373,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('never supersedes an ordinary create execution or its live claim lease', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const claimed = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID,
       draft.preparationId,
@@ -1707,9 +1612,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('does not expose ordinary create executions through the external WING lifecycle', async () => {
-    const draft = await drafts.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID), ensureWorkspace, resolveSelections,
-    );
+    const draft = await createTarget(ACCOUNT_ID);
     const claimed = await repository.claimForSubmission(
       TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID,
     );
@@ -1787,16 +1690,40 @@ describe('registration execution fence (PG integration)', () => {
     });
   }
 
-  function createInput(channelAccountId: string) {
-    return {
-      organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
-      createdByUserId: TEST_USER_ID,
-      input: {
-        channelAccountId,
-        displayName: 'Kids rain boots',
-        registrationInput: { salePrice: 21900, notices: ['age'] },
+  /**
+   * 등록 설정을 만드는 길은 하나다 — 상품 × 몰 계정으로 찾거나 만든다(KID-310 · ADR-0022).
+   * 울타리 spec 도 그 길로 설정을 세워야 실제 배선과 같은 것을 잰다.
+   */
+  /** 등록 설정 편집도 살아남은 길 하나로 한다. 설정의 지금 값을 그대로 싣고 고칠 칸만 바꾼다. */
+  async function editTarget(
+    targetId: string,
+    patch: { displayName?: string | null; registrationInput?: Record<string, unknown> },
+  ): Promise<void> {
+    const current = await prisma.registrationTarget.findUniqueOrThrow({
+      where: { id: targetId },
+      select: {
+        version: true, displayName: true, registrationInput: true,
+        selectedOptions: { select: { salesProductOptionId: true, salePrice: true, normalPrice: true, supplyPrice: true } },
       },
+    });
+    await targets.update(TEST_ORGANIZATION_ID, targetId, {
+      expectedVersion: current.version,
+      displayName: patch.displayName !== undefined ? patch.displayName : current.displayName,
+      registrationInput: patch.registrationInput
+        ?? (current.registrationInput as Record<string, unknown>),
+      selectedOptions: current.selectedOptions.map((option) => ({
+        salesProductOptionId: option.salesProductOptionId,
+        salePrice: option.salePrice,
+        normalPrice: option.normalPrice,
+        supplyPrice: option.supplyPrice,
+      })),
+    });
+  }
+
+  async function createTarget(channelAccountId: string, salesProductId = SALES_PRODUCT_ID) {
+    return {
+      preparationId: await targets.resolve(TEST_ORGANIZATION_ID, { salesProductId, channelAccountId }),
+      status: 'draft' as const,
     };
   }
 
@@ -1807,7 +1734,9 @@ describe('registration execution fence (PG integration)', () => {
   function workspaceFake() {
     return {
       findSalesProductWorkspaceId: async () => null,
-      resolveSourceSelections: async (_opaqueTx: OwnerTransaction, input: unknown) => input,
+      resolveSourceSelections: async (_opaqueTx: OwnerTransaction, input: unknown) => (canonicalThumbnailUrl
+        ? { ...(input as Record<string, unknown>), selectedThumbnailUrl: canonicalThumbnailUrl }
+        : input),
       validateSourceSelections: async () => undefined,
       ensureSalesProductWorkspace: async (
         ownerTx: OwnerTransaction,

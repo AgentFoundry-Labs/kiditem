@@ -130,7 +130,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     row: Pick<RegistrationTarget, 'organizationId' | 'salesProductId' | 'displayName'>,
     options: { ensure?: boolean } = {},
-  ): Promise<{ sourceCandidateId: string | null; sourceContentWorkspaceId: string | null }> {
+  ): Promise<{ sourceCandidateId: string | null; sourceContentWorkspaceId: string | null; productName: string }> {
     const product = await client(tx).salesProduct.findFirst({
       where: { id: row.salesProductId, organizationId: row.organizationId },
       select: { name: true, sourceCandidateId: true },
@@ -146,7 +146,11 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
         organizationId: row.organizationId,
         salesProductId: row.salesProductId,
       });
-    return { sourceCandidateId: product?.sourceCandidateId ?? null, sourceContentWorkspaceId: workspaceId };
+    return {
+      sourceCandidateId: product?.sourceCandidateId ?? null,
+      sourceContentWorkspaceId: workspaceId,
+      productName: product?.name ?? '',
+    };
   }
 
   async findDraftIds(
@@ -244,6 +248,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     return toFrozenDraft(tx, row, {
       sourceCandidateId: product.sourceCandidateId,
       sourceContentWorkspaceId,
+      productName: product.name,
     });
   }
 
@@ -309,7 +314,9 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       ...current,
       ...resolvedSelectionData(resolvedSelections),
     } as RegistrationTarget;
-    const frozen = freezeProductRegistrationPayload(buildSubmissionPayload(resolvedCurrent), channelIntegrity.sha256);
+    const frozen = freezeProductRegistrationPayload(
+      buildSubmissionPayload(resolvedCurrent, context.productName), channelIntegrity.sha256,
+    );
     const updated = await updatePreparationAndLoad(tx, input.organizationId, current.id, {
       ...resolvedSelectionData(resolvedSelections),
     });
@@ -369,11 +376,11 @@ async function updatePreparationAndLoad(
   return row;
 }
 
-function buildSubmissionPayload(row: RegistrationTarget): RegistrationSubmissionJson {
+function buildSubmissionPayload(row: RegistrationTarget, productName: string): RegistrationSubmissionJson {
   assertRegistrationIdentity(row);
   return {
     channelAccountId: row.channelAccountId,
-    displayName: row.displayName,
+    displayName: row.displayName ?? productName,
     registrationInput: row.registrationInput as RegistrationSubmissionJson,
     selectedThumbnailUrl: row.selectedThumbnailUrl,
     selectedThumbnailGenerationId: row.selectedThumbnailGenerationId,
@@ -387,7 +394,7 @@ function buildSubmissionPayload(row: RegistrationTarget): RegistrationSubmission
 async function toFrozenDraft(
   tx: Prisma.TransactionClient,
   row: RegistrationTarget,
-  context: { sourceCandidateId: string | null; sourceContentWorkspaceId: string | null },
+  context: { sourceCandidateId: string | null; sourceContentWorkspaceId: string | null; productName: string },
 ): Promise<FrozenRegistrationDraft> {
   assertRegistrationIdentity(row);
   const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: row.organizationId, registrationTargetIds: [row.id] });
@@ -398,7 +405,8 @@ async function toFrozenDraft(
     sourceCandidateId: context.sourceCandidateId,
     channelAccountId: row.channelAccountId,
     sourceContentWorkspaceId: context.sourceContentWorkspaceId,
-    displayName: row.displayName,
+    // 표시명은 설정이 덮어쓴 값이고, 없으면 판매상품 이름이다.
+    displayName: row.displayName ?? context.productName,
     status: registrationDraftState(row.archivedAt, execution),
     closedAt: row.archivedAt,
     isDeleted: row.archivedAt !== null,

@@ -133,14 +133,20 @@ export async function lockPreparation(
   `);
 }
 
+/**
+ * 등록 설정의 정체성은 상품과 계정이다.
+ *
+ * 표시명은 정체성이 아니라 덮어쓰기다 — 비어 있으면 판매상품 이름을 쓴다. 설정을 찾거나
+ * 만드는 길(`registration-targets/resolve`)은 이름을 주지 않으므로 이름을 요구하면 그 길로 만든
+ * 설정이 제출 동결에서 통째로 막힌다.
+ */
 export function assertRegistrationIdentity(
-  row: Pick<RegistrationTarget, 'salesProductId' | 'channelAccountId' | 'displayName'>,
+  row: Pick<RegistrationTarget, 'salesProductId' | 'channelAccountId'>,
 ): asserts row is typeof row & {
   salesProductId: string;
   channelAccountId: string;
-  displayName: string;
 } {
-  if (!row.salesProductId || !row.channelAccountId || !row.displayName) {
+  if (!row.salesProductId || !row.channelAccountId) {
     throw new ConflictException('Preparation is missing account-scoped registration identity.');
   }
 }

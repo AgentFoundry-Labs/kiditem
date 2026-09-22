@@ -36,6 +36,7 @@ function setup() {
       });
       return id;
     },
+    archive: async (_org, id) => { rows.delete(id); },
     create: async (_org, input) => {
       const id = `target-${rows.size + 1}`;
       rows.set(id, { ...input, id, version: 1, product: defaults });

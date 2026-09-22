@@ -23,4 +23,6 @@ export interface RegistrationTargetRepositoryPort {
   create(organizationId: string, input: RegistrationTargetCreateInput): Promise<string>;
   /** Guard target version and validate selected options against its unchanged product/account. */
   update(organizationId: string, targetId: string, input: RegistrationTargetUpdateInput): Promise<void>;
+  /** 이 몰에 더 보내지 않기로 한다. 살아 있는 실행이 있으면 거절한다. */
+  archive(organizationId: string, targetId: string): Promise<void>;
 }

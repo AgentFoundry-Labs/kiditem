@@ -1,55 +1,17 @@
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { RegistrationSubmissionJson as JsonValue } from '../../../domain/registration/registration-submission-payload';
-import type {
-  CreateProductPreparationInput,
-  UpdateProductPreparationInput,
-} from '@kiditem/shared/sourcing';
-import type {
-  RegistrationContentSelectionInput,
-  ResolvedRegistrationContentSelections,
-} from '../../../../ai/application/port/in/workspace/registration-content-workspace.port';
 
 export const CANDIDATE_REGISTRATION_PORT = Symbol(
   'CANDIDATE_REGISTRATION_PORT',
 );
 
-export interface ProductPreparationDraftResult {
-  preparationId: string;
-  status: 'draft';
-}
-
-export interface ProductPreparationCancelledResult {
-  preparationId: string;
-  status: 'cancelled';
-}
-
-export type ReplaceDraftInputCommand =
-  | { kind: 'replace'; input: UpdateProductPreparationInput }
-  | { kind: 'cancel' };
-
-export interface ReplaceDraftInputRequest {
-  organizationId: string;
-  preparationId: string;
-  userId: string | null;
-  command: ReplaceDraftInputCommand;
-}
-
-export interface CreateOrGetActiveDraftInput {
-  organizationId: string;
-  sourceCandidateId: string;
-  createdByUserId: string | null;
-  input: CreateProductPreparationInput;
-}
-
-export type ResolveProductPreparationSelections = (
-  tx: OwnerTransaction,
-  input: RegistrationContentSelectionInput,
-) => Promise<ResolvedRegistrationContentSelections>;
-
 /**
- * 초안(`RegistrationTarget`) 저장소. 제출 울타리는 Channels 것이므로
+ * 후보에서 본 등록 설정 읽기와 종료 가능 판정.
+ *
+ * 등록 설정을 만들고 고치는 길은 `channels/registration-targets`(resolve · create · update)
+ * 하나다(KID-310 · ADR-0022) — 여기에는 그 길이 없다. 제출 울타리도 Channels 것이라
  * ([ADR-0014](../../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md))
- * 여기에는 실행 행을 읽고 쓰는 방법이 없다 — 초안을 만들고 고치고 버리는 것까지다.
+ * 실행 행을 읽고 쓰는 방법도 없다.
  */
 export interface CandidateRegistrationPort {
   readForCandidates(organizationId: string, candidateIds: readonly string[]): Promise<Map<string, { preparations: ProductPreparationRow[]; registrationState: 'none' | 'preparing' | 'confirming' | 'registered' | 'failed' }>>;
@@ -62,16 +24,6 @@ export interface CandidateRegistrationPort {
     input: { organizationId: string; sourceCandidateId: string },
   ): Promise<void>;
 
-  createOrGetActiveDraft(
-    input: CreateOrGetActiveDraftInput,
-    resolveSourceWorkspace: (tx: OwnerTransaction, salesProductId: string) => Promise<string>,
-    resolveSelections: ResolveProductPreparationSelections,
-  ): Promise<ProductPreparationDraftResult>;
-
-  replaceDraftInput(
-    input: ReplaceDraftInputRequest,
-    resolveSelections: ResolveProductPreparationSelections,
-  ): Promise<ProductPreparationDraftResult | ProductPreparationCancelledResult>;
 }
 
 export interface ProductPreparationRow {

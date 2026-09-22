@@ -1,16 +1,13 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Post } from '@nestjs/common';
 import { parseRequiredIdempotencyKey } from '../../../../common/http/required-idempotency-key';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { SourcingPromotionService } from '../../../application/service/sourcing-promotion.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import { SourcingWorkspaceArchiveService } from '../../../application/service/sourcing-workspace-archive.service';
-import { ProductPreparationService } from '../../../application/service/product-preparation.service';
 import {
-  CreateProductPreparationDto,
   QuickProcessCandidateDto,
   RejectCandidateBodyDto,
-  UpdateProductPreparationDto,
 } from './dto';
 import type { AuthUser } from '../../../../auth/auth.types';
 
@@ -20,7 +17,6 @@ export class SourcingCandidateWorkspaceController {
     private readonly sourcingService: SourcingService,
     private readonly promotionSvc: SourcingPromotionService,
     private readonly workspaceArchive: SourcingWorkspaceArchiveService,
-    private readonly preparations: ProductPreparationService,
   ) {}
 
   @Get(':id')
@@ -29,44 +25,6 @@ export class SourcingCandidateWorkspaceController {
     @CurrentOrganization() organizationId: string,
   ) {
     return this.sourcingService.getProduct(id, organizationId);
-  }
-
-  @Post('candidates/:id/preparations')
-  createPreparation(
-    @Param('id') id: string,
-    @Body() body: CreateProductPreparationDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.preparations.createDraft(organizationId, id, user.id ?? null, body);
-  }
-
-  @Patch('preparations/:id')
-  updatePreparation(
-    @Param('id') id: string,
-    @Body() body: UpdateProductPreparationDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.preparations.updateDraft(organizationId, id, user.id ?? null, body);
-  }
-
-  @Post('preparations/:id/submit')
-  submitPreparation(
-    @Param('id') id: string,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.preparations.submit(organizationId, id, user.id ?? null);
-  }
-
-  @Post('preparations/:id/cancel')
-  cancelPreparation(
-    @Param('id') id: string,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.preparations.cancel(organizationId, id, user.id ?? null);
   }
 
   @Post('candidates/:id/reject')
