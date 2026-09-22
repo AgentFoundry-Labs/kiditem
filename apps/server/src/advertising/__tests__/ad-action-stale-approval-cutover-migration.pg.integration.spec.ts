@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -56,9 +58,9 @@ describe('v0.1.31:015 close stale ad approvals at cutover (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    actions = new AdActionRepositoryAdapter(
+    actions = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
-      new AdListingRepositoryAdapter(prisma as never),
+      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(prisma as never).accounts
     );
     storedColumnsAtStart = await storedColumnCount();
     if (storedColumnsAtStart !== 0 && storedColumnsAtStart !== STORED_EXECUTION_COLUMNS) {
@@ -689,9 +691,9 @@ describe('v0.1.31:015 close stale ad approvals at cutover (PostgreSQL)', () => {
    * `GET /api/ads/actions?approvalStatus=approved&executeStatus=queued` reads it.
    */
   async function executorQueue(db: Prisma.TransactionClient) {
-    const repository = new AdActionRepositoryAdapter(
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(db as never).listings, channelFactTestPorts(db as never).recipes,
       db as never,
-      new AdListingRepositoryAdapter(db as never),
+      new AdListingRepositoryAdapter(channelFactTestPorts(db as never).listings, channelFactTestPorts(db as never).recipes, db as never), profitCatalogTestReaders(db as never).accounts
     );
     const queue = await repository.findAdActionsForReview(
       { approvalStatus: 'approved', executeStatus: 'queued', limit: 50 },

@@ -18,10 +18,10 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { SabangnetMallListingsController } from '../adapter/in/http/sabangnet-mall-listings.controller';
+import { SabangnetMallListingsController } from '../adapter/in/web/sabangnet-mall-listings.controller';
 import { SabangnetMallListingsRepositoryAdapter } from '../adapter/out/repository/sabangnet-mall-listings.repository.adapter';
 import { SABANGNET_MALL_LISTINGS_PORT } from '../application/port/in/sabangnet-mall-listings.port';
-import { SabangnetMallListingsService } from '../application/service/sabangnet-mall-listings.service';
+import { SabangnetMallListingsService } from '../application/service/collection/sabangnet-mall-listings.service';
 import { completedCatalogRunWhere } from '../read/completed-catalog-run';
 
 const KIDSNOTE = '11111111-1111-4111-8111-111111111111';

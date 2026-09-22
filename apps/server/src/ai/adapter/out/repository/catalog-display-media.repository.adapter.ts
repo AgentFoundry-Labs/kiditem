@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CatalogDisplayMediaCandidate,
@@ -9,7 +11,7 @@ import type {
 export class CatalogDisplayMediaRepositoryAdapter
   implements CatalogDisplayMediaRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly listings: ChannelListingQueryPort) {}
 
   async findCandidates(input: {
     organizationId: string;
@@ -18,31 +20,20 @@ export class CatalogDisplayMediaRepositoryAdapter
     const channelListingIds = [...new Set(input.channelListingIds)];
     if (channelListingIds.length === 0) return [];
 
-    const workspaces = await this.prisma.contentWorkspace.findMany({
+    return this.prisma.$transaction(async tx => {
+    const facts = await this.listings.readCatalogFacts(ownerTransaction(tx), { organizationId: input.organizationId, listingIds: channelListingIds, activeOnly: true, activeAccountsOnly: true });
+    const channelByListing = new Map(facts.map(row => [row.id, row.channel]));
+    if (facts.length === 0) return [];
+    const workspaces = await tx.contentWorkspace.findMany({
       where: {
         organizationId: input.organizationId,
         ownerType: 'channel_listing',
         status: 'active',
         isDeleted: false,
-        channelListingId: { in: channelListingIds },
-        channelListing: {
-          is: {
-            organizationId: input.organizationId,
-            isActive: true,
-            channelAccount: {
-              is: {
-                organizationId: input.organizationId,
-                status: 'active',
-              },
-            },
-          },
-        },
+        channelListingId: { in: facts.map(row => row.id) },
       },
       select: {
         channelListingId: true,
-        channelListing: {
-          select: { channelAccount: { select: { channel: true } } },
-        },
         contentGenerationGroups: {
           where: {
             organizationId: input.organizationId,
@@ -72,7 +63,7 @@ export class CatalogDisplayMediaRepositoryAdapter
     return workspaces.flatMap((workspace) => {
       const channelListingId = workspace.channelListingId;
       if (!channelListingId) return [];
-      const channel = workspace.channelListing?.channelAccount.channel;
+      const channel = channelByListing.get(channelListingId);
       if (!channel) return [];
       return workspace.contentGenerationGroups.flatMap((group) =>
         group.originatingAssets.flatMap((asset): CatalogDisplayMediaCandidate[] => {
@@ -100,6 +91,7 @@ export class CatalogDisplayMediaRepositoryAdapter
           return [candidate];
         }),
       );
+    });
     });
   }
 }

@@ -2,11 +2,18 @@ import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import {
+  CHANNEL_LISTING_QUERY_PORT,
+  type ChannelListingQueryPort,
+} from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type {
   RegistrationContentSelectionInput,
   ResolvedRegistrationContentSelections,
@@ -19,13 +26,17 @@ import type {
 export class RegistrationContentWorkspaceRepositoryAdapter
   implements RegistrationContentWorkspaceRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: ChannelListingQueryPort,
+  ) {}
 
   async resolveSourceSelections(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: RegistrationContentSelectionInput,
   ): Promise<ResolvedRegistrationContentSelections> {
-    const tx = transaction as Prisma.TransactionClient;
+    const tx = ownerTransactionClient(transaction);
     const source = await this.findSourceWorkspace(tx, input);
 
     let artifactId = input.selectedDetailPageArtifactId;
@@ -103,11 +114,11 @@ export class RegistrationContentWorkspaceRepositoryAdapter
   }
 
   async validateSourceSelections(
-    transaction: object | null,
+    transaction: OwnerTransaction | null,
     input: RegistrationContentSelectionInput,
   ): Promise<void> {
     await this.validateSourceSelectionsTx(
-      (transaction ?? this.prisma) as Prisma.TransactionClient,
+      transaction ? ownerTransactionClient(transaction) : this.prisma,
       input,
     );
   }
@@ -130,7 +141,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
   }
 
   async ensureCandidateWorkspace(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       sourceCandidateId: string;
@@ -139,7 +150,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       createdByUserId: string | null;
     },
   ): Promise<{ workspaceId: string }> {
-    const tx = transaction as Prisma.TransactionClient;
+    const tx = ownerTransactionClient(transaction);
     const candidate = await tx.sourcingCandidate.findFirst({
       where: {
         id: input.sourceCandidateId,
@@ -179,7 +190,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
   }
 
   async branchToListing(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       sourceWorkspaceId: string;
@@ -195,23 +206,12 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       selectedDetailPageGenerationId: string | null;
     },
   ): Promise<{ workspaceId: string }> {
-    const tx = transaction as Prisma.TransactionClient;
+    const tx = ownerTransactionClient(transaction);
     const source = await this.validateSourceSelectionsTx(tx, input);
-    const listingRows = await tx.$queryRaw<Array<{
-      id: string;
-      sourceCandidateId: string | null;
-    }>>(Prisma.sql`
-      SELECT id, source_candidate_id AS "sourceCandidateId"
-      FROM channel_listings
-      WHERE id = ${input.listingId}::uuid
-        AND organization_id = ${input.organizationId}::uuid
-        AND is_active = true
-      FOR UPDATE
-    `);
-    const listing = listingRows[0];
-    if (!listing || listingRows.length !== 1) {
-      throw new NotFoundException('Channel listing not found.');
-    }
+    const listing = await this.channelListings.lockActiveOwner(transaction, {
+      organizationId: input.organizationId,
+      listingId: input.listingId,
+    });
     if (!source.sourceCandidateId
       || listing.sourceCandidateId !== source.sourceCandidateId) {
       throw new ConflictException(

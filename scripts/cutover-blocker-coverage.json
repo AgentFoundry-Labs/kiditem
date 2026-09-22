@@ -117,15 +117,6 @@
       ],
       "coveredBy": "v0.1.31:017_simplify_product_references",
       "note": "After 016 maps legacy identifiers, 017 deletes only unresolvable matching hints, checks duplicate canonical keys and verifies supplier references; confirmed recipes and historical orders remain untouched."
-    },
-    {
-      "train": "0.1.31",
-      "keys": [
-        "foreign-key:product_preparations_sales_product_id_organization_id_fkey",
-        "not-null:product_preparations.sales_product_id"
-      ],
-      "coveredBy": "v0.1.31:021_link_registration_targets",
-      "note": "021 links existing preparations to organization-scoped selling products using explicit saved prices/options, aborts ambiguity, migrates legacy overrides, and verifies target/product/account/selection membership without rewriting execution evidence."
     }
   ]
 }

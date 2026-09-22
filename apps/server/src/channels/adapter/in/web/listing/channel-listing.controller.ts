@@ -1,8 +1,10 @@
+import { UseFilters } from '@nestjs/common';
+import { ChannelBusinessExceptionFilter } from '../channel-business-exception.filter';
 import { Body, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../../auth/auth.types';
-import { ChannelListingDeletionService } from '../../../../application/service/channel-listing-deletion.service';
+import { CHANNEL_LISTING_DELETION_PORT, type ChannelListingDeletionPort } from "../../../../application/port/in/listing/channel-listing-deletion.port";
 import {
   CHANNEL_LISTING_QUERY_PORT,
   type ChannelListingQueryPort,
@@ -13,12 +15,13 @@ import {
   ChannelListingQueryDto,
 } from './dto/channel-listing-query.dto';
 
+@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/listings')
 export class ChannelListingController {
   constructor(
     @Inject(CHANNEL_LISTING_QUERY_PORT)
     private readonly listings: ChannelListingQueryPort,
-    private readonly deletion: ChannelListingDeletionService,
+    @Inject(CHANNEL_LISTING_DELETION_PORT) private readonly deletion: ChannelListingDeletionPort,
   ) {}
 
   @Get(':listingId/workspace')

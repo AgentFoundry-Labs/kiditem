@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { FrozenRegistrationReadAdapter } from './adapter/in/agent/frozen-registration-read.adapter';
+import { REGISTRATION_EXECUTION_REPOSITORY_PORT } from './application/port/out/repository/registration-execution.repository.port';
+import { FrozenRegistrationReadService } from './application/service/registration/frozen-registration-read.service';
 import { FROZEN_REGISTRATION_READ_PORT } from './application/port/in/capability/frozen-registration-read.port';
 import { ChannelsRegistrationExecutionModule } from './channels-registration-execution.module';
 
@@ -7,10 +8,18 @@ import { ChannelsRegistrationExecutionModule } from './channels-registration-exe
 @Module({
   imports: [ChannelsRegistrationExecutionModule],
   providers: [
-    FrozenRegistrationReadAdapter,
+    {
+      provide: FrozenRegistrationReadService,
+      useFactory: (
+        ...dependencies: ConstructorParameters<
+          typeof FrozenRegistrationReadService
+        >
+      ) => new FrozenRegistrationReadService(...dependencies),
+      inject: [REGISTRATION_EXECUTION_REPOSITORY_PORT],
+    },
     {
       provide: FROZEN_REGISTRATION_READ_PORT,
-      useExisting: FrozenRegistrationReadAdapter,
+      useExisting: FrozenRegistrationReadService,
     },
   ],
   exports: [FROZEN_REGISTRATION_READ_PORT],

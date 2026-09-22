@@ -92,6 +92,42 @@ describe('registration target repository (PostgreSQL)', () => {
     ]);
   });
 
+  it('creates an active target after the prior target is archived', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const previousTargetId = await repository.create(TEST_ORGANIZATION_ID, createInput({
+      salesProductId: productId,
+      channelAccountId: accountId,
+      selectedOptions: [selected(options[0]!.id)],
+    }));
+    const archivedAt = new Date('2026-09-21T00:10:00.000Z');
+
+    await prisma.registrationTarget.update({
+      where: { id: previousTargetId },
+      data: { archivedAt },
+    });
+
+    const replacementTargetId = await repository.create(TEST_ORGANIZATION_ID, createInput({
+      salesProductId: productId,
+      channelAccountId: accountId,
+      selectedOptions: [selected(options[0]!.id)],
+    }));
+
+    expect(replacementTargetId).not.toBe(previousTargetId);
+    await expect(prisma.registrationTarget.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: productId },
+    })).resolves.toBe(2);
+    await expect(prisma.registrationTarget.findUniqueOrThrow({ where: { id: previousTargetId } }))
+      .resolves.toMatchObject({ archivedAt });
+    await expect(repository.list(TEST_ORGANIZATION_ID, productId)).resolves.toEqual([
+      expect.objectContaining({ id: replacementTargetId }),
+    ]);
+    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
+      salesProductId: productId,
+      channelAccountId: accountId,
+    })).resolves.toBe(replacementTargetId);
+  });
+
   it('serializes concurrent resolves so one product-account pair creates one default target', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
@@ -223,9 +259,9 @@ describe('registration target repository (PostgreSQL)', () => {
       targetId: firstTargetId,
     })).resolves.toBe(firstTargetId);
 
-    await prisma.productPreparation.update({
+    await prisma.registrationTarget.update({
       where: { id: firstTargetId },
-      data: { closedAt: new Date() },
+      data: { archivedAt: new Date() },
     });
     await expect(repository.resolve(TEST_ORGANIZATION_ID, {
       salesProductId: firstProduct.productId,
@@ -236,6 +272,9 @@ describe('registration target repository (PostgreSQL)', () => {
       channelAccountId: accountId,
       targetId: firstTargetId,
     })).rejects.toMatchObject({ code: 'not_found' });
+    await expect(repository.list(TEST_ORGANIZATION_ID, firstProduct.productId))
+      .resolves.not.toEqual(expect.arrayContaining([expect.objectContaining({ id: firstTargetId })]));
+    await expect(repository.get(TEST_ORGANIZATION_ID, firstTargetId)).resolves.toBeNull();
   });
 
   it('does not inherit unused options or create new targets for an archived product', async () => {
@@ -300,7 +339,7 @@ describe('registration target repository (PostgreSQL)', () => {
       data: {
         id: executionId,
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: targetId,
+        registrationTargetId: targetId,
         channelAccountId: accountId,
         executionKind: 'create',
         idempotencyKey: `target-test-${executionId}`,

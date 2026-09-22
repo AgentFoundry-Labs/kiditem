@@ -34,7 +34,7 @@ import {
   resolveMallAdminRowCodes,
   mallAdminStatusCounts,
   mallAdminSubmissionProblem,
-} from '../../../domain/mall-admin-listings';
+} from '../../../domain/collection/mall-admin-listings';
 import { readMallAccountRowIds } from '../../../read/mall-account-rows';
 import {
   MALL_ADMIN_LISTINGS_EXPIRED_MESSAGE,

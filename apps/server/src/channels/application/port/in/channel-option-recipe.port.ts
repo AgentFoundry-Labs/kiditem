@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 export type ChannelRecipeComponentInput = Readonly<{
   masterProductId: string;
   quantity: number;
@@ -22,9 +23,15 @@ export const CHANNEL_OPTION_RECIPE_PORT = Symbol(
   'CHANNEL_OPTION_RECIPE_PORT',
 );
 
-export interface ChannelOptionRecipePort {
+export interface ChannelRecipeFactQueries {
+  readListingProductSummaries(transaction: OwnerTransaction, input: { organizationId: string; listingIds: readonly string[] }): Promise<Map<string, string | null>>;
+  readConfirmedCompositions(transaction: OwnerTransaction, input: { organizationId: string; accountIds?: readonly string[]; optionIds?: readonly string[]; listingIds?: readonly string[]; activeOnly?: boolean }): Promise<Array<{ optionId: string; listingId: string; accountId: string; components: Array<{ masterProductId: string; quantity: number }> }>>;
+  findListingsBySourceProducts(transaction: OwnerTransaction, input: { organizationId: string; masterProductIds: readonly string[]; activeOnly: boolean }): Promise<Array<{ listingId: string; masterProductId: string | null }>>;
+}
+
+export interface ChannelOptionRecipePort extends ChannelRecipeFactQueries {
   /** Called only by the execution owner after a confirmed external composition transition. */
-  replaceConfirmedCompositionInTransaction(transaction: object, input: {
+  replaceConfirmedCompositionInTransaction(transaction: OwnerTransaction, input: {
     organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
     kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
   }): Promise<void>;
@@ -43,14 +50,14 @@ export interface ChannelOptionRecipePort {
     mutations: readonly ChannelOptionRecipeMutation[];
   }): Promise<ChannelRecipeMutationResult>;
   applyPreservingRecipesInTransaction(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       mutations: readonly ChannelOptionRecipeMutation[];
     },
   ): Promise<ChannelRecipeMutationResult>;
   clearListingRecipesInTransaction(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       channelListingId: string;

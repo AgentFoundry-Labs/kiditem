@@ -11,19 +11,20 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
+import { ListingException } from '../application/exception/listing.exception';
 import { readListingProductIds } from '../read/listing-product-summary.reader';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('Channels channel-option recipe mutation boundary (PG integration)', () => {
   let prisma: PrismaClient;
-  let recipes: ChannelOptionRecipeUseCase;
+  let recipes: ChannelOptionRecipeService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    recipes = new ChannelOptionRecipeUseCase(
+    recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
@@ -231,7 +232,7 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
         expectedMasterProductId: product.id,
         components: [{ masterProductId: product.id, quantity: 0 }],
       }],
-    })).toThrow(BadRequestException);
+    })).toThrow(ListingException);
     await expect(recipes.applyPreservingRecipes({
       organizationId: OTHER_ORGANIZATION_ID,
       mutations: [{

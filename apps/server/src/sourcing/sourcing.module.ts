@@ -144,7 +144,7 @@ import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cr
  *
  * Sourcing ingest writes `SourcingCandidate` + `CandidateImage` rows via
  * `SOURCING_CANDIDATE_REPOSITORY_PORT`. Registration is account-scoped and
- * finalizes through `ProductPreparation` into `ChannelListing`.
+ * finalizes through `RegistrationTarget` into `ChannelListing`.
  */
 @Module({
   imports: [

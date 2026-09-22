@@ -1,9 +1,11 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
+import type { ListingAvailabilitySnapshot } from '@kiditem/shared/sales-product';
 import type { PrepareListingAvailabilityInput, ListingAvailabilityExecution, ReportListingAvailabilityInput } from '@kiditem/shared/sales-product';
 import type { PrepareTargetExecutionInput, ReportTargetExecutionInput, TargetExecutionResult, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 import type { MarketplaceSubmissionResult } from '@kiditem/shared/channel-listing';
 import type { ProductPreparationStatus } from '@kiditem/shared/sourcing';
 import type { ChannelsRepositoryTransaction } from '../transaction/repository-transaction';
-import type { RegistrationExecutionProviderOutcome } from '../../../../domain/registration-execution-state';
+import type { RegistrationExecutionProviderOutcome } from '../../../../domain/registration/registration-execution-state';
 
 export const REGISTRATION_EXECUTION_REPOSITORY_PORT = Symbol(
   'REGISTRATION_EXECUTION_REPOSITORY_PORT',
@@ -84,9 +86,10 @@ export interface ClosedRegistrationExecutionResult {
 }
 
 export interface RegistrationExecutionRepositoryPort {
+  findListingAvailabilityByKey(input: { organizationId: string; requestedByUserId: string | null; idempotencyKey: string }): Promise<ListingAvailabilityExecution | null>;
   prepareListingAvailability(input: { organizationId: string; requestedByUserId: string | null; request: PrepareListingAvailabilityInput }): Promise<ListingAvailabilityExecution>;
   listListingAvailability(input: { organizationId: string; requestedByUserId: string | null; channelAccountId: string; externalListingId: string }): Promise<ListingAvailabilityExecution[]>;
-  startListingAvailability(input: { organizationId: string; requestedByUserId: string | null; executionId: string }): Promise<ListingAvailabilityExecution>;
+  startListingAvailability(input: { organizationId: string; requestedByUserId: string | null; executionId: string; assertInventoryStockout?: (transaction: OwnerTransaction, snapshot: ListingAvailabilitySnapshot) => Promise<void> }): Promise<ListingAvailabilityExecution>;
   reportListingAvailability(input: { organizationId: string; requestedByUserId: string | null; executionId: string; report: ReportListingAvailabilityInput }): Promise<ListingAvailabilityExecution>;
 
   findTargetReplay(input: { organizationId: string; requestedByUserId: string | null; targetId: string; request: PrepareTargetExecutionInput }): Promise<TargetExecutionResult | null>;

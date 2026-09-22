@@ -6,10 +6,11 @@ const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const CANDIDATE_ID = '22222222-2222-4222-8222-222222222222';
 const USER_ID = '33333333-3333-4333-8333-333333333333';
 const TX = { opaque: true } as never;
+const OWNER_TX = { owner: true } as never;
 
 function setup() {
   const candidates = {
-    runInTransaction: vi.fn((operation) => operation(TX)),
+    runInTransaction: vi.fn((operation) => operation(TX, OWNER_TX)),
     lockCandidate: vi.fn().mockResolvedValue(undefined),
     findCandidateState: vi.fn().mockResolvedValue({
       id: CANDIDATE_ID,
@@ -42,7 +43,7 @@ describe('SourcingPromotionService candidate terminal transitions', () => {
       id: CANDIDATE_ID,
       organizationId: ORGANIZATION_ID,
     });
-    expect(preparations.assertCandidateTerminalTransitionAllowed).toHaveBeenCalledWith(TX, {
+    expect(preparations.assertCandidateTerminalTransitionAllowed).toHaveBeenCalledWith(OWNER_TX, {
       organizationId: ORGANIZATION_ID,
       sourceCandidateId: CANDIDATE_ID,
     });

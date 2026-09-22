@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildProductBasics } from '../product-basics.presenter';
 
 describe('buildProductBasics', () => {
-  it('uses ProductPreparation registrationInput as the primary basic information source', () => {
+  it('uses RegistrationTarget registrationInput as the primary basic information source', () => {
     const result = buildProductBasics({
       candidate: {
         id: 'candidate-1',
@@ -173,7 +173,7 @@ describe('buildProductBasics', () => {
     };
 
     it('preparation 이 없으면 manualBasics 로 저장한 값을 되읽는다', () => {
-      // 회귀: ProductPreparation 이 0행인 후보는 채널 계정 선택 없이 후보 자체에
+      // 회귀: RegistrationTarget 이 0행인 후보는 채널 계정 선택 없이 후보 자체에
       // 기본정보를 저장한다(PATCH /api/sourcing/candidates/:id/basic-info →
       // rawData.manualBasics). 프리젠터가 이 오버레이를 읽지 못하면 저장 후
       // 재진입 시 값이 사라진다.
@@ -419,7 +419,7 @@ describe('buildProductBasics', () => {
     };
 
     it('preparation 이 없으면 워크스페이스 선택을 복원한다', () => {
-      // 회귀: `ProductPreparation` 이 없는 후보는 대표를 워크스페이스에만 저장할 수
+      // 회귀: `RegistrationTarget` 이 없는 후보는 대표를 워크스페이스에만 저장할 수
       // 있는데 프리젠터가 preparation 만 읽어서, 저장 후 재진입하면 `등록 대표`
       // 배지가 사라졌다.
       const result = buildProductBasics({

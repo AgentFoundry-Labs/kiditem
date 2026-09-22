@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../common/owner-transaction';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
@@ -32,21 +33,21 @@ export class RegistrationContentWorkspaceService
   }
 
   resolveSourceSelections(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: RegistrationContentSelectionInput,
   ): Promise<ResolvedRegistrationContentSelections> {
     return this.repository.resolveSourceSelections(transaction, input);
   }
 
   validateSourceSelections(
-    transaction: object | null,
+    transaction: OwnerTransaction | null,
     input: RegistrationContentSelectionInput,
   ): Promise<void> {
     return this.repository.validateSourceSelections(transaction, input);
   }
 
   ensureCandidateWorkspace(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: EnsureRegistrationCandidateWorkspaceInput,
   ): Promise<{ workspaceId: string }> {
     const displayName = normalizedDisplayName(input.displayName);
@@ -58,7 +59,7 @@ export class RegistrationContentWorkspaceService
   }
 
   async branchToListing(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: BranchRegistrationWorkspaceToListingInput,
   ): Promise<{ workspaceId: string }> {
     if (input.sourceWorkspaceId === input.listingId) {

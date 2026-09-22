@@ -23,7 +23,7 @@ import {
   ROCKET_WORKBOOK_EXPORT_TRANSACTION_PORT,
   type RocketWorkbookExportTransactionPort,
 } from '../port/out/transaction/rocket-purchase-confirmation.transaction.port';
-import { ROCKET_PO_CATALOG_PORT, type RocketPoCatalogPort } from '../../../channels/application/port/in/rocket-po-catalog.port';
+import { ROCKET_PO_CATALOG_PORT, type RocketPoCatalogPort } from '../../../orders/application/port/in/rocket-po-catalog.port';
 import {
   buildRocketConfirmationWorkbook,
   fillRocketConfirmationWorkbook,

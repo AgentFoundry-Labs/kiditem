@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
@@ -46,7 +47,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     owner = createOwner(prisma);
-    const ranks = new KeywordRankRepositoryAdapter(prisma as never);
+    const ranks = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never);
     serp = new KeywordSerpSourceRepository(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
@@ -447,7 +448,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
   }
 
   async function readSellerCatalogs(keyword: string) {
-    const snapshot = await new KeywordRankRepositoryAdapter(
+    const snapshot = await new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
     ).findLatestSerp(TEST_ORGANIZATION_ID, keyword);
     const value = snapshot!.items as { sellerCatalogs?: unknown[] };
@@ -459,7 +460,7 @@ function createOwner(
   prisma: PrismaClient,
   alerts = new SourceFailureAlerts(prisma as never),
 ) {
-  const ranks = new KeywordRankRepositoryAdapter(prisma as never);
+  const ranks = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never);
   const handler = new KeywordRankIngestHandler(ranks);
   return new CompetitorCatalogSourceAttemptRepositoryAdapter(
     prisma as never,

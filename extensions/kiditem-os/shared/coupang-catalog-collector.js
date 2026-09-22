@@ -475,6 +475,7 @@
       attributes,
       media,
       raw: {
+        ...(nullableText(item?.registrationType) ? { registrationType: nullableText(item.registrationType) } : {}),
         sellerProductItemId: optionalId(item?.sellerProductItemId),
         vendorItemId,
         itemId: optionalId(item?.itemId),
@@ -565,6 +566,7 @@
 
   function buildDetailOptionRaw(item) {
     const raw = {
+      ...(nullableText(item?.registrationType) ? { registrationType: nullableText(item.registrationType) } : {}),
       sellerProductItemId: strictOptionalId(item?.sellerProductItemId, "sellerProductItemId"),
       vendorItemId: strictOptionalId(item?.vendorItemId, "vendorItemId"),
       itemId: strictOptionalId(item?.itemId, "itemId"),

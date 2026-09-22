@@ -46,7 +46,7 @@ describe('ThumbnailTrackingRepositoryAdapter', () => {
         ),
       },
     };
-    const repository = new ThumbnailTrackingRepositoryAdapter(prisma as never);
+    const repository = new ThumbnailTrackingRepositoryAdapter({ ...prisma, $transaction: async (read: (tx: unknown) => unknown) => read(prisma) } as never, { readDisplayFacts: async () => [makeRow().listing], assertOwnedIds: async () => {} } as never);
 
     await expect(
       repository.createTracking({
@@ -90,7 +90,7 @@ describe('ThumbnailTrackingRepositoryAdapter', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
-    const repository = new ThumbnailTrackingRepositoryAdapter(prisma as never);
+    const repository = new ThumbnailTrackingRepositoryAdapter({ ...prisma, $transaction: async (read: (tx: unknown) => unknown) => read(prisma) } as never, { readDisplayFacts: async () => [makeRow().listing], assertOwnedIds: async () => {} } as never);
 
     await expect(
       repository.upsertDailySnapshot({

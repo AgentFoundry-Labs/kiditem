@@ -1,4 +1,4 @@
-import { wingListingRegistrationDate } from '../../channels/domain/wing-listing-registration';
+import { wingListingRegistrationDate } from '../../channels/domain/registration/wing-listing-registration';
 
 /**
  * The first date on which a listing Wing's traffic report left out had zero

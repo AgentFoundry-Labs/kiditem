@@ -1,3 +1,4 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import {
@@ -78,7 +79,7 @@ describe('ad-target-facts (PG)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       from: day('2026-04-10'),
       to: day('2026-04-13'),
-    });
+    }, profitCatalogTestReaders(prisma as never).accounts);
 
     expect(facts.days.map((d) => d.businessDate)).toEqual(['2026-04-10', '2026-04-12']);
     expect(facts.days[0]).toMatchObject({ spend: 300, revenue: 900, clicks: 3 });
@@ -98,7 +99,7 @@ describe('ad-target-facts (PG)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       from: day('2026-04-10'),
       to: day('2026-04-12'),
-    });
+    }, profitCatalogTestReaders(prisma as never).accounts);
     const byListing = new Map(perListing.map((row) => [row.listingId, row]));
     expect(byListing.get(a.listingId)).toMatchObject({ days: 2, spend: 300, firstDate: '2026-04-10', lastDate: '2026-04-11' });
     expect(byListing.get(b.listingId)).toMatchObject({ days: 2, spend: 20 });
@@ -134,7 +135,7 @@ describe('ad-target-facts (PG)', () => {
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-11', spend: 999, runId: running });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-11', spend: 888, runId: failed });
 
-    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-12') });
+    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-12') }, profitCatalogTestReaders(prisma as never).accounts);
 
     expect(facts.days).toHaveLength(1);
     expect(facts.days[0]).toMatchObject({ businessDate: '2026-04-10', spend: 120 });
@@ -149,14 +150,14 @@ describe('ad-target-facts (PG)', () => {
     });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-11', spend: 30, runId: run });
 
-    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-09'), to: day('2026-04-14') });
+    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-09'), to: day('2026-04-14') }, profitCatalogTestReaders(prisma as never).accounts);
     expect(facts.days.map((d) => [d.businessDate, d.spend])).toEqual([
       ['2026-04-10', 0], ['2026-04-11', 30], ['2026-04-12', 0],
     ]);
 
-    const perListing = await readListingAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-09'), to: day('2026-04-14') });
+    const perListing = await readListingAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-09'), to: day('2026-04-14') }, profitCatalogTestReaders(prisma as never).accounts);
     expect(perListing[0]).toMatchObject({ listingId: a.listingId, days: 3, spend: 30 });
-    expect(await readLatestAdDate(prisma, TEST_ORGANIZATION_ID)).toEqual(day('2026-04-12'));
+    expect(await readLatestAdDate(prisma, TEST_ORGANIZATION_ID, profitCatalogTestReaders(prisma as never).accounts)).toEqual(day('2026-04-12'));
   });
 
   it('a newer completed sweep that covers a date supersedes every older row on it, even targets it no longer reports', async () => {
@@ -170,7 +171,7 @@ describe('ad-target-facts (PG)', () => {
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-10', spend: 100, runId: gen1 });
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-11', spend: 100, runId: gen1 });
 
-    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-13') });
+    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-13') }, profitCatalogTestReaders(prisma as never).accounts);
 
     // 04-10: only gen1 swept it, its row stands. 04-11: gen2 swept it and
     // reported nothing, so the gen1 row is stopped spend, a measured zero.
@@ -184,12 +185,12 @@ describe('ad-target-facts (PG)', () => {
     const a = await listing(TEST_ORGANIZATION_ID, 'A');
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-10', spend: 70, runId: null });
 
-    expect(await readLatestAdDate(prisma, TEST_ORGANIZATION_ID)).toBeNull();
+    expect(await readLatestAdDate(prisma, TEST_ORGANIZATION_ID, profitCatalogTestReaders(prisma as never).accounts)).toBeNull();
     await expect(readAdWindowFacts(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       from: day('2026-04-10'),
       to: day('2026-04-11'),
-    })).resolves.toEqual({ days: [], observedAt: null });
+    }, profitCatalogTestReaders(prisma as never).accounts)).resolves.toEqual({ days: [], observedAt: null });
   });
 
   it('does not treat requested plan dates as a completed coverage declaration', async () => {
@@ -215,7 +216,7 @@ describe('ad-target-facts (PG)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       from: day('2026-04-10'),
       to: day('2026-04-11'),
-    })).resolves.toEqual({ days: [], observedAt: null });
+    }, profitCatalogTestReaders(prisma as never).accounts)).resolves.toEqual({ days: [], observedAt: null });
   });
 
   it('keeps an organization day unavailable while an active account has no completed declaration', async () => {
@@ -253,13 +254,13 @@ describe('ad-target-facts (PG)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       from: day('2026-04-10'),
       to: day('2026-04-11'),
-    })).resolves.toEqual({ days: [], observedAt: null });
+    }, profitCatalogTestReaders(prisma as never).accounts)).resolves.toEqual({ days: [], observedAt: null });
     await expect(readListingAdWindowFacts(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       from: day('2026-04-10'),
       to: day('2026-04-11'),
-    })).resolves.toEqual([]);
-    await expect(readLatestAdDate(prisma, TEST_ORGANIZATION_ID)).resolves.toBeNull();
+    }, profitCatalogTestReaders(prisma as never).accounts)).resolves.toEqual([]);
+    await expect(readLatestAdDate(prisma, TEST_ORGANIZATION_ID, profitCatalogTestReaders(prisma as never).accounts)).resolves.toBeNull();
   });
 
   it('uses the shared account coverage dates for listing totals and date bounds', async () => {
@@ -310,7 +311,7 @@ describe('ad-target-facts (PG)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       from: day('2026-04-01'),
       to: day('2026-04-11'),
-    });
+    }, profitCatalogTestReaders(prisma as never).accounts);
     expect(perListing).toHaveLength(1);
     expect(perListing[0]).toMatchObject({
       listingId: a.listingId,
@@ -417,7 +418,7 @@ describe('ad-target-facts (PG)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       from: day('2026-04-10'),
       to: day('2026-04-13'),
-    });
+    }, profitCatalogTestReaders(prisma as never).accounts);
 
     expect(facts.days.map(({ businessDate, spend }) => [businessDate, spend])).toEqual([
       ['2026-04-10', 30],
@@ -451,10 +452,10 @@ describe('ad-target-facts (PG)', () => {
       },
     });
 
-    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-11') });
+    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-11') }, profitCatalogTestReaders(prisma as never).accounts);
     expect(facts.days[0]).toMatchObject({ spend: 100 });
 
-    const perListing = await readListingAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-11') });
+    const perListing = await readListingAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-11') }, profitCatalogTestReaders(prisma as never).accounts);
     expect(perListing).toHaveLength(1);
     expect(perListing[0]).toMatchObject({ listingId: a.listingId, spend: 40 });
   });
@@ -465,9 +466,9 @@ describe('ad-target-facts (PG)', () => {
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: a.listingId, date: '2026-04-10', spend: 10 });
     await seedAd(prisma, { organizationId: OTHER_ORGANIZATION_ID, listingId: o.listingId, date: '2026-04-10', spend: IDOR_SENTINEL });
 
-    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-11') });
+    const facts = await readAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID, from: day('2026-04-10'), to: day('2026-04-11') }, profitCatalogTestReaders(prisma as never).accounts);
     expect(facts.days[0]?.spend).toBe(10);
-    const perListing = await readListingAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID });
+    const perListing = await readListingAdWindowFacts(prisma, { organizationId: TEST_ORGANIZATION_ID }, profitCatalogTestReaders(prisma as never).accounts);
     expect(perListing.every((row) => row.spend !== IDOR_SENTINEL)).toBe(true);
   });
 });

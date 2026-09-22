@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../../../../test-helpers/channel-fact-ports';
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../../../../../prisma/prisma.service";
 import { readOrderLineWindowFacts } from "../../../../../orders/read/order-facts.reader";
@@ -50,7 +51,7 @@ describe("dashboard business-date boundaries", () => {
       orders: [],
     });
 
-    await new ProfitCalculationRepositoryAdapter(
+    await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
       prisma as unknown as PrismaService,
       new ProductTransactionalReadRepositoryAdapter(),
     ).calculateForRange(
@@ -61,6 +62,7 @@ describe("dashboard business-date boundaries", () => {
     expect(mockedReadOrderLineWindowFacts).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ from: JULY_START_KST, to: AUGUST_START_KST }),
+      expect.objectContaining({ findByIds: expect.any(Function) }),
     );
     // The ad ledger is read over the window's KST business dates, half-open.
     const sql = queryRaw.mock.calls[0]?.[0] as { values: unknown[] };

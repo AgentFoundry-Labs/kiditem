@@ -14,7 +14,7 @@ import {
 import {
   ROCKET_PO_CATALOG_PORT,
   type RocketPoCatalogPort,
-} from '../../../channels/application/port/in/rocket-po-catalog.port';
+} from '../../../orders/application/port/in/rocket-po-catalog.port';
 import {
   CHANNEL_SKU_AVAILABILITY_PORT,
   type ChannelSkuAvailabilityPort,

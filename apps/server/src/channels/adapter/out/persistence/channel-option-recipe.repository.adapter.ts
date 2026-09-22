@@ -1,3 +1,7 @@
+import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import type { ChannelRecipeFactQueries } from '../../../application/port/in/channel-option-recipe.port';
 import { readListingProductIds } from '../../../read/listing-product-summary.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import {
@@ -24,8 +28,10 @@ import type {
   ChannelRecipeComponentInput,
 } from '../../../application/port/in/channel-option-recipe.port';
 import { readPreparedRegistrationRecipes } from '../../../read/registration-execution.reader';
-import { preparedRegistrationRecipe } from '../../../domain/registration-item-code';
-import { hashRegistrationSubmissionPayload } from '../../../domain/registration-submission-payload';
+import { preparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
+import { hashRegistrationSubmissionPayload } from '../../../domain/registration/registration-submission-payload';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -38,11 +44,51 @@ implements ChannelOptionRecipeRepositoryPort {
     private readonly productTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
-  async replaceConfirmedCompositionInTransaction(transaction: object, input: {
+  readListingProductSummaries(transaction: Parameters<ChannelRecipeFactQueries['readListingProductSummaries']>[0], input: Parameters<ChannelRecipeFactQueries['readListingProductSummaries']>[1]) {
+    return readListingProductIds(ownerTransactionClient(transaction), input);
+  }
+
+  async readConfirmedCompositions(transaction: Parameters<ChannelRecipeFactQueries['readConfirmedCompositions']>[0], input: Parameters<ChannelRecipeFactQueries['readConfirmedCompositions']>[1]) {
+    if ([input.accountIds, input.optionIds, input.listingIds].some(ids => ids?.length === 0)) return [];
+    const rows = await ownerTransactionClient(transaction).channelListingOption.findMany({
+      where: { organizationId: input.organizationId,
+        ...(input.optionIds ? { id: { in: [...input.optionIds] } } : {}),
+        ...(input.listingIds ? { listingId: { in: [...input.listingIds] } } : {}),
+        ...(input.activeOnly ? { isActive: true } : {}),
+        listing: { organizationId: input.organizationId,
+          ...(input.accountIds ? { channelAccountId: { in: [...input.accountIds] } } : {}),
+          ...(input.activeOnly ? { isActive: true } : {}) } },
+      select: { id: true, listingId: true, listing: { select: { channelAccountId: true } },
+        inventoryComponents: { where: { organizationId: input.organizationId },
+          select: { masterProductId: true, quantity: true }, orderBy: { masterProductId: 'asc' } } },
+      orderBy: { id: 'asc' },
+    });
+    return rows.map(row => ({ optionId: row.id, listingId: row.listingId,
+      accountId: row.listing.channelAccountId, components: row.inventoryComponents }));
+  }
+
+  async findListingsBySourceProducts(transaction: Parameters<ChannelRecipeFactQueries['findListingsBySourceProducts']>[0], input: Parameters<ChannelRecipeFactQueries['findListingsBySourceProducts']>[1]) {
+    if (input.masterProductIds.length === 0) return [];
+    const tx = ownerTransactionClient(transaction);
+    const rows = await tx.channelListing.findMany({
+      where: { organizationId: input.organizationId, ...(input.activeOnly ? { isActive: true } : {}),
+        options: { some: { organizationId: input.organizationId,
+          inventoryComponents: { some: { organizationId: input.organizationId, masterProductId: { in: [...input.masterProductIds] } } } } } },
+      select: { id: true },
+    });
+    const summaries = await readListingProductIds(tx, { organizationId: input.organizationId, listingIds: rows.map(row => row.id) });
+    const requested = new Set(input.masterProductIds);
+    return rows.flatMap(row => {
+      const masterProductId = summaries.get(row.id) ?? null;
+      return masterProductId !== null && requested.has(masterProductId) ? [{ listingId: row.id, masterProductId }] : [];
+    });
+  }
+
+  async replaceConfirmedCompositionInTransaction(transaction: OwnerTransaction, input: {
     organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
     kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
   }): Promise<void> {
-    const tx = transaction as Prisma.TransactionClient;
+    const tx = ownerTransactionClient(transaction);
     await lockProductMapping(tx, input.organizationId);
     const commonOption = await tx.salesProductOption.findFirst({
       where: { id: input.salesProductOptionId, organizationId: input.organizationId, optionCode: input.kidItemCode },
@@ -150,20 +196,20 @@ implements ChannelOptionRecipeRepositoryPort {
     mutations: readonly ChannelOptionRecipeMutation[];
   }) {
     return this.prisma.$transaction(
-      (tx) => this.applyPreservingRecipesInTransaction(tx, input),
+      (tx) => this.applyPreservingRecipesInTransaction(ownerTransaction(tx), input),
       TRANSACTION_OPTIONS,
     );
   }
 
   async applyPreservingRecipesInTransaction(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       mutations: readonly ChannelOptionRecipeMutation[];
     },
   ) {
     if (input.mutations.length === 0) return emptyResult();
-    const tx = transaction as Prisma.TransactionClient;
+    const tx = ownerTransactionClient(transaction);
     await lockProductMapping(tx, input.organizationId);
     const optionIds = input.mutations.map((mutation) => mutation.channelListingOptionId);
     const options = await tx.channelListingOption.findMany({
@@ -228,7 +274,7 @@ implements ChannelOptionRecipeRepositoryPort {
         const option = optionById.get(mutation.channelListingOptionId)!;
         const historicalRegistration = facts.some((fact) => {
           if (fact.channelListingId !== option.listingId || !fact.submissionPayloadJson) return false;
-          const hash = hashRegistrationSubmissionPayload(fact.submissionPayloadJson);
+          const hash = hashRegistrationSubmissionPayload(fact.submissionPayloadJson, channelIntegrity.sha256);
           if (hash !== fact.submissionPayloadHash || hash !== fact.requestHash) return false;
           const recipe = preparedRegistrationRecipe(fact.submissionPayloadJson);
           return recipe !== null
@@ -360,13 +406,13 @@ implements ChannelOptionRecipeRepositoryPort {
   }
 
   async clearListingRecipesInTransaction(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       channelListingId: string;
     },
   ) {
-    const tx = transaction as Prisma.TransactionClient;
+    const tx = ownerTransactionClient(transaction);
     await lockProductMapping(tx, input.organizationId);
     const listing = await tx.channelListing.findFirst({
       where: {

@@ -19,7 +19,7 @@ export interface CandidateRegistrationImages {
  * The candidate's saved representative thumbnail, owned by its content
  * workspace (`ContentWorkspace.currentThumbnailSelectionId`).
  *
- * A candidate with no `ProductPreparation` has nowhere else to record one, so
+ * A candidate with no `RegistrationTarget` has nowhere else to record one, so
  * this is the only way the saved selection survives a reload.
  */
 export interface CandidateCurrentThumbnail {

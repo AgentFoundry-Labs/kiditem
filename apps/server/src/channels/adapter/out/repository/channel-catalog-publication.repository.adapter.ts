@@ -1,3 +1,4 @@
+import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -11,6 +12,7 @@ import {
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS, SOURCE_IMPORT_RUN_RUNNING_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import {
   CATALOG_MEDIA_PUBLICATION_PORT,
   type CatalogMediaPublicationPort,
@@ -29,7 +31,7 @@ import {
   hashCatalogChunkPayload,
   hashCatalogChunkReceipts,
   hashCoupangCatalogSnapshot,
-} from '../../../application/service/channel-catalog-collection.service';
+} from '../../../application/service/collection/channel-catalog-collection.service';
 import {
   assertCatalogWritable,
   assertCatalogPublicationPlan,
@@ -53,6 +55,8 @@ import type {
   ChannelCatalogPublicationPort,
   ChannelCatalogPublicationResult,
 } from '../../../application/port/out/repository/channel-catalog-publication.port';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const CHANNEL = 'coupang';
 const COLLECTION_SOURCE = 'coupang_wing_catalog_browser';
@@ -104,7 +108,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
     if (!request.success || request.data.kind !== 'full_details') {
       throw new ConflictException('Stored full-details chunk is invalid');
     }
-    if (hashCatalogChunkPayload(request.data.payload) !== input.chunk.checksum) {
+    if (hashCatalogChunkPayload(request.data.payload, channelIntegrity.sha256) !== input.chunk.checksum) {
       throw new ConflictException('Stored full-details chunk does not match its receipt');
     }
     await assertCatalogPublicationPlan(tx, input, sourceRun.plan);
@@ -122,7 +126,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
       lastImportRunId: sourceRun.id,
       rawSource: 'coupang_catalog_details',
     });
-    await applyRegisteredOptionRecipes(tx, this.recipes, {
+    await applyRegisteredOptionRecipes(ownerTransaction(tx), this.recipes, {
       organizationId: input.organizationId,
       channelListingIds: [...identities.listingIds.values()],
     });
@@ -257,12 +261,12 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           publicationJson: true,
         },
       });
-      if (hashCatalogChunkReceipts(chunks) !== input.chunkSetHash) {
+      if (hashCatalogChunkReceipts(chunks, channelIntegrity.sha256) !== input.chunkSetHash) {
         throw new ConflictException('Staged catalog receipts changed before publication');
       }
       for (const chunk of chunks) {
         const parsed = PutCoupangCatalogChunkRequestSchema.safeParse(chunk);
-        if (!parsed.success || hashCatalogChunkPayload(parsed.data.payload) !== chunk.checksum) {
+        if (!parsed.success || hashCatalogChunkPayload(parsed.data.payload, channelIntegrity.sha256) !== chunk.checksum) {
           throw new ConflictException('Stored catalog chunk does not match its receipt');
         }
       }
@@ -272,7 +276,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
       let qualityReport: Record<string, unknown>;
       if (stage === 'details') {
         const snapshot = assembleFullDetailsSnapshot(chunks, sourceRun.plan);
-        if (hashCatalogStageSnapshot(snapshot.products) !== input.snapshotHash) {
+        if (hashCatalogStageSnapshot(snapshot.products, channelIntegrity.sha256) !== input.snapshotHash) {
           throw new ConflictException('Staged detail snapshot changed before publication');
         }
         const detailChunks = chunks.filter((chunk) => chunk.kind === 'full_details');
@@ -289,7 +293,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           },
           select: { id: true },
         });
-        await applyRegisteredOptionRecipes(tx, this.recipes, {
+        await applyRegisteredOptionRecipes(ownerTransaction(tx), this.recipes, {
           organizationId: input.organizationId,
           channelListingIds: detailListings.map(({ id }) => id),
         });
@@ -312,8 +316,8 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           : assembleCompleteSnapshot(chunks);
         const products = snapshot.products;
         const snapshotHash = stage === 'basics'
-          ? hashCatalogStageSnapshot(products)
-          : hashCoupangCatalogSnapshot(products);
+          ? hashCatalogStageSnapshot(products, channelIntegrity.sha256)
+          : hashCoupangCatalogSnapshot(products, channelIntegrity.sha256);
         if (snapshotHash !== input.snapshotHash) {
           throw new ConflictException('Staged catalog snapshot changed before publication');
         }
@@ -335,7 +339,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
               lastImportRunId: sourceRun.id,
               publicationReference: { type: 'source_import_run', id: sourceRun.id },
             });
-        await applyRegisteredOptionRecipes(tx, this.recipes, {
+        await applyRegisteredOptionRecipes(ownerTransaction(tx), this.recipes, {
           organizationId: input.organizationId,
           channelListingIds: upserted.listingIds,
         });
@@ -358,7 +362,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           publication: result,
           ...(stage === 'basics'
             ? {
-                basicManifestHash: hashCatalogChunkPayload(snapshot.manifest),
+                basicManifestHash: hashCatalogChunkPayload(snapshot.manifest, channelIntegrity.sha256),
                 productIds: products.map((item) => item.product.externalProductId),
               }
             : {}),

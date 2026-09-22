@@ -200,7 +200,8 @@ describe('SourcingCandidateRepositoryAdapter', () => {
 
   it('lists only requested sourcing platforms', async () => {
     const prisma = listPrisma();
-    const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+    const channelListings = registeredCandidateIds([]);
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, undefined, channelListings as never);
 
     await repository.listSourced({
       organizationId: 'org-1',
@@ -217,9 +218,10 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     }));
   });
 
-  it('keeps only sourced candidates without an active ChannelProduct in the inbox', async () => {
+  it('excludes candidates with an active listing using the Channels owner read', async () => {
     const prisma = listPrisma();
-    const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+    const channelListings = registeredCandidateIds(['listed-candidate']);
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never, undefined, channelListings as never);
 
     await repository.listSourced({
       organizationId: 'org-1',
@@ -233,8 +235,14 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       where: expect.objectContaining({
         organizationId: 'org-1',
         status: 'sourced',
-        channelListings: { none: { organizationId: 'org-1', isActive: true } },
+        id: { notIn: ['listed-candidate'] },
       }),
+    }));
+    expect(channelListings.readRegisteredCandidateIds).toHaveBeenCalledWith(expect.any(Object), {
+      organizationId: 'org-1',
+    });
+    expect(prisma.sourcingCandidate.count).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { notIn: ['listed-candidate'] } }),
     }));
   });
 
@@ -272,6 +280,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     const repository = new SourcingCandidateRepositoryAdapter(
       prisma as never,
       candidateRegistrations as never,
+      registeredCandidateIds([]) as never,
     );
 
     const row = await repository.findById('candidate-1', 'org-1');
@@ -286,9 +295,9 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       'org-1',
       ['candidate-1'],
     );
-    expect(row?.productPreparation).toEqual(preparation);
+    expect(row?.registrationTarget).toEqual(preparation);
     expect(row?.productPreparations).toEqual([preparation]);
-    expect(row?.productPreparation).not.toHaveProperty('masterId');
+    expect(row?.registrationTarget).not.toHaveProperty('masterId');
     // 초안 행은 'product_registered' 라고 말하지만 근거는 실행 장부다.
     expect(row?.registrationState).toBe('registered');
   });
@@ -298,12 +307,18 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       candidateRow({ id: 'candidate-1', images: [] }),
       candidateRow({ id: 'candidate-2', name: 'Second toy', images: [] }),
     ];
-    const prisma = {
+    const tx = {
       sourcingCandidate: {
         count: vi.fn().mockResolvedValue(4),
         findMany: vi.fn().mockResolvedValue(rows),
       },
-      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const prisma = {
+      ...tx,
+      $transaction: vi.fn(async (operation: unknown) => {
+        if (typeof operation === 'function') return operation(tx);
+        return Promise.all(operation as Array<Promise<unknown>>);
+      }),
     };
     const candidateRegistrations = {
       readForCandidates: vi.fn().mockResolvedValue(new Map([
@@ -337,6 +352,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     const repository = new SourcingCandidateRepositoryAdapter(
       prisma as never,
       candidateRegistrations as never,
+      registeredCandidateIds([]) as never,
     );
 
     const page = await repository.listSourced({
@@ -348,7 +364,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
 
     expect(page.total).toBe(4);
     expect(page.items.map((item) => item.id)).toEqual(['candidate-1', 'candidate-2']);
-    expect(page.items[1]?.productPreparation?.sourceCandidateId).toBe('candidate-2');
+    expect(page.items[1]?.registrationTarget?.sourceCandidateId).toBe('candidate-2');
     expect(page.items[1]?.registrationState).toBe('preparing');
     expect(prisma.sourcingCandidate.findMany).toHaveBeenCalledWith(expect.objectContaining({
       orderBy: { createdAt: 'asc' },
@@ -457,7 +473,14 @@ function listPrisma() {
       count: vi.fn().mockResolvedValue(0),
       findMany: vi.fn().mockResolvedValue([]),
     },
-    $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    $transaction: vi.fn(async (operation: unknown) => {
+      if (typeof operation === 'function') return operation(prisma);
+      return Promise.all(operation as Array<Promise<unknown>>);
+    }),
   };
   return prisma;
+}
+
+function registeredCandidateIds(ids: string[]) {
+  return { readRegisteredCandidateIds: vi.fn().mockResolvedValue(ids) };
 }

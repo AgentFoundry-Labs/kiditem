@@ -242,12 +242,16 @@ keys or unresolved supplier links. It never changes confirmed option recipes.
 Run only through the existing `data:migrate` cutover workflow; verify its recorded
 counts before schema contraction. Recovery follows the deployment data-loss policy.
 
-`018_consolidate_registration_execution` then imports legacy submission evidence
-into the Channels execution ledger before mirrored preparation columns are
-dropped. Conflicting frozen hashes/provider results abort the transaction;
-uncertain prior submissions remain reconciliation work, never fresh creates.
-
-Preparation closure replaces stored submission status: 018 fills `closed_at`
-for terminal/archived drafts and rejects multiple remaining open drafts before
-the active-draft unique predicate changes. The current API projects submission
-state and the resulting listing from executions.
+`022_registration_target_cutover` replaces the unpromoted 018/021 steps after
+020. It imports legacy execution evidence, resolves priced target definitions,
+transfers approval evidence only to one exact execution, and renames target
+physical tables/columns before schema push. Conflicting evidence aborts;
+uncertain submissions remain reconciliation work. Successful targets remain
+reusable while explicit archival is preserved. A second run detects the new
+shape and performs no writes. Run only through the writer-stopped cutover and
+verify recorded counts; recovery follows the deployment data-loss policy.
+Before cutover, reconcile conflicting common product metadata for targets of the
+same candidate that have no existing canonical selling product. Per-target
+display names and price overrides may differ; option composition must resolve
+unambiguously. Missing archive timestamps and conflicting approval/lease/receipt
+evidence block the whole transaction rather than being inferred.

@@ -105,7 +105,7 @@ export class ContentWorkspaceController {
   /**
    * 워크스페이스가 소유한 썸네일 미리보기 목록(= `ContentAsset.role='thumbnail'`)을 통째로 교체한다.
    *
-   * `ProductPreparation` 이 없는 후보는 `registrationInput.thumbnailUrls` 를 쓸 수 없어서
+   * `RegistrationTarget` 이 없는 후보는 `registrationInput.thumbnailUrls` 를 쓸 수 없어서
    * 이 경로가 목록의 유일한 저장처다.
    */
   @Put(':workspaceId/thumbnail-gallery')

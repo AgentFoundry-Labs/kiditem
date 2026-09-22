@@ -35,7 +35,7 @@ describe('product registration execution contracts', () => {
     expect(ProductRegistrationExecutionSchema.parse({
       id: '44444444-4444-4444-8444-444444444444',
       organizationId: ORGANIZATION_ID,
-      productPreparationId: PREPARATION_ID,
+      registrationTargetId: PREPARATION_ID,
       channelAccountId: ACCOUNT_ID,
       channelListingId: null,
       executionKind: 'create',
@@ -59,7 +59,7 @@ describe('product registration execution contracts', () => {
       createdAt: '2026-07-20T00:00:00.000Z',
       updatedAt: '2026-07-20T00:00:00.000Z',
     })).toMatchObject({
-      productPreparationId: PREPARATION_ID,
+      registrationTargetId: PREPARATION_ID,
       channelAccountId: ACCOUNT_ID,
       status: 'prepared',
       providerOutcome: 'not_attempted',

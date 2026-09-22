@@ -1,8 +1,3 @@
-import { listingProductIdFromRecipes } from '../../../../channels/domain/listing-product-summary';
-import { ProductStateException } from '../../../application/exception/product-state.exception';
-import type { ProductSourceChange } from '../../../domain/product-source-change';
-import { advanceProductMappingGeneration, lockProductMapping } from '../../../../common/product-mapping-generation';
-import { lockProductSource } from './transaction/product-source-lock';
 import {
   BadRequestException,
   ConflictException,
@@ -15,6 +10,10 @@ import {
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
 import { buildPeriodBasis, periodBasisStatus, WING_TRAFFIC_SOURCE } from '@kiditem/shared/dashboard';
+import { advanceProductMappingGeneration, lockProductMapping } from '../../../../common/product-mapping-generation';
+import { ProductStateException } from '../../../application/exception/product-state.exception';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { listingProductIdFromRecipes } from '../../../../channels/domain/listing/listing-product-summary';
 import {
   advertisingApplies,
   readAdEvidenceCutoff,
@@ -31,13 +30,15 @@ import {
 } from '../../../../channels/read/channel-listing-daily-facts';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
-import { listSellingMasterProductIds } from './selling-master-product.query';
 import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';
 import {
   PRODUCT_SOURCE_READ_PORT,
   type ProductSourceReadModel,
   type ProductSourceReadPort,
 } from '../../../application/port/in/product-source-read.port';
+import { lockProductSource } from './transaction/product-source-lock';
+import { listSellingMasterProductIds } from './selling-master-product.query';
+import type { ProductSourceChange } from '../../../domain/product-source-change';
 import type {
   MasterProductOperationsListQuery,
 } from '@kiditem/shared/product-operations';
@@ -138,6 +139,8 @@ implements ProductOperationsRepositoryPort {
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
     @Inject(PRODUCT_SOURCE_READ_PORT)
     private readonly inventorySkuRead: ProductSourceReadPort,
+    @Inject(CHANNEL_ACCOUNT_PORT)
+    private readonly channelAccounts: ChannelAccountPort,
   ) {}
 
   async listDisplayMediaTargets(
@@ -200,12 +203,12 @@ implements ProductOperationsRepositoryPort {
         );
         // The ad window keeps the period length but ends at the ad evidence
         // cutoff: yesterday, unless every account held yesterday as unreported.
-        const adCutoff = await readAdEvidenceCutoff(tx, { organizationId, closedDay: cutoff });
+        const adCutoff = await readAdEvidenceCutoff(tx, { organizationId, closedDay: cutoff }, this.channelAccounts);
         const adPeriodStart = addDays(adCutoff, -(query.periodDays - 1));
         const adPeriodEnd = addDays(adCutoff, 1);
-        const adByListing = await readListingAdWindowFacts(tx, { organizationId, from: adPeriodStart, to: adPeriodEnd });
-        const adWindow = await readAdWindowFacts(tx, { organizationId, from: adPeriodStart, to: adPeriodEnd });
-        const applies = await advertisingApplies(tx, organizationId);
+        const adByListing = await readListingAdWindowFacts(tx, { organizationId, from: adPeriodStart, to: adPeriodEnd }, this.channelAccounts);
+        const adWindow = await readAdWindowFacts(tx, { organizationId, from: adPeriodStart, to: adPeriodEnd }, this.channelAccounts);
+        const applies = await advertisingApplies(tx, organizationId, this.channelAccounts);
         const adCoverage = {
           ready: !applies || adWindow.days.length === query.periodDays,
           coverageStartDate: businessDateKey(adPeriodStart),
@@ -217,7 +220,7 @@ implements ProductOperationsRepositoryPort {
           listingIds: rows.flatMap((row) => row.channelListings.map((listing) => listing.id)),
         });
         const orderWindow = { organizationId, from: kstDayStart(periodStart), to: kstDayStart(periodEnd) };
-        const orders = await readOrderWindowFacts(tx, orderWindow);
+        const orders = await readOrderWindowFacts(tx, orderWindow, this.channelAccounts);
         const orderLines = await readListingOptionOrderFacts(tx, orderWindow);
         return {
           sellingMasterProductIds,

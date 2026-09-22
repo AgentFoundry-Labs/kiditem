@@ -1,3 +1,5 @@
+import { RegistrationSourceAdapter } from '../../../../../sourcing/adapter/out/repository/registration-source.adapter';
+import { ListingContentQueryRepositoryAdapter } from '../../../../../ai/adapter/out/repository/listing-content-query.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
@@ -12,8 +14,8 @@ import { SellpiaCollectionUseCase } from '../../../../../products/application/us
 import { SellpiaPayloadDecoderAdapter } from '../../../../../products/adapter/out/sellpia/sellpia-payload-decoder.adapter';
 import { SellpiaPayloadValidator } from '../../../../../products/adapter/out/sellpia/sellpia-payload.validator';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { getMallAdapterManifest } from '../../../../domain/mall/mall-adapter-manifest';
-import { evaluateMallPreflight } from '../../../../domain/mall/mall-publish-preflight';
+import { getMallAdapterManifest } from '../../../../domain/registration/mall-adapter-manifest';
+import { evaluateMallPreflight } from '../../../../domain/registration/mall-publish-preflight';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -41,6 +43,8 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       new ProductAvailabilityUseCase(
         new ProductAvailabilityRepositoryAdapter(prisma as never),
       ),
+      new RegistrationSourceAdapter(),
+      new ListingContentQueryRepositoryAdapter(prisma as never),
     );
   });
 

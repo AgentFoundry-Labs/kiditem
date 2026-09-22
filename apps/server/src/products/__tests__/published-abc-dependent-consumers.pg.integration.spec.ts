@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 import {
@@ -134,9 +136,9 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       endDate: '2026-08-31',
     });
 
-    await expect(findAutoBatchCandidates(prisma as never, ORG, 10))
+    await expect(findAutoBatchCandidates(prisma as never, ORG, 10, makeChannelListingQuery(prisma), makeChannelRecipes(prisma)))
       .resolves.toEqual([{ id: workspace.id }]);
-    await expect(new ReviewsService(prisma as never).list(ORG, {}))
+    await expect(new ReviewsService(prisma as never, new ProductTransactionalReadRepositoryAdapter(), makeChannelListingQuery(prisma), makeChannelRecipes(prisma), profitCatalogTestReaders(prisma as never).accounts).list(ORG, {}))
       .resolves.toMatchObject({ items: [{ listingId: listing.id, grade: 'A' }] });
     await expect(buildPerListingProfit(
       prisma as never,
@@ -145,6 +147,7 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       new Date('2026-09-01T00:00:00.000Z'),
       { hasAdAccount: true, publishedDates: 31, accountSpend: 0, coversWindow: true },
       new ProductTransactionalReadRepositoryAdapter(),
+      profitCatalogTestReaders(prisma as never),
     )).resolves.toEqual([
       expect.objectContaining({ listingId: listing.id, grade: 'A' }),
     ]);

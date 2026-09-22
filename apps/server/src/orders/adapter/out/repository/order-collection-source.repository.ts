@@ -16,6 +16,7 @@ import type {
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -23,17 +24,15 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { addDays, businessDateKey, kstDayStart } from '../../../../common/kst';
 import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import { readCompletedImportRowCountsByScope } from '../../../../core/read/source-import-run.reader';
 import {
-  ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER,
-  findOrderCollectionMall,
-  orderCollectionMallAccountChannels,
-  orderCollectionMallAccountFilter,
-  pickOrderCollectionMallAccounts,
-  type OrderCollectionMallKey,
-} from '../../../domain/order-collection-malls';
+  CHANNEL_ACCOUNT_PORT,
+  type ChannelAccountPort,
+} from '../../../../channels/application/port/in/account/channel-account.port';
+import type { MallChannelKey } from '@kiditem/shared/channel-registry';
 import type {
   OrderCollectionArtifact,
   OrderCollectionAttempt,
@@ -124,6 +123,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
   ) {}
 
   async beginAttempt(input: {
@@ -313,20 +313,11 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     organizationId: string;
   }): Promise<OrderCollectionSourceStatus[]> {
     return this.prisma.$transaction(async (tx) => {
-      const { own, shared } = orderCollectionMallAccountChannels();
-      const accounts = await tx.channelAccount.findMany({
-        where: {
-          organizationId: input.organizationId,
-          OR: [
-            { channel: { in: own }, externalAccountId: { in: own } },
-            { channel: { in: shared } },
-          ],
-        },
-        orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
-        select: { id: true, channel: true, externalAccountId: true },
+      const identities = await this.channelAccounts.resolveMallIdentities(ownerTransaction(tx), {
+        organizationId: input.organizationId,
       });
       const accountByMallKey = new Map(
-        [...pickOrderCollectionMallAccounts(accounts)].map(([mallKey, account]) => [mallKey, account.id]),
+        identities.map(({ mallKey, accountId }) => [mallKey, accountId]),
       );
       const runs = await this.findStatusRuns(
         tx,
@@ -651,18 +642,17 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
    */
   private async findMallAccount(tx: Tx, organizationId: string, mallKey: string): Promise<{
     id: string;
-    mallKey: OrderCollectionMallKey;
+    mallKey: MallChannelKey;
     mallName: string;
   }> {
-    const mall = findOrderCollectionMall(mallKey);
+    const mall = MALL_CHANNELS.find((entry) => entry.key === mallKey);
     if (!mall) throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
-    const account = await tx.channelAccount.findFirst({
-      where: { organizationId, ...orderCollectionMallAccountFilter(mall) },
-      orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
-      select: { id: true },
+    const [account] = await this.channelAccounts.resolveMallIdentities(ownerTransaction(tx), {
+      organizationId,
+      mallKeys: [mall.key],
     });
     if (!account) throw new NotFoundException('ORDER_COLLECTION_MALL_NOT_FOUND');
-    return { id: account.id, mallKey: mall.key, mallName: mall.name };
+    return { id: account.accountId, mallKey: mall.key, mallName: mall.name };
   }
 
   private async findRun(tx: Tx, organizationId: string, attemptId: string): Promise<SourceRun> {

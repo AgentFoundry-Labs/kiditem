@@ -87,7 +87,7 @@ export interface CandidateContentAssetRow {
  * Replace the workspace-owned `role='thumbnail'` gallery in one shot.
  *
  * The gallery is the ordered "썸네일 미리보기 이미지" set. It is the only write
- * path a candidate without a `ProductPreparation` has, so it must land on
+ * path a candidate without a `RegistrationTarget` has, so it must land on
  * `ContentAsset.role='thumbnail'` — that is the set
  * `listCandidateAssets`/`listRegistrationImages` read back into Wing
  * `additionalImageUrls`.
@@ -102,8 +102,8 @@ export interface ReplaceWorkspaceThumbnailGalleryInput {
 /**
  * The workspace-owned current thumbnail selection for one sourcing candidate.
  *
- * This is the workspace-side twin of `ProductPreparation.selectedThumbnailUrl`.
- * A candidate with no `ProductPreparation` can only record its representative
+ * This is the workspace-side twin of `RegistrationTarget.selectedThumbnailUrl`.
+ * A candidate with no `RegistrationTarget` can only record its representative
  * thumbnail here (`ContentWorkspace.currentThumbnailSelectionId`), so without
  * reading it back the saved selection is invisible after a reload.
  */

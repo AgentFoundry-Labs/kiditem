@@ -2,6 +2,16 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../content-workspace-lifecycle.repository.adapter';
 
+function channelListingQuery() {
+  return {
+    lockActiveOwner: vi.fn().mockResolvedValue({
+      id: 'listing-1',
+      sourceCandidateId: 'candidate-1',
+      accountId: 'account-1',
+    }),
+  };
+}
+
 function transactional<T extends Record<string, unknown>>(scope: T): T & {
   $transaction: ReturnType<typeof vi.fn>;
   $queryRaw: ReturnType<typeof vi.fn>;
@@ -27,7 +37,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       ...tx,
       $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
     };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
 
     await expect(repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -55,7 +65,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       ...tx,
       $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
     };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
 
     await expect(repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -89,7 +99,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       ...tx,
       $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
     };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
 
     await repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -124,7 +134,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         })),
       },
     });
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
 
     await expect(repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -163,10 +173,9 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         create: vi.fn(),
       },
     });
-    prisma.$queryRaw
-      .mockResolvedValueOnce([{ id: 'listing-1', sourceCandidateId: 'candidate-1' }])
-      .mockResolvedValueOnce([{ id: 'source-workspace-1', sourceCandidateId: 'candidate-1' }]);
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+    prisma.$queryRaw.mockResolvedValueOnce([{ id: 'source-workspace-1', sourceCandidateId: 'candidate-1' }]);
+    const channelListings = channelListingQuery();
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListings as never);
 
     await repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -186,6 +195,10 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         channelListingId: 'listing-1',
       }),
     }));
+    expect(channelListings.lockActiveOwner).toHaveBeenCalledWith(expect.anything(), {
+      organizationId: 'org-1',
+      listingId: 'listing-1',
+    });
   });
 
   it('lists only registered-product workspaces, excluding sourcing candidate workspaces', async () => {
@@ -195,7 +208,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         findMany: vi.fn().mockResolvedValue([]),
       },
     };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
 
     await repository.listActive({
       organizationId: 'org-1',

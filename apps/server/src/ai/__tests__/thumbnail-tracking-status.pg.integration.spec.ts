@@ -1,3 +1,4 @@
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { THUMBNAIL_TRACKING_STATUSES } from '@kiditem/shared/ai';
@@ -37,7 +38,7 @@ describe('thumbnail tracking status (PostgreSQL)', () => {
     await prisma.$connect();
     const salesScraper: CoupangProductSalesScrapePort = { scrapeByProductName: vi.fn() };
     service = new ThumbnailTrackingService(
-      new ThumbnailTrackingRepositoryAdapter(prisma as unknown as PrismaService),
+      new ThumbnailTrackingRepositoryAdapter(prisma as unknown as PrismaService, makeChannelListingQuery(prisma)),
       salesScraper,
     );
   });

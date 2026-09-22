@@ -15,7 +15,7 @@ import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/
 import { groupUrlAssetKey } from '../domain/content-asset-key';
 
 /**
- * 준비(ProductPreparation)가 없는 후보의 썸네일 미리보기 목록 저장 경로.
+ * 준비(RegistrationTarget)가 없는 후보의 썸네일 미리보기 목록 저장 경로.
  *
  * 이 경로가 없을 때는 목록이 조용히 버려졌고, 쿠팡 WING 추가이미지가 늘 0/9 였다.
  * 여기서 검증하는 건 "저장한 목록이 `listCandidateAssets`(= registrationImages.thumbnail,

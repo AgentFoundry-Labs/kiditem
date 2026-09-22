@@ -1,3 +1,5 @@
+import { ownerTransaction } from '../../prisma/owner-transaction';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../channels/application/port/in/channel-option-recipe.port';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
   SupplierHistoryItem,
@@ -145,6 +147,7 @@ function summarizeSupplierHistory(items: SupplierHistoryItem[]): SupplierHistory
 @Injectable()
 export class SupplierStatsService {
   constructor(
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_SOURCE_READ_PORT)
     private readonly inventory: ProductSourceReadPort,
@@ -280,16 +283,7 @@ export class SupplierStatsService {
     ]);
     const optionIds = [...new Set(lines.flatMap((line) =>
       line.listingOptionId ? [line.listingOptionId] : []))];
-    const options = optionIds.length === 0 ? [] : await this.prisma.channelListingOption.findMany({
-      where: { organizationId, id: { in: optionIds } },
-      select: {
-        id: true,
-        inventoryComponents: {
-          where: { organizationId },
-          select: { masterProductId: true, quantity: true },
-        },
-      },
-    });
+    const options = optionIds.length === 0 ? [] : await this.channelRecipes.readConfirmedCompositions(ownerTransaction(this.prisma), { organizationId, optionIds }).then(rows => rows.map(row => ({ id: row.optionId, inventoryComponents: row.components })));
 
     const componentsByOption = new Map(options.map((option) => [option.id, option.inventoryComponents]));
     const orderLines: OrderLineProjection[] = lines.map((line) => {

@@ -39,9 +39,9 @@ const TARGET_INCLUDE = {
       },
     },
   },
-} satisfies Prisma.ProductPreparationInclude;
+} satisfies Prisma.RegistrationTargetInclude;
 
-type TargetRow = Prisma.ProductPreparationGetPayload<{ include: typeof TARGET_INCLUDE }>;
+type TargetRow = Prisma.RegistrationTargetGetPayload<{ include: typeof TARGET_INCLUDE }>;
 type Tx = Prisma.TransactionClient;
 
 @Injectable()
@@ -53,13 +53,12 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
       const product = await validateReferences(tx, organizationId, input.salesProductId, input.channelAccountId, {
         allowArchivedProduct: true,
       });
-      const candidates = await tx.productPreparation.findMany({
+      const candidates = await tx.registrationTarget.findMany({
         where: {
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
-          closedAt: null,
-          isDeleted: false,
+          archivedAt: null,
           ...(input.targetId ? { id: input.targetId } : {}),
         },
         select: { id: true },
@@ -80,7 +79,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
         select: { id: true },
       });
-      const created = await tx.productPreparation.create({
+      const created = await tx.registrationTarget.create({
         data: {
           organizationId,
           salesProductId: input.salesProductId,
@@ -102,11 +101,11 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
   }
 
   async list(organizationId: string, salesProductId: string): Promise<RegistrationTargetRecord[]> {
-    const rows = await this.prisma.productPreparation.findMany({
+    const rows = await this.prisma.registrationTarget.findMany({
       where: {
         organizationId,
         salesProductId,
-        isDeleted: false,
+        archivedAt: null,
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       include: TARGET_INCLUDE,
@@ -115,11 +114,11 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
   }
 
   async get(organizationId: string, targetId: string): Promise<RegistrationTargetRecord | null> {
-    const row = await this.prisma.productPreparation.findFirst({
+    const row = await this.prisma.registrationTarget.findFirst({
       where: {
         id: targetId,
         organizationId,
-        isDeleted: false,
+        archivedAt: null,
       },
       include: TARGET_INCLUDE,
     });
@@ -135,7 +134,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         selectedOptions: input.selectedOptions,
       });
 
-      const created = await tx.productPreparation.create({
+      const created = await tx.registrationTarget.create({
         data: {
           organizationId,
           salesProductId: input.salesProductId,
@@ -169,15 +168,15 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw(Prisma.sql`
-        SELECT id FROM product_preparations
+        SELECT id FROM registration_targets
         WHERE id = ${targetId}::uuid AND organization_id = ${organizationId}::uuid
         FOR UPDATE
       `);
-      const current = await tx.productPreparation.findFirst({
+      const current = await tx.registrationTarget.findFirst({
         where: {
           id: targetId,
           organizationId,
-          isDeleted: false,
+          archivedAt: null,
         },
         select: {
           id: true,
@@ -209,11 +208,11 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         existingOptionIds,
       });
 
-      const updated = await tx.productPreparation.updateMany({
+      const updated = await tx.registrationTarget.updateMany({
         where: {
           id: current.id,
           organizationId,
-          isDeleted: false,
+          archivedAt: null,
           version: input.expectedVersion,
         },
         data: {
@@ -226,17 +225,17 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         throw new RegistrationTargetException('conflict', '등록 설정이 다른 곳에서 변경되었습니다.');
       }
 
-      await tx.productPreparationOption.deleteMany({
+      await tx.registrationTargetOption.deleteMany({
         where: {
           organizationId,
-          productPreparationId: current.id,
+          registrationTargetId: current.id,
         },
       });
       if (input.selectedOptions.length > 0) {
-        await tx.productPreparationOption.createMany({
+        await tx.registrationTargetOption.createMany({
           data: input.selectedOptions.map((option, sortOrder) => ({
             organizationId,
-            productPreparationId: current.id,
+            registrationTargetId: current.id,
             salesProductOptionId: option.salesProductOptionId,
             sortOrder,
             salePrice: option.salePrice,

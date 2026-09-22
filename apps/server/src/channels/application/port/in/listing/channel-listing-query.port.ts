@@ -1,3 +1,9 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
+import type {
+  ListingTrafficWindowFacts,
+  ListingStateFact,
+  ListingSaleStatusFact,
+} from '../../../../domain/listing/observation-facts';
 export const CHANNEL_LISTING_QUERY_PORT = Symbol('CHANNEL_LISTING_QUERY_PORT');
 
 export type ChannelListingSort = 'newest' | 'oldest' | 'name_asc';
@@ -87,7 +93,159 @@ export interface ChannelListingListResult {
 }
 
 /** Organization-scoped registered-product reads for HTTP and owner consumers. */
-export interface ChannelListingQueryPort {
+export interface ChannelCatalogFact {
+  id: string;
+  externalId: string;
+  accountId: string;
+  channel: string;
+  channelName: string | null;
+  displayName: string | null;
+  category: string | null;
+  createdAt: Date;
+  sourceCandidateId: string | null;
+  isActive: boolean;
+  status: string | null;
+  rawJson: unknown;
+  options: Array<{
+    id: string;
+    externalOptionId: string;
+    itemName: string | null;
+    sellerSku: string | null;
+    status: string | null;
+    isActive: boolean;
+    salePrice: number | null;
+    createdAt: Date;
+    updatedAt: Date;
+    components: Array<{ masterProductId: string; quantity: number }>;
+  }>;
+}
+
+export interface ChannelListingFactQueries {
+  readRegisteredCandidateIds(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; candidateIds?: readonly string[] },
+  ): Promise<string[]>;
+  readOptionCandidates(
+    transaction: OwnerTransaction,
+    input: {
+      organizationId: string;
+      channel: string;
+      externalOptionIds: readonly string[];
+      activeOnly?: boolean;
+    },
+  ): Promise<
+    Array<{
+      externalOptionId: string;
+      optionId: string;
+      listingId: string;
+      accountId: string;
+      itemName: string | null;
+    }>
+  >;
+  readCatalogFacts(
+    transaction: OwnerTransaction,
+    input: {
+      organizationId: string;
+      accountIds?: readonly string[];
+      listingIds?: readonly string[];
+      channels?: readonly string[];
+      activeAccountsOnly?: boolean;
+      activeOnly?: boolean;
+    },
+  ): Promise<ChannelCatalogFact[]>;
+  readRegistrationFailureCounts(
+    transaction: OwnerTransaction,
+    input: { organizationId: string },
+  ): Promise<Array<{ channel: string; mallName: string; count: number }>>;
+  readExternalIdentities(
+    transaction: OwnerTransaction,
+    input: {
+      organizationId: string;
+      accountId: string;
+      listingExternalIds?: readonly string[];
+      optionExternalIds?: readonly string[];
+      activeOnly: boolean;
+    },
+  ): Promise<
+    Array<{
+      listingId: string;
+      externalId: string;
+      optionId: string | null;
+      externalOptionId: string | null;
+    }>
+  >;
+  readOptionIdentities(
+    transaction: OwnerTransaction,
+    input: {
+      organizationId: string;
+      optionIds: readonly string[];
+      activeOnly?: boolean;
+      channel?: string;
+    },
+  ): Promise<
+    Array<{
+      optionId: string;
+      listingId: string;
+      accountId: string;
+      externalOptionId: string;
+      listingExternalId: string;
+      channelName: string | null;
+      displayName: string | null;
+      itemName: string | null;
+    }>
+  >;
+  readDisplayFacts(
+    transaction: OwnerTransaction,
+    input: {
+      organizationId: string;
+      listingIds: readonly string[];
+      activeOnly?: boolean;
+    },
+  ): Promise<
+    Array<{
+      id: string;
+      externalId: string;
+      accountId: string;
+      displayName: string | null;
+      channelName: string | null;
+      category: string | null;
+      imageUrl: string | null;
+      firstActiveSellerSku: string | null;
+    }>
+  >;
+  readTrafficWindow(
+    transaction: OwnerTransaction,
+    input: {
+      organizationId: string;
+      from?: Date;
+      to?: Date;
+      listingIds?: readonly string[];
+      requireMasterProductLink?: boolean;
+    },
+  ): Promise<ListingTrafficWindowFacts>;
+  readLatestState(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; listingIds: readonly string[] },
+  ): Promise<readonly ListingStateFact[]>;
+  readLatestSaleStatus(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; listingIds: readonly string[] },
+  ): Promise<readonly ListingSaleStatusFact[]>;
+  lockActiveOwner(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; listingId: string },
+  ): Promise<{
+    id: string;
+    sourceCandidateId: string | null;
+    accountId: string;
+  }>;
+  assertOwnedIds(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; listingIds: readonly string[] },
+  ): Promise<void>;
+}
+
+export interface ChannelListingQueryPort extends ChannelListingFactQueries {
   list(
     organizationId: string,
     query?: ChannelListingQuery,

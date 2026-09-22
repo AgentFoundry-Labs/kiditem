@@ -1,3 +1,8 @@
+import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../ai/application/port/in/workspace/listing-content-query.port';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../channels/application/port/in/channel-option-recipe.port';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
+import { ownerTransaction } from '../../prisma/owner-transaction';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../channels/application/port/in/listing/channel-listing-query.port';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
@@ -72,9 +77,13 @@ function paretoBand(cumulativePercent: number): 'top70' | 'next20' | 'tail10' {
 @Injectable()
 export class StatisticsService {
   constructor(
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
+    @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
   ) {}
 
   /**
@@ -99,7 +108,7 @@ export class StatisticsService {
         tx,
         organizationId,
         window,
-        this.inventoryTransactionalRead,
+        this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
       ),
       REPEATABLE_READ,
     );
@@ -122,9 +131,7 @@ export class StatisticsService {
   ): Promise<StatisticsOverview> {
     const [facts, totalProducts] = await Promise.all([
       this.readFacts(organizationId, period, now),
-      this.prisma.channelListing.count({
-        where: { organizationId, isActive: true },
-      }),
+      this.channelListings.readCatalogFacts(ownerTransaction(this.prisma), { organizationId, activeOnly: true }).then(rows => rows.length),
     ]);
     const totals = profitWindowTotals(facts);
     return {
@@ -305,25 +312,11 @@ export class StatisticsService {
       excludedStatuses: REPURCHASE_EXCLUDED_STATUSES,
     };
     const { orderWindow, orders, lines, optionDisplays } = await this.prisma.$transaction(async (tx) => {
-      const orderWindow = await readOrderWindowFacts(tx, input);
+      const orderWindow = await readOrderWindowFacts(tx, input, this.channelAccounts);
       const orders = await readRepurchaseOrderFacts(tx, input);
       const lines = await readListingOptionOrderFacts(tx, input);
       const optionIds = [...new Set(lines.map((line) => line.listingOptionId))];
-      const optionDisplays = optionIds.length === 0 ? [] : await tx.channelListingOption.findMany({
-        where: { organizationId, id: { in: optionIds } },
-        select: {
-          id: true,
-          listing: {
-            select: {
-              id: true,
-              displayName: true,
-              channelName: true,
-              externalId: true,
-              category: true,
-            },
-          },
-        },
-      });
+      const optionDisplays = optionIds.length === 0 ? [] : await this.channelListings.readOptionIdentities(ownerTransaction(tx), { organizationId, optionIds }).then(async rows => { const listings = await this.channelListings.readDisplayFacts(ownerTransaction(tx), { organizationId, listingIds: [...new Set(rows.map(row => row.listingId))] }); const byId = new Map(listings.map(row => [row.id, row])); return rows.map(row => ({ id: row.optionId, listing: byId.get(row.listingId)! })); });
       return { orderWindow, orders, lines, optionDisplays };
     }, REPEATABLE_READ);
     const displayByOption = new Map(optionDisplays.map((option) => [option.id, option.listing]));

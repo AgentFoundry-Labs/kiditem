@@ -74,10 +74,20 @@ const MOCK_ORDER = {
 describe('OrdersService — order query and actions', () => {
   let service: OrdersService;
   let prisma: ReturnType<typeof makePrisma>;
+  const accounts = {
+    findByIds: vi.fn(async (_transaction: unknown, input: { accountIds: readonly string[] }) =>
+      input.accountIds.map((id) => ({
+        id,
+        name: 'test account',
+        channel: id === CHANNEL_ACCOUNT_ID ? 'coupang' : 'haebub-mall',
+        status: 'active',
+      })),
+    ),
+  };
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new OrdersService(prisma as any);
+    service = new OrdersService(prisma as any, accounts as any);
     vi.clearAllMocks();
   });
 

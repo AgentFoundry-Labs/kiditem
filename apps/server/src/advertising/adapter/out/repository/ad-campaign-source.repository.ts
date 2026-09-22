@@ -1,5 +1,8 @@
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { randomUUID } from 'node:crypto';
-import {
+import { Inject,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -26,7 +29,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
-import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
+import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
 import {
   addDays,
   businessDateKey,
@@ -76,6 +79,8 @@ const json = (value: unknown) => value as Prisma.InputJsonValue;
 @Injectable()
 export class AdCampaignSourceRepository {
   constructor(
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
   ) {}
@@ -94,15 +99,7 @@ export class AdCampaignSourceRepository {
           : replay;
         return this.viewIn(tx, row, true);
       }
-      const account = await tx.channelAccount.findFirst({
-        where: {
-          organizationId: org,
-          channel: 'coupang',
-          status: 'active',
-          ...(input.channelAccountId ? { id: input.channelAccountId } : {}),
-        },
-        orderBy: [{ isPrimary: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
-      });
+      const account = await this.channelAccounts.resolveActiveProvider(ownerTransaction(tx), { organizationId: org, accountId: input.channelAccountId, channel: 'coupang' });
       if (!account) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
       const running = await tx.sourceImportRun.findFirst({
         where: {
@@ -197,14 +194,7 @@ export class AdCampaignSourceRepository {
     }
     return this.prisma.$transaction(
       async (tx) => {
-        const account = await tx.channelAccount.findFirst({
-          where: {
-            organizationId: org,
-            channel: 'coupang',
-            status: 'active',
-          },
-          orderBy: [{ isPrimary: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
-        });
+        const account = await this.channelAccounts.resolveActiveProvider(ownerTransaction(tx), { organizationId: org, channel: 'coupang' });
         if (!account) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
         const rows = await tx.sourceImportRun.findMany({
           where: {
@@ -251,15 +241,7 @@ export class AdCampaignSourceRepository {
   async source(org: string, accountId?: string): Promise<AdCampaignSourceStatus> {
     return this.prisma.$transaction(
       async (tx) => {
-        const account = await tx.channelAccount.findFirst({
-          where: {
-            organizationId: org,
-            channel: 'coupang',
-            status: 'active',
-            ...(accountId ? { id: accountId } : {}),
-          },
-          orderBy: [{ isPrimary: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
-        });
+        const account = await this.channelAccounts.resolveActiveProvider(ownerTransaction(tx), { organizationId: org, accountId, channel: 'coupang' });
         if (!account && accountId) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
         if (!account)
           return {
@@ -592,21 +574,7 @@ export class AdCampaignSourceRepository {
   }
 
   private async listingMap(tx: Tx, row: Attempt): Promise<ListingMap> {
-    const listings = await tx.channelListing.findMany({
-      where: {
-        organizationId: row.organizationId,
-        channelAccountId: row.channelAccountId!,
-        isActive: true,
-      },
-      select: {
-        id: true,
-        externalId: true,
-        options: {
-          where: { organizationId: row.organizationId, isActive: true },
-          select: { id: true, externalOptionId: true },
-        },
-      },
-    });
+    const listings = await this.channelListings.readCatalogFacts(ownerTransaction(tx), { organizationId: row.organizationId, accountIds: [row.channelAccountId!], activeOnly: true });
     return {
       channelAccountId: row.channelAccountId!,
       externalIdMap: new Map(listings.map((l) => [l.externalId, { listingId: l.id }])),
@@ -881,14 +849,7 @@ export class AdCampaignSourceRepository {
   }
 
   private async accountMatches(tx: Tx, row: Attempt) {
-    const account = await tx.channelAccount.findFirst({
-      where: {
-        id: row.channelAccountId!,
-        organizationId: row.organizationId,
-        channel: 'coupang',
-        status: 'active',
-      },
-    });
+    const account = await this.channelAccounts.resolveActiveProvider(ownerTransaction(tx), { organizationId: row.organizationId, accountId: row.channelAccountId!, channel: 'coupang' });
     return (
       !!account &&
       resolveCoupangVendorId(account) ===

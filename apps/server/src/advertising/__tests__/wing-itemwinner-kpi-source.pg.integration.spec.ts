@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { json } from 'express';
@@ -42,12 +43,12 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    owner = new WingItemwinnerKpiSourceRepository(
+    owner = new WingItemwinnerKpiSourceRepository(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings,
       prisma as never,
       new SourceFailureAlerts(prisma as never),
     );
     wingRead = owner;
-    const channelScrape = new ChannelScrapeRepositoryAdapter(
+    const channelScrape = new ChannelScrapeRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings,
       prisma as never,
       {
         readSourceStatus: (input) => wingRead.readSourceStatus(input),
@@ -370,7 +371,7 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
       observedAt: body.observedAt,
       normalizedJson: { kpis: body.kpis, rowCount: 1 },
     });
-    const extensionStatus = await new ChannelScrapeRepositoryAdapter(
+    const extensionStatus = await new ChannelScrapeRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings,
       prisma as never,
       owner,
     ).findExtensionStatusSnapshot(ORG);
@@ -786,7 +787,7 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
       },
     });
     expect(await owner.readPublished({ organizationId: ORG })).toBeNull();
-    const extensionStatus = await new ChannelScrapeRepositoryAdapter(
+    const extensionStatus = await new ChannelScrapeRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings,
       prisma as never,
       owner,
     ).findExtensionStatusSnapshot(ORG);

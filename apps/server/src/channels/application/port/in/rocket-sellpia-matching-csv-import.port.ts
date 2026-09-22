@@ -1,11 +1,11 @@
 import type { CoupangRocketMatchingCsvImportResponse } from '@kiditem/shared/source-import';
-import type { ParsedRocketSellpiaMatchingCsv } from '../../service/rocket-sellpia-matching-csv.parser';
 
 export const ROCKET_SELLPIA_MATCHING_CSV_IMPORT_PORT = Symbol(
   'ROCKET_SELLPIA_MATCHING_CSV_IMPORT_PORT',
 );
 
-export type ImportRocketSellpiaMatchingCsvInput = ParsedRocketSellpiaMatchingCsv & {
+export type ImportRocketSellpiaMatchingCsvInput = {
+  bytes: Uint8Array;
   organizationId: string;
   userId: string;
   channelAccountId: string;

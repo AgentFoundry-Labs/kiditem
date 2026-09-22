@@ -236,11 +236,11 @@ describe('direct WING account selection', () => {
 
   it('uses the account already bound to the product preparation regardless of list order', async () => {
     const prepared = detail(basics());
-    prepared.productPreparation = {
+    prepared.registrationTarget = {
       id: '44444444-4444-4444-8444-444444444444',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       registrationInput: {},
-    } as ProductDetailResponse['productPreparation'];
+    } as ProductDetailResponse['registrationTarget'];
     vi.mocked(productsApi.getDetail).mockResolvedValue(prepared);
     vi.mocked(renderCandidateDetailImageOnServer).mockResolvedValue(renderedDetail);
     vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
@@ -419,7 +419,7 @@ const detail = (basicInfo: ProductBasics): ProductDetailResponse => ({
   image_urls: [SOURCE_IMAGE],
   images: [{ url: SOURCE_IMAGE }],
   basicInfo,
-  productPreparation: null,
+  registrationTarget: null,
   created_at: '2026-07-19T00:00:00.000Z',
   updated_at: '2026-07-19T00:00:00.000Z',
 } as ProductDetailResponse);
@@ -536,7 +536,7 @@ describe('candidateToWingProduct — content_assets.role image mapping', () => {
     );
   });
 
-  // 준비(ProductPreparation)가 없는 후보는 `thumbnailPreviewUrls` 가 늘 비어 있다.
+  // 준비(RegistrationTarget)가 없는 후보는 `thumbnailPreviewUrls` 가 늘 비어 있다.
   // 그래서 워크스페이스 썸네일 갤러리(ContentAsset role='thumbnail')가 추가이미지의
   // 유일한 소스다 — 이게 비면 추가이미지가 0/9 로 남는다.
   it('fills additional images from the workspace gallery when no preparation exists', () => {
@@ -673,9 +673,9 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
 
   it('저장된 카테고리 키를 수집상품 카테고리보다 우선한다', () => {
     const saved = detail(basics({ category: '물총' }));
-    saved.productPreparation = {
+    saved.registrationTarget = {
       registrationInput: { wingCategoryKey: '64687' },
-    } as ProductDetailResponse['productPreparation'];
+    } as ProductDetailResponse['registrationTarget'];
 
     expect(resolveWingCategoryKey(saved)).toBe('64687');
   });
@@ -724,9 +724,9 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
   it('일괄등록에서 상품별 카테고리를 독립적으로 결정한다', async () => {
     vi.mocked(resolveWingCategories).mockClear();
     const saved = detail(basics({ name: '저장 키링', category: '물총' }));
-    saved.productPreparation = {
+    saved.registrationTarget = {
       registrationInput: { wingCategoryKey: '64687' },
-    } as ProductDetailResponse['productPreparation'];
+    } as ProductDetailResponse['registrationTarget'];
     const aliased = detail(basics({ name: '원본 물총', category: '물총' }));
 
     await expect(resolveWingCategorySelections([saved, aliased])).resolves.toEqual([

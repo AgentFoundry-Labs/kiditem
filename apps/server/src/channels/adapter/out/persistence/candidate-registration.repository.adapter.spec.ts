@@ -17,7 +17,7 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
         sourceCandidateId: 'candidate-1',
         updatedAt: new Date('2026-08-01T00:01:00.000Z'),
       }),
-      // Prisma's predicate should exclude this row. Keep the guard in the
+    // Prisma's predicate should exclude this row. Keep the guard in the
       // adapter as well because this is a cross-owner projection boundary.
       preparationRow({
         id: 'preparation-foreign',
@@ -32,7 +32,7 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
       // The reader returns newest first across all preparations.
       executionRow({
         id: 'execution-2-new',
-        productPreparationId: 'preparation-2',
+        registrationTargetId: 'preparation-2',
         status: 'succeeded',
         providerOutcome: 'succeeded',
         channelListingId: 'listing-2',
@@ -40,14 +40,14 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
       }),
       executionRow({
         id: 'execution-1-new',
-        productPreparationId: 'preparation-1',
+        registrationTargetId: 'preparation-1',
         status: 'failed',
         providerOutcome: 'definitive_failure',
         createdAt: new Date('2026-08-01T00:03:00.000Z'),
       }),
       executionRow({
         id: 'execution-1-old',
-        productPreparationId: 'preparation-1',
+        registrationTargetId: 'preparation-1',
         status: 'succeeded',
         providerOutcome: 'succeeded',
         channelListingId: 'old-listing',
@@ -55,7 +55,7 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
       }),
     ];
     const prisma = {
-      productPreparation: {
+      registrationTarget: {
         findMany: vi.fn().mockResolvedValue(preparationRows),
       },
       productRegistrationExecution: {
@@ -73,17 +73,17 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
     ]);
     const candidate = result.get('candidate-1');
 
-    expect(prisma.productPreparation.findMany).toHaveBeenCalledWith(expect.objectContaining({
+    expect(prisma.registrationTarget.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         organizationId: 'org-1',
         sourceCandidateId: { in: ['candidate-1'] },
-        isDeleted: false,
+        archivedAt: null,
       },
     }));
     expect(prisma.productRegistrationExecution.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
         organizationId: 'org-1',
-        productPreparationId: { in: ['preparation-1', 'preparation-2'] },
+        registrationTargetId: { in: ['preparation-1', 'preparation-2'] },
       },
     }));
     expect(candidate?.preparations).toHaveLength(2);
@@ -109,7 +109,7 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
 
   it('returns empty owner-scoped entries without querying executions when no preparation matches', async () => {
     const prisma = {
-      productPreparation: {
+      registrationTarget: {
         findMany: vi.fn().mockResolvedValue([]),
       },
       productRegistrationExecution: {
@@ -137,7 +137,7 @@ function preparationRow(overrides: Record<string, unknown> = {}) {
     channelAccountId: 'account-1',
     sourceContentWorkspaceId: 'workspace-1',
     displayName: 'Toy',
-    closedAt: null,
+    archivedAt: null,
     selectedThumbnailUrl: null,
     selectedThumbnailGenerationId: null,
     selectedThumbnailGenerationCandidateId: null,
@@ -154,7 +154,7 @@ function preparationRow(overrides: Record<string, unknown> = {}) {
 function executionRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'execution-1',
-    productPreparationId: 'preparation-1',
+    registrationTargetId: 'preparation-1',
     channelAccountId: 'account-1',
     channelListingId: null,
     executionKind: 'external_wing',

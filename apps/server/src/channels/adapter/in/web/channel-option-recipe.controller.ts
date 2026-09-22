@@ -1,3 +1,5 @@
+import { UseFilters } from '@nestjs/common';
+import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import {
   Body,
   Controller,
@@ -14,14 +16,15 @@ import {
   type ChannelOptionRecipePort,
 } from '../../../application/port/in/channel-option-recipe.port';
 import { ChannelOptionRecipeCandidateQueryDto, ReplaceChannelOptionRecipeDto } from './dto/channel-option-recipe.dto';
-import { ChannelOptionRecipeCandidateService } from '../../../application/service/channel-option-recipe-candidate.service';
+import { CHANNEL_OPTION_RECIPE_CANDIDATE_PORT, type ChannelOptionRecipeCandidatePort } from "../../../application/port/in/listing/channel-option-recipe-candidate.port";
 
+@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels')
 export class ChannelOptionRecipeController {
   constructor(
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly recipes: ChannelOptionRecipePort,
-    private readonly candidates: ChannelOptionRecipeCandidateService,
+    @Inject(CHANNEL_OPTION_RECIPE_CANDIDATE_PORT) private readonly candidates: ChannelOptionRecipeCandidatePort,
   ) {}
 
   @Put('options/:channelListingOptionId/inventory-components')

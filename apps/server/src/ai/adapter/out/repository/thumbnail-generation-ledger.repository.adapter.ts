@@ -1,3 +1,5 @@
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -50,10 +52,12 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
     private readonly prisma: PrismaService,
     @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
     private readonly directJobs: AiDirectJobRepositoryPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly listings: ChannelListingQueryPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly recipes: ChannelOptionRecipePort,
   ) {}
 
   findWorkspaceForThumbnailEditor(contentWorkspaceId: string, organizationId: string) {
-    return findWorkspaceForThumbnailEditor(this.prisma, contentWorkspaceId, organizationId);
+    return findWorkspaceForThumbnailEditor(this.prisma, contentWorkspaceId, organizationId, this.listings);
   }
 
   async findGenerationRows(
@@ -80,15 +84,15 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   }
 
   async findGenerationWorkspaces(rows: Array<{ contentWorkspaceId: string | null }>, organizationId: string) {
-    return findGenerationWorkspaces(this.prisma, rows, organizationId);
+    return findGenerationWorkspaces(this.prisma, rows, organizationId, this.listings);
   }
 
   findGenerationWorkspace(contentWorkspaceId: string | null, organizationId: string) {
-    return findGenerationWorkspace(this.prisma, contentWorkspaceId, organizationId);
+    return findGenerationWorkspace(this.prisma, contentWorkspaceId, organizationId, this.listings);
   }
 
   async findWorkspaceForThumbnailJob(contentWorkspaceId: string, organizationId: string) {
-    return findWorkspaceForThumbnailJob(this.prisma, contentWorkspaceId, organizationId) as Promise<
+    return findWorkspaceForThumbnailJob(this.prisma, contentWorkspaceId, organizationId, this.listings) as Promise<
       Awaited<ReturnType<ThumbnailGenerationLedgerRepositoryPort['findWorkspaceForThumbnailJob']>>
     >;
   }
@@ -113,7 +117,7 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   }
 
   async findWorkspacesForThumbnailJobs(ids: string[], organizationId: string) {
-    return findWorkspacesForThumbnailJobs(this.prisma, ids, organizationId) as Promise<
+    return findWorkspacesForThumbnailJobs(this.prisma, ids, organizationId, this.listings) as Promise<
       Awaited<ReturnType<ThumbnailGenerationLedgerRepositoryPort['findWorkspacesForThumbnailJobs']>>
     >;
   }
@@ -127,7 +131,7 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   }
 
   findAutoBatchCandidates(organizationId: string, take: number) {
-    return findAutoBatchCandidates(this.prisma, organizationId, take);
+    return findAutoBatchCandidates(this.prisma, organizationId, take, this.listings, this.recipes);
   }
 
   findThumbnailAnalysisGrade(contentWorkspaceId: string, organizationId: string) {

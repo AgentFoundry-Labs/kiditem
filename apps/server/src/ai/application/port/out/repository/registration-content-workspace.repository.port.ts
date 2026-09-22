@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   BranchRegistrationWorkspaceToListingInput,
   EnsureRegistrationCandidateWorkspaceInput,
@@ -20,20 +21,20 @@ export interface RegistrationContentWorkspaceRepositoryPort {
     input: FindCandidateContentWorkspaceInput,
   ): Promise<string | null>;
   resolveSourceSelections(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: RegistrationContentSelectionInput,
   ): Promise<ResolvedRegistrationContentSelections>;
   validateSourceSelections(
-    transaction: object | null,
+    transaction: OwnerTransaction | null,
     input: RegistrationContentSelectionInput,
   ): Promise<void>;
   ensureCandidateWorkspace(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: EnsureRegistrationCandidateWorkspaceInput &
       RegistrationContentWorkspaceOwnerInput,
   ): Promise<{ workspaceId: string }>;
   branchToListing(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: BranchRegistrationWorkspaceToListingInput &
       RegistrationContentWorkspaceOwnerInput,
   ): Promise<{ workspaceId: string }>;

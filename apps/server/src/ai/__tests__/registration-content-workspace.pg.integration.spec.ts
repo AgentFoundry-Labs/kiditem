@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -10,6 +9,10 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
+import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ownerTransaction } from '../../prisma/owner-transaction';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
@@ -20,6 +23,10 @@ describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () =>
     await prisma.$connect();
     repository = new RegistrationContentWorkspaceRepositoryAdapter(
       prisma as unknown as PrismaService,
+      new ChannelListingQueryService(
+        new ChannelListingQueryPersistenceAdapter(prisma as never),
+        { findForListings: async () => [] },
+      ),
     );
   });
 
@@ -67,7 +74,7 @@ describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () =>
     });
 
     await expect(prisma.$transaction((transaction) =>
-      repository.resolveSourceSelections(transaction, {
+      repository.resolveSourceSelections(ownerTransaction(transaction), {
         organizationId: TEST_ORGANIZATION_ID,
         sourceWorkspaceId: sourceWorkspace.id,
         selectedThumbnailUrl: thumbnailUrl,
@@ -189,7 +196,7 @@ describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () =>
     await sourceRowsLocked;
 
     const branch = prisma.$transaction((transaction) => repository.branchToListing(
-      transaction,
+      ownerTransaction(transaction),
       {
         organizationId: TEST_ORGANIZATION_ID,
         sourceWorkspaceId: sourceWorkspace.id,

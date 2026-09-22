@@ -147,7 +147,7 @@ describe('sourcing candidate API', () => {
           thumbnailUrl: 'https://cdn.example.com/scrape-original.png',
           imageUrl: 'https://cdn.example.com/scrape-original.png',
           images: [],
-          productPreparation: null,
+          registrationTarget: null,
           selectedThumbnailUrl: 'https://cdn.example.com/saved-representative.jpg',
         },
       ],
@@ -173,7 +173,7 @@ describe('sourcing candidate API', () => {
           thumbnailUrl: 'https://cdn.example.com/scrape-original.png',
           imageUrl: 'https://cdn.example.com/scrape-original.png',
           images: [],
-          productPreparation: null,
+          registrationTarget: null,
           selectedThumbnailUrl: null,
         },
       ],
@@ -246,7 +246,7 @@ describe('sourcing candidate API', () => {
       processedData: null,
       rawData: {},
       images: [],
-      productPreparation: {
+      registrationTarget: {
         id: '44444444-4444-4444-8444-444444444444',
         sourceCandidateId: 'cand-1',
         channelAccountId: '11111111-1111-4111-8111-111111111111',
@@ -270,7 +270,7 @@ describe('sourcing candidate API', () => {
 
     const detail = await productsApi.getDetail('cand-1');
 
-    expect(detail.productPreparation).toEqual({
+    expect(detail.registrationTarget).toEqual({
       id: '44444444-4444-4444-8444-444444444444',
       sourceCandidateId: 'cand-1',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
@@ -304,7 +304,7 @@ describe('sourcing candidate API', () => {
       processedData: null,
       rawData: {},
       images: [],
-      productPreparation: null,
+      registrationTarget: null,
       createdAt: '2026-05-16T00:00:00.000Z',
       updatedAt: '2026-05-16T00:00:00.000Z',
     });

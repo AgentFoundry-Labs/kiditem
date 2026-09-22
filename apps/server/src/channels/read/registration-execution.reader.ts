@@ -1,5 +1,5 @@
 import { findChannel } from '@kiditem/shared/channel-registry';
-import { LIVE_REGISTRATION_EXECUTION_STATUSES } from '../domain/registration-execution-state';
+import { LIVE_REGISTRATION_EXECUTION_STATUSES } from '../domain/registration/registration-execution-state';
 import type { Prisma } from '@prisma/client';
 
 /**
@@ -13,7 +13,7 @@ import type { Prisma } from '@prisma/client';
 
 export type RegistrationExecutionFact = Readonly<{
   executionId: string;
-  productPreparationId: string;
+  registrationTargetId: string;
   channelAccountId: string;
   channelListingId: string | null;
   executionKind: string;
@@ -22,6 +22,9 @@ export type RegistrationExecutionFact = Readonly<{
   providerSubmissionId: string | null;
   externalListingId: string | null;
   hasResult: boolean;
+  reviewPayloadHash: string | null;
+  approvedAt: Date | null;
+  approvedByUserId: string | null;
   createdAt: Date;
 }>;
 
@@ -35,7 +38,7 @@ export type CandidateRegistrationState =
 
 export const REGISTRATION_EXECUTION_FACT_SELECT = {
   id: true,
-  productPreparationId: true,
+  registrationTargetId: true,
   channelAccountId: true,
   channelListingId: true,
   executionKind: true,
@@ -44,6 +47,9 @@ export const REGISTRATION_EXECUTION_FACT_SELECT = {
   providerSubmissionId: true,
   externalListingId: true,
   resultJson: true,
+  reviewPayloadHash: true,
+  approvedAt: true,
+  approvedByUserId: true,
   createdAt: true,
 } satisfies Prisma.ProductRegistrationExecutionSelect;
 
@@ -163,20 +169,20 @@ function record(value: unknown): Record<string, unknown> | null {
  */
 export async function readRegistrationExecutionFacts(
   tx: Prisma.TransactionClient,
-  input: { organizationId: string; productPreparationIds: readonly string[] },
+  input: { organizationId: string; registrationTargetIds: readonly string[] },
 ): Promise<readonly RegistrationExecutionFact[]> {
-  if (input.productPreparationIds.length === 0) return [];
+  if (input.registrationTargetIds.length === 0) return [];
   const rows = await tx.productRegistrationExecution.findMany({
     where: {
       organizationId: input.organizationId,
-      productPreparationId: { in: [...input.productPreparationIds] },
+      registrationTargetId: { in: [...input.registrationTargetIds] },
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: REGISTRATION_EXECUTION_FACT_SELECT,
   });
-  return rows.flatMap((row) => row.productPreparationId === null ? [] : [{
+  return rows.flatMap((row) => row.registrationTargetId === null ? [] : [{
     executionId: row.id,
-    productPreparationId: row.productPreparationId,
+    registrationTargetId: row.registrationTargetId,
     channelAccountId: row.channelAccountId,
     channelListingId: row.channelListingId,
     executionKind: row.executionKind,
@@ -185,6 +191,9 @@ export async function readRegistrationExecutionFacts(
     providerSubmissionId: row.providerSubmissionId,
     externalListingId: row.externalListingId,
     hasResult: row.resultJson !== null,
+    reviewPayloadHash: row.reviewPayloadHash,
+    approvedAt: row.approvedAt,
+    approvedByUserId: row.approvedByUserId,
     createdAt: row.createdAt,
   }]);
 }

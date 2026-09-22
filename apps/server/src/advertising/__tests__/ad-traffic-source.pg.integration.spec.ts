@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { createHash, randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
@@ -120,7 +122,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    owner = new AdTrafficSourceRepository(prisma as never, alerts);
+    owner = new AdTrafficSourceRepository(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, alerts);
     const module = await Test.createTestingModule({
       controllers: [AdTrafficSourceController],
       providers: [
@@ -490,7 +492,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       revenue: 180,
     });
 
-    const dashboard = new WingTrafficAggregationRepositoryAdapter(prisma as never);
+    const dashboard = new WingTrafficAggregationRepositoryAdapter(channelFactTestPorts(prisma as never).listings, prisma as never, profitCatalogTestReaders(prisma as never).accounts);
     await expect(dashboard.aggregateTraffic(ORG, {
       sourceClass: 'closed_day_clipped',
       selectedDates: [plan.startDate, populatedDate],
@@ -1096,7 +1098,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         row('2001', { visitors: 5, views: 9, cartAdds: 1, orders: 1, salesQty: 1, revenue: 90 }),
       ]);
 
-      const context = await new AdStrategyContextRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter()).loadStrategyContext(
+      const context = await new AdStrategyContextRepositoryAdapter(channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).content).loadStrategyContext(
         ORG,
         { from: businessDate, to: new Date(businessDate.getTime() + DAY_MS) },
         '7d',
@@ -1423,7 +1425,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         measured.$on('query', (event) => statements.push(event.query));
         const startedAt = performance.now();
         try {
-          await new AdTrafficSourceRepository(
+          await new AdTrafficSourceRepository(channelFactTestPorts(measured as never).accounts, channelFactTestPorts(measured as never).listings,
             measured as never,
             new SourceFailureAlerts(measured as never),
           ).finalizeAttempt({
@@ -1602,7 +1604,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     const statements: string[] = [];
     measured.$on('query', (event) => statements.push(event.query));
     try {
-      const measuredOwner = new AdTrafficSourceRepository(
+      const measuredOwner = new AdTrafficSourceRepository(channelFactTestPorts(measured as never).accounts, channelFactTestPorts(measured as never).listings,
         measured as never,
         new SourceFailureAlerts(measured as never),
       );

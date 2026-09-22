@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { NotImplementedException } from '@nestjs/common';
+import { ChannelUnsupportedError } from '../domain/exception/channel-business-error';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -12,7 +12,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { ChannelListingDeletionService } from '../application/service/channel-listing-deletion.service';
+import { ChannelListingDeletionService } from '../application/service/listing/channel-listing-deletion.service';
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
@@ -174,7 +174,7 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
     })).resolves.toMatchObject({ isActive: true, status: 'active' });
   });
 
-  it('keeps new authorize, claim, and pending reconciliation unsupported at HTTP 501 without mutation', async () => {
+  it('keeps new authorize, claim, and pending reconciliation unsupported without mutation', async () => {
     const operation = await seedOperation({
       status: 'executing',
       providerOutcome: 'uncertain',
@@ -190,10 +190,7 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
       password: 'unused',
       idempotencyKey: randomUUID(),
     }));
-    expect(authorizeError).toBeInstanceOf(NotImplementedException);
-    if (authorizeError instanceof NotImplementedException) {
-      expect(authorizeError.getStatus()).toBe(501);
-    }
+    expect(authorizeError).toBeInstanceOf(ChannelUnsupportedError);
 
     const claimError = capture(() => deletion.claimExecution({
       organizationId: TEST_ORGANIZATION_ID,
@@ -201,17 +198,14 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
       listingId,
       operationId: operation.id,
     }));
-    expect(claimError).toBeInstanceOf(NotImplementedException);
-    if (claimError instanceof NotImplementedException) {
-      expect(claimError.getStatus()).toBe(501);
-    }
+    expect(claimError).toBeInstanceOf(ChannelUnsupportedError);
 
     await expect(deletion.reconcileObservedDeletion({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       listingId,
       operationId: operation.id,
-    })).rejects.toMatchObject({ status: 501 });
+    })).rejects.toBeInstanceOf(ChannelUnsupportedError);
     await expect(prisma.channelListingDeletionOperation.findUniqueOrThrow({
       where: { id: operation.id },
     })).resolves.toMatchObject({

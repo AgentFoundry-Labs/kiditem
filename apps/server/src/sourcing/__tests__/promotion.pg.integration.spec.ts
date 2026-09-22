@@ -4,9 +4,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -18,6 +16,8 @@ import {
 import { ProductPreparationRepositoryAdapter } from '../../channels/adapter/out/persistence/candidate-registration.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 describe('SourcingPromotionService candidate rejection (PG integration)', () => {
   let prisma: PrismaClient;
@@ -29,6 +29,7 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
     service = new SourcingPromotionService(
       new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService),
       new ProductPreparationRepositoryAdapter(prisma as unknown as PrismaService, {
+        readRegistrationBasics: async () => [],
         lock: async () => undefined,
         requireActive: async () => undefined,
       }),
@@ -122,7 +123,7 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
         salePrice: 1000,
       },
     });
-    await prisma.productPreparation.create({
+    await prisma.registrationTarget.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         salesProductId: salesProduct.id,
@@ -130,7 +131,6 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
         channelAccountId: account.id,
         sourceContentWorkspaceId: workspace.id,
         displayName: 'Active registration candidate',
-        closedAt: null,
         registrationInput: {},
       },
     });

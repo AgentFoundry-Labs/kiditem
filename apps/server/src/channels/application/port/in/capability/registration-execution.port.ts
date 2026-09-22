@@ -8,7 +8,7 @@ import type {
 import type {
   ExternalProductRegistrationMatchPreviewResult,
   ExternalProductRegistrationPreflightResult,
-} from './marketplace-registration.port';
+} from '../registration/channel-registration.port';
 
 export const REGISTRATION_EXECUTION_PORT = Symbol('REGISTRATION_EXECUTION_PORT');
 

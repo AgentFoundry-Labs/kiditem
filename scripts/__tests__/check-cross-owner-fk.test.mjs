@@ -406,8 +406,8 @@ test('the configured owner map follows ChannelAd and current Rocket PO responsib
   assert.equal(config.owners.CoupangWingSalesRankDailySnapshot, 'advertising');
   assert.equal(config.owners.SellpiaSalesDailySnapshot, 'analytics');
   assert.equal(config.owners.SellpiaProductMonthlySales, 'analytics');
-  assert.equal(config.owners.RocketPoCatalogSnapshot, 'channels');
-  assert.equal(config.owners.RocketPoCatalogLine, 'channels');
+  assert.equal(config.owners.RocketPoCatalogSnapshot, 'orders');
+  assert.equal(config.owners.RocketPoCatalogLine, 'orders');
 });
 
 test('treats an allowlisted cross-owner relation as satisfied and reports no stale entry', () => {
@@ -603,5 +603,5 @@ test('passes on the current schema with the recorded cross-owner allowlist', () 
   // intra-owner totals too would turn any unrelated model with an organization
   // foreign key into a failure of this guard.
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /63 cross-owner transitional allowlisted/);
+  assert.match(result.stdout, /12 cross-owner transitional allowlisted/);
 });

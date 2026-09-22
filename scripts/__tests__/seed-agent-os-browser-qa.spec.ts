@@ -1,3 +1,4 @@
+import { ChannelIntegrityAdapter } from '../../apps/server/src/channels/adapter/out/integrity/channel-integrity.adapter';
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -8,7 +9,9 @@ import {
   parseAllowedSupplierUrl,
 } from '../../apps/server/src/sourcing/domain/supplier-source-url-policy';
 import { canonicalSourcingCandidateIdentity } from '../../apps/server/src/sourcing/domain/sourcing-candidate-identity';
-import { freezeProductRegistrationPayload } from '../../apps/server/src/channels/domain/registration-submission-payload';
+import { freezeProductRegistrationPayload } from '../../apps/server/src/channels/domain/registration/registration-submission-payload';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const { ensureFormula } = vi.hoisted(() => ({ ensureFormula: vi.fn() }));
 vi.mock('../data-migrations/ensure/absolute-product-abc-formula', () => ({
@@ -267,7 +270,7 @@ describe('isolated Agent OS browser-QA seed', () => {
       },
     });
     const frozenChannelPayload = freezeProductRegistrationPayload(
-      channel.productRegistrationExecution.submissionPayloadJson,
+      channel.productRegistrationExecution.submissionPayloadJson, channelIntegrity.sha256,
     );
     expect(frozenChannelPayload.payload).toMatchObject({
       channelAccountId: channel.channelAccount.id,
@@ -464,7 +467,7 @@ describe('isolated Agent OS browser-QA seed', () => {
     const persistedExecution =
       transaction.productRegistrationExecution.create.mock.calls[0][0].data;
     const frozenPersistedPayload = freezeProductRegistrationPayload(
-      persistedExecution.submissionPayloadJson,
+      persistedExecution.submissionPayloadJson, channelIntegrity.sha256,
     );
     expect(frozenPersistedPayload.payload).toMatchObject({
       channelAccountId: 'channel-account-id',

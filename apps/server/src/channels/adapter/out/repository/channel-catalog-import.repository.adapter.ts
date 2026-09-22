@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type SourceImportRun } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import {
   CompletedSourceArtifactRunSchema,
@@ -20,8 +21,8 @@ import type {
   ChannelCatalogImportClaim,
   ChannelCatalogImportRepositoryPort,
 } from '../../../application/port/out/repository/channel-catalog-import.repository.port';
-import type { ParsedWingCatalogRow } from '../../../application/service/coupang-wing-workbook.parser';
-import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
+import type { ParsedWingCatalogRow } from '../documents/coupang-wing/workbook.parser';
+import { resolveCoupangVendorId } from '../../../domain/account/coupang-account-identity';
 import {
   advanceProductMappingGeneration,
   lockProductMapping,
@@ -401,7 +402,7 @@ implements ChannelCatalogImportRepositoryPort {
         `;
       }
 
-      await applyRegisteredOptionRecipes(tx, this.recipes, {
+      await applyRegisteredOptionRecipes(ownerTransaction(tx), this.recipes, {
         organizationId: input.organizationId,
         channelListingIds: [...productIdByExternalId.values()],
       });

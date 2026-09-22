@@ -6,6 +6,9 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
 import { CorrectProductSourceBindingUseCase } from '../application/usecase/correct-product-source-binding.usecase';
 import type { ProductQueryPort } from '../application/port/in/product-query.port';
+import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 
 describe('product source correction (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -14,7 +17,15 @@ describe('product source correction (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new ProductOperationsRepositoryAdapter(prisma as unknown as PrismaService, {} as never, {} as never);
+    repository = new ProductOperationsRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      {} as never,
+      {} as never,
+      new ChannelAccountService(
+        new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService),
+        new ChannelCredentialsAdapter(),
+      ),
+    );
     const query = {
       getProduct: (organizationId: string, id: string) => prisma.masterProduct.findFirstOrThrow({ where: { id, organizationId } }),
     } as unknown as ProductQueryPort;

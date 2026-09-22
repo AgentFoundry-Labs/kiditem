@@ -1,3 +1,4 @@
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
@@ -31,7 +32,7 @@ import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/p
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ProductQueryUseCase } from '../application/usecase/product-query.usecase';
-import { ChannelOptionRecipeUseCase } from '../../channels/application/usecase/channel-option-recipe.usecase';
+import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
 import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository.adapter';
 import { ProductAvailabilityUseCase } from '../application/usecase/product-availability.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository.adapter';
@@ -45,6 +46,7 @@ import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-pr
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 
 /** Seeded catalog listings predate every Wing traffic attempt a case creates. */
@@ -56,7 +58,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let sellpia: SellpiaProfitabilitySourceService;
   let advertising: ProfitabilityAdImportRepositoryAdapter;
   let dataStatus: ProductDataStatusUseCase;
-  let recipes: ChannelOptionRecipeUseCase;
+  let recipes: ChannelOptionRecipeService;
+  let channelAccounts: ReturnType<typeof channelFactTestPorts>['accounts'];
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -64,16 +67,25 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const prismaService = prisma as unknown as PrismaService;
     const alerts = new SourceFailureAlerts(prismaService);
     const transactionalRead = new ProductTransactionalReadRepositoryAdapter();
+    const channelFacts = channelFactTestPorts(prismaService);
+    channelAccounts = channelFacts.accounts;
     sellpia = new SellpiaProfitabilitySourceService(
       prismaService,
       alerts,
       transactionalRead,
     );
-    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
+    advertising = new ProfitabilityAdImportRepositoryAdapter(
+      channelFacts.accounts,
+      channelFacts.recipes,
+      channelFacts.listings,
+      prismaService,
+      alerts,
+    );
     const dataStatusRepository = new ProductOperationsDataStatusRepositoryAdapter(
       prismaService,
       new MasterProductProfitabilityReadService(sellpia, advertising, prismaService, transactionalRead),
       transactionalRead,
+      channelAccounts,
     );
     dataStatus = new ProductDataStatusUseCase(dataStatusRepository);
     const inventory = new ProductAvailabilityUseCase(
@@ -86,19 +98,20 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
+        channelAccounts,
       ),
       inventory,
       {
         findByMasterProductIds: async () => new Map(),
       },
       new CatalogDisplayMediaService(
-        new CatalogDisplayMediaRepositoryAdapter(prismaService),
+        new CatalogDisplayMediaRepositoryAdapter(prismaService, makeChannelListingQuery(prisma)),
       ),
       dataStatusRepository,
       { readContribution: async () => null } as never,
       new SellpiaMasterProductProfitFactReader(prismaService),
     );
-    recipes = new ChannelOptionRecipeUseCase(
+    recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(prismaService, transactionalRead),
     );
   });
@@ -515,6 +528,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       extendedPrisma as unknown as PrismaService,
       originalEvidence,
       new ProductTransactionalReadRepositoryAdapter(),
+      channelAccounts,
     );
 
     const result = await adapter.read(TEST_ORGANIZATION_ID, 30);
@@ -1866,7 +1880,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const selectedStatus = new ProductDataStatusUseCase(
       new ProductOperationsDataStatusRepositoryAdapter(prisma as PrismaService, {
         load: async (input) => ({ ...await profitability.load(input), actualCutoff: cutoff }),
-      }, new ProductTransactionalReadRepositoryAdapter()),
+      }, new ProductTransactionalReadRepositoryAdapter(), channelAccounts),
     );
     const result = await selectedStatus.getStatus(TEST_ORGANIZATION_ID, 7);
 

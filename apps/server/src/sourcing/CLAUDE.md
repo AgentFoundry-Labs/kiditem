@@ -20,7 +20,7 @@ belong to Supply; supplier payments belong to Finance.
 - `SourcingDecisionBatch` and its items freeze server-derived baseline
   decisions. Coverage confidence is not a calibrated probability and cannot
   make a test order execution-eligible.
-- Channels owns `ProductPreparation` as a reusable registration target and its
+- Channels owns `RegistrationTarget` as a reusable registration target and its
   execution history (ADR-0020). Sourcing supplies candidate eligibility and
   content through its interfaces. Candidate screens use the Channels capability
   to edit registration settings; Sourcing never creates a `MasterProduct`.
@@ -59,7 +59,7 @@ belong to Supply; supplier payments belong to Finance.
 
 - Reach registration settings and the submission fence through the Channels
   registration execution interface and read candidate registration state back
-  through `channels/read/registration-execution.reader.ts`; never write
+  through its public capability; never write
   `ProductRegistrationExecution` rows
   ([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
 - Registration freezes the reviewed payload, content/hash, idempotency key,

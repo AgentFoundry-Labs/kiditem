@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma, type ContentAsset } from '@prisma/client';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import {
+  CHANNEL_LISTING_QUERY_PORT,
+  type ChannelListingQueryPort,
+} from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type {
   CatalogMediaOptionIdentityRemap,
   CatalogMediaPublicationScope,
@@ -12,19 +17,21 @@ const BULK_ROWS = 500;
 
 @Injectable()
 export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaPublicationPort {
+  constructor(
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: ChannelListingQueryPort,
+  ) {}
+
   async publishProviderMedia(
     input: Parameters<CatalogMediaPublicationPort['publishProviderMedia']>[0],
   ) {
     const tx = transactionClient(input.transaction);
     if (input.listings.length === 0) return { imageCount: 0, inactivatedImageCount: 0 };
     const listingIds = input.listings.map((listing) => listing.listingId);
-    const ownedListings = await tx.channelListing.findMany({
-      where: { organizationId: input.organizationId, id: { in: listingIds } },
-      select: { id: true },
+    await this.channelListings.assertOwnedIds(ownerTransaction(tx), {
+      organizationId: input.organizationId,
+      listingIds,
     });
-    if (ownedListings.length !== new Set(listingIds).size) {
-      throw new Error('Catalog media requires owned channel listings');
-    }
     const optionIdentityRemapsByListing = new Map<string, ReadonlyMap<string, string>>();
     for (const listing of input.listings) {
       const remaps = normalizeOptionIdentityRemaps(listing.optionIdentityRemaps);

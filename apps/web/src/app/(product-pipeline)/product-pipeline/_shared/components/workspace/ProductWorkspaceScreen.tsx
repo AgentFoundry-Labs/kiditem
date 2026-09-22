@@ -143,18 +143,18 @@ export function ProductWorkspaceScreen({
   const queryError = initialWorkspaceData ? null : productDetailQuery.error;
 
   const product = fetchedData?.product ?? null;
-  const productPreparation = product?.productPreparation ?? null;
+  const registrationTarget = product?.registrationTarget ?? null;
   /**
    * 등록이 시작됐는가는 울타리가 답한다(ADR-0014). 초안 행의 `status` 는 거울이라
    * 울타리와 어긋날 수 있고, 어긋난 거울을 믿으면 이미 보낸 등록의 초안을 계속 고치게
    * 된다. 울타리 값이 없는 구버전 응답에서만 거울로 환산한다.
    */
   const registrationState = product?.registrationState
-    ?? registrationStateFromPreparation(productPreparation?.status ?? null);
+    ?? registrationStateFromPreparation(registrationTarget?.status ?? null);
   // 초안이 살아 있다는 사실은 초안 행이, 아직 보내지 않았다는 사실은 울타리가 답한다.
-  const editablePreparationId = productPreparation?.status === 'draft'
+  const editablePreparationId = registrationTarget?.status === 'draft'
     && registrationState === 'none'
-    ? productPreparation.id
+    ? registrationTarget.id
     : null;
   const detailGenerationProductId = productId;
   // 후보가 이미 소유한 워크스페이스까지 본다. 수집상품 상세 라우트는 워크스페이스 id 를
@@ -163,14 +163,14 @@ export function ProductWorkspaceScreen({
   // disabled 라 저장 자체가 불가능했다 — 저장 위치가 실재하는데도 화면이 몰랐던 것이다.
   const detailGenerationContentWorkspaceId =
     contentWorkspaceId
-    ?? productPreparation?.sourceContentWorkspaceId
+    ?? registrationTarget?.sourceContentWorkspaceId
     ?? product?.contentWorkspaceId
     ?? null;
   const detailGenerationSourceCandidateId =
     detailGenerationContentWorkspaceId ? null : productId;
   const effectiveContentWorkspaceId = detailGenerationContentWorkspaceId;
   const effectiveSavedDetailPageGenerationId =
-    savedDetailPageGenerationId ?? productPreparation?.selectedDetailPageGenerationId ?? null;
+    savedDetailPageGenerationId ?? registrationTarget?.selectedDetailPageGenerationId ?? null;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
   const editedHtml = fetchedData?.editedHtml ?? null;
   const { data: fallbackTemplateCss = '' } = useQuery({
@@ -254,7 +254,7 @@ export function ProductWorkspaceScreen({
       }
       return candidatesApi.updateBasicInfo(editablePreparationId, {
         ...input,
-        basePreparationUpdatedAt: productPreparation?.updatedAt ?? null,
+        basePreparationUpdatedAt: registrationTarget?.updatedAt ?? null,
       });
     },
     onSuccess: () => {
@@ -263,7 +263,7 @@ export function ProductWorkspaceScreen({
     },
   });
 
-  // 준비(ProductPreparation)가 없는 후보는 후보 자체에 저장한다. 채널 계정 선택을
+  // 준비(RegistrationTarget)가 없는 후보는 후보 자체에 저장한다. 채널 계정 선택을
   // 강제하지 않고도 기본정보를 편집·저장할 수 있게 한다.
   const updateCandidateBasicInfoMutation = useMutation({
     mutationFn: (input: UpdateProductBasicsInput) =>
@@ -357,7 +357,7 @@ export function ProductWorkspaceScreen({
           await selectThumbnailMutation.mutateAsync(input.selectedThumbnail);
         }
       } else if (effectiveContentWorkspaceId) {
-        // 준비(ProductPreparation)가 없으면 `registrationInput.thumbnailUrls` 에 쓸 수 없다.
+        // 준비(RegistrationTarget)가 없으면 `registrationInput.thumbnailUrls` 에 쓸 수 없다.
         // 예전에는 이 분기에서 대표 1장만 저장하고 목록을 조용히 버렸는데, 성공 토스트는
         // 그대로 떠서 저장된 것처럼 보였다. 목록은 워크스페이스 썸네일 갤러리
         // (= ContentAsset role='thumbnail')로 저장한다 — 쿠팡 WING 추가이미지가 읽는 곳이다.
@@ -440,7 +440,7 @@ export function ProductWorkspaceScreen({
     setEditData(nextEditData);
     setSelectedRegistrationThumbnailUrl(
       basicInfo?.selectedThumbnailUrl ??
-      fetchedData.product.productPreparation?.selectedThumbnailUrl ??
+      fetchedData.product.registrationTarget?.selectedThumbnailUrl ??
       nextEditData.thumbnails[0] ??
       null,
     );
@@ -448,17 +448,17 @@ export function ProductWorkspaceScreen({
     // 저장된 대표가 없으면 null 이어야 배지가 안 붙는다.
     setSavedRepresentativeThumbnailUrl(
       basicInfo?.selectedThumbnailUrl ??
-      fetchedData.product.productPreparation?.selectedThumbnailUrl ??
+      fetchedData.product.registrationTarget?.selectedThumbnailUrl ??
       null,
     );
     setSelectedThumbnailGenerationId(
       basicInfo?.selectedThumbnailGenerationId
-      ?? fetchedData.product.productPreparation?.selectedThumbnailGenerationId
+      ?? fetchedData.product.registrationTarget?.selectedThumbnailGenerationId
       ?? null,
     );
     setSelectedThumbnailGenerationCandidateId(
       basicInfo?.selectedThumbnailGenerationCandidateId
-      ?? fetchedData.product.productPreparation?.selectedThumbnailGenerationCandidateId
+      ?? fetchedData.product.registrationTarget?.selectedThumbnailGenerationCandidateId
       ?? null,
     );
     // 준비가 있으면 `thumbnailPreviewUrls`, 없으면 워크스페이스 갤러리
@@ -472,7 +472,7 @@ export function ProductWorkspaceScreen({
         ? savedThumbnailGallery
         : uniqueNonEmpty([
           basicInfo?.selectedThumbnailUrl,
-          fetchedData.product.productPreparation?.selectedThumbnailUrl,
+          fetchedData.product.registrationTarget?.selectedThumbnailUrl,
           fetchedData.product.thumbnail_url,
           nextEditData.thumbnails[0],
         ]),
@@ -626,7 +626,7 @@ export function ProductWorkspaceScreen({
         productName={editData.name || '(상품명 없음)'}
         productId={productId}
         status={product?.status}
-        productPreparation={productPreparation}
+        registrationTarget={registrationTarget}
         registrationState={registrationState}
         basicInfo={product?.basicInfo ?? null}
         costCny={product?.cost_cny ?? null}

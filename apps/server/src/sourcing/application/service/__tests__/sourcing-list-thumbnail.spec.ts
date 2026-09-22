@@ -6,7 +6,7 @@ import type { SourcingAgentCommandService } from '../sourcing-agent-command.serv
  * 수집상품 **목록**의 대표 썸네일 되읽기.
  *
  * `sourcing_candidates.thumbnail_url` 은 수집 원본이라 대표를 바꿔 저장해도
- * 그대로 남는다. 대표는 준비(`ProductPreparation`) 또는 후보 워크스페이스가
+ * 그대로 남는다. 대표는 준비(`RegistrationTarget`) 또는 후보 워크스페이스가
  * 소유하므로, 목록도 상세(`getProduct`)와 같은 우선순위로 되읽어야 카드가
  * 저장한 이미지를 보여준다.
  */
@@ -16,7 +16,7 @@ const candidate = (overrides: Record<string, unknown> = {}) => ({
   id: 'cand-1',
   name: '4000과일바구니딸깍이키링',
   thumbnailUrl: 'https://cdn.example.com/scrape-original.png',
-  productPreparation: null,
+  registrationTarget: null,
   productPreparations: [],
   images: [],
   ...overrides,
@@ -66,7 +66,7 @@ describe('SourcingService.listProducts 대표 썸네일', () => {
     const { service } = buildService({
       items: [
         candidate({
-          productPreparation: {
+          registrationTarget: {
             selectedThumbnailUrl: 'https://cdn.example.com/preparation.jpg',
           },
         }),

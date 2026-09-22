@@ -71,7 +71,7 @@ const CANDIDATE_SALES_PRODUCT_DEPS: CandidateSalesProductRegistrationDeps = {
 };
 
 /**
- * 판매가는 `ProductPreparation.registrationInput.salePrice` 하나에서만 온다.
+ * 판매가는 `RegistrationTarget.registrationInput.salePrice` 하나에서만 온다.
  * 등록준비 폼에서 값을 넣지 않으면 0 이 되고, 그대로 보내면 확장이 '판매가 일괄입력'을
  * 건너뛰어 WING 옵션표가 0원인 채로 남는다. 화면상으로는 "안 채워진" 것처럼 보이지만
  * 실제로는 우리 데이터가 비어 있는 것이라, 조용히 넘기지 말고 여기서 막는다.
@@ -247,7 +247,7 @@ export function candidateToWingProduct(
   // 추가이미지에는 **사용자가 고른 썸네일만** 넣는다.
   //
   // 썸네일은 두 곳에 나뉘어 산다. 워크스페이스의 "썸네일 미리보기 이미지"는
-  // `thumbnailPreviewUrls`(= ProductPreparation.registrationInput.thumbnailUrls)이고,
+  // `thumbnailPreviewUrls`(= RegistrationTarget.registrationInput.thumbnailUrls)이고,
   // `registrationImages.thumbnail` 은 ContentAsset.role 로 태깅된 별도 집합이다.
   // 예전에는 후자만 읽어서, 화면에 썸네일이 보이는데도 추가이미지가 0/9 로 비었다.
   // 사용자가 실제로 고른 쪽이 앞이므로 앞을 우선하고 뒤를 덧붙인다.
@@ -315,7 +315,7 @@ export function candidateToWingProduct(
 
 /** 저장된 선택을 우선하고, 없을 때만 수집상품의 정확한 category 별칭을 사용한다. */
 export function resolveWingCategoryKey(detail: ProductDetailResponse): WingCategoryKey | '' {
-  const preparation = detail.productPreparation as
+  const preparation = detail.registrationTarget as
     | ({ registrationInput?: Record<string, unknown> } & object)
     | null;
   const savedKey = preparation?.registrationInput?.wingCategoryKey;
@@ -548,7 +548,7 @@ export interface WingRegistrationDraft {
   sellpiaMatchPreview: WingSellpiaMatchPreview;
   /** 렌더된 상세설명 이미지 URL(이 경로의 필수값). */
   detailImageUrl: string;
-  /** 기존 ProductPreparation 검토 입력. 카테고리 저장 시 함께 보존한다. */
+  /** 기존 RegistrationTarget 검토 입력. 카테고리 저장 시 함께 보존한다. */
   registrationInput: Record<string, unknown>;
   /** 카테고리를 추천으로 정했을 때의 근거. 결정론적으로 정해졌으면 없다. */
   categoryEvidence?: WingCategoryEvidence | null;
@@ -754,7 +754,7 @@ export async function prepareWingRegistration(
   // 없으면 WING 탭을 열기 전에 멈춘다 — 등록만 되고 우리 목록에 못 올리는 상태를 막는다.
   const product = candidateToWingProduct(detail, defaults, categoryCell, detailImageUrl);
   const [accountSelection, sellpiaMatchPreview] = await Promise.all([
-    resolveWingChannelAccount(detail.productPreparation?.channelAccountId ?? null),
+    resolveWingChannelAccount(detail.registrationTarget?.channelAccountId ?? null),
     registrationExecutionApi.previewSellpiaMatch(candidateId, {
       listingName: product.sellerProductName ?? product.productName ?? detail.name,
       itemName: product.productName,
@@ -772,7 +772,7 @@ export async function prepareWingRegistration(
       channelAccounts: accountSelection.channelAccounts,
       sellpiaMatchPreview,
       detailImageUrl,
-      registrationInput: { ...(detail.productPreparation?.registrationInput ?? {}) },
+      registrationInput: { ...(detail.registrationTarget?.registrationInput ?? {}) },
       categoryEvidence,
     },
   };

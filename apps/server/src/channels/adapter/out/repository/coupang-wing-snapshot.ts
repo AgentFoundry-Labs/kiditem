@@ -1,7 +1,7 @@
 import type {
   ParsedWingCatalogRow,
   ParsedWingCatalogSkippedRow,
-} from '../../../application/service/coupang-wing-workbook.parser';
+} from '../documents/coupang-wing/workbook.parser';
 
 export type CoupangWingSnapshotCoverage = {
   externalProductIds: string[];

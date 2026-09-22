@@ -5,7 +5,7 @@ import type { PrismaClient } from '@prisma/client';
 import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository.adapter';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { MallPriceAdoptionWrite } from '../domain/sales-product-mall-prices';
+import type { MallPriceAdoptionWrite } from '../domain/sales-product/sales-product-mall-prices';
 import type { SabangnetImportProductWrite } from '../application/port/out/persistence/sales-product.repository.port';
 import {
   makeTestPrisma,
@@ -215,7 +215,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID, code: input.create.code },
       select: { id: true },
     });
-    await expect(prisma.productPreparation.findFirstOrThrow({
+    await expect(prisma.registrationTarget.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id, channelAccountId: accountId },
       include: { selectedOptions: { orderBy: { sortOrder: 'asc' } } },
     })).resolves.toMatchObject({
@@ -262,16 +262,16 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID, code: first.create.code },
       select: { id: true },
     });
-    const targetBefore = await prisma.productPreparation.findFirstOrThrow({
+    const targetBefore = await prisma.registrationTarget.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id, channelAccountId: accountId },
       select: { id: true },
     });
-    await prisma.productPreparationOption.updateMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: targetBefore.id },
+    await prisma.registrationTargetOption.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: targetBefore.id },
       data: { salePrice: 777 },
     });
 
-    const secondTarget = await prisma.productPreparation.create({
+    const secondTarget = await prisma.registrationTarget.create({
       data: { organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id,
         channelAccountId: accountId, displayName: '기획전 편집값' },
     });
@@ -284,11 +284,11 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
       unchanged: 1,
       overridesSaved: 0,
     });
-    await expect(prisma.productPreparationOption.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: targetBefore.id },
+    await expect(prisma.registrationTargetOption.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: targetBefore.id },
       select: { salePrice: true },
     })).resolves.toEqual({ salePrice: 777 });
-    await expect(prisma.productPreparation.findFirstOrThrow({
+    await expect(prisma.registrationTarget.findFirstOrThrow({
       where: { id: secondTarget.id, organizationId: TEST_ORGANIZATION_ID },
       select: { displayName: true },
     })).resolves.toEqual({ displayName: '기획전 편집값' });

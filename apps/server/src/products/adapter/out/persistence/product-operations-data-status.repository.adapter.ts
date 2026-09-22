@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
   MASTER_PRODUCT_PROFITABILITY_READ_PORT,
   type ProfitabilityEvidence,
@@ -17,6 +18,8 @@ import {
   parseBusinessDate,
   shiftBusinessDateKey,
 } from '../../../../common/kst';
+import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { readProductAbcPublication } from './read/product-abc-publication.reader';
 import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
@@ -27,8 +30,6 @@ import type {
   ProductOperationsDataSourceStatus,
   ProductOperationsPeriodDays,
 } from '@kiditem/shared/product-operations';
-import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
-import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';
 
 @Injectable()
 export class ProductOperationsDataStatusRepositoryAdapter
@@ -39,6 +40,8 @@ implements ProductOperationsDataStatusRepositoryPort {
     private readonly evidence: ProfitabilityEvidence,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+    @Inject(CHANNEL_ACCOUNT_PORT)
+    private readonly channelAccounts: ChannelAccountPort,
   ) {}
 
   async read(
@@ -63,7 +66,7 @@ implements ProductOperationsDataStatusRepositoryPort {
           organizationId,
           from: kstDayStart(periodStart),
           to: kstDayStart(utcCalendarDate(addCalendarDays(cutoffDate, 1))),
-        }),
+        }, this.channelAccounts),
         readProductAbcPublication(tx, { organizationId }),
         listSellingMasterProductIds(
           tx,

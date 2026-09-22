@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -47,7 +48,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const rank = new KeywordRankRepositoryAdapter(prisma as never);
+    const rank = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never);
     const ingest = new KeywordRankIngestHandler(rank);
     alerts = new SourceFailureAlerts(prisma as never);
     const tracking = new CompetitorTrackingService(rank, storefront);

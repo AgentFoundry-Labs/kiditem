@@ -8,9 +8,10 @@ import {
 import { Prisma } from '@prisma/client';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
-  completedCatalogRunWhere,
+  readCompletedCatalogRunIds,
   publishedCatalogOptionWhere,
 } from '../../../read/completed-catalog-run';
 import { readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
@@ -25,13 +26,13 @@ import {
   type ProductSourceReadModel,
   type ProductSourceReadPort,
 } from '../../../../products/application/port/in/product-source-read.port';
-import { classifyChannelRecipeSuggestion } from '../../../domain/channel-recipe-suggestion';
-import { withListingProductSummary } from '../../../domain/listing-product-summary';
+import { classifyChannelRecipeSuggestion } from '../../../domain/listing/channel-recipe-suggestion';
+import { withListingProductSummary } from '../../../domain/listing/listing-product-summary';
 import {
   rankChannelRecipeNameCandidates,
   scoreChannelRecipeNameCandidateIfComparable,
   type ChannelRecipeNameOption,
-} from '../../../domain/channel-recipe-name-matcher';
+} from '../../../domain/listing/channel-recipe-name-matcher';
 import {
   CHANNEL_OPTION_RECIPE_PORT,
   type ChannelOptionRecipePort,
@@ -94,6 +95,7 @@ function listingSelect(organizationId: string) {
         barcode: true,
         modelNumber: true,
         salePrice: true,
+        safetyStock: true,
         status: true,
         updatedAt: true,
         inventoryComponents: {
@@ -143,6 +145,14 @@ implements ChannelProductMatchingRepositoryPort {
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly recipeMutations: ChannelOptionRecipePort,
   ) {}
+
+  async updateSafetyStock(organizationId: string, optionId: string, safetyStock: number): Promise<boolean> {
+    const updated = await this.prisma.channelListingOption.updateMany({
+      where: { id: optionId, organizationId },
+      data: { safetyStock },
+    });
+    return updated.count === 1;
+  }
 
   async listQueue(
     organizationId: string,
@@ -307,7 +317,7 @@ implements ChannelProductMatchingRepositoryPort {
         throw new Error('Channels recipe mutation owner is unavailable');
       }
       if (input.masterProductId === null) {
-        await this.recipeMutations.clearListingRecipesInTransaction(tx, {
+        await this.recipeMutations.clearListingRecipesInTransaction(ownerTransaction(tx), {
           organizationId: input.organizationId,
           channelListingId: input.channelListingId,
         });
@@ -520,7 +530,7 @@ implements ChannelProductMatchingRepositoryPort {
         throw new Error('Channels recipe mutation capability is not configured');
       }
       const result = mutations.length > 0
-        ? await this.recipeMutations!.applyPreservingRecipesInTransaction(tx, {
+        ? await this.recipeMutations!.applyPreservingRecipesInTransaction(ownerTransaction(tx), {
           organizationId: input.organizationId,
           mutations,
         })
@@ -577,6 +587,7 @@ implements ChannelProductMatchingRepositoryPort {
         barcode: option.barcode,
         modelNumber: option.modelNumber,
         salePrice: option.salePrice,
+        safetyStock: option.safetyStock,
         status: option.status,
         updatedAt: option.updatedAt,
       },
@@ -651,10 +662,11 @@ implements ChannelProductMatchingRepositoryPort {
     scope: 'matching' | 'availability',
   ): Promise<ListingRow[]> {
     const search = query.search?.trim();
+    const baseWhere = scope === 'matching'
+      ? matchingListingWhere(organizationId)
+      : await availabilityListingWhere(prisma, organizationId, query.channelAccountId);
     const where: Prisma.ChannelListingWhereInput = {
-      ...(scope === 'matching'
-        ? matchingListingWhere(organizationId)
-        : availabilityListingWhere(organizationId, query.channelAccountId)),
+      ...baseWhere,
       ...(query.listingIds ? { id: { in: query.listingIds } } : {}),
       ...(query.optionIds ? {
         options: { some: { organizationId, id: { in: query.optionIds } } },
@@ -711,16 +723,18 @@ function matchingListingWhere(
   return { organizationId };
 }
 
-function availabilityListingWhere(
+async function availabilityListingWhere(
+  prisma: Prisma.TransactionClient,
   organizationId: string,
   channelAccountId?: string,
-): Prisma.ChannelListingWhereInput {
+): Promise<Prisma.ChannelListingWhereInput> {
+  const completedRunIds = await readCompletedCatalogRunIds(prisma, { organizationId, channelAccountId });
   return {
     organizationId,
     isActive: true,
     OR: [
       { sourceCandidateId: { not: null } },
-      { lastImportRun: { is: completedCatalogRunWhere(organizationId, channelAccountId) } },
+      ...(completedRunIds.length > 0 ? [{ lastImportRunId: { in: completedRunIds } }] : []),
       {
         options: {
           some: publishedCatalogOptionWhere(organizationId),

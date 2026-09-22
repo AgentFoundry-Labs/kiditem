@@ -1,7 +1,14 @@
 import { Prisma } from '@prisma/client';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
+import {
+  findChannel,
+  findMallChannel,
+  MALL_CHANNELS,
+  type MallChannelKey,
+} from '@kiditem/shared/channel-registry';
 import { businessDateKey, datesInclusive, kstBusinessDate } from '../../common/kst';
-import { orderCollectionMallKeyForAccount } from '../domain/order-collection-malls';
+import { ownerTransaction } from '../../prisma/owner-transaction';
+import type { ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
 
 export const ORDER_FACT_EXCLUDED_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
@@ -40,7 +47,6 @@ export interface OrderSourceCoverageFacts {
 
 type OrderListPayload = Prisma.OrderGetPayload<{
   include: {
-    channelAccount: { select: { channel: true } };
     lineItems: true;
   };
 }>;
@@ -49,7 +55,10 @@ type OrderDetailPayload = Prisma.OrderGetPayload<{
   include: { lineItems: true };
 }>;
 
-export type OrderListFact = Omit<OrderListPayload, 'totalPrice'> & { totalPrice: number };
+export type OrderListFact = Omit<OrderListPayload, 'totalPrice'> & {
+  totalPrice: number;
+  channelAccount: { channel: string } | null;
+};
 export type OrderDetailFact = Omit<OrderDetailPayload, 'totalPrice'> & { totalPrice: number };
 
 export interface OrderListInput {
@@ -120,10 +129,12 @@ type WindowRow = {
 };
 
 type CoverageRun = Awaited<ReturnType<typeof readCompletedOrderCoverageRuns>>[number];
+type AccountFacts = Pick<ChannelAccountPort, 'findByIds'>;
 
 export async function readOrderListFacts(
   tx: Prisma.TransactionClient,
   input: OrderListInput,
+  accounts: AccountFacts,
 ): Promise<OrderListFact[]> {
   const rows = await tx.order.findMany({
     where: {
@@ -137,7 +148,6 @@ export async function readOrderListFacts(
       }),
     },
     include: {
-      channelAccount: { select: { channel: true } },
       lineItems: {
         where: { organizationId: input.organizationId },
         orderBy: { createdAt: 'asc' },
@@ -145,8 +155,16 @@ export async function readOrderListFacts(
     },
     orderBy: { orderedAt: 'desc' },
   });
+  const accountFacts = await accounts.findByIds(ownerTransaction(tx), {
+    organizationId: input.organizationId,
+    accountIds: [...new Set(rows.map((order) => order.channelAccountId))],
+  });
+  const accountById = new Map(accountFacts.map((account) => [account.id, account]));
   return rows.map((order) => ({
     ...order,
+    channelAccount: accountById.get(order.channelAccountId)
+      ? { channel: accountById.get(order.channelAccountId)!.channel }
+      : null,
     totalPrice: order.lineItems.reduce((sum, line) => sum + line.totalPrice, 0),
   }));
 }
@@ -228,6 +246,7 @@ export async function readOrderCountsByChannelAccount(
 export async function readOrderWindowFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
+  accounts: AccountFacts,
 ): Promise<OrderWindowFacts> {
   // No business date is requested, so there is no coverage to look for; an
   // unbounded coverage query would load every run and borrow their import time.
@@ -259,7 +278,7 @@ export async function readOrderWindowFacts(
       order_facts.observed_at AS "factObservedAt"
     FROM order_facts
   `);
-  const coverageRuns = await readCompletedOrderCoverageRuns(tx, input);
+  const coverageRuns = await readCompletedOrderCoverageRuns(tx, input, accounts);
   const row = rows[0];
   const coverage = buildOrderCoverage(input, coverageRuns);
   const orderCount = Number(row?.orderCount ?? 0n);
@@ -306,10 +325,11 @@ export async function readOrderWindowFacts(
 export async function readOrderLineWindowFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
+  accounts: AccountFacts,
 ): Promise<OrderLineWindowFacts> {
   if (isEmptyWindow(input)) return { window: emptyOrderWindowFacts(), orders: [] };
   const [window, rows] = await Promise.all([
-    readOrderWindowFacts(tx, input),
+    readOrderWindowFacts(tx, input, accounts),
     tx.order.findMany({
       where: {
         ...completeOrderWhere(input.organizationId),
@@ -619,11 +639,12 @@ function completeOrderWhere(organizationId: string): Prisma.OrderWhereInput {
 async function readCompletedOrderCoverageRuns(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
+  accounts: AccountFacts,
 ) {
   const requestedDates = enumerateKstBusinessDates(input.from, input.to);
   const firstDate = requestedDates[0];
   const lastDate = requestedDates.at(-1);
-  return tx.sourceImportRun.findMany({
+  const rows = await tx.sourceImportRun.findMany({
     where: {
       organizationId: input.organizationId,
       status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
@@ -639,12 +660,6 @@ async function readCompletedOrderCoverageRuns(
         {
           sourceType: 'order_collection_mall',
           channelAccountId: { not: null },
-          // 몰 주문 수집 시도는 owner 가 그 몰의 계정 행(ADR-0012)에만 붙인다.
-          channelAccount: {
-            is: {
-              organizationId: input.organizationId,
-            },
-          },
           coverageStartDate: lastDate ? { not: null, lte: new Date(lastDate) } : { not: null },
           coverageEndDate: firstDate ? { not: null, gte: new Date(firstDate) } : { not: null },
         },
@@ -653,14 +668,12 @@ async function readCompletedOrderCoverageRuns(
     select: {
       sourceType: true,
       channelAccountId: true,
+      plan: true,
       importedAt: true,
       updatedAt: true,
       createdAt: true,
       coverageStartDate: true,
       coverageEndDate: true,
-      channelAccount: {
-        select: { channel: true, externalAccountId: true },
-      },
       orders: {
         where: {
           organizationId: input.organizationId,
@@ -670,6 +683,22 @@ async function readCompletedOrderCoverageRuns(
       },
     },
   });
+  const accountIds = [...new Set(rows.flatMap((run) =>
+    run.sourceType === 'order_collection_mall' && run.channelAccountId
+      ? [run.channelAccountId]
+      : [],
+  ))];
+  const accountFacts = await accounts.findByIds(ownerTransaction(tx), {
+    organizationId: input.organizationId,
+    accountIds,
+  });
+  const accountById = new Map(accountFacts.map((account) => [account.id, account]));
+  return rows.map((run) => ({
+    ...run,
+    channelAccount: run.channelAccountId
+      ? { channel: accountById.get(run.channelAccountId)?.channel ?? null }
+      : null,
+  }));
 }
 
 function buildOrderCoverage(
@@ -692,8 +721,12 @@ function buildOrderCoverage(
     const sourceKey = `${run.sourceType}\u0000${run.channelAccountId ?? ''}`;
     // 몰 키는 몰 주문 수집 시도에만 붙인다 — 공유 마켓 행(rocket)의 다른 원천은 몰이 아니다.
     // 몰 행의 채널이 곧 몰 키이고(ADR-0012), 레지스트리로 되찾는 것은 공유 마켓 행뿐이다.
-    const mallKey = run.sourceType === 'order_collection_mall' && run.channelAccount
-      ? orderCollectionMallKeyForAccount(run.channelAccount) ?? run.channelAccount.channel
+    const mallKey = run.sourceType === 'order_collection_mall'
+      ? mallKeyFromPlan(run.plan) ?? (
+        run.channelAccount?.channel
+          ? mallKeyForAccountChannel(run.channelAccount.channel)
+          : null
+      )
       : null;
     const source = bySource.get(sourceKey) ?? {
       sourceType: run.sourceType,
@@ -757,6 +790,18 @@ function buildOrderCoverage(
       null,
     ),
   };
+}
+
+/** Completed source snapshots keep their mall key. Older valid snapshots fall back to the owner identity fact. */
+function mallKeyFromPlan(plan: Prisma.JsonValue): MallChannelKey | null {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return null;
+  const candidate = (plan as Prisma.JsonObject).mallKey;
+  return typeof candidate === 'string' ? findMallChannel(candidate)?.key ?? null : null;
+}
+
+function mallKeyForAccountChannel(channel: string): string {
+  return MALL_CHANNELS.find((mall) => (findChannel(mall.key)?.sharedAccountChannel ?? mall.key) === channel)
+    ?.key ?? channel;
 }
 
 function enumerateKstBusinessDates(from: Date, to: Date): string[] {

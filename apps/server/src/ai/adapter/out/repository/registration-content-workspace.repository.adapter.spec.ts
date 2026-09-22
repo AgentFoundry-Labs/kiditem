@@ -1,5 +1,16 @@
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { describe, expect, it, vi } from 'vitest';
 import { RegistrationContentWorkspaceRepositoryAdapter } from './registration-content-workspace.repository.adapter';
+
+function makeRepository(prisma: unknown = {}, sourceCandidateId = 'candidate-1') {
+  return new RegistrationContentWorkspaceRepositoryAdapter(prisma as never, {
+    lockActiveOwner: vi.fn().mockResolvedValue({
+      id: 'listing-1',
+      sourceCandidateId,
+      accountId: 'account-1',
+    }),
+  } as never);
+}
 
 describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
   it('resolves generation-backed detail content to exact IDs before payload freeze', async () => {
@@ -27,9 +38,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         findFirst: vi.fn().mockResolvedValue({ id: 'revision-1' }),
       },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.resolveSourceSelections(tx, {
+    await expect(repository.resolveSourceSelections(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       selectedThumbnailUrl: null,
@@ -51,10 +62,6 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
   it('treats null frozen detail IDs as no selection even when the source current pointer changes', async () => {
     const tx = {
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{
-          id: 'listing-1',
-          sourceCandidateId: 'candidate-1',
-        }])
         .mockResolvedValueOnce([]),
       contentWorkspace: {
         findFirst: vi.fn()
@@ -80,9 +87,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
       },
       contentWorkspaceThumbnailSelection: { create: vi.fn() },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.branchToListing(tx, {
+    await expect(repository.branchToListing(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       listingId: 'listing-1',
@@ -105,10 +112,6 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
   it('populates an existing empty listing workspace tied to the same source', async () => {
     const tx = {
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{
-          id: 'listing-1',
-          sourceCandidateId: 'candidate-1',
-        }])
         .mockResolvedValueOnce([{
           id: 'listing-workspace-1',
           originWorkspaceId: 'source-workspace-1',
@@ -151,9 +154,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
       },
       contentWorkspaceThumbnailSelection: { create: vi.fn() },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.branchToListing(tx, {
+    await expect(repository.branchToListing(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       listingId: 'listing-1',
@@ -169,7 +172,7 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
     })).resolves.toEqual({ workspaceId: 'listing-workspace-1' });
 
     expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
     expect(tx.detailPageArtifact.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         contentWorkspaceId: 'listing-workspace-1',
@@ -192,10 +195,6 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
   it('rejects listing completion when the locked workspace pointer update is lost', async () => {
     const tx = {
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{
-          id: 'listing-1',
-          sourceCandidateId: 'candidate-1',
-        }])
         .mockResolvedValueOnce([{
           id: 'listing-workspace-1',
           originWorkspaceId: 'source-workspace-1',
@@ -238,9 +237,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
       },
       contentWorkspaceThumbnailSelection: { create: vi.fn() },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.branchToListing(tx, {
+    await expect(repository.branchToListing(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       listingId: 'listing-1',
@@ -259,10 +258,6 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
   it('rejects an existing listing workspace tied to a different source', async () => {
     const tx = {
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{
-          id: 'listing-1',
-          sourceCandidateId: 'candidate-1',
-        }])
         .mockResolvedValueOnce([{
           id: 'listing-workspace-1',
           originWorkspaceId: 'source-workspace-other',
@@ -292,9 +287,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         }),
       },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.branchToListing(tx, {
+    await expect(repository.branchToListing(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       listingId: 'listing-1',
@@ -314,10 +309,7 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
 
   it('rejects a listing sourced from a different candidate', async () => {
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValueOnce([{
-        id: 'listing-1',
-        sourceCandidateId: 'candidate-other',
-      }]),
+      $queryRaw: vi.fn().mockResolvedValue([]),
       contentWorkspace: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'source-workspace-1',
@@ -332,9 +324,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         }),
       },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository({}, 'candidate-other');
 
-    await expect(repository.branchToListing(tx, {
+    await expect(repository.branchToListing(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       listingId: 'listing-1',
@@ -376,9 +368,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         findFirst: vi.fn().mockResolvedValue({ id: 'group-1' }),
       },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.branchToListing(tx, {
+    await expect(repository.branchToListing(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       listingId: 'listing-1',
@@ -434,9 +426,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
       },
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'asset-1' }]),
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.resolveSourceSelections(tx, {
+    await expect(repository.resolveSourceSelections(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       selectedThumbnailUrl: 'https://cdn.example.com/source.jpg',
@@ -518,9 +510,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
       },
       contentWorkspaceThumbnailSelection: { create: vi.fn() },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.resolveSourceSelections(tx, {
+    await expect(repository.resolveSourceSelections(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       selectedThumbnailUrl: 'https://untrusted.example.com/thumb.png',
@@ -551,9 +543,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
       },
       contentAsset: { findFirst: vi.fn().mockResolvedValue({ id: 'asset-1' }) },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.validateSourceSelections(tx, {
+    await expect(repository.validateSourceSelections(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       selectedThumbnailUrl: 'https://cdn.example.com/thumb.png',
@@ -590,7 +582,7 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         }),
       },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter(prisma as never);
+    const repository = makeRepository(prisma);
 
     await expect(repository.validateSourceSelections(null, {
       organizationId: 'org-1',
@@ -622,9 +614,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         }),
       },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.validateSourceSelections(tx, {
+    await expect(repository.validateSourceSelections(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       selectedThumbnailUrl: null,
@@ -703,10 +695,6 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         }),
       },
       $queryRaw: vi.fn()
-        .mockResolvedValueOnce([{
-          id: 'listing-1',
-          sourceCandidateId: 'candidate-1',
-        }])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ id: 'thumb-generation-1' }])
         .mockResolvedValueOnce([{ id: 'thumb-candidate-1' }])
@@ -715,9 +703,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         create: vi.fn().mockResolvedValue({ id: 'listing-selection-1' }),
       },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.branchToListing(tx, {
+    await expect(repository.branchToListing(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
       listingId: 'listing-1',
@@ -792,16 +780,16 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
       },
       select: { id: true, detailPageArtifactId: true },
     });
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(5);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(4);
     const lockSql = tx.$queryRaw.mock.calls.map(([query]) =>
       (query as { strings?: string[] }).strings?.join(' ') ?? '',
     );
-    expect(lockSql[2]).toContain('thumbnail_generations');
-    expect(lockSql[3]).toContain('thumbnail_generation_candidates');
-    expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
-      tx.$queryRaw.mock.invocationCallOrder[3],
+    expect(lockSql[1]).toContain('thumbnail_generations');
+    expect(lockSql[2]).toContain('thumbnail_generation_candidates');
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      tx.$queryRaw.mock.invocationCallOrder[2],
     );
-    expect(tx.$queryRaw.mock.invocationCallOrder[3]).toBeLessThan(
+    expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
       tx.contentWorkspaceThumbnailSelection.create.mock.invocationCallOrder[0],
     );
     expect(tx.thumbnailGenerationCandidate).not.toHaveProperty('create');
@@ -815,9 +803,9 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         create: vi.fn().mockResolvedValue({ id: 'source-workspace-1' }),
       },
     };
-    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+    const repository = makeRepository();
 
-    await expect(repository.ensureCandidateWorkspace(tx, {
+    await expect(repository.ensureCandidateWorkspace(ownerTransaction(tx as never), {
       organizationId: 'org-1',
       sourceCandidateId: 'candidate-1',
       displayName: 'Kids rain boots',

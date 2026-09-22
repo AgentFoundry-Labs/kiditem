@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 export const REGISTRATION_CONTENT_WORKSPACE_PORT = Symbol(
   'REGISTRATION_CONTENT_WORKSPACE_PORT',
 );
@@ -54,19 +55,19 @@ export interface RegistrationContentWorkspacePort {
     input: FindCandidateContentWorkspaceInput,
   ): Promise<string | null>;
   resolveSourceSelections(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: RegistrationContentSelectionInput,
   ): Promise<ResolvedRegistrationContentSelections>;
   validateSourceSelections(
-    transaction: object | null,
+    transaction: OwnerTransaction | null,
     input: RegistrationContentSelectionInput,
   ): Promise<void>;
   ensureCandidateWorkspace(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: EnsureRegistrationCandidateWorkspaceInput,
   ): Promise<{ workspaceId: string }>;
   branchToListing(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: BranchRegistrationWorkspaceToListingInput,
   ): Promise<{ workspaceId: string }>;
 }

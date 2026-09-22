@@ -1,3 +1,4 @@
+import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { randomUUID } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
@@ -318,12 +319,10 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     };
     const firstRepository = new ThumbnailGenerationLedgerRepositoryAdapter(
       pausedPrisma as unknown as PrismaService,
-      {} as never,
-    );
+      {} as never, makeChannelListingQuery(prisma), makeChannelRecipes(prisma));
     const secondRepository = new ThumbnailGenerationLedgerRepositoryAdapter(
       prisma as unknown as PrismaService,
-      {} as never,
-    );
+      {} as never, makeChannelListingQuery(prisma), makeChannelRecipes(prisma));
 
     const first = firstRepository.removeCandidate({
       id: generation.id,

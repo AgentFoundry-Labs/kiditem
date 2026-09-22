@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, NotImplementedException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException, NotImplementedException } from '@nestjs/common';
 import { OrderStatusSchema } from '@kiditem/shared/order';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -8,12 +8,16 @@ import {
   readOrderWindowFacts,
   type OrderWindowFacts,
 } from '../read/order-facts.reader';
-import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
 import { addDays, kstBusinessDate, kstDayStart } from '../../common/kst';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
+import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
 
 @Injectable()
 export class OrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly accounts: ChannelAccountPort,
+  ) {}
 
   private toListItem(order: {
     id: string;
@@ -129,7 +133,7 @@ export class OrdersService {
         status: statusFilter,
         from: orderedAtFilter.gte,
         to: orderedAtFilter.lte,
-      }),
+      }, this.accounts),
     );
 
     return {
@@ -159,12 +163,12 @@ export class OrdersService {
         organizationId,
         from: todayStart,
         to: tomorrowStart,
-      }),
+      }, this.accounts),
       week: await readOrderWindowFacts(tx, {
         organizationId,
         from: weekStart,
         to: tomorrowStart,
-      }),
+      }, this.accounts),
     }));
 
     return {

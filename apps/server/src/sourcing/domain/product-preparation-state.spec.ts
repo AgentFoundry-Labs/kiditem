@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blocksCandidateTerminalTransition } from './product-preparation-state';
 
-describe('ProductPreparation draft lifecycle', () => {
+describe('RegistrationTarget draft lifecycle', () => {
   it.each([
     ['draft', true], ['submitting', true], ['failed', false],
     ['registered', false], ['cancelled', false],

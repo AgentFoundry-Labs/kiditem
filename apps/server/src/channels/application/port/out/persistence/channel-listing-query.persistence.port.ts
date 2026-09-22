@@ -1,3 +1,4 @@
+import type { ChannelListingFactQueries } from '../../in/listing/channel-listing-query.port';
 import type {
   ChannelListingListResult,
   ChannelListingQuery,
@@ -18,7 +19,7 @@ export const CHANNEL_LISTING_QUERY_PERSISTENCE_PORT = Symbol(
   'CHANNEL_LISTING_QUERY_PERSISTENCE_PORT',
 );
 
-export interface ChannelListingQueryPersistencePort {
+export interface ChannelListingQueryPersistencePort extends ChannelListingFactQueries {
   list(
     organizationId: string,
     query: ChannelListingPersistenceQuery,

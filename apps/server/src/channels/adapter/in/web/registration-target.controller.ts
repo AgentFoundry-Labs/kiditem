@@ -1,9 +1,12 @@
+import { UseFilters } from '@nestjs/common';
+import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { BadRequestException, Body, ConflictException, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { RegistrationTargetCreateInputSchema, RegistrationTargetResolveInputSchema, RegistrationTargetUpdateInputSchema } from '@kiditem/shared/sales-product';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { REGISTRATION_TARGET_PORT, type RegistrationTargetPort } from '../../../application/port/in/registration-target.port';
 import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 
+@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/registration-targets')
 export class RegistrationTargetController {
   constructor(@Inject(REGISTRATION_TARGET_PORT) private readonly targets: RegistrationTargetPort) {}

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -14,8 +15,11 @@ import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repos
 import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { groupUrlAssetKey } from '../domain/content-asset-key';
-import type { PrismaService } from '../../prisma/prisma.service';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
+import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ownerTransaction } from '../../prisma/owner-transaction';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('AI content ownership constraints (PG integration)', () => {
   let prisma: PrismaClient;
@@ -24,8 +28,13 @@ describe('AI content ownership constraints (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const channelListings = new ChannelListingQueryService(
+      new ChannelListingQueryPersistenceAdapter(prisma as never),
+      { findForListings: async () => [] },
+    );
     registrationContent = new RegistrationContentWorkspaceRepositoryAdapter(
       prisma as unknown as PrismaService,
+      channelListings,
     );
   });
 
@@ -152,7 +161,7 @@ describe('AI content ownership constraints (PG integration)', () => {
     });
 
     await expect(prisma.$transaction(async (tx) => {
-      const selections = await registrationContent.resolveSourceSelections(tx, {
+      const selections = await registrationContent.resolveSourceSelections(ownerTransaction(tx), {
         organizationId: TEST_ORGANIZATION_ID,
         sourceWorkspaceId: localWorkspace.id,
         selectedThumbnailUrl: null,
@@ -162,7 +171,7 @@ describe('AI content ownership constraints (PG integration)', () => {
         selectedDetailPageRevisionId: null,
         selectedDetailPageGenerationId: null,
       });
-      return tx.productPreparation.create({
+      return tx.registrationTarget.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           salesProductId: localProduct.id,
@@ -176,7 +185,7 @@ describe('AI content ownership constraints (PG integration)', () => {
       });
     })).rejects.toThrow('Selected detail artifact is not source-owned.');
 
-    expect(await prisma.productPreparation.count({
+    expect(await prisma.registrationTarget.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).toBe(0);
   });
@@ -307,6 +316,10 @@ describe('AI content ownership constraints (PG integration)', () => {
     };
     const repository = new ContentWorkspaceLifecycleRepositoryAdapter(
       prismaWithPausedOwnerLock as unknown as PrismaService,
+      new ChannelListingQueryService(
+        new ChannelListingQueryPersistenceAdapter(prisma as never),
+        { findForListings: async () => [] },
+      ),
     );
 
     const creation = repository.ensureActiveWorkspace({
@@ -421,8 +434,7 @@ describe('AI content ownership constraints (PG integration)', () => {
     );
     const ledger = new ThumbnailGenerationLedgerRepositoryAdapter(
       prisma as unknown as PrismaService,
-      {} as never,
-    );
+      {} as never, makeChannelListingQuery(prisma), makeChannelRecipes(prisma));
 
     const adoption = selectionRepository.selectCurrent({
       organizationId: TEST_ORGANIZATION_ID,

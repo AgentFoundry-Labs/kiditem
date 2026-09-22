@@ -304,7 +304,7 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 - `inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts` — organization-scoped generation/lease fencing and server-time freshness transitions
 - `inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts` — atomic full-snapshot publication, same-hash confirmation, quality hard block, and previous-snapshot preservation
 - `channels/__tests__/channel-sku-mapping.pg.integration.spec.ts` — tenant-safe confirmed recipes and inactive-component diagnostics
-- `channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts` — Rocket vendor/account identity and duplicate canonical publication
+- `orders/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts` — Rocket vendor/account identity and duplicate canonical publication
 - `supply/__tests__/purchase-order-submission.pg.integration.spec.ts` — locked freshness fence, idempotent attempt creation, ambiguous provider classification, and reconciliation
 
 각 파일은 mock 시뮬레이션 대응 파일(`*.spec.ts`) 과 **공존**한다. Mock 은 fast smoke, real 은 동시성 정확성.

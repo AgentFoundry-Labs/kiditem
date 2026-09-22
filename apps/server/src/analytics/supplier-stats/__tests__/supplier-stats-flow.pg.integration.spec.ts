@@ -1,3 +1,4 @@
+import { channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
@@ -24,6 +25,7 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
     await prisma.$connect();
     const module = await Test.createTestingModule({
       providers: [
+        ...channelFactTestProviders,
         SupplierStatsService,
         { provide: PRODUCT_SOURCE_READ_PORT, useValue: new ProductSourceReadRepositoryAdapter(prisma as never) },
         { provide: PrismaService, useValue: prisma },

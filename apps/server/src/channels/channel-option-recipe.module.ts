@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { ChannelOptionRecipeRepositoryAdapter } from './adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { CHANNEL_OPTION_RECIPE_PORT } from './application/port/in/channel-option-recipe.port';
-import { CHANNEL_OPTION_RECIPE_REPOSITORY_PORT } from './application/port/out/persistence/channel-option-recipe.repository.port';
-import { ChannelOptionRecipeUseCase } from './application/usecase/channel-option-recipe.usecase';
+import { CHANNEL_OPTION_RECIPE_REPOSITORY_PORT, type ChannelOptionRecipeRepositoryPort } from './application/port/out/persistence/channel-option-recipe.repository.port';
+import { ChannelOptionRecipeService } from './application/service/listing/channel-option-recipe.service';
 
 /**
  * Channels' focused recipe mutation seam. Consumers import this module without
@@ -18,10 +18,10 @@ import { ChannelOptionRecipeUseCase } from './application/usecase/channel-option
       provide: CHANNEL_OPTION_RECIPE_REPOSITORY_PORT,
       useExisting: ChannelOptionRecipeRepositoryAdapter,
     },
-    ChannelOptionRecipeUseCase,
+    { provide: ChannelOptionRecipeService, useFactory: (persistence: ChannelOptionRecipeRepositoryPort) => new ChannelOptionRecipeService(persistence), inject: [CHANNEL_OPTION_RECIPE_REPOSITORY_PORT] },
     {
       provide: CHANNEL_OPTION_RECIPE_PORT,
-      useExisting: ChannelOptionRecipeUseCase,
+      useExisting: ChannelOptionRecipeService,
     },
   ],
   exports: [CHANNEL_OPTION_RECIPE_PORT],

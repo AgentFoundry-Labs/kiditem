@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
@@ -1013,9 +1015,9 @@ describe('AdAction flow (PG integration)', () => {
           },
         },
       });
-      const rejecting = new AdActionRepositoryAdapter(
+      const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(racing as never).listings, channelFactTestPorts(racing as never).recipes,
         racing as never,
-        new AdListingRepositoryAdapter(prisma as never),
+        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts
       );
 
       expect(await refusal(rejecting.rejectAdActions([action.id], TEST_ORGANIZATION_ID)))
@@ -1048,9 +1050,9 @@ describe('AdAction flow (PG integration)', () => {
           },
         },
       });
-      const rejecting = new AdActionRepositoryAdapter(
+      const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(racing as never).listings, channelFactTestPorts(racing as never).recipes,
         racing as never,
-        new AdListingRepositoryAdapter(prisma as never),
+        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts
       );
       try {
         return await rejecting.rejectAdActions([actionId], TEST_ORGANIZATION_ID);

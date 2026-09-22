@@ -122,7 +122,7 @@ function renderWithQueryClient(ui: React.ReactElement) {
 }
 
 function renderHeader(
-  productPreparation: ProductPreparationSelection | null = null,
+  registrationTarget: ProductPreparationSelection | null = null,
   registrationState: CandidateRegistrationState | null = null,
 ) {
   return renderWithQueryClient(
@@ -130,7 +130,7 @@ function renderHeader(
       productName="자석 다트게임"
       productId="candidate-1"
       status="sourced"
-      productPreparation={productPreparation}
+      registrationTarget={registrationTarget}
       registrationState={registrationState}
       basicInfo={basicInfo}
       selectedThumbnailUrl={basicInfo.selectedThumbnailUrl}

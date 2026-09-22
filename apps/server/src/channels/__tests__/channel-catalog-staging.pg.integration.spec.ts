@@ -1,3 +1,6 @@
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
+import { ListingContentQueryRepositoryAdapter } from '../../ai/adapter/out/repository/listing-content-query.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -14,11 +17,11 @@ import {
 import {
   ChannelCatalogCollectionService,
   hashCatalogChunkPayload,
-} from '../application/service/channel-catalog-collection.service';
+} from '../application/service/collection/channel-catalog-collection.service';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelListingQueryService } from '../application/service/listing/channel-listing-query.service';
 import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
@@ -27,6 +30,8 @@ import type {
   CoupangCatalogProductV1,
   PutCoupangCatalogChunkRequest,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const scope = { organizationId: ORG, channelAccountId: ACCOUNT };
@@ -40,7 +45,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    const recipes = new ChannelOptionRecipeUseCase(
+    const recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as never,
         new ProductTransactionalReadRepositoryAdapter(),
@@ -48,15 +53,15 @@ describe('Wing catalog private staging and atomic publication (public service + 
     );
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as never,
-      new AiCatalogMediaPublicationRepositoryAdapter(),
+      new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
       alerts,
       recipes,
     );
     collection = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
-      publisher,
+      publisher, channelIntegrity,
     );
-    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never));
+    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never));
   });
   afterAll(async () => {
     await prisma?.$disconnect();
@@ -102,7 +107,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
         kind: payload.kind,
         sequence,
         payload,
-        checksum: hashCatalogChunkPayload(payload),
+        checksum: hashCatalogChunkPayload(payload, channelIntegrity.sha256),
         itemCount:
           payload.kind === 'product_details'
             ? payload.products.length
@@ -216,7 +221,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
     expect(replay).toEqual(complete);
     expect(await current()).toEqual(visible);
     await expect(finalize(ready.attemptId, 'b'.repeat(64))).rejects.toMatchObject({
-      status: 409,
+      kind: 'conflict',
     });
     expect(await current()).toEqual(visible);
   });
@@ -315,7 +320,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
       products: [{ ordinal: 0, product: product('P2') }],
     });
     await expect(finalize(partial.attemptId, 'b'.repeat(64))).rejects.toMatchObject({
-      status: 400,
+      kind: 'invalid',
     });
     expect(await current()).toEqual(visible);
     expect(
@@ -382,9 +387,9 @@ describe('Wing catalog private staging and atomic publication (public service + 
     });
     const measuredPublisher = new ChannelCatalogPublicationRepositoryAdapter(
       measured as never,
-      new AiCatalogMediaPublicationRepositoryAdapter(),
+      new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
       alerts,
-      new ChannelOptionRecipeUseCase(
+      new ChannelOptionRecipeService(
         new ChannelOptionRecipeRepositoryAdapter(
           measured as never,
           new ProductTransactionalReadRepositoryAdapter(),
@@ -393,7 +398,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
     );
     const owner = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts, measuredPublisher),
-      measuredPublisher,
+      measuredPublisher, channelIntegrity,
     );
     try {
       const started = performance.now();

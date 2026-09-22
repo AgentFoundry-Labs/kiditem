@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import {
@@ -28,13 +28,13 @@ describe('registration target execution repository (PostgreSQL)', () => {
   let prisma: PrismaClient;
   let targets: RegistrationTargetRepositoryAdapter;
   let repository: RegistrationExecutionRepositoryAdapter;
-  let recipes: ChannelOptionRecipeUseCase;
+  let recipes: ChannelOptionRecipeService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService);
-    recipes = new ChannelOptionRecipeUseCase(
+    recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
@@ -52,6 +52,53 @@ describe('registration target execution repository (PostgreSQL)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+  });
+
+  it.each([
+    'inactive account', 'provider identity', 'archived target', 'target version',
+    'product version', 'product status', 'option supply status', 'selected membership', 'inactive listing',
+  ])('refuses a fresh start after a changed %s without claiming a lease', async change => {
+    const fixture = await createFixture(prisma, targets, { listing: true });
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
+      request: { ...requestFor(`start-fence-${change}`), channelListingId: fixture.listingId! }, snapshot: fixture.snapshot,
+    });
+    if (change === 'inactive account') await prisma.channelAccount.update({ where: { id: fixture.accountId }, data: { status: 'inactive' } });
+    if (change === 'provider identity') await prisma.channelAccount.update({ where: { id: fixture.accountId }, data: { vendorId: 'another-vendor' } });
+    if (change === 'archived target') await prisma.registrationTarget.update({ where: { id: fixture.targetId }, data: { archivedAt: new Date() } });
+    if (change === 'target version') await prisma.registrationTarget.update({ where: { id: fixture.targetId }, data: { version: { increment: 1 } } });
+    if (change === 'product version') await prisma.salesProduct.update({ where: { id: fixture.productId }, data: { version: { increment: 1 } } });
+    if (change === 'product status') await prisma.salesProduct.update({ where: { id: fixture.productId }, data: { status: 'archived' } });
+    if (change === 'option supply status') await prisma.salesProductOption.update({ where: { id: fixture.optionId }, data: { supplyStatus: 'unused' } });
+    if (change === 'selected membership') await prisma.registrationTargetOption.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: fixture.targetId } });
+    if (change === 'inactive listing') await prisma.channelListing.update({ where: { id: fixture.listingId! }, data: { isActive: false } });
+    await expect(repository.startTarget({ organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: prepared.executionId })).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } })).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted', leaseToken: null, leaseClaimedAt: null, startedAt: null });
+  });
+
+  it('refuses a composition start when its frozen actual option was deactivated', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true });
+    const optionTransitions = [{ channelListingOptionId: fixture.listingOptionId!, salesProductOptionId: fixture.optionId }];
+    const prepared = await repository.prepareTarget({ organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
+      request: { ...requestFor('composition-start-fence'), kind: 'composition_change', channelListingId: fixture.listingId!, optionTransitions },
+      snapshot: { ...fixture.snapshot, kind: 'composition_change', optionTransitions } });
+    await prisma.channelListingOption.update({ where: { id: fixture.listingOptionId! }, data: { isActive: false } });
+    await expect(repository.startTarget({ organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: prepared.executionId })).rejects.toThrow('no longer active');
+    expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } })).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted', leaseToken: null });
+  });
+
+  it('grants exactly one concurrent start and replays that receipt after the target is archived', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const prepared = await repository.prepareTarget({ organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID, request: requestFor('concurrent-start-fence'), snapshot: fixture.snapshot });
+    const start = { organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: prepared.executionId };
+    const results = await Promise.all([repository.startTarget(start), repository.startTarget(start)]);
+    expect(results.filter(result => result.maySubmit)).toHaveLength(1);
+    expect(new Set(results.map(result => result.leaseToken)).size).toBe(1);
+    await prisma.registrationTarget.update({ where: { id: fixture.targetId }, data: { archivedAt: new Date() } });
+    expect(await repository.startTarget(start)).toMatchObject({ maySubmit: false, status: 'executing', leaseToken: results[0]!.leaseToken });
+    await prisma.productRegistrationExecution.update({ where: { id: prepared.executionId }, data: { status: 'succeeded', providerOutcome: 'succeeded' } });
+    expect(await repository.startTarget(start)).toMatchObject({ maySubmit: false, status: 'succeeded' });
   });
 
   it('freezes raw intent separately, claims a provider lease once, and replays the frozen snapshot', async () => {
@@ -841,7 +888,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
     await prisma.productRegistrationExecution.createMany({
       data: Array.from({ length: 51 }, (_, index) => ({
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: fixture.targetId,
+        registrationTargetId: fixture.targetId,
         channelAccountId: fixture.accountId,
         executionKind: 'register',
         idempotencyKey: `target-history-${index}`,
@@ -858,7 +905,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
     await prisma.productRegistrationExecution.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: fixture.targetId,
+        registrationTargetId: fixture.targetId,
         channelAccountId: fixture.accountId,
         executionKind: 'create',
         idempotencyKey: 'target-history-legacy',
@@ -925,10 +972,10 @@ describe('registration target execution repository (PostgreSQL)', () => {
     });
     const stored = await prisma.productRegistrationExecution.findUniqueOrThrow({
       where: { id: prepared.executionId },
-      select: { productPreparationId: true, channelListingId: true, expectedProviderAccountId: true },
+      select: { registrationTargetId: true, channelListingId: true, expectedProviderAccountId: true },
     });
     expect(stored).toEqual({
-      productPreparationId: null,
+      registrationTargetId: null,
       channelListingId: fixture.listingId,
       expectedProviderAccountId: 'vendor-1',
     });
@@ -1035,8 +1082,73 @@ describe('registration target execution repository (PostgreSQL)', () => {
     })).resolves.toMatchObject({ status: 'succeeded', result: { outcome: 'confirmed' } });
   });
 
-  it('rejects unsupported seller systems and keeps registration-target executions on their own API', async () => {
+  it.each(['sold_out', 'resume'] as const)('rejects Rocket %s before creating an availability intent', async (kind) => {
+    const fixture = await createFixture(prisma, targets, { listing: true, channel: 'rocket' });
+    await expect(repository.prepareListingAvailability({ organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID, request: { channelAccountId: fixture.accountId,
+        externalListingId: 'provider-listing-1', kind, optionCodes: [], idempotencyKey: `rocket-${kind}` },
+    })).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.productRegistrationExecution.count({ where: { channelAccountId: fixture.accountId } })).toBe(0);
+  });
+
+  it('requires exact Wing stock reread evidence and preserves whole-listing status for option changes', async () => {
     const fixture = await createFixture(prisma, targets, { listing: true });
+    const prepared = await repository.prepareListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
+      request: { channelAccountId: fixture.accountId, externalListingId: 'provider-listing-1',
+        kind: 'sold_out', optionCodes: [], idempotencyKey: 'wing-availability-1' },
+    });
+    expect(prepared.payload.optionCodes).toEqual(['provider-option-1']);
+    expect(prepared.expectedProviderAccountId).toBe('vendor-1');
+    const started = await repository.startListingAvailability({ organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID, executionId: prepared.executionId });
+    const report = { leaseToken: started.leaseToken!, payloadHash: started.payloadHash,
+      outcome: 'confirmed' as const, evidence: { channelAccountId: fixture.accountId,
+        externalListingId: 'provider-listing-1', providerAccountId: 'vendor-1', observedStatus: '품절' } };
+    const reportInput = { organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
+      executionId: prepared.executionId };
+    await expect(repository.reportListingAvailability({ ...reportInput, report })).rejects.toBeInstanceOf(ConflictException);
+    for (const observations of [
+      [{ externalOptionId: 'other-option', stock: 0, registrationType: 'NORMAL' as const }],
+      [{ externalOptionId: 'provider-option-1', stock: 1, registrationType: 'NORMAL' as const }],
+    ]) {
+      await expect(repository.reportListingAvailability({ ...reportInput,
+        report: { ...report, evidence: { ...report.evidence, observedOptionStocks: observations } },
+      })).rejects.toBeInstanceOf(ConflictException);
+    }
+    const confirmed = await repository.reportListingAvailability({ ...reportInput,
+      report: { ...report, evidence: { ...report.evidence, observedOptionStocks: [
+        { externalOptionId: 'provider-option-1', stock: 0, registrationType: 'NORMAL' },
+      ] } },
+    });
+    expect(confirmed).toMatchObject({ status: 'succeeded', result: { observedOptionStocks: [
+      { externalOptionId: 'provider-option-1', stock: 0, registrationType: 'NORMAL' },
+    ] } });
+    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: fixture.listingId! },
+      select: { status: true } })).toEqual({ status: null });
+  });
+
+  it('rejects RFM before intent and rejects provider account drift before a send lease', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true });
+    const input = { organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
+      request: { channelAccountId: fixture.accountId, externalListingId: 'provider-listing-1',
+        kind: 'resume' as const, optionCodes: [], idempotencyKey: 'wing-account-fence' } };
+    await prisma.channelListingOption.updateMany({ where: { listingId: fixture.listingId! },
+      data: { rawJson: { registrationType: 'RFM' } } });
+    await expect(repository.prepareListingAvailability(input)).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.productRegistrationExecution.count({ where: { channelAccountId: fixture.accountId } })).toBe(0);
+    await prisma.channelListingOption.updateMany({ where: { listingId: fixture.listingId! },
+      data: { rawJson: { registrationType: 'NORMAL' } } });
+    const prepared = await repository.prepareListingAvailability(input);
+    await prisma.channelAccount.update({ where: { id: fixture.accountId }, data: { vendorId: 'another-vendor' } });
+    await expect(repository.startListingAvailability({ organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID, executionId: prepared.executionId })).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId },
+      select: { status: true, leaseToken: true } })).toEqual({ status: 'prepared', leaseToken: null });
+  });
+
+  it('rejects unsupported seller systems and keeps registration-target executions on their own API', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true, channel: 'rocket' });
     await expect(repository.prepareListingAvailability({
       organizationId: TEST_ORGANIZATION_ID,
       requestedByUserId: TEST_USER_ID,
@@ -1045,7 +1157,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
         externalListingId: 'provider-listing-1',
         kind: 'sold_out',
         optionCodes: [],
-        idempotencyKey: 'listing-unsupported-coupang-1',
+        idempotencyKey: 'listing-unsupported-rocket-1',
       },
     })).rejects.toBeInstanceOf(ConflictException);
 
@@ -1119,7 +1231,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
     await prisma.productRegistrationExecution.createMany({
       data: Array.from({ length: 51 }, (_, index) => ({
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: null,
+        registrationTargetId: null,
         channelAccountId: fixture.accountId,
         channelListingId: fixture.listingId,
         executionKind: 'sold_out',

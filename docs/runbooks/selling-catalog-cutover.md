@@ -28,14 +28,14 @@ existing KID is preserved; an initially confirmed singleton may reuse the source
 KID. External sellerSku, provider identifiers and frozen execution evidence are
 not rewritten.
 
-After 020, `021_link_registration_targets` creates the minimal catalog shape if
+After 020, `022_registration_target_cutover` creates the minimal catalog shape if
 it never existed, then links saved registration preparations to selling products.
 It uses only explicit stored names, priced variants and option values; missing
 prices, conflicting common definitions, ambiguous option mappings or cross-organization
 references abort the transaction. Existing preparation UUIDs, settings, external
 identifiers and frozen execution rows/hashes remain unchanged. Already linked
 settings are not overwritten. Successful legacy preparations become reusable;
-explicitly cancelled or deleted settings stay closed.
+explicitly cancelled or deleted settings retain their archive time.
 
 Legacy account overrides become registration targets with the same UUID. The old
 base-plus-extra and explicit-price-before-rate behavior is materialized once as

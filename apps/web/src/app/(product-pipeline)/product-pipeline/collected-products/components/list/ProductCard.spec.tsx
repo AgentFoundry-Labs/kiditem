@@ -61,7 +61,7 @@ describe('ProductCard quick processing action', () => {
       <ProductCard
         product={productFixture({
           promotedMasterId: 'legacy-master-1',
-          productPreparation: {
+          registrationTarget: {
             id: 'preparation-1',
             sourceCandidateId: 'candidate-1',
             channelAccountId: 'account-1',

@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -31,8 +33,8 @@ describe('published Advertising snapshots through campaign and action readers', 
   beforeAll(async () => {
     db = makeTestPrisma();
     await db.$connect();
-    campaigns = new AdCampaignRepositoryAdapter(db as never);
-    actions = new AdActionRepositoryAdapter(db as never, {} as never);
+    campaigns = new AdCampaignRepositoryAdapter(db as never, profitCatalogTestReaders(db as never).accounts);
+    actions = new AdActionRepositoryAdapter(channelFactTestPorts(db as never).listings, channelFactTestPorts(db as never).recipes, db as never, {} as never, profitCatalogTestReaders(db as never).accounts);
   });
   afterAll(async () => {
     await db?.$disconnect();
@@ -377,8 +379,8 @@ describe('published Advertising snapshots through campaign and action readers', 
       },
     });
     const service = new AdCampaignsService(
-      new AdCampaignRepositoryAdapter(observing as never),
-      new AdListingRepositoryAdapter(db as never), actions, {} as never,
+      new AdCampaignRepositoryAdapter(observing as never, profitCatalogTestReaders(observing as never).accounts),
+      new AdListingRepositoryAdapter(channelFactTestPorts(db as never).listings, channelFactTestPorts(db as never).recipes, db as never), actions, {} as never,
     );
     expect(await service.getCampaigns('7d', ORG)).toMatchObject([{
       campaignName: 'Campaign', onOff: 'ON', metrics: { spend: 10 },

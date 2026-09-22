@@ -1,5 +1,5 @@
-import type { MallListingProfile } from '../../../../domain/mall/mall-listing-profile';
-import type { PreflightKc } from '../../../../domain/mall/mall-publish-preflight';
+import type { MallListingProfile } from '../../../../domain/account/mall-listing-profile';
+import type { PreflightKc } from '../../../../domain/registration/mall-publish-preflight';
 
 export const MALL_PUBLISHING_REPOSITORY_PORT = Symbol('MALL_PUBLISHING_REPOSITORY_PORT');
 

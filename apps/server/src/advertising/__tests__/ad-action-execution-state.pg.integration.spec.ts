@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import {
@@ -25,9 +27,9 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new AdActionRepositoryAdapter(
+    repository = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
-      new AdListingRepositoryAdapter(prisma as never),
+      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(prisma as never).accounts
     );
   });
 
@@ -480,8 +482,8 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     await pause('미미', { approvalStatus: 'pending_review', organizationId: OTHER_ORGANIZATION_ID });
 
     const service = new AdCampaignsService(
-      new AdCampaignRepositoryAdapter(prisma as never),
-      new AdListingRepositoryAdapter(prisma as never),
+      new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts),
+      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never),
       repository,
       {} as never,
     );
@@ -532,8 +534,8 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
       approvalStatus: 'pending_review',
     });
     const service = new AdCampaignsService(
-      new AdCampaignRepositoryAdapter(prisma as never),
-      new AdListingRepositoryAdapter(prisma as never),
+      new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts),
+      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never),
       repository,
       {} as never,
     );

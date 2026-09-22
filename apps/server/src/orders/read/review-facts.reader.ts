@@ -5,6 +5,7 @@ const COUPANG_REVIEW_SOURCE_TYPE = 'coupang_reviews';
 
 export interface CurrentReviewItemFact {
   id: string;
+  platform: string;
   listingId: string | null;
   itemName: string | null;
   externalOptionId: string | null;
@@ -166,7 +167,7 @@ export async function readCurrentReviewItems(
 ): Promise<CurrentReviewItemFact[]> {
   return tx.$queryRaw<CurrentReviewItemFact[]>(Prisma.sql`
     ${currentReviewsCte(organizationId)}
-    SELECT id, listing_id AS "listingId", item_name AS "itemName",
+    SELECT id, platform, listing_id AS "listingId", item_name AS "itemName",
            external_option_id AS "externalOptionId", external_product_id AS "externalProductId",
            rating, title, content, reviewer_name AS "reviewerName", reviewed_at AS "reviewedAt",
            image_count AS "imageCount", video_count AS "videoCount"

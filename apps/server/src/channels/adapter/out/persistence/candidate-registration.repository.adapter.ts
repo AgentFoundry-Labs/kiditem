@@ -6,7 +6,8 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { Prisma, type ProductPreparation } from '@prisma/client';
+import { Prisma, type RegistrationTarget } from '@prisma/client';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../../sourcing/application/port/in/registration-source.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -29,7 +30,7 @@ import {
   selectionResolutionInput,
   type OptionalSelectionKey,
 } from './candidate-registration-rows';
-import type { RegistrationSubmissionJson } from '../../../domain/registration-submission-payload';
+import type { RegistrationSubmissionJson } from '../../../domain/registration/registration-submission-payload';
 import type {
   CreateOrGetActiveDraftInput,
   ProductPreparationCancelledResult,
@@ -39,10 +40,10 @@ import type {
   ReplaceDraftInputRequest,
   ResolveProductPreparationSelections,
 } from '../../../application/port/in/candidate-registration.port';
-import type { SourcingRepositoryTransaction } from '../../../../sourcing/application/port/out/transaction/repository-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 
 /**
- * 초안(`ProductPreparation`) 저장소.
+ * 초안(`RegistrationTarget`) 저장소.
  *
  * 제출 울타리는 Channels 것이라 여기에는 실행 행을 쓰는 경로가 없다
  * ([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
@@ -69,11 +70,11 @@ export class ProductPreparationRepositoryAdapter
     }
     if (ids.length === 0) return result;
 
-    const rows = await this.prisma.productPreparation.findMany({
+    const rows = await this.prisma.registrationTarget.findMany({
       where: {
         organizationId,
         sourceCandidateId: { in: ids },
-        isDeleted: false,
+        archivedAt: null,
       },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       select: {
@@ -82,7 +83,7 @@ export class ProductPreparationRepositoryAdapter
         channelAccountId: true,
         sourceContentWorkspaceId: true,
         displayName: true,
-        closedAt: true,
+        archivedAt: true,
         selectedThumbnailUrl: true,
         selectedThumbnailGenerationId: true,
         selectedThumbnailGenerationCandidateId: true,
@@ -101,14 +102,14 @@ export class ProductPreparationRepositoryAdapter
 
     const facts = await readRegistrationExecutionFacts(this.prisma, {
       organizationId,
-      productPreparationIds: validRows.map((row) => row.id),
+      registrationTargetIds: validRows.map((row) => row.id),
     });
     // The registered reader returns newest-first. Keep the first fact for each
     // preparation; Map(facts.map(...)) would overwrite it with an older row.
     const latestByPreparation = new Map<string, typeof facts[number]>();
     for (const fact of facts) {
-      if (!latestByPreparation.has(fact.productPreparationId)) {
-        latestByPreparation.set(fact.productPreparationId, fact);
+      if (!latestByPreparation.has(fact.registrationTargetId)) {
+        latestByPreparation.set(fact.registrationTargetId, fact);
       }
     }
     const candidateByPreparation = new Map(
@@ -119,10 +120,10 @@ export class ProductPreparationRepositoryAdapter
     // that order after retaining one fact per preparation so the candidate
     // projection also uses its newest registration attempt.
     for (const fact of facts) {
-      if (latestByPreparation.get(fact.productPreparationId)?.executionId !== fact.executionId) {
+      if (latestByPreparation.get(fact.registrationTargetId)?.executionId !== fact.executionId) {
         continue;
       }
-      const candidateId = candidateByPreparation.get(fact.productPreparationId);
+      const candidateId = candidateByPreparation.get(fact.registrationTargetId);
       if (!candidateId) continue;
       const candidateFacts = factsByCandidate.get(candidateId);
       if (candidateFacts) candidateFacts.push(fact);
@@ -139,7 +140,7 @@ export class ProductPreparationRepositoryAdapter
         sourceContentWorkspaceId: row.sourceContentWorkspaceId,
         channelListingId: execution?.channelListingId ?? null,
         displayName: row.displayName,
-        status: registrationDraftState(row.closedAt, execution),
+        status: registrationDraftState(row.archivedAt, execution),
         selectedThumbnailUrl: row.selectedThumbnailUrl,
         selectedThumbnailGenerationId: row.selectedThumbnailGenerationId,
         selectedThumbnailGenerationCandidateId: row.selectedThumbnailGenerationCandidateId,
@@ -158,25 +159,25 @@ export class ProductPreparationRepositoryAdapter
   }
 
   async assertCandidateTerminalTransitionAllowed(
-    transaction: SourcingRepositoryTransaction,
+    transaction: OwnerTransaction,
     input: { organizationId: string; sourceCandidateId: string },
   ): Promise<void> {
-    const tx = transaction as Prisma.TransactionClient;
-    const preparations = await tx.productPreparation.findMany({
+    const tx = ownerTransactionClient(transaction);
+    const preparations = await tx.registrationTarget.findMany({
       where: {
         organizationId: input.organizationId,
         sourceCandidateId: input.sourceCandidateId,
-        isDeleted: false,
+        archivedAt: null,
       },
       select: {
         id: true,
-        closedAt: true,
+        archivedAt: true,
       },
     });
     // 울타리 쪽 근거는 Channels 리더로 읽는다. 실행 행은 Sourcing 것이 아니다.
     const executions = await readRegistrationExecutionFacts(tx, {
       organizationId: input.organizationId,
-      productPreparationIds: preparations.map((row) => row.id),
+      registrationTargetIds: preparations.map((row) => row.id),
     });
     if (executionsBlockTerminalTransition(executions)) {
       throw new ConflictException(
@@ -184,7 +185,7 @@ export class ProductPreparationRepositoryAdapter
       );
     }
     if (preparations.some((row) => blocksCandidateTerminalTransition({
-      status: registrationDraftState(row.closedAt, executions.find((fact) => fact.productPreparationId === row.id)),
+      status: registrationDraftState(row.archivedAt, executions.find((fact) => fact.registrationTargetId === row.id)),
     }))) {
       throw new ConflictException(
         'Candidate has an active product preparation or retained provider identity.',
@@ -194,13 +195,14 @@ export class ProductPreparationRepositoryAdapter
 
   async createOrGetActiveDraft(
     input: CreateOrGetActiveDraftInput,
-    resolveSourceWorkspace: (tx: SourcingRepositoryTransaction) => Promise<string>,
+    resolveSourceWorkspace: (tx: OwnerTransaction) => Promise<string>,
     resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationDraftResult> {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await this.source.lock(tx, input.organizationId, input.sourceCandidateId);
-        await this.source.requireActive(tx, input.organizationId, input.sourceCandidateId);
+        const handle = ownerTransaction(tx);
+        await this.source.lock(handle, input.organizationId, input.sourceCandidateId);
+        await this.source.requireActive(handle, input.organizationId, input.sourceCandidateId);
         const account = await tx.channelAccount.findFirst({
           where: { id: input.input.channelAccountId, organizationId: input.organizationId, status: 'active' },
           select: { id: true },
@@ -210,8 +212,8 @@ export class ProductPreparationRepositoryAdapter
         const product = await requireCandidateSalesProduct(tx, input.organizationId, input.sourceCandidateId);
         const existing = await findCandidateAccountPreparation(tx, input.organizationId, input.sourceCandidateId, input.input.channelAccountId);
         if (existing) {
-          const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: input.organizationId, productPreparationIds: [existing.id] });
-          if (existing.reviewPayloadHash !== null || registrationDraftState(existing.closedAt, execution) !== 'draft') {
+          const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: input.organizationId, registrationTargetIds: [existing.id] });
+          if (registrationDraftState(existing.archivedAt, execution) !== 'draft') {
             throw new ConflictException('An active submission already exists for this account.');
           }
           return {
@@ -222,17 +224,17 @@ export class ProductPreparationRepositoryAdapter
         }
 
         const sourceContentWorkspaceId = await resolveSourceWorkspace(
-          tx as unknown as SourcingRepositoryTransaction,
+          handle,
         );
         const resolvedSelections = await resolveSelections(
-          tx as unknown as SourcingRepositoryTransaction,
+          handle,
           selectionResolutionInput(
             input.organizationId,
             sourceContentWorkspaceId,
             input.input,
           ),
         );
-        const created = await tx.productPreparation.create({
+        const created = await tx.registrationTarget.create({
           data: {
             organizationId: input.organizationId,
             salesProductId: product.id,
@@ -243,7 +245,6 @@ export class ProductPreparationRepositoryAdapter
             channelAccountId: input.input.channelAccountId,
             sourceContentWorkspaceId,
             displayName: input.input.displayName,
-            closedAt: null,
             registrationInput: input.input.registrationInput as Prisma.InputJsonValue,
             ...resolvedSelectionData(resolvedSelections),
             createdByUserId: input.createdByUserId,
@@ -267,22 +268,23 @@ export class ProductPreparationRepositoryAdapter
     resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationDraftResult | ProductPreparationCancelledResult> {
     return this.prisma.$transaction(async (tx) => {
-      const identity = await tx.productPreparation.findFirst({
+      const handle = ownerTransaction(tx);
+      const identity = await tx.registrationTarget.findFirst({
         where: {
           id: input.preparationId,
           organizationId: input.organizationId,
-          isDeleted: false,
+          archivedAt: null,
         },
         select: { sourceCandidateId: true },
       });
       if (!identity) throw new NotFoundException('Product preparation not found.');
-      if (identity.sourceCandidateId) await this.source.lock(tx, input.organizationId, identity.sourceCandidateId);
+      if (identity.sourceCandidateId) await this.source.lock(handle, input.organizationId, identity.sourceCandidateId);
       await lockPreparation(tx, input.organizationId, input.preparationId);
-      const current = await tx.productPreparation.findFirst({
+      const current = await tx.registrationTarget.findFirst({
         where: {
           id: input.preparationId,
           organizationId: input.organizationId,
-          isDeleted: false,
+          archivedAt: null,
         },
       });
       if (!current) throw new NotFoundException('Product preparation not found.');
@@ -290,33 +292,26 @@ export class ProductPreparationRepositoryAdapter
       // 실행 장부는 Channels 것이다. 편집·취소를 막는지 리더로만 읽는다(ADR-0009).
       const executions = await readRegistrationExecutionFacts(tx, {
         organizationId: input.organizationId,
-        productPreparationIds: [current.id],
+        registrationTargetIds: [current.id],
       });
-      if (current.reviewPayloadHash !== null && executions.length === 0) {
-        throw new ConflictException('Approved preparation is missing its registration execution.');
-      }
       if (input.command.kind === 'cancel') {
         if (executions.some(execution => ['prepared', 'executing', 'reconciling'].includes(execution.status))) {
           throw new ConflictException('An active execution must be resolved before archiving its target.');
         }
-        await tx.productPreparation.updateMany({
-          where: { id: current.id, organizationId: input.organizationId, isDeleted: false },
-          data: {
-            closedAt: new Date(),
-            isDeleted: true,
-            deletedAt: new Date(),
-          },
+        await tx.registrationTarget.updateMany({
+          where: { id: current.id, organizationId: input.organizationId, archivedAt: null },
+          data: { archivedAt: new Date() },
         });
         return { preparationId: current.id, status: 'cancelled' as const };
       }
 
-      if (current.closedAt !== null) throw new ConflictException('Archived registration target cannot be edited.');
+      if (current.archivedAt !== null) throw new ConflictException('Archived registration target cannot be edited.');
 
       assertPatchFresh(current, input.command.input);
       assertRegistrationIdentity(current);
-      if (current.sourceCandidateId) await this.source.requireActive(tx, input.organizationId, current.sourceCandidateId);
+      if (current.sourceCandidateId) await this.source.requireActive(handle, input.organizationId, current.sourceCandidateId);
       const resolvedSelections = await resolveSelections(
-        tx as unknown as SourcingRepositoryTransaction,
+        handle,
         selectionResolutionInput(
           input.organizationId,
           current.sourceContentWorkspaceId,
@@ -325,7 +320,7 @@ export class ProductPreparationRepositoryAdapter
       );
 
       // Editing only changes future submissions. All past and running payloads stay frozen.
-      await tx.productPreparation.update({
+      await tx.registrationTarget.update({
         where: { id: current.id, organizationId: input.organizationId },
         data: {
           ...editableUpdate(current, input.command.input),
@@ -344,9 +339,9 @@ type ReplaceInput = Extract<
 >['input'];
 
 function editableUpdate(
-  current: ProductPreparation,
+  current: RegistrationTarget,
   input: ReplaceInput,
-): Prisma.ProductPreparationUncheckedUpdateInput {
+): Prisma.RegistrationTargetUncheckedUpdateInput {
   return {
     // Legacy approval remains tied to the already frozen execution, not this edit.
     ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
@@ -383,7 +378,7 @@ function editableUpdate(
 }
 
 function assertPatchFresh(
-  current: Pick<ProductPreparation, 'updatedAt'>,
+  current: Pick<RegistrationTarget, 'updatedAt'>,
   input: ReplaceInput,
 ): void {
   if (!Object.prototype.hasOwnProperty.call(input, 'basePreparationUpdatedAt')) return;
@@ -425,7 +420,7 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function mergedSelectionValues(
-  current: ProductPreparation,
+  current: RegistrationTarget,
   update: ReplaceInput,
 ): Record<OptionalSelectionKey, string | null> {
   return {
@@ -446,7 +441,7 @@ function mergedSelectionValues(
 function valueOrCurrent(
   input: Partial<Record<OptionalSelectionKey, string | null>>,
   key: OptionalSelectionKey,
-  current: ProductPreparation,
+  current: RegistrationTarget,
 ): string | null {
   return input[key] !== undefined ? input[key] ?? null : current[key];
 }

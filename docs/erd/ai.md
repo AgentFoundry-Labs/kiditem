@@ -155,7 +155,7 @@ erDiagram
     String organizationId FK
     String ownerType
     String sourceCandidateId FK
-    String channelListingId FK
+    String channelListingId
     String originWorkspaceId FK
     String displayName
     String normalizedTitle
@@ -251,7 +251,7 @@ erDiagram
   Thumbnail {
     String id PK
     String organizationId FK
-    String listingId FK
+    String listingId
     String imageUrl
     String strategy
     String status
@@ -377,7 +377,7 @@ erDiagram
   ThumbnailTracking {
     String id PK
     String organizationId FK
-    String listingId FK
+    String listingId
     String generationId FK
     String originalGrade
     Int originalScore
@@ -461,7 +461,6 @@ erDiagram
 | ContentGenerationGroup | organization | references external | Core | Organization |
 | ContentGenerationSource | organization | references external | Core | Organization |
 | ContentGenerationSource | sourceCandidate | references external | Sourcing | SourcingCandidate |
-| ContentWorkspace | channelListing | references external | Channels | ChannelListing |
 | ContentWorkspace | createdByUser | references external | Core | User |
 | ContentWorkspace | organization | references external | Core | Organization |
 | ContentWorkspace | sourceCandidate | references external | Sourcing | SourcingCandidate |
@@ -477,7 +476,6 @@ erDiagram
 | DetailPageImageRenderIntent | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | DetailPageRevision | createdByUser | references external | Core | User |
 | DetailPageRevision | organization | references external | Core | Organization |
-| Thumbnail | listing | references external | Channels | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | organization | references external | Core | Organization |
 | ThumbnailGeneration | organization | references external | Core | Organization |
@@ -489,6 +487,5 @@ erDiagram
 | ThumbnailGenerationInputImage | candidateImage | references external | Sourcing | CandidateImage |
 | ThumbnailGenerationInputImage | organization | references external | Core | Organization |
 | ThumbnailRegistrationAttempt | organization | references external | Core | Organization |
-| ThumbnailTracking | listing | references external | Channels | ChannelListing |
 | ThumbnailTracking | organization | references external | Core | Organization |
 | ThumbnailTrackingDailySnapshot | organization | references external | Core | Organization |

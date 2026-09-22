@@ -8,7 +8,7 @@ import {
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 
-describe('ProductPreparation shared contract', () => {
+describe('RegistrationTarget shared contract', () => {
   it.each(['draft', 'submitting', 'registered', 'failed', 'cancelled']) (
     'accepts the %s state',
     (status) => expect(ProductPreparationStatusSchema.parse(status)).toBe(status),

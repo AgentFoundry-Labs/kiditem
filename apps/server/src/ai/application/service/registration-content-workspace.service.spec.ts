@@ -1,9 +1,10 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { ownerTransaction } from '../../../prisma/owner-transaction';
 import { RegistrationContentWorkspaceService } from './registration-content-workspace.service';
 import type { RegistrationContentWorkspaceRepositoryPort } from '../port/out/repository/registration-content-workspace.repository.port';
 
-const TX = { opaque: true };
+const TX = ownerTransaction({} as never);
 
 describe('RegistrationContentWorkspaceService', () => {
   it('resolves exact source selections through the caller transaction', async () => {

@@ -332,7 +332,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/todo` | Owner Domain | Operator-written to-do list (`/api/todo`): who owes the work (operator or development), its area, and its status. Nothing derives it from other screens. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, Wing/Rocket listing identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -343,7 +343,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
 | `apps/server/src/products` | Owner Domain | Source-inventory `MasterProduct` identity/current stock/purchase price, Sellpia collection/publication, image metadata, reads/exports and explicit ABC evaluation; `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
-| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, and reviewed ProductPreparation input. Sourcing stops at the draft: the submission fence is owned by Channels and read back through its public capability ([ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)). |
+| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, and candidate eligibility for Channels registration targets. Sourcing stops at the draft: the submission fence is owned by Channels and read back through its public capability ([ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)). |
 | `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, MasterProduct supplier policy, collected-inventory-fenced purchase submission attempts/reconciliation, and Rocket capacity preview after Sellpia publication. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
@@ -365,8 +365,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
 | `apps/server/src/alerts` | Flat | controller/service/repository; source owners pass their transaction to the concrete failure upsert/resolution API. |
-| `apps/server/src/channels` | Hexagonal | Selling-product authoring and persistent registration targets use `application/usecase`, input/output ports and `adapter/in/web` / `adapter/out/persistence`. Provider APIs use outgoing ports plus provider adapters; imports and matching use repository ports plus the Products transactional read port. |
-| `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
+| `apps/server/src/channels` | Hexagonal | Account, sales-product, registration, listing and collection policies use pure `domain/<business>` and `application/service/<business>`. Incoming adapters call input ports; modules bind services and outgoing adapters. Provider, documents, credentials and persistence IO stay outside the application. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
 | `apps/server/src/inventory` | Hexagonal | Retained warehouse, stock-transfer and return-record capabilities; source products, collection and current stock belong to Products. |
@@ -430,17 +429,21 @@ policies are plain TypeScript; input adapters, persistence/provider adapters,
 and module composition contain framework and IO dependencies. The business
 areas are account, sales-product, registration, listing, and collection. Only
 implemented capabilities create directories; no parallel Marketplace business
-layer is part of the target structure. The initial listing query extraction
-preserves existing Content workspace/thumbnail joins and response behavior;
-KID-304 replaces those cross-owner joins through Content capabilities. This
-first extraction does not declare all Channels reads or schema relations migrated.
+layer exists. `ChannelCatalogModule` exports account, listing, composition and
+catalog identity capabilities without starting external execution. AI's separate
+content query module supplies workspace, thumbnail and provider-media facts by
+scoped scalar listing IDs. Consumer adapters preserve the caller's transaction
+through an issued opaque `OwnerTransaction`; persistence adapters alone unwrap it.
 
 Cross-owner Channels references retain scalar IDs and indexes while consumers
-move to owner input contracts through their own output adapters. Organization,
-user, and source-attempt FKs are inventoried migration exceptions as well;
-intra-owner FK and organization constraints remain. Removing a relation also
-requires lifecycle, missing-reference, and concurrent-change coverage. Account,
-PO, provider, and schema migrations remain separately tracked work under
+move to owner input contracts through their own output adapters. Channels organization, user and source-attempt references are scalar logical
+references too; same-owner FK and organization constraints remain. Other owners
+still have explicitly inventoried migration exceptions. Removing a relation also
+requires lifecycle, missing-reference, and concurrent-change coverage. Channels owns every ChannelAccount mutation, including the compatibility account
+editor under Orders URLs. Orders owns Rocket PO collection attempts, snapshots
+and lines and publishes observed listing identities through Channels' catalog
+capability in the same transaction. Supply retains purchase judgment and
+confirmation. The coordinated change follows
 [the Channels redesign spec](https://linear.app/kiditem/issue/KID-286).
 
 Agent-facing capabilities use the neutral contract in
@@ -634,7 +637,7 @@ Notable route subtrees:
   product-registration `SourcingCandidate` inbox, candidate detail route
   entries, candidate-scoped generated content links, and the fixed WING category
   registry used at registration confirmation. WING category selection uses the
-  saved `ProductPreparation.registrationInput.wingCategoryKey` or an exact
+  saved `RegistrationTarget.registrationInput.wingCategoryKey` or an exact
   source-category alias; it does not read registered `ChannelListing` rows or
   call a runtime category-suggestion API. Its mall bulk-sheet action creates
   sales products through the Products API and opens the shared
@@ -887,55 +890,52 @@ training or automatic provider action is enabled by this foundation.
 
 ## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.26`)
 
-Sourcing owns reviewed registration input in `ProductPreparation` and its
-`closedAt` lifecycle. One open draft per candidate/account is enforced by a
-partial unique index; displayed submission state and the resulting listing
-come from the execution ledger. Channels owns the submission fence `ProductRegistrationExecution` —
-frozen payload JSON, SHA-256, idempotency key, lease, provider outcome and
-`externalListingId` — so that one draft reaches one channel account at most
-once, whatever path sends it
-([ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)).
-Channels also owns provider submission, the resulting `ChannelListing`, its
-minimal owner-idempotency receipt, and `ChannelListingDeletionOperation`. The
-Agent-facing mutation terminates at a Channels-owned incoming port and loads
-the frozen state only through the fence's read boundary. Provider state is
-never accepted as Agent business input. AI owns candidate/listing content
-workspaces. Registration no longer promotes a candidate into `MasterProduct`.
+Channels owns `SalesProduct` (one mall registration unit including options),
+reusable `RegistrationTarget` settings and their selected options. Candidate
+provenance is optional; a target references a priced selling product and active
+account. Several targets may serve the same product/account. Archiving sets
+`archivedAt`; successful submission leaves the target reusable.
+
+`ProductRegistrationExecution` freezes each intent's payload, hash, approval,
+actor, account, idempotency key, lease and provider outcome. Changing a target
+cannot change an existing execution. Only one unresolved execution may hold a
+target or actual listing's active fence. Sourcing provides candidate eligibility
+through its public contract; AI owns content workspaces and assets. Neither owner
+writes Channels targets or executions, and registration never creates a source
+`MasterProduct`.
 
 ```text
-SourcingCandidate (status: sourced | rejected)
-  -> ProductPreparation draft for a selected ChannelAccount        [Sourcing]
-  -> ProductRegistrationExecution freezes canonical payload JSON + SHA-256
-     + stable submission key + actor/account evidence              [Channels]
-  -> persist executing/uncertain before provider IO and reconcile by key/provider ID
-  -> call provider outside the DB tx only when the execution remains
-     prepared/not_attempted and reconciliation proves this is new
-  -> persist the fenced provider outcome
-  -> one Channels DB tx resolves/reactivates the account-scoped ChannelListing
-     + claims exact owner key/request hash in
-       ChannelRegistrationOwnerIdempotencyReceipt
-     + replays the minimal listing result or rejects changed canonical input
+optional SourcingCandidate provenance
+  -> Channels SalesProduct + options
+  -> reusable RegistrationTarget + selected options
+  -> frozen ProductRegistrationExecution + approval evidence
+  -> executing/uncertain persisted before provider IO
+  -> confirmed provider evidence
+  -> Channels transaction publishes actual Listing/options/composition
 ```
 
-The fence opens the transaction. Draft transitions that must commit with it
-run inside that transaction through the Sourcing-owned `REGISTRATION_DRAFT_PORT`,
-so Channels never writes draft rows and Sourcing never writes execution rows.
-Sourcing reflects candidate registration state (`none`, `preparing`,
-`confirming`, `failed`, `registered`) by reading
-`channels/read/registration-execution.reader.ts`; drafts have no mirrored
-submission columns ([ADR-0009](adr/0009-one-ledger-one-reader.md)).
+Actual listings collected from a mall need no fabricated selling product or
+registration target. Listing-only availability operations use the same execution
+ledger. Registered views preserve these listings even without an AI workspace.
+Unregistered candidate views exclude provenance already represented by an active
+listing, including provenance through the linked selling product.
 
 A mall form fill or a generated bulk workbook is not a submission: no channel
 account has received anything yet, so those paths return their current result
 without storing an observation or opening an execution. A path that starts
 submitting to an account enters the fence first.
 
-The pre-schema `018_consolidate_registration_execution` migration transfers
-legacy preparation submission evidence into the execution ledger before the
-mirror columns are removed. It rejects conflicting evidence, closes terminal
-drafts, and preserves uncertain provider attempts for reconciliation. Runtime
-submission does not import legacy rows or turn uncertain attempts into fresh
-creates. Listing deletion rows are not converted by this migration. Listing deletion
+The pre-schema `022_registration_target_cutover` replaces the unpromoted
+018/021 steps. After 020 it preserves legacy submission evidence, maps priced
+products and selected options, moves approval evidence to its exact execution,
+and renames registration target tables in place. Conflicting or ambiguous
+facts abort the transaction. Per-target display names and prices remain overrides.
+If targets for one candidate disagree on canonical product metadata and no
+canonical product already exists, reconcile the source data before cutover; the
+migration does not guess a shared name, image set or detail body. Successful targets remain reusable; explicitly
+archived targets retain their archive time. Uncertain provider attempts remain
+reconciliation work and are never restarted as fresh creates. Listing deletion
+rows are not converted by this migration. Listing deletion
 authorization and uncertainty live in `ChannelListingDeletionOperation`; an
 extension-observed success alone remains `reconciling/uncertain` and cannot
 deactivate the listing until an independent provider verifier confirms it.
@@ -1030,6 +1030,12 @@ untouched until operator review. Products remains the sole physical-stock
 writer.
 
 Confirmed direct option components remain the capacity truth.
+Actual `ChannelListingOption.safetyStock` is the stockout threshold (default 0).
+The legacy `SalesProductOption.safetyStock` field is still accepted by selling
+catalog import/edit paths but is ignored by operational stockout. Its nonzero
+value report and removal of those old consumers are tracked by KID-309; do not
+copy a common threshold to all observed mall options.
+
 Capacity is `min(floor(currentStock / quantity))`. Channels and Products read
 Products' organization-scoped current quantities. A missing or deleted SKU
 remains absent (`currentStock: null`) and requires connection review; a retained

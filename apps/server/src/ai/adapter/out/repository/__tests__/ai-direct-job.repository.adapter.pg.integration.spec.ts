@@ -1,3 +1,4 @@
+import { makeChannelListingQuery, makeChannelRecipes } from '../../../../../test-helpers/channel-catalog-ports';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -486,8 +487,7 @@ function thumbnailGenerationRepository(prisma: PrismaClient): ThumbnailGeneratio
   const scopedPrisma = prisma as unknown as PrismaService;
   return new ThumbnailGenerationLedgerRepositoryAdapter(
     scopedPrisma,
-    new AiDirectJobRepositoryAdapter(scopedPrisma),
-  );
+    new AiDirectJobRepositoryAdapter(scopedPrisma), makeChannelListingQuery(prisma), makeChannelRecipes(prisma));
 }
 
 function detailDirectPayload() {

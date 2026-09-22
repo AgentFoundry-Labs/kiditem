@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { AgentOsCapabilityModule } from '../../agent-os/agent-os-capability.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { StorageModule } from '../../common/storage/storage.module';
+import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import { AiAgentRuntimeModule, AiModule } from '../ai.module';
 import { AiProductGenerationRuntimeModule } from '../ai-product-generation-runtime.module';
 import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing-registration-capability.adapter';
@@ -116,8 +117,9 @@ describe('AiModule hexagonal wiring contract', () => {
     const runtimeImports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, AiAgentRuntimeModule) ?? [];
 
-    expect(imports).toEqual([AiAgentRuntimeModule]);
+    expect(imports).toEqual([ChannelCatalogModule, AiAgentRuntimeModule]);
     expect(runtimeImports).toEqual([
+      ChannelCatalogModule,
       PrismaModule,
       AgentOsCapabilityModule,
       StorageModule,

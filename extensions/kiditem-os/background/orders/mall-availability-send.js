@@ -1526,6 +1526,17 @@
           await sleep(WING_RATE_LIMIT_WAITS_MS[attempt]);
         }
       };
+      const readIdentity = async (expected) => {
+        const [observed] = await chromeApi.scripting.executeScript({
+          target: { tabId },
+          func: function verifyWingAvailabilityAccount(expectedVendorId) {
+            return globalThis.KidItemWingAccountIdentity?.verifyExpectedVendorId(expectedVendorId)
+              ?? { ok: false, error: "Wing 계정 식별 기능을 사용할 수 없습니다." };
+          },
+          args: [expected],
+        });
+        return observed?.result ?? { ok: false };
+      };
       const readItems = async (product) => {
         const answer = await inPage(`${stock.itemsPath}${product}?${stock.itemsQuery}`, "GET", null, null);
         if (answer.status === 200 && answer.json?.success === true && Array.isArray(answer.json.data)) {
@@ -1544,7 +1555,7 @@
         if (reusable) {
           tabId = reusable.id;
           closeWhenDone = false;
-          return await work({ inPage, readItems, showList: async () => null });
+          return await work({ inPage, readItems, readIdentity, showList: async () => null });
         }
         if (show) {
           // 이미 열린 상품목록 탭이 있으면 그 탭에서 이 상품을 검색해 앞에 띄운다. 탭이 쌓이지 않는다.
@@ -1591,7 +1602,7 @@
           }
           return false;
         };
-        return await work({ inPage, readItems, showList });
+        return await work({ inPage, readItems, readIdentity, showList });
       } finally {
         // 뒤에서 연 탭만 닫는다. 앞에 띄운 상품목록은 사장님 것이다(원래 열려 있던 탭일 수도 있다).
         if (tabId !== null && closeWhenDone) await chromeApi.tabs.remove(tabId).catch(() => undefined);
@@ -1612,10 +1623,17 @@
      *
      * 윙이 끝까지 막으면(429) 거기서 멈춰 남은 상품을 보내지 못한 것으로 센다(`stopped: "rate_limited"`).
      */
-    async function sendByOptionStock(spec, codes, options, resume, show) {
+    async function sendByOptionStock(spec, codes, options, resume, show, expectedProviderAccountId) {
       const stock = spec.optionStock;
       const quantity = resume ? stock.resumeQuantity : 0;
       const warnings = [];
+      const wingEvidence = [];
+      const observedNormalStocks = (items, selected) => items
+        .filter((item) => selected.has(String(item.vendorItemId)) && item.registrationType === "NORMAL"
+          && (typeof item.stockQuantity === "number"
+            || (typeof item.stockQuantity === "string" && /^\d+$/.test(item.stockQuantity)))
+          && Number.isSafeInteger(Number(item.stockQuantity)) && Number(item.stockQuantity) >= 0)
+        .map((item) => ({ externalOptionId: String(item.vendorItemId), stock: Number(item.stockQuantity), registrationType: "NORMAL" }));
       const products = codes.filter((code) => /^\d{1,15}$/.test(code));
       const invalid = codes.length - products.length;
       if (invalid > 0) warnings.push(`${invalid}건은 ${spec.label} 등록상품ID 모양이 아니라 보내지 않았습니다.`);
@@ -1646,7 +1664,7 @@
       const shown = show && products.length === 1 ? products[0] : null;
       // 앞에 띄운 상품목록에 바뀐 재고가 보였는가(true) · 끝내 옛 값(false) · 줄을 못 찾음/띄우지 않음(null).
       let listShown = null;
-      const halted = await withWingPage(spec, async ({ inPage, readItems, showList }) => {
+      const halted = await withWingPage(spec, async ({ inPage, readItems, readIdentity, showList }) => {
         for (let index = 0; index < products.length; index += 1) {
           const product = products[index];
           if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
@@ -1657,6 +1675,13 @@
             warnings.push(`${product}: 옵션코드 ${badOptions}개가 ${spec.label} 옵션ID 모양이 아니라 보내지 않았습니다.`);
           }
           if (wanted && wanted.size === 0) continue;
+          const identity = expectedProviderAccountId ? await readIdentity(expectedProviderAccountId) : null;
+          if (expectedProviderAccountId && (!identity?.ok || identity.vendorId !== expectedProviderAccountId)) {
+            if (sent === 0) return { success: false, error: "Wing 계정이 실행에 지정된 계정과 다르거나 확인되지 않았습니다." };
+            failed += products.length - index;
+            warnings.push("Wing 계정이 바뀌어 남은 전송을 중단했습니다.");
+            break;
+          }
           const read = await readItems(product);
           if (!read.items) {
             if (read.loggedOut) {
@@ -1690,7 +1715,18 @@
           rocket += items.length - editable.length;
           const targets = editable.filter(isTarget);
           already += editable.length - targets.length;
-          if (targets.length === 0) continue;
+          const selected = new Set(items.map((item) => String(item.vendorItemId)));
+          const recordEvidence = async (observed) => {
+            if (!identity?.ok || !observed) return;
+            const afterIdentity = await readIdentity(expectedProviderAccountId);
+            if (!afterIdentity?.ok || afterIdentity.vendorId !== identity.vendorId) return;
+            wingEvidence.push({ externalListingId: product, providerAccountId: afterIdentity.vendorId,
+              observedOptionStocks: observedNormalStocks(observed, selected) });
+          };
+          if (targets.length === 0) {
+            await recordEvidence(read.items);
+            continue;
+          }
           const dtos = targets.map((item) => ({
             vendorInventoryItemId: item.vendorInventoryItemId,
             vendorItemId: item.vendorItemId,
@@ -1741,6 +1777,7 @@
             if (after.items) seen = Math.max(seen, countChanged(after.items));
           }
           confirmed += seen;
+          await recordEvidence(after.items);
           await sleep(PACE_MS);
         }
         // 사장님이 보는 상품목록은 바뀐 재고가 보일 때까지 새로 고친다. 보낸 것이 없으면(이미 그 재고) 한 번만.
@@ -1771,6 +1808,7 @@
         rocket,
         requestOnly: false,
         warnings,
+        wingEvidence,
         ...(shown ? { listShown } : {}),
         ...(stoppedAt !== null ? { stopped: "rate_limited" } : loggedOutAt !== null ? { stopped: "logged_out" } : {}),
       };
@@ -3548,7 +3586,12 @@
       if (spec.optionStock) {
         try {
           const options = msg?.options && typeof msg.options === "object" ? msg.options : null;
-          return await sendByOptionStock(spec, codes, options, resume, msg?.show === true);
+          const expectedProviderAccountId = msg?.executionContext?.expectedProviderAccountId;
+          if (msg?.executionContext && (typeof expectedProviderAccountId !== "string"
+            || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedProviderAccountId))) {
+            return { success: false, error: "Wing 실행의 계정 식별값이 없거나 올바르지 않습니다." };
+          }
+          return await sendByOptionStock(spec, codes, options, resume, msg?.show === true, expectedProviderAccountId);
         } catch (error) {
           return { success: false, error: error?.message || String(error) };
         }

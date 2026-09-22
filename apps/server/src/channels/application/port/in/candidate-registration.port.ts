@@ -1,9 +1,9 @@
-import type { RegistrationSubmissionJson as JsonValue } from '../../../domain/registration-submission-payload';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import type { RegistrationSubmissionJson as JsonValue } from '../../../domain/registration/registration-submission-payload';
 import type {
   CreateProductPreparationInput,
   UpdateProductPreparationInput,
 } from '@kiditem/shared/sourcing';
-import type { SourcingRepositoryTransaction } from '../../../../sourcing/application/port/out/transaction/repository-transaction';
 import type {
   ResolvedRegistrationContentSelections,
   ValidateRegistrationContentSelectionsInput,
@@ -43,12 +43,12 @@ export interface CreateOrGetActiveDraftInput {
 }
 
 export type ResolveProductPreparationSelections = (
-  tx: SourcingRepositoryTransaction,
+  tx: OwnerTransaction,
   input: ValidateRegistrationContentSelectionsInput,
 ) => Promise<ResolvedRegistrationContentSelections>;
 
 /**
- * 초안(`ProductPreparation`) 저장소. 제출 울타리는 Channels 것이므로
+ * 초안(`RegistrationTarget`) 저장소. 제출 울타리는 Channels 것이므로
  * ([ADR-0014](../../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md))
  * 여기에는 실행 행을 읽고 쓰는 방법이 없다 — 초안을 만들고 고치고 버리는 것까지다.
  */
@@ -59,13 +59,13 @@ export interface CandidateRegistrationPort {
    * 있는 공급자 식별자가 있으면 던진다. 실행 쪽 근거는 Channels 리더가 본다.
    */
   assertCandidateTerminalTransitionAllowed(
-    tx: SourcingRepositoryTransaction,
+    tx: OwnerTransaction,
     input: { organizationId: string; sourceCandidateId: string },
   ): Promise<void>;
 
   createOrGetActiveDraft(
     input: CreateOrGetActiveDraftInput,
-    resolveSourceWorkspace: (tx: SourcingRepositoryTransaction) => Promise<string>,
+    resolveSourceWorkspace: (tx: OwnerTransaction) => Promise<string>,
     resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationDraftResult>;
 

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { StorageService } from '../common/storage/storage.service';
 import { StorageModule } from '../common/storage/storage.module';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
@@ -174,6 +175,7 @@ import { AiProductGenerationRuntimeModule } from './ai-product-generation-runtim
 
 @Module({
   imports: [
+    ChannelCatalogModule,
     PrismaModule,
     AgentOsCapabilityModule,
     StorageModule,
@@ -212,7 +214,7 @@ import { AiProductGenerationRuntimeModule } from './ai-product-generation-runtim
 export class AiAgentRuntimeModule {}
 
 @Module({
-  imports: [AiAgentRuntimeModule],
+  imports: [ChannelCatalogModule, AiAgentRuntimeModule],
   providers: [
     AiUsageRepositoryAdapter,
     { provide: AI_USAGE_REPOSITORY_PORT, useExisting: AiUsageRepositoryAdapter },

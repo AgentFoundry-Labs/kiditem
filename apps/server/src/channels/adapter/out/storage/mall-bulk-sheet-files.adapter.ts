@@ -9,8 +9,8 @@ import {
   normalizeColumn,
   type MallSheetRow,
   type MallSheetTemplate,
-} from '../../../domain/mall-bulk-sheet/mall-bulk-sheet';
-import type { MallCategoryTables } from '../../../domain/mall-bulk-sheet/mall-sheet-categories';
+} from '../../../domain/registration/bulk-sheet/mall-bulk-sheet';
+import type { MallCategoryTables } from '../../../domain/registration/bulk-sheet/mall-sheet-categories';
 import type { MallBulkSheetFilesPort } from '../../../application/port/out/storage/mall-bulk-sheet-files.port';
 
 /** 양식 · 카테고리표 폴더. 빌드 때 nest-cli assets 로 dist 에 같이 복사된다. */

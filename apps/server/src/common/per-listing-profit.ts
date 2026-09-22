@@ -1,4 +1,9 @@
-import { readListingProductIds } from '../channels/read/listing-product-summary.reader';
+import { ownerTransaction } from '../prisma/owner-transaction';
+import type { ChannelListingQueryPort } from '../channels/application/port/in/listing/channel-listing-query.port';
+import type { ChannelOptionRecipePort } from '../channels/application/port/in/channel-option-recipe.port';
+import type { ChannelAccountPort } from '../channels/application/port/in/account/channel-account.port';
+import type { ListingContentQueryPort } from '../ai/application/port/in/workspace/listing-content-query.port';
+
 import type { Prisma } from '@prisma/client';
 import {
   buildPeriodBasis,
@@ -37,6 +42,14 @@ import {
   type OrderWindowFacts,
 } from '../orders/read/order-facts.reader';
 import { readPublishedProductAbcGrades } from '../products/adapter/out/persistence/read/product-abc-publication.reader';
+
+/** Owner capabilities used by the shared projection in its caller's transaction. */
+export interface ProfitCatalogReaders {
+  listings: Pick<ChannelListingQueryPort, 'readOptionIdentities' | 'readCatalogFacts'>;
+  recipes: Pick<ChannelOptionRecipePort, 'readListingProductSummaries'>;
+  accounts: Pick<ChannelAccountPort, 'findByIds' | 'readProviderIdentities'>;
+  content: Pick<ListingContentQueryPort, 'readLatestListingThumbnails'>;
+}
 
 /**
  * Per-listing and window profit over live owner facts, shared by finance
@@ -213,15 +226,16 @@ async function readAdWindowEvidence(
   organizationId: string,
   from: Date,
   to: Date,
+  accounts: ProfitCatalogReaders['accounts'],
 ): Promise<AdWindowEvidence> {
   const businessDateFrom = kstBusinessDate(from);
   const businessDateTo = kstBusinessDate(to);
   const requestedDates = datesInclusive(businessDateFrom, addDays(businessDateTo, -1))
     .map(businessDateKey);
-  const hasAdAccount = await advertisingApplies(tx, organizationId);
+  const hasAdAccount = await advertisingApplies(tx, organizationId, accounts);
   const days = requestedDates.length === 0
     ? []
-    : (await readAdWindowFacts(tx, { organizationId, from: businessDateFrom, to: businessDateTo })).days;
+    : (await readAdWindowFacts(tx, { organizationId, from: businessDateFrom, to: businessDateTo }, accounts)).days;
   return {
     hasAdAccount,
     publishedDates: days.length,
@@ -243,9 +257,10 @@ export async function readAdEvidenceFromLedger(
   organizationId: string,
   from: Date,
   to: Date,
+  accounts: ProfitCatalogReaders['accounts'],
 ): Promise<AccountAdEvidence> {
   const { hasAdAccount, publishedDates, accountSpend, coversWindow } =
-    await readAdWindowEvidence(tx, organizationId, from, to);
+    await readAdWindowEvidence(tx, organizationId, from, to, accounts);
   return { hasAdAccount, publishedDates, accountSpend, coversWindow };
 }
 
@@ -255,6 +270,7 @@ async function readProfitLines(
   from: Date,
   to: Date,
   inventory: ProductTransactionalReadPort,
+  catalog: ProfitCatalogReaders,
 ): Promise<Pick<
   ProfitWindowFacts,
   'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount' | 'unallocatedShipping'
@@ -264,42 +280,32 @@ async function readProfitLines(
     from,
     to,
     excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-  });
+  }, catalog.accounts);
   const optionIds = [...new Set(facts.orders.flatMap((order) =>
     order.lines.flatMap((line) => (line.listingOptionId ? [line.listingOptionId] : []))))];
-  const options = optionIds.length === 0 ? [] : await tx.channelListingOption.findMany({
-    where: { organizationId, id: { in: optionIds } },
-    select: {
-      id: true,
-      inventoryComponents: {
-        where: { organizationId },
-        select: { quantity: true, masterProductId: true },
-      },
-      listing: {
-        select: {
-          id: true,
-          externalId: true,
-          channelName: true,
-          displayName: true,
-          category: true,
-          channelAccount: { select: { channel: true, status: true } },
-          thumbnails: {
-            where: { status: 'active' },
-            orderBy: { updatedAt: 'desc' },
-            take: 1,
-            select: { imageUrl: true },
-          },
-        },
-      },
-    },
-  });
-  const listingProducts = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(options.map((option) => option.listing.id))] });
-  // The order's channel account decides whether a commission and other
-  // per-sale cost apply to its lines (KID-114).
-  const accountIds = [...new Set(facts.orders.map((order) => order.channelAccountId))];
-  const orderAccounts = accountIds.length === 0 ? [] : await tx.channelAccount.findMany({
-    where: { organizationId, id: { in: accountIds } },
-    select: { id: true, channel: true },
+  const transaction = ownerTransaction(tx);
+  const optionIdentities = await catalog.listings.readOptionIdentities(transaction, { organizationId, optionIds });
+  const listingIds = [...new Set(optionIdentities.map(option => option.listingId))];
+  const listings = await catalog.listings.readCatalogFacts(transaction, { organizationId, listingIds });
+  const listingProducts = await catalog.recipes.readListingProductSummaries(transaction, { organizationId, listingIds });
+  const thumbnails = await catalog.content.readLatestListingThumbnails(transaction, { organizationId, listingIds });
+  const thumbnailByListing = new Map(thumbnails.map(row => [row.listingId, row.imageUrl]));
+  // Order accounts decide sales costs; listing accounts decide ad-sweep applicability.
+  const accountIds = [...new Set([
+    ...facts.orders.map(order => order.channelAccountId),
+    ...listings.map(listing => listing.accountId),
+  ])];
+  const orderAccounts = await catalog.accounts.findByIds(transaction, { organizationId, accountIds });
+  const accountById = new Map(orderAccounts.map(account => [account.id, account]));
+  const requestedOptions = new Set(optionIds);
+  const options = listings.flatMap(listing => {
+    const account = accountById.get(listing.accountId);
+    if (!account) return [];
+    return listing.options.filter(option => requestedOptions.has(option.id)).map(option => ({
+      id: option.id,
+      inventoryComponents: option.components,
+      listing: { ...listing, channelAccount: account },
+    }));
   });
   const salesCostsByAccountId = new Map(orderAccounts.map((account) => [
     account.id,
@@ -343,7 +349,7 @@ async function readProfitLines(
           ?? listing.channelName
           ?? listing.externalId,
       category: listing.category,
-      thumbnailUrl: listing.thumbnails[0]?.imageUrl ?? null,
+      thumbnailUrl: thumbnailByListing.get(listing.id) ?? null,
     };
     const unitCost = resolveUnitCost({
       inventoryComponents: option.inventoryComponents.map((component) => ({
@@ -406,12 +412,13 @@ async function readListingAdSpend(
   organizationId: string,
   from: Date,
   to: Date,
+  accounts: ProfitCatalogReaders['accounts'],
 ): Promise<ReadonlyMap<string, number>> {
   const rows = await readListingAdWindowFacts(tx, {
     organizationId,
     from: kstBusinessDate(from),
     to: kstBusinessDate(to),
-  });
+  }, accounts);
   return new Map(rows.map((row) => [row.listingId, row.spend]));
 }
 
@@ -438,11 +445,12 @@ export async function readProfitWindowFacts(
   organizationId: string,
   window: FinanceWindow,
   inventory: ProductTransactionalReadPort,
+  catalog: ProfitCatalogReaders,
 ): Promise<ProfitWindowFacts> {
   const { from, to } = window.effective;
-  const ad = await readAdWindowEvidence(tx, organizationId, from, to);
-  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory);
-  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
+  const ad = await readAdWindowEvidence(tx, organizationId, from, to, catalog.accounts);
+  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory, catalog);
+  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to, catalog.accounts);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return { ...lineFacts, window, ad, listingAdSpend, gradeByProductId };
 }
@@ -772,9 +780,10 @@ async function readPerListingProfit(
   to: Date,
   accountAdEvidence: AccountAdEvidence,
   inventory: ProductTransactionalReadPort,
+  catalog: ProfitCatalogReaders,
 ): Promise<{ rows: PerListingProfit[]; orderWindow: OrderWindowFacts }> {
-  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory);
-  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
+  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory, catalog);
+  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to, catalog.accounts);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return {
     orderWindow: lineFacts.orderWindow,
@@ -802,6 +811,7 @@ export async function buildPerListingProfit(
   to: Date,
   accountAdEvidence: AccountAdEvidence,
   inventory: ProductTransactionalReadPort,
+  catalog: ProfitCatalogReaders,
 ): Promise<PerListingProfit[]> {
   return (await readPerListingProfit(
     tx,
@@ -810,6 +820,7 @@ export async function buildPerListingProfit(
     to,
     accountAdEvidence,
     inventory,
+    catalog,
   )).rows;
 }
 
@@ -853,6 +864,7 @@ export async function buildPerListingMetricsCoverage(
   /** Limit the population to these listings; every sold listing when omitted. */
   listingIds: ReadonlySet<string> | undefined,
   inventory: ProductTransactionalReadPort,
+  catalog: ProfitCatalogReaders,
 ): Promise<PerListingMetricsCoverage> {
   const { rows: soldRows, orderWindow } = await readPerListingProfit(
     tx,
@@ -861,6 +873,7 @@ export async function buildPerListingMetricsCoverage(
     to,
     accountAdEvidence,
     inventory,
+    catalog,
   );
   const rows = soldRows.filter((row) => listingIds === undefined || listingIds.has(row.listingId));
   const metrics = rows.filter(hasMeasuredProfit);
@@ -882,6 +895,7 @@ export async function buildPerListingMetrics(
   to: Date,
   accountAdEvidence: AccountAdEvidence,
   inventory: ProductTransactionalReadPort,
+  catalog: ProfitCatalogReaders,
 ): Promise<PerListingMetrics[]> {
   const coverage = await buildPerListingMetricsCoverage(
     tx,
@@ -891,6 +905,7 @@ export async function buildPerListingMetrics(
     accountAdEvidence,
     undefined,
     inventory,
+    catalog,
   );
   return coverage.metrics;
 }

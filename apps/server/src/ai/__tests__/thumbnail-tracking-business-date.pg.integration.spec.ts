@@ -1,3 +1,4 @@
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -92,8 +93,7 @@ describe('thumbnail tracking KST business date (PG integration)', () => {
       }),
     };
     const repository = new ThumbnailTrackingRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
+      prisma as unknown as PrismaService, makeChannelListingQuery(prisma));
     const service = new ThumbnailTrackingService(repository, scraper);
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-05-18T16:30:00.000Z'));

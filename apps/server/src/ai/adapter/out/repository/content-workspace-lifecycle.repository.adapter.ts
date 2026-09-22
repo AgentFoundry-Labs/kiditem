@@ -1,6 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import {
+  CHANNEL_LISTING_QUERY_PORT,
+  type ChannelListingQueryPort,
+} from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type {
   ContentWorkspaceLifecycleRepositoryPort,
   ContentWorkspaceListInput,
@@ -11,7 +16,11 @@ import type {
 @Injectable()
 export class ContentWorkspaceLifecycleRepositoryAdapter
 implements ContentWorkspaceLifecycleRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: ChannelListingQueryPort,
+  ) {}
 
   async ensureActiveWorkspace(
     input: EnsureContentWorkspaceInput,
@@ -20,7 +29,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     const where = activeWorkspaceWhere(input);
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await validateOwnerReferences(tx, input);
+        await validateOwnerReferences(tx, input, this.channelListings);
         const existing = await findActiveWorkspace(tx, where);
         if (existing) return existing;
         return tx.contentWorkspace.create({
@@ -41,7 +50,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error;
       const raced = await this.prisma.$transaction(async (tx) => {
-        await validateOwnerReferences(tx, input);
+        await validateOwnerReferences(tx, input, this.channelListings);
         return findActiveWorkspace(tx, where);
       });
       if (!raced) throw error;
@@ -230,6 +239,7 @@ function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
 async function validateOwnerReferences(
   tx: Prisma.TransactionClient,
   input: EnsureContentWorkspaceInput,
+  channelListings: ChannelListingQueryPort,
 ): Promise<void> {
   if (input.ownerType === 'sourcing_candidate') {
     const candidate = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -248,21 +258,10 @@ async function validateOwnerReferences(
 
   if (input.ownerType === 'direct_detail_page') return;
 
-  const listingRows = await tx.$queryRaw<Array<{
-    id: string;
-    sourceCandidateId: string | null;
-  }>>(Prisma.sql`
-    SELECT id, source_candidate_id AS "sourceCandidateId"
-    FROM channel_listings
-    WHERE id = ${input.channelListingId!}::uuid
-      AND organization_id = ${input.organizationId}::uuid
-      AND is_active = true
-    FOR UPDATE
-  `);
-  const listing = listingRows[0];
-  if (!listing || listingRows.length !== 1) {
-    throw new NotFoundException('Channel listing owner not found.');
-  }
+  const listing = await channelListings.lockActiveOwner(ownerTransaction(tx), {
+    organizationId: input.organizationId,
+    listingId: input.channelListingId!,
+  });
   if (!input.originWorkspaceId) return;
   const originRows = await tx.$queryRaw<Array<{
     id: string;

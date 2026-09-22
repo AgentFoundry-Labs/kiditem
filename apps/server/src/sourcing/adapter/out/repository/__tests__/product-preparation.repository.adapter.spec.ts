@@ -1,7 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PrismaService } from '../../../../../prisma/prisma.service';
 import { ProductPreparationRepositoryAdapter } from '../../../../../channels/adapter/out/persistence/candidate-registration.repository.adapter';
+import type { PrismaService } from '../../../../../prisma/prisma.service';
 
 const UPDATED_AT = new Date('2026-07-13T01:02:03.000Z');
 
@@ -13,9 +13,8 @@ function currentPreparation() {
     sourceCandidateId: 'candidate-1',
     channelAccountId: 'account-1',
     sourceContentWorkspaceId: 'workspace-1',
-    closedAt: null,
+    archivedAt: null,
     displayName: '기존 상품명',
-    reviewPayloadHash: null,
     registrationInput: {
       name: '기존 상품명',
       optionNames: ['단품', '2개 세트'],
@@ -34,8 +33,6 @@ function currentPreparation() {
     selectedDetailPageArtifactId: null,
     selectedDetailPageRevisionId: null,
     selectedDetailPageGenerationId: null,
-    isDeleted: false,
-    deletedAt: null,
     createdByUserId: 'user-1',
     createdAt: new Date('2026-07-13T00:00:00.000Z'),
     updatedAt: UPDATED_AT,
@@ -56,7 +53,7 @@ function setup(existingExecution: {
   const executionRows = existingExecution
     ? [{
       id: 'execution-1',
-      productPreparationId: current.id,
+      registrationTargetId: current.id,
       channelAccountId: current.channelAccountId,
       channelListingId: null,
       executionKind: 'external_wing',
@@ -72,7 +69,7 @@ function setup(existingExecution: {
     .mockResolvedValueOnce(current);
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([]),
-    productPreparation: { findFirst, update },
+    registrationTarget: { findFirst, update },
     // 실행 장부는 Channels 리더로만 읽는다(ADR-0009). 리더가 실제로 부르는
     // findMany 를 그대로 흉내 내야 경계가 바뀌면 이 테스트가 먼저 깨진다.
     productRegistrationExecution: {
@@ -92,6 +89,7 @@ function setup(existingExecution: {
       operation(tx)),
   };
   const source = {
+    readRegistrationBasics: vi.fn().mockResolvedValue([]),
     lock: vi.fn().mockResolvedValue(undefined),
     requireActive: vi.fn().mockResolvedValue(undefined),
   };

@@ -1,5 +1,5 @@
 import { ConflictException } from '@nestjs/common';
-import { Prisma, type ProductPreparation } from '@prisma/client';
+import { Prisma, type RegistrationTarget } from '@prisma/client';
 import type { ResolvedRegistrationContentSelections } from '../../../../sourcing/application/port/in/registration-content-workspace.port';
 
 /**
@@ -46,8 +46,8 @@ export async function findCandidateAccountPreparation(
   sourceCandidateId: string,
   channelAccountId: string,
 ) {
-  const rows = await tx.productPreparation.findMany({
-    where: { organizationId, sourceCandidateId, channelAccountId, isDeleted: false, closedAt: null },
+  const rows = await tx.registrationTarget.findMany({
+    where: { organizationId, sourceCandidateId, channelAccountId, archivedAt: null },
     take: 2,
   });
   if (rows.length > 1) {
@@ -71,7 +71,7 @@ export async function lockPreparation(
 ): Promise<void> {
   await tx.$queryRaw(Prisma.sql`
     SELECT id
-    FROM product_preparations
+    FROM registration_targets
     WHERE id = ${preparationId}::uuid
       AND organization_id = ${organizationId}::uuid
     FOR UPDATE
@@ -80,7 +80,7 @@ export async function lockPreparation(
 
 export function assertRegistrationIdentity(
   row: Pick<
-    ProductPreparation,
+    RegistrationTarget,
     'sourceCandidateId' | 'channelAccountId' | 'sourceContentWorkspaceId' | 'displayName'
   >,
 ): asserts row is typeof row & {

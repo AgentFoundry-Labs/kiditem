@@ -19,10 +19,10 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { MallAdminListingsController } from '../adapter/in/http/mall-admin-listings.controller';
+import { MallAdminListingsController } from '../adapter/in/web/mall-admin-listings.controller';
 import { MallAdminListingsRepositoryAdapter } from '../adapter/out/repository/mall-admin-listings.repository.adapter';
 import { MALL_ADMIN_LISTINGS_PORT } from '../application/port/in/mall-admin-listings.port';
-import { MallAdminListingsService } from '../application/service/mall-admin-listings.service';
+import { MallAdminListingsService } from '../application/service/collection/mall-admin-listings.service';
 import { completedCatalogRunWhere } from '../read/completed-catalog-run';
 
 const KIDKIDS = '11111111-1111-4111-8111-111111111111';

@@ -96,7 +96,7 @@ export class ContentAssetService implements CandidateContentAssetPort {
    * The candidate's saved representative thumbnail, or `null`.
    *
    * This is the read side of `PATCH /ai/content-workspaces/:id/current-thumbnail`
-   * for a candidate that has no `ProductPreparation`: the selection lives on the
+   * for a candidate that has no `RegistrationTarget`: the selection lives on the
    * workspace, so nothing else can restore it after a reload.
    */
   findCurrentThumbnail(input: {
@@ -121,7 +121,7 @@ export class ContentAssetService implements CandidateContentAssetPort {
    * Replace the ordered `role='thumbnail'` gallery owned by one content workspace.
    *
    * This is the write side of `listRegistrationImages().thumbnail`. A candidate
-   * with no `ProductPreparation` has nowhere else to persist its preview list,
+   * with no `RegistrationTarget` has nowhere else to persist its preview list,
    * so without this the list was dropped and Wing `additionalImageUrls` stayed
    * empty.
    */

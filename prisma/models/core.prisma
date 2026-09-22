@@ -12,16 +12,11 @@ model Organization {
   // Core
   memberships                        OrganizationMembership[]
   legalEntities                      LegalEntity[]
-  channelAccounts                    ChannelAccount[]
-  sellpiaManualMatchSnapshots        SellpiaManualMatchSnapshot[]
-  sellpiaManualMatchAliases          SellpiaManualMatchAlias[]
   sourceImportRuns                   SourceImportRun[]
   orderCollectionArtifacts           OrderCollectionArtifact[]
   coupangDirectTransportReceipts     CoupangDirectTransportReceipt[]
   coupangDirectTransportConsumptions CoupangDirectTransportConsumption[]
   reviewCollectionChunks             ReviewCollectionChunk[]
-  rocketPoCatalogSnapshots           RocketPoCatalogSnapshot[]
-  rocketPoCatalogLines               RocketPoCatalogLine[]
   orders                             Order[]
   purchaseOrders                     PurchaseOrder[]
   purchaseOrderSubmissionAttempts    PurchaseOrderSubmissionAttempt[]
@@ -46,9 +41,6 @@ model Organization {
   contentGenerationAssetUsages        ContentGenerationAssetUsage[]
   contentWorkspaces                   ContentWorkspace[]
   contentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[]
-  productPreparations                 ProductPreparation[]
-  productPreparationOptions           ProductPreparationOption[]
-  productRegistrationExecutions       ProductRegistrationExecution[]       @relation("ProductRegistrationExecutionOrganization")
   detailPageArtifacts                 DetailPageArtifact[]
   detailPageRevisions                 DetailPageRevision[]
   detailPageImageArtifacts            DetailPageImageArtifact[]
@@ -105,31 +97,17 @@ model Organization {
   adActions AdAction[]
 
   // Product operations, Sellpia physical items, and channel catalogs
-  masterProducts                              MasterProduct[]
-  masterProductAbcFormulaVersions             MasterProductAbcFormulaVersion[]
-  masterProductAbcFormulaState                MasterProductAbcFormulaState?
-  masterProductAbcEvaluations                 MasterProductAbcEvaluation[]
-  masterProductAbcGradeHistories              MasterProductAbcGradeHistory[]
-  channelListings                             ChannelListing[]
-  channelListingOptions                       ChannelListingOption[]
-  channelListingOptionInventoryComponents     ChannelListingOptionInventoryComponent[]
-  channelRegistrationOwnerIdempotencyReceipts ChannelRegistrationOwnerIdempotencyReceipt[] @relation("ChannelRegistrationOwnerIdempotencyReceiptOrganization")
-  channelListingDeletionOperations            ChannelListingDeletionOperation[]            @relation("ChannelListingDeletionOperationOrganization")
-  salesProducts                               SalesProduct[]
-  salesProductPublicImages                    SalesProductPublicImage[]
-  salesProductOptions                         SalesProductOption[]
-  salesProductOptionComponents                SalesProductOptionComponent[]
+  masterProducts                  MasterProduct[]
+  masterProductAbcFormulaVersions MasterProductAbcFormulaVersion[]
+  masterProductAbcFormulaState    MasterProductAbcFormulaState?
+  masterProductAbcEvaluations     MasterProductAbcEvaluation[]
+  masterProductAbcGradeHistories  MasterProductAbcGradeHistory[]
 
   // Channels — 몰별 상품등록·품절 송신 (Phase 0)
 
   // Channels — 몰별 상품등록·품절 송신 (Phase 0)
 
   // Channels — market-data snapshots (Wave C0)
-  channelScrapeRuns                  ChannelScrapeRun[]
-  channelScrapeChunks                ChannelScrapeChunk[]
-  channelScrapeSnapshots             ChannelScrapeSnapshot[]
-  channelListingDailySnapshots       ChannelListingDailySnapshot[]
-  channelListingOptionDailySnapshots ChannelListingOptionDailySnapshot[]
 
   // Channels — daily fact extensions (Hard rewrite H1)
   channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
@@ -210,10 +188,6 @@ model User {
   createdContentAssets                       ContentAsset[]                                 @relation("ContentAssetCreatedBy")
   createdContentWorkspaces                   ContentWorkspace[]                             @relation("ContentWorkspaceCreatedBy")
   createdContentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[]           @relation("ContentWorkspaceThumbnailSelectionCreatedBy")
-  createdProductPreparations                 ProductPreparation[]                           @relation("ProductPreparationCreatedBy")
-  approvedProductPreparations                ProductPreparation[]                           @relation("ProductPreparationApprovedBy")
-  requestedProductRegistrationExecutions     ProductRegistrationExecution[]                 @relation("ProductRegistrationExecutionRequestedBy")
-  requestedChannelListingDeletionOperations  ChannelListingDeletionOperation[]              @relation("ChannelListingDeletionOperationRequestedBy")
   triggeredSourcingEvidenceIngestionRuns     SourcingEvidenceIngestionRun[]                 @relation("SourcingEvidenceIngestionRunTriggeredBy")
   requestedSourcingDecisionBatches           SourcingDecisionBatch[]                        @relation("SourcingDecisionBatchRequestedBy")
   requestedSourcingReviewBatches             SourcingReviewBatch[]                          @relation("SourcingReviewBatchRequestedBy")
@@ -308,44 +282,6 @@ model LegalEntity {
 }
 
 /// @namespace Core
-/// @describe Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization.
-model ChannelAccount {
-  id                String   @id @default(uuid()) @db.Uuid
-  organizationId    String   @map("organization_id") @db.Uuid
-  channel           String
-  name              String
-  externalAccountId String?  @map("external_account_id")
-  sellerId          String?  @map("seller_id")
-  vendorId          String?  @map("vendor_id")
-  status            String   @default("active")
-  isPrimary         Boolean  @default(false) @map("is_primary")
-  config            Json?    @db.JsonB
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization                        Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listings                            ChannelListing[]
-  sourceImportRuns                    SourceImportRun[]
-  productPreparations                 ProductPreparation[]
-  productRegistrationExecutions       ProductRegistrationExecution[]       @relation("ChannelAccountProductRegistrationExecutions")
-  channelListingDeletionOperations    ChannelListingDeletionOperation[]    @relation("ChannelAccountListingDeletionOperations")
-  orders                              Order[]
-  channelScrapeRuns                   ChannelScrapeRun[]
-  channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
-  channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
-  rocketPurchaseConfirmations         RocketPurchaseConfirmation[]
-  rocketPoCatalogSnapshots            RocketPoCatalogSnapshot[]
-  sourcingLaunchCandidates            SourcingLaunchCandidate[]
-  coupangDirectTransportReceipts      CoupangDirectTransportReceipt[]
-
-  @@unique([organizationId, channel, externalAccountId])
-  @@unique([id, organizationId], map: "channel_accounts_id_org_key")
-  @@index([organizationId, channel])
-  @@index([organizationId, isPrimary])
-  @@map("channel_accounts")
-}
-
-/// @namespace Core
 /// @describe Durable provenance and publication fence for Sellpia and channel full-snapshot imports.
 model SourceImportRun {
   id                           String    @id @default(uuid()) @db.Uuid
@@ -389,13 +325,8 @@ model SourceImportRun {
   updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                            Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount                          ChannelAccount?                          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   manualFreshExportConfirmer              User?                                    @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
   sellpiaProductMonthlySales              SellpiaProductMonthlySales[]             @relation("SellpiaProductMonthlySourceImport")
-  channelProducts                         ChannelListing[]                         @relation("ChannelProductLastImport")
-  channelSkus                             ChannelListingOption[]                   @relation("ChannelSkuLastImport")
-  channelScrapeRuns                       ChannelScrapeRun[]
-  keywordSerpCaptures                     ChannelScrapeSnapshot[]                  @relation("KeywordSerpCapture")
   keywordRankDailyProjections             CoupangKeywordRankDailySnapshot[]        @relation("KeywordRankSource")
   keywordSerpDailyProjections             CoupangKeywordSerpDailySnapshot[]        @relation("KeywordSerpSource")
   wingRankDailyProjections                CoupangWingSalesRankDailySnapshot[]      @relation("WingRankSource")
@@ -404,7 +335,6 @@ model SourceImportRun {
   lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
   rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
   rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
-  rocketPoCatalogSnapshot                 RocketPoCatalogSnapshot?
   coupangShipmentDateSummaries            CoupangShipmentDateSummary[]
   sellpiaSalesDailySnapshots              SellpiaSalesDailySnapshot[]              @relation("SellpiaSalesSource")
   orders                                  Order[]
@@ -641,146 +571,4 @@ model MasterProductAbcGradeHistory {
   @@index([previousAdvertisingSourceImportRunId, organizationId])
   @@index([nextAdvertisingSourceImportRunId, organizationId])
   @@map("master_product_abc_grade_histories")
-}
-
-/// @namespace Channels
-/// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
-model ChannelListing {
-  salesProductId    String?       @map("sales_product_id") @db.Uuid
-  salesProduct      SalesProduct? @relation("ChannelListingSalesProduct", fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  id                String        @id @default(uuid()) @db.Uuid
-  organizationId    String        @map("organization_id") @db.Uuid
-  channelAccountId  String        @map("channel_account_id") @db.Uuid
-  sourceCandidateId String?       @map("source_candidate_id") @db.Uuid
-
-  externalId String @map("external_id")
-
-  channelName     String? @map("channel_name")
-  displayName     String? @map("display_name")
-  category        String?
-  brand           String?
-  manufacturer    String?
-  /// 몰이 들고 있는 대표 사진. 상품 화면이 콘텐츠 작업물 다음으로 이 값을 쓴다.
-  imageUrl        String? @map("image_url")
-  rawJson         Json?   @map("raw_json")
-  lastImportRunId String? @map("last_import_run_id") @db.Uuid
-
-  status         String?
-  exposureStatus String? @map("exposure_status")
-
-  deliveryChargeType String? @map("delivery_charge_type")
-  freeShipOverAmount Int?    @map("free_ship_over_amount")
-  returnCharge       Int?    @map("return_charge")
-  deliveryInfo       Json?   @map("delivery_info")
-
-  isActive Boolean @default(true) @map("is_active")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization                  Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount                ChannelAccount                    @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sourceCandidate               SourcingCandidate?                @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  lastImportRun                 SourceImportRun?                  @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  options                       ChannelListingOption[]
-  contentWorkspaces             ContentWorkspace[]
-  productRegistrationExecutions ProductRegistrationExecution[]    @relation("ChannelListingProductRegistrationExecutions")
-  deletionOperations            ChannelListingDeletionOperation[] @relation("ChannelListingDeletionOperations")
-
-  reviews            Review[]
-  thumbnails         Thumbnail[]
-  thumbnailTrackings ThumbnailTracking[]
-  adActions          AdAction[]
-
-  // Channels — market-data snapshots (Wave C0)
-  channelScrapeSnapshots             ChannelScrapeSnapshot[]
-  channelListingDailySnapshots       ChannelListingDailySnapshot[]
-  channelListingOptionDailySnapshots ChannelListingOptionDailySnapshot[]
-
-  // Channels — daily fact extensions (Hard rewrite H1)
-  channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
-  channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[] @relation("AdFactChannelListing")
-
-  @@unique([organizationId, channelAccountId, externalId])
-  @@unique([organizationId, sourceCandidateId, channelAccountId], map: "channel_listings_org_source_account_active_key", where: raw("source_candidate_id IS NOT NULL AND is_active = true"))
-  @@unique([id, organizationId], map: "channel_listings_id_org_key")
-  @@unique([id, organizationId, channelAccountId], map: "channel_listings_id_org_account_key")
-  @@index([organizationId, salesProductId])
-  @@index([organizationId])
-  @@index([channelAccountId])
-  @@index([sourceCandidateId])
-  @@index([lastImportRunId])
-  @@index([organizationId, channelAccountId, isActive])
-  @@index([organizationId, updatedAt, id])
-  @@map("channel_listings")
-}
-
-/// @namespace Core
-/// @describe One sellable SKU under a channel listing.
-model ChannelListingOption {
-  salesProductOptionId String? @map("sales_product_option_id") @db.Uuid
-  id                   String  @id @default(uuid()) @db.Uuid
-  listingId            String  @map("listing_id") @db.Uuid
-  organizationId       String  @map("organization_id") @db.Uuid
-
-  externalOptionId String  @map("external_option_id") @db.VarChar(60)
-  kidItemCode      String? @map("kid_item_code") @db.VarChar(11)
-  itemName         String? @map("item_name")
-  salePrice        Int?    @map("sale_price")
-  sellerSku        String? @map("seller_sku")
-  barcode          String?
-  modelNumber      String? @map("model_number")
-  status           String?
-  attributesJson   Json?   @map("attributes_json")
-  rawJson          Json?   @map("raw_json")
-  lastImportRunId  String? @map("last_import_run_id") @db.Uuid
-
-  isActive Boolean @default(true) @map("is_active")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  listing                         ChannelListing                           @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  salesProductOption              SalesProductOption?                      @relation("ChannelListingOptionSalesProductOption", fields: [salesProductOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  organization                    Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  inventoryComponents             ChannelListingOptionInventoryComponent[]
-  lastImportRun                   SourceImportRun?                         @relation("ChannelSkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  orderLineItems                  OrderLineItem[]
-  rocketPurchaseConfirmationLines RocketPurchaseConfirmationLine[]
-  adActions                       AdAction[]
-
-  // Channels — market-data snapshots (Wave C0)
-  channelScrapeSnapshots             ChannelScrapeSnapshot[]
-  channelListingOptionDailySnapshots ChannelListingOptionDailySnapshot[]
-
-  // Channels — daily fact extensions (Hard rewrite H1)
-  channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
-
-  @@unique([listingId, externalOptionId])
-  @@unique([id, organizationId], map: "channel_listing_options_id_org_key")
-  @@index([kidItemCode], map: "channel_listing_options_kid_item_code_idx")
-  @@index([organizationId, externalOptionId])
-  @@index([externalOptionId])
-  @@index([lastImportRunId])
-  @@index([organizationId, salesProductOptionId])
-  @@map("channel_listing_options")
-}
-
-/// @namespace Channels
-/// @describe Confirmed source-product quantities for one channel sellable option.
-model ChannelListingOptionInventoryComponent {
-  id                     String   @id @default(uuid()) @db.Uuid
-  organizationId         String   @map("organization_id") @db.Uuid
-  channelListingOptionId String   @map("channel_listing_option_id") @db.Uuid
-  masterProductId        String   @map("master_product_id") @db.Uuid
-  quantity               Int
-  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelListingOption ChannelListingOption @relation(fields: [channelListingOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-
-  @@unique([channelListingOptionId, masterProductId])
-  @@index([organizationId, channelListingOptionId], map: "channel_option_inventory_components_org_option_idx")
-  @@index([organizationId, masterProductId], map: "channel_option_inventory_components_org_master_product_idx")
-  @@map("channel_listing_option_inventory_components")
 }

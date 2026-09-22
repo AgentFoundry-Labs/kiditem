@@ -1,3 +1,5 @@
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -15,23 +17,25 @@ import {
 import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
-import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
+import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
-import { freezeProductRegistrationPayload } from '../domain/registration-submission-payload';
+import { freezeProductRegistrationPayload } from '../domain/registration/registration-submission-payload';
 import {
   ChannelCatalogCollectionService,
   hashCatalogChunkPayload,
-} from '../application/service/channel-catalog-collection.service';
+} from '../application/service/collection/channel-catalog-collection.service';
 import type {
   CoupangCatalogProductV1,
   PutCoupangCatalogChunkRequest,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { Prisma, PrismaClient } from '@prisma/client';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -44,7 +48,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const alerts = new SourceFailureAlerts(prisma as never);
-    const recipes = new ChannelOptionRecipeUseCase(
+    const recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
@@ -64,7 +68,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     );
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new AiCatalogMediaPublicationRepositoryAdapter(),
+      new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
       alerts,
       recipes,
     );
@@ -74,7 +78,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
         alerts,
         publisher,
       ),
-      publisher,
+      publisher, channelIntegrity,
     );
   });
 
@@ -108,11 +112,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
       include: {
         options: { include: { inventoryComponents: true } },
-        contentWorkspaces: {
-          include: {
-            currentThumbnailSelection: { include: { contentAsset: true } },
-          },
-        },
       },
     });
 
@@ -135,7 +134,11 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       }),
     ]);
     expect(await prisma.masterProduct.count()).toBe(0);
-    expect(listing.contentWorkspaces[0]?.currentThumbnailSelection?.contentAsset).toMatchObject({
+    const contentWorkspace = await prisma.contentWorkspace.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, channelListingId: listing.id, ownerType: 'channel_listing', isDeleted: false },
+      include: { currentThumbnailSelection: { include: { contentAsset: true } } },
+    });
+    expect(contentWorkspace.currentThumbnailSelection?.contentAsset).toMatchObject({
       url: 'https://example.com/P-1.jpg',
     });
   });
@@ -158,7 +161,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('preserves a confirmed product link and direct option components on recollection', async () => {
+  it('preserves confirmed components and operator safety stock on recollection without starting stock actions', async () => {
     await publish(randomUUID(), [product('P-1', 'S-1'), product('P-2', 'S-2')]);
     const before = await prisma.channelListing.findFirstOrThrow({
       where: { channelAccountId: ACCOUNT_ID, externalId: 'P-1' },
@@ -188,6 +191,8 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
     });
 
+    expect(before.options[0]!.safetyStock).toBe(0);
+    await availability.updateSafetyStock(TEST_ORGANIZATION_ID, before.options[0]!.id, 4);
     await publish(randomUUID(), [product('P-1', 'S-1', { displayName: '수정된 노출명' })]);
 
     const after = await prisma.channelListing.findUniqueOrThrow({
@@ -204,6 +209,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     });
     expect(after.options[0]).toMatchObject({
       id: before.options[0]!.id,
+      safetyStock: 4,
       inventoryComponents: [
         expect.objectContaining({
           masterProductId: inventorySku.id,
@@ -213,6 +219,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     });
     expect(absentAfter.isActive).toBe(false);
     expect(absentAfter.options[0]?.isActive).toBe(false);
+    expect(await prisma.productRegistrationExecution.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(0);
   });
 
   it('links a later catalog capture to the frozen registered bundle code without allocating another code', async () => {
@@ -245,11 +252,11 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
           variants: [{ vendorItemCode: 'KID12345678' }],
         },
       },
-    });
+    }, channelIntegrity.sha256);
     await prisma.productRegistrationExecution.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: randomUUID(),
+        registrationTargetId: await createRegistrationTarget(prisma, ACCOUNT_ID),
         channelAccountId: ACCOUNT_ID,
         channelListingId: listing.id,
         executionKind: 'external_wing',
@@ -494,7 +501,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
           kind: payload.kind,
           sequence: 1,
           payload,
-          checksum: hashCatalogChunkPayload(payload),
+          checksum: hashCatalogChunkPayload(payload, channelIntegrity.sha256),
           itemCount: payload.kind === 'manifest_confirmation' ? 1 : products.length,
         } as PutCoupangCatalogChunkRequest,
       });
@@ -552,11 +559,11 @@ async function createFrozenRegistrationExecution(input: {
       },
       wingProduct: { variants: [{ vendorItemCode: input.sellerSku }] },
     },
-  });
+  }, channelIntegrity.sha256);
   const execution = await input.prisma.productRegistrationExecution.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
-      productPreparationId: randomUUID(),
+      registrationTargetId: await createRegistrationTarget(input.prisma, input.channelAccountId),
       channelAccountId: input.channelAccountId,
       channelListingId: input.channelListingId,
       executionKind: 'external_wing',
@@ -572,6 +579,16 @@ async function createFrozenRegistrationExecution(input: {
     },
   });
   return { id: execution.id };
+}
+
+async function createRegistrationTarget(prisma: PrismaClient, channelAccountId: string): Promise<string> {
+  const salesProduct = await prisma.salesProduct.create({ data: {
+    organizationId: TEST_ORGANIZATION_ID, code: 'KID90000000', name: '등록 근거 상품',
+  } });
+  const target = await prisma.registrationTarget.create({ data: {
+    organizationId: TEST_ORGANIZATION_ID, channelAccountId, salesProductId: salesProduct.id,
+  } });
+  return target.id;
 }
 
 function product(

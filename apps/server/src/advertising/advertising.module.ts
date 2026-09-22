@@ -1,3 +1,5 @@
+import { AiListingContentQueryModule } from '../ai/ai-listing-content-query.module';
+import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
@@ -159,7 +161,7 @@ const REPOSITORY_PORT_BINDINGS = [
 ];
 
 @Module({
-  imports: [
+  imports: [AiListingContentQueryModule, ChannelCatalogModule,
     ProductCollectionRuntimeModule,
     PrismaModule,
     AlertsModule,

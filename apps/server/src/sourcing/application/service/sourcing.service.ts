@@ -313,7 +313,7 @@ export class SourcingService {
       sourcePlatforms: platform ? undefined : [...COLLECTED_PRODUCT_INBOX_PLATFORMS],
     });
     // 카드가 보여줄 **저장된 대표 썸네일**. `sourcing_candidates.thumbnail_url` 은
-    // 수집 원본이라 대표를 바꿔 저장해도 그대로다 — 대표는 준비(ProductPreparation)
+    // 수집 원본이라 대표를 바꿔 저장해도 그대로다 — 대표는 준비(RegistrationTarget)
     // 또는 후보 워크스페이스가 소유한다. 상세(`getProduct`)와 같은 우선순위를 쓴다:
     // 준비가 이기고, 없으면 워크스페이스 선택이다.
     //
@@ -330,7 +330,7 @@ export class SourcingService {
       items: listed.items.map((item) => ({
         ...item,
         selectedThumbnailUrl:
-          item.productPreparation?.selectedThumbnailUrl
+          item.registrationTarget?.selectedThumbnailUrl
           ?? workspaceThumbnails.get(item.id)?.url
           ?? null,
       })),
@@ -352,7 +352,7 @@ export class SourcingService {
       }),
       // 후보가 이미 가진 content workspace. 없으면 null 이고, 읽기 경로에서
       // 새로 만들지 않는다. 워크스페이스 화면은 이 값이 있어야 썸네일 구성을
-      // 저장할 수 있다 — ProductPreparation 이 없는 후보의 유일한 저장 위치다.
+      // 저장할 수 있다 — RegistrationTarget 이 없는 후보의 유일한 저장 위치다.
       this.registrationContentWorkspaces.findCandidateWorkspaceId({
         organizationId,
         sourceCandidateId: productId,
@@ -367,7 +367,7 @@ export class SourcingService {
       contentWorkspaceId,
       basicInfo: buildProductBasics({
         candidate: row,
-        preparation: row.productPreparation,
+        preparation: row.registrationTarget,
         registrationImages,
         workspaceThumbnailSelection,
       }),
@@ -375,7 +375,7 @@ export class SourcingService {
   }
 
   /**
-   * `ProductPreparation` 없이도 후보(수집상품)의 기본정보를 저장한다.
+   * `RegistrationTarget` 없이도 후보(수집상품)의 기본정보를 저장한다.
    *
    * 채널 계정 선택(=등록 준비)을 강제하지 않고 후보 자체에 수기 편집을 남긴다.
    * 준비가 생기면 registrationInput 이 이 값을 이어받아 우선한다(프리젠터 우선순위).

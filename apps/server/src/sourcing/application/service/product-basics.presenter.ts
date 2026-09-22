@@ -144,7 +144,7 @@ const pickStrings = (primary: unknown, fallback: unknown): string[] => {
 };
 
 /**
- * 후보의 content workspace 에 저장된 대표 썸네일. `ProductPreparation` 이 없는
+ * 후보의 content workspace 에 저장된 대표 썸네일. `RegistrationTarget` 이 없는
  * 후보는 여기에만 대표를 남길 수 있어서, 이 값이 없으면 저장한 대표가 재진입 후
  * 사라진 것처럼 보인다. 준비(preparation) 값이 있으면 **항상 그쪽이 이긴다**.
  */
@@ -167,7 +167,7 @@ export function buildProductBasics({
   workspaceThumbnailSelection?: WorkspaceThumbnailSelection | null;
 }): ProductBasics {
   const raw = toRecord(candidate.rawData);
-  // `ProductPreparation` 이 없는 후보가 기본정보를 저장하는 곳. 후보 워크스페이스
+  // `RegistrationTarget` 이 없는 후보가 기본정보를 저장하는 곳. 후보 워크스페이스
   // 화면의 `수정` 저장이 여기에 쓴다(= `PATCH /api/sourcing/candidates/:id/basic-info`).
   // 우선순위는 준비 registrationInput > 수기 manualBasics > 스크랩 raw/컬럼 이다 —
   // 준비가 생기면 registrationInput 이 이기고, 그 전까지는 manualBasics 가 이긴다.

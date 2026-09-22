@@ -83,6 +83,7 @@ export const ChannelSkuAvailabilityItemSchema = z.object({
       barcode: z.string().nullable(),
       modelNumber: z.string().nullable(),
       salePrice: z.number().int().nonnegative().nullable(),
+      safetyStock: z.number().int().nonnegative().max(2_147_483_647),
       status: z.string().nullable(),
       mappingStatus: ChannelSkuAvailabilityMappingStatusSchema,
       sellableStock: z.number().int().nonnegative().nullable(),
@@ -105,9 +106,15 @@ export const ChannelSkuAvailabilityItemSchema = z.object({
         message: 'recipeStatus must agree with the derived mappingStatus',
       });
     }
+    if (item.sku.mappingStatus !== 'matched' && item.sku.sellableStock !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['sku', 'sellableStock'],
+        message: 'Unconfirmed composition must not publish a numeric capacity',
+      });
+    }
     if (
-      (item.recipeStatus === 'unmatched' && item.masterProductId !== null)
-      || (item.recipeStatus !== 'unmatched' && item.masterProductId === null)
+      item.recipeStatus === 'unmatched' && item.masterProductId !== null
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -121,11 +128,13 @@ export type ChannelSkuAvailabilityItem = z.infer<
 >;
 
 /**
- * 품절 옵션 — 레시피가 확정됐고 팔 수 있는 재고가 0 이다. 레시피가 없거나 검토 중인 옵션은 재고를
+ * 품절 옵션 — 확정 구성으로 계산한 판매 가능 세트 수가 옵션의 안전재고 이하이다. 검토 중인 옵션은 재고를
  * 모르므로 품절이 아니다(목록 `out_of_stock` 과 같은 규칙).
  */
 export function isChannelSkuOutOfStock(item: Pick<ChannelSkuAvailabilityItem, 'sku'>): boolean {
-  return item.sku.mappingStatus === 'matched' && item.sku.sellableStock === 0;
+  return item.sku.mappingStatus === 'matched'
+    && item.sku.sellableStock !== null
+    && item.sku.sellableStock <= item.sku.safetyStock;
 }
 
 export const ChannelSkuAvailabilitySummarySchema = z.object({

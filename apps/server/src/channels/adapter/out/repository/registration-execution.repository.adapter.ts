@@ -1,3 +1,4 @@
+import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
@@ -20,23 +21,23 @@ import {
   type TargetExecutionResult,
   type TargetExecutionSnapshot,
 } from '@kiditem/shared/sales-product';
-import { findChannel } from '@kiditem/shared/channel-registry';
 import { MALL_ADMIN_LISTING_READERS } from '@kiditem/shared/mall-admin-listings';
-import { getMallAdapterManifest } from '../../../domain/mall/mall-adapter-manifest';
+import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { registrationDraftState } from '../../../read/registration-execution.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
-import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration-item-code';
+import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration/registration-item-code';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import {
   freezeProductRegistrationPayload,
   hashRegistrationSubmissionPayload,
   type RegistrationSubmissionJson,
-} from '../../../domain/registration-submission-payload';
+} from '../../../domain/registration/registration-submission-payload';
 import {
   hasLiveExecutionLease,
   retainsProviderIdentity,
   type RegistrationExecutionProviderOutcome,
-} from '../../../domain/registration-execution-state';
+} from '../../../domain/registration/registration-execution-state';
 import {
   REGISTRATION_DRAFT_PORT,
   type FrozenRegistrationDraft,
@@ -57,6 +58,8 @@ import type {
   RegistrationExecutionRepositoryPort,
   RegistrationExecutionResult,
 } from '../../../application/port/out/repository/registration-execution.repository.port';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const TARGET_EXECUTION_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -80,6 +83,21 @@ export class RegistrationExecutionRepositoryAdapter
     private readonly recipes?: ChannelOptionRecipePort,
   ) {}
 
+  async findListingAvailabilityByKey(input: {
+    organizationId: string;
+    requestedByUserId: string | null;
+    idempotencyKey: string;
+  }): Promise<ListingAvailabilityExecution | null> {
+    const execution = await this.prisma.productRegistrationExecution.findFirst({
+      where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+    });
+    if (!execution) return null;
+    if (execution.requestedByUserId !== input.requestedByUserId) {
+      throw new ConflictException('Listing availability execution belongs to a different actor.');
+    }
+    return listingAvailabilityResult(execution, false);
+  }
+
   async prepareListingAvailability(input: {
     organizationId: string;
     requestedByUserId: string | null;
@@ -88,6 +106,9 @@ export class RegistrationExecutionRepositoryAdapter
     const parsedRequest = PrepareListingAvailabilityInputSchema.safeParse(input.request);
     if (!parsedRequest.success) throw new ConflictException('Listing availability request is invalid.');
     const request = parsedRequest.data;
+    if (request.stockoutPolicy && request.kind !== 'sold_out') {
+      throw new ConflictException('Inventory stockout policy cannot resume sales.');
+    }
     const optionCodes = [...(request.optionCodes ?? [])].sort();
     if (new Set(optionCodes).size !== optionCodes.length) {
       throw new ConflictException('Listing availability option codes must be unique.');
@@ -121,6 +142,9 @@ export class RegistrationExecutionRepositoryAdapter
         });
         if (!account) throw new ConflictException('Listing availability requires an active channel account.');
         assertListingAvailabilitySupported(account.channel, request.kind);
+        if (account.channel === 'coupang' && !(account.vendorId?.trim() || account.externalAccountId?.trim())) {
+          throw new ConflictException('Wing availability requires a verified provider account identity.');
+        }
 
         const lockedListing = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
           SELECT id FROM channel_listings
@@ -153,19 +177,23 @@ export class RegistrationExecutionRepositoryAdapter
             FOR UPDATE
           `);
         }
-        const options = optionCodes.length === 0 ? [] : await tx.channelListingOption.findMany({
+        const options = await tx.channelListingOption.findMany({
           where: {
             organizationId: input.organizationId,
             listingId: listing.id,
             isActive: true,
-            externalOptionId: { in: optionCodes },
+            ...(optionCodes.length > 0 ? { externalOptionId: { in: optionCodes } } : {}),
           },
-          select: { externalOptionId: true },
+          select: { externalOptionId: true, rawJson: true },
         });
-        if (options.length !== optionCodes.length) {
+        if (optionCodes.length > 0 && options.length !== optionCodes.length) {
           throw new ConflictException('One or more availability option codes do not belong to the active listing.');
         }
 
+        assertAvailabilityOptionSupport(account.channel, options);
+        const frozenOptionCodes = account.channel === 'coupang'
+          ? options.map((option) => option.externalOptionId).sort()
+          : optionCodes;
         const frozen = freezeListingAvailabilitySnapshot({
           subject: 'channel_listing',
           channelListingId: listing.id,
@@ -173,12 +201,13 @@ export class RegistrationExecutionRepositoryAdapter
           mallKey: account.channel,
           externalListingId: listing.externalId,
           kind: request.kind,
-          optionCodes,
+          ...(request.stockoutPolicy ? { stockoutPolicy: request.stockoutPolicy } : {}),
+          optionCodes: frozenOptionCodes,
         });
         const execution = await tx.productRegistrationExecution.create({
           data: {
             organizationId: input.organizationId,
-            productPreparationId: null,
+            registrationTargetId: null,
             channelAccountId: account.id,
             channelListingId: listing.id,
             executionKind: request.kind,
@@ -228,7 +257,7 @@ export class RegistrationExecutionRepositoryAdapter
         requestedByUserId: input.requestedByUserId,
         channelAccountId: input.channelAccountId,
         channelListingId: listing.id,
-        productPreparationId: null,
+        registrationTargetId: null,
         executionKind: { in: ['sold_out', 'resume'] },
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -241,6 +270,7 @@ export class RegistrationExecutionRepositoryAdapter
     organizationId: string;
     requestedByUserId: string | null;
     executionId: string;
+    assertInventoryStockout?: (transaction: ChannelsRepositoryTransaction, snapshot: ListingAvailabilitySnapshot) => Promise<void>;
   }): Promise<ListingAvailabilityExecution> {
     return this.prisma.$transaction(async (tx) => {
       await lockExecution(tx, input.organizationId, input.executionId);
@@ -267,6 +297,14 @@ export class RegistrationExecutionRepositoryAdapter
         && execution.externalListingId === null
         && execution.resultJson === null;
       if (!fresh) return listingAvailabilityResult(execution, false);
+      assertListingAvailabilityAccount(execution, snapshot, scope.account);
+      await assertFrozenAvailabilityOptions(tx, input.organizationId, snapshot);
+      if (snapshot.stockoutPolicy) {
+        if (!input.assertInventoryStockout) {
+          throw new ConflictException('Inventory stockout requires a transactional eligibility check.');
+        }
+        await input.assertInventoryStockout(ownerTransaction(tx), snapshot);
+      }
 
       const startedAt = new Date();
       const updated = await tx.productRegistrationExecution.update({
@@ -326,10 +364,19 @@ export class RegistrationExecutionRepositoryAdapter
       if (scope.listing.externalId !== snapshot.externalListingId) {
         throw new ConflictException('Canonical listing identity changed during availability execution.');
       }
+      assertListingAvailabilityAccount(execution, snapshot, scope.account);
       await assertTargetProviderEvidence(tx, execution, input.report);
+      if (input.report.outcome === 'confirmed' && snapshot.mallKey === 'coupang') {
+        await assertFrozenAvailabilityOptions(tx, input.organizationId, snapshot);
+        assertWingAvailabilityConfirmation(snapshot, input.report);
+      }
 
       const data: Prisma.ProductRegistrationExecutionUpdateInput = {
-        resultJson: targetReportEvidenceJson(input.report),
+        resultJson: {
+          ...targetReportEvidenceJson(input.report) as Prisma.InputJsonObject,
+          ...(input.report.evidence.observedOptionStocks
+            ? { observedOptionStocks: input.report.evidence.observedOptionStocks } : {}),
+        },
       };
       if (input.report.outcome === 'not_submitted') {
         data.status = 'failed';
@@ -347,7 +394,7 @@ export class RegistrationExecutionRepositoryAdapter
         if (scope.account.status !== 'active') {
           throw new ConflictException('Confirmed listing availability requires an active channel account.');
         }
-        if (input.report.evidence.observedStatus !== undefined) {
+        if (snapshot.mallKey !== 'coupang' && input.report.evidence.observedStatus !== undefined) {
           const updatedListing = await tx.channelListing.updateMany({
             where: {
               id: snapshot.channelListingId,
@@ -428,24 +475,22 @@ export class RegistrationExecutionRepositoryAdapter
 
         await tx.$queryRaw(Prisma.sql`
           SELECT id
-          FROM product_preparations
+          FROM registration_targets
           WHERE id = ${frozen.payload.targetId}::uuid
             AND organization_id = ${input.organizationId}::uuid
           FOR UPDATE
         `);
-        const target = await tx.productPreparation.findFirst({
+        const target = await tx.registrationTarget.findFirst({
           where: {
             id: frozen.payload.targetId,
             organizationId: input.organizationId,
-            isDeleted: false,
+            archivedAt: null,
           },
           select: {
             id: true,
             salesProductId: true,
             channelAccountId: true,
             version: true,
-            closedAt: true,
-            isDeleted: true,
             selectedOptions: {
               orderBy: { sortOrder: 'asc' },
               select: { salesProductOptionId: true },
@@ -454,9 +499,6 @@ export class RegistrationExecutionRepositoryAdapter
         });
         if (!target) {
           throw new NotFoundException('Registration target not found.');
-        }
-        if (target.isDeleted || target.closedAt !== null) {
-          throw new ConflictException('Registration target is closed or deleted.');
         }
         if (target.version !== input.request.expectedVersion
           || target.version !== frozen.payload.targetVersion) {
@@ -547,7 +589,7 @@ export class RegistrationExecutionRepositoryAdapter
         const execution = await tx.productRegistrationExecution.create({
           data: {
             organizationId: input.organizationId,
-            productPreparationId: target.id,
+            registrationTargetId: target.id,
             channelAccountId: target.channelAccountId,
             channelListingId: frozen.payload.channelListingId,
             executionKind: frozen.payload.kind,
@@ -611,6 +653,106 @@ export class RegistrationExecutionRepositoryAdapter
         && execution.resultJson === null;
       if (!fresh) return targetExecutionResult(execution, false);
 
+      const snapshot = targetExecutionSnapshot(execution);
+      if (snapshot.kind !== execution.executionKind || snapshot.channelListingId !== execution.channelListingId) {
+        throw new ConflictException('Registration execution scope does not match its frozen snapshot.');
+      }
+      // Keep prepareTarget's target -> account -> product -> option order.
+      // The execution lock serializes starts; owner row locks keep edits from
+      // changing this eligibility decision before the lease commits.
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM registration_targets
+        WHERE id = ${snapshot.targetId}::uuid AND organization_id = ${input.organizationId}::uuid
+        FOR UPDATE
+      `);
+      const target = await tx.registrationTarget.findFirst({
+        where: { id: snapshot.targetId, organizationId: input.organizationId, archivedAt: null },
+        select: { salesProductId: true, channelAccountId: true, version: true,
+          selectedOptions: { orderBy: { sortOrder: 'asc' }, select: { salesProductOptionId: true } } },
+      });
+      if (!target || target.version !== snapshot.targetVersion
+        || target.channelAccountId !== snapshot.channelAccountId
+        || target.salesProductId !== snapshot.product.id) {
+        throw new ConflictException('Registration target changed after execution preparation.');
+      }
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM channel_accounts
+        WHERE id = ${target.channelAccountId}::uuid AND organization_id = ${input.organizationId}::uuid
+        FOR UPDATE
+      `);
+      const account = await tx.channelAccount.findFirst({
+        where: { id: target.channelAccountId, organizationId: input.organizationId, status: 'active' },
+        select: { vendorId: true, externalAccountId: true },
+      });
+      if (!account) throw new ConflictException('Registration target account is not active.');
+      const providerIdentity = account.vendorId?.trim() || account.externalAccountId?.trim() || null;
+      if (providerIdentity !== execution.expectedProviderAccountId) {
+        throw new ConflictException('Registration target provider account changed after execution preparation.');
+      }
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM sales_products
+        WHERE id = ${target.salesProductId}::uuid AND organization_id = ${input.organizationId}::uuid
+        FOR UPDATE
+      `);
+      const product = await tx.salesProduct.findFirst({
+        where: { id: target.salesProductId, organizationId: input.organizationId },
+        select: { version: true, status: true },
+      });
+      if (!product || product.version !== snapshot.product.version || product.status !== snapshot.product.status
+        || (snapshot.kind === 'register' && ['archived', 'unused'].includes(product.status))) {
+        throw new ConflictException('Sales product changed after execution preparation.');
+      }
+      const snapshotOptionIds = snapshot.product.options.map(option => option.id);
+      if (!sameStringArray(target.selectedOptions.map(option => option.salesProductOptionId), snapshotOptionIds)
+        || !sameStringSet(snapshot.supplyPrices.map(price => price.salesProductOptionId), snapshotOptionIds)) {
+        throw new ConflictException('Registration target options changed after execution preparation.');
+      }
+      if (snapshotOptionIds.length > 0) {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT id FROM sales_product_options
+          WHERE organization_id = ${input.organizationId}::uuid AND sales_product_id = ${target.salesProductId}::uuid
+            AND id IN (${Prisma.join(snapshotOptionIds.map(id => Prisma.sql`${id}::uuid`))})
+          ORDER BY id FOR UPDATE
+        `);
+      }
+      const options = await tx.salesProductOption.findMany({
+        where: { organizationId: input.organizationId, salesProductId: target.salesProductId, id: { in: snapshotOptionIds } },
+        select: { id: true, supplyStatus: true },
+      });
+      if (options.length !== new Set(snapshotOptionIds).size || options.some(option =>
+        option.supplyStatus !== snapshot.product.options.find(frozen => frozen.id === option.id)?.supplyStatus
+        || (snapshot.kind === 'register' && option.supplyStatus === 'unused'))) {
+        throw new ConflictException('Sales product options changed after execution preparation.');
+      }
+      if (snapshot.kind !== 'register' && !snapshot.channelListingId) {
+        throw new ConflictException('This execution requires an active channel listing.');
+      }
+      if (snapshot.channelListingId) {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT id FROM channel_listings
+          WHERE id = ${snapshot.channelListingId}::uuid AND organization_id = ${input.organizationId}::uuid
+            AND channel_account_id = ${target.channelAccountId}::uuid
+          FOR UPDATE
+        `);
+        const listing = await tx.channelListing.findFirst({
+          where: { id: snapshot.channelListingId, organizationId: input.organizationId,
+            channelAccountId: target.channelAccountId, isActive: true },
+          select: { id: true },
+        });
+        if (!listing) throw new ConflictException('Registration listing is no longer active in the target account.');
+      }
+      await assertFrozenTargetOptionTransitions(tx, input.organizationId, snapshot, target.channelAccountId);
+      if (snapshot.kind === 'composition_change') {
+        const optionIds = (snapshot.optionTransitions ?? []).map(transition => transition.channelListingOptionId);
+        const activeOptions = await tx.channelListingOption.count({
+          where: { organizationId: input.organizationId, listingId: snapshot.channelListingId!,
+            id: { in: optionIds }, isActive: true },
+        });
+        if (activeOptions !== optionIds.length) {
+          throw new ConflictException('Frozen composition options are no longer active.');
+        }
+      }
+
       const leaseToken = randomUUID();
       const startedAt = new Date();
       const updated = await tx.productRegistrationExecution.update({
@@ -632,7 +774,7 @@ export class RegistrationExecutionRepositoryAdapter
     targetId: string;
     requestedByUserId: string | null;
   }): Promise<TargetExecutionResult[]> {
-    const target = await this.prisma.productPreparation.findFirst({
+    const target = await this.prisma.registrationTarget.findFirst({
       where: { id: input.targetId, organizationId: input.organizationId },
       select: { id: true },
     });
@@ -640,7 +782,7 @@ export class RegistrationExecutionRepositoryAdapter
     const executions = await this.prisma.productRegistrationExecution.findMany({
       where: {
         organizationId: input.organizationId,
-        productPreparationId: input.targetId,
+        registrationTargetId: input.targetId,
         requestedByUserId: input.requestedByUserId,
         executionKind: { in: ['register', 'update', 'sold_out', 'resume', 'composition_change'] },
       },
@@ -748,7 +890,7 @@ export class RegistrationExecutionRepositoryAdapter
           confirmedListingId,
         );
         await applyTargetConfirmationRecipes(
-          tx,
+          ownerTransaction(tx),
           this.recipes,
           input.organizationId,
           snapshot,
@@ -787,7 +929,7 @@ export class RegistrationExecutionRepositoryAdapter
       cancelledAt: Date;
     },
   ): Promise<number> {
-    const tx = transaction as Prisma.TransactionClient;
+    const tx = ownerTransactionClient(transaction);
     // 초안은 다른 owner 의 행이다. 관계 join 대신 초안 id 를 먼저 읽고 실행을
     // 그 id 로 좁힌다(ADR-0013).
     const preparationIds = await this.drafts.findDraftIds(transaction, {
@@ -809,14 +951,14 @@ export class RegistrationExecutionRepositoryAdapter
         leaseClaimedAt: null,
         startedAt: null,
         completedAt: null,
-        productPreparationId: { in: preparationIds },
+        registrationTargetId: { in: preparationIds },
       },
-      select: { id: true, productPreparationId: true },
+      select: { id: true, registrationTargetId: true },
     });
 
     let cancelled = 0;
     for (const identity of identities) {
-      const preparationId = identity.productPreparationId;
+      const preparationId = identity.registrationTargetId;
       if (preparationId === null) continue;
       await this.drafts.lockDraft(transaction, {
         organizationId: input.organizationId,
@@ -827,14 +969,14 @@ export class RegistrationExecutionRepositoryAdapter
         where: {
           id: identity.id,
           organizationId: input.organizationId,
-          productPreparationId: preparationId,
+          registrationTargetId: preparationId,
         },
       });
-      if (!current || current.productPreparationId === null) continue;
+      if (!current || current.registrationTargetId === null) continue;
       const draft = current
         ? await this.drafts.loadDraft(transaction, {
           organizationId: input.organizationId,
-          preparationId: current.productPreparationId,
+          preparationId: current.registrationTargetId,
         })
         : null;
       if (!draft || !isUnstartedExternalRegistrationIntent(
@@ -870,7 +1012,7 @@ export class RegistrationExecutionRepositoryAdapter
       if (execution.count !== 1) continue;
 
       const draftCancelled = await this.drafts.closeDraft(transaction, {
-        organizationId: input.organizationId, preparationId: current.productPreparationId,
+        organizationId: input.organizationId, preparationId: current.registrationTargetId,
         sourceCandidateId: input.sourceCandidateId, closedAt: input.cancelledAt, archive: true,
       });
       if (draftCancelled !== 1) {
@@ -890,10 +1032,10 @@ export class RegistrationExecutionRepositoryAdapter
       channelAccountId: input.channelAccountId,
       displayName: input.displayName,
       registrationInput: input.registrationInput,
-    } as RegistrationSubmissionJson);
+    } as RegistrationSubmissionJson, channelIntegrity.sha256);
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const handle = tx as unknown as ChannelsRepositoryTransaction;
+        const handle = ownerTransaction(tx);
         const replay = await tx.productRegistrationExecution.findFirst({
           where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
         });
@@ -901,7 +1043,7 @@ export class RegistrationExecutionRepositoryAdapter
           if (!matchesPreparedRequest(replay, requested.hash)) {
             throw new ConflictException('External registration idempotency key was reused with a different payload.');
           }
-          if (replay.productPreparationId === null
+          if (replay.registrationTargetId === null
             || replay.channelAccountId !== input.channelAccountId
             || await this.executionCandidateId(handle, input.organizationId, replay) !== input.sourceCandidateId
             || replay.requestedByUserId !== input.requestedByUserId) {
@@ -918,7 +1060,7 @@ export class RegistrationExecutionRepositoryAdapter
         });
         if (lockedReplay) {
           if (!matchesPreparedRequest(lockedReplay, requested.hash)
-            || lockedReplay.productPreparationId === null
+            || lockedReplay.registrationTargetId === null
             || lockedReplay.channelAccountId !== input.channelAccountId
             || await this.executionCandidateId(handle, input.organizationId, lockedReplay) !== input.sourceCandidateId
             || lockedReplay.requestedByUserId !== input.requestedByUserId) {
@@ -958,7 +1100,7 @@ export class RegistrationExecutionRepositoryAdapter
                 ? ['prepared', 'failed']
                 : ['prepared', 'executing', 'reconciling', 'failed'],
             },
-            productPreparationId: { in: livePreparationIds },
+            registrationTargetId: { in: livePreparationIds },
           },
           orderBy: { createdAt: 'desc' },
         });
@@ -992,7 +1134,7 @@ export class RegistrationExecutionRepositoryAdapter
           channelAccountId: input.channelAccountId,
           displayName: input.displayName,
           registrationInput,
-        } as RegistrationSubmissionJson);
+        } as RegistrationSubmissionJson, channelIntegrity.sha256);
         const frozenDraft = await this.drafts.freezeForSubmission(handle, {
           organizationId: input.organizationId,
           sourceCandidateId: input.sourceCandidateId,
@@ -1005,12 +1147,15 @@ export class RegistrationExecutionRepositoryAdapter
         const execution = await tx.productRegistrationExecution.create({
           data: {
             organizationId: input.organizationId,
-            productPreparationId: frozenDraft.preparationId,
+            registrationTargetId: frozenDraft.preparationId,
             channelAccountId: input.channelAccountId,
             executionKind: 'external_wing',
             expectedProviderAccountId,
             idempotencyKey: input.idempotencyKey,
             requestHash: frozen.hash,
+            reviewPayloadHash: frozen.hash,
+            approvedAt: new Date(),
+            approvedByUserId: input.requestedByUserId,
             submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
             submissionPayloadHash: frozen.hash,
             status: 'prepared',
@@ -1022,19 +1167,20 @@ export class RegistrationExecutionRepositoryAdapter
       });
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error;
-      const handle = this.prisma as unknown as ChannelsRepositoryTransaction;
-      const replay = await this.prisma.productRegistrationExecution.findFirst({
-        where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+      return this.prisma.$transaction(async (tx) => {
+        const replay = await tx.productRegistrationExecution.findFirst({
+          where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
+        });
+        if (!replay
+          || !matchesPreparedRequest(replay, requested.hash)
+          || replay.registrationTargetId === null
+          || replay.channelAccountId !== input.channelAccountId
+          || await this.executionCandidateId(ownerTransaction(tx), input.organizationId, replay) !== input.sourceCandidateId
+          || replay.requestedByUserId !== input.requestedByUserId) {
+          throw new ConflictException('Concurrent external registration preparation conflicted.');
+        }
+        return externalExecutionResult(replay);
       });
-      if (!replay
-        || !matchesPreparedRequest(replay, requested.hash)
-        || replay.productPreparationId === null
-        || replay.channelAccountId !== input.channelAccountId
-        || await this.executionCandidateId(handle, input.organizationId, replay) !== input.sourceCandidateId
-        || replay.requestedByUserId !== input.requestedByUserId) {
-        throw new ConflictException('Concurrent external registration preparation conflicted.');
-      }
-      return externalExecutionResult(replay);
     }
   }
 
@@ -1053,7 +1199,7 @@ export class RegistrationExecutionRepositoryAdapter
     expectedProviderAccountId: string,
     nextRequestHash: string,
   ): Promise<void> {
-    const handle = tx as unknown as ChannelsRepositoryTransaction;
+    const handle = ownerTransaction(tx);
     const activeIdentity = await this.drafts.findAccountDraft(handle, {
       organizationId: input.organizationId,
       sourceCandidateId: input.sourceCandidateId,
@@ -1068,7 +1214,7 @@ export class RegistrationExecutionRepositoryAdapter
     const executionIdentities = await tx.productRegistrationExecution.findMany({
       where: {
         organizationId: input.organizationId,
-        productPreparationId: activeIdentity.preparationId,
+        registrationTargetId: activeIdentity.preparationId,
         status: { in: ['prepared', 'executing', 'reconciling'] },
       },
       select: { id: true },
@@ -1088,7 +1234,7 @@ export class RegistrationExecutionRepositoryAdapter
       where: {
         id: executionIdentities[0]!.id,
         organizationId: input.organizationId,
-        productPreparationId: activeIdentity.preparationId,
+        registrationTargetId: activeIdentity.preparationId,
       },
     });
     if (
@@ -1120,7 +1266,7 @@ export class RegistrationExecutionRepositoryAdapter
       where: {
         id: execution.id,
         organizationId: input.organizationId,
-        productPreparationId: active.preparationId,
+        registrationTargetId: active.preparationId,
         status: execution.status,
         providerOutcome: execution.providerOutcome,
         providerSubmissionId: null,
@@ -1149,7 +1295,7 @@ export class RegistrationExecutionRepositoryAdapter
     requestedByUserId: string | null;
   }): Promise<RegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
-      const handle = tx as unknown as ChannelsRepositoryTransaction;
+      const handle = ownerTransaction(tx);
       const identity = await this.findCandidateExecutionIdentity(handle, {
         organizationId: input.organizationId,
         sourceCandidateId: input.sourceCandidateId,
@@ -1162,7 +1308,7 @@ export class RegistrationExecutionRepositoryAdapter
       });
       await this.drafts.lockDraft(handle, {
         organizationId: input.organizationId,
-        preparationId: identity.productPreparationId,
+        preparationId: identity.registrationTargetId,
       });
       await lockExecution(tx, input.organizationId, identity.id);
       const execution = await tx.productRegistrationExecution.findFirst({
@@ -1170,16 +1316,16 @@ export class RegistrationExecutionRepositoryAdapter
           id: identity.id,
           organizationId: input.organizationId,
           executionKind: 'external_wing',
-          productPreparationId: identity.productPreparationId,
+          registrationTargetId: identity.registrationTargetId,
         },
       });
-      if (!execution || execution.productPreparationId === null) {
+      if (!execution || execution.registrationTargetId === null) {
         throw new NotFoundException('External registration execution not found.');
       }
       const preparation = execution
         ? await this.drafts.loadDraft(handle, {
           organizationId: input.organizationId,
-          preparationId: execution.productPreparationId,
+          preparationId: execution.registrationTargetId,
         })
         : null;
       if (
@@ -1238,23 +1384,25 @@ export class RegistrationExecutionRepositoryAdapter
     executionId: string;
     requestedByUserId: string | null;
   }): Promise<RegistrationExecutionResult> {
-    const handle = this.prisma as unknown as ChannelsRepositoryTransaction;
-    const execution = await this.prisma.productRegistrationExecution.findFirst({
-      where: {
-        id: input.executionId,
-        organizationId: input.organizationId,
-        executionKind: 'external_wing',
-        requestedByUserId: input.requestedByUserId,
-        productPreparationId: {
-          in: await this.drafts.findDraftIds(handle, {
-            organizationId: input.organizationId,
-            sourceCandidateId: input.sourceCandidateId,
-          }),
+    return this.prisma.$transaction(async (tx) => {
+      const handle = ownerTransaction(tx);
+      const execution = await tx.productRegistrationExecution.findFirst({
+        where: {
+          id: input.executionId,
+          organizationId: input.organizationId,
+          executionKind: 'external_wing',
+          requestedByUserId: input.requestedByUserId,
+          registrationTargetId: {
+            in: await this.drafts.findDraftIds(handle, {
+              organizationId: input.organizationId,
+              sourceCandidateId: input.sourceCandidateId,
+            }),
+          },
         },
-      },
+      });
+      if (!execution) throw new NotFoundException('External registration execution not found.');
+      return externalExecutionResult(execution);
     });
-    if (!execution) throw new NotFoundException('External registration execution not found.');
-    return externalExecutionResult(execution);
   }
 
   async markUnresolved(input: {
@@ -1265,7 +1413,7 @@ export class RegistrationExecutionRepositoryAdapter
     evidence: unknown;
   }): Promise<RegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
-      const handle = tx as unknown as ChannelsRepositoryTransaction;
+      const handle = ownerTransaction(tx);
       const identity = await this.findCandidateExecutionIdentity(handle, {
         organizationId: input.organizationId,
         sourceCandidateId: input.sourceCandidateId,
@@ -1279,7 +1427,7 @@ export class RegistrationExecutionRepositoryAdapter
       });
       await this.drafts.lockDraft(handle, {
         organizationId: input.organizationId,
-        preparationId: identity.productPreparationId,
+        preparationId: identity.registrationTargetId,
       });
       await lockExecution(tx, input.organizationId, identity.id);
       const current = await tx.productRegistrationExecution.findFirst({
@@ -1288,10 +1436,10 @@ export class RegistrationExecutionRepositoryAdapter
           organizationId: input.organizationId,
           executionKind: 'external_wing',
           requestedByUserId: input.requestedByUserId,
-          productPreparationId: identity.productPreparationId,
+          registrationTargetId: identity.registrationTargetId,
         },
       });
-      if (!current || current.productPreparationId === null) {
+      if (!current || current.registrationTargetId === null) {
         throw new NotFoundException('External registration execution not found.');
       }
       if (current.providerOutcome === 'succeeded') {
@@ -1334,7 +1482,7 @@ export class RegistrationExecutionRepositoryAdapter
     evidence: unknown;
   }): Promise<ClosedRegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
-      const handle = tx as unknown as ChannelsRepositoryTransaction;
+      const handle = ownerTransaction(tx);
       const identity = await this.findCandidateExecutionIdentity(handle, {
         organizationId: input.organizationId,
         sourceCandidateId: input.sourceCandidateId,
@@ -1348,7 +1496,7 @@ export class RegistrationExecutionRepositoryAdapter
       });
       await this.drafts.lockDraft(handle, {
         organizationId: input.organizationId,
-        preparationId: identity.productPreparationId,
+        preparationId: identity.registrationTargetId,
       });
       await lockExecution(tx, input.organizationId, identity.id);
       const current = await tx.productRegistrationExecution.findFirst({
@@ -1357,13 +1505,13 @@ export class RegistrationExecutionRepositoryAdapter
           organizationId: input.organizationId,
           executionKind: 'external_wing',
           requestedByUserId: input.requestedByUserId,
-          productPreparationId: identity.productPreparationId,
+          registrationTargetId: identity.registrationTargetId,
         },
       });
-      if (!current || current.productPreparationId === null) {
+      if (!current || current.registrationTargetId === null) {
         throw new NotFoundException('External registration execution not found.');
       }
-      const preparationId = current.productPreparationId;
+      const preparationId = current.registrationTargetId;
       const closed = (): ClosedRegistrationExecutionResult => ({
         executionId: current.id,
         preparationId,
@@ -1413,7 +1561,7 @@ export class RegistrationExecutionRepositoryAdapter
     userId: string | null,
   ): Promise<RegistrationExecutionClaimResult> {
     return this.prisma.$transaction(async (tx) => {
-      const handle = tx as unknown as ChannelsRepositoryTransaction;
+      const handle = ownerTransaction(tx);
       const identity = await this.drafts.loadDraft(handle, { organizationId, preparationId });
       if (!identity) throw new NotFoundException('Product preparation not found.');
       if (identity.sourceCandidateId) {
@@ -1426,19 +1574,16 @@ export class RegistrationExecutionRepositoryAdapter
       const current = await this.drafts.loadDraft(handle, { organizationId, preparationId });
       if (!current) throw new NotFoundException('Product preparation not found.');
       let execution = await tx.productRegistrationExecution.findFirst({
-        where: { organizationId, productPreparationId: current.preparationId },
+        where: { organizationId, registrationTargetId: current.preparationId },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       });
       if (execution) await lockExecution(tx, organizationId, execution.id);
       execution = await tx.productRegistrationExecution.findFirst({
-        where: { organizationId, productPreparationId: current.preparationId },
+        where: { organizationId, registrationTargetId: current.preparationId },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       });
       if (execution && execution.executionKind !== 'create') {
         throw new ConflictException('This execution must use its explicit start/completion contract.');
-      }
-      if (!execution && current.reviewPayloadHash !== null) {
-        throw new ConflictException('Preparation requires its migrated registration execution.');
       }
       if (execution?.status === 'succeeded') {
         if (!execution.channelListingId) {
@@ -1483,10 +1628,13 @@ export class RegistrationExecutionRepositoryAdapter
         execution = await tx.productRegistrationExecution.create({
           data: {
             organizationId,
-            productPreparationId: claimed.draft.preparationId,
+            registrationTargetId: claimed.draft.preparationId,
             channelAccountId: claimed.draft.channelAccountId,
             idempotencyKey: randomUUID(),
             requestHash: frozen.hash,
+            reviewPayloadHash: frozen.hash,
+            approvedAt: now,
+            approvedByUserId: userId,
             submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
             submissionPayloadHash: frozen.hash,
             status: 'prepared',
@@ -1499,8 +1647,10 @@ export class RegistrationExecutionRepositoryAdapter
         return toFrozenSubmission(claimed.draft, execution);
       }
 
-      if (execution.requestHash !== current.reviewPayloadHash) {
-        throw new ConflictException('Registration execution differs from the approved draft hash.');
+      if (execution.reviewPayloadHash !== execution.requestHash
+        || execution.approvedAt === null
+        || execution.approvedByUserId !== userId) {
+        throw new ConflictException('Registration execution does not match its frozen approval.');
       }
       if (!execution.submissionPayloadJson || !execution.submissionPayloadHash) {
         throw new ConflictException('Registration execution is missing its frozen submission.');
@@ -1528,11 +1678,12 @@ export class RegistrationExecutionRepositoryAdapter
     preparationId: string,
     executionId?: string,
   ): Promise<FrozenRegistrationSubmission> {
-    const handle = this.prisma as unknown as ChannelsRepositoryTransaction;
-    const row = await this.drafts.loadDraft(handle, { organizationId, preparationId });
-    if (!row || row.isDeleted) throw new NotFoundException('Frozen product preparation not found.');
-    const execution = await requireExecution(this.prisma, organizationId, preparationId, executionId);
-    return toFrozenSubmission(row, execution);
+    return this.prisma.$transaction(async (tx) => {
+      const row = await this.drafts.loadDraft(ownerTransaction(tx), { organizationId, preparationId });
+      if (!row || row.isDeleted) throw new NotFoundException('Frozen product preparation not found.');
+      const execution = await requireExecution(tx, organizationId, preparationId, executionId);
+      return toFrozenSubmission(row, execution);
+    });
   }
 
   async markProviderAttemptStarted(
@@ -1541,7 +1692,7 @@ export class RegistrationExecutionRepositoryAdapter
     submissionLeaseToken: string,
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      const handle = tx as unknown as ChannelsRepositoryTransaction;
+      const handle = ownerTransaction(tx);
       await this.drafts.lockDraft(handle, { organizationId, preparationId });
       const current = await this.drafts.loadDraft(handle, { organizationId, preparationId });
       const execution = await requireExecution(tx, organizationId, preparationId);
@@ -1586,7 +1737,7 @@ export class RegistrationExecutionRepositoryAdapter
     executionId?: string,
   ): Promise<FrozenRegistrationSubmission> {
     return this.prisma.$transaction(async (tx) => {
-      const handle = tx as unknown as ChannelsRepositoryTransaction;
+      const handle = ownerTransaction(tx);
       await this.drafts.lockDraft(handle, { organizationId, preparationId });
       const current = await this.drafts.loadDraft(handle, { organizationId, preparationId });
       const execution = await requireExecution(tx, organizationId, preparationId, executionId);
@@ -1600,7 +1751,7 @@ export class RegistrationExecutionRepositoryAdapter
         externalListingId: result.externalListingId,
         channel: result.channel,
         rawResult: result.rawResult,
-      } as RegistrationSubmissionJson).payload;
+      } as RegistrationSubmissionJson, channelIntegrity.sha256).payload;
       const updatedExecution = await tx.productRegistrationExecution.update({
         where: { id: execution.id, organizationId: execution.organizationId },
         data: {
@@ -1628,7 +1779,7 @@ export class RegistrationExecutionRepositoryAdapter
     providerOutcome?: 'definitive_failure';
   }): Promise<{ preparationId: string; status: 'failed' }> {
     return this.prisma.$transaction(async (tx) => {
-      const handle = tx as unknown as ChannelsRepositoryTransaction;
+      const handle = ownerTransaction(tx);
       await this.drafts.lockDraft(handle, {
         organizationId: input.organizationId,
         preparationId: input.preparationId,
@@ -1685,7 +1836,7 @@ export class RegistrationExecutionRepositoryAdapter
     executionId?: string,
   ): Promise<RegistrationExecutionRegisteredResult> {
     return this.prisma.$transaction(async (tx) => {
-      const handle = tx as unknown as ChannelsRepositoryTransaction;
+      const handle = ownerTransaction(tx);
       const identity = await this.drafts.loadDraft(handle, { organizationId, preparationId });
       if (!identity || identity.isDeleted) throw new NotFoundException('Product preparation not found.');
       if (identity.sourceCandidateId) {
@@ -1758,12 +1909,12 @@ export class RegistrationExecutionRepositoryAdapter
   private async executionCandidateId(
     tx: ChannelsRepositoryTransaction,
     organizationId: string,
-    execution: { productPreparationId: string | null },
+    execution: { registrationTargetId: string | null },
   ): Promise<string | null> {
-    if (execution.productPreparationId === null) return null;
+    if (execution.registrationTargetId === null) return null;
     const draft = await this.drafts.loadDraft(tx, {
       organizationId,
-      preparationId: execution.productPreparationId,
+      preparationId: execution.registrationTargetId,
     });
     return draft?.sourceCandidateId ?? null;
   }
@@ -1776,8 +1927,8 @@ export class RegistrationExecutionRepositoryAdapter
       executionId: string;
       requestedByUserId?: string | null;
     },
-  ): Promise<{ id: string; productPreparationId: string } | null> {
-    const tx = handle as Prisma.TransactionClient;
+  ): Promise<{ id: string; registrationTargetId: string } | null> {
+    const tx = ownerTransactionClient(handle);
     const execution = await tx.productRegistrationExecution.findFirst({
       where: {
         id: input.executionId,
@@ -1787,25 +1938,75 @@ export class RegistrationExecutionRepositoryAdapter
           ? {}
           : { requestedByUserId: input.requestedByUserId }),
       },
-      select: { id: true, productPreparationId: true },
+      select: { id: true, registrationTargetId: true },
     });
-    if (!execution || execution.productPreparationId === null) return null;
-    const identity = { id: execution.id, productPreparationId: execution.productPreparationId };
+    if (!execution || execution.registrationTargetId === null) return null;
+    const identity = { id: execution.id, registrationTargetId: execution.registrationTargetId };
     const candidateId = await this.executionCandidateId(handle, input.organizationId, identity);
     return candidateId === input.sourceCandidateId ? identity : null;
   }
 }
 
 function assertListingAvailabilitySupported(channel: string, kind: 'sold_out' | 'resume'): void {
-  const channelEntry = findChannel(channel);
-  const manifest = channelEntry?.kind === 'mall' ? getMallAdapterManifest(channel) : null;
-  if (!manifest?.applicable) {
-    throw new ConflictException('Listing availability is supported only for registered mall admin routes.');
+  if (!getListingAvailabilityCapability(channel, kind)) {
+    throw new ConflictException(`The channel has no verified ${kind} route.`);
   }
-  const route = kind === 'sold_out' ? manifest.soldOutRoute : manifest.resumeRoute;
-  const supported = kind === 'sold_out' ? manifest.supports.soldOut : manifest.supports.resume;
-  if (route !== 'mall_admin' || !supported) {
-    throw new ConflictException(`The mall has no verified ${kind} route.`);
+}
+
+function assertAvailabilityOptionSupport(
+  channel: string,
+  options: Array<{ externalOptionId: string; rawJson: Prisma.JsonValue | null }>,
+): void {
+  if (channel !== 'coupang') return;
+  if (options.length === 0) throw new ConflictException('Wing availability requires active options.');
+  if (options.some((option) => option.rawJson && typeof option.rawJson === 'object'
+    && !Array.isArray(option.rawJson) && option.rawJson.registrationType === 'RFM')) {
+    throw new ConflictException('Rocket Growth options do not support seller stock changes.');
+  }
+}
+
+function assertListingAvailabilityAccount(
+  execution: ProductRegistrationExecution,
+  snapshot: ListingAvailabilitySnapshot,
+  account: { channel: string; vendorId: string | null; externalAccountId: string | null },
+): void {
+  assertListingAvailabilitySupported(account.channel, snapshot.kind);
+  const identity = account.vendorId?.trim() || account.externalAccountId?.trim() || null;
+  if (account.channel !== snapshot.mallKey || identity !== execution.expectedProviderAccountId) {
+    throw new ConflictException('Listing availability provider account changed after preparation.');
+  }
+}
+
+async function assertFrozenAvailabilityOptions(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  snapshot: ListingAvailabilitySnapshot,
+): Promise<void> {
+  if (snapshot.mallKey !== 'coupang') return;
+  const options = await tx.channelListingOption.findMany({
+    where: { organizationId, listingId: snapshot.channelListingId, isActive: true,
+      externalOptionId: { in: snapshot.optionCodes } },
+    select: { externalOptionId: true, rawJson: true },
+  });
+  if (options.length !== snapshot.optionCodes.length) {
+    throw new ConflictException('Frozen availability options are no longer active.');
+  }
+  assertAvailabilityOptionSupport(snapshot.mallKey, options);
+}
+
+function assertWingAvailabilityConfirmation(
+  snapshot: ListingAvailabilitySnapshot,
+  report: ReportListingAvailabilityInput,
+): void {
+  const observations = report.evidence.observedOptionStocks ?? [];
+  const ids = new Set(observations.map((option) => option.externalOptionId));
+  if (report.evidence.externalListingId !== snapshot.externalListingId
+    || observations.length !== snapshot.optionCodes.length || ids.size !== observations.length
+    || snapshot.optionCodes.some((id) => !ids.has(id))
+    || observations.some((option) => option.registrationType !== 'NORMAL'
+      || !Number.isSafeInteger(option.stock) || option.stock < 0
+      || (snapshot.kind === 'sold_out' ? option.stock !== 0 : option.stock === 0))) {
+    throw new ConflictException('Wing confirmation requires a matching stock reread for every frozen normal option.');
   }
 }
 
@@ -1814,12 +2015,13 @@ function listingAvailabilityIntentHash(
 ): string {
   return hashRegistrationSubmissionPayload({
     purpose: 'listing-availability-execution-intent',
+    ...(request.stockoutPolicy ? { stockoutPolicy: request.stockoutPolicy } : {}),
     channelAccountId: request.channelAccountId,
     externalListingId: request.externalListingId.trim(),
     kind: request.kind,
     optionCodes: [...(request.optionCodes ?? [])].map((code) => code.trim()).sort(),
     idempotencyKey: request.idempotencyKey,
-  });
+  }, channelIntegrity.sha256);
 }
 
 function freezeListingAvailabilitySnapshot(snapshot: ListingAvailabilitySnapshot): {
@@ -1829,7 +2031,7 @@ function freezeListingAvailabilitySnapshot(snapshot: ListingAvailabilitySnapshot
   const parsed = ListingAvailabilitySnapshotSchema.safeParse(snapshot);
   if (!parsed.success) throw new ConflictException('Listing availability snapshot is invalid.');
   const frozen = freezeProductRegistrationPayload(
-    parsed.data as unknown as RegistrationSubmissionJson,
+    parsed.data as unknown as RegistrationSubmissionJson, channelIntegrity.sha256,
   );
   return {
     payload: frozen.payload as unknown as ListingAvailabilitySnapshot,
@@ -1840,7 +2042,7 @@ function freezeListingAvailabilitySnapshot(snapshot: ListingAvailabilitySnapshot
 function listingAvailabilitySnapshot(
   execution: ProductRegistrationExecution,
 ): ListingAvailabilitySnapshot {
-  if (execution.productPreparationId !== null
+  if (execution.registrationTargetId !== null
     || !['sold_out', 'resume'].includes(execution.executionKind)
     || !execution.submissionPayloadJson
     || !execution.submissionPayloadHash) {
@@ -1879,6 +2081,7 @@ function listingAvailabilityResult(
     leaseToken: execution.leaseToken,
     maySubmit,
     externalListingId: execution.externalListingId,
+    expectedProviderAccountId: execution.expectedProviderAccountId,
     result: execution.resultJson ?? null,
     createdAt: execution.createdAt.toISOString(),
   };
@@ -1889,7 +2092,7 @@ function assertListingAvailabilityReplayIdentity(
   requestedByUserId: string | null,
   requestHash: string,
 ): void {
-  if (execution.productPreparationId !== null
+  if (execution.registrationTargetId !== null
     || !['sold_out', 'resume'].includes(execution.executionKind)
     || execution.requestedByUserId !== requestedByUserId
     || execution.requestHash !== requestHash) {
@@ -1902,7 +2105,7 @@ async function lockListingAvailabilityScope(
   organizationId: string,
   snapshot: ListingAvailabilitySnapshot,
 ): Promise<{
-  account: { id: string; status: string };
+  account: { id: string; status: string; channel: string; vendorId: string | null; externalAccountId: string | null };
   listing: { id: string; externalId: string; isActive: boolean };
 }> {
   const lockedAccount = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -1914,7 +2117,7 @@ async function lockListingAvailabilityScope(
   if (lockedAccount.length !== 1) throw new NotFoundException('Channel account not found.');
   const account = await tx.channelAccount.findFirst({
     where: { id: snapshot.channelAccountId, organizationId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, channel: true, vendorId: true, externalAccountId: true },
   });
   if (!account) throw new NotFoundException('Channel account not found.');
 
@@ -1957,7 +2160,7 @@ function listingAvailabilityTerminalReplayMatches(
 }
 
 function assertTargetExecutionRow(execution: ProductRegistrationExecution): void {
-  if (execution.productPreparationId === null) {
+  if (execution.registrationTargetId === null) {
     throw new ConflictException('Listing availability execution is not a registration-target execution.');
   }
 }
@@ -2006,7 +2209,7 @@ async function requireExecution(
   executionId?: string,
 ): Promise<ProductRegistrationExecution> {
   const execution = await tx.productRegistrationExecution.findFirst({
-    where: { organizationId, productPreparationId: preparationId, ...(executionId ? { id: executionId } : {}) },
+    where: { organizationId, registrationTargetId: preparationId, ...(executionId ? { id: executionId } : {}) },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
   if (!execution) throw new ConflictException('Product registration execution is missing.');
@@ -2026,8 +2229,9 @@ function canSupersedePreparedExternalExecution(input: {
   const { draft, execution } = input;
   return draft.status === 'submitting'
     && draft.channelListingId === null
-    && draft.reviewPayloadHash === execution.requestHash
-    && draft.approvedByUserId === input.requestedByUserId
+    && execution.reviewPayloadHash === execution.requestHash
+    && execution.approvedAt !== null
+    && execution.approvedByUserId === input.requestedByUserId
     && execution.executionKind === 'external_wing'
     && execution.status === 'prepared'
     && execution.providerOutcome === 'not_attempted'
@@ -2055,8 +2259,9 @@ function canRestartVerifiedMissingExternalExecution(input: {
   const { draft, execution } = input;
   return draft.status === 'submitting'
     && draft.channelListingId === null
-    && draft.reviewPayloadHash === execution.requestHash
-    && draft.approvedByUserId === input.requestedByUserId
+    && execution.reviewPayloadHash === execution.requestHash
+    && execution.approvedAt !== null
+    && execution.approvedByUserId === input.requestedByUserId
     && execution.executionKind === 'external_wing'
     && ['executing', 'reconciling'].includes(execution.status)
     && execution.providerOutcome === 'uncertain'
@@ -2076,18 +2281,18 @@ function canRestartVerifiedMissingExternalExecution(input: {
 
 function matchesPreparedRequest(execution: ProductRegistrationExecution, requestHash: string): boolean {
   if (!execution.submissionPayloadJson) return execution.requestHash === requestHash;
-  const frozen = freezeProductRegistrationPayload(execution.submissionPayloadJson as RegistrationSubmissionJson);
+  const frozen = freezeProductRegistrationPayload(execution.submissionPayloadJson as RegistrationSubmissionJson, channelIntegrity.sha256);
   if (frozen.hash !== execution.requestHash || frozen.hash !== execution.submissionPayloadHash) {
     throw new ConflictException('Frozen registration execution payload hash does not match its JSON.');
   }
   const original = registrationRequestBeforeCodeAssignment(frozen.payload);
-  return freezeProductRegistrationPayload(original as RegistrationSubmissionJson).hash === requestHash;
+  return freezeProductRegistrationPayload(original as RegistrationSubmissionJson, channelIntegrity.sha256).hash === requestHash;
 }
 
 function externalExecutionResult(
   execution: ProductRegistrationExecution,
 ): RegistrationExecutionResult {
-  if (execution.productPreparationId === null) {
+  if (execution.registrationTargetId === null) {
     throw new ConflictException('Listing availability execution is not an external registration.');
   }
   if (!['prepared', 'executing', 'reconciling', 'succeeded'].includes(execution.status)
@@ -2098,7 +2303,7 @@ function externalExecutionResult(
   return {
     ...(recipe ? { kidItemCode: recipe.kidItemCode } : {}),
     executionId: execution.id,
-    preparationId: execution.productPreparationId,
+    preparationId: execution.registrationTargetId,
     requestHash: execution.requestHash,
     status: execution.status as 'prepared' | 'executing' | 'reconciling' | 'succeeded',
     providerOutcome: execution.providerOutcome as 'not_attempted' | 'uncertain' | 'succeeded',
@@ -2134,7 +2339,7 @@ function toFrozenSubmission(
     throw new ConflictException('Preparation submission has not been frozen.');
   }
   const frozen = freezeProductRegistrationPayload(
-    execution.submissionPayloadJson as RegistrationSubmissionJson,
+    execution.submissionPayloadJson as RegistrationSubmissionJson, channelIntegrity.sha256,
   );
   if (frozen.hash !== execution.submissionPayloadHash || frozen.hash !== execution.requestHash) {
     throw new ConflictException('Frozen registration execution payload hash does not match its JSON.');
@@ -2219,7 +2424,7 @@ function freezeTargetExecutionSnapshot(snapshot: TargetExecutionSnapshot): {
     throw new ConflictException('Registration execution snapshot is invalid.');
   }
   const frozen = freezeProductRegistrationPayload(
-    parsed.data as unknown as RegistrationSubmissionJson,
+    parsed.data as unknown as RegistrationSubmissionJson, channelIntegrity.sha256,
   );
   return {
     payload: frozen.payload as unknown as TargetExecutionSnapshot,
@@ -2238,12 +2443,12 @@ function targetExecutionSnapshot(
     throw new ConflictException('Registration execution snapshot is invalid.');
   }
   const frozen = freezeProductRegistrationPayload(
-    parsed.data as unknown as RegistrationSubmissionJson,
+    parsed.data as unknown as RegistrationSubmissionJson, channelIntegrity.sha256,
   );
   if (frozen.hash !== execution.submissionPayloadHash) {
     throw new ConflictException('Registration execution snapshot hash does not match its JSON.');
   }
-  if (parsed.data.targetId !== execution.productPreparationId
+  if (parsed.data.targetId !== execution.registrationTargetId
     || parsed.data.channelAccountId !== execution.channelAccountId) {
     throw new ConflictException('Registration execution snapshot identity does not match its row.');
   }
@@ -2292,7 +2497,7 @@ function targetExecutionIntentHash(
     ...(request.updateFields ? { updateFields: request.updateFields } : {}),
     ...(request.adapterDefaults ? { adapterDefaults: request.adapterDefaults } : {}),
     ...(request.adapterValues ? { adapterValues: request.adapterValues } : {}),
-  });
+  }, channelIntegrity.sha256);
 }
 
 function assertTargetRequestMatchesSnapshot(
@@ -2303,8 +2508,8 @@ function assertTargetRequestMatchesSnapshot(
     || snapshot.kind !== request.kind
     || snapshot.channelListingId !== (request.channelListingId ?? null)
     || snapshot.applyCompositionTemplate !== (request.applyCompositionTemplate ?? false)
-    || hashRegistrationSubmissionPayload(snapshot.adapterDefaults ?? {}) !== hashRegistrationSubmissionPayload(request.adapterDefaults ?? {})
-    || hashRegistrationSubmissionPayload(snapshot.adapterValues ?? {}) !== hashRegistrationSubmissionPayload(request.adapterValues ?? {})
+    || hashRegistrationSubmissionPayload(snapshot.adapterDefaults ?? {}, channelIntegrity.sha256) !== hashRegistrationSubmissionPayload(request.adapterDefaults ?? {}, channelIntegrity.sha256)
+    || hashRegistrationSubmissionPayload(snapshot.adapterValues ?? {}, channelIntegrity.sha256) !== hashRegistrationSubmissionPayload(request.adapterValues ?? {}, channelIntegrity.sha256)
     || !sameStringArray(snapshot.updateFields ?? [], request.updateFields ?? [])
     || !sameOptionTransitions(snapshot.optionTransitions ?? [], request.optionTransitions ?? [])) {
     throw new ConflictException('Registration execution request does not match its snapshot.');
@@ -2320,7 +2525,7 @@ function assertTargetReplayIdentity(
     request: PrepareTargetExecutionInput;
   },
 ): void {
-  if (execution.productPreparationId !== input.targetId
+  if (execution.registrationTargetId !== input.targetId
     || execution.requestedByUserId !== input.requestedByUserId
     || execution.requestHash !== targetExecutionIntentHash(input.targetId, input.request)) {
     throw new ConflictException('Registration execution idempotency key belongs to a different request.');
@@ -2466,7 +2671,7 @@ function targetReportEvidenceJson(report: ReportTargetExecutionInput): Prisma.In
       : {}),
   };
   const frozen = freezeProductRegistrationPayload(
-    normalized as unknown as RegistrationSubmissionJson,
+    normalized as unknown as RegistrationSubmissionJson, channelIntegrity.sha256,
   );
   return frozen.payload as unknown as Prisma.InputJsonValue;
 }
@@ -2770,7 +2975,7 @@ async function resolveTargetConfirmationListing(
 }
 
 async function applyTargetConfirmationRecipes(
-  tx: Prisma.TransactionClient,
+  tx: ChannelsRepositoryTransaction,
   recipes: ChannelOptionRecipePort | undefined,
   organizationId: string,
   snapshot: TargetExecutionSnapshot,

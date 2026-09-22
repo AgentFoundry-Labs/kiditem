@@ -1,3 +1,5 @@
+import { AiListingContentQueryModule } from '../../../ai/ai-listing-content-query.module';
+import { ChannelCatalogModule } from '../../../channels/channel-catalog.module';
 import { ProductCollectionRuntimeModule } from '../../../products/product-collection-runtime.module';
 import { SellpiaProductSalesModule } from '../../sellpia-product-sales/sellpia-product-sales.module';
 import 'reflect-metadata';
@@ -61,7 +63,7 @@ describe('DashboardModule capability wiring', () => {
     // the alerts module. The inventory adapter used to read that table directly,
     // with its own filter, order, and limit.
     expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
-      .toEqual([SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule]);
+      .toEqual([AiListingContentQueryModule, ChannelCatalogModule, SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule]);
     expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
       .toEqual([]);
   });

@@ -1,13 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { ownerTransaction } from '../../../../../prisma/owner-transaction';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../../channels/application/port/in/listing/channel-listing-query.port';
+import type { ListingTrafficDailyFact, ListingTrafficWindowFacts } from '../../../../../channels/domain/listing/observation-facts';
+import { Inject,  Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { readAdWindowFacts, readLatestAdDate } from '../../../../../advertising/read/ad-target-facts';
 import { addDays, parseBusinessDate } from '../../../../../common/kst';
-import {
-  readListingTrafficWindowFacts,
-  type ListingTrafficDailyFact,
-  type ListingTrafficWindowFacts,
-} from '../../../../../channels/read/channel-listing-daily-facts';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readDailyOrderFacts,
@@ -58,7 +57,9 @@ export class WingTrafficAggregationRepositoryAdapter
   implements WingTrafficAggregationRepositoryPort
 {
   constructor(
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
   ) {}
 
   async aggregateTraffic(
@@ -72,7 +73,7 @@ export class WingTrafficAggregationRepositoryAdapter
     if (!range) return emptyTrafficMetrics();
 
     const traffic = await this.prisma.$transaction(
-      (tx) => readListingTrafficWindowFacts(tx, {
+      (tx) => this.channelListings.readTrafficWindow(ownerTransaction(tx), {
         organizationId,
         from: dayStart(range.from),
         to: dayAfter(range.to),
@@ -142,7 +143,7 @@ export class WingTrafficAggregationRepositoryAdapter
     const { days: rows, observedAt: lastObservedAt } = await this.prisma.$transaction(
       (tx) => readAdWindowFacts(
         tx,
-        { organizationId, from: dayStart(range.from), to: dayAfter(range.to) },
+        { organizationId, from: dayStart(range.from), to: dayAfter(range.to) }, this.channelAccounts
       ),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
@@ -219,31 +220,15 @@ export class WingTrafficAggregationRepositoryAdapter
           excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
         };
         const [traffic, orders] = await Promise.all([
-          readListingTrafficWindowFacts(tx, ownerDateInput),
-          readOrderLineWindowFacts(tx, orderInput),
+          this.channelListings.readTrafficWindow(ownerTransaction(tx), ownerDateInput),
+          readOrderLineWindowFacts(tx, orderInput, this.channelAccounts),
         ]);
         const optionIds = [...new Set(
           orders.orders.flatMap((order) =>
             order.lines.flatMap((line) => line.listingOptionId ? [line.listingOptionId] : [])),
         )];
         const options = optionIds.length > 0
-          ? await tx.channelListingOption.findMany({
-              where: {
-                organizationId,
-                id: { in: optionIds },
-                isActive: true,
-                listing: {
-                  is: {
-                    organizationId,
-                    isActive: true,
-                    channelAccount: {
-                      is: { organizationId, channel: 'coupang', status: 'active' },
-                    },
-                  },
-                },
-              },
-              select: { id: true, listingId: true },
-            })
+          ? await this.channelListings.readOptionIdentities(ownerTransaction(tx), { organizationId, optionIds, activeOnly: true, channel: 'coupang' }).then(rows => rows.map(row => ({ id: row.optionId, listingId: row.listingId })))
           : [];
         return composeTrafficFunnel(
           targetDates,
@@ -278,10 +263,10 @@ export class WingTrafficAggregationRepositoryAdapter
           excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
         };
         const [ads, orderWindow, dailyOrders, traffic] = await Promise.all([
-          readAdWindowFacts(tx, ownerDateInput),
-          readOrderLineWindowFacts(tx, orderInput),
+          readAdWindowFacts(tx, ownerDateInput, this.channelAccounts),
+          readOrderLineWindowFacts(tx, orderInput, this.channelAccounts),
           readDailyOrderFacts(tx, orderInput),
-          readListingTrafficWindowFacts(tx, ownerDateInput),
+          this.channelListings.readTrafficWindow(ownerTransaction(tx), ownerDateInput),
         ]);
         return composeAdRateFacts(
           targetDates,
@@ -302,8 +287,8 @@ export class WingTrafficAggregationRepositoryAdapter
   ): Promise<Date | null> {
     const [wing, ads] = await this.prisma.$transaction(
       async (tx) => {
-        const traffic = await readListingTrafficWindowFacts(tx, { organizationId });
-        const adDate = await readLatestAdDate(tx, organizationId);
+        const traffic = await this.channelListings.readTrafficWindow(ownerTransaction(tx), { organizationId });
+        const adDate = await readLatestAdDate(tx, organizationId, this.channelAccounts);
         return [traffic, adDate] as const;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -335,7 +320,7 @@ export class WingTrafficAggregationRepositoryAdapter
     if (!range) return [];
 
     const traffic = await this.prisma.$transaction(
-      (tx) => readListingTrafficWindowFacts(tx, {
+      (tx) => this.channelListings.readTrafficWindow(ownerTransaction(tx), {
         organizationId,
         from: dayStart(range.from),
         ...('to' in range ? { to: dayAfter(range.to) } : {}),
@@ -377,7 +362,7 @@ export class WingTrafficAggregationRepositoryAdapter
         organizationId,
         from: dayStart(range.from),
         ...('to' in range ? { to: dayAfter(range.to) } : {}),
-      }),
+      }, this.channelAccounts),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
 

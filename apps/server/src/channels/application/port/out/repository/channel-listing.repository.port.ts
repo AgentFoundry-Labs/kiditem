@@ -1,9 +1,5 @@
-import type { PreparedRegistrationRecipe } from '../../../../domain/registration-item-code';
 export const CHANNEL_LISTING_REPOSITORY_PORT = Symbol(
   "CHANNEL_LISTING_REPOSITORY_PORT",
-);
-export const MARKETPLACE_REGISTRATION_REPOSITORY_PORT = Symbol(
-  "MARKETPLACE_REGISTRATION_REPOSITORY_PORT",
 );
 
 export interface ChannelListingRepositoryPort {
@@ -70,85 +66,4 @@ export interface ChannelListingDeletionTarget {
    */
   sourceCandidateId: string | null;
   isActive: boolean;
-}
-
-export interface MarketplaceRegistrationRepositoryPort {
-  assertActiveRegistrationAccount(input: {
-    organizationId: string;
-    channelAccountId: string;
-  }): Promise<{
-    channel: string;
-    vendorId: string | null;
-    externalAccountId: string | null;
-  }>;
-  findExistingActiveListingBySellerSku(input: {
-    organizationId: string;
-    channelAccountId: string;
-    sellerSku: string;
-  }): Promise<{
-    externalListingId: string;
-    displayName: string;
-    status: string | null;
-  } | null>;
-  preflightExactProductLinks(input: {
-    organizationId: string;
-    masterProductId?: string;
-    optionLinks: Array<{
-      externalOptionId: string;
-      sellpiaInventorySkuId: string;
-      quantity: number;
-      providerOptionKey: string;
-    }>;
-  }): Promise<void>;
-  resolveProductRegistration(
-    transaction: object,
-    input: {
-      organizationId: string;
-      sourceCandidateId: string;
-      channelAccountId: string;
-      submissionKey: string;
-  preparedRecipe?: PreparedRegistrationRecipe;
-      externalListingId: string;
-      displayName: string;
-      masterProductId?: string;
-      optionLinks?: Array<{
-        externalOptionId: string;
-        sellpiaInventorySkuId: string;
-        quantity: number;
-      }>;
-    },
-  ): Promise<{
-    listingId: string;
-    channelAccountId: string;
-    channel: string;
-    externalId: string;
-    status: string | null;
-  }>;
-  resolveProductRegistrationWithOwnerReceipt(
-    transaction: object,
-    input: {
-      organizationId: string;
-      sourceCandidateId: string;
-      channelAccountId: string;
-      submissionKey: string;
-  preparedRecipe?: PreparedRegistrationRecipe;
-      externalListingId: string;
-      displayName: string;
-      masterProductId?: string;
-      optionLinks?: Array<{
-        externalOptionId: string;
-        sellpiaInventorySkuId: string;
-        quantity: number;
-      }>;
-      ownerCapabilityKey: "channels.register_confirmed_listing";
-      ownerIdempotencyKey: string;
-      ownerRequestHash: string;
-    },
-  ): Promise<{
-    listingId: string;
-    channelAccountId: string;
-    channel: string;
-    externalId: string;
-    status: string | null;
-  }>;
 }

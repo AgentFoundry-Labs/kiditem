@@ -1,4 +1,6 @@
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -33,12 +35,16 @@ describe('Rocket workbook export transaction (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const products = new ProductTransactionalReadRepositoryAdapter();
     adapter = new RocketPurchaseConfirmationTransactionAdapter(
       prisma as unknown as PrismaService,
       new RocketWorkbookProgressService(
         new RocketWorkbookProgressRepositoryAdapter(),
       ),
-      new ProductTransactionalReadRepositoryAdapter(),
+      products,
+      new ChannelOptionRecipeService(
+        new ChannelOptionRecipeRepositoryAdapter(prisma as never, products),
+      ),
     );
   });
 

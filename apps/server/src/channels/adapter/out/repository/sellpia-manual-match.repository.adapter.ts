@@ -33,7 +33,7 @@ import {
 } from '../../../../common/operator-cancel';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
-  completedCatalogRunWhere,
+  readCompletedCatalogRunIds,
   publishedCatalogOptionWhere,
 } from '../../../read/completed-catalog-run';
 import {
@@ -41,7 +41,7 @@ import {
   type ProductTransactionContext,
   type ProductTransactionalReadPort,
 } from '../../../../products/application/port/in/product-transactional-read.port';
-import { normalizeSellpiaManualMatchAlias } from '../../../domain/sellpia-manual-match-alias';
+import { normalizeSellpiaManualMatchAlias } from '../../../domain/listing/sellpia-manual-match-alias';
 import type {
   SellpiaManualMatchAliasRecord,
   SellpiaManualMatchAttemptInput,
@@ -60,7 +60,7 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 type Transaction = Prisma.TransactionClient;
 type SourceAttempt = Prisma.SourceImportRunGetPayload<{}>;
 type ActiveSku = { id: string; code: string };
-type ChannelListingClient = Pick<Prisma.TransactionClient, 'channelListing'>;
+type ChannelListingClient = Pick<Prisma.TransactionClient, 'channelListing' | 'sourceImportRun'>;
 
 @Injectable()
 export class SellpiaManualMatchRepositoryAdapter
@@ -492,12 +492,13 @@ async function listCurrentChannelAliasCandidates(
   client: ChannelListingClient,
   organizationId: string,
 ): Promise<string[]> {
+  const completedRunIds = await readCompletedCatalogRunIds(client, { organizationId });
   const listings = await client.channelListing.findMany({
     where: {
       organizationId,
       isActive: true,
       OR: [
-        { lastImportRun: { is: completedCatalogRunWhere(organizationId) } },
+        ...(completedRunIds.length > 0 ? [{ lastImportRunId: { in: completedRunIds } }] : []),
         {
           options: {
             some: publishedCatalogOptionWhere(organizationId),

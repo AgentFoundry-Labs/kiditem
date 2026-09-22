@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readPublishedOrderLines } from '../../../orders/read/order-facts.reader';
 import { SupplierStatsService } from '../supplier-stats.service';
@@ -63,6 +64,8 @@ function givenPublishedOrderLines(prisma: ReturnType<typeof makePrisma>, lines: 
   })));
   prisma.channelListingOption.findMany.mockResolvedValue(lines.map((line) => ({
     id: `option-${line.id}`,
+    listingId: `listing-${line.id}`,
+    listing: { channelAccountId: "account-1" },
     inventoryComponents: line.components,
   })));
 }
@@ -75,7 +78,7 @@ describe('SupplierStatsService', () => {
     vi.clearAllMocks();
     identities.clear();
     prisma = makePrisma();
-    service = new SupplierStatsService(prisma as never, {
+    service = new SupplierStatsService(channelFactTestPorts(prisma as never).recipes, prisma as never, {
       findByIds: async (_organizationId: string, ids: string[]) => ids.flatMap((id) => identities.has(id) ? [identities.get(id)!] : []),
     } as never);
   });

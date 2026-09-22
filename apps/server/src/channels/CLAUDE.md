@@ -12,17 +12,16 @@ Login checks and registration form fills return current browser results without
 persisting an observation history. Actual submissions and provider outcomes use
 the registration execution ledger.
 
-The channel list lives only in the channel registry
-(`@kiditem/shared/channel-registry`); the adapter manifest, this domain's
-capability reads, and every consumer read it instead of repeating it. The
-manifest covers malls only — marketplace seller systems (`coupang`, `rocket`)
-have no mall registration path, and their listings stay visible read-only.
+The channel registry (`@kiditem/shared/channel-registry`) owns channel identity.
+Use the implemented operation capability when admitting provider work: Wing
+supports its explicit registration and option availability paths; Rocket PO is
+Orders-owned and does not support general listing registration or stockout.
+Unsupported operations fail before an execution intent or external IO.
 
-Mall publishing reads one account row per mall (`channel` = mall key,
-ADR-0012) and never creates or edits account rows; the Orders mall account
-service is their only writer. A missing row means the mall has no account. The
-listing profile is that row's `config.listingProfile` document, and preflight
-reads KC input from the linked sourcing candidate's `rawData.manualBasics`.
+Channels owns all account mutations through its account capability, including
+the existing Orders account-editor route. Mall publishing reads the account's
+`config.listingProfile`; credentials remain encrypted and server-owned. Read
+candidate KC facts through Sourcing and images through AI's content capability.
 
 ## Identity And Ownership
 
@@ -77,9 +76,11 @@ sync, registration, matching, and capacity behavior is executable in
   and AI output require review. Never rewrite a confirmed recipe automatically.
 - Confirmed recipes survive recollection. Matching state derives from recipe
   validity; do not restore a persisted mapping-status authority.
-- Capacity is computed only from direct option components. Invalid composition
-  returns null, exhausted valid composition returns zero, and reads never
-  reserve stock.
+- Capacity is the minimum complete-set count from confirmed option components.
+  Missing stock or uncertain composition is unknown, not zero. Actual listing
+  options own nonnegative safetyStock (default 0); capacity <= safetyStock is
+  stockout. Reads do not reserve stock or synchronize provider quantities.
+  Collection completion never starts stockout transmission or automatic resume.
 - Use
   [channel-sellpia-matching.md](../../../../docs/runbooks/channel-sellpia-matching.md)
   as the policy and operator-workflow authority.
@@ -94,8 +95,9 @@ sync, registration, matching, and capacity behavior is executable in
   reader file. Other owners use public capabilities (ADR-0021); preserve
   organization scope, complete-source evidence, and required transactions.
 - Keep cross-owner IDs as logical references validated by owner contracts.
-  Remove a migrated boundary's FK and Prisma relationship after its consumers
-  move; keep intra-Channels FK and organization constraints.
+  Keep Channels-related organization/user/source-attempt references scalar too;
+  validate their required evidence in owner contracts. Retain same-owner FK and
+  composite organization constraints.
 
 - Auto-matching, registration, manual replacement and clearing call the
   Channel recipe input port. Its transaction validates organization-scoped
@@ -129,10 +131,11 @@ sync, registration, matching, and capacity behavior is executable in
   list (shared `deactivateSourceAbsence`). It sets no `sellerSku`; matching
   links by that name. Statuses come from the mall itself and fold without a
   Sabangnet warning.
-- Rocket PO reads select the latest COMPLETE before filtering rows; an empty
-  COMPLETE replaces the current view. Preserve prior snapshots for exact
-  source/workbook references. Publication changes source facts and identities,
-  not recipes, reservations, provider confirmation, or physical stock.
+- Orders owns Rocket PO attempts, snapshots and lines. It publishes observed
+  listing identity through Channels' catalog capability in its transaction;
+  preserve the issued owner transaction handle rather than casting a DB client.
+  Supply owns purchase judgment; Channels never applies mall stockout policy to
+  Rocket purchase quantities.
 
 ## Selling Catalog
 

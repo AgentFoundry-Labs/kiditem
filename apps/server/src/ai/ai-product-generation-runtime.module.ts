@@ -1,3 +1,4 @@
+import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { Module } from '@nestjs/common';
 import { StorageModule } from '../common/storage/storage.module';
 import { StorageService } from '../common/storage/storage.service';
@@ -48,7 +49,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage/image-storage
  * receive only the owner trigger port and enqueue durable jobs for API workers.
  */
 @Module({
-  imports: [PrismaModule, StorageModule],
+  imports: [ChannelCatalogModule, PrismaModule, StorageModule],
   providers: [
     ProductGenerationAiService,
     ContentWorkspaceService,

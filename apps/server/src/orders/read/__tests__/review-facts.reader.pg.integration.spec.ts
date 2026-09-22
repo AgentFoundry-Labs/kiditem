@@ -9,9 +9,37 @@ import {
 import { readCurrentReviewItems } from '../review-facts.reader';
 import { ReviewsService } from '../../services/reviews.service';
 import type { PrismaClient } from '@prisma/client';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelListingQueryService } from '../../../channels/application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelOptionRecipeService } from '../../../channels/application/service/listing/channel-option-recipe.service';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelAccountService } from '../../../channels/application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelCredentialsAdapter } from '../../../channels/adapter/out/credentials/channel-credentials.adapter';
 
 const ACCOUNT_ID = '73000000-0000-4000-8000-000000000001';
 const SOURCE_ACCOUNT_ID = '73000000-0000-4000-8000-000000000002';
+
+function createReviewsService(prisma: PrismaClient) {
+  const products = new ProductTransactionalReadRepositoryAdapter();
+  const listings = new ChannelListingQueryService(
+    new ChannelListingQueryPersistenceAdapter(prisma as never),
+    { findForListings: async () => [] },
+  );
+  return new ReviewsService(
+    prisma as never,
+    products,
+    listings,
+    new ChannelOptionRecipeService(
+      new ChannelOptionRecipeRepositoryAdapter(prisma as never, products),
+    ),
+    new ChannelAccountService(
+      new ChannelAccountPersistenceAdapter(prisma as never),
+      new ChannelCredentialsAdapter(),
+    ),
+  );
+}
 
 describe('Review facts reader over disposable PostgreSQL', () => {
   let prisma: PrismaClient;
@@ -128,7 +156,7 @@ describe('Review facts reader over disposable PostgreSQL', () => {
         rating: 4,
       },
     });
-    const service = new ReviewsService(prisma as never);
+    const service = createReviewsService(prisma);
 
     const unmeasured = await service.list(TEST_ORGANIZATION_ID, {});
     expect(unmeasured.items[0]?.orderCount).toBeNull();

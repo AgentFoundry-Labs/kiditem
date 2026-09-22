@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { SellpiaProductInventoryReader } from '../../sellpia-product-sales/sellpia-product-inventory-reader';
@@ -36,7 +38,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const alerts = new SourceFailureAlerts(prisma as never);
     const inventoryTransactionalRead = new ProductTransactionalReadRepositoryAdapter();
     sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts, inventoryTransactionalRead);
-    advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+    advertising = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, alerts);
     evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never, new ProductTransactionalReadRepositoryAdapter());
     availability = new ProductAvailabilityUseCase(
       new ProductAvailabilityRepositoryAdapter(prisma as never),
@@ -44,13 +46,13 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const productAbc = new ProductAbcReadUseCase(
       new MasterProductAbcRepositoryAdapter(prisma as never, inventoryTransactionalRead), evidence,
     );
-    dashboard = new DashboardInventoryService(new DashboardInventoryRepositoryAdapter(
+    dashboard = new DashboardInventoryService(new DashboardInventoryRepositoryAdapter(channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings,
       prisma as never,
       productAbc,
       // The panel's rows come from the alerts module, not from this adapter.
       alerts,
       inventoryTransactionalRead,
-      new ProductSourceReadRepositoryAdapter(prisma as never),
+      new ProductSourceReadRepositoryAdapter(prisma as never), profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).content
     ));
     inventory = new SellpiaProductInventoryReader(prisma as never,
       availability,

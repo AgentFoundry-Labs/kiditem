@@ -99,7 +99,7 @@ describe('registration execution reader (PostgreSQL)', () => {
         },
       ],
     });
-    await prisma.productPreparation.createMany({
+    await prisma.registrationTarget.createMany({
       data: [
         preparation('50000000-0000-4000-8000-000000000001', ACCOUNT_ID, SALES_PRODUCT_ID),
         preparation('50000000-0000-4000-8000-000000000002', ACCOUNT_ID, SALES_PRODUCT_ID),
@@ -232,9 +232,9 @@ describe('registration execution reader (PostgreSQL)', () => {
         [{ channelListingOptionId: 'option-terminal-failure' }],
       ),
     ];
-    await prisma.productPreparation.createMany({
+    await prisma.registrationTarget.createMany({
       data: executionRows.map((executionRow) => preparation(
-        executionRow.productPreparationId,
+        executionRow.registrationTargetId,
         executionRow.channelAccountId,
         SALES_PRODUCT_ID,
       )),
@@ -286,7 +286,7 @@ function preparation(
 
 function compositionExecution(
   id: string,
-  productPreparationId: string,
+  registrationTargetId: string,
   channelListingId: string,
   channelAccountId: string,
   status: string,
@@ -296,7 +296,7 @@ function compositionExecution(
   return {
     id,
     organizationId: TEST_ORGANIZATION_ID,
-    productPreparationId,
+    registrationTargetId,
     channelAccountId,
     channelListingId,
     executionKind: 'composition_change',
@@ -310,7 +310,7 @@ function compositionExecution(
 
 function execution(
   id: string,
-  productPreparationId: string,
+  registrationTargetId: string,
   channelAccountId: string,
   status: 'failed' | 'succeeded',
   createdAt: string,
@@ -319,7 +319,7 @@ function execution(
   return {
     id,
     organizationId,
-    productPreparationId,
+    registrationTargetId,
     channelAccountId,
     executionKind: 'external_wing',
     idempotencyKey: `reader-${id}`,

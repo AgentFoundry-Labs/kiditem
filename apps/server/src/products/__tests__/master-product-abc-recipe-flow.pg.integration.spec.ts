@@ -1,3 +1,4 @@
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
@@ -29,11 +30,12 @@ import {
 } from '../../test-helpers/real-prisma';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
 import { RecalculateProductAbcUseCase } from '../application/usecase/recalculate-product-abc.usecase';
 import { ProductAbcReadUseCase } from '../application/usecase/product-abc-read.usecase';
-import { ChannelOptionRecipeUseCase } from '../../channels/application/usecase/channel-option-recipe.usecase';
+import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
 import { ProductQueryUseCase } from '../application/usecase/product-query.usecase';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -55,7 +57,7 @@ const AD_SOURCE_POLICY_HASH = '5c612a721e1a6a7177cec1f8155149f390f8fc6073c90efdd
 describe('Products recipe to ABC public reads (PostgreSQL)', () => {
   let prisma: PrismaClient;
   let products: ProductQueryUseCase;
-  let recipes: ChannelOptionRecipeUseCase;
+  let recipes: ChannelOptionRecipeService;
   let abc: RecalculateProductAbcUseCase;
   let sellpia: SellpiaProfitabilitySourceService;
   let advertising: ProfitabilityAdImportRepositoryAdapter;
@@ -66,13 +68,21 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     await prisma.$connect();
 
     const prismaService = prisma as unknown as PrismaService;
+    const channelFacts = channelFactTestPorts(prismaService);
+    const channelAccounts = channelFacts.accounts;
     const alerts = new SourceFailureAlerts(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(
       prismaService,
       alerts,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
+    advertising = new ProfitabilityAdImportRepositoryAdapter(
+      channelFacts.accounts,
+      channelFacts.recipes,
+      channelFacts.listings,
+      prismaService,
+      alerts,
+    );
     profitability = new MasterProductProfitabilityReadService(
       sellpia,
       advertising,
@@ -87,7 +97,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     );
     const abcRead = new ProductAbcReadUseCase(abcRepository, profitability);
     const displayMedia = new CatalogDisplayMediaService(
-      new CatalogDisplayMediaRepositoryAdapter(prismaService),
+      new CatalogDisplayMediaRepositoryAdapter(prismaService, makeChannelListingQuery(prisma)),
     );
     const inventoryReader = new SellpiaProductInventoryReader(
       prismaService,
@@ -96,7 +106,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       abcRead,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    recipes = new ChannelOptionRecipeUseCase(
+    recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(
         prismaService,
         new ProductTransactionalReadRepositoryAdapter(),
@@ -109,6 +119,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
+        channelAccounts,
       ),
       inventory,
       new SellpiaProductSalesService(prismaService, inventoryReader),
@@ -117,6 +128,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         prismaService,
         profitability,
         new ProductTransactionalReadRepositoryAdapter(),
+        channelAccounts,
       ),
       new MasterProductContributionReadService(
         new MasterProductContributionRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()),

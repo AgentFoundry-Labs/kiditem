@@ -1,3 +1,5 @@
+import { RocketPoSourceModule } from '../orders/rocket-po-source.module';
+import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { InventoryModule } from '../inventory/inventory.module';
@@ -33,7 +35,7 @@ import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from './applicatio
  * finance/; supplier-stats stays in analytics/.
  */
 @Module({
-  imports: [PrismaModule, SupplyAgentRuntimeModule, InventoryModule, ProductSourceModule, ChannelsModule],
+  imports: [RocketPoSourceModule, ChannelCatalogModule, PrismaModule, SupplyAgentRuntimeModule, InventoryModule, ProductSourceModule, ChannelsModule],
   controllers: [
     SuppliersController,
     ProcurementController,

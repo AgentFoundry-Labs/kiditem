@@ -1,3 +1,4 @@
+import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
@@ -14,11 +15,11 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
-import { hashCatalogChunkPayload } from '../../../application/service/channel-catalog-collection.service';
+import { hashCatalogChunkPayload } from '../../../application/service/collection/channel-catalog-collection.service';
 import {
   CATALOG_DETAILS_SOURCE,
   CATALOG_PARSER,
-} from '../../../domain/catalog-source-identity';
+} from '../../../domain/collection/catalog-source-identity';
 import {
   assertCatalogRunning,
   assertCatalogPublicationPlan,
@@ -46,6 +47,8 @@ import {
   CHANNEL_CATALOG_PUBLICATION_PORT,
   type ChannelCatalogPublicationPort,
 } from '../../../application/port/out/repository/channel-catalog-publication.port';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 type StartInput = Parameters<ChannelCatalogCollectionRepositoryPort['startOrResume']>[0];
 type OwnedInput = Parameters<ChannelCatalogCollectionRepositoryPort['getOwnedRunWithChunks']>[0];
@@ -89,7 +92,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       ...(stage === 'details'
         ? { expectedBasicAttemptId: input.expectedBasicAttemptId ?? null }
         : {}),
-    });
+    }, channelIntegrity.sha256);
     const existing = await tx.sourceImportRun.findFirst({
       where: {
         organizationId: input.organizationId,
@@ -440,7 +443,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       await lockCatalogAccount(tx, input);
       const stage = await ownerStage(tx, input);
       const owner = await lockCatalogAttempt(tx, { ...input, stage });
-      const checksum = hashCatalogChunkPayload(input.error);
+      const checksum = hashCatalogChunkPayload(input.error, channelIntegrity.sha256);
       if (owner.status === SOURCE_IMPORT_RUN_FAILED_STATUS && owner.contentChecksum === checksum)
         return readOwned(tx, { ...input, stage, includePayload: false });
       assertCatalogRunning(owner);
@@ -472,7 +475,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         errorCode: input.error.code,
         errorMessage: input.error.message,
         qualityReport: { error: input.error },
-        contentChecksum: hashCatalogChunkPayload(input.error),
+        contentChecksum: hashCatalogChunkPayload(input.error, channelIntegrity.sha256),
       },
     });
     if (changed.count !== 1) throw new ConflictException('Catalog attempt lost its failure fence');
@@ -576,7 +579,7 @@ const chunkReceiptSelect = {
 async function readOwned(tx: Prisma.TransactionClient, input: OwnedInput) {
   const includePayload = input.includePayload !== false;
   const chunkSelectForRead = includePayload ? chunkSelect : chunkReceiptSelect;
-    const owner = await tx.sourceImportRun.findFirst({
+  const owner = await tx.sourceImportRun.findFirst({
     where: {
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
@@ -586,23 +589,22 @@ async function readOwned(tx: Prisma.TransactionClient, input: OwnedInput) {
         ? { sourceType: catalogSourceForStage(input.stage) }
         : { sourceType: { in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')] } }),
     },
+  });
+  if (!owner) throw new NotFoundException('Catalog attempt not found');
+  const staging = await tx.channelScrapeRun.findFirst({
+    where: {
+      sourceImportRunId: owner.id,
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      source: CATALOG_STAGING_SOURCE,
+    },
     include: {
-      channelScrapeRuns: {
-        where: {
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          source: CATALOG_STAGING_SOURCE,
-        },
-        include: {
-          chunks: {
-            orderBy: [{ kind: 'asc' }, { sequence: 'asc' }],
-            select: chunkSelectForRead,
-          },
-        },
+      chunks: {
+        orderBy: [{ kind: 'asc' }, { sequence: 'asc' }],
+        select: chunkSelectForRead,
       },
     },
   });
-  const staging = owner?.channelScrapeRuns[0];
   if (!owner || !staging || !owner.expiresAt || !owner.idempotencyKey)
     throw new NotFoundException('Catalog attempt not found');
   let chunks = staging.chunks;

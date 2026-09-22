@@ -6,11 +6,11 @@ import {
   CATALOG_PARSER,
   CATALOG_SOURCE,
   ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
-} from '../domain/catalog-source-identity';
+} from '../domain/collection/catalog-source-identity';
 import {
   ROCKET_PO_CATALOG_PARSER_VERSION,
   ROCKET_PO_CATALOG_SOURCE_TYPE,
-} from './rocket-po-catalog.reader';
+} from '../../orders/application/port/in/rocket-po-catalog.port';
 import {
   MALL_ADMIN_LISTINGS_PARSER_VERSION,
   MALL_ADMIN_LISTINGS_SOURCE_TYPE,
@@ -76,6 +76,18 @@ export function completedCatalogRunWhere(
   };
 }
 
+/** Resolves owner-scoped run IDs for consumers that must join by scalar provenance. */
+export async function readCompletedCatalogRunIds(
+  tx: Pick<Prisma.TransactionClient, 'sourceImportRun'>,
+  input: { organizationId: string; channelAccountId?: string },
+): Promise<string[]> {
+  const rows = await tx.sourceImportRun.findMany({
+    where: completedCatalogRunWhere(input.organizationId, input.channelAccountId),
+    select: { id: true },
+  });
+  return rows.map(({ id }) => id);
+}
+
 /**
  * An active option carrying a catalog owner publication marker. It admits a
  * listing as catalog identity for matching availability, Sellpia alias
@@ -119,14 +131,24 @@ export async function countPublishedCatalogListings(
       sourceType: CATALOG_DETAILS_SOURCE,
       parserVersion: CATALOG_PARSER,
       status: { not: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-      channelProducts: { some: listingScope },
     },
     select: { id: true, plan: true },
   });
-  const rootByDetails = new Map(unfinishedDetails.flatMap((details) => {
-    const rootAttemptId = rootAttemptIdOf(details.plan);
-    return rootAttemptId ? [[details.id, rootAttemptId] as const] : [];
-  }));
+  const referencedUnfinishedDetails = unfinishedDetails.length === 0
+    ? new Set<string>()
+    : new Set((await tx.channelListing.findMany({
+        where: {
+          ...listingScope,
+          lastImportRunId: { in: unfinishedDetails.map(({ id }) => id) },
+        },
+        select: { lastImportRunId: true },
+      })).flatMap(({ lastImportRunId }) => lastImportRunId ? [lastImportRunId] : []));
+  const rootByDetails = new Map(unfinishedDetails
+    .filter((details) => referencedUnfinishedDetails.has(details.id))
+    .flatMap((details) => {
+      const rootAttemptId = rootAttemptIdOf(details.plan);
+      return rootAttemptId ? [[details.id, rootAttemptId] as const] : [];
+    }));
   const completedBasics = rootByDetails.size === 0
     ? new Set<string>()
     : new Set((await tx.sourceImportRun.findMany({
@@ -140,15 +162,12 @@ export async function countPublishedCatalogListings(
   const admittedDetails = [...rootByDetails]
     .filter(([, rootAttemptId]) => completedBasics.has(rootAttemptId))
     .map(([detailsId]) => detailsId);
+  const completedRunIds = await readCompletedCatalogRunIds(tx, { organizationId, channelAccountId });
+  const publishedRunIds = [...new Set([...completedRunIds, ...admittedDetails])];
   return tx.channelListing.count({
     where: {
       ...listingScope,
-      OR: [
-        { lastImportRun: { is: completedCatalogRunWhere(organizationId, channelAccountId) } },
-        ...(admittedDetails.length > 0
-          ? [{ lastImportRunId: { in: admittedDetails } }]
-          : []),
-      ],
+      lastImportRunId: { in: publishedRunIds },
     },
   });
 }

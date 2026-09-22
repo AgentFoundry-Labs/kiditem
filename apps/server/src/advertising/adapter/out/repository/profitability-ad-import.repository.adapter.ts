@@ -1,3 +1,7 @@
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   ConflictException,
@@ -16,7 +20,7 @@ import {
 } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
+import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
 import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import {
@@ -203,6 +207,9 @@ type TargetAllocationSummary = Readonly<{
 export class ProfitabilityAdImportRepositoryAdapter
   implements ProfitabilityAdImportRepositoryPort {
   constructor(
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
   ) {}
@@ -252,7 +259,7 @@ export class ProfitabilityAdImportRepositoryAdapter
 
       await lockProductMapping(tx, input.organizationId);
       const mappingGeneration = await readMappingGeneration(tx, input.organizationId);
-      const accounts = await readApplicableAccounts(tx, input.organizationId);
+      const accounts = await readApplicableAccounts(this.channelAccounts, tx, input.organizationId);
       const coverage = profitabilityCoverageForKstYesterday(now);
       const storedPlan = buildStoredPlan(accounts, coverage, mappingGeneration);
       const attemptToken = randomUUID();
@@ -334,7 +341,7 @@ export class ProfitabilityAdImportRepositoryAdapter
       const latestAttempt = await latestAttemptForOrganization(tx, input.organizationId);
       const candidate = await latestCompleteAttempt(tx, input.organizationId);
       const applicableAccounts = candidate
-        ? await readApplicableAccountProof(tx, input.organizationId)
+        ? await readApplicableAccountProof(this.channelAccounts, tx, input.organizationId)
         : null;
       const latestComplete = candidate && applicableAccounts
         && sameApplicableAccountProof(parseStoredPlan(candidate.plan).accounts, applicableAccounts)
@@ -386,7 +393,7 @@ export class ProfitabilityAdImportRepositoryAdapter
       if (!account || input.providerAdvertiserId !== account.expectedAdvertiserId) {
         throw new UnprocessableEntityException('ADVERTISER_IDENTITY_MISMATCH');
       }
-      await assertAccountIdentity(tx, input.organizationId, account);
+      await assertAccountIdentity(this.channelAccounts, tx, input.organizationId, account);
       const receipt = await tx.channelScrapeRun.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -531,8 +538,8 @@ export class ProfitabilityAdImportRepositoryAdapter
       assertWritable(attempt);
       await assertMappingGeneration(tx, attempt);
       const plan = parseStoredPlan(attempt.plan);
-      for (const account of plan.accounts) await assertAccountIdentity(tx, input.organizationId, account);
-      const applicableAccounts = await readApplicableAccounts(tx, input.organizationId);
+      for (const account of plan.accounts) await assertAccountIdentity(this.channelAccounts, tx, input.organizationId, account);
+      const applicableAccounts = await readApplicableAccounts(this.channelAccounts, tx, input.organizationId);
       if (!sameApplicableAccountProof(plan.accounts, applicableAccounts)) {
         throw new ConflictException('ADVERTISING_ACCOUNT_SET_CHANGED');
       }
@@ -770,7 +777,7 @@ export class ProfitabilityAdImportRepositoryAdapter
         },
       });
       if (!run) return null;
-      const applicableAccounts = await readApplicableAccountProof(tx, input.organizationId);
+      const applicableAccounts = await readApplicableAccountProof(this.channelAccounts, tx, input.organizationId);
       if (!applicableAccounts
         || !sameApplicableAccountProof(parseStoredPlan(run.plan).accounts, applicableAccounts)) {
         return null;
@@ -797,7 +804,7 @@ export class ProfitabilityAdImportRepositoryAdapter
         take: limit,
       });
       const applicableAccounts = completeRuns.length > 0
-        ? await readApplicableAccountProof(tx, input.organizationId)
+        ? await readApplicableAccountProof(this.channelAccounts, tx, input.organizationId)
         : null;
       const applicableRuns = applicableAccounts
         ? completeRuns.filter((run) =>
@@ -820,29 +827,7 @@ export class ProfitabilityAdImportRepositoryAdapter
 
   private async listFrozenListings(tx: Transaction, organizationId: string, accountIds: readonly string[]) {
     if (accountIds.length === 0) return [];
-    const listings = await tx.channelListing.findMany({
-      where: {
-        organizationId,
-        channelAccountId: { in: [...accountIds] },
-        isActive: true,
-      },
-      orderBy: [{ channelAccountId: 'asc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        channelAccountId: true,
-        options: {
-          where: { isActive: true },
-          select: {
-            inventoryComponents: {
-              select: {
-                quantity: true,
-                masterProductId: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const listings = await this.channelListings.readCatalogFacts(ownerTransaction(tx), { organizationId, accountIds, activeOnly: true }).then(rows => rows.map(row => ({ id: row.id, channelAccountId: row.accountId, options: row.options.map(option => ({ inventoryComponents: option.components })) })));
     return listings.map((listing) => ({
       ...listing,
       options: listing.options.map((option) => ({
@@ -862,36 +847,9 @@ export class ProfitabilityAdImportRepositoryAdapter
     rows: readonly AdvertisingProfitabilityProviderRow[],
   ): Promise<Prisma.ChannelAdTargetDailySnapshotCreateManyInput[]> {
     const externalIds = [...new Set(rows.map((row) => row.externalOptionId))];
-    const options = externalIds.length === 0 ? [] : await tx.channelListingOption.findMany({
-      where: {
-        organizationId,
-        externalOptionId: { in: externalIds },
-        isActive: true,
-        listing: {
-          is: {
-            organizationId,
-            channelAccountId: slice.channelAccountId,
-            isActive: true,
-          },
-        },
-      },
-      select: {
-        id: true,
-        listingId: true,
-        externalOptionId: true,
-        listing: { select: { externalId: true } },
-      },
-    });
+    const options = externalIds.length === 0 ? [] : await this.channelListings.readExternalIdentities(ownerTransaction(tx), { organizationId, accountId: slice.channelAccountId, optionExternalIds: externalIds, activeOnly: true }).then(rows => rows.flatMap(row => row.optionId && row.externalOptionId ? [{ id: row.optionId, listingId: row.listingId, externalOptionId: row.externalOptionId, listing: { externalId: row.externalId } }] : []));
     const optionByExternal = uniqueBy(options, (option) => option.externalOptionId);
-    const listings = externalIds.length === 0 ? [] : await tx.channelListing.findMany({
-      where: {
-        organizationId,
-        channelAccountId: slice.channelAccountId,
-        externalId: { in: externalIds },
-        isActive: true,
-      },
-      select: { id: true, externalId: true },
-    });
+    const listings = externalIds.length === 0 ? [] : await this.channelListings.readExternalIdentities(ownerTransaction(tx), { organizationId, accountId: slice.channelAccountId, listingExternalIds: externalIds, activeOnly: true }).then(rows => rows.map(row => ({ id: row.listingId, externalId: row.externalId })));
     const listingByExternal = uniqueBy(listings, (listing) => listing.externalId);
     return rows.map((row) => {
       const option = optionByExternal.get(row.externalOptionId);
@@ -1377,18 +1335,12 @@ async function assertMappingGeneration(tx: Transaction, attempt: SourceAttempt):
 }
 
 async function assertAccountIdentity(
+  accounts: ChannelAccountPort,
   tx: Transaction,
   organizationId: string,
   expected: Pick<StoredPlan['accounts'][number], 'channelAccountId' | 'externalAccountId' | 'expectedAdvertiserId'>,
 ): Promise<void> {
-  const account = await tx.channelAccount.findFirst({
-    where: {
-      id: expected.channelAccountId,
-      organizationId,
-      channel: 'coupang',
-    },
-    select: { externalAccountId: true, vendorId: true },
-  });
+  const account = await accounts.readProviderIdentities(ownerTransaction(tx), { organizationId, channel: 'coupang', accountIds: [expected.channelAccountId] }).then(rows => rows[0] ?? null);
   if (!account) throw new UnprocessableEntityException('ADVERTISING_ACCOUNT_NOT_FOUND');
   const identity = resolveCoupangVendorId(account);
   const external = account.externalAccountId?.trim() || identity;
@@ -1398,10 +1350,11 @@ async function assertAccountIdentity(
 }
 
 async function readApplicableAccounts(
+  accounts: ChannelAccountPort,
   tx: Transaction,
   organizationId: string,
 ): Promise<readonly ApplicableAccountProof[]> {
-  const proof = await readApplicableAccountProof(tx, organizationId);
+  const proof = await readApplicableAccountProof(accounts, tx, organizationId);
   if (!proof) {
     throw new UnprocessableEntityException('ADVERTISING_ACCOUNT_IDENTITY_MISSING');
   }
@@ -1409,15 +1362,12 @@ async function readApplicableAccounts(
 }
 
 async function readApplicableAccountProof(
+  accounts: ChannelAccountPort,
   tx: Transaction,
   organizationId: string,
 ): Promise<readonly ApplicableAccountProof[] | null> {
-  const accounts = await tx.channelAccount.findMany({
-    where: { organizationId, channel: 'coupang' },
-    orderBy: { id: 'asc' },
-    select: { id: true, externalAccountId: true, vendorId: true },
-  });
-  const proof = accounts.map((account) => {
+  const accountRows = await accounts.readProviderIdentities(ownerTransaction(tx), { organizationId, channel: 'coupang' });
+  const proof = accountRows.map((account) => {
     const expectedAdvertiserId = resolveCoupangVendorId(account);
     const externalAccountId = account.externalAccountId?.trim() || expectedAdvertiserId;
     if (!externalAccountId || !expectedAdvertiserId) {

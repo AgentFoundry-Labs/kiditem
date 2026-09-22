@@ -1,3 +1,4 @@
+import { channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
@@ -35,6 +36,7 @@ describe('Statistics flow (PG integration)', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        ...channelFactTestProviders,
         { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         StatisticsService,
         { provide: PrismaService, useValue: prisma },

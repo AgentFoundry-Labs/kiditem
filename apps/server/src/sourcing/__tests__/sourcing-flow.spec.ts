@@ -91,7 +91,7 @@ function quickProcessCandidate() {
         isDeleted: false,
       },
     ],
-    productPreparation: null,
+    registrationTarget: null,
   };
 }
 
@@ -454,7 +454,7 @@ describe('SourcingService — candidate ingest', () => {
       createdAt: new Date('2026-05-17T00:00:00.000Z'),
       updatedAt: new Date('2026-05-17T00:00:00.000Z'),
       images: [],
-      productPreparation: null,
+      registrationTarget: null,
     });
     gateway.startProductGeneration.mockResolvedValueOnce({
       candidateId: 'candidate-1',
@@ -495,7 +495,7 @@ describe('SourcingService — candidate ingest', () => {
       thumbnailUrl: null,
       imageUrl: null,
       images: [],
-      productPreparation: null,
+      registrationTarget: null,
     });
 
     await service.getProduct('cand-1', 'org-1');
@@ -520,7 +520,7 @@ describe('SourcingService — candidate ingest', () => {
       thumbnailUrl: null,
       imageUrl: null,
       images: [],
-      productPreparation: null,
+      registrationTarget: null,
     };
 
     it('leaves an unentered sale price empty without a source-price lookup', async () => {
@@ -529,7 +529,7 @@ describe('SourcingService — candidate ingest', () => {
       expect(result.basicInfo).toMatchObject({ salePrice: 0, salePriceSource: 'none' });
     });
     it('preserves a reviewed registration price', async () => {
-      repo.findById.mockResolvedValueOnce({ ...candidateRow, productPreparation: {
+      repo.findById.mockResolvedValueOnce({ ...candidateRow, registrationTarget: {
         registrationInput: { salePrice: 12900 }, selectedThumbnailUrl: null,
         selectedDetailPageGenerationId: null,
       } });

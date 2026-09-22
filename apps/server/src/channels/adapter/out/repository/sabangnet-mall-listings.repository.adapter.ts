@@ -35,7 +35,7 @@ import type { SabangnetMallListingsRepositoryPort } from '../../../application/p
 import {
   sabangnetListingsByAccount,
   sabangnetSubmissionProblem,
-} from '../../../domain/sabangnet-mall-listings';
+} from '../../../domain/collection/sabangnet-mall-listings';
 import { readMallAccountRowIds } from '../../../read/mall-account-rows';
 import {
   readSabangnetMallListingsSource,

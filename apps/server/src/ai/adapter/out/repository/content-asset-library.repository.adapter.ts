@@ -246,7 +246,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
   /**
    * 후보가 소유한 활성 워크스페이스의 **저장된 대표 썸네일**.
    *
-   * `ProductPreparation` 이 없는 후보는 대표 선택을 여기에만 남길 수 있어서,
+   * `RegistrationTarget` 이 없는 후보는 대표 선택을 여기에만 남길 수 있어서,
    * 이걸 읽지 않으면 저장은 되는데 재진입하면 사라진 것처럼 보인다.
    */
   async findCandidateCurrentThumbnail(input: {

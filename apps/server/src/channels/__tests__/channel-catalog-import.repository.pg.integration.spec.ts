@@ -1,3 +1,5 @@
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import type { ParsedWingCatalogWorkbook } from '../application/port/out/documents/channel-document.models';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
@@ -16,20 +18,22 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
-import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
+import { ChannelCatalogImportService } from '../application/service/collection/channel-catalog-import.service';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
-import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
+import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
-import { freezeProductRegistrationPayload } from '../domain/registration-submission-payload';
+import { freezeProductRegistrationPayload } from '../domain/registration/registration-submission-payload';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { ParsedWingCatalogRow } from '../application/service/coupang-wing-workbook.parser';
+import type { ParsedWingCatalogRow } from '../adapter/out/documents/coupang-wing/workbook.parser';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const WING_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_WING_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -42,14 +46,14 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
   let repository: ChannelCatalogImportRepositoryAdapter;
   let service: ChannelCatalogImportService;
   let alerts: SourceFailureAlerts;
-  let recipes: ChannelOptionRecipeUseCase;
+  let recipes: ChannelOptionRecipeService;
   let availability: ChannelSkuAvailabilityService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as unknown as PrismaService);
-    recipes = new ChannelOptionRecipeUseCase(
+    recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
@@ -72,7 +76,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       alerts,
       recipes,
     );
-    service = new ChannelCatalogImportService(repository);
+    service = new ChannelCatalogImportService(repository, { parseWingWorkbook: (bytes: Uint8Array) => parsedWorkbooks.get(new TextDecoder().decode(bytes))! } as never);
   });
 
   afterAll(async () => {
@@ -288,11 +292,11 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         },
         wingProduct: { variants: [{ vendorItemCode: 'KID12345678' }] },
       },
-    });
+    }, channelIntegrity.sha256);
     await prisma.productRegistrationExecution.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: randomUUID(),
+        registrationTargetId: await createRegistrationTarget(prisma, WING_ACCOUNT_ID, component.id, 'KID12345678'),
         channelAccountId: WING_ACCOUNT_ID,
         channelListingId: listing.id,
         executionKind: 'external_wing',
@@ -1275,9 +1279,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       channelAccountId: WING_ACCOUNT_ID,
       fileName: 'second.xlsx',
       fileHash: fileHash('live-second'),
-      rows: [makeRow(0)],
-      skippedRows: [],
-      headers: [],
+      bytes: workbookBytes({ rows: [makeRow(0)], skippedRows: [], headers: [] }),
     }).catch((error: unknown) => error);
     expect(conflict).toBeInstanceOf(ConflictException);
     expect((conflict as ConflictException).getResponse()).toEqual({
@@ -1534,9 +1536,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       channelAccountId,
       fileName: 'wing.xlsx',
       fileHash: hash,
-      headers: ['등록상품ID', '옵션 ID'],
-      rows,
-      skippedRows,
+      bytes: workbookBytes({ headers: ['등록상품ID', '옵션 ID'], rows, skippedRows }),
     });
   }
 
@@ -1612,9 +1612,7 @@ function importInput(
     channelAccountId: WING_ACCOUNT_ID,
     fileName: 'wing.xlsx',
     fileHash: fileHash('default-input'),
-    headers: ['등록상품ID', '옵션 ID'],
-    rows: [makeRow(0)],
-    skippedRows: [],
+    bytes: workbookBytes({ headers: ['등록상품ID', '옵션 ID'], rows: [makeRow(0)], skippedRows: [] }),
     ...overrides,
   };
 }
@@ -1681,11 +1679,11 @@ async function createFrozenRegistrationExecution(input: {
       },
       wingProduct: { variants: [{ vendorItemCode: input.sellerSku }] },
     },
-  });
+  }, channelIntegrity.sha256);
   const execution = await input.prisma.productRegistrationExecution.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
-      productPreparationId: randomUUID(),
+      registrationTargetId: await createRegistrationTarget(input.prisma, input.channelAccountId, input.masterProductId, input.sellerSku),
       channelAccountId: input.channelAccountId,
       channelListingId: input.channelListingId,
       executionKind: 'external_wing',
@@ -1711,4 +1709,40 @@ function zeroChanges() {
     updatedSkuCount: 0,
     skippedRowCount: 0,
   };
+}
+
+// The workbook codec is outside these transaction tests. Preserve deliberately
+// invalid persistence values (including BigInt) used to exercise rollback.
+const parsedWorkbooks = new Map<string, ParsedWingCatalogWorkbook>();
+function workbookBytes(parsed: ParsedWingCatalogWorkbook): Uint8Array {
+  const key = randomUUID();
+  parsedWorkbooks.set(key, parsed);
+  return new TextEncoder().encode(key);
+}
+
+async function createRegistrationTarget(
+  prisma: PrismaClient,
+  channelAccountId: string,
+  masterProductId: string,
+  optionCode: string,
+): Promise<string> {
+  const salesProduct = await prisma.salesProduct.create({
+    data: { organizationId: TEST_ORGANIZATION_ID, code: `SP-${randomUUID()}`, name: 'Registered bundle' },
+  });
+  const option = await prisma.salesProductOption.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: salesProduct.id,
+      optionCode, optionKey: '', salePrice: 1000,
+
+    },
+  });
+  await prisma.salesProductOptionComponent.create({ data: { organizationId: TEST_ORGANIZATION_ID, salesProductOptionId: option.id, masterProductId, quantity: 2 } });
+  const target = await prisma.registrationTarget.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId, salesProductId: salesProduct.id,
+
+    },
+  });
+  await prisma.registrationTargetOption.create({ data: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: target.id, salesProductOptionId: option.id } });
+  return target.id;
 }

@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
@@ -1021,7 +1022,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     failingAlerts.resolveSourceFailure = async () => {
       throw new Error('alert write failed');
     };
-    const failingOwner = new ProfitabilityAdImportRepositoryAdapter(
+    const failingOwner = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings,
       prisma as never,
       failingAlerts,
     );
@@ -1221,7 +1222,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
 });
 
 function createOwner(prisma: PrismaClient): ProfitabilityAdImportRepositoryAdapter {
-  return new ProfitabilityAdImportRepositoryAdapter(
+  return new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings,
     prisma as never,
     new SourceFailureAlerts(prisma as never),
   );

@@ -1,3 +1,5 @@
+import { AiListingContentQueryModule } from '../../ai/ai-listing-content-query.module';
+import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { AdvertisingModule } from '../../advertising/advertising.module';
@@ -33,6 +35,8 @@ describe('FinanceModule capability wiring', () => {
     const exports: unknown[] = Reflect.getMetadata('exports', FinanceModule) ?? [];
 
     expect(imports).toEqual([
+      AiListingContentQueryModule,
+      ChannelCatalogModule,
       AnalyticsModule,
       AdvertisingModule,
       ChannelsModule,

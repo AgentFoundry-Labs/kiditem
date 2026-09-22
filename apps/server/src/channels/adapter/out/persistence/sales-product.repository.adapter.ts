@@ -23,19 +23,19 @@ import {
   salesProductImportFingerprint,
   type PlannedOptionWrite,
   type SalesProductOptionReplacementPlan,
-} from '../../../domain/sales-product';
+} from '../../../domain/sales-product/sales-product';
 import type {
   LinkCandidateListing,
   LinkCandidateProduct,
   SalesProductLinkPlan,
-} from '../../../domain/sales-product-links';
+} from '../../../domain/sales-product/sales-product-links';
 import type {
   MallPriceAdoptionWrite,
   MallPriceCandidateListingOption,
   MallPriceCandidateProduct,
-} from '../../../domain/sales-product-mall-prices';
-import type { CoupangCatalogFacts } from '../../../domain/mall-bulk-sheet/coupang-catalog-edit';
-import type { MallSheetSourceProduct } from '../../../domain/mall-bulk-sheet/mall-sheet-product';
+} from '../../../domain/sales-product/sales-product-mall-prices';
+import type { CoupangCatalogFacts } from '../../../domain/registration/bulk-sheet/coupang-catalog-edit';
+import type { MallSheetSourceProduct } from '../../../domain/registration/bulk-sheet/mall-sheet-product';
 import {
   REGISTRATION_TARGET_REPOSITORY_PORT,
   type RegistrationTargetRepositoryPort,
@@ -85,7 +85,7 @@ const DETAIL_INCLUDE = {
     },
   },
   registrationTargets: {
-    where: { isDeleted: false },
+    where: { archivedAt: null },
     orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
     select: {
       id: true,
@@ -191,7 +191,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           _count: {
             select: {
               channelListings: { where: { isActive: true } },
-              registrationTargets: { where: { isDeleted: false } },
+              registrationTargets: { where: { archivedAt: null } },
             },
           },
         },
@@ -647,7 +647,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           name: true,
           options: { select: { id: true, salePrice: true, normalPrice: true } },
           registrationTargets: {
-            where: { isDeleted: false },
+            where: { archivedAt: null },
             select: {
               id: true,
               channelAccountId: true,
@@ -817,8 +817,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
     mallKey: string,
   ): Promise<{ path: string; title: string | null; count: number }[]> {
-    const rows = await this.prisma.productPreparation.findMany({
-      where: { organizationId, isDeleted: false, channelAccount: { channel: mallKey } },
+    const rows = await this.prisma.registrationTarget.findMany({
+      where: { organizationId, archivedAt: null, channelAccount: { channel: mallKey } },
       select: { registrationInput: true },
     });
     const grouped = new Map<string, { title: string | null; count: number }>();
@@ -978,7 +978,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           select: { id: true, optionCode: true, values: true, salePrice: true, normalPrice: true, barcode: true, supplyStatus: true },
         },
         registrationTargets: {
-          where: { isDeleted: false, closedAt: null },
+          where: { archivedAt: null },
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
@@ -1047,7 +1047,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           take: 1,
         },
         registrationTargets: {
-          where: { channelAccountId: { in: accountIds }, isDeleted: false },
+          where: { channelAccountId: { in: accountIds }, archivedAt: null },
           select: { id: true },
           take: 1,
         },
@@ -1063,8 +1063,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   async listMallCategoryPaths(
     organizationId: string,
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]> {
-    const rows = await this.prisma.productPreparation.findMany({
-      where: { organizationId, isDeleted: false },
+    const rows = await this.prisma.registrationTarget.findMany({
+      where: { organizationId, archivedAt: null },
       select: {
         salesProductId: true,
         registrationInput: true,
@@ -1203,12 +1203,12 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
               result.created += 1;
             }
             for (const override of write.overrides) {
-              const targetCount = await tx.productPreparation.count({
+              const targetCount = await tx.registrationTarget.count({
                 where: {
                   organizationId,
                   salesProductId: productId,
                   channelAccountId: override.channelAccountId,
-                  isDeleted: false,
+                  archivedAt: null,
                 },
               });
               // Reimport never replaces an operator-edited target. A target is
@@ -1320,7 +1320,7 @@ async function materializeImportedTarget(
     select: { id: true, sabangnetOptionCode: true },
   });
   const salePricesByOptionId = resolveImportedOptionPrices(options, data);
-  await tx.productPreparation.create({
+  await tx.registrationTarget.create({
     data: {
       organizationId,
       salesProductId,

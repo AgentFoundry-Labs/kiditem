@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -10,6 +8,8 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ThumbnailWingRepositoryAdapter } from '../adapter/out/repository/thumbnail-wing.repository.adapter';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('thumbnail Wing owner receipts (PG integration)', () => {
   let prisma: PrismaClient;
@@ -42,7 +42,10 @@ describe('thumbnail Wing owner receipts (PG integration)', () => {
         status: 'succeeded',
       },
     });
-    const repository = new ThumbnailWingRepositoryAdapter(prisma as unknown as PrismaService);
+    const repository = new ThumbnailWingRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      { readCatalogFacts: async () => [] } as never,
+    );
     const owner = { generationId: generation.id, organizationId: TEST_ORGANIZATION_ID, ownerIdempotencyKey: randomUUID(), requestHash: 'a'.repeat(64) };
 
     const claims = await Promise.all([

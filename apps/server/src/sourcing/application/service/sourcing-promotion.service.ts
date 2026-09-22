@@ -31,7 +31,7 @@ export class SourcingPromotionService {
     body: RejectCandidateCommand,
     userId: string | null,
   ): Promise<{ status: 'rejected' }> {
-    return this.candidates.runInTransaction(async (tx) => {
+    return this.candidates.runInTransaction(async (tx, ownerTx) => {
       await this.candidates.lockCandidate(tx, { id: candidateId, organizationId });
       const candidate = await this.candidates.findCandidateState(tx, {
         id: candidateId,
@@ -43,7 +43,7 @@ export class SourcingPromotionService {
           `Candidate cannot be rejected from status '${candidate.status}'`,
         );
       }
-      await this.preparations.assertCandidateTerminalTransitionAllowed(tx, {
+      await this.preparations.assertCandidateTerminalTransitionAllowed(ownerTx, {
         organizationId,
         sourceCandidateId: candidateId,
       });

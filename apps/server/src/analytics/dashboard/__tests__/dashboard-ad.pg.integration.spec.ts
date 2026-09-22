@@ -1,3 +1,4 @@
+import { channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -50,6 +51,7 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
 
     const m = await Test.createTestingModule({
       providers: [
+        ...channelFactTestProviders,
         { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         DashboardAdService,
         WingTrafficAggregationRepositoryAdapter,

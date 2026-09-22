@@ -152,7 +152,7 @@ describe('ContentAssetService.replaceWorkspaceThumbnailGallery', () => {
   const CANDIDATE = '44444444-4444-4444-8444-444444444444';
 
   it('persists the ordered preview list so it reads back as registration thumbnails', async () => {
-    // 준비(ProductPreparation)가 없는 후보에게는 이 경로가 목록의 유일한 저장처다.
+    // 준비(RegistrationTarget)가 없는 후보에게는 이 경로가 목록의 유일한 저장처다.
     // 저장 결과는 `registrationImages.thumbnail` 로 다시 읽혀 쿠팡 WING
     // `additionalImageUrls` 를 채운다.
     const stored: string[] = [];

@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChannelOptionRecipePort } from '../../../../application/port/in/channel-option-recipe.port';
-import type { ChannelOptionRecipeCandidateService } from '../../../../application/service/channel-option-recipe-candidate.service';
+import type { ChannelOptionRecipeCandidateService } from '../../../../application/service/listing/channel-option-recipe-candidate.service';
 import { ChannelOptionRecipeController } from '../channel-option-recipe.controller';
 import {
   ChannelOptionRecipeCandidateQueryDto,

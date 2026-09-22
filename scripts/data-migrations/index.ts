@@ -26,9 +26,8 @@ import { removeRowsBlockingRequiredColumnsMigration } from "./v0.1.31/014_remove
 import { closeStaleAdApprovalsAtCutoverMigration } from "./v0.1.31/015_close_stale_ad_approvals_at_cutover";
 import { migrateMasterProductInventoryCutoverMigration } from "./v0.1.31/016_master_product_inventory_cutover";
 import { simplifyProductReferencesMigration } from "./v0.1.31/017_simplify_product_references";
-import { consolidateRegistrationExecutionMigration } from "./v0.1.31/018_consolidate_registration_execution";
 import { prepareSellingCatalogSourcesMigration } from './v0.1.31/019_prepare_selling_catalog_sources';
-import { linkRegistrationTargetsMigration } from './v0.1.31/021_link_registration_targets';
+import { registrationTargetCutoverMigration } from './v0.1.31/022_registration_target_cutover';
 import { sellingCatalogCutoverMigration } from './v0.1.31/020_selling_catalog_cutover';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
@@ -70,9 +69,8 @@ export const dataMigrations: readonly DataMigration[] = [
   prepareSellingCatalogSourcesMigration,
   migrateMasterProductInventoryCutoverMigration,
   simplifyProductReferencesMigration,
-  consolidateRegistrationExecutionMigration,
   sellingCatalogCutoverMigration,
-  linkRegistrationTargetsMigration,
+  registrationTargetCutoverMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
   activateAdFreeProductAbcFormula,

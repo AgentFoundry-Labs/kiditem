@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { ChannelIntegrityAdapter } from '../apps/server/src/channels/adapter/out/integrity/channel-integrity.adapter';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -13,8 +14,10 @@ import { canonicalSourcingCandidateIdentity } from '../apps/server/src/sourcing/
 import {
   freezeProductRegistrationPayload,
   type RegistrationSubmissionJson,
-} from '../apps/server/src/channels/domain/registration-submission-payload';
+} from '../apps/server/src/channels/domain/registration/registration-submission-payload';
 import { ensureAbsoluteProductAbcFormulaForOrganization } from './data-migrations/ensure/absolute-product-abc-formula';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 export const GENERATED_DATABASE_MARKER = 'kiditem_agent_os_clean_cutover';
 export const BROWSER_QA_SEED_TARGET_ENV = 'KIDITEM_BROWSER_QA_SEED_TARGET';
@@ -999,7 +1002,7 @@ function createBrowserQaConfirmedListingFrozenPayload({
     selectedDetailPageArtifactId: null,
     selectedDetailPageRevisionId: null,
     selectedDetailPageGenerationId: null,
-  });
+  }, channelIntegrity.sha256);
 }
 
 function createBrowserQaRecommendationPlan(

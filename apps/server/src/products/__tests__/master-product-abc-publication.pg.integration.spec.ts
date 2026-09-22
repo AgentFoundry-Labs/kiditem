@@ -22,6 +22,7 @@ import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/per
 import { RecalculateProductAbcUseCase } from '../application/usecase/recalculate-product-abc.usecase';
 import { ProductAbcReadUseCase } from '../application/usecase/product-abc-read.usecase';
 import { ProductDataStatusUseCase } from '../application/usecase/product-data-status.usecase';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 
 /**
  * KID-46 — which cutoff ABC may publish is a database question: it depends on
@@ -378,6 +379,17 @@ describe('MasterProductAbc publication cutoff (PostgreSQL)', () => {
   });
 });
 
+function advertisingSource(prisma: PrismaClient, alerts: SourceFailureAlerts) {
+  const facts = channelFactTestPorts(prisma as never);
+  return new ProfitabilityAdImportRepositoryAdapter(
+    facts.accounts,
+    facts.recipes,
+    facts.listings,
+    prisma as never,
+    alerts,
+  );
+}
+
 function abcService(prisma: PrismaClient): RecalculateProductAbcUseCase {
   return new RecalculateProductAbcUseCase(
     new MasterProductAbcRepositoryAdapter(
@@ -404,6 +416,7 @@ function productOperationsDataStatus(prisma: PrismaClient): ProductDataStatusUse
       prisma as never,
       profitabilityEvidence(prisma),
       new ProductTransactionalReadRepositoryAdapter(),
+      channelFactTestPorts(prisma as never).accounts,
     ),
   );
 }
@@ -416,7 +429,7 @@ function profitabilityEvidence(prisma: PrismaClient): MasterProductProfitability
       alerts,
       new ProductTransactionalReadRepositoryAdapter(),
     ),
-    new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts),
+    advertisingSource(prisma, alerts),
     prisma as never,
    new ProductTransactionalReadRepositoryAdapter());
 }
@@ -591,7 +604,7 @@ async function collectSources(
     alerts,
     new ProductTransactionalReadRepositoryAdapter(),
   );
-  const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+  const advertising = advertisingSource(prisma, alerts);
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(Date.now() - options.daysAgo * 86_400_000));
   try {
@@ -664,7 +677,7 @@ async function collectAt(
   vi.setSystemTime(new Date(options.at));
   if (source === 'advertising') {
     // A Rocket-only fixture has no retained Coupang account, so its plan is empty.
-    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+    const advertising = advertisingSource(prisma, alerts);
     const attempt = await advertising.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
       idempotencyKey: `abc-ad-${randomUUID()}`,

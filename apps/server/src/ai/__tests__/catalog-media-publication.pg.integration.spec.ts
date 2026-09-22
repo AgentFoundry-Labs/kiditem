@@ -11,6 +11,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ListingContentQueryRepositoryAdapter } from '../adapter/out/repository/listing-content-query.repository.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
@@ -32,10 +33,13 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    publisher = new AiCatalogMediaPublicationRepositoryAdapter();
+    catalog = new ChannelListingQueryService(
+      new ChannelListingQueryPersistenceAdapter(prisma as never),
+      new ListingContentQueryRepositoryAdapter(prisma as never),
+    );
+    publisher = new AiCatalogMediaPublicationRepositoryAdapter(catalog);
     library = new ContentAssetLibraryRepositoryAdapter(prisma as never);
     selection = new ContentWorkspaceThumbnailSelectionRepositoryAdapter(prisma as never);
-    catalog = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never));
   });
   afterAll(async () => {
     await prisma?.$disconnect();
@@ -946,7 +950,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     const before = await assets();
     const foreignBefore = await assets(OTHER_ORG);
     await expect(publish(foreignListingId, [media('bad', 'primary')])).rejects.toThrow(
-      'owned channel listings',
+      'Channel listing owner not found.',
     );
     expect(await assets()).toEqual(before);
     expect(await assets(OTHER_ORG)).toEqual(foreignBefore);

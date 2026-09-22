@@ -1,4 +1,4 @@
-import { channelAccountSalesCosts } from '../channels/domain/channel-account-sales-costs';
+import { channelAccountSalesCosts } from '../channels/domain/account/channel-account-sales-costs';
 
 /**
  * The cost of one sold order line, as the owners record it — nothing is

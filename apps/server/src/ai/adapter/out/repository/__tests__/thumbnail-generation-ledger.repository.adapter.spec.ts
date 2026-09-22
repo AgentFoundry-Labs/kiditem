@@ -20,7 +20,7 @@ vi.mock('../thumbnail-generation-ledger.persistence', () => ({
 describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
   it('opens pending editor jobs through the adapter-private Prisma helper', async () => {
     const prisma = {};
-    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never);
+    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never, {} as never, {} as never);
     helperMocks.createPendingEditJob.mockResolvedValueOnce({
       id: 'generation-1',
     });
@@ -54,7 +54,7 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
     const directJobs = {
       createInScope: vi.fn().mockResolvedValue({ id: 'direct-job-1' }),
     };
-    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, directJobs as never);
+    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, directJobs as never, {} as never, {} as never);
     helperMocks.createPendingEditJob.mockResolvedValueOnce({ id: 'generation-1' });
     helperMocks.persistPendingInputImages.mockResolvedValueOnce(undefined);
 
@@ -123,7 +123,7 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
     const prisma = {
       $transaction: vi.fn(async (callback: (scope: typeof tx) => Promise<unknown>) => callback(tx)),
     };
-    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never);
+    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never, {} as never, {} as never);
 
     await expect(
       repository.openPendingDirectGeneration({
@@ -179,7 +179,7 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
     };
     helperMocks.createPendingCandidateJob.mockResolvedValueOnce({ id: generationId });
     helperMocks.persistPendingInputImages.mockResolvedValueOnce(undefined);
-    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, directJobs as never);
+    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, directJobs as never, {} as never, {} as never);
 
     await expect(repository.openPendingDirectGeneration({
       subject: 'candidate',
@@ -237,8 +237,7 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
     helperMocks.createPendingCandidateJob.mockRejectedValueOnce({ code: 'P2002' });
     const repository = new ThumbnailGenerationLedgerRepositoryAdapter(
       prisma as never,
-      directJobs as never,
-    );
+      directJobs as never, {} as never, {} as never);
 
     await expect(repository.openPendingDirectGeneration({
       subject: 'candidate',
@@ -277,7 +276,7 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
 
   it('claims and projects direct output through use-case-level methods', async () => {
     const prisma = {};
-    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never);
+    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never, {} as never, {} as never);
     helperMocks.lockGenerationForProcessing.mockResolvedValueOnce({
       fromStatus: 'pending',
       fromPhase: null,
@@ -334,7 +333,7 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
         }),
       },
     };
-    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never);
+    const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never, {} as never, {} as never, {} as never);
 
     await expect(repository.findSourceCandidateForJob('candidate-1', 'org-1')).resolves.toEqual({
       id: 'candidate-1',

@@ -1,5 +1,9 @@
-import { withListingProductSummary } from '../../../../../channels/domain/listing-product-summary';
-import { readListingProductIds } from '../../../../../channels/read/listing-product-summary.reader';
+import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../../ai/application/port/in/workspace/listing-content-query.port';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { ownerTransaction } from '../../../../../prisma/owner-transaction';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../../channels/application/port/in/channel-option-recipe.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { withListingProductSummary } from '../../../../../channels/domain/listing/listing-product-summary';
 // Inventory-side read model for the dashboard. Encapsulates the Prisma
 // reads behind the inventory tile: grade counts, unread alerts, active
 // product counts, per-listing profit metrics (shared helper), inventory
@@ -22,7 +26,6 @@ import {
   productAbcSaleAgeDays,
 } from "@kiditem/shared/product-abc";
 import { PrismaService } from "../../../../../prisma/prisma.service";
-import { readLatestListingSaleStatusFacts } from "../../../../../channels/read/channel-listing-daily-facts";
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
@@ -54,6 +57,8 @@ import type { ResolvedDashboardPeriod } from "../../../domain/period/dashboard-p
 @Injectable()
 export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRepositoryPort {
   constructor(
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_ABC_READ_PORT)
     private readonly productAbc: ProductAbcReadPort,
@@ -62,6 +67,8 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
     @Inject(PRODUCT_SOURCE_READ_PORT)
     private readonly productSource: ProductSourceReadPort,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
   ) {}
 
   async readProductAbcFacts(
@@ -211,7 +218,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           tx,
           organizationId,
           from,
-          to,
+          to, this.channelAccounts
         );
         const { metrics, withheldListings, orderWindowComplete } = await buildPerListingMetricsCoverage(
           tx,
@@ -220,7 +227,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           to,
           accountAdEvidence,
           undefined,
-          this.inventoryTransactionalRead,
+          this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
         );
         return {
           rows: metrics,
@@ -236,40 +243,11 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
   async readInventoryAvailabilityFacts(organizationId: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        const listingRows = await tx.channelListing.findMany({
-          where: {
-            organizationId,
-            channelAccount: {
-              is: {
-                organizationId,
-                status: "active",
-                channel: { in: ["coupang", "rocket"] },
-              },
-            },
-          },
-          select: {
-            id: true,
-            isActive: true,
-            status: true,
-            rawJson: true,
-            options: {
-              where: { organizationId },
-              select: {
-                status: true,
-                inventoryComponents: {
-                  where: { organizationId },
-                  select: {
-                    masterProductId: true,
-                  },
-                },
-              },
-            },
-          },
-        });
+        const listingRows = await this.channelListings.readCatalogFacts(ownerTransaction(tx), { organizationId, channels: ['coupang', 'rocket'], activeAccountsOnly: true }).then(rows => rows.map(row => ({ ...row, options: row.options.map(option => ({ ...option, inventoryComponents: option.components })) })));
         const listings = listingRows.map(withListingProductSummary);
         const inventoryContext = { client: tx };
         const [statusFacts, identities] = await Promise.all([
-          readLatestListingSaleStatusFacts(tx, {
+          this.channelListings.readLatestSaleStatus(ownerTransaction(tx), {
             organizationId,
             listingIds: listings.map((listing) => listing.id),
           }),
@@ -379,15 +357,8 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     // MasterProduct.abcGrade cache is not publication authority.
     return this.prisma.$transaction(
       async (tx) => {
-        const listings = await tx.channelListing.findMany({
-          where: {
-            organizationId,
-            options: { some: { organizationId, inventoryComponents: { some: { organizationId, masterProductId: { in: [...masterProductIds] } } } } },
-            isActive: true,
-          },
-          select: { id: true },
-        });
-        const summaries = await readListingProductIds(tx, { organizationId, listingIds: listings.map((listing) => listing.id) });
+        const listings = await this.channelRecipes.findListingsBySourceProducts(ownerTransaction(tx), { organizationId, masterProductIds, activeOnly: true }).then(rows => rows.map(row => ({ id: row.listingId })));
+        const summaries = await this.channelRecipes.readListingProductSummaries(ownerTransaction(tx), { organizationId, listingIds: listings.map((listing) => listing.id) });
         const listingIds = listings.filter((listing) => masterProductIds.includes(summaries.get(listing.id) ?? "")).map((listing) => listing.id);
         const stats = await readCurrentReviewListingStats(
           tx,

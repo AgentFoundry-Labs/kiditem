@@ -1,11 +1,13 @@
+import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, type ProductPreparation } from '@prisma/client';
+import { Prisma, type RegistrationTarget } from '@prisma/client';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../../sourcing/application/port/in/registration-source.port';
 import { readRegistrationExecutionFacts, registrationDraftState } from '../../../read/registration-execution.reader';
 import {
   freezeProductRegistrationPayload,
   type RegistrationSubmissionJson,
-} from '../../../domain/registration-submission-payload';
+} from '../../../domain/registration/registration-submission-payload';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
@@ -27,7 +29,8 @@ import type {
   RegistrationDraftPort,
 } from '../../../application/port/out/persistence/registration-draft.port';
 import type { ChannelsRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
-import type { SourcingRepositoryTransaction } from '../../../../sourcing/application/port/out/transaction/repository-transaction';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 /**
  * Channels 소유 등록 설정을 실행 울타리의 같은 트랜잭션에서 처리한다(ADR-0020).
@@ -67,7 +70,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     input: { organizationId: string; preparationId: string },
   ): Promise<FrozenRegistrationDraft | null> {
-    const row = await client(tx).productPreparation.findFirst({
+    const row = await client(tx).registrationTarget.findFirst({
       where: { id: input.preparationId, organizationId: input.organizationId },
     });
     return row ? toFrozenDraft(client(tx), row) : null;
@@ -82,14 +85,16 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       fenceIdle?: boolean;
     },
   ): Promise<string[]> {
-    const rows = await client(tx).productPreparation.findMany({
+    const rows = await client(tx).registrationTarget.findMany({
       where: {
         organizationId: input.organizationId,
         sourceCandidateId: input.sourceCandidateId,
-        ...(input.isDeleted === undefined ? {} : { isDeleted: input.isDeleted }),
+        ...(input.isDeleted === undefined ? {} : {
+          archivedAt: input.isDeleted ? { not: null } : null,
+        }),
         ...(input.fenceIdle === true
           ? {
-            closedAt: null,
+            archivedAt: null,
           }
           : {}),
       },
@@ -110,7 +115,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const row = await findCandidateAccountPreparation(client(tx), input.organizationId, input.sourceCandidateId, input.channelAccountId);
     if (!row) return null;
     const draft = await toFrozenDraft(client(tx), await this.ensureCandidateContext(tx, row));
-    if (row.reviewPayloadHash !== null && draft.status === 'draft') {
+    if (draft.reviewPayloadHash !== null && draft.status === 'draft') {
       throw new ConflictException('Approved preparation is missing its registration execution.');
     }
     return input.status && draft.status !== input.status ? null : draft;
@@ -121,39 +126,35 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     input: FreezeRegistrationDraftInput,
   ): Promise<FrozenRegistrationDraft> {
     const tx = client(handle);
-    const sourcingTx = handle as unknown as SourcingRepositoryTransaction;
     const product = await requireCandidateSalesProduct(tx, input.organizationId, input.sourceCandidateId);
     const existing = await findCandidateAccountPreparation(tx, input.organizationId, input.sourceCandidateId, input.channelAccountId);
     const sourceContentWorkspaceId = existing?.sourceContentWorkspaceId
-      ?? await this.contentWorkspaces.ensureCandidateWorkspace(sourcingTx, {
+      ?? await this.contentWorkspaces.ensureCandidateWorkspace(handle, {
         organizationId: input.organizationId,
         sourceCandidateId: input.sourceCandidateId,
         displayName: input.displayName,
         createdByUserId: input.requestedByUserId,
       });
     const resolved = await this.contentWorkspaces.resolveSourceSelections(
-      sourcingTx,
+      handle,
       selectionResolutionInput(input.organizationId, sourceContentWorkspaceId, {}),
     );
     const frozenColumns = {
       displayName: input.displayName,
       registrationInput: input.registrationInput as Prisma.InputJsonValue,
-      reviewPayloadHash: input.frozenHash,
-      approvedAt: new Date(),
-      approvedByUserId: input.requestedByUserId,
       ...resolvedSelectionData(resolved),
     };
     const row = existing
-      ? await tx.productPreparation.update({
+      ? await tx.registrationTarget.update({
         where: { id: existing.id, organizationId: input.organizationId },
         data: {
-          reviewPayloadHash: input.frozenHash, approvedAt: new Date(), approvedByUserId: input.requestedByUserId,
+          registrationInput: input.registrationInput as Prisma.InputJsonValue,
           sourceContentWorkspaceId,
           ...(existing.displayName === null ? { displayName: input.displayName } : {}),
           ...resolvedSelectionData(resolved),
         },
       })
-      : await tx.productPreparation.create({
+      : await tx.registrationTarget.create({
         data: {
           organizationId: input.organizationId,
           salesProductId: product.id,
@@ -170,28 +171,28 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     return toFrozenDraft(tx, row);
   }
 
-  private async ensureCandidateContext(handle: ChannelsRepositoryTransaction, row: ProductPreparation): Promise<ProductPreparation> {
+  private async ensureCandidateContext(handle: ChannelsRepositoryTransaction, row: RegistrationTarget): Promise<RegistrationTarget> {
     if (row.sourceContentWorkspaceId && row.displayName) return row;
     if (!row.sourceCandidateId) throw new ConflictException('Candidate identity is missing.');
     const product = await requireCandidateSalesProduct(client(handle), row.organizationId, row.sourceCandidateId);
     const workspaceId = row.sourceContentWorkspaceId ?? await this.contentWorkspaces.ensureCandidateWorkspace(
-      handle as unknown as SourcingRepositoryTransaction,
+      handle,
       { organizationId: row.organizationId, sourceCandidateId: row.sourceCandidateId,
         displayName: row.displayName ?? product.name, createdByUserId: row.createdByUserId },
     );
-    return client(handle).productPreparation.update({
+    return client(handle).registrationTarget.update({
       where: { id: row.id, organizationId: row.organizationId },
       data: { sourceContentWorkspaceId: workspaceId, displayName: row.displayName ?? product.name },
     });
   }
 
   async closeDraft(tx: ChannelsRepositoryTransaction, input: CloseRegistrationDraftInput): Promise<number> {
-    const updated = await client(tx).productPreparation.updateMany({
+    if (!input.archive) return 0;
+    const updated = await client(tx).registrationTarget.updateMany({
       where: { id: input.preparationId, organizationId: input.organizationId,
-        isDeleted: false, closedAt: null,
+        archivedAt: null,
         ...(input.sourceCandidateId ? { sourceCandidateId: input.sourceCandidateId } : {}) },
-      data: { closedAt: input.closedAt,
-        ...(input.archive ? { isDeleted: true, deletedAt: input.closedAt } : {}) },
+      data: { archivedAt: input.closedAt },
     });
     return updated.count;
   }
@@ -201,9 +202,8 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     input: ClaimRegistrationDraftInput,
   ): Promise<ClaimedRegistrationDraft> {
     const tx = client(handle);
-    const sourcingTx = handle as unknown as SourcingRepositoryTransaction;
-    const current = await tx.productPreparation.findFirst({
-      where: { id: input.preparationId, organizationId: input.organizationId, isDeleted: false },
+    const current = await tx.registrationTarget.findFirst({
+      where: { id: input.preparationId, organizationId: input.organizationId, archivedAt: null },
     });
     if (!current) throw new NotFoundException('Product preparation not found.');
 
@@ -213,7 +213,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
 
     assertRegistrationIdentity(current);
     const resolvedSelections = await this.contentWorkspaces.resolveSourceSelections(
-      sourcingTx,
+      handle,
       selectionResolutionInput(
         input.organizationId,
         current.sourceContentWorkspaceId,
@@ -223,12 +223,9 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const resolvedCurrent = {
       ...current,
       ...resolvedSelectionData(resolvedSelections),
-    } as ProductPreparation;
-    const frozen = freezeProductRegistrationPayload(buildSubmissionPayload(resolvedCurrent));
+    } as RegistrationTarget;
+    const frozen = freezeProductRegistrationPayload(buildSubmissionPayload(resolvedCurrent), channelIntegrity.sha256);
     const updated = await updatePreparationAndLoad(tx, input.organizationId, current.id, {
-      reviewPayloadHash: frozen.hash,
-      approvedAt: input.now,
-      approvedByUserId: input.userId,
       ...resolvedSelectionData(resolvedSelections),
     });
     return {
@@ -254,7 +251,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     },
   ): Promise<{ workspaceId: string }> {
     return this.contentWorkspaces.branchToListing(
-      tx as unknown as SourcingRepositoryTransaction,
+      tx,
       input,
     );
   }
@@ -262,30 +259,30 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
 }
 
 function client(tx: ChannelsRepositoryTransaction): Prisma.TransactionClient {
-  return tx as unknown as Prisma.TransactionClient;
+  return ownerTransactionClient(tx);
 }
 
 async function updatePreparationAndLoad(
   tx: Prisma.TransactionClient,
   organizationId: string,
   preparationId: string,
-  data: Prisma.ProductPreparationUncheckedUpdateManyInput,
-): Promise<ProductPreparation> {
-  const updated = await tx.productPreparation.updateMany({
-    where: { id: preparationId, organizationId, isDeleted: false },
+  data: Prisma.RegistrationTargetUncheckedUpdateManyInput,
+): Promise<RegistrationTarget> {
+    const updated = await tx.registrationTarget.updateMany({
+    where: { id: preparationId, organizationId, archivedAt: null },
     data,
   });
   if (updated.count !== 1) {
     throw new ConflictException('Product preparation changed during its locked update.');
   }
-  const row = await tx.productPreparation.findFirst({
-    where: { id: preparationId, organizationId, isDeleted: false },
+  const row = await tx.registrationTarget.findFirst({
+    where: { id: preparationId, organizationId, archivedAt: null },
   });
   if (!row) throw new NotFoundException('Product preparation not found.');
   return row;
 }
 
-function buildSubmissionPayload(row: ProductPreparation): RegistrationSubmissionJson {
+function buildSubmissionPayload(row: RegistrationTarget): RegistrationSubmissionJson {
   assertRegistrationIdentity(row);
   return {
     channelAccountId: row.channelAccountId,
@@ -300,9 +297,9 @@ function buildSubmissionPayload(row: ProductPreparation): RegistrationSubmission
   };
 }
 
-async function toFrozenDraft(tx: Prisma.TransactionClient, row: ProductPreparation): Promise<FrozenRegistrationDraft> {
+async function toFrozenDraft(tx: Prisma.TransactionClient, row: RegistrationTarget): Promise<FrozenRegistrationDraft> {
   assertRegistrationIdentity(row);
-  const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: row.organizationId, productPreparationIds: [row.id] });
+  const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: row.organizationId, registrationTargetIds: [row.id] });
   return {
     preparationId: row.id,
     organizationId: row.organizationId,
@@ -310,12 +307,12 @@ async function toFrozenDraft(tx: Prisma.TransactionClient, row: ProductPreparati
     channelAccountId: row.channelAccountId,
     sourceContentWorkspaceId: row.sourceContentWorkspaceId,
     displayName: row.displayName,
-    status: registrationDraftState(row.closedAt, execution),
-    closedAt: row.closedAt,
-    isDeleted: row.isDeleted,
+    status: registrationDraftState(row.archivedAt, execution),
+    closedAt: row.archivedAt,
+    isDeleted: row.archivedAt !== null,
     channelListingId: execution?.channelListingId ?? null,
-    approvedByUserId: row.approvedByUserId,
-    reviewPayloadHash: row.reviewPayloadHash,
+    approvedByUserId: execution?.approvedByUserId ?? null,
+    reviewPayloadHash: execution?.reviewPayloadHash ?? null,
     updatedAt: row.updatedAt,
     selectedThumbnailUrl: row.selectedThumbnailUrl,
     selectedThumbnailGenerationId: row.selectedThumbnailGenerationId,

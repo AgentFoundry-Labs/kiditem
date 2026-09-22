@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT as AI_REGISTRATION_CONTENT_WORKSPACE_PORT,
@@ -11,7 +12,6 @@ import type {
   ResolvedRegistrationContentSelections,
   ValidateRegistrationContentSelectionsInput,
 } from '../../../application/port/in/registration-content-workspace.port';
-import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 @Injectable()
 export class RegistrationContentWorkspaceAdapter
@@ -29,7 +29,7 @@ export class RegistrationContentWorkspaceAdapter
   }
 
   resolveSourceSelections(
-    transaction: SourcingRepositoryTransaction,
+    transaction: OwnerTransaction,
     input: ValidateRegistrationContentSelectionsInput,
   ): Promise<ResolvedRegistrationContentSelections> {
     return this.workspaces.resolveSourceSelections(transaction, input);
@@ -42,7 +42,7 @@ export class RegistrationContentWorkspaceAdapter
   }
 
   async ensureCandidateWorkspace(
-    transaction: SourcingRepositoryTransaction,
+    transaction: OwnerTransaction,
     input: EnsureCandidateContentWorkspaceInput,
   ): Promise<string> {
     const result = await this.workspaces.ensureCandidateWorkspace(transaction, input);
@@ -50,7 +50,7 @@ export class RegistrationContentWorkspaceAdapter
   }
 
   branchToListing(
-    transaction: SourcingRepositoryTransaction,
+    transaction: OwnerTransaction,
     input: BranchRegistrationContentWorkspaceInput,
   ): Promise<{ workspaceId: string }> {
     return this.workspaces.branchToListing(transaction, input);

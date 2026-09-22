@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { canonicalOwnerInputHash } from "../../../../common/owner-idempotency-key";
+import { ownerTransaction } from "../../../../prisma/owner-transaction";
 import { ChannelsFinalCapabilityAdapter } from "./channels-final-capability.adapter";
 
 const confirmationInput = {
@@ -53,9 +54,11 @@ function makeAdapter() {
   const provenance = {
     loadExternalConfirmation: vi.fn().mockResolvedValue(frozen),
   };
+  const prismaTransaction = { tx: true };
+  const issuedOwnerTransaction = ownerTransaction(prismaTransaction as never);
   const prisma = {
     $transaction: vi.fn(async (work: (tx: object) => unknown) =>
-      work({ tx: true }),
+      work(prismaTransaction),
     ),
   };
   return {
@@ -66,12 +69,13 @@ function makeAdapter() {
     ),
     registrations,
     provenance,
+    issuedOwnerTransaction,
   };
 }
 
 describe("ChannelsFinalCapabilityAdapter", () => {
   it("validates external confirmation against server provenance and resolves it behind a Channels receipt", async () => {
-    const { adapter, registrations, provenance } = makeAdapter();
+    const { adapter, registrations, provenance, issuedOwnerTransaction } = makeAdapter();
     const executionContext = context(confirmationInput);
 
     await expect(
@@ -96,7 +100,7 @@ describe("ChannelsFinalCapabilityAdapter", () => {
       channelAccountId: frozen.channelAccountId,
     });
     expect(registrations.resolveProductRegistrationWithOwnerReceipt).toHaveBeenCalledWith(
-      { tx: true },
+      issuedOwnerTransaction,
       expect.objectContaining({
         externalListingId: confirmationInput.externalListingId,
         displayName: frozen.displayName,

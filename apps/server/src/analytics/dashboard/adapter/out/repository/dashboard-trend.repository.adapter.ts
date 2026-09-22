@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
@@ -16,7 +17,8 @@ import type {
 export class DashboardTrendRepositoryAdapter
   implements DashboardTrendRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort) {}
 
   async fetchTrendRevenueRows(
     organizationId: string,
@@ -29,7 +31,7 @@ export class DashboardTrendRepositoryAdapter
         from: since,
         to: until,
         excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-      }),
+      }, this.channelAccounts),
       { isolationLevel: 'RepeatableRead' },
     );
     const revenueByDate = new Map<string, number>(

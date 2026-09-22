@@ -384,7 +384,7 @@ erDiagram
     String organizationId FK
     String sourceCandidateId FK
     String supplierOfferSkuSnapshotId FK
-    String targetChannelAccountId FK
+    String targetChannelAccountId
     String supersedesLaunchCandidateId FK
     String candidateSeriesKey
     Int revision
@@ -707,7 +707,6 @@ erDiagram
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentWorkspace |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageImageRenderIntent |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
-| SourcingCandidate | sourceCandidate | referenced by external | Channels | ChannelListing |
 | SourcingCandidate | triggeredByUser | references external | Core | User |
 | SourcingCollectionSourceControl | organization | references external | Core | Organization |
 | SourcingDecisionBatch | organization | references external | Core | Organization |
@@ -727,7 +726,6 @@ erDiagram
 | SourcingLaunchCandidate | launchCandidate | referenced by external | Supply | ProcurementTestIntent |
 | SourcingLaunchCandidate | organization | references external | Core | Organization |
 | SourcingLaunchCandidate | supplierOfferSkuSnapshot | references external | Supply | SupplierOfferSkuSnapshot |
-| SourcingLaunchCandidate | targetChannelAccount | references external | Core | ChannelAccount |
 | SourcingMarketShadowFact | organization | references external | Core | Organization |
 | SourcingNaverKeywordAnalysisFact | organization | references external | Core | Organization |
 | SourcingOwnerIdempotencyReceipt | organization | references external | Core | Organization |

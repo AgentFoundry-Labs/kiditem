@@ -1,0 +1,88 @@
+import type { PrismaClient } from '@prisma/client';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { PrismaService } from '../../prisma/prisma.service';
+import {
+  makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
+  resetDb,
+  seedBaseFixture,
+  TEST_ORGANIZATION_ID,
+} from '../../test-helpers/real-prisma';
+import { ChannelAccountPersistenceAdapter } from '../adapter/out/persistence/channel-account.persistence.adapter';
+
+describe('ChannelAccountPersistenceAdapter mapping generation (PG integration)', () => {
+  let prisma: PrismaClient;
+  let repository: ChannelAccountPersistenceAdapter;
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    repository = new ChannelAccountPersistenceAdapter(
+      prisma as unknown as PrismaService,
+    );
+  });
+
+  afterAll(async () => {
+    await prisma?.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+  });
+
+  it('advances once for active Coupang account identity changes and isolates organizations', async () => {
+    await repository.upsertCoupangSettings(TEST_ORGANIZATION_ID, settings('A00000001'));
+    await expect(mappingGeneration()).resolves.toBe(1n);
+
+    await repository.upsertCoupangSettings(TEST_ORGANIZATION_ID, settings('A00000001', 'rotated'));
+    await expect(mappingGeneration()).resolves.toBe(1n);
+
+    await repository.upsertCoupangSettings(TEST_ORGANIZATION_ID, settings('B00000002'));
+    await expect(mappingGeneration()).resolves.toBe(2n);
+
+    const accountB = await prisma.channelAccount.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        vendorId: 'B00000002',
+      },
+      select: { id: true },
+    });
+    await prisma.channelAccount.update({
+      where: { id: accountB.id },
+      data: { status: 'paused' },
+    });
+    await repository.upsertCoupangSettings(TEST_ORGANIZATION_ID, settings('B00000002', 'reactivated'));
+    await expect(mappingGeneration()).resolves.toBe(3n);
+    await expect(prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: OTHER_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    })).resolves.toBeNull();
+  });
+
+  it('does not advance for a primary-account-only change', async () => {
+    await repository.upsertCoupangSettings(TEST_ORGANIZATION_ID, settings('A00000001'));
+    await repository.upsertCoupangSettings(TEST_ORGANIZATION_ID, settings('B00000002'));
+    await expect(mappingGeneration()).resolves.toBe(2n);
+
+    await prisma.channelAccount.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
+      data: { isPrimary: false },
+    });
+    await repository.upsertCoupangSettings(TEST_ORGANIZATION_ID, settings('B00000002', 'primary-only'));
+    await expect(mappingGeneration()).resolves.toBe(2n);
+  });
+
+  function settings(vendorId: string, _suffix = 'initial') {
+    return { vendorId };
+  }
+
+  async function mappingGeneration(): Promise<bigint> {
+    const state = await prisma.masterProductAbcFormulaState.findUnique({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      select: { mappingGeneration: true },
+    });
+    return state?.mappingGeneration ?? 0n;
+  }
+});

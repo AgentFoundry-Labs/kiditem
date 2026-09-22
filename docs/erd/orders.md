@@ -18,6 +18,8 @@
 | OrderLineItem | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | Review | `reviews` | 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을 |
 | ReviewCollectionChunk | `review_collection_chunks` | Fenced, organization-scoped review collection chunks. Chunks are staging evidence only and are deleted in the terminal publication transaction. |
+| RocketPoCatalogLine | `rocket_po_catalog_lines` | RocketPoCatalogLine canonical state owned by orders. |
+| RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | RocketPoCatalogSnapshot canonical state owned by orders. |
 | SellpiaOrderTransmissionIntent | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
 | SellpiaOrderTransmissionIntentReconciliation | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | Settlement | `settlements` | 월별 정산 (예상 vs 실제 비교). |
@@ -56,7 +58,7 @@ erDiagram
   CoupangDirectTransportReceipt {
     String id PK
     String organizationId FK
-    String channelAccountId FK
+    String channelAccountId
     String effectSourceImportRunId FK
     String rocketPurchaseConfirmationId FK
     String transport
@@ -83,7 +85,7 @@ erDiagram
   Order {
     String id PK
     String organizationId FK
-    String channelAccountId FK
+    String channelAccountId
     String sourceImportRunId FK
     String externalOrderId
     String externalNumber
@@ -118,7 +120,7 @@ erDiagram
     String id PK
     String organizationId FK
     String orderId FK
-    String listingOptionId FK
+    String listingOptionId
     String productName
     String optionName
     String sku
@@ -136,7 +138,7 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceImportRunId FK
-    String listingId FK
+    String listingId
     String platform
     Int rating
     String title
@@ -163,6 +165,48 @@ erDiagram
     String checksum
     Int itemCount
     Json payload
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  RocketPoCatalogLine {
+    String id PK
+    String organizationId FK
+    String snapshotId FK
+    String poLineId
+    String poNumber
+    String vendorId
+    String productNo
+    String barcode
+    String productName
+    Int orderQty
+    DateTime plannedDeliveryDate
+    String poStatusCode
+    String businessDateBasis
+    String center
+    String inboundType
+    String poStatus
+    String returnManager
+    String returnContact
+    String returnAddress
+    Int purchasePrice
+    Int supplyPrice
+    Int vat
+    Int totalPurchase
+    String poRegisteredAt
+    String xdock
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  RocketPoCatalogSnapshot {
+    String id PK
+    String organizationId
+    String channelAccountId
+    String sourceImportRunId
+    String collectionRunId
+    String vendorId
+    Int listPagesRead
+    Int totalListPages
+    Int detailPoCount
     DateTime createdAt
     DateTime updatedAt
   }
@@ -207,6 +251,7 @@ erDiagram
   }
   CoupangDirectTransportReceipt ||--o{ CoupangDirectTransportConsumption : "receipt"
   Order ||--o{ OrderLineItem : "order"
+  RocketPoCatalogSnapshot ||--o{ RocketPoCatalogLine : "snapshot"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
 ```
 
@@ -217,20 +262,16 @@ erDiagram
 | CoupangDirectPoSnapshot | organization | references external | Core | Organization |
 | CoupangDirectTransportConsumption | organization | references external | Core | Organization |
 | CoupangDirectTransportConsumption | sourceImportRun | references external | Core | SourceImportRun |
-| CoupangDirectTransportReceipt | channelAccount | references external | Core | ChannelAccount |
 | CoupangDirectTransportReceipt | effectSourceImportRun | references external | Core | SourceImportRun |
 | CoupangDirectTransportReceipt | organization | references external | Core | Organization |
 | CoupangDirectTransportReceipt | rocketPurchaseConfirmation | references external | Supply | RocketPurchaseConfirmation |
 | CoupangShipmentDateSummary | organization | references external | Core | Organization |
 | CoupangShipmentDateSummary | sourceImportRun | references external | Core | SourceImportRun |
-| Order | channelAccount | references external | Core | ChannelAccount |
 | Order | organization | references external | Core | Organization |
 | Order | sourceImportRun | references external | Core | SourceImportRun |
 | OrderCollectionArtifact | organization | references external | Core | Organization |
 | OrderCollectionArtifact | sourceImportRun | references external | Core | SourceImportRun |
-| OrderLineItem | listingOption | references external | Core | ChannelListingOption |
 | OrderLineItem | organization | references external | Core | Organization |
-| Review | listing | references external | Channels | ChannelListing |
 | Review | organization | references external | Core | Organization |
 | Review | sourceImportRun | references external | Core | SourceImportRun |
 | ReviewCollectionChunk | organization | references external | Core | Organization |

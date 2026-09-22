@@ -4,10 +4,11 @@ import { SourcingWorkspaceArchiveService } from '../application/service/sourcing
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const CANDIDATE_ID = '22222222-2222-4222-8222-222222222222';
+const OWNER_TX = { owner: true };
 
 function makeRepo() {
   return {
-    runInTransaction: vi.fn((callback) => callback({ tx: true })),
+    runInTransaction: vi.fn((callback) => callback({ tx: true }, OWNER_TX as never)),
     lockCandidate: vi.fn().mockResolvedValue(undefined),
     findCandidateState: vi.fn().mockResolvedValue({ id: CANDIDATE_ID, status: 'sourced' }),
     archiveSourcedWorkspace: vi.fn().mockResolvedValue({
@@ -72,7 +73,7 @@ describe('SourcingWorkspaceArchiveService', () => {
         organizationId: ORG,
       });
       expect(executions.cancelUnstartedExecutions).toHaveBeenCalledWith(
-        { tx: true },
+        OWNER_TX,
         {
           organizationId: ORG,
           sourceCandidateId: CANDIDATE_ID,
@@ -80,7 +81,7 @@ describe('SourcingWorkspaceArchiveService', () => {
         },
       );
       expect(preparations.assertCandidateTerminalTransitionAllowed).toHaveBeenCalledWith(
-        { tx: true },
+        OWNER_TX,
         { organizationId: ORG, sourceCandidateId: CANDIDATE_ID },
       );
       expect(repo.lockCandidate.mock.invocationCallOrder[0])

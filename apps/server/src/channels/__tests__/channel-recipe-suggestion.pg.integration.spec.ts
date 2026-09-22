@@ -14,7 +14,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { SellpiaRecipeEvidenceAdapter } from '../adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
-import { ChannelRecipeSuggestionService } from '../application/service/channel-recipe-suggestion.service';
+import { ChannelRecipeSuggestionService } from '../application/service/listing/channel-recipe-suggestion.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';

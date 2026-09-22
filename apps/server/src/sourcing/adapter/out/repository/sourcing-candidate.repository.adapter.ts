@@ -1,6 +1,9 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import {
   CANDIDATE_REGISTRATION_PORT,
   type CandidateRegistrationPort,
@@ -23,14 +26,16 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     private readonly prisma: PrismaService,
     @Optional() @Inject(CANDIDATE_REGISTRATION_PORT)
     private readonly candidateRegistrations?: CandidateRegistrationPort,
+    @Optional() @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings?: ChannelListingQueryPort,
   ) {}
 
   runInTransaction<T>(
-    operation: (tx: SourcingRepositoryTransaction) => Promise<T>,
+    operation: (tx: SourcingRepositoryTransaction, ownerTx: OwnerTransaction) => Promise<T>,
     options?: { timeout?: number },
   ): Promise<T> {
     return this.prisma.$transaction(
-      (tx) => operation(tx as SourcingRepositoryTransaction),
+      (tx) => operation(tx as SourcingRepositoryTransaction, ownerTransaction(tx)),
       options,
     );
   }
@@ -273,26 +278,35 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         : query.sourcePlatforms?.length
           ? { sourcePlatform: { in: query.sourcePlatforms } }
           : {}),
-      channelListings: {
-        none: { organizationId: query.organizationId, isActive: true },
-      },
     };
     const orderBy =
       query.sort === 'oldest' ? { createdAt: 'asc' as const }
         : query.sort === 'name_asc' ? { name: 'asc' as const }
           : { createdAt: 'desc' as const };
-    const [total, rows] = await this.prisma.$transaction([
-      this.prisma.sourcingCandidate.count({ where }),
-      this.prisma.sourcingCandidate.findMany({
-        where,
-        orderBy,
-        skip: (query.page - 1) * query.limit,
-        take: query.limit,
-        include: {
-          images: { where: { isDeleted: false }, orderBy: { sortOrder: 'asc' } },
-        },
-      }),
-    ]);
+    const channelListings = this.channelListings;
+    if (!channelListings) throw new Error('channel_listing_query_port_missing');
+    const [total, rows] = await this.prisma.$transaction(async (tx) => {
+      const registeredCandidateIds = await channelListings.readRegisteredCandidateIds(
+        ownerTransaction(tx),
+        { organizationId: query.organizationId },
+      );
+      const candidateWhere: Prisma.SourcingCandidateWhereInput = {
+        ...where,
+        ...(registeredCandidateIds.length > 0 ? { id: { notIn: registeredCandidateIds } } : {}),
+      };
+      return Promise.all([
+        tx.sourcingCandidate.count({ where: candidateWhere }),
+        tx.sourcingCandidate.findMany({
+          where: candidateWhere,
+          orderBy,
+          skip: (query.page - 1) * query.limit,
+          take: query.limit,
+          include: {
+            images: { where: { isDeleted: false }, orderBy: { sortOrder: 'asc' } },
+          },
+        }),
+      ]);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     // 페이지 전체의 등록 준비를 소유자 포트로 한 번에 읽는다.
     const registrations = await this.readCandidateRegistrations(
       query.organizationId,
@@ -447,7 +461,7 @@ function hydrateCandidate(
   return {
     ...toRow(row),
     images: row.images.map(toImageRow),
-    productPreparation: productPreparations[0] ?? null,
+    registrationTarget: productPreparations[0] ?? null,
     productPreparations,
   };
 }

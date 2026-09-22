@@ -24,7 +24,7 @@ export type { OperationStatus, ProviderOutcome } from './operation-lifecycle.js'
 export const ProductRegistrationExecutionSchema = z.object({
   id: z.string().uuid(),
   organizationId: z.string().uuid(),
-  productPreparationId: z.string().uuid(),
+  registrationTargetId: z.string().uuid(),
   channelAccountId: z.string().uuid(),
   channelListingId: z.string().uuid().nullable(),
   executionKind: z.enum(['create', 'external_wing']),

@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { listingProductIdFromRecipes } from '../domain/listing-product-summary';
+import { listingProductIdFromRecipes } from '../domain/listing/listing-product-summary';
 
 /** Read a derived summary; the recipe rows are its only stored authority. */
 export async function readListingProductIds(

@@ -11,7 +11,7 @@ import {
 function fact(overrides: Partial<RegistrationExecutionFact> = {}): RegistrationExecutionFact {
   return {
     executionId: 'execution-1',
-    productPreparationId: 'preparation-1',
+    registrationTargetId: 'preparation-1',
     channelAccountId: 'account-1',
     channelListingId: null,
     executionKind: 'external_wing',
@@ -20,6 +20,9 @@ function fact(overrides: Partial<RegistrationExecutionFact> = {}): RegistrationE
     providerSubmissionId: null,
     externalListingId: null,
     hasResult: false,
+    reviewPayloadHash: null,
+    approvedAt: null,
+    approvedByUserId: null,
     createdAt: new Date('2026-09-18T00:00:00.000Z'),
     ...overrides,
   };

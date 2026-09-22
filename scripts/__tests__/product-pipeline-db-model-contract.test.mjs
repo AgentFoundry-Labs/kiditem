@@ -28,42 +28,43 @@ describe('product pipeline DB model contract', () => {
     assert.doesNotMatch(aiSchema, /registrationWorkspaceId\s+String\?\s+@map\("registration_workspace_id"\)/);
   });
 
-  it('defines ProductPreparation as a reusable Channels selling-product target', () => {
+  it('defines RegistrationTarget as a reusable Channels selling-product target', () => {
     const channelsSchema = readModelFile('prisma/models/channels.prisma');
-    const model = extractModel(channelsSchema, 'ProductPreparation');
+    const model = extractModel(channelsSchema, 'RegistrationTarget');
 
     for (const field of [
       'sourceCandidateId',
       'salesProductId',
       'channelAccountId',
       'sourceContentWorkspaceId',
+      'archivedAt',
       'displayName',
       'registrationInput',
-      'reviewPayloadHash',
-      'approvedAt',
-      'approvedByUserId',
-      'closedAt',
-      'isDeleted',
+      'selectedThumbnailUrl',
+      'createdByUserId',
     ]) {
       assert.match(model, new RegExp(`^\\s*${field}\\s+`, 'm'));
     }
     assert.doesNotMatch(
       model,
-      /\bmasterId\b|\bcontentWorkspaceId\b|isCurrentForMaster|appliedToMasterAt|submissionKey|providerSubmissionId|lastError|registrationResult|submissionPayloadJson/,
+      /\bmasterId\b|\bcontentWorkspaceId\b|isCurrentForMaster|appliedToMasterAt|submissionKey|providerSubmissionId|lastError|registrationResult|submissionPayloadJson|reviewPayloadHash|approvedAt|approvedByUserId|closedAt|isDeleted/,
     );
     assert.doesNotMatch(model, /^\s*(?:status|channelListingId)\s+/m);
     assert.match(model, /salesProductId\s+String\s+@map/);
     assert.match(model, /sourceCandidateId\s+String\?/);
     assert.match(model, /executions\s+ProductRegistrationExecution\[\]/);
+    assert.match(model, /selectedOptions\s+RegistrationTargetOption\[\]/);
+    assert.match(model, /channelAccount\s+ChannelAccount\s+@relation/);
+    assert.match(model, /salesProduct\s+SalesProduct\s+@relation/);
     assert.doesNotMatch(model, /@@unique\(\[organizationId,\s*(?:sourceCandidateId|salesProductId),\s*channelAccountId\]/);
   });
 
-  it('indexes all final ProductPreparation foreign keys', () => {
+  it('indexes all final RegistrationTarget foreign keys', () => {
     const channelsSchema = readModelFile('prisma/models/channels.prisma');
-    const model = extractModel(channelsSchema, 'ProductPreparation');
+    const model = extractModel(channelsSchema, 'RegistrationTarget');
 
     for (const index of [
-      '@@index([organizationId, closedAt, isDeleted])',
+      '@@index([organizationId, archivedAt])',
       '@@index([salesProductId, organizationId])',
       '@@index([sourceCandidateId])',
       '@@index([channelAccountId])',
@@ -73,17 +74,16 @@ describe('product pipeline DB model contract', () => {
       '@@index([selectedDetailPageGenerationId])',
       '@@index([selectedThumbnailGenerationId])',
       '@@index([selectedThumbnailGenerationCandidateId])',
-      '@@index([approvedByUserId])',
       '@@index([createdByUserId])',
     ]) {
-      assert.ok(model.includes(index), `Expected ProductPreparation to include ${index}`);
+      assert.ok(model.includes(index), `Expected RegistrationTarget to include ${index}`);
     }
   });
 
   it('makes ChannelListing account-aware for multi-account marketplace listings', () => {
-    const coreSchema = readModelFile('prisma/models/core.prisma');
-    const listing = extractModel(coreSchema, 'ChannelListing');
-    const account = extractModel(coreSchema, 'ChannelAccount');
+    const channelsSchema = readModelFile('prisma/models/channels.prisma');
+    const listing = extractModel(channelsSchema, 'ChannelListing');
+    const account = extractModel(channelsSchema, 'ChannelAccount');
 
     assert.match(listing, /channelAccountId\s+String\s+@map\("channel_account_id"\)\s+@db\.Uuid/);
     assert.match(
@@ -91,6 +91,7 @@ describe('product pipeline DB model contract', () => {
       /channelAccount\s+ChannelAccount\s+@relation\(fields:\s*\[channelAccountId,\s*organizationId\],\s*references:\s*\[id,\s*organizationId\],\s*onDelete:\s*Restrict\)/,
     );
     assert.match(account, /listings\s+ChannelListing\[\]/);
+    assert.match(account, /^\s*productPreparations\s+RegistrationTarget\[\]/m);
     assert.match(account, /@@unique\(\[id,\s*organizationId\]/);
 
     for (const index of [
@@ -111,7 +112,7 @@ describe('product pipeline DB model contract', () => {
       'ChannelListing externalId uniqueness must be channel-account scoped so one organization can connect multiple accounts on the same channel',
     );
     assert.doesNotMatch(listing, /^\s*(?:masterId|channel|channelPrice)\s+/m);
-    assert.doesNotMatch(listing, /^\s*productPreparations\s+ProductPreparation\[\]/m);
+    assert.doesNotMatch(listing, /^\s*registrationTargets\s+RegistrationTarget\[\]/m);
     assert.match(listing, /^\s*rawJson\s+Json\?/m);
   });
 });

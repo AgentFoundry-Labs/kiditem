@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   COUPANG_CATALOG_BASIC_SOURCE_TYPE,
@@ -13,11 +13,13 @@ import {
   parseBusinessDate,
 } from '@kiditem/shared/common';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
+import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
 import { PrismaService } from '../prisma/prisma.service';
+import { ownerTransaction } from '../prisma/owner-transaction';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../channels/application/port/in/account/channel-account.port';
 import { countPublishedCatalogListings } from '../channels/read/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
 import { readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/read/ad-target-facts';
-import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
 import { readWingRankCoverage } from '../advertising/read/keyword-rank-facts';
 import type {
   ReadinessCheck,
@@ -47,7 +49,11 @@ const READINESS_CATALOG_COMPLETE_SOURCE_TYPES = [
  */
 @Injectable()
 export class ReadinessService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CHANNEL_ACCOUNT_PORT)
+    private readonly channelAccounts: ChannelAccountPort,
+  ) {}
 
   /**
    * Sellpia 매출과 Wing readiness는 최소 최근 N일을 보장하고, 이번 달이
@@ -117,24 +123,15 @@ export class ReadinessService {
     // Extension ingest/read paths bind to one active Coupang account and
     // prefer the primary account for account-less reads. Readiness must use
     // the same account, otherwise disabled-account facts can mark data ready.
-    const activeCoupangAccount = await tx.channelAccount.findFirst({
-      where: {
-        organizationId,
-        channel: 'coupang',
-        status: 'active',
-      },
-      orderBy: [
-        { isPrimary: 'desc' },
-        { updatedAt: 'desc' },
-        { id: 'asc' },
-      ],
-      select: { id: true },
-    });
+    const activeCoupangAccount = await this.channelAccounts.resolveActiveProvider(
+      ownerTransaction(tx),
+      { organizationId, channel: 'coupang' },
+    );
 
     // coupang_ads ends at the ad evidence cutoff: yesterday, unless every
     // active account's newest complete sweep held yesterday as unreported.
     const adsCutoffKst = activeCoupangAccount
-      ? await readAdEvidenceCutoff(tx, { organizationId, closedDay: yesterdayKst })
+      ? await readAdEvidenceCutoff(tx, { organizationId, closedDay: yesterdayKst }, this.channelAccounts)
       : yesterdayKst;
     const adsCutoffKstStr = businessDateKey(adsCutoffKst);
     const adsLookbackStart = addDays(
@@ -149,9 +146,9 @@ export class ReadinessService {
     const adsDailyKpiPublished = activeCoupangAccount
       ? await readAdWindowFacts(tx, {
             organizationId,
-            from: adsLookbackStart,
-            to: addDays(adsCutoffKst, 1),
-          })
+          from: adsLookbackStart,
+          to: addDays(adsCutoffKst, 1),
+          }, this.channelAccounts)
       : null;
     const activeWingVendorRows = activeCoupangAccount
       ? await tx.channelListingOption.findMany({

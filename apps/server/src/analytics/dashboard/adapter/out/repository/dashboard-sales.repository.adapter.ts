@@ -1,5 +1,9 @@
+import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../../ai/application/port/in/workspace/listing-content-query.port';
+import { ownerTransaction } from '../../../../../prisma/owner-transaction';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../../channels/application/port/in/channel-option-recipe.port';
 import { PRODUCT_ABC_READ_PORT, type ProductAbcReadPort } from '../../../../../products/application/port/in/product-abc-read.port';
-import { readListingProductIds } from '../../../../../channels/read/listing-product-summary.reader';
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../../prisma/prisma.service";
@@ -101,11 +105,15 @@ interface TopProductRawRow {
 @Injectable()
 export class DashboardSalesRepositoryAdapter implements DashboardSalesRepositoryPort {
   constructor(
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
     @Inject(PRODUCT_ABC_READ_PORT)
     private readonly productAbc: ProductAbcReadPort,
+    @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
   ) {}
 
   /**
@@ -123,7 +131,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
           from: todayStart,
           to: todayEnd,
           excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-        }),
+        }, this.channelAccounts),
         // 오늘 걷은 주문 수. 주문일이 아니라 **걷은 날** 기준이라 주문수집 화면과 같은 수다
         // (사장님 2026-09-21: "오늘 주문 50건이잖아").
         readCompletedImportRowCount(tx, {
@@ -307,7 +315,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       from: monthStart,
       to: monthEnd,
       excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-    });
+    }, this.channelAccounts);
     if (facts.window.revenue === null) return [];
 
     const lines = facts.orders.flatMap((order) => order.lines);
@@ -321,27 +329,10 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     const accountIds = [
       ...new Set(facts.orders.map((order) => order.channelAccountId)),
     ];
-    const optionRows = await tx.channelListingOption.findMany({
-        where: { organizationId, id: { in: optionIds } },
-        select: {
-          id: true,
-          listing: {
-            select: {
-              id: true,
-              externalId: true,
-              channelName: true,
-              displayName: true,
-
-            },
-          },
-        },
-      });
-    const summaries = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(optionRows.map((row) => row.listing.id))] });
+    const optionRows = await this.channelListings.readOptionIdentities(ownerTransaction(tx), { organizationId, optionIds }).then(rows => rows.map(row => ({ id: row.optionId, listing: { id: row.listingId, externalId: row.listingExternalId, channelName: row.channelName, displayName: row.displayName } })));
+    const summaries = await this.channelRecipes.readListingProductSummaries(ownerTransaction(tx), { organizationId, listingIds: [...new Set(optionRows.map((row) => row.listing.id))] });
     const options = optionRows.map((row) => ({ ...row, listing: { ...row.listing, masterProductId: summaries.get(row.listing.id) ?? null } }));
-    const accounts = await tx.channelAccount.findMany({
-        where: { organizationId, id: { in: accountIds } },
-        select: { id: true, name: true, channel: true },
-      });
+    const accounts = await this.channelAccounts.findByIds(ownerTransaction(tx), { organizationId, accountIds });
     const optionById = new Map(options.map((option) => [option.id, option]));
     const accountById = new Map(
       accounts.map((account) => [account.id, account]),
@@ -452,7 +443,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       tx,
       organizationId,
       from,
-      to,
+      to, this.channelAccounts
     );
     const rows = await buildPerListingProfit(
       tx,
@@ -460,7 +451,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       from,
       to,
       adEvidence,
-      this.inventoryTransactionalRead,
+      this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
     );
     return new Map(rows.map((row) => [row.listingId, row]));
   }

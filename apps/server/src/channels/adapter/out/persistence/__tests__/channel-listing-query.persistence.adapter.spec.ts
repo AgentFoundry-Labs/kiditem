@@ -43,16 +43,6 @@ function listingRow(overrides: Record<string, unknown> = {}) {
         inventoryComponents: [{ sellpiaInventorySkuId: 'sku-2' }],
       },
     ],
-    contentWorkspaces: [{
-      id: 'workspace-1',
-      currentDetailPageArtifactId: 'artifact-1',
-      currentDetailPageRevisionId: 'revision-1',
-      currentThumbnailSelection: {
-        contentAsset: { url: 'https://cdn.example.com/workspace.jpg' },
-      },
-      contentGenerationGroups: [],
-    }],
-    thumbnails: [],
     ...overrides,
   };
 }
@@ -85,7 +75,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
     repository = new ChannelListingQueryPersistenceAdapter(prisma as never);
   });
 
-  it('lists active marketplace products with account, mapping, and content metadata', async () => {
+  it('lists marketplace facts without querying AI-owned workspace content', async () => {
     const result = await repository.list('org-1', listQuery({
       page: 1,
       limit: 20,
@@ -115,16 +105,14 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
             inventoryComponents: expect.any(Object),
           }),
         }),
-        contentWorkspaces: expect.any(Object),
-        thumbnails: expect.any(Object),
       }),
     }));
     expect(result.items[0]).toEqual({
       id: 'listing-1',
       listingName: 'KidItem 등록명',
-      thumbnailUrl: 'https://cdn.example.com/workspace.jpg',
-      detailPageArtifactId: 'artifact-1',
-      detailPageRevisionId: 'revision-1',
+      thumbnailUrl: null,
+      detailPageArtifactId: null,
+      detailPageRevisionId: null,
       channel: 'coupang',
       channelAccountId: 'account-1',
       channelAccountName: '쿠팡 본계정',
@@ -135,7 +123,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
       manufacturer: null,
       channelPrice: 12_900,
       sourceCandidateId: 'candidate-1',
-      contentWorkspaceId: 'workspace-1',
+      contentWorkspaceId: null,
       status: 'active',
       exposureStatus: 'visible',
       optionCount: 2,
@@ -161,8 +149,6 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
       masterProductId: null,
       channelAccount: { id: 'account-1', channel: 'coupang', name: 'Active Wing account' },
       options: [{ inventoryComponents: [], salePrice: 9_900 }],
-      contentWorkspaces: [],
-      thumbnails: [],
       createdAt: new Date('2026-07-11T00:00:00.000Z'),
       updatedAt: new Date('2026-07-11T00:00:00.000Z'),
     })]);
@@ -181,17 +167,6 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
       channelPrice: 9_900,
     }));
     expect(result.items[0]).not.toHaveProperty('masterId');
-  });
-
-  it('uses the listing thumbnail when a workspace has no managed image', async () => {
-    prisma.channelListing.findMany.mockResolvedValueOnce([listingRow({
-      contentWorkspaces: [],
-      thumbnails: [{ imageUrl: 'https://cdn.example.com/listing-thumbnail.jpg' }],
-    })]);
-
-    const result = await repository.list('org-1', listQuery());
-
-    expect(result.items[0]?.thumbnailUrl).toBe('https://cdn.example.com/listing-thumbnail.jpg');
   });
 
   it('treats complete option recipes as matched without a listing-level product summary', async () => {
@@ -222,12 +197,12 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
     expect(result).toEqual(expect.objectContaining({
       id: 'listing-1',
       sourceCandidateId: 'candidate-1',
-      contentWorkspaceId: 'workspace-1',
+      contentWorkspaceId: null,
       channelAccountId: 'account-1',
     }));
   });
 
-  it('projects only the canonical detail-document writer shape on the workspace read', async () => {
+  it('projects listing-owned provider details without reading AI-owned workspace media', async () => {
     prisma.channelListing.findFirst.mockResolvedValueOnce(listingRow({
       rawJson: {
         // These aliases were never written by updateChannelCatalogDetails and
@@ -254,53 +229,6 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
           detailDocumentIds: ['contents-1'],
         },
         inventoryComponents: [],
-      }],
-      contentWorkspaces: [{
-        id: 'workspace-1',
-        currentDetailPageArtifactId: 'artifact-1',
-        currentDetailPageRevisionId: 'revision-1',
-        currentThumbnailSelection: {
-          contentAsset: { url: 'https://cdn.example.com/workspace.jpg' },
-        },
-        contentGenerationGroups: [{
-          originatingAssets: [
-            {
-              id: 'provider-primary',
-              url: 'https://cdn.example.com/provider.png',
-              role: 'primary',
-              sortOrder: 0,
-              metadata: {
-                sourceType: 'channel_catalog',
-                channel: 'coupang',
-                active: true,
-              },
-            },
-            {
-              id: 'provider-option',
-              url: 'https://cdn.example.com/provider-option.png',
-              role: 'option',
-              sortOrder: 1,
-              metadata: {
-                sourceType: 'channel_catalog',
-                channel: 'coupang',
-                externalOptionId: 'option-1',
-                externalOptionIds: ['option-1'],
-                active: true,
-              },
-            },
-            {
-              id: 'inactive-provider',
-              url: 'https://cdn.example.com/old-provider.png',
-              role: 'detail',
-              sortOrder: 2,
-              metadata: {
-                sourceType: 'channel_catalog',
-                channel: 'coupang',
-                active: false,
-              },
-            },
-          ],
-        }],
       }],
     }));
 
@@ -331,17 +259,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
         status: 'active',
         attributes: { color: 'red' },
       }],
-      media: [{
-        sourceUrl: 'https://cdn.example.com/provider.png',
-        role: 'primary',
-        sortOrder: 0,
-        externalOptionIds: [],
-      }, {
-        sourceUrl: 'https://cdn.example.com/provider-option.png',
-        role: 'option',
-        sortOrder: 1,
-        externalOptionIds: ['option-1'],
-      }],
+      media: [],
     });
     expect(result.providerDetail?.sourceDetail).not.toHaveProperty('contents');
   });

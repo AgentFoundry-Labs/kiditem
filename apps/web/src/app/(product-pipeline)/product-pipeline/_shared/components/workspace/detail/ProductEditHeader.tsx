@@ -52,7 +52,7 @@ interface ProductEditHeaderProps {
   productName: string;
   productId: string;
   status?: SourcingCandidateStatus;
-  productPreparation?: ProductPreparationSelection | null;
+  registrationTarget?: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에서만 `null` 이다. */
   registrationState?: CandidateRegistrationState | null;
   isEditComplete: boolean;
@@ -78,7 +78,7 @@ export default function ProductEditHeader({
   productName,
   productId,
   status = 'sourced',
-  productPreparation = null,
+  registrationTarget = null,
   registrationState = null,
   basicInfo = null,
   selectedThumbnailUrl = null,
@@ -189,7 +189,7 @@ export default function ProductEditHeader({
     runGenerate({ mode, templateId });
   };
 
-  const accountScopedPreparation = productPreparation?.channelAccountId ? productPreparation : null;
+  const accountScopedPreparation = registrationTarget?.channelAccountId ? registrationTarget : null;
   const preparationStatus = accountScopedPreparation?.status ??
     createPreparationDraftMutation.data?.status ?? null;
   const preparationId = accountScopedPreparation?.id ??

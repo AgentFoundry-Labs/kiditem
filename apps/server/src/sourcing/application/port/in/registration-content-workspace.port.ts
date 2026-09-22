@@ -1,4 +1,4 @@
-import type { SourcingRepositoryTransaction } from '../out/transaction/repository-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 
 export const REGISTRATION_CONTENT_WORKSPACE_PORT = Symbol(
   'REGISTRATION_CONTENT_WORKSPACE_PORT',
@@ -55,18 +55,18 @@ export interface RegistrationContentWorkspacePort {
     input: FindCandidateContentWorkspaceInput,
   ): Promise<string | null>;
   resolveSourceSelections(
-    tx: SourcingRepositoryTransaction,
+    tx: OwnerTransaction,
     input: ValidateRegistrationContentSelectionsInput,
   ): Promise<ResolvedRegistrationContentSelections>;
   validateSourceSelections(
     input: ValidateRegistrationContentSelectionsInput,
   ): Promise<void>;
   ensureCandidateWorkspace(
-    tx: SourcingRepositoryTransaction,
+    tx: OwnerTransaction,
     input: EnsureCandidateContentWorkspaceInput,
   ): Promise<string>;
   branchToListing(
-    tx: SourcingRepositoryTransaction,
+    tx: OwnerTransaction,
     input: BranchRegistrationContentWorkspaceInput,
   ): Promise<{ workspaceId: string }>;
 }

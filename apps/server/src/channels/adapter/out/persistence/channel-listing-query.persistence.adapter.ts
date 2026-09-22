@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import { readRegistrationFailureCounts } from '../../../read/registration-execution.reader';
+import type { ChannelListingFactQueries } from '../../../application/port/in/listing/channel-listing-query.port';
+import { readListingTrafficWindowFacts, readLatestListingStateFacts, readLatestListingSaleStatusFacts } from '../../../read/channel-listing-daily-facts';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -37,61 +41,11 @@ const listingSelect = {
       },
     },
   },
-  contentWorkspaces: {
-    where: { status: 'active', isDeleted: false },
-    take: 1,
-    select: {
-      id: true,
-      currentDetailPageArtifactId: true,
-      currentDetailPageRevisionId: true,
-      currentThumbnailSelection: {
-        select: { contentAsset: { select: { url: true } } },
-      },
-    },
-  },
-  thumbnails: {
-    where: { status: 'active' },
-    orderBy: { updatedAt: 'desc' as const },
-    take: 1,
-    select: { imageUrl: true },
-  },
 } satisfies Prisma.ChannelListingSelect;
 
 const workspaceSelect = {
   ...listingSelect,
   rawJson: true,
-  contentWorkspaces: {
-    where: { status: 'active', isDeleted: false, ownerType: 'channel_listing' },
-    take: 1,
-    select: {
-      id: true,
-      currentDetailPageArtifactId: true,
-      currentDetailPageRevisionId: true,
-      currentThumbnailSelection: {
-        select: { contentAsset: { select: { url: true } } },
-      },
-      contentGenerationGroups: {
-        where: { groupType: 'workspace_assets' },
-        select: {
-          originatingAssets: {
-            where: {
-              assetType: 'image',
-              role: { in: ['primary', 'detail', 'option'] },
-              isDeleted: false,
-            },
-            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-            select: {
-              id: true,
-              url: true,
-              role: true,
-              sortOrder: true,
-              metadata: true,
-            },
-          },
-        },
-      },
-    },
-  },
   options: {
     where: { isActive: true },
     select: {
@@ -122,6 +76,160 @@ function parseQueryDate(value?: string | null): Date | null {
 @Injectable()
 export class ChannelListingQueryPersistenceAdapter implements ChannelListingQueryPersistencePort {
   constructor(private readonly prisma: PrismaService) {}
+
+  async readRegisteredCandidateIds(transaction: Parameters<ChannelListingFactQueries['readRegisteredCandidateIds']>[0], input: Parameters<ChannelListingFactQueries['readRegisteredCandidateIds']>[1]) {
+    if (input.candidateIds?.length === 0) return [];
+    const candidateFilter = input.candidateIds ? { in: [...input.candidateIds] } : { not: null };
+    const rows = await ownerTransactionClient(transaction).channelListing.findMany({
+      where: { organizationId: input.organizationId, isActive: true,
+        OR: [
+          { sourceCandidateId: candidateFilter },
+          { salesProduct: { organizationId: input.organizationId, sourceCandidateId: candidateFilter } },
+        ] },
+      select: { sourceCandidateId: true, salesProduct: { select: { organizationId: true, sourceCandidateId: true } } },
+    });
+    const requested = input.candidateIds ? new Set(input.candidateIds) : null;
+    return [...new Set(rows.flatMap(row => [
+      row.sourceCandidateId,
+      row.salesProduct?.organizationId === input.organizationId ? row.salesProduct.sourceCandidateId : null,
+    ]).filter((id): id is string => id !== null && (!requested || requested.has(id))))];
+  }
+
+  async readOptionCandidates(transaction: Parameters<ChannelListingFactQueries['readOptionCandidates']>[0], input: Parameters<ChannelListingFactQueries['readOptionCandidates']>[1]) {
+    if (input.externalOptionIds.length === 0) return [];
+    const rows = await ownerTransactionClient(transaction).channelListingOption.findMany({
+      where: { organizationId: input.organizationId, externalOptionId: { in: [...input.externalOptionIds] },
+        ...(input.activeOnly ? { isActive: true } : {}),
+        listing: { organizationId: input.organizationId, ...(input.activeOnly ? { isActive: true } : {}),
+          channelAccount: { organizationId: input.organizationId, channel: input.channel } } },
+      select: { externalOptionId: true, id: true, listingId: true, itemName: true,
+        listing: { select: { channelAccountId: true } } },
+      orderBy: { id: 'asc' },
+    });
+    return rows.map(row => ({ externalOptionId: row.externalOptionId, optionId: row.id,
+      listingId: row.listingId, accountId: row.listing.channelAccountId, itemName: row.itemName }));
+  }
+
+  readRegistrationFailureCounts(transaction: Parameters<ChannelListingFactQueries['readRegistrationFailureCounts']>[0], input: Parameters<ChannelListingFactQueries['readRegistrationFailureCounts']>[1]) {
+    return readRegistrationFailureCounts(ownerTransactionClient(transaction), input);
+  }
+
+  async readCatalogFacts(transaction: Parameters<ChannelListingFactQueries['readCatalogFacts']>[0], input: Parameters<ChannelListingFactQueries['readCatalogFacts']>[1]) {
+    if (input.accountIds?.length === 0 || input.channels?.length === 0 || input.listingIds?.length === 0) return [];
+    const rows = await ownerTransactionClient(transaction).channelListing.findMany({
+      where: { organizationId: input.organizationId,
+        ...(input.accountIds ? { channelAccountId: { in: [...input.accountIds] } } : {}),
+        ...(input.listingIds ? { id: { in: [...input.listingIds] } } : {}),
+        ...(input.activeOnly ? { isActive: true } : {}),
+        channelAccount: { organizationId: input.organizationId,
+          ...(input.channels ? { channel: { in: [...input.channels] } } : {}),
+          ...(input.activeAccountsOnly ? { status: 'active' } : {}) } },
+      select: { id: true, channelAccountId: true, externalId: true, channelName: true, displayName: true,
+        category: true, imageUrl: true, status: true, exposureStatus: true, isActive: true, rawJson: true,
+        sourceCandidateId: true, createdAt: true, updatedAt: true,
+        channelAccount: { select: { channel: true } },
+        options: { where: { organizationId: input.organizationId, ...(input.activeOnly ? { isActive: true } : {}) },
+          select: { id: true, externalOptionId: true, itemName: true, sellerSku: true, status: true,
+            salePrice: true, isActive: true, createdAt: true, updatedAt: true,
+            inventoryComponents: { where: { organizationId: input.organizationId },
+              select: { masterProductId: true, quantity: true }, orderBy: { masterProductId: 'asc' } } } } },
+      orderBy: { id: 'asc' },
+    });
+    return rows.map(({ channelAccountId, channelAccount, options, ...row }) => ({ ...row, accountId: channelAccountId,
+      channel: channelAccount.channel, options: options.map(({ inventoryComponents, ...option }) => ({ ...option, components: inventoryComponents })) }));
+  }
+
+  async readExternalIdentities(transaction: Parameters<ChannelListingFactQueries['readExternalIdentities']>[0], input: Parameters<ChannelListingFactQueries['readExternalIdentities']>[1]) {
+    const tx = ownerTransactionClient(transaction);
+    const all = input.listingExternalIds === undefined && input.optionExternalIds === undefined;
+    const listingRows = all || input.listingExternalIds?.length
+      ? await tx.channelListing.findMany({
+        where: { organizationId: input.organizationId, channelAccountId: input.accountId,
+          ...(input.activeOnly ? { isActive: true } : {}),
+          ...(input.listingExternalIds ? { externalId: { in: [...input.listingExternalIds] } } : {}) },
+        select: { id: true, externalId: true }, orderBy: { id: 'asc' },
+      }) : [];
+    const options = all || input.optionExternalIds?.length
+      ? await tx.channelListingOption.findMany({
+        where: { organizationId: input.organizationId,
+          ...(input.activeOnly ? { isActive: true } : {}),
+          ...(input.optionExternalIds ? { externalOptionId: { in: [...input.optionExternalIds] } } : {}),
+          listing: { organizationId: input.organizationId, channelAccountId: input.accountId,
+            ...(input.activeOnly ? { isActive: true } : {}) } },
+        select: { id: true, listingId: true, externalOptionId: true, listing: { select: { externalId: true } } },
+        orderBy: { id: 'asc' },
+      }) : [];
+    const seen = new Set<string>();
+    for (const option of options) {
+      if (seen.has(option.externalOptionId)) throw new ConflictException('Channel option identity is ambiguous within the account.');
+      seen.add(option.externalOptionId);
+    }
+    return [
+      ...listingRows.map(row => ({ listingId: row.id, externalId: row.externalId, optionId: null, externalOptionId: null })),
+      ...options.map(row => ({ listingId: row.listingId, externalId: row.listing.externalId, optionId: row.id, externalOptionId: row.externalOptionId })),
+    ];
+  }
+
+  async readOptionIdentities(transaction: Parameters<ChannelListingFactQueries['readOptionIdentities']>[0], input: Parameters<ChannelListingFactQueries['readOptionIdentities']>[1]) {
+    if (input.optionIds.length === 0) return [];
+    const tx = ownerTransactionClient(transaction);
+    const rows = await tx.channelListingOption.findMany({
+      where: { organizationId: input.organizationId, id: { in: [...input.optionIds] },
+        ...(input.activeOnly ? { isActive: true } : {}),
+        listing: { organizationId: input.organizationId,
+          ...(input.activeOnly ? { isActive: true } : {}),
+          ...(input.channel ? { channelAccount: { organizationId: input.organizationId, channel: input.channel,
+            ...(input.activeOnly ? { status: 'active' } : {}) } } : {}) } },
+      select: { id: true, listingId: true, externalOptionId: true, itemName: true,
+        listing: { select: { externalId: true, channelAccountId: true, channelName: true, displayName: true } } },
+    });
+    return rows.map(row => ({ optionId: row.id, listingId: row.listingId, accountId: row.listing.channelAccountId,
+      externalOptionId: row.externalOptionId, listingExternalId: row.listing.externalId,
+      channelName: row.listing.channelName, displayName: row.listing.displayName, itemName: row.itemName }));
+  }
+
+  async readDisplayFacts(transaction: Parameters<ChannelListingFactQueries['readDisplayFacts']>[0], input: Parameters<ChannelListingFactQueries['readDisplayFacts']>[1]) {
+    if (input.listingIds.length === 0) return [];
+    const rows = await ownerTransactionClient(transaction).channelListing.findMany({
+      where: { organizationId: input.organizationId, id: { in: [...input.listingIds] },
+        ...(input.activeOnly ? { isActive: true } : {}) },
+      select: { id: true, externalId: true, channelAccountId: true, displayName: true, channelName: true,
+        category: true, imageUrl: true,
+        options: { where: { organizationId: input.organizationId, isActive: true },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 1, select: { sellerSku: true } } },
+    });
+    return rows.map(({ channelAccountId, options, ...row }) => ({ ...row, accountId: channelAccountId,
+      firstActiveSellerSku: options[0]?.sellerSku ?? null }));
+  }
+
+  readTrafficWindow(transaction: Parameters<ChannelListingFactQueries['readTrafficWindow']>[0], input: Parameters<ChannelListingFactQueries['readTrafficWindow']>[1]) {
+    return readListingTrafficWindowFacts(ownerTransactionClient(transaction), input);
+  }
+  readLatestState(transaction: Parameters<ChannelListingFactQueries['readLatestState']>[0], input: Parameters<ChannelListingFactQueries['readLatestState']>[1]) {
+    return readLatestListingStateFacts(ownerTransactionClient(transaction), input);
+  }
+  readLatestSaleStatus(transaction: Parameters<ChannelListingFactQueries['readLatestSaleStatus']>[0], input: Parameters<ChannelListingFactQueries['readLatestSaleStatus']>[1]) {
+    return readLatestListingSaleStatusFacts(ownerTransactionClient(transaction), input);
+  }
+  async lockActiveOwner(transaction: Parameters<ChannelListingFactQueries['lockActiveOwner']>[0], input: Parameters<ChannelListingFactQueries['lockActiveOwner']>[1]) {
+    const rows = await ownerTransactionClient(transaction).$queryRaw<Array<{ id: string; sourceCandidateId: string | null; accountId: string }>>(Prisma.sql`
+      SELECT id, source_candidate_id AS "sourceCandidateId", channel_account_id AS "accountId"
+      FROM channel_listings
+      WHERE id = ${input.listingId}::uuid AND organization_id = ${input.organizationId}::uuid AND is_active = true
+      FOR UPDATE
+    `);
+    if (rows.length !== 1) throw new NotFoundException('Channel listing owner not found.');
+    return rows[0]!;
+  }
+  async assertOwnedIds(transaction: Parameters<ChannelListingFactQueries['assertOwnedIds']>[0], input: Parameters<ChannelListingFactQueries['assertOwnedIds']>[1]) {
+    const ids = [...new Set(input.listingIds)];
+    if (ids.length === 0) return;
+    const count = await ownerTransactionClient(transaction).channelListing.count({
+      where: { organizationId: input.organizationId, id: { in: ids } },
+    });
+    if (count !== ids.length) throw new NotFoundException('Channel listing owner not found.');
+  }
+
 
   async list(
     organizationId: string,
@@ -224,17 +332,13 @@ function toSummary(
   row: ListingRow | WorkspaceListingRow,
   includeProviderDetail = false,
 ): ChannelListingSummary {
-  const workspace = row.contentWorkspaces[0] ?? null;
   const listingName = row.displayName ?? row.channelName ?? row.externalId;
   return {
     id: row.id,
     listingName,
-    thumbnailUrl:
-      workspace?.currentThumbnailSelection?.contentAsset.url
-      ?? row.thumbnails[0]?.imageUrl
-      ?? null,
-    detailPageArtifactId: workspace?.currentDetailPageArtifactId ?? null,
-    detailPageRevisionId: workspace?.currentDetailPageRevisionId ?? null,
+    thumbnailUrl: null,
+    detailPageArtifactId: null,
+    detailPageRevisionId: null,
     channel: row.channelAccount.channel,
     channelAccountId: row.channelAccountId,
     channelAccountName: row.channelAccount.name,
@@ -245,7 +349,7 @@ function toSummary(
     manufacturer: row.manufacturer,
     channelPrice: firstPrice(row.options),
     sourceCandidateId: row.sourceCandidateId,
-    contentWorkspaceId: workspace?.id ?? null,
+    contentWorkspaceId: null,
     status: row.status,
     exposureStatus: row.exposureStatus,
     optionCount: row.options.length,
@@ -288,7 +392,7 @@ function buildProviderDetail(row: WorkspaceListingRow): ChannelListingProviderDe
         attributes: option.attributesJson ?? null,
       };
     }),
-    media: providerMediaFromWorkspace(row),
+    media: [],
   };
 }
 
@@ -314,50 +418,6 @@ function detailDocumentIdsFromRaw(rawValue: unknown): string[] {
 
 function hasOwn(value: Record<string, unknown> | null, key: string): boolean {
   return value !== null && Object.prototype.hasOwnProperty.call(value, key);
-}
-
-function providerMediaFromWorkspace(row: WorkspaceListingRow): ChannelListingProviderDetail['media'] {
-  const workspace = row.contentWorkspaces[0];
-  if (!workspace) return [];
-  return workspace.contentGenerationGroups.flatMap((group) =>
-    group.originatingAssets.flatMap((asset) => {
-      const metadata = jsonRecord(asset.metadata);
-      const sourceUrl = stringValue(asset.url);
-      if (
-        !sourceUrl
-        || metadata?.active === false
-        || !isChannelProviderMetadata(metadata, row.channelAccount.channel)
-      ) return [];
-      return [{
-        sourceUrl,
-        role: stringValue(asset.role) ?? 'detail',
-        sortOrder: asset.sortOrder,
-        externalOptionIds: optionIdsFromMetadata(metadata),
-      }];
-    }),
-  );
-}
-
-function isChannelProviderMetadata(
-  metadata: Record<string, unknown> | null,
-  channel: string,
-): boolean {
-  if (metadata?.sourceType === 'coupang_catalog') return channel === 'coupang';
-  return metadata?.sourceType === 'channel_catalog'
-    && stringValue(metadata.channel) === channel;
-}
-
-function optionIdsFromMetadata(metadata: Record<string, unknown> | null): string[] {
-  if (!metadata) return [];
-  const arrayValue = Array.isArray(metadata.externalOptionIds)
-    ? metadata.externalOptionIds
-    : [];
-  return [...new Set([
-    ...arrayValue,
-    metadata.externalOptionId,
-  ].filter((value): value is string => typeof value === 'string')
-    .map((value) => value.trim())
-    .filter(Boolean))].sort((left, right) => left.localeCompare(right));
 }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {

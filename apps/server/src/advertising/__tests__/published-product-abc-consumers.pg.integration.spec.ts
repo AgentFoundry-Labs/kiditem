@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
@@ -36,7 +38,7 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
   });
 
   it('reads no ABC official cutoff before Products publishes', async () => {
-    await expect(new AdListingRepositoryAdapter(prisma as never).findScopedAdListingsWithAbcCutoff(ORG, []))
+    await expect(new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never).findScopedAdListingsWithAbcCutoff(ORG, []))
       .resolves.toEqual({ listings: new Map(), abcOfficialCutoffDate: null });
   });
 
@@ -182,16 +184,16 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
       },
     });
 
-    const listingReader = new AdListingRepositoryAdapter(
+    const listingReader = new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    const campaignReader = new AdCampaignRepositoryAdapter(prisma as never);
-    const keywordReader = new KeywordRankRepositoryAdapter(
+    const campaignReader = new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts);
+    const keywordReader = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    const actionReader = new AdActionRepositoryAdapter(prisma as never, listingReader);
+    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, listingReader, profitCatalogTestReaders(prisma as never).accounts);
 
     expect((await listingReader.findScopedAdListings(ORG, [listing.id]))
       .get(listing.id)?.masterProduct.abcGrade).toBe('A');

@@ -1,3 +1,4 @@
+import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 // `/api/dashboard/sales` and `/api/dashboard/ad` each publish their own
 // `effectivePeriod`, and the web renders both in one label row. They must agree
 // on the same month and the same sources.
@@ -127,13 +128,14 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    trafficOwner = new AdTrafficSourceRepository(
+    trafficOwner = new AdTrafficSourceRepository(channelFactTestPorts(prismaService).accounts, channelFactTestPorts(prismaService).listings,
       prismaService,
       new SourceFailureAlerts(prismaService),
     );
 
     const m = await Test.createTestingModule({
       providers: [
+        ...channelFactTestProviders,
         DashboardSalesService,
         DashboardAdService,
         DashboardSalesRepositoryAdapter,

@@ -1,3 +1,4 @@
+import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
@@ -55,7 +56,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const inventoryTransactionalRead = new ProductTransactionalReadRepositoryAdapter();
     const alerts = new SourceFailureAlerts(prisma as never);
     sellpiaSource = new SellpiaProfitabilitySourceService(prisma as never, alerts, inventoryTransactionalRead);
-    advertisingSource = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+    advertisingSource = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, alerts);
     const evidence = new MasterProductProfitabilityReadService(
       sellpiaSource,
       advertisingSource,
@@ -63,6 +64,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       new ProductTransactionalReadRepositoryAdapter());
     const m = await Test.createTestingModule({
       providers: [
+        ...channelFactTestProviders,
         DashboardInventoryService,
         { provide: MASTER_PRODUCT_PROFITABILITY_READ_PORT, useValue: evidence },
         MasterProductAbcRepositoryAdapter,

@@ -16,7 +16,7 @@ export interface CandidateRegistrationImages {
 /**
  * The candidate's saved representative thumbnail, owned by its AI content
  * workspace. Sourcing reads it as a fallback for
- * `ProductPreparation.selectedThumbnailUrl`: a candidate with no preparation
+ * `RegistrationTarget.selectedThumbnailUrl`: a candidate with no preparation
  * can only save a representative through the workspace, so without this the
  * saved selection is lost on every reload.
  */

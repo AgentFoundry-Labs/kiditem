@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../../../../test-helpers/channel-fact-ports';
 import { describe, expect, it, vi } from 'vitest';
 import { KeywordRankRepositoryAdapter } from '../keyword-rank.repository.adapter';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
@@ -68,7 +69,7 @@ describe('KeywordRankRepositoryAdapter', () => {
         operation: (tx: typeof transactionClient) => Promise<number>,
       ) => operation(transactionClient),
     } as unknown as PrismaService;
-    const adapter = new KeywordRankRepositoryAdapter(prisma);
+    const adapter = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma).listings, channelFactTestPorts(prisma).recipes, prisma);
 
     await adapter.replaceWingSalesRankSnapshots([
       {
@@ -176,7 +177,7 @@ describe('KeywordRankRepositoryAdapter', () => {
         operation: (tx: typeof transactionClient) => Promise<{ id: string }>,
       ) => operation(transactionClient),
     } as unknown as PrismaService;
-    const adapter = new KeywordRankRepositoryAdapter(prisma);
+    const adapter = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma).listings, channelFactTestPorts(prisma).recipes, prisma);
     const staleMerge = vi.fn(() => ({
       sellerCatalogs: [{ sellerId: 'STALE' }],
     }));

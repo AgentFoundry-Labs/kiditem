@@ -1,3 +1,6 @@
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 // Advertising-side scrape-run status reads for the extension-status endpoint,
 // anchored on the published Wing itemwinner owner.
 
@@ -18,6 +21,8 @@ export class ChannelScrapeRepositoryAdapter
   implements ChannelScrapeRepositoryPort
 {
   constructor(
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     @Inject(WING_ITEMWINNER_KPI_READ_PORT)
     private readonly wingItemwinnerRead: WingItemwinnerKpiReadPort,
@@ -60,7 +65,6 @@ export class ChannelScrapeRepositoryAdapter
           where: {
             organizationId,
             sourceImportRunId: wingPublished.attemptId,
-            sourceImportRun: { status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           },
         })
       : Promise.resolve(0);
@@ -70,7 +74,6 @@ export class ChannelScrapeRepositoryAdapter
             organizationId,
             channelAccountId,
             sourceImportRunId: wingPublished.attemptId,
-            sourceImportRun: { status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
           },
           orderBy: [
             { finishedAt: 'desc' },
@@ -82,9 +85,7 @@ export class ChannelScrapeRepositoryAdapter
       : Promise.resolve(null);
 
     const [listingCount, rawSnapshotCount, latestRun] = await Promise.all([
-      this.prisma.channelListing.count({
-        where: { organizationId, channelAccountId, isActive: true },
-      }),
+      this.channelListings.readCatalogFacts(ownerTransaction(this.prisma), { organizationId, accountIds: [channelAccountId], activeOnly: true }).then(rows => rows.length),
       rawSnapshotCountPromise,
       latestRunPromise,
     ]);
@@ -105,15 +106,7 @@ export class ChannelScrapeRepositoryAdapter
   private async findActiveCoupangAccountId(
     organizationId: string,
   ): Promise<string | null> {
-    const account = await this.prisma.channelAccount.findFirst({
-      where: { organizationId, channel: 'coupang', status: 'active' },
-      orderBy: [
-        { isPrimary: 'desc' },
-        { updatedAt: 'desc' },
-        { id: 'asc' },
-      ],
-      select: { id: true },
-    });
+    const account = await this.channelAccounts.resolveActiveProvider(ownerTransaction(this.prisma), { organizationId, channel: 'coupang' });
     return account?.id ?? null;
   }
 }

@@ -177,3 +177,32 @@ describe('executeListingAvailability', () => {
     expect(rerun.adapterCalled).toBe(false);
   });
 });
+
+
+describe('Wing availability confirmation', () => {
+  const proof = { externalListingId: LISTING_ID, providerAccountId: 'vendor-1',
+    observedOptionStocks: [{ externalOptionId: 'OPTION-FROZEN', stock: 0, registrationType: 'NORMAL' as const }] };
+  it('uses the frozen account for transport and reports only complete provider reread proof', async () => {
+    const { input, client } = setup({ started: execution({ status: 'executing', leaseToken: LEASE_TOKEN,
+      maySubmit: true, expectedProviderAccountId: 'vendor-1' }) });
+    vi.mocked(input.send).mockResolvedValue(transportResult({ wingEvidence: [proof] }));
+    await executeListingAvailability(input);
+    expect(input.send).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ expectedProviderAccountId: 'vendor-1' }));
+    expect(client.report).toHaveBeenCalledWith(EXECUTION_ID, expect.objectContaining({ outcome: 'confirmed',
+      evidence: expect.objectContaining({ providerAccountId: 'vendor-1', observedOptionStocks: proof.observedOptionStocks }) }));
+  });
+  it.each([
+    { ...proof, providerAccountId: 'other-vendor' },
+    { ...proof, externalListingId: 'other-listing' },
+    { ...proof, observedOptionStocks: [] },
+    { ...proof, observedOptionStocks: [...proof.observedOptionStocks, ...proof.observedOptionStocks] },
+    { ...proof, observedOptionStocks: [{ ...proof.observedOptionStocks[0], stock: 1 }] },
+  ])('keeps mismatched or partial evidence unresolved', async (evidence) => {
+    const { input, client } = setup({ started: execution({ status: 'executing', leaseToken: LEASE_TOKEN,
+      maySubmit: true, expectedProviderAccountId: 'vendor-1' }) });
+    vi.mocked(input.send).mockResolvedValue(transportResult({ wingEvidence: [evidence] }));
+    await executeListingAvailability(input);
+    expect(client.report.mock.calls[0][1].outcome).toBe('submitted');
+    expect(client.report.mock.calls[0][1].evidence).not.toHaveProperty('providerAccountId');
+  });
+});

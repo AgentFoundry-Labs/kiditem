@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { ThumbnailTrackingStatus } from '@kiditem/shared/ai';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -8,17 +10,6 @@ import type {
   UpsertThumbnailTrackingDailySnapshotInput,
   UpdateThumbnailTrackingInput,
 } from '../../../application/port/out/repository/thumbnail-tracking.repository.port';
-
-const TRACKING_LISTING_INCLUDE = {
-  listing: {
-    select: {
-      id: true,
-      displayName: true,
-      channelName: true,
-      externalId: true,
-    },
-  },
-} as const;
 
 /**
  * SQL for one status. Each predicate selects exactly the rows
@@ -51,15 +42,22 @@ function isDuplicateError(error: unknown): boolean {
 
 @Injectable()
 export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly listings: ChannelListingQueryPort) {}
 
   findTrackings(query: Parameters<ThumbnailTrackingRepositoryPort['findTrackings']>[0], organizationId: string) {
-    return this.prisma.thumbnailTracking.findMany({
-      where: trackingWhere(query, organizationId),
-      include: TRACKING_LISTING_INCLUDE,
-      orderBy: { appliedAt: 'desc' },
-      skip: query.skip,
-      take: query.take,
+    return this.prisma.$transaction(async tx => {
+      const rows = await tx.thumbnailTracking.findMany({ where: trackingWhere(query, organizationId), orderBy: { appliedAt: 'desc' }, skip: query.skip, take: query.take });
+      return this.withListings(tx, rows, organizationId);
+    });
+  }
+
+  private async withListings<T extends { listingId: string }>(tx: Prisma.TransactionClient, rows: T[], organizationId: string) {
+    const facts = await this.listings.readDisplayFacts(ownerTransaction(tx), { organizationId, listingIds: [...new Set(rows.map(row => row.listingId))] });
+    const byId = new Map(facts.map(row => [row.id, row]));
+    return rows.map(row => {
+      const listing = byId.get(row.listingId);
+      if (!listing) throw new Error(`Missing organization-owned listing for thumbnail tracking ${row.listingId}.`);
+      return { ...row, listing: { id: listing.id, displayName: listing.displayName, channelName: listing.channelName, externalId: listing.externalId } };
     });
   }
 
@@ -70,52 +68,33 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
   }
 
   findChannelListingForWorkspace(contentWorkspaceId: string, organizationId: string) {
-    return this.prisma.contentWorkspace
-      .findFirst({
-        where: {
-          id: contentWorkspaceId,
-          organizationId,
-          status: 'active',
-          isDeleted: false,
-          channelListingId: { not: null },
-        },
-        select: { channelListing: { select: { id: true } } },
-      })
-      .then((workspace) => workspace?.channelListing ?? null);
+    return this.prisma.$transaction(async tx => {
+      const workspace = await tx.contentWorkspace.findFirst({
+        where: { id: contentWorkspaceId, organizationId, status: 'active', isDeleted: false, channelListingId: { not: null } },
+        select: { channelListingId: true },
+      });
+      if (!workspace?.channelListingId) return null;
+      const rows = await this.listings.readDisplayFacts(ownerTransaction(tx), { organizationId, listingIds: [workspace.channelListingId] });
+      return rows[0] ? { id: rows[0].id } : null;
+    });
   }
 
   async createTracking(input: CreateThumbnailTrackingInput) {
-    const where = {
-      organizationId: input.organizationId,
-      listingId: input.listingId,
-      generationId: input.generationId,
-    };
-    const existing = await this.prisma.thumbnailTracking.findFirst({
-      where,
-      include: TRACKING_LISTING_INCLUDE,
-    });
-    if (existing) return { created: false as const, row: existing };
-
+    const where = { organizationId: input.organizationId, listingId: input.listingId, generationId: input.generationId };
     try {
-      const row = await this.prisma.thumbnailTracking.create({
-        data: {
-          organizationId: input.organizationId,
-          listingId: input.listingId,
-          generationId: input.generationId,
-          originalGrade: input.originalGrade,
-          originalScore: input.originalScore,
-        },
-        include: TRACKING_LISTING_INCLUDE,
+      return await this.prisma.$transaction(async tx => {
+        const existing = await tx.thumbnailTracking.findFirst({ where });
+        if (existing) return { created: false as const, row: (await this.withListings(tx, [existing], input.organizationId))[0] };
+        await this.listings.assertOwnedIds(ownerTransaction(tx), { organizationId: input.organizationId, listingIds: [input.listingId] });
+        const row = await tx.thumbnailTracking.create({ data: { ...where, originalGrade: input.originalGrade, originalScore: input.originalScore } });
+        return { created: true as const, row: (await this.withListings(tx, [row], input.organizationId))[0] };
       });
-      return { created: true as const, row };
     } catch (error) {
       if (!isDuplicateError(error)) throw error;
-
-      const row = await this.prisma.thumbnailTracking.findFirst({
-        where,
-        include: TRACKING_LISTING_INCLUDE,
+      return this.prisma.$transaction(async tx => {
+        const row = await tx.thumbnailTracking.findFirst({ where });
+        return { created: false as const, row: row ? (await this.withListings(tx, [row], input.organizationId))[0] : null };
       });
-      return { created: false as const, row };
     }
   }
 
@@ -131,9 +110,9 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
     if (metrics.salesAfter !== undefined) data.salesAfter = metrics.salesAfter;
     if (inconclusive === false) data.markedInconclusiveAt = null;
 
-    const found = await this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx) => {
       const updated = await tx.thumbnailTracking.updateMany({ where, data });
-      if (updated.count === 0) return false;
+      if (updated.count === 0) return null;
       if (inconclusive === true) {
         // A repeated mark keeps the time the operator first judged the tracking inconclusive.
         await tx.thumbnailTracking.updateMany({
@@ -141,30 +120,18 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
           data: { markedInconclusiveAt: new Date() },
         });
       }
-      return true;
-    });
-    if (!found) return null;
-
-    return this.prisma.thumbnailTracking.findFirst({
-      where,
-      include: TRACKING_LISTING_INCLUDE,
+      const row = await tx.thumbnailTracking.findFirst({ where });
+      return row ? (await this.withListings(tx, [row], input.organizationId))[0] : null;
     });
   }
 
   findTrackingForSnapshot(trackingId: string, organizationId: string) {
-    return this.prisma.thumbnailTracking.findFirst({
-      where: { id: trackingId, organizationId },
-      select: {
-        id: true,
-        salesBefore: true,
-        listing: {
-          select: {
-            channelName: true,
-            displayName: true,
-            externalId: true,
-          },
-        },
-      },
+    return this.prisma.$transaction(async tx => {
+      const row = await tx.thumbnailTracking.findFirst({ where: { id: trackingId, organizationId }, select: { id: true, salesBefore: true, listingId: true } });
+      if (!row) return null;
+      const listings = await this.listings.readDisplayFacts(ownerTransaction(tx), { organizationId, listingIds: [row.listingId] });
+      const listing = listings[0];
+      return { id: row.id, salesBefore: row.salesBefore, listing: listing ? { channelName: listing.channelName, displayName: listing.displayName, externalId: listing.externalId } : null };
     });
   }
 

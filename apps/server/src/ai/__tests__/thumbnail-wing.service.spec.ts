@@ -1,9 +1,12 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
-import type { ThumbnailWingRepositoryPort } from '../application/port/out/repository/thumbnail-wing.repository.port';
 import { ThumbnailWingService } from '../application/service/thumbnail-wing.service';
+import type {
+  ThumbnailWingRegistrableWorkspace,
+  ThumbnailWingRepositoryPort,
+} from '../application/port/out/repository/thumbnail-wing.repository.port';
 
 const ORGANIZATION_ID = 'organization-1';
 const GENERATION_ID = '7d000000-0000-4000-8000-000000000010';
@@ -19,18 +22,16 @@ function makeService() {
         registrationAttempts: [],
       })),
     },
-    contentWorkspace: {
-      findFirst: vi.fn(async () => ({
-        displayName: 'Workspace product',
-        channelListing: { channelName: '쿠팡 상품명' },
-      })),
-    },
     thumbnailRegistrationAttempt: {
       create: vi.fn(async () => ({ id: 'attempt-1' })),
       updateMany: vi.fn(async () => ({ count: 1 })),
       deleteMany: vi.fn(async () => ({ count: 1 })),
     },
   };
+  const workspaceLookup = vi.fn(async (_contentWorkspaceId: string, _organizationId: string): Promise<ThumbnailWingRegistrableWorkspace | null> => ({
+    displayName: 'Workspace product',
+    channelListing: { channelName: '쿠팡 상품명' },
+  }));
   const repository: ThumbnailWingRepositoryPort = {
     findGenerationWithCandidates: (generationId, organizationId) =>
       prisma.thumbnailGeneration.findFirst({
@@ -42,25 +43,7 @@ function makeService() {
           },
         },
       }),
-    findRegistrableWorkspace: (contentWorkspaceId, organizationId) =>
-      prisma.contentWorkspace.findFirst({
-        where: {
-          id: contentWorkspaceId,
-          organizationId,
-          isDeleted: false,
-          status: 'active',
-          channelListing: {
-            is: {
-              isActive: true,
-              channelAccount: { is: { channel: 'coupang' } },
-            },
-          },
-        },
-        select: {
-          displayName: true,
-          channelListing: { select: { channelName: true } },
-        },
-      }),
+    findRegistrableWorkspace: workspaceLookup,
     findGenerationWithLatestAttempt: (id, organizationId) =>
       prisma.thumbnailGeneration.findFirst({
         where: { id, organizationId },
@@ -122,7 +105,7 @@ function makeService() {
     checkPlaywriterStatus: vi.fn(async () => ({ connected: true })),
   };
   const service = new ThumbnailWingService(repository, imageFetcher as never, automationRunner as never);
-  return { service, repository, prisma, imageFetcher, automationRunner };
+  return { service, repository, prisma, workspaceLookup, imageFetcher, automationRunner };
 }
 
 describe('ThumbnailWingService', () => {
@@ -323,8 +306,8 @@ describe('ThumbnailWingService', () => {
   });
 
   it('decodes URL-encoded Coupang product names before Wing automation', async () => {
-    const { service, prisma, automationRunner } = makeService();
-    prisma.contentWorkspace.findFirst.mockResolvedValueOnce({
+    const { service, workspaceLookup, automationRunner } = makeService();
+    workspaceLookup.mockResolvedValueOnce({
       displayName: 'Workspace product',
       channelListing: {
         channelName:
@@ -402,31 +385,14 @@ describe('ThumbnailWingService', () => {
   });
 
   it('does not create a registration attempt until the generation workspace is confirmed in the caller organization', async () => {
-    const { service, prisma } = makeService();
-    prisma.contentWorkspace.findFirst.mockResolvedValueOnce(null);
+    const { service, prisma, workspaceLookup } = makeService();
+    workspaceLookup.mockResolvedValueOnce(null);
 
     await expect(service.registerToWing(GENERATION_ID, ORGANIZATION_ID)).rejects.toThrow(
       'ContentWorkspace workspace-1 not found',
     );
 
-    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 'workspace-1',
-        organizationId: ORGANIZATION_ID,
-        isDeleted: false,
-        status: 'active',
-        channelListing: {
-          is: {
-            isActive: true,
-            channelAccount: { is: { channel: 'coupang' } },
-          },
-        },
-      },
-      select: {
-        displayName: true,
-        channelListing: { select: { channelName: true } },
-      },
-    });
+    expect(workspaceLookup).toHaveBeenCalledWith('workspace-1', ORGANIZATION_ID);
     expect(prisma.thumbnailRegistrationAttempt.create).not.toHaveBeenCalled();
   });
 

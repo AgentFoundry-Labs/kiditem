@@ -34,7 +34,7 @@ export const isInProgress = (s: string | undefined | null): boolean =>
 /**
  * 수집후보 하나의 등록 상태. **울타리**(`ProductRegistrationExecution`)가 근거다.
  *
- * 초안 행(`ProductPreparation.status`)은 거울이라 울타리와 어긋날 수 있다 — 어긋난
+ * 초안 행(`RegistrationTarget.status`)은 거울이라 울타리와 어긋날 수 있다 — 어긋난
  * 거울을 믿으면 이미 마켓에 올라간 상품에 '등록 준비' 버튼이 다시 열린다(ADR-0014).
  */
 export type CandidateRegistrationState =
@@ -91,11 +91,11 @@ export interface SourcedProduct {
   thumbnail_url: string | null;
   imageUrl?: string | null;
   images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
-  productPreparation?: ProductPreparationSelection | null;
+  registrationTarget?: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
   registrationState?: CandidateRegistrationState | null;
   /**
-   * 저장된 대표 썸네일. 서버가 준비(ProductPreparation) → 후보 워크스페이스
+   * 저장된 대표 썸네일. 서버가 준비(RegistrationTarget) → 후보 워크스페이스
    * 순으로 계산해 내려준다. 없으면 `null` 이고 카드는 수집 원본으로 떨어진다.
    */
   selectedThumbnailUrl?: string | null;
@@ -141,13 +141,13 @@ export interface ProductDetailResponse {
   image_urls: string[];
   images: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   basicInfo: ProductBasics;
-  productPreparation: ProductPreparationSelection | null;
+  registrationTarget: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
   registrationState: CandidateRegistrationState | null;
   /**
    * 후보가 이미 소유한 `ContentWorkspace.id`. 아직 없으면 `null`.
    *
-   * `ProductPreparation` 이 없는 후보는 이 값이 썸네일 구성을 저장할 수 있는
+   * `RegistrationTarget` 이 없는 후보는 이 값이 썸네일 구성을 저장할 수 있는
    * 유일한 위치다(= `ContentAsset role='thumbnail'` 갤러리 소유자).
    * 구버전 응답에는 없을 수 있어 `null` 로 정규화한다.
    */
@@ -680,9 +680,9 @@ export const productsApi = {
         p.imageUrl,
         p.thumbnailUrl,
       );
-      const productPreparation = normalizeProductPreparation(p.productPreparation);
-      const preparationRecord = p.productPreparation && typeof p.productPreparation === 'object'
-        ? p.productPreparation as Record<string, unknown>
+      const registrationTarget = normalizeProductPreparation(p.registrationTarget);
+      const preparationRecord = p.registrationTarget && typeof p.registrationTarget === 'object'
+        ? p.registrationTarget as Record<string, unknown>
         : {};
       const registrationInput = preparationRecord.registrationInput &&
         typeof preparationRecord.registrationInput === 'object' &&
@@ -696,7 +696,7 @@ export const productsApi = {
       const selectedThumbnailUrl = typeof p.selectedThumbnailUrl === 'string' && p.selectedThumbnailUrl.trim()
         ? p.selectedThumbnailUrl.trim()
         : null;
-      const thumbnailUrl = productPreparation?.selectedThumbnailUrl ??
+      const thumbnailUrl = registrationTarget?.selectedThumbnailUrl ??
         selectedThumbnailUrl ??
         selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
       const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
@@ -713,7 +713,7 @@ export const productsApi = {
         thumbnail_url: thumbnailUrl,
         imageUrl: p.imageUrl ?? null,
         images: Array.isArray(p.images) ? p.images : [],
-        productPreparation,
+        registrationTarget,
         registrationState: normalizeRegistrationState(p.registrationState),
         selectedThumbnailUrl,
         thumbnailPreviewUrls,
@@ -744,14 +744,14 @@ export const productsApi = {
     const hydratedRawData = rawDataWithImageFallback(rawData, images);
     const thumbnailUrl = selectBestThumbnailImage(hydratedRawData, images, p.thumbnailUrl || p.imageUrl || null);
     const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
-    const productPreparation = normalizeProductPreparation(p.productPreparation);
+    const registrationTarget = normalizeProductPreparation(p.registrationTarget);
     const basicInfo = normalizeProductBasics(p.basicInfo, {
       name: p.name || rawData.title || '',
       category: p.category || '',
       description: p.description || '',
       tags: Array.isArray(p.tags) ? p.tags.filter((tag: unknown): tag is string => typeof tag === 'string') : [],
       thumbnailUrls: images,
-      preparation: productPreparation,
+      preparation: registrationTarget,
     });
     return {
       id: p.id,
@@ -771,7 +771,7 @@ export const productsApi = {
       image_urls: images,
       images: Array.isArray(p.images) ? p.images : [],
       basicInfo,
-      productPreparation,
+      registrationTarget,
       registrationState: normalizeRegistrationState(p.registrationState),
       contentWorkspaceId:
         typeof p.contentWorkspaceId === 'string' && p.contentWorkspaceId
@@ -879,7 +879,7 @@ export const candidatesApi = {
       { headers: { 'Idempotency-Key': idempotencyKey } },
     ),
   /**
-   * `ProductPreparation` 이 없는 후보의 기본정보를 후보 자체에 저장한다.
+   * `RegistrationTarget` 이 없는 후보의 기본정보를 후보 자체에 저장한다.
    * 채널 계정 선택 없이도 저장 가능하며, 준비가 생기면 registrationInput 이 이어받는다.
    */
   updateCandidateBasicInfo: (candidateId: string, body: UpdateProductBasicsInput) => {

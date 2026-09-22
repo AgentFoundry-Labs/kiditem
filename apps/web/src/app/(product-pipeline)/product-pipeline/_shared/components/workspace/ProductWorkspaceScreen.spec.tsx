@@ -279,7 +279,7 @@ describe('ProductWorkspaceScreen', () => {
       ...workspaceData,
       product: {
         ...workspaceData.product,
-        productPreparation: {
+        registrationTarget: {
           id: 'prep-1',
           sourceCandidateId: 'candidate-1',
           channelAccountId: 'account-1',
@@ -313,8 +313,8 @@ describe('ProductWorkspaceScreen', () => {
     const tab = await screen.findByTestId('product-tab-content');
     expect(tab).toHaveAttribute('data-selected-thumbnail', 'https://cdn.example.com/generated-thumb.png');
     expect(tab).toHaveAttribute('data-selected-detail-generation', 'detail-generation-1');
-    expect(productEditHeaderProps.at(-1)?.productPreparation).toBe(
-      selectedWorkspaceData.product.productPreparation,
+    expect(productEditHeaderProps.at(-1)?.registrationTarget).toBe(
+      selectedWorkspaceData.product.registrationTarget,
     );
     expect(productEditHeaderProps.at(-1)?.detailGenerationContentWorkspaceId).toBe('workspace-1');
     expect(productEditHeaderProps.at(-1)?.selectedThumbnailGenerationId).toBe(
@@ -329,7 +329,7 @@ describe('ProductWorkspaceScreen', () => {
         ...workspaceData,
         product: {
           ...workspaceData.product,
-          productPreparation: {
+          registrationTarget: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
             channelAccountId: null,
@@ -385,7 +385,7 @@ describe('ProductWorkspaceScreen', () => {
         product: {
           ...workspaceData.product,
           registrationState: 'registered',
-          productPreparation: {
+          registrationTarget: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
             channelAccountId: null,
@@ -435,7 +435,7 @@ describe('ProductWorkspaceScreen', () => {
         ...workspaceData,
         product: {
           ...workspaceData.product,
-          productPreparation: {
+          registrationTarget: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
             channelAccountId: null,
@@ -486,7 +486,7 @@ describe('ProductWorkspaceScreen', () => {
         ...workspaceData,
         product: {
           ...workspaceData.product,
-          productPreparation: {
+          registrationTarget: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
             channelAccountId: null,
@@ -580,7 +580,7 @@ describe('ProductWorkspaceScreen', () => {
     ));
   });
 
-  // 준비(ProductPreparation)가 없는 후보 회귀.
+  // 준비(RegistrationTarget)가 없는 후보 회귀.
   // 예전에는 (1) 저장 버튼이 아예 렌더되지 않았고, (2) 대표 등록 경로가 대표 1장만
   // 저장하고 미리보기 목록을 조용히 버렸다. 그래도 성공 토스트는 떴다.
   describe('without a product preparation', () => {
@@ -668,7 +668,7 @@ describe('ProductWorkspaceScreen', () => {
     });
 
     it('saves basic information to the candidate itself when no preparation exists', async () => {
-      // 회귀: 준비(ProductPreparation)가 0행인 후보는 예전에 `수정` 저장 콜백이
+      // 회귀: 준비(RegistrationTarget)가 0행인 후보는 예전에 `수정` 저장 콜백이
       // 아예 제공되지 않아 기본정보가 읽기 전용이었다. 이제 채널 계정 선택 없이도
       // 후보 자체(PATCH /api/sourcing/candidates/:id/basic-info)에 저장한다.
       apiClientPatchMock.mockResolvedValue({ ok: true });
@@ -755,7 +755,7 @@ describe('ProductWorkspaceScreen', () => {
         ...workspaceData,
         product: {
           ...workspaceData.product,
-          productPreparation: {
+          registrationTarget: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
             channelAccountId: null,
@@ -811,7 +811,7 @@ describe('ProductWorkspaceScreen', () => {
         ...workspaceData,
         product: {
           ...workspaceData.product,
-          productPreparation: {
+          registrationTarget: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
             channelAccountId: null,
@@ -900,7 +900,7 @@ describe('ProductWorkspaceScreen', () => {
         ...workspaceData,
         product: {
           ...workspaceData.product,
-          productPreparation: {
+          registrationTarget: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
             channelAccountId: 'account-1',

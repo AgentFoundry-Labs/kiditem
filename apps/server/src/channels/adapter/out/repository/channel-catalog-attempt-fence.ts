@@ -13,8 +13,8 @@ import {
   CATALOG_DETAILS_SOURCE,
   CATALOG_PARSER,
   CATALOG_SOURCE,
-} from '../../../domain/catalog-source-identity';
-import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
+} from '../../../domain/collection/catalog-source-identity';
+import { resolveCoupangVendorId } from '../../../domain/account/coupang-account-identity';
 
 export const CATALOG_STAGING_SOURCE = 'coupang_wing_catalog_browser';
 export const CATALOG_RATE_LIMIT_CODE = 'WING_PROVIDER_RATE_LIMITED';
@@ -343,31 +343,36 @@ export async function latestCompletedCatalogBasics(
       id: true,
       publicationSequence: true,
       qualityReport: true,
-      channelScrapeRuns: {
+    },
+  });
+  if (!run) return null;
+  const quality = jsonRecord(run.qualityReport);
+  const qualityProductIds = quality?.productIds;
+  const publishedProductIds = Array.isArray(qualityProductIds)
+    ? qualityProductIds.filter((value): value is string => typeof value === 'string')
+    : null;
+  const scrapeRuns = publishedProductIds
+    ? []
+    : await tx.channelScrapeRun.findMany({
         where: {
+          sourceImportRunId: run.id,
           organizationId: scope.organizationId,
           channelAccountId: scope.channelAccountId,
           source: CATALOG_STAGING_SOURCE,
         },
-        include: {
+        select: {
           chunks: {
             orderBy: [{ kind: 'asc' }, { sequence: 'asc' }],
             select: { kind: true, sequence: true, payload: true },
           },
         },
-      },
-    },
-  });
-  if (!run) return null;
-  const quality = jsonRecord(run.qualityReport);
+      });
   const manifestHash = typeof quality?.basicManifestHash === 'string'
     ? quality.basicManifestHash
     : typeof quality?.manifestHash === 'string'
       ? quality.manifestHash
       : null;
-  const productIds = Array.isArray(quality?.productIds)
-    ? quality.productIds.filter((value): value is string => typeof value === 'string')
-    : collectBasicProductIds(run.channelScrapeRuns.flatMap((scrape) => scrape.chunks));
+  const productIds = publishedProductIds ?? collectBasicProductIds(scrapeRuns.flatMap((scrape) => scrape.chunks));
   if (!manifestHash || !run.publicationSequence || productIds.length === 0) return null;
   return {
     id: run.id,

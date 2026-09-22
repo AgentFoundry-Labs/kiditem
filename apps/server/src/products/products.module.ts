@@ -1,3 +1,4 @@
+import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { PRODUCT_SOURCE_BINDING_PORT } from './application/port/in/product-source-binding.port';
 import { CorrectProductSourceBindingUseCase } from './application/usecase/correct-product-source-binding.usecase';
 import { ProductSourceModule } from './product-source.module';
@@ -27,7 +28,7 @@ import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capa
 import { ChannelOptionRecipeModule } from '../channels/channel-option-recipe.module';
 
 @Module({
-  imports: [
+  imports: [ChannelCatalogModule,
     CategoriesModule,
     ProductSourceModule,
     AnalyticsModule,

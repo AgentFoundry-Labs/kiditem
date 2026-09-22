@@ -1,4 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { readListingWorkspaceSources, type ListingWorkspaceSource } from './listing-workspace-context';
+import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type ThumbnailAnalysisRepositoryPort,
@@ -31,25 +34,12 @@ const workspaceSelect = {
       },
     },
   },
-  channelListing: {
-    select: {
-      displayName: true,
-      channelName: true,
-      externalId: true,
-      category: true,
-      thumbnails: {
-        where: { status: 'active' },
-        orderBy: { updatedAt: 'desc' as const },
-        take: 1,
-        select: { imageUrl: true },
-      },
-    },
-  },
+  channelListingId: true,
 } satisfies Prisma.ContentWorkspaceSelect;
 
 type WorkspaceSourceRow = Prisma.ContentWorkspaceGetPayload<{
   select: typeof workspaceSelect;
-}>;
+}> & { channelListing: ListingWorkspaceSource | null };
 
 function toWorkspaceRow(row: WorkspaceSourceRow): ThumbnailAnalysisWorkspaceRow | null {
   const imageUrl =
@@ -79,39 +69,32 @@ function toWorkspaceRow(row: WorkspaceSourceRow): ThumbnailAnalysisWorkspaceRow 
 export class ThumbnailAnalysisRepositoryAdapter
   implements ThumbnailAnalysisRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly listings: ChannelListingQueryPort) {}
 
   private async listWorkspaceRows(
     organizationId: string,
     ids?: string[],
   ): Promise<ThumbnailAnalysisWorkspaceRow[]> {
-    const rows = await this.prisma.contentWorkspace.findMany({
+    return this.prisma.$transaction(async tx => {
+    const listings = await this.listings.readCatalogFacts(ownerTransaction(tx), { organizationId, channels: [THUMBNAIL_ANALYSIS_CHANNEL], activeOnly: true });
+    if (listings.length === 0) return [];
+    const rows = await tx.contentWorkspace.findMany({
       where: {
         organizationId,
         ownerType: 'channel_listing',
         status: 'active',
         isDeleted: false,
-        channelListingId: { not: null },
-        channelListing: {
-          is: {
-            organizationId,
-            isActive: true,
-            channelAccount: {
-              is: {
-                organizationId,
-                channel: THUMBNAIL_ANALYSIS_CHANNEL,
-              },
-            },
-          },
-        },
+        channelListingId: { in: listings.map(row => row.id) },
         ...(ids ? { id: { in: ids } } : {}),
       },
       select: workspaceSelect,
       orderBy: { createdAt: 'desc' },
     });
+    const sources = await readListingWorkspaceSources(tx, this.listings, organizationId, rows.flatMap(row => row.channelListingId ? [row.channelListingId] : []));
     return rows
-      .map(toWorkspaceRow)
+      .map(row => toWorkspaceRow({ ...row, channelListing: row.channelListingId ? sources.get(row.channelListingId) ?? null : null }))
       .filter((row): row is ThumbnailAnalysisWorkspaceRow => row !== null);
+    });
   }
 
   findAllAnalysisWorkspaces(organizationId: string) {

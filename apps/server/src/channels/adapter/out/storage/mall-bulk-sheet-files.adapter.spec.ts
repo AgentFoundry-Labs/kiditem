@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
-import { MALL_BULK_SHEETS } from '../../../domain/mall-bulk-sheet/mall-bulk-sheet-registry';
-import { MallCategoryLookup } from '../../../domain/mall-bulk-sheet/mall-sheet-categories';
-import { resolveFixedValues, type MallBulkSheetSpec } from '../../../domain/mall-bulk-sheet/mall-bulk-sheet';
-import { toMallSheetProduct, type MallSheetSourceProduct } from '../../../domain/mall-bulk-sheet/mall-sheet-product';
+import { MALL_BULK_SHEETS } from '../../../domain/registration/bulk-sheet/mall-bulk-sheet-registry';
+import { MallCategoryLookup } from '../../../domain/registration/bulk-sheet/mall-sheet-categories';
+import { resolveFixedValues, type MallBulkSheetSpec } from '../../../domain/registration/bulk-sheet/mall-bulk-sheet';
+import { toMallSheetProduct, type MallSheetSourceProduct } from '../../../domain/registration/bulk-sheet/mall-sheet-product';
 import { MallBulkSheetFilesAdapter } from './mall-bulk-sheet-files.adapter';
 
 const adapter = new MallBulkSheetFilesAdapter();

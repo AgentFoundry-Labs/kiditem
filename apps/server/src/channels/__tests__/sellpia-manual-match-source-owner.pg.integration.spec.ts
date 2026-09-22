@@ -11,10 +11,10 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { ChannelProductMatchingController } from '../adapter/in/http/channel-product-matching.controller';
+import { ChannelProductMatchingController } from '../adapter/in/web/channel-product-matching.controller';
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
-import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
-import { SellpiaManualMatchService } from '../application/service/sellpia-manual-match.service';
+import { ChannelProductMatchingService } from '../application/service/listing/channel-product-matching.service';
+import { SellpiaManualMatchService } from '../application/service/listing/sellpia-manual-match.service';
 import { lockProductSource } from '../../products/adapter/out/persistence/transaction/product-source-lock';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import {

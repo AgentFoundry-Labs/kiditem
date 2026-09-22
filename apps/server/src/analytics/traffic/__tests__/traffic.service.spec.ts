@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { NotFoundException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as XLSX from 'xlsx';
@@ -65,7 +66,7 @@ function makePrisma() {
       findFirst: vi.fn(async () => ({ id: 'account-1' })),
     },
     channelListing: {
-      findMany: vi.fn(async () => [{ id: 'listing-1', externalId: 'EXT-1' }]),
+      findMany: vi.fn(async () => [{ id: 'listing-1', externalId: 'EXT-1', channelAccountId: 'account-1', channelAccount: { channel: 'coupang' }, options: [] }]),
     },
     channelListingDailySnapshot: {
       groupBy: vi.fn(async () => []),
@@ -146,7 +147,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
 
   it('scopes the completed scrape-run update to organizationId', async () => {
     const { prisma } = makePrisma();
-    const service = new TrafficService(prisma as never, makeTrafficRead() as never);
+    const service = new TrafficService(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, makeTrafficRead() as never);
 
     await service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID);
 
@@ -159,7 +160,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
   it('scopes the error scrape-run update to organizationId', async () => {
     const { prisma } = makePrisma();
     prisma.$transaction.mockRejectedValueOnce(new Error('daily upsert failed'));
-    const service = new TrafficService(prisma as never, makeTrafficRead() as never);
+    const service = new TrafficService(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, makeTrafficRead() as never);
 
     await expect(
       service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID),
@@ -177,7 +178,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
   it('throws when the scoped scrape-run update is a no-op', async () => {
     const { prisma } = makePrisma();
     prisma.channelScrapeRun.updateMany.mockResolvedValueOnce({ count: 0 });
-    const service = new TrafficService(prisma as never, makeTrafficRead() as never);
+    const service = new TrafficService(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, makeTrafficRead() as never);
 
     await expect(
       service.uploadTrafficStats(makeUploadFile(), ORGANIZATION_ID),
@@ -187,7 +188,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
   it('queries monthly traffic with exact @db.Date calendar boundaries', async () => {
     const { prisma } = makePrisma();
     const trafficRead = makeTrafficRead([accountDaily('2026-05-01', { revenue: 100 })]);
-    const service = new TrafficService(prisma as never, trafficRead as never);
+    const service = new TrafficService(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, trafficRead as never);
 
     await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
 
@@ -209,7 +210,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
         revenue: 10_000,
       }),
     ]);
-    const service = new TrafficService(prisma as never, trafficRead as never);
+    const service = new TrafficService(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, trafficRead as never);
 
     const result = await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
 
@@ -227,7 +228,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     const trafficRead = makeTrafficRead([
       accountDaily('2026-05-01', { orders: 2, revenue: 10_000 }),
     ]);
-    const service = new TrafficService(prisma as never, trafficRead as never);
+    const service = new TrafficService(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, trafficRead as never);
 
     const result = await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
 
@@ -249,7 +250,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
       orders: { dailySum: 62, periodValue: null },
     });
     const trafficRead = makeTrafficRead(completeMayRows(), publishedReconciliation);
-    const service = new TrafficService(prisma as never, trafficRead as never);
+    const service = new TrafficService(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, trafficRead as never);
 
     const result = await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
 
@@ -263,7 +264,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
   it('uses yesterday as the current-month cutoff and returns null totals for a future month', async () => {
     const { prisma } = makePrisma();
     const trafficRead = makeTrafficRead();
-    const service = new TrafficService(prisma as never, trafficRead as never);
+    const service = new TrafficService(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, trafficRead as never);
     const today = new Date();
     const todayKst = new Date(today.getTime() + 9 * 60 * 60 * 1000);
     const year = todayKst.getUTCFullYear();
@@ -298,7 +299,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
 
   it('detects Korean headers in UTF-8 CSV uploads', async () => {
     const { prisma } = makePrisma();
-    const service = new TrafficService(prisma as never, makeTrafficRead() as never);
+    const service = new TrafficService(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, makeTrafficRead() as never);
 
     const result = await service.uploadTrafficStats(
       makeUtf8CsvUploadFile(),

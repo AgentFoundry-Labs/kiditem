@@ -86,3 +86,5 @@ intentionally not present. Reference files may remain in dev-data bundles, but
 owner runtime upload endpoints are the source-of-truth import paths. If a
 workflow needs a durable script again, add it back as a named package script or
 runbook step and update this inventory in the same PR.
+
+- `scripts/check-channels-hexagonal.mjs` — Channels business directories and pure application/domain boundary; run with `npm run check:channels-hexagonal` (also in conventions).

@@ -1,4 +1,7 @@
-import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 // `AdAction` aggregate adapter: query + persistence + dedup + transaction-
 // wrapped lifecycle writes. The adapter owns `$transaction` for approve /
 // reject / execution reports so the application service stays Prisma-free.
@@ -155,11 +158,14 @@ interface AdActionReviewCounts {
 @Injectable()
 export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   constructor(
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     private readonly prisma: PrismaService,
     // Reused for the listing hydration step in `findAdActionsForReview`.
     // The adapter depends on a sibling adapter here, which is allowed for
     // intra-domain composition; ports/services never see this.
     private readonly listingAdapter: AdListingRepositoryAdapter,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
     @Optional()
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly products?: ProductTransactionalReadPort,
@@ -267,7 +273,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         // Both target sets come from the advertising ledger's reader: the
         // current campaign/product targets of each account's newest completed
         // sweep, and the current COMPLETE keyword observations.
-        const currentRows = await readCurrentAdTargetRows(tx, organizationId);
+        const currentRows = await readCurrentAdTargetRows(tx, organizationId, this.channelAccounts);
         const { rows: keywordRows } = await readCompleteAdKeywordFacts(tx, organizationId);
         const candidates = [
           ...currentRows.map((row) => ({
@@ -314,22 +320,23 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           })),
         ];
         if (candidates.length === 0) return [];
+        const catalog = await this.channelListings.readCatalogFacts(ownerTransaction(tx), {
+          organizationId, channels: ['coupang'], activeAccountsOnly: true, activeOnly: true,
+        });
+        const scopedListings = catalog.map(row => ({ id: row.id, organization_id: organizationId, channel_account_id: row.accountId,
+          display_name: row.displayName, channel_name: row.channelName, external_id: row.externalId, account_channel: row.channel }));
+        const scopedOptions = catalog.flatMap(row => row.options.map(option => ({ id: option.id, listing_id: row.id })));
         const targets = await tx.$queryRaw<Array<Omit<LatestTargetRow, 'abcGrade'> & {
           masterProductId: string | null;
         }>>(
           Prisma.sql`
         WITH scoped_listings AS (
-          -- Active listings of the organization's active Coupang accounts.
-          SELECT cl.id, cl.channel_account_id, cl.display_name,
-            cl.channel_name, cl.external_id, account.channel AS account_channel
-          FROM channel_listings cl
-          JOIN channel_accounts account
-            ON account.id = cl.channel_account_id
-            AND account.organization_id = cl.organization_id
-          WHERE cl.organization_id = ${organizationId}::uuid
-            AND cl.is_active = true
-            AND account.channel = 'coupang'
-            AND account.status = 'active'
+          SELECT * FROM jsonb_to_recordset(${JSON.stringify(scopedListings)}::jsonb)
+            AS listing(id uuid, organization_id uuid, channel_account_id uuid, display_name text, channel_name text, external_id text, account_channel text)
+          WHERE listing.organization_id = ${organizationId}::uuid
+        ), scoped_options AS (
+          SELECT * FROM jsonb_to_recordset(${JSON.stringify(scopedOptions)}::jsonb)
+            AS option(id uuid, listing_id uuid)
         ),
         latest AS (
           SELECT * FROM jsonb_to_recordset(${JSON.stringify(candidates)}::jsonb) AS candidate (
@@ -376,14 +383,12 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         FROM latest
         LEFT JOIN scoped_listings cl
               ON cl.id = latest.listing_id
-        LEFT JOIN channel_listing_options clo
+        LEFT JOIN scoped_options clo
               ON clo.id = latest.listing_option_id
-              AND clo.organization_id = ${organizationId}::uuid
               AND clo.listing_id = cl.id
-              AND clo.is_active = true
       `,
         );
-        const summaries = await readListingProductIds(tx, { organizationId, listingIds: targets.flatMap((target) => target.listingId ? [target.listingId] : []) });
+        const summaries = await this.channelRecipes.readListingProductSummaries(ownerTransaction(tx), { organizationId, listingIds: targets.flatMap((target) => target.listingId ? [target.listingId] : []) });
         for (const target of targets) target.masterProductId = target.listingId ? summaries.get(target.listingId) ?? null : null;
         const masterProductIds = [...new Set(targets.flatMap((target) =>
           target.masterProductId ? [target.masterProductId] : []))];

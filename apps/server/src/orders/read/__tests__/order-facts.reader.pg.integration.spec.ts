@@ -9,28 +9,42 @@ import {
 import {
   readOrderByIdFact,
   readOrderCountsByChannelAccount,
-  readOrderListFacts,
+  readOrderListFacts as readOrderListFactsWithAccountPort,
   readOrderStatusCounts,
   readObservedOrderBounds,
   readObservedOrderCount,
-  readOrderLineWindowFacts,
-  readOrderWindowFacts,
+  readOrderLineWindowFacts as readOrderLineWindowFactsWithAccountPort,
+  readOrderWindowFacts as readOrderWindowFactsWithAccountPort,
   readPublishedOrderLines,
+  type OrderListInput,
+  type OrderWindowInput,
 } from '../order-facts.reader';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaService } from '../../../prisma/prisma.service';
+import type { ChannelAccountPort } from '../../../channels/application/port/in/account/channel-account.port';
+import { ChannelAccountService } from '../../../channels/application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelCredentialsAdapter } from '../../../channels/adapter/out/credentials/channel-credentials.adapter';
 
 const ACCOUNT_ID = '71000000-0000-4000-8000-000000000001';
 const SECOND_ACCOUNT_ID = '71000000-0000-4000-8000-000000000002';
 const OTHER_ACCOUNT_ID = '72000000-0000-4000-8000-000000000001';
+const LEGACY_UNKNOWN_ACCOUNT_ID = '71000000-0000-4000-8000-000000000003';
 const FROM = new Date('2026-04-30T15:00:00.000Z');
 const TO = new Date('2026-05-01T15:00:00.000Z');
 
 describe('Order facts reader over disposable PostgreSQL', () => {
   let prisma: PrismaClient;
+  let accounts: ChannelAccountPort;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    accounts = new ChannelAccountService(
+      new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService),
+      new ChannelCredentialsAdapter(),
+    );
+    accountsForWindowReads = accounts;
   });
 
   afterAll(async () => {
@@ -168,6 +182,42 @@ describe('Order facts reader over disposable PostgreSQL', () => {
     });
   });
 
+  it('preserves the account channel as coverage identity for legacy runs with unknown channels', async () => {
+    await prisma.channelAccount.create({
+      data: {
+        id: LEGACY_UNKNOWN_ACCOUNT_ID,
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'dashboard-test-mall',
+        name: 'Legacy test account',
+      },
+    });
+    await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: LEGACY_UNKNOWN_ACCOUNT_ID,
+        sourceType: 'order_collection_mall',
+        plan: { sourceType: 'order_collection_mall' },
+        status: 'completed',
+        importedAt: new Date('2026-05-02T01:02:03.000Z'),
+        coverageStartDate: new Date('2026-05-01T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-05-01T00:00:00.000Z'),
+      },
+    });
+
+    const result = await prisma.$transaction((tx) => readOrderWindowFacts(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: FROM,
+      to: TO,
+    }));
+
+    expect(result.sourceCoverage).toEqual([expect.objectContaining({
+      channelAccountId: LEGACY_UNKNOWN_ACCOUNT_ID,
+      mallKey: 'dashboard-test-mall',
+      includedDates: ['2026-05-01'],
+      missingDates: [],
+    })]);
+  });
+
   it('distinguishes an unmeasured empty window from a measured zero', async () => {
     const unmeasured = await prisma.$transaction((tx) =>
       readOrderWindowFacts(tx, {
@@ -194,6 +244,7 @@ describe('Order facts reader over disposable PostgreSQL', () => {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: ACCOUNT_ID,
         sourceType: 'order_collection_mall',
+        plan: { sourceType: 'order_collection_mall', mallKey: 'haebub-mall' },
         status: 'completed',
         importedAt: observedAt,
         coverageStartDate: new Date('2026-05-01T00:00:00.000Z'),
@@ -255,6 +306,36 @@ describe('Order facts reader over disposable PostgreSQL', () => {
       includedDates: [],
       missingDates: ['2026-05-01'],
       sourceCoverage: [],
+    });
+  });
+
+  it('uses scoped account facts to preserve valid older coverage snapshots without plan.mallKey', async () => {
+    await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_ID,
+        sourceType: 'order_collection_mall',
+        plan: { sourceType: 'order_collection_mall' },
+        status: 'completed',
+        coverageStartDate: new Date('2026-05-01T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-05-01T00:00:00.000Z'),
+      },
+    });
+
+    const result = await prisma.$transaction((tx) => readOrderWindowFacts(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      from: FROM,
+      to: TO,
+    }));
+
+    expect(result).toMatchObject({
+      includedDates: ['2026-05-01'],
+      missingDates: [],
+      sourceCoverage: [{
+        channelAccountId: ACCOUNT_ID,
+        mallKey: 'haebub-mall',
+        includedDates: ['2026-05-01'],
+      }],
     });
   });
 
@@ -591,6 +672,7 @@ describe('Order facts reader over disposable PostgreSQL', () => {
         organizationId,
         channelAccountId,
         sourceType: 'order_collection_mall',
+        plan: testMallPlan(channelAccountId),
         status: 'completed',
         importedAt: new Date('2026-05-01T05:00:00.000Z'),
       },
@@ -624,6 +706,7 @@ describe('Order facts reader over disposable PostgreSQL', () => {
         organizationId,
         channelAccountId,
         sourceType: 'order_collection_mall',
+        plan: testMallPlan(channelAccountId),
         status: 'completed',
         importedAt: new Date('2026-05-02T01:02:03.000Z'),
         coverageStartDate: new Date('2026-05-01T00:00:00.000Z'),
@@ -632,3 +715,24 @@ describe('Order facts reader over disposable PostgreSQL', () => {
     });
   }
 });
+
+function readOrderWindowFacts(tx: Prisma.TransactionClient, input: OrderWindowInput) {
+  return readOrderWindowFactsWithAccountPort(tx, input, accountsForWindowReads);
+}
+
+function readOrderLineWindowFacts(tx: Prisma.TransactionClient, input: OrderWindowInput) {
+  return readOrderLineWindowFactsWithAccountPort(tx, input, accountsForWindowReads);
+}
+
+function readOrderListFacts(tx: Prisma.TransactionClient, input: OrderListInput) {
+  return readOrderListFactsWithAccountPort(tx, input, accountsForWindowReads);
+}
+
+let accountsForWindowReads: ChannelAccountPort;
+
+function testMallPlan(channelAccountId: string) {
+  return {
+    sourceType: 'order_collection_mall',
+    mallKey: channelAccountId === SECOND_ACCOUNT_ID ? 'domeggook' : 'haebub-mall',
+  };
+}

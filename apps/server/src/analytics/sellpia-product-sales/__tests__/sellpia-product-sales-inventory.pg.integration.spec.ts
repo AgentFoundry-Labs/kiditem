@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
@@ -41,7 +42,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     const alerts = new SourceFailureAlerts(prismaService);
     const evidence = new MasterProductProfitabilityReadService(
       new SellpiaProfitabilitySourceService(prismaService, alerts, new ProductTransactionalReadRepositoryAdapter()),
-      new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts), prismaService,
+      new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prismaService).accounts, channelFactTestPorts(prismaService).recipes, channelFactTestPorts(prismaService).listings, prismaService, alerts), prismaService,
       new ProductTransactionalReadRepositoryAdapter());
     service = new SellpiaProductSalesService(
       prismaService,

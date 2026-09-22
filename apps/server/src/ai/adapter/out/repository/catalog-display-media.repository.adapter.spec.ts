@@ -31,8 +31,9 @@ describe('CatalogDisplayMediaRepositoryAdapter', () => {
         ],
       }],
     }]);
-    const prisma = { contentWorkspace: { findMany } };
-    const adapter = new CatalogDisplayMediaRepositoryAdapter(prisma as never);
+    const tx = { contentWorkspace: { findMany } };
+    const prisma = { ...tx, $transaction: async (read: (value: unknown) => unknown) => read(tx) };
+    const adapter = new CatalogDisplayMediaRepositoryAdapter(prisma as never, { readCatalogFacts: async () => [{ id: 'listing-1', channel: 'coupang' }, { id: 'listing-2', channel: 'naver' }] } as never);
 
     const result = await adapter.findCandidates({
       organizationId: 'org-1',
@@ -58,14 +59,6 @@ describe('CatalogDisplayMediaRepositoryAdapter', () => {
         organizationId: 'org-1',
         ownerType: 'channel_listing',
         channelListingId: { in: ['listing-1', 'listing-2'] },
-        channelListing: expect.objectContaining({
-          is: expect.objectContaining({
-            isActive: true,
-            channelAccount: expect.objectContaining({
-              is: expect.not.objectContaining({ channel: expect.anything() }),
-            }),
-          }),
-        }),
       }),
     }));
     expect(Object.keys(prisma.contentWorkspace)).toEqual(['findMany']);
@@ -86,8 +79,8 @@ describe('CatalogDisplayMediaRepositoryAdapter', () => {
       }],
     }]);
     const adapter = new CatalogDisplayMediaRepositoryAdapter({
-      contentWorkspace: { findMany },
-    } as never);
+      $transaction: async (read: (value: unknown) => unknown) => read({ contentWorkspace: { findMany } }),
+    } as never, { readCatalogFacts: async () => [{ id: 'listing-1', channel: 'coupang' }] } as never);
 
     const result = await adapter.findCandidates({
       organizationId: 'org-1',

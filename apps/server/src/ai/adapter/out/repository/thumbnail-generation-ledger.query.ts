@@ -1,4 +1,7 @@
-import { listingProductIdFromRecipes } from '../../../../channels/domain/listing-product-summary';
+import type { ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import type { ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { readListingWorkspaceSources, type ListingWorkspaceSource } from './listing-workspace-context';
 import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
 import { readProductAbcPublication } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
@@ -70,20 +73,7 @@ const workspaceContextSelect = {
       },
     },
   },
-  channelListing: {
-    select: {
-      displayName: true,
-      channelName: true,
-      externalId: true,
-      category: true,
-      thumbnails: {
-        where: { status: 'active' },
-        orderBy: { updatedAt: 'desc' as const },
-        take: 1,
-        select: { imageUrl: true },
-      },
-    },
-  },
+  channelListingId: true,
   thumbnailAnalyses: {
     orderBy: { updatedAt: 'desc' as const },
     take: 1,
@@ -93,7 +83,7 @@ const workspaceContextSelect = {
 
 type WorkspaceContextRow = Prisma.ContentWorkspaceGetPayload<{
   select: typeof workspaceContextSelect;
-}>;
+}> & { channelListing: ListingWorkspaceSource | null };
 
 export interface ThumbnailJobWorkspaceRow {
   id: string;
@@ -161,9 +151,11 @@ async function findWorkspaceContexts(
   prisma: PrismaService,
   ids: string[],
   organizationId: string,
+  listings: ChannelListingQueryPort,
 ): Promise<WorkspaceContextRow[]> {
   if (ids.length === 0) return [];
-  return prisma.contentWorkspace.findMany({
+  return prisma.$transaction(async tx => {
+  const rows = await tx.contentWorkspace.findMany({
     where: {
       id: { in: ids },
       organizationId,
@@ -172,14 +164,18 @@ async function findWorkspaceContexts(
     },
     select: workspaceContextSelect,
   });
+  const sources = await readListingWorkspaceSources(tx, listings, organizationId, rows.flatMap(row => row.channelListingId ? [row.channelListingId] : []));
+  return rows.map(row => ({ ...row, channelListing: row.channelListingId ? sources.get(row.channelListingId) ?? null : null }));
+  });
 }
 
 export async function findWorkspaceForThumbnailEditor(
   prisma: PrismaService,
   contentWorkspaceId: string,
   organizationId: string,
+  listings: ChannelListingQueryPort,
 ): Promise<EditorProductRow | null> {
-  const workspace = (await findWorkspaceContexts(prisma, [contentWorkspaceId], organizationId))[0];
+  const workspace = (await findWorkspaceContexts(prisma, [contentWorkspaceId], organizationId, listings))[0];
   if (!workspace) return null;
   return {
     id: workspace.id,
@@ -194,9 +190,10 @@ export async function findGenerationWorkspaces(
   prisma: PrismaService,
   rows: Array<{ contentWorkspaceId: string | null }>,
   organizationId: string,
+  listings: ChannelListingQueryPort,
 ): Promise<Map<string, GenerationWorkspaceSummary>> {
   const ids = [...new Set(rows.map((row) => row.contentWorkspaceId).filter((id): id is string => Boolean(id)))];
-  const workspaces = await findWorkspaceContexts(prisma, ids, organizationId);
+  const workspaces = await findWorkspaceContexts(prisma, ids, organizationId, listings);
   return new Map(
     workspaces.map((workspace) => {
       const job = toThumbnailJobWorkspace(workspace);
@@ -217,10 +214,11 @@ export async function findGenerationWorkspace(
   prisma: PrismaService,
   contentWorkspaceId: string | null,
   organizationId: string,
+  listings: ChannelListingQueryPort,
 ): Promise<GenerationWorkspaceSummary | null> {
   if (!contentWorkspaceId) return null;
   return (
-    (await findGenerationWorkspaces(prisma, [{ contentWorkspaceId }], organizationId)).get(contentWorkspaceId) ?? null
+    (await findGenerationWorkspaces(prisma, [{ contentWorkspaceId }], organizationId, listings)).get(contentWorkspaceId) ?? null
   );
 }
 
@@ -228,8 +226,9 @@ export async function findWorkspaceForThumbnailJob(
   prisma: PrismaService,
   contentWorkspaceId: string,
   organizationId: string,
+  listings: ChannelListingQueryPort,
 ): Promise<ThumbnailJobWorkspaceRow | null> {
-  const workspace = (await findWorkspaceContexts(prisma, [contentWorkspaceId], organizationId))[0];
+  const workspace = (await findWorkspaceContexts(prisma, [contentWorkspaceId], organizationId, listings))[0];
   return workspace ? toThumbnailJobWorkspace(workspace) : null;
 }
 
@@ -237,8 +236,9 @@ export async function findWorkspacesForThumbnailJobs(
   prisma: PrismaService,
   ids: string[],
   organizationId: string,
+  listings: ChannelListingQueryPort,
 ): Promise<Map<string, ThumbnailJobWorkspaceRow>> {
-  const workspaces = await findWorkspaceContexts(prisma, ids, organizationId);
+  const workspaces = await findWorkspaceContexts(prisma, ids, organizationId, listings);
   return new Map(workspaces.map((workspace) => [workspace.id, toThumbnailJobWorkspace(workspace)]));
 }
 
@@ -342,9 +342,11 @@ export async function findAutoBatchCandidates(
   prisma: PrismaService,
   organizationId: string,
   take: number,
+  listings: ChannelListingQueryPort,
+  recipes: ChannelOptionRecipePort,
 ): Promise<Array<{ id: string }>> {
   return prisma.$transaction(
-    (tx) => findAutoBatchCandidatesSnapshot(tx, organizationId, take),
+    (tx) => findAutoBatchCandidatesSnapshot(tx, organizationId, take, listings, recipes),
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );
 }
@@ -353,46 +355,30 @@ async function findAutoBatchCandidatesSnapshot(
   tx: Prisma.TransactionClient,
   organizationId: string,
   take: number,
+  listings: ChannelListingQueryPort,
+  recipes: ChannelOptionRecipePort,
 ): Promise<Array<{ id: string }>> {
   const publication = await readProductAbcPublication(tx, { organizationId });
   const aGradeProductIds = publication.products.flatMap((product) =>
     product.evaluation?.abcGrade === 'A' ? [product.masterProductId] : []);
   if (aGradeProductIds.length === 0) return [];
-  const candidateListings = await tx.channelListing.findMany({
-    where: {
-      organizationId,
-      isActive: true,
-      options: { some: { organizationId, inventoryComponents: { some: { organizationId, masterProductId: { in: aGradeProductIds } } } } },
-    },
-    select: {
-      id: true,
-      options: { where: { organizationId }, select: { inventoryComponents: { where: { organizationId }, select: { masterProductId: true } } } },
-    },
-  });
+  const candidateListings = await recipes.findListingsBySourceProducts(ownerTransaction(tx), { organizationId, masterProductIds: aGradeProductIds, activeOnly: true });
   const aGradeIds = new Set(aGradeProductIds);
-  const listingIds = candidateListings.filter((listing) => {
-    const productId = listingProductIdFromRecipes(listing.options);
-    return productId !== null && aGradeIds.has(productId);
-  }).map((listing) => listing.id);
+  const listingIds = candidateListings.filter(row => row.masterProductId !== null && aGradeIds.has(row.masterProductId)).map(row => row.listingId);
   if (listingIds.length === 0) return [];
   const rows = await tx.contentWorkspace.findMany({
     where: {
       organizationId,
       status: 'active',
       isDeleted: false,
-      channelListing: {
-        is: {
-          isActive: true,
-          organizationId,
-          id: { in: listingIds },
-        },
-      },
+      channelListingId: { in: listingIds },
     },
     select: workspaceContextSelect,
     orderBy: { updatedAt: 'desc' },
     take,
   });
-  return rows
+  const sources = await readListingWorkspaceSources(tx, listings, organizationId, listingIds);
+  return rows.map(row => ({ ...row, channelListing: row.channelListingId ? sources.get(row.channelListingId) ?? null : null }))
     .filter((workspace) => Boolean(workspaceImageUrl(workspace)))
     .map((workspace) => ({ id: workspace.id }));
 }

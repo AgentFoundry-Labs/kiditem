@@ -1,5 +1,5 @@
 // apps/server/src/orders/services/review-ingest.service.ts
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   ReviewIngestItem,
@@ -7,6 +7,11 @@ import type {
   ReviewIngestResponse,
 } from '@kiditem/shared/reviews';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ownerTransaction } from '../../prisma/owner-transaction';
+import {
+  CHANNEL_LISTING_QUERY_PORT,
+  type ChannelListingQueryPort,
+} from '../../channels/application/port/in/listing/channel-listing-query.port';
 
 /**
  * 확장이 정규화한 채널 상품평을 Review facts에 적재한다.
@@ -17,15 +22,19 @@ import { PrismaService } from '../../prisma/prisma.service';
  *   re-collection within one attempt remains idempotent. The owner terminal
  *   transaction only advances SourceImportRun metadata; it never rewrites a
  *   prior complete generation.
- * - `externalOptionId`(쿠팡 vendorItemId = 옵션ID) → `ChannelListingOption` 으로
- *   listing 을 연결한다. 카탈로그에 없는 옵션이면 `listingId` 는 null 로 남기고
- *   `unlinked` 로 보고한다. 리뷰 자체는 버리지 않는다.
+ * - `externalOptionId`(쿠팡 vendorItemId = 옵션ID) → Channels 공개 조회로
+ *   listing 을 연결한다. 일치 후보가 없거나 여러 listing/account 에 있으면
+ *   `listingId` 는 null 로 남긴다. 리뷰 자체는 버리지 않는다.
  */
 @Injectable()
 export class ReviewIngestService {
   private readonly logger = new Logger(ReviewIngestService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: ChannelListingQueryPort,
+  ) {}
 
   async ingest(
     organizationId: string,
@@ -42,7 +51,7 @@ export class ReviewIngestService {
    * the source owner later finalizes only its SourceImportRun metadata.
    */
   async stageInTransaction(
-    tx: ReviewWriteClient,
+    tx: Prisma.TransactionClient,
     organizationId: string,
     sourceImportRunId: string,
     request: ReviewIngestRequest,
@@ -56,7 +65,7 @@ export class ReviewIngestService {
    * owner path always uses stageInTransaction with a fence.
    */
   async ingestInTransaction(
-    tx: ReviewWriteClient,
+    tx: Prisma.TransactionClient,
     organizationId: string,
     request: ReviewIngestRequest,
     sourceImportRunId?: string,
@@ -67,6 +76,7 @@ export class ReviewIngestService {
     const listingByOptionId = await this.resolveListingIds(
       tx,
       organizationId,
+      platform,
       items,
     );
     const existingIds = await this.existingExternalReviewIds(
@@ -150,10 +160,11 @@ export class ReviewIngestService {
     return response;
   }
 
-  /** vendorItemId → listingId. 같은 옵션이 여러 listing 에 걸리면 가장 먼저 만든 쪽을 쓴다. */
+  /** vendorItemId → listingId, only when exactly one scoped catalog candidate exists. */
   private async resolveListingIds(
-    client: ReviewWriteClient,
+    client: Prisma.TransactionClient,
     organizationId: string,
+    platform: string,
     items: ReadonlyArray<ReviewIngestItem>,
   ): Promise<Map<string, string>> {
     const optionIds = [
@@ -165,21 +176,25 @@ export class ReviewIngestService {
     ];
     if (optionIds.length === 0) return new Map();
 
-    const rows = await client.channelListingOption.findMany({
-      where: { organizationId, externalOptionId: { in: optionIds } },
-      select: { externalOptionId: true, listingId: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    const candidates = await this.channelListings.readOptionCandidates(
+      ownerTransaction(client),
+      { organizationId, channel: platform, externalOptionIds: optionIds },
+    );
+    const candidatesByExternalId = new Map<string, typeof candidates>();
+    for (const candidate of candidates) {
+      const matches = candidatesByExternalId.get(candidate.externalOptionId) ?? [];
+      matches.push(candidate);
+      candidatesByExternalId.set(candidate.externalOptionId, matches);
+    }
     const map = new Map<string, string>();
-    for (const row of rows) {
-      if (map.has(row.externalOptionId)) continue;
-      map.set(row.externalOptionId, row.listingId);
+    for (const [externalOptionId, matches] of candidatesByExternalId) {
+      if (matches.length === 1) map.set(externalOptionId, matches[0]!.listingId);
     }
     return map;
   }
 
   private async existingExternalReviewIds(
-    client: ReviewWriteClient,
+    client: Prisma.TransactionClient,
     organizationId: string,
     platform: string,
     items: ReadonlyArray<ReviewIngestItem>,
@@ -201,11 +216,6 @@ export class ReviewIngestService {
     );
   }
 }
-
-type ReviewWriteClient = Pick<
-  Prisma.TransactionClient,
-  'channelListingOption' | 'review'
->;
 
 /**
  * 같은 배치에 동일 리뷰가 두 번 오면 `$transaction` 안의 upsert 가 서로 충돌한다

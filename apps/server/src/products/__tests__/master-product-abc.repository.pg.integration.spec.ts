@@ -5,6 +5,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import {
@@ -730,7 +731,14 @@ async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
     alerts,
     new ProductTransactionalReadRepositoryAdapter(),
   );
-  const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+  const channelFacts = channelFactTestPorts(prisma as never);
+  const advertising = new ProfitabilityAdImportRepositoryAdapter(
+    channelFacts.accounts,
+    channelFacts.recipes,
+    channelFacts.listings,
+    prisma as never,
+    alerts,
+  );
   const sellpiaAttempt = await sellpia.beginAttempt(
     TEST_ORGANIZATION_ID,
     `abc-${randomUUID()}`,

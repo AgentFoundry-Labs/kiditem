@@ -7,15 +7,15 @@ import type {
   SalesProductStatus,
   SalesProductTaxType,
 } from '@kiditem/shared/sales-product';
-import type { ExistingSalesProductOption, SalesProductOptionReplacementPlan } from '../../../../domain/sales-product';
-import type { LinkCandidateListing, LinkCandidateProduct, SalesProductLinkPlan } from '../../../../domain/sales-product-links';
+import type { ExistingSalesProductOption, SalesProductOptionReplacementPlan } from '../../../../domain/sales-product/sales-product';
+import type { LinkCandidateListing, LinkCandidateProduct, SalesProductLinkPlan } from '../../../../domain/sales-product/sales-product-links';
 import type {
   MallPriceAdoptionWrite,
   MallPriceCandidateListingOption,
   MallPriceCandidateProduct,
-} from '../../../../domain/sales-product-mall-prices';
-import type { CoupangCatalogFacts } from '../../../../domain/mall-bulk-sheet/coupang-catalog-edit';
-import type { MallSheetSourceProduct } from '../../../../domain/mall-bulk-sheet/mall-sheet-product';
+} from '../../../../domain/sales-product/sales-product-mall-prices';
+import type { CoupangCatalogFacts } from '../../../../domain/registration/bulk-sheet/coupang-catalog-edit';
+import type { MallSheetSourceProduct } from '../../../../domain/registration/bulk-sheet/mall-sheet-product';
 
 export const SALES_PRODUCT_REPOSITORY_PORT = Symbol('SALES_PRODUCT_REPOSITORY_PORT');
 

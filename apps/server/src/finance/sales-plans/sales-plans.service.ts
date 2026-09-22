@@ -1,3 +1,7 @@
+import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../ai/application/port/in/workspace/listing-content-query.port';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../channels/application/port/in/channel-option-recipe.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../channels/application/port/in/listing/channel-listing-query.port';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
 import {
   Inject,
   Injectable,
@@ -52,6 +56,10 @@ export class SalesPlansService {
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
+    @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
   ) {}
 
   async findAll(organizationId: string, now: Date): Promise<SalesPlanView[]> {
@@ -163,7 +171,7 @@ export class SalesPlansService {
         tx,
         organizationId,
         window,
-        this.inventoryTransactionalRead,
+        this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
       ),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );

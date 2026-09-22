@@ -45,7 +45,6 @@ model SourcingCandidate {
   contentGenerations           ContentGeneration[]           @relation("ContentGenerationPrimarySourcingCandidate")
   contentWorkspaces            ContentWorkspace[]            @relation("ContentWorkspaceSourcingCandidate")
   thumbnailGenerations         ThumbnailGeneration[]         @relation("ThumbnailGenerationSourcingCandidate")
-  channelListings              ChannelListing[]
   detailPageImageRenderIntents DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentCandidate")
   launchCandidates             SourcingLaunchCandidate[]
 
@@ -762,7 +761,6 @@ model SourcingLaunchCandidate {
   organization                Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceCandidate             SourcingCandidate?          @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
   supplierOfferSkuSnapshot    SupplierOfferSkuSnapshot    @relation(fields: [supplierOfferSkuSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  targetChannelAccount        ChannelAccount              @relation(fields: [targetChannelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   createdByUser               User                        @relation("SourcingLaunchCandidateCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   supersedesLaunchCandidate   SourcingLaunchCandidate?    @relation("SourcingLaunchCandidateRevision", fields: [supersedesLaunchCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
   supersededByLaunchCandidate SourcingLaunchCandidate?    @relation("SourcingLaunchCandidateRevision")

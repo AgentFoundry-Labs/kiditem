@@ -1,16 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { ownerTransaction } from '../../../../../prisma/owner-transaction';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { Inject,  Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { readRegistrationFailureCounts } from '../../../../../channels/read/registration-execution.reader';
 import type { DashboardFindingsRepositoryPort } from '../../../application/port/out/repository/dashboard-findings.repository.port';
 
 @Injectable()
 export class DashboardFindingsRepositoryAdapter implements DashboardFindingsRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,private readonly prisma: PrismaService) {}
 
   readRegistrationFailures(organizationId: string) {
     return this.prisma.$transaction(
-      (tx) => readRegistrationFailureCounts(tx, { organizationId }),
+      (tx) => this.channelListings.readRegistrationFailureCounts(ownerTransaction(tx), { organizationId }),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }

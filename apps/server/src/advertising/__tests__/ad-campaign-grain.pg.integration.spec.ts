@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
 import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
@@ -27,10 +29,10 @@ describe('AdCampaignRepositoryAdapter account + stable campaign grain (PG)', () 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    adapter = new AdCampaignRepositoryAdapter(prisma as PrismaService);
-    actionAdapter = new AdActionRepositoryAdapter(
+    adapter = new AdCampaignRepositoryAdapter(prisma as PrismaService, profitCatalogTestReaders(prisma as PrismaService as never).accounts);
+    actionAdapter = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as PrismaService).listings, channelFactTestPorts(prisma as PrismaService).recipes,
       prisma as PrismaService,
-      new AdListingRepositoryAdapter(prisma as PrismaService),
+      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as PrismaService).listings, channelFactTestPorts(prisma as PrismaService).recipes, prisma as PrismaService), profitCatalogTestReaders(prisma as PrismaService as never).accounts
     );
   });
 

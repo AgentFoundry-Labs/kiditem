@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// ADR-0009: a ledger reader under `apps/server/src/**/read/` (including
+// ADR-0021: retained internal ledger helpers under `apps/server/src/**/read/` (including
 // Products' `adapter/out/persistence/read/` lane) is an exported
 // pure function over the caller's transaction client. It imports no adapter,
-// application, service or HTTP-bound code, throws no HTTP exception, and takes
+// concrete application service or HTTP-bound code. Public input/output port
+// contracts remain valid dependencies. It throws no HTTP exception and takes
 // no lock: the calling service owns the transaction and its locks, and an
 // owner exports those from `<owner>/transaction/`.
 
@@ -31,12 +32,12 @@ type Rule = Readonly<{
 
 const RULES: readonly Rule[] = [
   {
-    name: 'imports no adapter or application code',
-    pattern: String.raw`${SPECIFIER}[^'"]*/(adapter|application)/`,
+    name: 'imports no adapter or concrete application code',
+    pattern: String.raw`${SPECIFIER}[^'"]*/(?:adapter/|application/(?!port/(?:in|out)/))`,
     planted: {
-      'static-import.ts': "import type { Row } from '../application/port/out/row.port';\n",
+      'static-import.ts': "import type { Row } from '../application/policy/row-policy';\n",
       'multi-line-import.ts': "import {\n  readRow,\n} from '../adapter/out/repository/row';\n",
-      're-export.ts': "export * from '../application/port/in/row.port';\n",
+      're-export.ts': "export * from '../application/policy/row-policy';\n",
       'side-effect-import.ts': "import '../adapter/out/repository/register';\n",
       'dynamic-import.ts': "export const load = () => import('../application/service/row-reader');\n",
       'require.ts': "export const legacy = require('../adapter/out/legacy');\n",
@@ -91,6 +92,8 @@ const RULES: readonly Rule[] = [
 
 /** What every rule must accept: a reader that verifies evidence and throws fact errors. */
 const CLEAN_READER = [
+  "import type { FactsPort } from '../application/port/in/facts.port';",
+  "import type { StorePort } from '../application/port/out/persistence/store.port';",
   "import { Prisma } from '@prisma/client';",
   "import { FactConflictError } from '../../common/errors/fact-errors';",
   "import { assertSellpiaInventoryLockCovers, type SellpiaInventoryLock } from '../transaction/sellpia-inventory-lock';",
@@ -130,7 +133,7 @@ function readerFiles(root: string): string[] {
 /** `file:line:text` for every reader line that breaks the rule. */
 function violations(root: string, rule: Rule): string[] {
   return rg(root, [
-    '--line-number', '--no-heading', '--color', 'never', '--with-filename',
+    '--pcre2', '--line-number', '--no-heading', '--color', 'never', '--with-filename',
     ...READER_GLOBS,
     '-e', rule.pattern,
   ]);
@@ -140,14 +143,14 @@ function violatingFiles(root: string, rule: Rule): string[] {
   return [...new Set(violations(root, rule).map((line) => line.split(':')[0]!))].sort();
 }
 
-describe('ledger reader purity (ADR-0009)', () => {
+describe('internal ledger helper purity (ADR-0021)', () => {
   it('scans every reader module and no test', () => {
     const files = readerFiles(SERVER_SRC);
 
     expect(files).toEqual(expect.arrayContaining([
       'advertising/read/ad-target-facts.ts',
       'analytics/sellpia-sales/read/sellpia-sales-daily-facts.ts',
-      'channels/read/rocket-po-catalog.reader.ts',
+      'orders/read/rocket-po-catalog.reader.ts',
       'products/adapter/out/persistence/read/product-source-availability.ts',
     ]));
     expect(files.filter((file) => file.includes('__tests__') || file.endsWith('.spec.ts')))

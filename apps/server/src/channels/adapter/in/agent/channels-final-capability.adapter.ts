@@ -1,13 +1,14 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../../../prisma/prisma.service";
+import { ownerTransaction } from "../../../../prisma/owner-transaction";
 import {
   canonicalOwnerInputHash,
 } from "../../../../common/owner-idempotency-key";
 import {
-  CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
-  type ChannelsMarketplaceRegistrationCapabilityPort,
+  CHANNEL_REGISTRATION_PORT,
+  type ChannelRegistrationPort,
   type ResolveProductRegistrationWithOwnerReceiptInput,
-} from "../../../application/port/in/capability/marketplace-registration.port";
+} from "../../../application/port/in/registration/channel-registration.port";
 import {
   FROZEN_REGISTRATION_READ_PORT,
   type ServerFrozenRegistration,
@@ -24,8 +25,8 @@ import type {
 @Injectable()
 export class ChannelsFinalCapabilityAdapter implements ChannelsFinalCapabilityPort {
   constructor(
-    @Inject(CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT)
-    private readonly registrations: ChannelsMarketplaceRegistrationCapabilityPort,
+    @Inject(CHANNEL_REGISTRATION_PORT)
+    private readonly registrations: ChannelRegistrationPort,
     @Inject(FROZEN_REGISTRATION_READ_PORT)
     private readonly provenance: FrozenRegistrationReadPort,
     private readonly prisma: PrismaService,
@@ -55,7 +56,7 @@ export class ChannelsFinalCapabilityAdapter implements ChannelsFinalCapabilityPo
     }
     const listing = await this.prisma.$transaction((tx) =>
       this.registrations.resolveProductRegistrationWithOwnerReceipt(
-        tx,
+        ownerTransaction(tx),
         receiptResolutionInput({
           context,
           frozen,

@@ -642,37 +642,34 @@
     },
     {
       "name": "Rocket PO catalog snapshot",
-      "owner": "channels",
+      "owner": "orders",
       "table": "rocket_po_catalog_snapshots",
       "prismaModel": "rocketPoCatalogSnapshot",
       "prismaType": "RocketPoCatalogSnapshot",
       "relationNames": [
-        "rocketPoCatalogSnapshot",
-        "rocketPoCatalogSnapshots",
         "snapshot"
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/channels/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
-          "reason": "Channels publishes one normalized Rocket PO snapshot within the fenced source-owner completion transaction."
+          "path": "apps/server/src/orders/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
+          "reason": "Orders publishes one normalized Rocket PO snapshot within the fenced source-owner completion transaction."
         }
       ],
       "legacyReaders": []
     },
     {
       "name": "Rocket PO catalog line",
-      "owner": "channels",
+      "owner": "orders",
       "table": "rocket_po_catalog_lines",
       "prismaModel": "rocketPoCatalogLine",
       "prismaType": "RocketPoCatalogLine",
       "relationNames": [
-        "lines",
-        "rocketPoCatalogLines"
+        "lines"
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/channels/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
-          "reason": "Channels publishes validated Rocket PO lines with their owning snapshot in the source-owner completion transaction."
+          "path": "apps/server/src/orders/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
+          "reason": "Orders publishes validated Rocket PO lines with their owning snapshot in the source-owner completion transaction."
         }
       ],
       "legacyReaders": []
@@ -702,7 +699,6 @@
       "prismaType": "ProductRegistrationExecution",
       "relationNames": [
         "productRegistrationExecutions",
-        "requestedProductRegistrationExecutions",
         "executions"
       ],
       "ownerPublications": [
@@ -746,22 +742,10 @@
       "removeWith": "KID-309"
     },
     {
-      "to": "apps/server/src/channels/read/listing-product-summary.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
-      "from": "apps/server/src/advertising/adapter/out/repository/ad-action.repository.adapter.ts"
-    },
-    {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/advertising/adapter/out/repository/ad-action.repository.adapter.ts"
-    },
-    {
-      "to": "apps/server/src/channels/read/listing-product-summary.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
-      "from": "apps/server/src/advertising/adapter/out/repository/ad-listing.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
@@ -770,28 +754,10 @@
       "from": "apps/server/src/advertising/adapter/out/repository/ad-listing.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/channels/read/channel-listing-daily-facts.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
-      "from": "apps/server/src/advertising/adapter/out/repository/ad-strategy-context.repository.adapter.ts"
-    },
-    {
-      "to": "apps/server/src/channels/read/listing-product-summary.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
-      "from": "apps/server/src/advertising/adapter/out/repository/ad-strategy-context.repository.adapter.ts"
-    },
-    {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/advertising/adapter/out/repository/ad-strategy-context.repository.adapter.ts"
-    },
-    {
-      "to": "apps/server/src/channels/read/listing-product-summary.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
-      "from": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
@@ -860,24 +826,6 @@
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/collection-freshness.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/channels/read/registration-execution.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-findings.repository.adapter.ts"
-    },
-    {
-      "to": "apps/server/src/channels/read/channel-listing-daily-facts.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter.ts"
-    },
-    {
-      "to": "apps/server/src/channels/read/listing-product-summary.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter.ts"
-    },
-    {
       "to": "apps/server/src/orders/read/review-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
@@ -888,12 +836,6 @@
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter.ts"
-    },
-    {
-      "to": "apps/server/src/channels/read/listing-product-summary.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-sales.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/core/read/source-import-run.reader.ts",
@@ -929,12 +871,6 @@
       "to": "apps/server/src/advertising/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter.ts"
-    },
-    {
-      "to": "apps/server/src/channels/read/channel-listing-daily-facts.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-308",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter.ts"
     },
     {
@@ -980,12 +916,6 @@
       "from": "apps/server/src/common/per-listing-profit.ts"
     },
     {
-      "to": "apps/server/src/channels/read/listing-product-summary.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
-      "from": "apps/server/src/common/per-listing-profit.ts"
-    },
-    {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
@@ -1026,12 +956,6 @@
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-309",
       "from": "apps/server/src/orders/adapter/out/repository/order-collection-source.repository.ts"
-    },
-    {
-      "to": "apps/server/src/channels/read/listing-product-summary.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-307",
-      "from": "apps/server/src/orders/services/reviews.service.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/product-transactional-read.repository.adapter.ts",

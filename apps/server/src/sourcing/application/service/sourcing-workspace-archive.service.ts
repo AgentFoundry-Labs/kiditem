@@ -15,7 +15,6 @@ import {
   REGISTRATION_EXECUTION_PORT,
   type RegistrationExecutionPort,
 } from '../../../channels/application/port/in/capability/registration-execution.port';
-import type { ChannelsRepositoryTransaction } from '../../../channels/application/port/out/transaction/repository-transaction';
 
 export interface SourcingWorkspaceArchiveResult {
   ok: true;
@@ -40,7 +39,7 @@ export class SourcingWorkspaceArchiveService {
   ) {}
 
   async archive(candidateId: string, organizationId: string): Promise<SourcingWorkspaceArchiveResult> {
-    return this.candidates.runInTransaction(async (tx) => {
+    return this.candidates.runInTransaction(async (tx, ownerTx) => {
       const archivedAt = new Date();
       await this.candidates.lockCandidate(tx, {
         id: candidateId,
@@ -56,10 +55,10 @@ export class SourcingWorkspaceArchiveService {
       // 실행 행은 Channels 것이다. 후보 삭제 준비도 그쪽 울타리가 하고, 우리
       // 트랜잭션을 넘겨 후보 종료와 한 커밋에 들어가게 한다(ADR-0014).
       await this.executions.cancelUnstartedExecutions(
-        tx as unknown as ChannelsRepositoryTransaction,
+        ownerTx,
         { organizationId, sourceCandidateId: candidateId, cancelledAt: archivedAt },
       );
-      await this.preparations.assertCandidateTerminalTransitionAllowed(tx, {
+      await this.preparations.assertCandidateTerminalTransitionAllowed(ownerTx, {
         organizationId,
         sourceCandidateId: candidateId,
       });

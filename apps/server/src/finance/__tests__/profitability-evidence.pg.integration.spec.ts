@@ -1,3 +1,4 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
@@ -36,7 +37,7 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
   it('shows the same missing compatible cutoff in Products as in ABC evidence after mapping changes', async () => {
     const alerts = new SourceFailureAlerts(prisma as never);
     const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts, new ProductTransactionalReadRepositoryAdapter());
-    const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
+    const advertising = new ProfitabilityAdImportRepositoryAdapter(profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).recipes, profitCatalogTestReaders(prisma as never).listings, prisma as never, alerts);
     await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
     const published = await publishSellpia(sellpia, TEST_ORGANIZATION_ID, 'OWN', 2_000);
     await publishEmptyAdvertising(advertising, TEST_ORGANIZATION_ID, 'own-ad');
@@ -47,7 +48,7 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
     });
     const evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never, new ProductTransactionalReadRepositoryAdapter());
     const products = new ProductDataStatusUseCase(
-      new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence, new ProductTransactionalReadRepositoryAdapter()),
+      new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(prisma as never).accounts),
     );
 
     const targetCutoff = published.plan.to;
@@ -70,9 +71,7 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       prisma as never,
       new SourceFailureAlerts(prisma as never),
       new ProductTransactionalReadRepositoryAdapter());
-    const advertising = new ProfitabilityAdImportRepositoryAdapter(
-      prisma as never,
-      new SourceFailureAlerts(prisma as never),
+    const advertising = new ProfitabilityAdImportRepositoryAdapter(profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).recipes, profitCatalogTestReaders(prisma as never).listings, prisma as never, new SourceFailureAlerts(prisma as never)
     );
     const ownProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
     const zeroProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'ZERO');

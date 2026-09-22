@@ -12,6 +12,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-business-date-arithmetic.mjs',
   'check-copilotkit-train.mjs',
   'check-cross-owner-fk.mjs',
+  'check-channels-hexagonal.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-identifier-contracts.mjs',

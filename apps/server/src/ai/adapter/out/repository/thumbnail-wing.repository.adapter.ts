@@ -1,5 +1,7 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ThumbnailWingRegistrationAttemptPatch,
@@ -8,7 +10,11 @@ import type {
 
 @Injectable()
 export class ThumbnailWingRepositoryAdapter implements ThumbnailWingRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: ChannelListingQueryPort,
+  ) {}
 
   findGenerationWithCandidates(generationId: string, organizationId: string) {
     return this.prisma.thumbnailGeneration
@@ -24,25 +30,38 @@ export class ThumbnailWingRepositoryAdapter implements ThumbnailWingRepositoryPo
       .then((generation) => (generation ? { ...generation, contentWorkspaceId: generation.contentWorkspaceId } : null));
   }
 
-  findRegistrableWorkspace(contentWorkspaceId: string, organizationId: string) {
-    return this.prisma.contentWorkspace.findFirst({
-      where: {
-        id: contentWorkspaceId,
-        organizationId,
-        isDeleted: false,
-        status: 'active',
-        channelListing: {
-          is: {
-            isActive: true,
-            channelAccount: { is: { channel: 'coupang' } },
-          },
+  async findRegistrableWorkspace(contentWorkspaceId: string, organizationId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const workspace = await tx.contentWorkspace.findFirst({
+        where: {
+          id: contentWorkspaceId,
+          organizationId,
+          isDeleted: false,
+          status: 'active',
         },
-      },
-      select: {
-        displayName: true,
-        channelListing: { select: { channelName: true } },
-      },
-    });
+        select: {
+          displayName: true,
+          channelListingId: true,
+        },
+      });
+      if (!workspace?.channelListingId) return null;
+
+      const [listing] = await this.channelListings.readCatalogFacts(
+        ownerTransaction(tx),
+        {
+          organizationId,
+          listingIds: [workspace.channelListingId],
+          channels: ['coupang'],
+          activeOnly: true,
+        },
+      );
+      if (!listing) return null;
+
+      return {
+        displayName: workspace.displayName,
+        channelListing: { channelName: listing.channelName },
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   findGenerationWithLatestAttempt(id: string, organizationId: string) {

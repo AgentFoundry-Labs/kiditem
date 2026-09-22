@@ -19,8 +19,7 @@ model Thumbnail {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing      ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([listingId])
@@ -285,7 +284,6 @@ model ThumbnailTracking {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization   Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing        ChannelListing                   @relation(fields: [listingId], references: [id], onDelete: Cascade)
   generation     ThumbnailGeneration              @relation(fields: [generationId], references: [id], onDelete: Cascade)
   dailySnapshots ThumbnailTrackingDailySnapshot[]
 
@@ -485,7 +483,6 @@ model ContentWorkspace {
 
   organization              Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceCandidate           SourcingCandidate?                   @relation("ContentWorkspaceSourcingCandidate", fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  channelListing            ChannelListing?                      @relation(fields: [channelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   originWorkspace           ContentWorkspace?                    @relation("ContentWorkspaceBranches", fields: [originWorkspaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
   derivedWorkspaces         ContentWorkspace[]                   @relation("ContentWorkspaceBranches")
   currentDetailPageArtifact DetailPageArtifact?                  @relation("ContentWorkspaceCurrentArtifact", fields: [currentDetailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Restrict)

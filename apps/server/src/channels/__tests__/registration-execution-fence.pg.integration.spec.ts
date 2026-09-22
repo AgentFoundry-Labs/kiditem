@@ -1,3 +1,4 @@
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
@@ -10,15 +11,17 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
-import { hashRegistrationSubmissionPayload } from '../domain/registration-submission-payload';
+import { hashRegistrationSubmissionPayload } from '../domain/registration/registration-submission-payload';
 import { ProductPreparationRepositoryAdapter } from '../adapter/out/persistence/candidate-registration.repository.adapter';
 import { RegistrationDraftAdapter } from '../adapter/out/persistence/candidate-registration-draft.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../../sourcing/adapter/out/repository/sourcing-candidate.repository.adapter';
 import { RegistrationSourceAdapter } from '../../sourcing/adapter/out/repository/registration-source.adapter';
-import { REGISTRATION_EXECUTION_LEASE_MS } from '../domain/registration-execution-state';
-import type { SourcingRepositoryTransaction } from '../../sourcing/application/port/out/transaction/repository-transaction';
-import type { ChannelsRepositoryTransaction } from '../application/port/out/transaction/repository-transaction';
+import { REGISTRATION_EXECUTION_LEASE_MS } from '../domain/registration/registration-execution-state';
+import { ownerTransaction, ownerTransactionClient } from '../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../common/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -49,7 +52,7 @@ describe('registration execution fence (PG integration)', () => {
         findCandidateWorkspaceId: async () => null,
         resolveSourceSelections: async (_opaqueTx, input) => input,
         validateSourceSelections: async () => undefined,
-        ensureCandidateWorkspace: async (opaqueTx) => ensureWorkspace(opaqueTx),
+        ensureCandidateWorkspace: async (ownerTx) => ensureWorkspace(ownerTx),
         branchToListing: async () => ({ workspaceId: '' }),
       }),
     );
@@ -145,7 +148,7 @@ describe('registration execution fence (PG integration)', () => {
     ]);
 
     expect(left.preparationId).toBe(right.preparationId);
-    expect(await prisma.productPreparation.count({
+    expect(await prisma.registrationTarget.count({
       where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId },
     })).toBe(1);
   });
@@ -164,12 +167,11 @@ describe('registration execution fence (PG integration)', () => {
     );
 
     expect(second.preparationId).not.toBe(first.preparationId);
-    expect(await prisma.productPreparation.count({
+    expect(await prisma.registrationTarget.count({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidateId,
-        closedAt: null,
-        isDeleted: false,
+        archivedAt: null,
       },
     })).toBe(2);
   });
@@ -190,7 +192,7 @@ describe('registration execution fence (PG integration)', () => {
     await expect(prisma.productRegistrationExecution.findFirstOrThrow({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: draft.preparationId,
+        registrationTargetId: draft.preparationId,
       },
       select: {
         idempotencyKey: true,
@@ -234,7 +236,7 @@ describe('registration execution fence (PG integration)', () => {
     );
     expect(replacement.status).toBe('draft');
     expect(replacement.preparationId).toBe(draft.preparationId);
-    await expect(prisma.productPreparation.findUniqueOrThrow({
+    await expect(prisma.registrationTarget.findUniqueOrThrow({
       where: { id: draft.preparationId },
       select: { registrationInput: true },
     })).resolves.toMatchObject({ registrationInput: { salePrice: 22900 } });
@@ -261,7 +263,7 @@ describe('registration execution fence (PG integration)', () => {
       TEST_USER_ID,
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
-    await prisma.productPreparation.update({
+    await prisma.registrationTarget.update({
       where: { id: draft.preparationId },
       data: {
         displayName: 'MUTATED AFTER FREEZE',
@@ -322,7 +324,7 @@ describe('registration execution fence (PG integration)', () => {
       resolveSelections,
     );
     expect(edited).toMatchObject({ preparationId: draft.preparationId, status: 'draft' });
-    await expect(prisma.productPreparation.findUniqueOrThrow({
+    await expect(prisma.registrationTarget.findUniqueOrThrow({
       where: { id: draft.preparationId },
       select: { displayName: true },
     })).resolves.toEqual({ displayName: 'Unsafe replacement' });
@@ -450,7 +452,7 @@ describe('registration execution fence (PG integration)', () => {
         selectedThumbnailUrl: canonicalUrl,
       }),
     );
-    const row = await prisma.productPreparation.findFirstOrThrow({
+    const row = await prisma.registrationTarget.findFirstOrThrow({
       where: { id: draft.preparationId, organizationId: TEST_ORGANIZATION_ID },
     });
     expect(row.selectedThumbnailUrl).toBe(canonicalUrl);
@@ -478,11 +480,19 @@ describe('registration execution fence (PG integration)', () => {
     if (first.status === 'registered') throw new Error('unexpected registered state');
     expect(first.providerOutcome).toBe('not_attempted');
     expect(first.submissionLeaseToken).toEqual(expect.any(String));
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: first.executionId },
+      select: { reviewPayloadHash: true, approvedAt: true, approvedByUserId: true },
+    })).resolves.toEqual({
+      reviewPayloadHash: first.submissionPayloadHash,
+      approvedAt: expect.any(Date),
+      approvedByUserId: TEST_USER_ID,
+    });
 
     await prisma.productRegistrationExecution.update({
-      where: { organizationId_productPreparationId: {
+      where: { organizationId_registrationTargetId: {
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: draft.preparationId,
+        registrationTargetId: draft.preparationId,
       } },
       data: {
         leaseClaimedAt: new Date(
@@ -517,16 +527,19 @@ describe('registration execution fence (PG integration)', () => {
     );
     if (claimed.status === 'registered') throw new Error('unexpected registered state');
     await prisma.productRegistrationExecution.update({
-      where: { organizationId_productPreparationId: {
+      where: { organizationId_registrationTargetId: {
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: draft.preparationId,
+        registrationTargetId: draft.preparationId,
       } },
       data: {
         leaseClaimedAt: new Date(Date.now() - REGISTRATION_EXECUTION_LEASE_MS),
       },
     });
-    await prisma.productPreparation.update({
-      where: { id: draft.preparationId },
+    await prisma.productRegistrationExecution.update({
+      where: { organizationId_registrationTargetId: {
+        organizationId: TEST_ORGANIZATION_ID,
+        registrationTargetId: draft.preparationId,
+      } },
       data: { reviewPayloadHash: 'drifted-request-hash' },
     });
 
@@ -539,14 +552,14 @@ describe('registration execution fence (PG integration)', () => {
 
   it('rejects a closed preparation without an execution instead of creating a new submission', async () => {
     const draft = await drafts.createOrGetActiveDraft(createInput(ACCOUNT_ID), ensureWorkspace, resolveSelections);
-    const closedAt = new Date('2026-07-30T12:00:00.000Z');
-    await prisma.productPreparation.update({
+    const archivedAt = new Date('2026-07-30T12:00:00.000Z');
+    await prisma.registrationTarget.update({
       where: { id: draft.preparationId },
-      data: { closedAt, isDeleted: true, deletedAt: closedAt },
+      data: { archivedAt },
     });
     await expect(repository.claimForSubmission(TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID))
       .rejects.toThrow("Preparation cannot be submitted from 'cancelled'");
-    expect(await prisma.productRegistrationExecution.count({ where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: draft.preparationId } })).toBe(0);
+    expect(await prisma.productRegistrationExecution.count({ where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: draft.preparationId } })).toBe(0);
   });
 
   it('reclaims an expired in-provider lease as uncertain and retains the same submission identity', async () => {
@@ -567,9 +580,9 @@ describe('registration execution fence (PG integration)', () => {
       first.submissionLeaseToken!,
     );
     await prisma.productRegistrationExecution.update({
-      where: { organizationId_productPreparationId: {
+      where: { organizationId_registrationTargetId: {
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: draft.preparationId,
+        registrationTargetId: draft.preparationId,
       } },
       data: {
         leaseClaimedAt: new Date(
@@ -615,7 +628,7 @@ describe('registration execution fence (PG integration)', () => {
     await expect(prisma.productRegistrationExecution.findFirstOrThrow({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: draft.preparationId,
+        registrationTargetId: draft.preparationId,
       },
       select: { status: true, providerOutcome: true },
     })).resolves.toEqual({ status: 'reconciling', providerOutcome: 'uncertain' });
@@ -634,7 +647,7 @@ describe('registration execution fence (PG integration)', () => {
       resolveSelections,
     );
     expect(edited).toMatchObject({ preparationId: draft.preparationId, status: 'draft' });
-    await expect(prisma.productPreparation.findUniqueOrThrow({
+    await expect(prisma.registrationTarget.findUniqueOrThrow({
       where: { id: draft.preparationId },
       select: { displayName: true },
     })).resolves.toEqual({ displayName: 'Unsafe replacement' });
@@ -736,7 +749,7 @@ describe('registration execution fence (PG integration)', () => {
       reportCandidateLocked();
       await terminalRelease;
       return drafts.assertCandidateTerminalTransitionAllowed(
-        transaction as unknown as SourcingRepositoryTransaction,
+        ownerTransaction(transaction),
         {
           organizationId: TEST_ORGANIZATION_ID,
           sourceCandidateId: candidateId,
@@ -772,20 +785,20 @@ describe('registration execution fence (PG integration)', () => {
     });
     const cancelledAt = new Date('2026-07-30T12:00:00.000Z');
 
-    const cancelled = await candidateRepository.runInTransaction(async (transaction) => {
+    const cancelled = await candidateRepository.runInTransaction(async (transaction, ownerTx) => {
       await candidateRepository.lockCandidate(transaction, {
         id: candidateId,
         organizationId: TEST_ORGANIZATION_ID,
       });
       const count = await repository.cancelUnstartedExecutions(
-        transaction as unknown as ChannelsRepositoryTransaction,
+        ownerTx,
         {
           organizationId: TEST_ORGANIZATION_ID,
           sourceCandidateId: candidateId,
           cancelledAt,
         },
       );
-      await drafts.assertCandidateTerminalTransitionAllowed(transaction, {
+      await drafts.assertCandidateTerminalTransitionAllowed(ownerTx, {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidateId,
       });
@@ -793,10 +806,10 @@ describe('registration execution fence (PG integration)', () => {
     });
 
     expect(cancelled).toBe(1);
-    await expect(prisma.productPreparation.findUniqueOrThrow({
+    await expect(prisma.registrationTarget.findUniqueOrThrow({
       where: { id: prepared.preparationId },
-      select: { closedAt: true, isDeleted: true, deletedAt: true },
-    })).resolves.toEqual({ closedAt: cancelledAt, isDeleted: true, deletedAt: cancelledAt });
+      select: { archivedAt: true },
+    })).resolves.toEqual({ archivedAt: cancelledAt });
     await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
       where: { id: prepared.executionId },
       select: { status: true, completedAt: true },
@@ -820,13 +833,13 @@ describe('registration execution fence (PG integration)', () => {
       requestedByUserId: TEST_USER_ID,
     });
 
-    await expect(candidateRepository.runInTransaction(async (transaction) => {
+    await expect(candidateRepository.runInTransaction(async (transaction, ownerTx) => {
       await candidateRepository.lockCandidate(transaction, {
         id: candidateId,
         organizationId: TEST_ORGANIZATION_ID,
       });
       const cancelled = await repository.cancelUnstartedExecutions(
-        transaction as unknown as ChannelsRepositoryTransaction,
+        ownerTx,
         {
           organizationId: TEST_ORGANIZATION_ID,
           sourceCandidateId: candidateId,
@@ -834,7 +847,7 @@ describe('registration execution fence (PG integration)', () => {
         },
       );
       expect(cancelled).toBe(0);
-      return drafts.assertCandidateTerminalTransitionAllowed(transaction, {
+      return drafts.assertCandidateTerminalTransitionAllowed(ownerTx, {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidateId,
       });
@@ -923,7 +936,7 @@ describe('registration execution fence (PG integration)', () => {
     const frozenRow = await prisma.productRegistrationExecution.findUniqueOrThrow({
       where: { id: prepared.executionId },
       select: {
-        productPreparationId: true,
+        registrationTargetId: true,
         channelAccountId: true,
         submissionPayloadJson: true,
         submissionPayloadHash: true,
@@ -931,7 +944,7 @@ describe('registration execution fence (PG integration)', () => {
       },
     });
     expect(frozenRow).toMatchObject({
-      productPreparationId: prepared.preparationId,
+      registrationTargetId: prepared.preparationId,
       channelAccountId: ACCOUNT_ID,
     });
     await repository.recordProviderResult(
@@ -1074,7 +1087,7 @@ describe('registration execution fence (PG integration)', () => {
 
     expect(resumed.executionId).toBe(prepared.executionId);
     expect(await prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: prepared.preparationId },
+      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: prepared.preparationId },
     })).toBe(1);
   });
 
@@ -1105,7 +1118,7 @@ describe('registration execution fence (PG integration)', () => {
     expect(payload.registrationInput.wingProduct.variants[0]?.vendorItemCode)
       .toBe(prepared.kidItemCode);
     expect(execution.requestHash).toBe(execution.submissionPayloadHash);
-    expect(execution.requestHash).toBe(hashRegistrationSubmissionPayload(payload));
+    expect(execution.requestHash).toBe(hashRegistrationSubmissionPayload(payload, channelIntegrity.sha256));
     expect(prepared.requestHash).toBe(execution.requestHash);
   });
 
@@ -1144,7 +1157,7 @@ describe('registration execution fence (PG integration)', () => {
     expect(second.preparationId).toBe(first.preparationId);
     expect(second.kidItemCode).toBe(first.kidItemCode);
     expect(await prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: first.preparationId },
+      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: first.preparationId },
     })).toBe(1);
   });
 
@@ -1159,7 +1172,7 @@ describe('registration execution fence (PG integration)', () => {
       requestHash: first.requestHash,
     });
     expect(await prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, productPreparationId: first.preparationId },
+      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: first.preparationId },
     })).toBe(1);
   });
 
@@ -1264,7 +1277,7 @@ describe('registration execution fence (PG integration)', () => {
     expect(await prisma.productRegistrationExecution.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).toBe(0);
-    expect(await prisma.productPreparation.count({
+    expect(await prisma.registrationTarget.count({
       where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId },
     })).toBe(0);
 
@@ -1303,13 +1316,11 @@ describe('registration execution fence (PG integration)', () => {
     expect(fresh.status).toBe('prepared');
     expect(fresh.executionId).not.toBe(stale.executionId);
     expect(fresh.preparationId).toBe(stale.preparationId);
-    await expect(prisma.productPreparation.findUniqueOrThrow({
+    await expect(prisma.registrationTarget.findUniqueOrThrow({
       where: { id: stale.preparationId },
-      select: { closedAt: true, isDeleted: true, deletedAt: true },
+      select: { archivedAt: true },
     })).resolves.toEqual({
-      closedAt: null,
-      isDeleted: false,
-      deletedAt: null,
+      archivedAt: null,
     });
     await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
       where: { id: stale.executionId },
@@ -1327,11 +1338,11 @@ describe('registration execution fence (PG integration)', () => {
       leaseToken: null,
       leaseClaimedAt: null,
     });
-    expect(await prisma.productPreparation.count({
+    expect(await prisma.registrationTarget.count({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidateId,
-        isDeleted: false,
+        archivedAt: null,
       },
     })).toBe(1);
 
@@ -1345,33 +1356,26 @@ describe('registration execution fence (PG integration)', () => {
     })).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('never revives a legacy active preparation whose execution ledger is missing', async () => {
-    const base = {
-      organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-    };
-    const stale = await repository.prepare({
-      ...base,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    });
-    // Simulate a pre-ledger/partially migrated active row. The production path
-    // must reconcile or reject it, never treat `every([])` as safe to replace.
-    await prisma.productRegistrationExecution.delete({ where: { id: stale.executionId } });
+  it('rejects a claim when the execution has lost its frozen approval snapshot', async () => {
+    const draft = await drafts.createOrGetActiveDraft(createInput(ACCOUNT_ID), ensureWorkspace, resolveSelections);
+    const first = await repository.claimForSubmission(TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID);
+    if (first.status === 'registered') throw new Error('unexpected registered state');
 
-    await expect(repository.prepare({
-      ...base,
-      displayName: 'Changed without a ledger',
-      registrationInput: { wingProduct: { productName: 'Changed without a ledger' } },
-      idempotencyKey: randomUUID(),
-    })).rejects.toBeInstanceOf(ConflictException);
-    await expect(prisma.productPreparation.findUniqueOrThrow({
-      where: { id: stale.preparationId },
-      select: { closedAt: true, isDeleted: true },
-    })).resolves.toEqual({ closedAt: null, isDeleted: false });
+    await prisma.productRegistrationExecution.update({
+      where: { id: first.executionId },
+      data: {
+        reviewPayloadHash: null,
+        approvedAt: null,
+        approvedByUserId: null,
+        leaseClaimedAt: new Date(Date.now() - REGISTRATION_EXECUTION_LEASE_MS),
+      },
+    });
+
+    await expect(repository.claimForSubmission(TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID))
+      .rejects.toThrow('Registration execution does not match its frozen approval.');
+    await expect(prisma.productRegistrationExecution.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: draft.preparationId },
+    })).resolves.toBe(1);
   });
 
   it('never supersedes an ordinary create execution or its live claim lease', async () => {
@@ -1470,12 +1474,11 @@ describe('registration execution fence (PG integration)', () => {
       completedAt: expect.any(Date),
       leaseToken: null,
     });
-    await expect(prisma.productPreparation.findUniqueOrThrow({
+    await expect(prisma.registrationTarget.findUniqueOrThrow({
       where: { id: stale.preparationId },
-      select: { closedAt: true, isDeleted: true },
+      select: { archivedAt: true },
     })).resolves.toEqual({
-      closedAt: null,
-      isDeleted: false,
+      archivedAt: null,
     });
   });
 
@@ -1694,8 +1697,8 @@ describe('registration execution fence (PG integration)', () => {
     };
   }
 
-  async function ensureWorkspace(opaqueTx: SourcingRepositoryTransaction): Promise<string> {
-    const client = tx(opaqueTx);
+  async function ensureWorkspace(ownerTx: OwnerTransaction): Promise<string> {
+    const client = ownerTransactionClient(ownerTx);
     const existing = await client.contentWorkspace.findFirst({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1718,7 +1721,7 @@ describe('registration execution fence (PG integration)', () => {
   }
 
   async function resolveSelections(
-    _opaqueTx: SourcingRepositoryTransaction,
+    _opaqueTx: OwnerTransaction,
     input: {
       organizationId: string;
       sourceWorkspaceId: string;
@@ -1765,7 +1768,7 @@ describe('registration execution fence (PG integration)', () => {
 });
 
 function tx(
-  value: SourcingRepositoryTransaction | ChannelsRepositoryTransaction,
+  value: OwnerTransaction,
 ): Prisma.TransactionClient {
-  return value as unknown as Prisma.TransactionClient;
+  return ownerTransactionClient(value);
 }

@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { ProductPreparationRow } from '../../../../../channels/application/port/in/candidate-registration.port';
 export type { ProductPreparationRow } from '../../../../../channels/application/port/in/candidate-registration.port';
 import type { SourcingRepositoryTransaction } from '../transaction/repository-transaction';
@@ -99,7 +100,7 @@ export interface SourcingCandidateStateRow {
 
 export interface SourcingCandidateRepositoryPort {
   runInTransaction<T>(
-    operation: (tx: SourcingRepositoryTransaction) => Promise<T>,
+    operation: (tx: SourcingRepositoryTransaction, ownerTransaction: OwnerTransaction) => Promise<T>,
     options?: { timeout?: number },
   ): Promise<T>;
   findActiveBySourceUrl(input: {
@@ -135,7 +136,7 @@ export interface SourcingCandidateRepositoryPort {
     organizationId: string,
   ): Promise<(CandidateRow & {
     images: CandidateImageRow[];
-    productPreparation: ProductPreparationRow | null;
+    registrationTarget: ProductPreparationRow | null;
     productPreparations: ProductPreparationRow[];
     registrationState: CandidateRegistrationState;
   }) | null>;
@@ -149,7 +150,7 @@ export interface SourcingCandidateRepositoryPort {
   }): Promise<{
     items: Array<CandidateRow & {
       images: CandidateImageRow[];
-      productPreparation: ProductPreparationRow | null;
+      registrationTarget: ProductPreparationRow | null;
       productPreparations: ProductPreparationRow[];
       registrationState: CandidateRegistrationState;
     }>;

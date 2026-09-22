@@ -1,3 +1,6 @@
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
+import { ListingContentQueryRepositoryAdapter } from '../../ai/adapter/out/repository/listing-content-query.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -13,12 +16,12 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { readProductSaleAgeEvidence } from '../../common/product-sale-age';
-import { ChannelCatalogCollectionController } from '../adapter/in/http/channel-catalog-collection.controller';
-import { ChannelCatalogSourceController } from '../adapter/in/http/channel-catalog-source.controller';
+import { ChannelCatalogCollectionController } from '../adapter/in/web/channel-catalog-collection.controller';
+import { ChannelCatalogSourceController } from '../adapter/in/web/channel-catalog-source.controller';
 import {
   ChannelCatalogCollectionService,
   hashCatalogChunkPayload,
-} from '../application/service/channel-catalog-collection.service';
+} from '../application/service/collection/channel-catalog-collection.service';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
@@ -31,7 +34,7 @@ import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/reposito
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { countPublishedCatalogListings } from '../read/completed-catalog-run';
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { lockProductMapping } from '../../common/product-mapping-generation';
@@ -46,6 +49,8 @@ import {
 } from '@kiditem/shared/product-abc';
 import type { SellpiaManualMatchSnapshot } from '@kiditem/shared/sellpia-manual-match';
 
+const channelIntegrity = new ChannelIntegrityAdapter();
+
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT = '22222222-2222-4222-8222-222222222222';
 const MANUAL_MATCH_SKU_ID = '26000000-0000-4000-8000-000000000003';
@@ -59,7 +64,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
   let listings: ChannelListingQueryService;
   let matching: ChannelProductMatchingRepositoryAdapter;
   let manualMatch: SellpiaManualMatchRepositoryAdapter;
-  let recipes: ChannelOptionRecipeUseCase;
+  let recipes: ChannelOptionRecipeService;
   let expireAfterCatalogWrite = false;
   beforeAll(async () => {
     prisma = makeTestPrisma().$extends({
@@ -76,9 +81,9 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     }) as unknown as PrismaClient;
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never));
+    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never));
     const productTransactions = new ProductTransactionalReadRepositoryAdapter();
-    recipes = new ChannelOptionRecipeUseCase(
+    recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions),
     );
     matching = new ChannelProductMatchingRepositoryAdapter(
@@ -94,13 +99,13 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     );
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as never,
-      new AiCatalogMediaPublicationRepositoryAdapter(),
+      new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
       alerts,
       recipes,
     );
     const owner = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
-      publisher,
+      publisher, channelIntegrity,
     );
     const module = await Test.createTestingModule({
       controllers: [ChannelCatalogCollectionController, ChannelCatalogSourceController],
@@ -185,7 +190,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       .send({
         kind: payload.kind,
         sequence,
-        checksum: hashCatalogChunkPayload(payload),
+        checksum: hashCatalogChunkPayload(payload, channelIntegrity.sha256),
         itemCount: 'items' in payload
           ? payload.items.length
           : 'products' in payload

@@ -15,6 +15,7 @@ import {
 } from '@kiditem/shared/rocket-purchase-preview';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import {
   ROCKET_WORKBOOK_PROGRESS_PORT,
   type RocketWorkbookProgressPort,
@@ -25,6 +26,10 @@ import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
 } from '../../../../products/application/port/in/product-transactional-read.port';
+import {
+  CHANNEL_OPTION_RECIPE_PORT,
+  type ChannelOptionRecipePort,
+} from '../../../../channels/application/port/in/channel-option-recipe.port';
 
 const LOCK_NAMESPACE = 'rocket-workbook-workflow';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -75,6 +80,8 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
     private readonly progress: RocketWorkbookProgressPort,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly products: ProductTransactionalReadPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT)
+    private readonly channelRecipes: ChannelOptionRecipePort,
   ) {}
 
   async exportWorkbook(
@@ -131,6 +138,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
       const decisions = buildDecisions(request, input.preview.rows);
       await assertCurrentRecipes(
         tx,
+        this.channelRecipes,
         input.organizationId,
         request.channelAccountId,
         decisions,
@@ -168,15 +176,8 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
           artifactSha256,
           artifactBytes: Uint8Array.from(input.artifactBytes),
           completedAt: hasPositiveQuantity ? null : now,
+          channelAccountId: request.channelAccountId,
           organization: { connect: { id: input.organizationId } },
-          channelAccount: {
-            connect: {
-              id_organizationId: {
-                id: request.channelAccountId,
-                organizationId: input.organizationId,
-              },
-            },
-          },
           sourceImportRun: {
             connect: {
               id_organizationId: {
@@ -196,19 +197,8 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
               orderQuantity: decision.source.orderQuantity,
               confirmedQuantity: decision.workbookQuantity,
               shortageReason: decision.shortageReason,
+              channelListingOptionId: decision.source.channelListingOptionId,
               organization: { connect: { id: input.organizationId } },
-              ...(decision.source.channelListingOptionId
-                ? {
-                    channelListingOption: {
-                      connect: {
-                        id_organizationId: {
-                          id: decision.source.channelListingOptionId,
-                          organizationId: input.organizationId,
-                        },
-                      },
-                    },
-                  }
-                : {}),
               allocations: {
                 create: decision.allocations.map((allocation) => ({
                   unitsPerSale: allocation.unitsPerSale,
@@ -521,6 +511,7 @@ function buildDecisions(
 
 async function assertCurrentRecipes(
   tx: Prisma.TransactionClient,
+  channelRecipes: ChannelOptionRecipePort,
   organizationId: string,
   channelAccountId: string,
   decisions: WorkbookDecision[],
@@ -533,27 +524,13 @@ async function assertCurrentRecipes(
     ),
   ];
   if (optionIds.length === 0) return;
-  const options = await tx.channelListingOption.findMany({
-    where: {
-      id: { in: optionIds },
-      organizationId,
-      isActive: true,
-      listing: {
-        channelAccountId,
-        isActive: true,
-        organizationId,
-      },
-    },
-    select: {
-      id: true,
-      inventoryComponents: {
-        where: { organizationId },
-        select: { masterProductId: true, quantity: true },
-        orderBy: { masterProductId: 'asc' },
-      },
-    },
+  const options = await channelRecipes.readConfirmedCompositions(ownerTransaction(tx), {
+    organizationId,
+    accountIds: [channelAccountId],
+    optionIds,
+    activeOnly: true,
   });
-  const byId = new Map(options.map((option) => [option.id, option]));
+  const byId = new Map(options.map((option) => [option.optionId, option]));
   for (const decision of decisions) {
     const option = byId.get(decision.source.channelListingOptionId!);
     const expected = decision.source.components
@@ -566,7 +543,7 @@ async function assertCurrentRecipes(
       );
     if (
       !option ||
-      JSON.stringify(option.inventoryComponents) !== JSON.stringify(expected)
+      JSON.stringify(option.components) !== JSON.stringify(expected)
     ) {
       throw new ConflictException(
         'Channel option inventory recipe changed after Rocket preview.',

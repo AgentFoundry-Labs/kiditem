@@ -361,18 +361,22 @@ export class KeywordSerpSourceRepository {
   }
 
   async capture(org: string, id: string) {
-    const snapshot = await this.prisma.channelScrapeSnapshot.findFirst({
+    return this.prisma.$transaction(async tx => {
+    const run = await tx.sourceImportRun.findFirst({
+      where: { id, ...scope(org), status: SOURCE_IMPORT_RUN_COMPLETED_STATUS }, select: { id: true },
+    });
+    const snapshot = run ? await tx.channelScrapeSnapshot.findFirst({
       where: {
         organizationId: org,
         sourceImportRunId: id,
         source: SOURCE,
-        sourceImportRun: { ...scope(org), status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
       },
       select: { rawJson: true },
-    });
+    }) : null;
     if (!snapshot)
       throw new NotFoundException("COMPLETE_SERP_CAPTURE_NOT_FOUND");
     return { attemptId: id, capture: snapshot.rawJson };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async complete(

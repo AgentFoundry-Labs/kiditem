@@ -9,6 +9,7 @@ export const CHANNEL_SKU_AVAILABILITY_PORT = Symbol(
 );
 
 export interface ChannelSkuAvailabilityPort {
+  updateSafetyStock(organizationId: string, optionId: string, safetyStock: number): Promise<{ channelListingOptionId: string; safetyStock: number }>;
   list(
     organizationId: string,
     query: ChannelSkuAvailabilityQuery,

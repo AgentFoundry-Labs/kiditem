@@ -1,7 +1,19 @@
-import { readListingProductIds } from '../../channels/read/listing-product-summary.reader';
 // apps/server/src/orders/services/reviews.service.ts
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ownerTransaction } from '../../prisma/owner-transaction';
+import {
+  CHANNEL_LISTING_QUERY_PORT,
+  type ChannelListingQueryPort,
+} from '../../channels/application/port/in/listing/channel-listing-query.port';
+import {
+  CHANNEL_OPTION_RECIPE_PORT,
+  type ChannelOptionRecipePort,
+} from '../../channels/application/port/in/channel-option-recipe.port';
+import {
+  CHANNEL_ACCOUNT_PORT,
+  type ChannelAccountPort,
+} from '../../channels/application/port/in/account/channel-account.port';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
@@ -55,6 +67,12 @@ export class ReviewsService {
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly products: ProductTransactionalReadPort =
       new ProductTransactionalReadRepositoryAdapter(),
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: ChannelListingQueryPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT)
+    private readonly channelRecipes: ChannelOptionRecipePort,
+    @Inject(CHANNEL_ACCOUNT_PORT)
+    private readonly channelAccounts: ChannelAccountPort,
   ) {}
 
   /**
@@ -155,7 +173,7 @@ export class ReviewsService {
       const optionNames = await this.loadOptionNames(
         tx,
         organizationId,
-        rows.map((row) => row.externalOptionId),
+        rows,
       );
       const listingDisplays = await this.loadListingDisplays(
         tx,
@@ -171,7 +189,7 @@ export class ReviewsService {
         row.itemName ??
         '-',
       optionName: row.externalOptionId
-        ? (optionNames.get(row.externalOptionId) ?? null)
+        ? (optionNames.get(optionLookupKey(row.platform, row.externalOptionId)) ?? null)
         : null,
       rating: row.rating,
       title: row.title,
@@ -202,21 +220,31 @@ export class ReviewsService {
   private async loadOptionNames(
     tx: Prisma.TransactionClient,
     organizationId: string,
-    externalOptionIds: ReadonlyArray<string | null>,
+    reviewRows: ReadonlyArray<{ platform: string; externalOptionId: string | null }>,
   ): Promise<Map<string, string>> {
-    const ids = [
-      ...new Set(externalOptionIds.filter((value): value is string => !!value)),
-    ];
-    if (ids.length === 0) return new Map();
-    const rows = await tx.channelListingOption.findMany({
-      where: { organizationId, externalOptionId: { in: ids } },
-      select: { externalOptionId: true, itemName: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    const idsByPlatform = new Map<string, Set<string>>();
+    for (const row of reviewRows) {
+      if (!row.externalOptionId) continue;
+      const ids = idsByPlatform.get(row.platform) ?? new Set<string>();
+      ids.add(row.externalOptionId);
+      idsByPlatform.set(row.platform, ids);
+    }
     const map = new Map<string, string>();
-    for (const row of rows) {
-      if (!row.itemName || map.has(row.externalOptionId)) continue;
-      map.set(row.externalOptionId, row.itemName);
+    for (const [channel, ids] of idsByPlatform) {
+      const candidates = await this.channelListings.readOptionCandidates(
+        ownerTransaction(tx),
+        { organizationId, channel, externalOptionIds: [...ids] },
+      );
+      const byExternalId = new Map<string, typeof candidates>();
+      for (const candidate of candidates) {
+        const matches = byExternalId.get(candidate.externalOptionId) ?? [];
+        matches.push(candidate);
+        byExternalId.set(candidate.externalOptionId, matches);
+      }
+      for (const [externalOptionId, matches] of byExternalId) {
+        if (matches.length !== 1 || !matches[0]?.itemName) continue;
+        map.set(optionLookupKey(channel, externalOptionId), matches[0].itemName);
+      }
     }
     return map;
   }
@@ -227,24 +255,24 @@ export class ReviewsService {
     listingIds: string[],
   ): Promise<Map<string, ListingDisplay>> {
     if (listingIds.length === 0) return new Map();
-    const listingRows = await tx.channelListing.findMany({
-      where: { id: { in: listingIds }, organizationId, isActive: true },
-      select: {
-        id: true,
-        channelName: true,
-        displayName: true,
-        options: {
-          select: { sellerSku: true },
-          where: { isActive: true },
-          orderBy: { createdAt: 'asc' },
-          take: 1,
-        },
-        organization: { select: { name: true } },
-      },
+    const rows = await this.channelListings.readDisplayFacts(ownerTransaction(tx), {
+      organizationId,
+      listingIds,
+      activeOnly: true,
     });
-    const summaries = await readListingProductIds(tx, { organizationId, listingIds: listingRows.map((row) => row.id) });
-    const rows = listingRows.map((row) => ({ ...row, masterProductId: summaries.get(row.id) ?? null }));
-    const masterProductIds = [...new Set(rows.flatMap((row) =>
+    const summaries = await this.channelRecipes.readListingProductSummaries(ownerTransaction(tx), {
+      organizationId,
+      listingIds: rows.map((row) => row.id),
+    });
+    const organization = await tx.organization.findUnique({
+      where: { id: organizationId },
+      select: { name: true },
+    });
+    const rowsWithProducts = rows.map((row) => ({
+      ...row,
+      masterProductId: summaries.get(row.id) ?? null,
+    }));
+    const masterProductIds = [...new Set(rowsWithProducts.flatMap((row) =>
       row.masterProductId ? [row.masterProductId] : []))];
     const products = masterProductIds.length === 0
       ? []
@@ -259,7 +287,7 @@ export class ReviewsService {
       masterProductIds: currentMasterProductIds,
     });
     const map = new Map<string, ListingDisplay>();
-    for (const row of rows) {
+    for (const row of rowsWithProducts) {
       const product = row.masterProductId
         ? productById.get(row.masterProductId)
         : undefined;
@@ -269,8 +297,8 @@ export class ReviewsService {
           ?? row.displayName
           ?? row.channelName
           ?? null,
-        sku: row.options[0]?.sellerSku ?? null,
-        companyName: row.organization?.name ?? null,
+        sku: row.firstActiveSellerSku,
+        companyName: organization?.name ?? null,
         grade: product
           ? gradeByProductId.get(product.masterProductId) ?? null
           : null,
@@ -292,15 +320,15 @@ export class ReviewsService {
       ...bounds,
       excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
     };
-    const observation = await readOrderWindowFacts(tx, window);
+    const observation = await readOrderWindowFacts(tx, window, this.channelAccounts);
     if (observation.orderCount === null) return null;
 
-    const options = await tx.channelListingOption.findMany({
-      where: { organizationId, listingId: { in: listingIds } },
-      select: { id: true, listingId: true },
+    const options = await this.channelRecipes.readConfirmedCompositions(ownerTransaction(tx), {
+      organizationId,
+      listingIds,
     });
     const facts = await readListingOptionOrderFacts(tx, window);
-    const listingByOption = new Map(options.map((option) => [option.id, option.listingId]));
+    const listingByOption = new Map(options.map((option) => [option.optionId, option.listingId]));
     const orderIdsByListing = new Map<string, Set<string>>();
     for (const fact of facts) {
       const listingId = listingByOption.get(fact.listingOptionId);
@@ -313,6 +341,10 @@ export class ReviewsService {
       listingIds.map((listingId) => [listingId, orderIdsByListing.get(listingId)?.size ?? 0]),
     );
   }
+}
+
+function optionLookupKey(platform: string, externalOptionId: string): string {
+  return `${platform}\u0000${externalOptionId}`;
 }
 
 function toCurrentReviewItemFilter(query: ListReviewItemsQueryDto): CurrentReviewItemFilter {

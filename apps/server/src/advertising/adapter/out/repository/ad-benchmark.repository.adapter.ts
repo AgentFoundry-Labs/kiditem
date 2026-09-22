@@ -1,9 +1,10 @@
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 // 30-day organization-wide ad benchmark read. Source: the listing-day ad
 // ledger through its one reader (`advertising/read/ad-target-facts`), over the inclusive
 // 30-day KST window. Returns additive sums; ratios recompute in
 // `domain/ad-metrics`.
 
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstInclusiveDaysStart } from '../../../../common/kst';
@@ -20,7 +21,8 @@ import type {
 export class AdBenchmarkRepositoryAdapter
   implements AdBenchmarkRepositoryPort
 {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort) {}
 
   async findBenchmarkAggregates(
     organizationId: string,
@@ -28,8 +30,8 @@ export class AdBenchmarkRepositoryAdapter
     const from = kstInclusiveDaysStart(30);
     const [window, perListing] = await this.prisma.$transaction(
       async (tx) => {
-        const window = await readAdWindowFacts(tx, { organizationId, from });
-        const perListing = await readListingAdWindowFacts(tx, { organizationId, from });
+        const window = await readAdWindowFacts(tx, { organizationId, from }, this.channelAccounts);
+        const perListing = await readListingAdWindowFacts(tx, { organizationId, from }, this.channelAccounts);
         return [window, perListing] as const;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
