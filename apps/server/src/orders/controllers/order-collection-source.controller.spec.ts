@@ -87,12 +87,14 @@ describe('OrderCollectionSourceController', () => {
   });
 
   it('regenerates a transient workbook from a complete retained source under the same fence', async () => {
+    // 셀피아 양식은 묶음마다 택배비 줄을 하나 붙인다 — 상품 2 줄 + 묶음 1 = 출력 3 줄,
+    // 곧 주문 1 건이다. 출력 줄과 주문 수가 같은 파일은 실제로 나오지 않는다.
     const conversion = {
       buffer: Buffer.from('converted'),
       fileName: 'icecream.xls',
       sourceRows: 2,
       productRows: 2,
-      outputRows: 2,
+      outputRows: 3,
       skippedRows: 0,
     };
     const source = {
@@ -134,10 +136,12 @@ describe('OrderCollectionSourceController', () => {
     );
     // 이 수집이 몇 건을 실어 왔는지는 변환할 때야 안다. 여기서 적지 않으면 성공한 수집도
     // 건수 0 으로 남아 대시보드가 그만큼 모자라게 센다(사장님 2026-09-21).
+    // 장부에 적는 것은 **주문 수**다. 출력 줄(3)을 그대로 적으면 택배비 줄만큼 부풀어
+    // 몰 카드의 '당일' 이 '신규' 보다 커진다 — 아이스크림몰 38 대 18(사장님 2026-09-22).
     expect(source.recordCollectedRows).toHaveBeenCalledWith({
       organizationId: ORG,
       attemptId: ATTEMPT,
-      rowCount: 2,
+      rowCount: 1,
     });
   });
 
