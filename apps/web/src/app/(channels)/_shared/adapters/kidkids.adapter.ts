@@ -63,6 +63,16 @@ const FIELDS: readonly MallFieldSpec[] = [
     help: '있으면 KC 인증과 어린이제품 고시로 채웁니다. 여러 몰이 같은 값을 씁니다.',
   },
   {
+    key: 'sellpiaCode',
+    label: '셀피아 상품코드',
+    origin: 'override',
+    control: 'text',
+    defaultValue: '',
+    required: false,
+    shared: true,
+    help: '몰의 자체상품코드 칸에 심습니다. 심어 두면 나중에 등록 상품을 가져올 때 이름이 아니라 코드로 정확히 이어집니다. 여러 몰이 같은 값을 씁니다.',
+  },
+  {
     key: 'kcType',
     label: 'KC 인증 구분',
     origin: 'override',
@@ -136,6 +146,14 @@ export const kidkidsAdapter: MallPublishAdapter = {
         mallSpecific: true,
       },
       {
+        label: '셀피아 상품코드',
+        value: values.sellpiaCode?.trim()
+          ? `${values.sellpiaCode.trim()} → 자체상품코드 칸에 심음(가져올 때 코드로 이어짐)`
+          : '비어 있음 — 가져올 때 이름으로만 이어집니다',
+        origin: 'override',
+        mallSpecific: true,
+      },
+      {
         label: '배송',
         value: 'CJ대한통운 유료배송 · 전국 · 2~3일',
         origin: 'template',
@@ -175,11 +193,13 @@ export const kidkidsAdapter: MallPublishAdapter = {
     const { draft } = await prepareRegistration(item, 'kidkids');
     const certNumber = values.certNumber?.trim();
     const category = parseCategory(values.categoryCodes);
+    const sellpiaCode = values.sellpiaCode?.trim();
     const form = kidkidsFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),
       kcType: parseKcType(values.kcType),
       ...(category ? { categoryCodes: category } : {}),
       ...(certNumber ? { certNumber } : {}),
+      ...(sellpiaCode ? { sellpiaCode } : {}),
     });
     const result = await fillMallRegistrationForm('kidkids', draft, form, mallFormExecutionOptions(item));
     return registrationOutcome(result);

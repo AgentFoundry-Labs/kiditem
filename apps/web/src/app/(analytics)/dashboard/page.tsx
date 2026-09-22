@@ -44,7 +44,6 @@ import {
   useSellpiaChannelSales,
   useSellpiaKnownThrough,
 } from '@/hooks/useSellpiaChannelSales';
-import { DashboardChartPanel } from './components/DashboardChartPanel';
 import { DashboardHeadlineCards, type HeadlineMetric } from './components/DashboardHeadlineCards';
 import { DashboardRevenue } from './components/DashboardRevenue';
 import { DashboardAgentStatus } from './components/DashboardAgentStatus';
@@ -53,12 +52,8 @@ import { DashboardAiSuggestion } from './components/DashboardAiSuggestion';
 import { buildAiSuggestions } from './lib/ai-suggestions';
 import { DashboardRecentProducts, RECENT_PRODUCT_SLOTS } from './components/DashboardRecentProducts';
 import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricCard';
-import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
-import { DashboardSidePanel, type DashboardReadFailure } from './components/DashboardSidePanel';
+import { DashboardReadFailures, type DashboardReadFailure } from './components/DashboardReadFailures';
 import { DashboardTopProducts } from './components/DashboardTopProducts';
-import { DashboardAdPerformance } from './components/DashboardAdPerformance';
-import { DashboardTrafficFunnel } from './components/DashboardTrafficFunnel';
-import { DashboardWarningTable, buildWarningRows } from './components/DashboardWarningTable';
 import { DashboardGradeCards } from './components/DashboardGradeCards';
 import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
 import {
@@ -243,7 +238,6 @@ function fillTrendDateGaps(rows: Array<{
 export default function Dashboard() {
   const queryClient = useQueryClient();
 
-  const [showProfitDetail, setShowProfitDetail] = useState(false);
   const [kpiRange, setKpiRange] = useState<'month' | 'week' | 'day' | 'custom'>('month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -493,7 +487,9 @@ export default function Dashboard() {
   const wingRevenue = nullableValue(salesMonthly?.wingRevenue, kpiRevenue);
 
   // 트렌드 차트용 데이터
-  const dailyTrend = fillTrendDateGaps(trendData.map((d) => ({
+  // 읽기가 `null` 을 돌려주면 기본값(`= []`)이 걸리지 않는다 — 기본값은 `undefined` 에만 붙는다.
+  // 막지 않으면 추이 하나가 비었다고 대시보드 전체가 죽는다.
+  const dailyTrend = fillTrendDateGaps((trendData ?? []).map((d) => ({
     ...d,
     evidence: {
       revenue: readMetricBasis(d, 'revenue'),
@@ -718,6 +714,8 @@ export default function Dashboard() {
   ]);
   const unclassifiedBasis = readMetricBasis(inventoryData, 'unclassifiedProductCount');
   const downgradedBasis = readMetricBasis(inventoryData, 'gradeChanges.downgraded');
+  /** 등급 이동(▲들어온 수 ▼나간 수)의 근거. 없으면 ABC 칸이 화살표를 그리지 않는다. */
+  const changesBasis = readFirstMetricBasis(inventoryData, ['gradeChanges.total']);
   const inventoryHeaderBasis = readFirstMetricBasis(inventoryData, [
     'totalProducts',
     'channelLinkedProducts',
@@ -777,9 +775,6 @@ export default function Dashboard() {
   // the other one. Falling back across sources would put order inputs under a
   // Sellpia card whose own value was withheld, which is the borrowing the card
   // itself is careful not to do.
-  const profitDetailInputs = sellpiaHasData
-    ? sellpiaProfitInputs ?? null
-    : orderProfitInputs ?? null;
   const profitCardBasis = profitCardUsesSellpia
     ? sellpiaProfitInputs?.basis ?? null
     : sellpiaHasData ? sellpiaMetricBasis : profitBasis;
@@ -1065,6 +1060,8 @@ export default function Dashboard() {
                   unclassifiedBasis={unclassifiedBasis}
                   abcContributionProfit={inventoryData.abcContributionProfit}
                   abcFormula={inventoryData.abcFormula}
+                  gradeChanges={inventoryData.gradeChanges}
+                  changesMeasured={basisHasValues(changesBasis)}
                   basis={inventoryBasis}
                   contributionBasis={contributionBasis}
                   refetchReads={async () => { await refetchInventory(); }}
@@ -1123,329 +1120,10 @@ export default function Dashboard() {
         </DashboardAgentStatus>
       </div>
 
-      {/* 본문 — 왼쪽은 기간을 읽는 것, 오른쪽은 지금 손이 필요한 것.
-          한 화면에서 훑는 것이 이 페이지의 용도라 세로로 쌓지 않는다. */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
-        <div className="lg:col-span-2 space-y-3">
-          <DashboardSectionHeader
-            title="기간 지표"
-            controls={(
-              <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-                {/* One ⓘ for the seven cells, broken down per value: two cards in
-                    this row can report different windows and different sources,
-                    so the panel never states one shared basis. */}
-                <DashboardBasisDisclosure
-                  label="기간 지표 근거"
-                  meaning={(
-                    <p>
-                      위 선택한 기간의 합계입니다. 매출은 주문 품목 금액의 합이고, 순이익은
-                      원가·수수료·배송비 근거가 갖춰진 주문만 계산합니다. 광고비율은
-                      광고비÷매출, 광고수익률은 광고전환매출÷광고비이며, 분모가 없으면
-                      비율도 내지 않습니다. 일곱 칸의 원천과 기간이 서로 다를 수 있어
-                      아래에 값마다 따로 적습니다.
-                    </p>
-                  )}
-                  entries={[
-                    { label: `${rangeLabel} 매출`, basis: revenueCardBasis },
-                    { label: `${rangeLabel} 순이익`, basis: profitBasis },
-                    { label: '이익률', basis: profitRateBasis },
-                    { label: '광고비율', basis: adRateBasis },
-                    { label: '구매전환율', basis: trafficBasis },
-                    { label: '광고수익률', basis: adRoasBasis },
-                    { label: '오늘 주문', basis: todayBasis },
-                  ]}
-                />
-                {kpiRange === 'custom' && (
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="date"
-                      value={dateFrom}
-                      max={dateTo || undefined}
-                      onChange={e => setDateFrom(e.target.value)}
-                      aria-label="시작일"
-                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
-                    />
-                    <span className="text-slate-400" aria-hidden="true">~</span>
-                    <input
-                      type="date"
-                      value={dateTo}
-                      min={dateFrom || undefined}
-                      onChange={e => setDateTo(e.target.value)}
-                      aria-label="종료일"
-                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
-                    />
-                    <button
-                      onClick={applyCustomRange}
-                      disabled={!dateFrom || !dateTo}
-                      className="h-7 rounded-md bg-violet-600 px-3 text-[13px] font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      조회
-                    </button>
-                  </div>
-                )}
-                <div className="flex overflow-hidden rounded-md border border-slate-200">
-                  {([['month', '월'], ['week', '주'], ['day', '일']] as const).map(([val, label]) => (
-                    <button
-                      key={val}
-                      onClick={() => setKpiRange(val)}
-                      className={cn(
-                        'border-l border-slate-200 px-3 py-1 text-[13px] font-semibold transition-colors first:border-l-0',
-                        kpiRange === val ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
-                      )}
-                    >{label}</button>
-                  ))}
-                  <button
-                    onClick={() => {
-                      setKpiRange('custom');
-                      // 기간 진입 시 비어 있으면 이번 달로 기본 채움(빈 입력 방지)
-                      if (sellpiaKnownThrough) {
-                        const def = sellpiaPeriodRange('month', '', '', sellpiaKnownThrough);
-                        if (def && !dateFrom) setDateFrom(def.from);
-                        if (def && !dateTo) setDateTo(def.to);
-                      }
-                    }}
-                    className={cn(
-                      'flex items-center gap-1 border-l border-slate-200 px-3 py-1 text-[13px] font-semibold transition-colors',
-                      kpiRange === 'custom' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
-                    )}
-                  ><Calendar size={12} /> 기간</button>
-                </div>
-              </div>
-            )}
-          />
 
-        {/* KPI 카드 — 기간 지표 여섯 개 + 오늘 주문 */}
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 lg:grid-cols-7" style={{ alignItems: 'stretch' }}>
-          {/* 기간 매출 — 채널 분해는 매출 분석 화면이 owner라 셀 전체가 그리로 간다. */}
-        <Link
-          href={salesAnalysisHref}
-          className="flex flex-col bg-white px-4 py-3 transition-colors hover:bg-slate-50"
-          data-testid="dashboard-primary-revenue"
-        >
-          <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{rangeLabel} 매출</p>
-          <p
-            className="whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900"
-            data-testid="dashboard-primary-revenue-value"
-          >
-            {displayRevenue === null ? '—' : <>{formatKRW(displayRevenue)}<span className="ml-0.5 text-[13px] font-semibold text-slate-500">원</span></>}
-          </p>
-          <p className="mt-0.5 text-xs leading-snug text-slate-500">
-            {revenueCellNote}
-            {/* A change against a period that published nothing is not a
-                change; the slot stays out of the way rather than showing a
-                dash beside a real number. */}
-            {!sellpiaHasData && displayRevenue !== null && revenueChange !== null && (
-              <span
-                className={cn('ml-1 font-medium', revenueChange >= 0 ? 'text-emerald-700' : 'text-red-600')}
-                data-testid="dashboard-primary-revenue-change"
-              >
-                {revenueChange > 0 ? '▲' : '▼'} {Math.abs(revenueChange).toFixed(1)}%
-              </span>
-            )}
-          </p>
-          {(trafficCoverageComplete && trafficUnverifiedLabels.length > 0) && (
-            <p className="mt-0.5 text-xs text-amber-700">일별 합산·기간 원본 미대사 · {trafficUnverifiedLabels.join(', ')}</p>
-          )}
-          {trafficMismatchLabels.length > 0 && (
-            <p className="mt-0.5 text-xs text-amber-700">기간 원본 불일치로 숨김 · {trafficMismatchLabels.join(', ')}</p>
-          )}
-        </Link>
+      {/* 읽지 못한 값은 숨기지 않고 한 줄로 모은다 — 빈 칸의 까닭을 사장님이 알아야 한다. */}
+      <DashboardReadFailures failures={readFailures} />
 
-          {/* 기간 순이익 — 세 갈래였던 카드가 한 셀이다. 비용 구성과 판매수량은
-              어느 갈래든 상세 모달이 들고, 셀은 어느 상태에서든 그 모달을 연다. */}
-          <button
-            type="button"
-            onClick={() => setShowProfitDetail(true)}
-            className="flex flex-col items-start bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50"
-            data-testid="dashboard-primary-profit"
-            title={profitCellReason ?? undefined}
-          >
-            <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{rangeLabel} 순이익</p>
-            <p className={cn(
-              'whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums',
-              displayProfit === null ? 'text-slate-400' : displayProfit >= 0 ? 'text-slate-900' : 'text-red-600',
-            )}>
-              {displayProfit === null ? '—' : <>{formatKRW(displayProfit)}<span className="ml-0.5 text-[13px] font-semibold text-slate-500">원</span></>}
-            </p>
-            <p className="mt-0.5 text-xs leading-snug text-slate-500">
-              {profitCellNote}
-              {displayProfit !== null && !sellpiaHasData && profitChange !== null && (
-                <span className={cn('ml-1 font-medium', profitChange >= 0 ? 'text-emerald-700' : 'text-red-600')}>
-                  {profitChange > 0 ? '▲' : '▼'} {Math.abs(profitChange).toFixed(1)}%
-                </span>
-              )}
-            </p>
-
-          </button>
-
-          {/* 이익률 — 순이익을 못 구하면 정의가 없으니 placeholder 로 */}
-          {profitRateAvailable ? (
-            <MetricCard
-              label="이익률"
-              value={displayProfitRate === null ? '—' : displayProfitRate.toFixed(1)}
-              unit="%"
-              change={sellpiaHasData ? null : profitRateChange}
-              prevLabel={sellpiaHasData ? '셀피아 공통 유효 날짜 기준' : `이전 ${formatNullablePercent(prevProfitRate)}`}
-            />
-          ) : (
-            <UnavailableMetricCard
-              label="이익률"
-            />
-          )}
-
-          {/* 광고비율 */}
-          {adRateAvailable ? (
-            <MetricCard
-              label="광고비율"
-              value={kpiAdRate === null ? '—' : kpiAdRate.toFixed(1)}
-              unit="%"
-              change={adRateChange === null ? null : -adRateChange}
-              prevLabel={`이전 ${formatNullablePercent(kpiPrevAdRate)}`}
-              invertColor
-            />
-          ) : (
-            <UnavailableMetricCard
-              label="광고비율"
-            />
-          )}
-
-          {/* 구매전환율 */}
-          {trafficConversionRate !== null ? (
-            <MetricCard
-              label="구매전환율"
-              value={trafficConversionRate.toFixed(1)}
-              unit="%"
-              change={null}
-              prevLabel="비교 기준 없음"
-            />
-          ) : (
-            <UnavailableMetricCard
-              label="구매전환율"
-            />
-          )}
-
-          {/* 광고수익률(ROAS) */}
-          {adRoas !== null ? (
-            <MetricCard
-              label="광고수익률"
-              value={adRoas.toFixed(0)}
-              unit="%"
-              change={adRoasChange}
-              prevLabel={`이전 ${formatNullablePercent(adPrevRoas, 0)}`}
-            />
-          ) : (
-            <UnavailableMetricCard
-              label="광고수익률"
-            />
-          )}
-
-          <div className="flex flex-col bg-white px-4 py-3" data-testid="dashboard-today-orders">
-            <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">오늘 주문</p>
-            {today?.orders !== null && today?.orders !== undefined
-              && today.revenue !== null ? (
-              <>
-                <p className="whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900">
-                  {formatNumber(today.orders)}<span className="ml-0.5 text-[13px] font-semibold text-slate-500">건</span>
-                </p>
-                <p className="mt-0.5 text-xs leading-snug text-slate-500">
-                  {formatKRW(today.revenue)}원 · 주문 품목 합계
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-xl font-bold text-slate-400">—</p>
-                <p className="mt-0.5 text-xs text-slate-500">미측정</p>
-              </>
-            )}
-          </div>
-        </div>
-
-        <DashboardTrafficFunnel
-          steps={trafficFunnelSteps}
-          sourceNote={trafficSourceNote}
-          partial={trafficCoverage !== null && !trafficCoverageComplete}
-          collected={trafficAvailable}
-          onCollect={requestReadinessOpen}
-        />
-
-          {trendLoading ? (
-            <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-16 text-sm text-slate-500">트렌드 데이터를 불러오는 중입니다.</div>
-          ) : trendHasErr ? (
-            <DashboardSectionUnavailable label="매출 추이" className="rounded-xl border border-slate-200 bg-white" />
-          ) : (
-            <DashboardChartPanel
-              dailyTrend={dailyTrend}
-              industryBenchmark={benchmark}
-              benchmarkBases={benchmarkBases}
-              rangeLabel={kpiRange === 'custom' && dateFrom && dateTo
-                ? `${dateFrom} ~ ${dateTo}`
-                : kpiRange === 'month'
-                  ? '이번 달'
-                  : kpiRange === 'week'
-                    ? '최근 7일'
-                    : '오늘'}
-            />
-          )}
-
-        </div>
-
-        <div className="space-y-3">
-          {/* Its twin, so the two rules read as one boundary. */}
-          <DashboardSectionHeader
-            title="현재 상태"
-            scope="기간과 무관"
-          />
-
-          {inventoryHasErr ? (
-            <DashboardSectionUnavailable label="경고" />
-          ) : !inventoryData ? (
-            <DashboardSectionEmpty label="경고" />
-          ) : (
-            <DashboardWarningTable
-              rows={buildWarningRows(
-                inventoryData.warnings,
-                warningBasis,
-                inventoryData.unclassifiedProductCount,
-                unclassifiedBasis,
-                inventoryData.gradeChanges?.downgraded,
-                downgradedBasis,
-              )}
-            />
-          )}
-
-          <DashboardAdPerformance
-            rows={adPerformanceRows}
-            rangeLabel={kpiRange === 'custom' && dateFrom && dateTo
-              ? `${dateFrom} ~ ${dateTo}`
-              : kpiRange === 'month'
-                ? '이번 달'
-                : kpiRange === 'week'
-                  ? '최근 7일'
-                  : '어제'}
-            source={adKpi?.source ?? rkAd?.source ?? null}
-            knownThrough={adKpi?.coverage?.knownThrough ?? rkAd?.coverage?.knownThrough ?? null}
-            effectiveAdSource={effectiveAd?.effectivePeriod?.adSource ?? null}
-          />
-
-          {/* Always rendered. Replacing it on a failed read hid the one place a
-              failed read can be retried from — including its own. */}
-          <DashboardSidePanel
-            alerts={inventoryData?.alerts ?? []}
-            readFailures={readFailures}
-          />
-        </div>
-      </div>
-
-      {/* 순이익 상세 모달 */}
-      {showProfitDetail && effectiveSales && effectiveAd && (
-        <DashboardProfitDetailModal
-          salesBaseline={effectiveSales}
-          adBaseline={effectiveAd}
-          selectedRange={kpiRange}
-          inputs={profitDetailInputs}
-          onClose={() => setShowProfitDetail(false)}
-        />
-      )}
       <ReadinessModal
         open={showReadiness}
         onClose={() => setShowReadiness(false)}

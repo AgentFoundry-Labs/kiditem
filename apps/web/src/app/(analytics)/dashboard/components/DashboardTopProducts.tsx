@@ -62,8 +62,7 @@ function RankBadge({ rank }: { rank: number }) {
 
 /**
  * 옆에 최근 등록된 상품이 서면서 표가 반폭이 됐다. 좁은 화면에서는 상품 이름이 먼저라 이익률 ·
- * 순이익 칸을 차례로 접는다 — 한 달을 고르면 셀피아가 순이익을 주지 않아 두 칸은 어차피 '—' 다.
- * 칸은 DOM 에 남아 줄마다 칸 수가 같다.
+ * 이익 칸을 차례로 접는다. 칸은 DOM 에 남아 줄마다 칸 수가 같다.
  */
 const RATE_COLUMN = 'hidden 2xl:table-cell';
 const PROFIT_COLUMN = 'hidden min-[1800px]:table-cell';
@@ -79,6 +78,10 @@ export function DashboardTopProducts({
 }) {
   const rows = products.slice(0, ROW_SLOTS);
   const blanks = Math.max(0, ROW_SLOTS - rows.length);
+  // 한 달을 고르면 셀피아 매입 원가로 낸 매출총이익이고, 그 밖의 기간은 정산 순이익이다.
+  // 성격은 서버가 `profitKind` 로 밝힌다 — 칸 이름이 값의 성격을 그대로 말한다(사장님 2026-09-21).
+  const gross = rows.some((product) => product.profitKind === 'gross');
+
   return (
     <section
       aria-label="Top 상품 · 매출순"
@@ -93,6 +96,9 @@ export function DashboardTopProducts({
             <p>
               선택한 기간의 매출 상위 {ROW_SLOTS}개입니다. 매출과 손익은 서버가 발행한 같은 기간의
               읽기 결과를 그대로 보여 주며, 손익 근거가 없는 행은 <code>—</code>로 남습니다.
+              {gross
+                ? ' 한 달을 고르면 셀피아 상품별 매출로 세며, 이익은 매출에서 셀피아 매입 원가만 뺀 매출총이익입니다 — 광고비와 몰 수수료는 빠지기 전입니다.'
+                : ' 정산까지 끝난 순이익입니다.'}
             </p>
           )}
         />
@@ -106,12 +112,14 @@ export function DashboardTopProducts({
               <th className="w-32 pl-2 pr-4 text-right text-[11px] text-slate-400 2xl:pr-2">매출</th>
               <th
                 className={cn('w-28 px-2 text-right text-[11px] text-slate-400', PROFIT_COLUMN)}
-                title="정산 근거가 갖춰진 상품별 순이익입니다."
+                title={gross
+                  ? '매출 − 셀피아 매입 원가. 광고비 · 몰 수수료를 빼기 전 값입니다.'
+                  : '정산 근거가 갖춰진 상품별 순이익입니다.'}
               >
-                순이익
+                {gross ? '매출총이익' : '순이익'}
               </th>
               <th className={cn('w-20 pr-4 pl-2 text-right text-[11px] text-slate-400', RATE_COLUMN)}>
-                이익률
+                {gross ? '총이익률' : '이익률'}
               </th>
             </tr>
           </thead>

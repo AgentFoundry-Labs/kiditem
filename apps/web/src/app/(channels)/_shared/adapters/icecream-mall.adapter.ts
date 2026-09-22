@@ -36,6 +36,16 @@ const FIELDS: readonly MallFieldSpec[] = [
     help: '상품명에 `1p` 형태로 붙습니다.',
   },
   {
+    key: 'sellpiaCode',
+    label: '셀피아 상품코드',
+    origin: 'override',
+    control: 'text',
+    defaultValue: '',
+    required: false,
+    shared: true,
+    help: '몰의 업체상품코드 칸에 심습니다. 심어 두면 나중에 등록 상품을 가져올 때 이름이 아니라 코드로 정확히 이어집니다. 여러 몰이 같은 값을 씁니다.',
+  },
+  {
     key: 'categoryPath',
     label: '아이스크림몰 분류',
     origin: 'override',
@@ -164,6 +174,7 @@ export const icecreamMallAdapter: MallPublishAdapter = {
       : draft;
     const form = icecreamFormFromDraft(withCert, {
       quantity: parsePositive(values.quantity, 1),
+      ...(values.sellpiaCode?.trim() ? { sellpiaCode: values.sellpiaCode.trim() } : {}),
       ...(values.categoryPath?.trim() ? { categoryPath: values.categoryPath.trim() } : {}),
       ...(values.categoryCode?.trim() ? { categoryCode: values.categoryCode.trim() } : {}),
       ...(parsePositive(values.naverMinPrice, 0) > 0

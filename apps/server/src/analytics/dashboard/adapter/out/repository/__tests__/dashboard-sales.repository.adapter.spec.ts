@@ -428,6 +428,11 @@ describe("DashboardSalesRepositoryAdapter", () => {
       yearMonth: "2026-09",
       productName: "상품",
       orderAmount: 0,
+      orderQty: 0,
+      // 실제 적재 행은 주문시점 공급가와 그 출처를 함께 달고 온다.
+      inAmount: 0,
+      costBasis: "ORDER_TIME_SUPPLY_COST",
+      vatIncluded: true,
       masterProductId: null,
       capturedAt: new Date("2026-09-17T10:00:00.000Z"),
       coverageStartDate: SEPTEMBER_START,
@@ -510,24 +515,42 @@ describe("DashboardSalesRepositoryAdapter", () => {
       });
     });
 
-    it("does not borrow a current price to invent monthly Sellpia profit", async () => {
-      // #555 deliberately keeps the monthly source fact read to revenue and
-      // quantity. Its persisted rows do not carry a sale-time buyPrice, so a
-      // stale fixture value must not turn the monthly ranking into P&L.
-      answer([fact({ productCode: "1", orderAmount: 10_000, orderQty: 5, buyPrice: 1_200, inAmount: 900_000 })]);
+    /**
+     * 매출총이익 = 매출 − 주문시점 공급가(`inAmount`). 광고비와 몰 수수료를 빼기 전이라
+     * 순이익이 아니고, `profitKind` 가 그 성격을 밝혀 화면이 칸 이름을 가려 적는다.
+     * 현재 상품가를 끌어다 쓰는 일은 없다 — 월간 fact 에는 가격 칸 자체가 없다.
+     */
+    it("publishes gross profit from the published order-time supply cost", async () => {
+      answer([fact({ productCode: "1", orderAmount: 1_000_000, orderQty: 10, inAmount: 600_000 })]);
+
+      const [row] = (await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09"))!.products;
+
+      expect(row).toMatchObject({
+        revenue: 1_000_000,
+        profitKind: "gross",
+        netProfit: 400_000,
+        profitRate: 40,
+      });
+    });
+
+    it("withholds monthly profit when the row's cost carries no provenance", async () => {
+      // 원가 출처를 못 박지 않은 수집은 ABC 도 원가로 쓰지 않는다. 같은 관문을 여기서도 건다.
+      answer([fact({
+        productCode: "1", orderAmount: 10_000, orderQty: 5, inAmount: 6_000,
+        costBasis: "UNKNOWN", vatIncluded: null,
+      })]);
 
       const [row] = (await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09"))!.products;
 
       expect(row).toMatchObject({ revenue: 10_000, netProfit: null, profitRate: null });
-      expect(row.profitKind).toBeUndefined();
     });
 
-    it("keeps monthly profit unavailable across options without source cost", async () => {
-      // Per-option buyPrice values are not part of the published monthly fact;
-      // they must not become a fallback for this source's missing sale-time cost.
+    it("keeps monthly profit unavailable when a sold option carries no cost", async () => {
+      // 한 옵션이라도 원가를 못 읽었으면 합계만 보면 그 매출이 통째로 이익이 된다 —
+      // 여기서는 493,000원 · 98.6% 로 부풀려질 뻔한 줄이다.
       answer([
-        fact({ productCode: "1", optionCode: "1", orderAmount: 490_000, orderQty: 50, buyPrice: 0 }),
-        fact({ productCode: "1", optionCode: "2", orderAmount: 10_000, orderQty: 1, buyPrice: 1_000 }),
+        fact({ productCode: "1", optionCode: "1", orderAmount: 490_000, orderQty: 50, inAmount: 0 }),
+        fact({ productCode: "1", optionCode: "2", orderAmount: 10_000, orderQty: 1, inAmount: 7_000 }),
       ]);
 
       const [row] = (await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09"))!.products;

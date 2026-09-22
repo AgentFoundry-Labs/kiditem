@@ -772,6 +772,7 @@ export const SellpiaProductSalesIngestResultSchema = z.object({
 export const SellpiaProductSalesMonthPointSchema = z.object({
   yearMonth: z.string(),
   orderQty: z.number(),
+  anomaly: z.boolean().optional(), // 이상치(일회성 벌크/저가 대량) 월 — 평균/발주 산정 제외
 });
 export const SellpiaProductTrendSchema = z.enum(['up', 'down', 'flat']);
 export const SellpiaProductDestinationDisplayImageSchema = z.object({
@@ -839,12 +840,19 @@ export const SellpiaProductSalesRowSchema = z.object({
   qty1m: z.number(), // 최근 1개월(직전 완결 월) 소진량
   qty2m: z.number(), // 최근 2개월(직전 완결 2개월) 총 소진량
   avg2m: z.number(), // 2개월 월평균 = qty2m / 2
-  totalQty: z.number(), // 조회범위 총 소진량
+  totalQty: z.number(), // 조회범위 총 소진량(이상치 월 제외)
   // ─── 재고관리 파생 지표 ───
   trend: SellpiaProductTrendSchema, // 최근 소진 추세
   deadStock: z.boolean(), // 악성재고 여부(정체/급감)
   deadStockReason: z.string().nullable(), // 악성 사유
   seasonTag: z.string().nullable(), // 시즌 분류(여름/겨울/어린이날/신학기/상시), 근거 부족 시 null
+  /**
+   * 이상치(일회성 벌크/저가 대량) 포함 여부 — 평균/소진/발주는 이상치 월을 뺀 값으로 낸다.
+   * 이상치 판정은 셀피아 소진 읽기가 덧붙이는 부가 표시라 선택 항목이다. 이 행 계약을
+   * 빌려 쓰는 다른 읽기(대시보드 발견 등)는 채우지 않으며, 없으면 '판정 안 함'으로 읽는다.
+   */
+  anomaly: z.boolean().optional(),
+  anomalyReason: z.string().nullable().optional(), // 이상치 사유
   // ─── 재고 소진(발주) — 수집/매칭/가용재고 상태를 명시적으로 구분 ───
   inventoryResolution: SellpiaProductInventoryResolutionSchema,
   monthlyOutflow: z.number().nonnegative().nullable(),
@@ -874,6 +882,8 @@ export const SellpiaProductSalesSummarySchema = z.object({
   }).strict(),
   reorderCount: z.number().int().nonnegative(), // 발주 필요 distinct SKU 수
   deadStockCount: z.number().int().nonnegative(), // 악성재고 distinct SKU 수
+  // 이상치 포함 상품 수. 행의 `anomaly` 와 같은 이유로 선택 항목이다(판정 안 한 읽기는 비움).
+  anomalyCount: z.number().int().nonnegative().optional(),
   abcCounts: z.object({
     A: z.number().int().nonnegative(),
     B: z.number().int().nonnegative(),

@@ -39,6 +39,17 @@ interface SellpiaTopProductRow {
   name: string;
   nameOptionCode: string;
   revenue: number;
+  /**
+   * 판 물건의 원가. 원천 행의 `inAmount` 는 주문시점 공급가(`ORDER_TIME_SUPPLY_COST`)이고,
+   * ABC 의 매출총이익도 같은 값을 쓴다 — 두 화면이 같은 원가를 말하도록 여기서도 그대로 더한다.
+   */
+  cost: number;
+  /**
+   * 판 줄마다 믿을 원가가 있었는가. `cost` 는 옵션 줄의 합이라 한 줄만 0 이어도 합은 0 보다
+   * 커서 '아는 값' 처럼 보인다 — 그 줄의 매출이 통째로 이익이 되어 이익률을 부풀린다.
+   * 원가 출처(`costBasis` · `vatIncluded`)가 명시되지 않은 줄도 믿을 원가가 아니다.
+   */
+  costComplete: boolean;
   revenueByMasterProduct: Map<string, number>;
 }
 
@@ -173,10 +184,13 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
   /**
    * Top-N (10) products for a whole calendar month from Sellpia's published
    * monthly facts. These facts cover every channel, so this ranking is used
-   * when the selected period is a complete month. The source currently
-   * publishes revenue and quantity, but no stored sale-time cost; monthly
-   * profit therefore stays unavailable rather than borrowing current product
-   * pricing.
+   * when the selected period is a complete month.
+   *
+   * 이익은 매출 − 셀피아 주문시점 공급가(`inAmount`)다. 광고비와 몰 수수료를 빼기 전이라
+   * 순이익이 아니라 **매출총이익**이고, `profitKind: 'gross'` 로 그 성격을 함께 낸다 —
+   * 화면이 칸 이름을 '매출총이익 · 총이익률' 로 바꿔 적는다(사장님 2026-09-21).
+   * 원가 출처가 명시되지 않았거나 판 줄 중 하나라도 원가가 0 이면 이익을 말하지 않는다:
+   * 현재 상품가를 끌어다 쓰는 일은 여전히 없다.
    */
   async fetchSellpiaTopProducts(
     organizationId: string,
@@ -200,6 +214,8 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
         name: fact.productName,
         nameOptionCode: fact.optionCode,
         revenue: 0,
+        cost: 0,
+        costComplete: true,
         revenueByMasterProduct: new Map<string, number>(),
       };
       if (fact.optionCode < current.nameOptionCode) {
@@ -207,6 +223,14 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
         current.name = fact.productName;
       }
       current.revenue += fact.orderAmount;
+      current.cost += fact.inAmount;
+      // 원가 출처를 못 박은 수집만 원가로 인정한다 — `sellpia-master-product-profit-fact`
+      // 가 ABC 에 쓰는 관문과 같다. 팔린 줄인데 원가가 0 이면 못 읽은 것이다: 공짜로 떼어 온
+      // 물건은 없고, 그대로 빼면 이익률이 100% 로 찍힌다.
+      if (fact.costBasis !== "ORDER_TIME_SUPPLY_COST" || fact.vatIncluded !== true) {
+        current.costComplete = false;
+      }
+      if (fact.orderQty > 0 && fact.inAmount <= 0) current.costComplete = false;
       if (fact.masterProductId) {
         current.revenueByMasterProduct.set(
           fact.masterProductId,
@@ -250,6 +274,10 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
         )
           ? firstAbc
           : null;
+        // 원가가 0 인 상품은 원가를 못 받은 것이다 — 이익을 말하지 않는다.
+        const netProfit = row.costComplete && row.cost > 0
+          ? row.revenue - row.cost
+          : null;
         return {
           id: `sellpia:${row.productCode}`,
           name: row.name,
@@ -258,8 +286,11 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
           grade: abc?.abcGrade ?? null,
           abcEvaluation: abc?.evaluation ?? null,
           revenue: row.revenue,
-          netProfit: null,
-          profitRate: null,
+          profitKind: "gross" as const,
+          netProfit,
+          profitRate: netProfit === null || row.revenue <= 0
+            ? null
+            : Math.round((netProfit / row.revenue) * 1000) / 10,
         } satisfies TopProduct;
       }),
     };
@@ -396,6 +427,9 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
         grade: null,
         abcEvaluation: null,
         revenue,
+        // 이 길의 이익은 정산까지 끝난 순이익이다. 월간 셀피아 순위의 매출총이익과 성격이
+        // 다르므로 화면이 칸 이름을 가려 적을 수 있게 종류를 밝힌다.
+        profitKind: "net" as const,
         netProfit: measured?.netProfit ?? null,
         profitRate: measured?.profitRate ?? null,
       } satisfies TopProduct;

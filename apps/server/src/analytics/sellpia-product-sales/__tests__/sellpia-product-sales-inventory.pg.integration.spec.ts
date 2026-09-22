@@ -267,10 +267,13 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       needsReorder: false,
     });
     expect(byCode.SUMMER.seasonTag).toBe('여름');
+    // 단가 50원짜리를 한 달에 6만 개 — 일회성 저가 벌크다. 월별 칸은 그대로 두되
+    // 평균/소진/발주 산정에서는 빼므로 clean 총량은 0, 악성재고도 '근거 없음'으로 남는다.
     expect(byCode.ANOMALY).toMatchObject({
       avg2m: 0,
-      totalQty: 60_000,
-      deadStock: true,
+      totalQty: 0,
+      anomaly: true,
+      anomalyReason: '저가 대량(단가 50원)',
       needsReorder: false,
     });
     expect(byCode.ANOMALY).not.toHaveProperty('abcGrade');
@@ -283,11 +286,13 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     expect(byCode.ANOMALY.monthly.find((month) => month.yearMonth === completeMonths[0])).toEqual({
       yearMonth: completeMonths[0],
       orderQty: 60_000,
+      anomaly: true,
     });
     expect(result).toMatchObject({
       hasStock: true,
       reorderCount: 1,
-      deadStockCount: 2,
+      deadStockCount: 1,
+      anomalyCount: 1,
       abcCounts: { A: 0, B: 0, C: 0 },
       classifiedProductCount: 0,
       unclassifiedProductCount: 4,

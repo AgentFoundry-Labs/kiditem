@@ -17,6 +17,7 @@ import { ssgAdapter } from './ssg.adapter';
 import { smartstoreAdapter } from './smartstore.adapter';
 import { gsShopAdapter } from './gs-shop.adapter';
 import { lotteOnAdapter } from './lotte-on.adapter';
+import { kakaoAdapter } from './kakao.adapter';
 
 /**
  * 등록 어댑터 레지스트리.
@@ -51,6 +52,7 @@ export const MALL_PUBLISH_ADAPTERS: readonly MallPublishAdapter[] = [
   smartstoreAdapter,
   gsShopAdapter,
   lotteOnAdapter,
+  kakaoAdapter,
 ];
 
 /** #554 등록 마법사에서 선택할 수 있는 경로. WING은 파일 생성 경로라 상태 표의 몰 열은 아니다. */
@@ -111,4 +113,5 @@ export {
   smartstoreAdapter,
   gsShopAdapter,
   lotteOnAdapter,
+  kakaoAdapter,
 };

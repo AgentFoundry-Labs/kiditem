@@ -101,6 +101,28 @@ describe('ProductOutflow', () => {
     expect(screen.getByRole('button', { name: /미분류\s*1/ })).toBeInTheDocument();
   });
 
+  it('이상치로 판정된 상품을 칩으로 세고, 칩을 누르면 그 상품만 남긴다', async () => {
+    const data = summary(true);
+    // 서버가 이상치로 판정한 행. 월별 칸은 원천 수량 그대로 두고 표시만 붙는다.
+    data.products[0] = {
+      ...data.products[0]!,
+      anomaly: true,
+      anomalyReason: '저가 대량(단가 0원)',
+      monthly: [{ yearMonth: '2026-07', orderQty: 100_000, anomaly: true }],
+    };
+    data.anomalyCount = 1;
+    productSalesApi.fetch.mockResolvedValueOnce(data);
+    renderProductOutflow();
+
+    expect(await screen.findByText('계산 완료 상품')).toBeInTheDocument();
+    expect(screen.getByText(/이상치 · 저가 대량\(단가 0원\)/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /이상치\s*1/ }));
+
+    expect(screen.getByText('계산 완료 상품')).toBeInTheDocument();
+    expect(screen.queryByText('매핑 필요 상품')).not.toBeInTheDocument();
+  });
+
   it('does not show the retired formula-calibration status as a stock filter', async () => {
     productSalesApi.fetch.mockResolvedValueOnce(summary(true));
     renderProductOutflow();

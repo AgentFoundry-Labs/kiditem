@@ -35,6 +35,7 @@ const GRADE_LABELS: Record<ProductAbcGrade, string> = { A: '고수익 핵심', B
 
 export function DashboardGradeCards({
   gradeCount, classifiedProductCount, unclassifiedProductCount, abcContributionProfit, abcFormula,
+  gradeChanges, changesMeasured = false,
   basis, unclassifiedBasis, contributionBasis, refetchReads,
 }: DashboardGradeCardsProps & {
   /** Optional for older dashboard fixtures; the API now publishes this count. */
@@ -43,6 +44,10 @@ export function DashboardGradeCards({
   unclassifiedBasis?: DashboardMetricBasis | null;
   /** Kept for existing callers; activation timestamps are not published by the current contract. */
   asOf?: string | null;
+  /** The current publication's grade movement, as the server counted it. */
+  gradeChanges?: DashboardInventorySummary['gradeChanges'];
+  /** 이동 수에 근거가 있는가. 없으면 0 으로 적지 않고 화살표를 아예 그리지 않는다. */
+  changesMeasured?: boolean;
   basis?: DashboardMetricBasis | null;
   contributionBasis?: DashboardMetricBasis | null;
   /** The dashboard reads this panel renders, refetched after a publication. */
@@ -55,6 +60,12 @@ export function DashboardGradeCards({
   const gradeMeasured = basisHasValues(basis ?? null);
   const unclassifiedMeasured = basisHasValues(unclassifiedBasis ?? null);
 
+  // 등급 이름 옆 작은 화살표가 이번 계산에서 이 등급으로 들어온 수(▲)와 나간 수(▼)다.
+  // 서버가 센 발표값만 적는다 — 근거가 없으면 화살표 자체를 그리지 않는다.
+  const flowOf = (grade: ProductAbcGrade) => {
+    const flow = changesMeasured ? gradeChanges?.byGrade?.[grade] ?? null : null;
+    return flow ? `▲${formatNumber(flow.in)} ▼${formatNumber(flow.out)}` : undefined;
+  };
   const profitOf = (grade: ProductAbcGrade) => (basisHasValues(contributionBasis ?? null)
     ? `가중 영업이익 ${formatNumber(abcContributionProfit.amountByGrade[grade])}원`
     : '가중 영업이익 미수집');
@@ -64,6 +75,7 @@ export function DashboardGradeCards({
     ariaLabel: `${grade}등급 — ${profitOf(grade)}`,
     value: gradeMeasured ? formatNumber(gradeCount[grade]) : null,
     unit: '개',
+    suffix: flowOf(grade),
     note: profitOf(grade),
     href: `/product-hub?abcGrade=${grade}`,
   });
@@ -159,6 +171,10 @@ function AbcCriteria({
   const { gradeThresholds: t, weights: w, halfLifeDays, minimumSaleAgeDays } = formula;
   return (
     <>
+      {/* 광고비를 빼지 않는 판(v3)은 같은 '이익'이라도 뜻이 다르다 — 먼저 말한다. */}
+      {formula.historicalAdvertisingPolicy === 'EXCLUDED_V1' ? (
+        <p className="font-semibold">광고비 제외 판(v{formula.version}): 셀피아 매출과 매입가만으로 이익을 셉니다.</p>
+      ) : null}
       <p>
         경제점수 = 이익 {Math.round(w.profit * 100)}% + 마진 {Math.round(w.margin * 100)}% +
         판매 일관성 {Math.round(w.consistency * 100)}%. 오래된 실적일수록 가볍게 세며, 반감기는 {halfLifeDays}일입니다.
