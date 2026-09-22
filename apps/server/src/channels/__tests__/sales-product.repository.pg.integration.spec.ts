@@ -530,8 +530,10 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       .toBeNull();
   });
 
-  it('counts a product whose mall listing was turned off as unregistered again, and keeps archived ones out', async () => {
+  it('does not bring a product back to the unregistered list when its mall listing was turned off, and keeps archived ones out', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    // 몰에서 내린 상품이 미등록 목록으로 돌아올지는 아직 정해지지 않았다(전체 몰 삭제 후 복귀).
+    // 정해지기 전에는 '한 번이라도 몰에 올라간 적 있음' 이 기준이다 — 탭 이름 그대로 '아직 몰에 없음'.
     const removed = await createProduct(prisma, TEST_ORGANIZATION_ID);
     await prisma.channelListing.create({
       data: {
@@ -544,10 +546,12 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     });
     const archived = await createProduct(prisma, TEST_ORGANIZATION_ID);
     await prisma.salesProduct.update({ where: { id: archived.productId }, data: { status: 'archived' } });
+    const never = await createProduct(prisma, TEST_ORGANIZATION_ID);
 
     const unregistered = await repository.list(TEST_ORGANIZATION_ID, listQuery('unregistered'));
 
-    expect(unregistered.items.map((item) => item.id)).toEqual([removed.productId]);
+    expect(unregistered.items.map((item) => item.id)).toEqual([never.productId]);
+    expect(unregistered.summary.unregistered).toBe(1);
     const onlyArchived = await repository.list(
       TEST_ORGANIZATION_ID,
       { ...listQuery('unregistered'), status: 'archived' },

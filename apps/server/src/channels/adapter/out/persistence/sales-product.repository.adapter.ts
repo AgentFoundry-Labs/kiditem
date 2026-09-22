@@ -162,9 +162,14 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     const withUnlinked: Prisma.SalesProductWhereInput = {
       options: { some: { supplyStatus: { not: 'unused' }, components: { none: {} } } },
     };
-    // 미등록 = 살아 있는 몰 상품이 하나도 없는 판매상품. 수집상품에서 만든 것과 직접 만든 것을 가리지 않는다.
+    /**
+     * 미등록 = 어느 몰에도 올라간 적 없는 판매상품. 수집상품에서 만든 것과 직접 만든 것을 가리지 않는다.
+     *
+     * 몰에서 내린(비활성) 상품은 돌아오지 않는다 — '전체 몰 삭제 후 미등록 목록 복귀' 는 아직 정해지지
+     * 않은 정책이라 여기서 앞질러 정하지 않는다.
+     */
     const unregistered: Prisma.SalesProductWhereInput = {
-      channelListings: { none: { isActive: true } },
+      channelListings: { none: {} },
     };
     const focusWhere = query.focus === 'with_options'
       ? withOptions
