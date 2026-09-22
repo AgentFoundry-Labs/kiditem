@@ -44,8 +44,10 @@ itself so the move happens before the schema push drops `source_candidate_id`
 from the workspace and from the thumbnail, content-generation and render-intent
 ledgers. A candidate with no draft, a ledger row naming a candidate its
 workspace does not, or a draft that would end up with two active workspaces
-aborts the whole transaction and names what to fix. Re-running after the push
-writes nothing. `ContentGenerationSource.source_candidate_id` and
+aborts the whole transaction and names what to fix. Only live workspaces need a
+draft: a deleted candidate leaves an archived workspace with no draft to move,
+so those rows keep their archived state and lose only the candidate column under
+the data-loss policy. Re-running after the push writes nothing. `ContentGenerationSource.source_candidate_id` and
 `ThumbnailGenerationInputImage.candidate_image_id` stay as provenance.
 
 Legacy account overrides become registration targets with the same UUID. The old

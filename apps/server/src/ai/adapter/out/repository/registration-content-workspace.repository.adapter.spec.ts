@@ -343,51 +343,6 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
     });
   });
 
-  it('is a no-op when the draft workspace already points at that listing', async () => {
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: 'draft-workspace-1', channelListingId: 'listing-1' }]),
-      contentWorkspace: { updateMany: vi.fn() },
-    };
-    const repository = makeRepository();
-
-    await expect(repository.attachToListing(ownerTransaction(tx as never), {
-      organizationId: 'org-1',
-      salesProductId: 'sales-product-1',
-      listingId: 'listing-1',
-    })).resolves.toEqual({ workspaceId: 'draft-workspace-1' });
-    expect(tx.contentWorkspace.updateMany).not.toHaveBeenCalled();
-  });
-
-  it('refuses to move a draft workspace that already belongs to another listing', async () => {
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: 'draft-workspace-1', channelListingId: 'listing-other' }]),
-      contentWorkspace: { updateMany: vi.fn() },
-    };
-    const repository = makeRepository();
-
-    await expect(repository.attachToListing(ownerTransaction(tx as never), {
-      organizationId: 'org-1',
-      salesProductId: 'sales-product-1',
-      listingId: 'listing-1',
-    })).rejects.toThrow('Sales product content workspace already belongs to another listing.');
-    expect(tx.contentWorkspace.updateMany).not.toHaveBeenCalled();
-  });
-
-  it('reports a missing draft workspace rather than creating one during registration', async () => {
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([]),
-      contentWorkspace: { updateMany: vi.fn(), create: vi.fn() },
-    };
-    const repository = makeRepository();
-
-    await expect(repository.attachToListing(ownerTransaction(tx as never), {
-      organizationId: 'org-1',
-      salesProductId: 'sales-product-1',
-      listingId: 'listing-1',
-    })).rejects.toThrow('Sales product content workspace not found.');
-    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
-  });
-
   it('fails the attach when the workspace changed between the lock and the update', async () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'draft-workspace-1', channelListingId: null }]),

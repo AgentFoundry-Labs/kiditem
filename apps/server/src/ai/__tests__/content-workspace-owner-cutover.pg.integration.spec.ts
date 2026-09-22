@@ -51,6 +51,29 @@ describe('v0.1.31:024 content workspace owner cutover (disposable PostgreSQL sch
     });
   }, 60_000);
 
+  it('leaves an archived workspace of a deleted candidate behind instead of stopping the cutover', async () => {
+    const result = await withLegacySchema(async (tx) => {
+      await seedDraft(tx);
+      await seedWorkspace(tx);
+      await seedWorkspace(tx, {
+        id: '33333333-3333-4333-8333-999999999999',
+        normalizedTitle: 'archived',
+        candidateId: OTHER_CANDIDATE_ID,
+        status: 'archived',
+        isDeleted: true,
+      });
+      const first = await contentWorkspaceOwnerCutoverMigration.run(tx, { target: 'office' });
+      const [archived] = await tx.$queryRaw<Array<{ owner_type: string; sales_product_id: string | null }>>`
+        SELECT owner_type, sales_product_id::text AS sales_product_id
+        FROM content_workspaces WHERE id = '33333333-3333-4333-8333-999999999999'::uuid
+      `;
+      return { first, archived };
+    });
+
+    expect(result.first).toEqual({ affectedRows: 1, details: { movedWorkspaces: 1, outcome: 'moved' } });
+    expect(result.archived).toEqual({ owner_type: 'sourcing_candidate', sales_product_id: null });
+  }, 60_000);
+
   it('rolls back when the candidate has no sales-product draft yet', async () => {
     await expect(withLegacySchema(async (tx) => {
       await seedWorkspace(tx);
@@ -142,13 +165,21 @@ describe('v0.1.31:024 content workspace owner cutover (disposable PostgreSQL sch
 
   async function seedWorkspace(
     tx: Prisma.TransactionClient,
-    overrides: { id?: string; normalizedTitle?: string } = {},
+    overrides: {
+      id?: string;
+      normalizedTitle?: string;
+      candidateId?: string;
+      status?: string;
+      isDeleted?: boolean;
+    } = {},
   ): Promise<void> {
     await tx.$executeRaw`
       INSERT INTO content_workspaces
         (id, organization_id, owner_type, source_candidate_id, status, is_deleted, display_name, normalized_title)
       VALUES (${overrides.id ?? WORKSPACE_ID}::uuid, ${ORGANIZATION_ID}::uuid, 'sourcing_candidate',
-        ${CANDIDATE_ID}::uuid, 'active', false, 'Kids rain boots', ${overrides.normalizedTitle ?? 'kidsrainboots'})
+        ${overrides.candidateId ?? CANDIDATE_ID}::uuid, ${overrides.status ?? 'active'},
+        ${overrides.isDeleted ?? false}, 'Kids rain boots',
+        ${overrides.normalizedTitle ?? 'kidsrainboots'})
     `;
   }
 

@@ -75,10 +75,6 @@ export interface ContentArchiveRepositoryPort {
     organizationId: string;
     query: ContentArchiveRepositoryQuery;
   }): Promise<ContentArchiveGenerationRow[]>;
-  findSourcingCandidate(input: {
-    organizationId: string;
-    candidateId: string;
-  }): Promise<{ id: string } | null>;
   listSourcingCandidateGenerations(input: {
     organizationId: string;
     candidateId: string;

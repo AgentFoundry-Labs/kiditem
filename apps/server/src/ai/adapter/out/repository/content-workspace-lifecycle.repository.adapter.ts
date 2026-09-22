@@ -6,6 +6,10 @@ import {
   CHANNEL_LISTING_QUERY_PORT,
   type ChannelListingQueryPort,
 } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import {
+  SALES_PRODUCT_OWNER_READ_PORT,
+  type SalesProductOwnerReadPort,
+} from '../../../application/port/out/cross-domain/sales-product-owner.port';
 import type {
   ContentWorkspaceLifecycleRepositoryPort,
   ContentWorkspaceListInput,
@@ -20,6 +24,8 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     private readonly prisma: PrismaService,
     @Inject(CHANNEL_LISTING_QUERY_PORT)
     private readonly channelListings: ChannelListingQueryPort,
+    @Inject(SALES_PRODUCT_OWNER_READ_PORT)
+    private readonly salesProductOwners: SalesProductOwnerReadPort,
   ) {}
 
   async ensureActiveWorkspace(
@@ -29,7 +35,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     const where = activeWorkspaceWhere(input);
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await validateOwnerReferences(tx, input, this.channelListings);
+        await validateOwnerReferences(tx, input, this.channelListings, this.salesProductOwners);
         const existing = await findActiveWorkspace(tx, where);
         if (existing) return existing;
         return tx.contentWorkspace.create({
@@ -50,7 +56,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error;
       const raced = await this.prisma.$transaction(async (tx) => {
-        await validateOwnerReferences(tx, input, this.channelListings);
+        await validateOwnerReferences(tx, input, this.channelListings, this.salesProductOwners);
         return findActiveWorkspace(tx, where);
       });
       if (!raced) throw error;
@@ -238,16 +244,26 @@ function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
 }
 
 /**
- * Channels owns the sales-product draft, so AI cannot lock that row; the caller
- * holds the draft when it asks for a workspace. What AI can still fence is the
- * listing (through the Channels capability) and its own origin workspace.
+ * Every owner a workspace can name is checked through its owner's capability —
+ * the draft and the listing through Channels, the origin workspace through AI's
+ * own locked row.
  */
 async function validateOwnerReferences(
   tx: Prisma.TransactionClient,
   input: EnsureContentWorkspaceInput,
   channelListings: ChannelListingQueryPort,
+  salesProductOwners: SalesProductOwnerReadPort,
 ): Promise<void> {
-  if (input.ownerType === 'sales_product' || input.ownerType === 'direct_detail_page') return;
+  if (input.ownerType === 'direct_detail_page') return;
+  if (input.ownerType === 'sales_product') {
+    // The workspace names its draft by id with no foreign key, so Channels — not
+    // a join — is what stops a request opening a workspace on an invented UUID.
+    await salesProductOwners.assertOwner({
+      organizationId: input.organizationId,
+      salesProductId: input.salesProductId!,
+    });
+    return;
+  }
 
   await channelListings.lockActiveOwner(ownerTransaction(tx), {
     organizationId: input.organizationId,

@@ -27,9 +27,9 @@ export interface ProductGenerationProductBrief {
   optionNames: string[];
   productSize?: string | null;
   colorVariantStatus?: string | null;
-  colorVariantNames?: string | null;
+  colorVariantNames: string[];
   boxSetStatus?: string | null;
-  boxSetQuantity?: string | null;
+  boxSetQuantity: number | null;
 }
 
 export interface ProductGenerationAiRequest {

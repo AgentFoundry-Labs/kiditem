@@ -61,7 +61,7 @@ describe('RegistrationContentWorkspaceService', () => {
     });
   });
 
-  it('points the draft workspace at its listing without accepting the same id for both', async () => {
+  it('points the draft workspace at its listing through the repository seam', async () => {
     const repository = {
       ensureSalesProductWorkspace: vi.fn(),
       attachToListing: vi.fn().mockResolvedValue({ workspaceId: 'draft-workspace-1' }),
@@ -80,11 +80,6 @@ describe('RegistrationContentWorkspaceService', () => {
       listingId: 'listing-1',
     });
 
-    await expect(service.attachToListing(TX, {
-      organizationId: 'org-1',
-      salesProductId: 'same-id',
-      listingId: 'same-id',
-    })).rejects.toBeInstanceOf(BadRequestException);
   });
 
 

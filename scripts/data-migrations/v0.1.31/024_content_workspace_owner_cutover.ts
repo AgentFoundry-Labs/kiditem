@@ -82,9 +82,14 @@ async function expandSalesProductColumn(
 }
 
 /**
- * 023 creates one draft per candidate. A candidate workspace with no draft in
- * its own organization means 023 has not run (or did not cover this row), and
- * moving it would silently orphan the operator's content.
+ * 023 creates one draft per live candidate. A *live* candidate workspace with no
+ * draft means 023 has not run (or did not cover this row), and moving it would
+ * silently orphan the operator's content.
+ *
+ * An archived workspace is deliberately not held to this: candidate deletion
+ * archives the workspace and leaves no draft behind, so requiring one would
+ * stop the whole cutover over content nobody can reach. Those rows keep their
+ * archived state and lose only the candidate column (ADR-0010).
  */
 async function assertEveryCandidateWorkspaceHasDraft(tx: Prisma.TransactionClient): Promise<void> {
   const orphans = await tx.$queryRaw<Array<{ id: string }>>`
@@ -93,6 +98,8 @@ async function assertEveryCandidateWorkspaceHasDraft(tx: Prisma.TransactionClien
     FROM content_workspaces w
     WHERE w.owner_type = 'sourcing_candidate'
       AND w.source_candidate_id IS NOT NULL
+      AND w.status = 'active'
+      AND w.is_deleted = false
       AND NOT EXISTS (
         SELECT 1 FROM sales_products p
         WHERE p.organization_id = w.organization_id
@@ -170,6 +177,8 @@ async function moveWorkspacesToDrafts(tx: Prisma.TransactionClient): Promise<num
       AND p.source_candidate_id = w.source_candidate_id
       AND w.owner_type = 'sourcing_candidate'
       AND w.source_candidate_id IS NOT NULL
+      AND w.status = 'active'
+      AND w.is_deleted = false
   `;
 }
 

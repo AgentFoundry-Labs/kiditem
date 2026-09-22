@@ -208,16 +208,26 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       );
     }
 
-    const claimed = await tx.contentWorkspace.updateMany({
-      where: {
-        id: workspace.id,
-        organizationId: input.organizationId,
-        channelListingId: null,
-        status: 'active',
-        isDeleted: false,
-      },
-      data: { channelListingId: input.listingId },
-    });
+    let claimed: { count: number };
+    try {
+      claimed = await tx.contentWorkspace.updateMany({
+        where: {
+          id: workspace.id,
+          organizationId: input.organizationId,
+          channelListingId: null,
+          status: 'active',
+          isDeleted: false,
+        },
+        data: { channelListingId: input.listingId },
+      });
+    } catch (error) {
+      // `content_workspaces_listing_active_key`: another active workspace already
+      // speaks for this listing. That is a domain conflict, not a driver fault.
+      if (!isUniqueConstraintError(error)) throw error;
+      throw new ConflictException(
+        'Another active content workspace already belongs to this listing.',
+      );
+    }
     if (claimed.count !== 1) {
       throw new ConflictException(
         'Content workspace changed while the listing was being attached.',
@@ -502,6 +512,13 @@ function activeSalesProductWorkspaceWhere(input: {
     status: 'active',
     isDeleted: false,
   };
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2002';
 }
 
 function managedAssetKey(url: string): string {

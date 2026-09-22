@@ -253,8 +253,9 @@ verify recorded counts; recovery follows the deployment data-loss policy.
 `024_content_workspace_owner_cutover` runs after `023_sales_product_draft_cutover`
 and moves every `owner_type='sourcing_candidate'` content workspace onto the
 sales-product draft 023 created for that candidate, adding
-`content_workspaces.sales_product_id` before the schema push. A workspace with
-no draft aborts the transaction and names 023. Before the candidate columns are
+`content_workspaces.sales_product_id` before the schema push. A live workspace
+with no draft aborts the transaction and names 023; an archived workspace left by
+a deleted candidate is skipped and loses only its candidate column. Before the candidate columns are
 dropped it proves that every `thumbnail_generations`, `content_generations` and
 `detail_page_image_render_intents` row names the same candidate its workspace
 does, and that no draft ends up with two active workspaces; either aborts.

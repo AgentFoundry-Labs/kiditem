@@ -244,11 +244,11 @@ function buildProductGenerationDescription(brief: ProductGenerationProductBrief)
     textLine('제품 사이즈', brief.productSize),
     textLine(
       '색상 구성',
-      joinParts(brief.colorVariantStatus, brief.colorVariantNames),
+      joinParts(brief.colorVariantStatus, brief.colorVariantNames.join(', ')),
     ),
     textLine(
       '박스/세트',
-      joinParts(brief.boxSetStatus, brief.boxSetQuantity),
+      joinParts(brief.boxSetStatus, brief.boxSetQuantity === null ? null : `${brief.boxSetQuantity}개`),
     ),
   ].filter(Boolean).join('\n');
 }

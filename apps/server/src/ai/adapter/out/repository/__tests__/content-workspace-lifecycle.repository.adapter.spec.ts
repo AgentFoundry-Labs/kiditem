@@ -2,6 +2,10 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../content-workspace-lifecycle.repository.adapter';
 
+function salesProductOwners(assertOwner = vi.fn().mockResolvedValue(undefined)) {
+  return { assertOwner };
+}
+
 function channelListingQuery() {
   return {
     lockActiveOwner: vi.fn().mockResolvedValue({
@@ -37,7 +41,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       ...tx,
       $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
     };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never, salesProductOwners() as never);
 
     await expect(repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -53,7 +57,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
     expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
   });
 
-  it('opens a draft workspace without reaching into the Channels row it belongs to', async () => {
+  it('asks Channels whether the draft is real before opening its workspace', async () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([]),
       contentWorkspace: {
@@ -69,7 +73,8 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       ...tx,
       $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
     };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
+    const owners = salesProductOwners();
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never, owners as never);
 
     await repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -82,8 +87,42 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       createdByUserId: 'user-1',
     });
 
+    expect(owners.assertOwner).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      salesProductId: 'sales-product-1',
+    });
+    expect(owners.assertOwner.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.contentWorkspace.create.mock.invocationCallOrder[0],
+    );
     expect(tx.$queryRaw).not.toHaveBeenCalled();
-    expect(tx.contentWorkspace.create).toHaveBeenCalledOnce();
+  });
+
+  it('refuses a workspace for a draft Channels does not know', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      contentWorkspace: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
+    };
+    const prisma = {
+      ...tx,
+      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
+    };
+    const owners = salesProductOwners(
+      vi.fn().mockRejectedValue(new NotFoundException('판매상품을 찾지 못했습니다.')),
+    );
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never, owners as never);
+
+    await expect(repository.ensureActiveWorkspace({
+      organizationId: 'org-1',
+      ownerType: 'sales_product',
+      salesProductId: 'sales-product-foreign',
+      channelListingId: null,
+      originWorkspaceId: null,
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
   });
 
   it('rejects a listing workspace whose origin draft workspace is gone', async () => {
@@ -98,7 +137,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       ...tx,
       $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
     };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never, salesProductOwners() as never);
 
     await expect(repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -132,7 +171,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       ...tx,
       $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
     };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never, salesProductOwners() as never);
 
     await repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -167,7 +206,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         })),
       },
     });
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never, salesProductOwners() as never);
 
     await expect(repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -208,7 +247,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
     });
     prisma.$queryRaw.mockResolvedValueOnce([{ id: 'source-workspace-1', salesProductId: 'candidate-1' }]);
     const channelListings = channelListingQuery();
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListings as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListings as never, salesProductOwners() as never);
 
     await repository.ensureActiveWorkspace({
       organizationId: 'org-1',
@@ -241,7 +280,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         findMany: vi.fn().mockResolvedValue([]),
       },
     };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never, channelListingQuery() as never, salesProductOwners() as never);
 
     await repository.listActive({
       organizationId: 'org-1',

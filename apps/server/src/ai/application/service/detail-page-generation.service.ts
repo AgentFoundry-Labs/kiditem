@@ -132,7 +132,9 @@ export class DetailPageGenerationService {
         organizationId,
         triggeredByUserId,
         rawTitle: dto.rawTitle,
-        salesProductId: null,
+        // A draft's generation lands in that draft's one workspace; an operator
+        // generating without a draft gets a product-less one.
+        salesProductId: dto.salesProductId ?? null,
       });
     const imageOnlyBase = generationMode === 'image'
       ? await this.findImageOnlyBaseGeneration({

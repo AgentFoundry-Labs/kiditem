@@ -58,13 +58,10 @@ export class RegistrationContentWorkspaceService
     });
   }
 
-  async attachToListing(
+  attachToListing(
     transaction: OwnerTransaction,
     input: AttachContentWorkspaceToListingInput,
   ): Promise<{ workspaceId: string }> {
-    if (input.salesProductId === input.listingId) {
-      throw new BadRequestException('Sales product and listing owner must be distinct.');
-    }
     return this.repository.attachToListing(transaction, input);
   }
 }

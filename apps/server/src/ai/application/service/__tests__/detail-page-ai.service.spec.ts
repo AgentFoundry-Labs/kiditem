@@ -429,6 +429,19 @@ describe('DetailPageGenerationService', () => {
     );
   });
 
+  it('opens the generation in the draft workspace when the request names a sales product', async () => {
+    const { service, contentWorkspaces } = makeService();
+
+    await service.generate(input({ salesProductId: SALES_PRODUCT_ID }) as never, ORGANIZATION_ID, USER_ID);
+
+    expect(contentWorkspaces.ensureForGeneration).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      triggeredByUserId: USER_ID,
+      rawTitle: '자석 다트게임',
+      salesProductId: SALES_PRODUCT_ID,
+    });
+  });
+
   it('creates a product-less content workspace when no workspace is named', async () => {
     const { service, repository, contentWorkspaces } = makeService();
 

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -37,6 +38,22 @@ describe('AI final workspace-owner cutover', () => {
   it('keeps no Sourcing pass-through in front of the AI workspace capability', () => {
     expect(RETIRED_SOURCING_PASS_THROUGHS.filter((file) => existsSync(resolve(SERVER_ROOT, file))))
       .toEqual([]);
+  });
+
+  /**
+   * One owner publishes one capability (ADR-0021). A second declaration of this
+   * symbol means a forwarding port grew back in front of the AI one.
+   */
+  it('declares the registration workspace port exactly once in the server', () => {
+    const declarations = execFileSync('git', [
+      'grep', '-l', '--', 'export const REGISTRATION_CONTENT_WORKSPACE_PORT', '--', 'apps/server/src',
+    ], { cwd: resolve(SERVER_ROOT, '../../..'), encoding: 'utf8' })
+      .split('\n')
+      .filter((file) => file && !file.endsWith('.spec.ts'));
+
+    expect(declarations).toEqual([
+      'apps/server/src/ai/application/port/in/workspace/registration-content-workspace.port.ts',
+    ]);
   });
 
   it('owns the workspace ports under sales-product names', () => {

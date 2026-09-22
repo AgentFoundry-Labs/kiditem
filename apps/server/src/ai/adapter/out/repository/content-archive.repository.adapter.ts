@@ -81,17 +81,6 @@ export class ContentArchiveRepositoryAdapter implements ContentArchiveRepository
     return rows as unknown as ContentArchiveGenerationRow[];
   }
 
-  findSourcingCandidate(input: { organizationId: string; candidateId: string }) {
-    return this.prisma.sourcingCandidate.findFirst({
-      where: {
-        id: input.candidateId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      select: { id: true },
-    });
-  }
-
   async listSourcingCandidateGenerations(input: {
     organizationId: string;
     candidateId: string;

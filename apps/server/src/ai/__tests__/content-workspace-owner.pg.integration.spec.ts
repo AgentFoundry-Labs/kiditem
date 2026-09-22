@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { ConflictException } from '@nestjs/common';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -9,6 +10,11 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
+import { ownerTransaction } from '../../prisma/owner-transaction';
+import type { PrismaService } from '../../prisma/prisma.service';
+import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
 
 /**
  * KID-310: the content workspace is owned by a sales-product draft, not by a
@@ -30,6 +36,35 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
   });
+
+  function registration() {
+    return new RegistrationContentWorkspaceRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new ChannelListingQueryService(
+        new ChannelListingQueryPersistenceAdapter(prisma as never),
+        { findForListings: async () => [] },
+      ),
+    );
+  }
+
+  async function seedListing() {
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: `Wing ${randomUUID().slice(0, 8)}`,
+        externalAccountId: randomUUID(),
+      },
+    });
+    return prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        externalId: randomUUID(),
+        isActive: true,
+      },
+    });
+  }
 
   function workspaceData(salesProductId: string, title: string, organizationId = TEST_ORGANIZATION_ID) {
     return {
@@ -84,27 +119,62 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
     expect(mine).toHaveLength(1);
   });
 
-  it('branches a listing workspace off the same draft without competing for the draft key', async () => {
+  it('lets one workspace hold both the draft key and the listing key at once', async () => {
     const salesProductId = randomUUID();
+    const listing = await seedListing();
     const draftWorkspace = await prisma.contentWorkspace.create({
       data: workspaceData(salesProductId, 'Kids rain boots'),
     });
 
-    const listingWorkspace = await prisma.contentWorkspace.create({
+    await expect(prisma.$transaction((tx) => registration().attachToListing(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId,
+      listingId: listing.id,
+    }))).resolves.toEqual({ workspaceId: draftWorkspace.id });
+
+    const attached = await prisma.contentWorkspace.findFirstOrThrow({
+      where: { id: draftWorkspace.id, organizationId: TEST_ORGANIZATION_ID },
+      select: { ownerType: true, salesProductId: true, channelListingId: true },
+    });
+    expect(attached).toEqual({
+      ownerType: 'sales_product',
+      salesProductId,
+      channelListingId: listing.id,
+    });
+  });
+
+  it('refuses to move a workspace that already belongs to another listing', async () => {
+    const salesProductId = randomUUID();
+    const [first, second] = [await seedListing(), await seedListing()];
+    await prisma.contentWorkspace.create({ data: workspaceData(salesProductId, 'Kids rain boots') });
+    await prisma.$transaction((tx) => registration().attachToListing(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, listingId: first.id,
+    }));
+
+    await expect(prisma.$transaction((tx) => registration().attachToListing(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, listingId: second.id,
+    }))).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('reports a domain conflict when another active workspace already owns the listing', async () => {
+    const salesProductId = randomUUID();
+    const listing = await seedListing();
+    await prisma.contentWorkspace.create({ data: workspaceData(salesProductId, 'Kids rain boots') });
+    await prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'channel_listing',
         salesProductId: null,
-        channelListingId: randomUUID(),
-        originWorkspaceId: draftWorkspace.id,
-        displayName: 'Kids rain boots',
-        normalizedTitle: 'kids rain boots',
+        channelListingId: listing.id,
+        displayName: 'Imported listing content',
+        normalizedTitle: `listing-${randomUUID().slice(0, 8)}`,
         createdByUserId: TEST_USER_ID,
       },
     });
 
-    expect(listingWorkspace.originWorkspaceId).toBe(draftWorkspace.id);
-    expect(listingWorkspace.salesProductId).toBeNull();
+    await expect(prisma.$transaction((tx) => registration().attachToListing(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, listingId: listing.id,
+    }))).rejects.toThrow('Another active content workspace already belongs to this listing.');
   });
 
   it('no longer carries a sourcing-candidate column on the workspace or its generation ledgers', async () => {

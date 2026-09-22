@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
@@ -12,6 +12,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
+import { SalesProductOwnerReadAdapter } from '../adapter/out/channels/sales-product-owner.adapter';
 import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { groupUrlAssetKey } from '../domain/content-asset-key';
@@ -43,6 +44,57 @@ describe('AI content ownership constraints (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+  });
+
+  /**
+   * Stands in for `SALES_PRODUCT_PORT`: the same organization-scoped lookup
+   * Channels performs, against the real rows, without pulling the Products
+   * runtime that its repository adapter needs.
+   */
+  function salesProductOwners() {
+    return new SalesProductOwnerReadAdapter({
+      async get(organizationId: string, salesProductId: string) {
+        const row = await prisma.salesProduct.findFirst({
+          where: { id: salesProductId, organizationId },
+          select: { id: true },
+        });
+        if (!row) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+        return row as never;
+      },
+    } as never);
+  }
+
+  it('refuses a draft workspace whose sales product belongs to another organization', async () => {
+    const foreignProduct = await prisma.salesProduct.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'FOREIGN-DRAFT',
+        name: 'Foreign draft',
+      },
+    });
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new ChannelListingQueryService(
+        new ChannelListingQueryPersistenceAdapter(prisma as never),
+        { findForListings: async () => [] },
+      ),
+      salesProductOwners(),
+    );
+
+    await expect(repository.ensureActiveWorkspace({
+      organizationId: TEST_ORGANIZATION_ID,
+      ownerType: 'sales_product',
+      salesProductId: foreignProduct.id,
+      channelListingId: null,
+      originWorkspaceId: null,
+      displayName: 'Cross-tenant draft',
+      normalizedTitle: 'crosstenantdraft',
+      createdByUserId: null,
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(await prisma.contentWorkspace.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: foreignProduct.id },
+    })).toBe(0);
   });
 
   it('rejects cross-organization current-content pointers', async () => {
@@ -321,6 +373,7 @@ describe('AI content ownership constraints (PG integration)', () => {
         new ChannelListingQueryPersistenceAdapter(prisma as never),
         { findForListings: async () => [] },
       ),
+      salesProductOwners(),
     );
 
     const creation = repository.ensureActiveWorkspace({
