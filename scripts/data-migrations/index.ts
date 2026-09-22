@@ -28,6 +28,7 @@ import { migrateMasterProductInventoryCutoverMigration } from "./v0.1.31/016_mas
 import { simplifyProductReferencesMigration } from "./v0.1.31/017_simplify_product_references";
 import { prepareSellingCatalogSourcesMigration } from './v0.1.31/019_prepare_selling_catalog_sources';
 import { registrationTargetCutoverMigration } from './v0.1.31/022_registration_target_cutover';
+import { contentWorkspaceOwnerCutoverMigration } from './v0.1.31/024_content_workspace_owner_cutover';
 import { sellingCatalogCutoverMigration } from './v0.1.31/020_selling_catalog_cutover';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
@@ -71,6 +72,9 @@ export const dataMigrations: readonly DataMigration[] = [
   simplifyProductReferencesMigration,
   sellingCatalogCutoverMigration,
   registrationTargetCutoverMigration,
+  // 024 moves the content workspace onto the draft 023 creates, and refuses to
+  // run before it.
+  contentWorkspaceOwnerCutoverMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
   activateAdFreeProductAbcFormula,

@@ -4,7 +4,8 @@
     {
       "train": "0.1.31",
       "keys": ["unique:content_workspaces_direct_title_unique"],
-      "acceptedRisk": "The predicate only swaps source_candidate_id IS NULL for sales_product_id IS NULL. 024 gives sales_product_id a value on candidate-owned workspaces only, and those become owner_type='sales_product', so the direct_detail_page row set the index covers is unchanged and already unique under the old index."
+      "coveredBy": "v0.1.31:024_content_workspace_owner_cutover",
+      "note": "024 adds sales_product_id and fills it only on candidate-owned workspaces, which become owner_type='sales_product'. The direct_detail_page rows this index covers are the same set as under the old source_candidate_id IS NULL predicate, and already unique."
     },
     {
       "train": "0.1.31",
