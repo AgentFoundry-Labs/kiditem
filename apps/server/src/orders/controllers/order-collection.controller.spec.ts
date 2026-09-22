@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 import { OrderCollectionController } from './order-collection.controller';
@@ -13,15 +14,17 @@ describe('OrderCollectionController Coupang direct convert', () => {
     const conversion = {
       buffer: Buffer.from('\uFEFFart09-csv'),
       fileName: 'zzogzzog1_20260727_주문수집.csv',
-      sourceRows: 1,
-      productRows: 1,
-      outputRows: 1,
+      sourceRows: 2,
+      // 셀피아 양식은 주문 한 건에 주문 줄 하나와 상품 줄 여럿을 쓴다: 출력 5 · 상품 3 = 주문 2.
+      productRows: 3,
+      outputRows: 5,
       skippedRows: 0,
     };
     const collection = { convertArt09Orders: vi.fn().mockReturnValue(conversion) };
     const source = {
       validateCompletion: vi.fn().mockResolvedValue(undefined),
       completeAttempt: vi.fn().mockResolvedValue({ artifactId: 'art09-artifact' }),
+      recordCollectedRows: vi.fn().mockResolvedValue(undefined),
     };
     const controller = new OrderCollectionController(
       collection as never,
@@ -53,7 +56,55 @@ describe('OrderCollectionController Coupang direct convert', () => {
     }));
     expect(response.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv;charset=utf-8');
     expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Artifact-Id', 'art09-artifact');
+    // 이 수집이 몇 건을 실어 왔는지는 변환할 때야 안다. 적지 않으면 성공한 수집도 건수 0 으로
+    // 남아 대시보드의 '오늘 주문' 이 그만큼 모자라게 센다(사장님 2026-09-21).
+    //
+    // 적는 것은 **주문 건수**이지 출력 줄 수가 아니다. 출력 줄을 적으면 상품 줄만큼 부풀어
+    // 주문수집 화면과 어긋난다 — 63 대 82(사장님 2026-09-22).
+    expect(source.recordCollectedRows).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      attemptId: ATTEMPT_ID,
+      rowCount: 2,
+    });
     expect(file).toBeDefined();
+  });
+
+  it('신규 주문 없는 날을 고장난 몰로 적지 않는다', async () => {
+    // 변환기는 이미 `NO_NEW_ORDERS` 를 던진다. 예전에는 그걸 `CONVERSION_FAILED` 로 덮어
+    // 멀쩡한 날의 꼬망세가 실패한 몰로 기록됐다(사장님 2026-09-21).
+    const collection = {
+      convertKkomangseOrders: vi.fn().mockImplementation(() => {
+        throw new BadRequestException({
+          code: 'NO_NEW_ORDERS',
+          message: '2026-09-21 꼬망세 신규 주문이 없습니다.',
+        });
+      }),
+    };
+    const source = {
+      validateCompletion: vi.fn().mockResolvedValue(undefined),
+      failAttempt: vi.fn().mockResolvedValue(undefined),
+    };
+    const controller = new OrderCollectionController(
+      collection as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      source as never,
+    );
+
+    await expect(controller.convertKkomangse(
+      { rows: [] } as never,
+      ORGANIZATION_ID,
+      ATTEMPT_ID,
+      ATTEMPT_TOKEN,
+      null as never,
+      { setHeader: vi.fn() } as never,
+    )).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(source.failAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'NO_NEW_ORDERS',
+      message: '2026-09-21 꼬망세 신규 주문이 없습니다.',
+    }));
   });
 
   it('rejects unfenced mall conversion instead of leaving a standalone export path', async () => {
@@ -88,7 +139,11 @@ describe('OrderCollectionController Coupang direct convert', () => {
       skippedRows: 1,
     };
     const collection = { convertIcecreamSendFinish: vi.fn().mockReturnValue(conversion) };
-    const source = { completeAttempt: vi.fn(), failAttempt: vi.fn() };
+    const source = {
+      completeAttempt: vi.fn(),
+      failAttempt: vi.fn(),
+      recordCollectedRows: vi.fn().mockResolvedValue(undefined),
+    };
     const controller = new OrderCollectionController(
       collection as never,
       {} as never,

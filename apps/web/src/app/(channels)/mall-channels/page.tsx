@@ -13,6 +13,8 @@ import { MALL_ACCOUNT_SETTINGS_PARAM, mallAccountKeyFor } from '../_shared/mall-
 import { SabangnetListingsImport } from '../_shared/SabangnetListingsImport';
 import { isMallAdminListingMallKey } from '@kiditem/shared/mall-admin-listings';
 import { MallAdminListingsImport } from '../_shared/MallAdminListingsImport';
+import { CoupangCatalogEdit } from '../_shared/CoupangCatalogEdit';
+import { CoupangWingExcelImport } from '../_shared/CoupangWingExcelImport';
 import { useMallCapabilityRows } from '../_shared/use-mall-capability-rows';
 import { SellpiaDashboard } from './components/SellpiaDashboard';
 import { ChannelTable, type ChannelAccountInfo } from './components/ChannelTable';
@@ -144,6 +146,10 @@ export default function MallChannelsPage() {
         </div>
         <SabangnetListingsImport />
       </section>
+
+      <CoupangWingExcelImport />
+
+      <CoupangCatalogEdit />
 
       <MallAccountSettingsDialog
         target={settingsTarget}

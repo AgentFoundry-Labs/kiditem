@@ -77,7 +77,7 @@ function renderPage() {
 }
 
 const successSales = {
-  today: { revenue: 0, orders: 0 },
+  today: { revenue: 0, orders: 0, collectedOrders: 0, missingDateCount: 0 },
   monthly: {
     revenue: 100000, profit: 30000, adRate: 0,
     prevRevenue: 0, prevProfit: 0, revenueChange: 0, profitChange: 0, prevAdRate: 0,

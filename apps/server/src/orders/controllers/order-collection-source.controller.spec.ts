@@ -108,6 +108,7 @@ describe('OrderCollectionSourceController', () => {
         fileName: 'capture.json',
         contentType: 'application/json',
       }),
+      recordCollectedRows: vi.fn().mockResolvedValue(undefined),
     };
     const service = {
       convertIcecreamMallOrderRows: vi.fn().mockReturnValue(conversion),
@@ -131,6 +132,13 @@ describe('OrderCollectionSourceController', () => {
       'X-Order-Collection-Artifact-Id',
       ARTIFACT,
     );
+    // 이 수집이 몇 건을 실어 왔는지는 변환할 때야 안다. 여기서 적지 않으면 성공한 수집도
+    // 건수 0 으로 남아 대시보드가 그만큼 모자라게 센다(사장님 2026-09-21).
+    expect(source.recordCollectedRows).toHaveBeenCalledWith({
+      organizationId: ORG,
+      attemptId: ATTEMPT,
+      rowCount: 2,
+    });
   });
 
   it('returns only validated Icecream continuation metadata under the owner fence', async () => {

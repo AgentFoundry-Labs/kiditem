@@ -43,7 +43,10 @@ import {
   sentDirectshipOrderNumbers,
   type CoupangDirectshipSelection,
 } from '../lib/coupang-directship-collection';
-import { invalidateMallOrderCollectionSources } from '../lib/mall-order-collection-source';
+import {
+  invalidateMallOrderCollectionSources,
+  readOrderCollectionTodayOrders,
+} from '../lib/mall-order-collection-source';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import { MallCollectionControl } from './MallCollectionControl';
@@ -99,6 +102,9 @@ import {
   readCoupangDirectSnapshot,
   saveCoupangDirectSnapshot,
 } from '../lib/coupang-directship-snapshot-api';
+
+/** 오늘 주문은 수집이 끝나야 바뀐다. 원천 목록(2초)과 달리 자주 물을 이유가 없다. */
+const TODAY_ORDERS_POLL_MS = 60_000;
 
 export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
@@ -212,18 +218,34 @@ export function OrderCollectionWorkspace() {
     () => sentDirectshipOrderNumbers(history),
     [history],
   );
+  // 오늘 주문은 서버 기록을 읽는다 — 브라우저에 남은 변환 파일만 세면 다른 PC 에서 열 때마다
+  // 수가 달라지고, 대시보드와도 어긋난다(사장님 2026-09-22: 63 대 64).
+  const todayOrdersQuery = useQuery({
+    queryKey: queryKeys.orders.collectionTodayOrders(user?.organizationId ?? ''),
+    queryFn: readOrderCollectionTodayOrders,
+    enabled: Boolean(user?.organizationId),
+    refetchInterval: TODAY_ORDERS_POLL_MS,
+  });
   // 셀피아 실측 대조 결과. 버튼을 눌렀을 때만 조회하며, 있으면 몰 카드 "신규"가 이 값을 쓴다.
   const [sellpiaReconcile, setSellpiaReconcile] = useState<SellpiaReconcileResult | null>(null);
   // 대조를 돌렸으면 "신규"(=아직 셀피아에 안 올라간 주문)를 로컬 전송기록 대신 실측으로 바꾼다.
   const mallStatsByKey = useMemo(() => {
-    if (!sellpiaReconcile) return orderCollectionSummary.mallStatsByKey;
     const merged = new Map(orderCollectionSummary.mallStatsByKey);
-    for (const [mallKey, missing] of sellpiaReconcile.missingCountByMallKey) {
+    // 카드의 "당일"도 서버 기록을 읽는다 — 이 브라우저가 변환하지 않은 몰(다른 PC 에서 걷은 몰)은
+    // 로컬 기록만 보면 0 으로 보이고, 카드 합이 머리의 오늘 주문과 어긋난다(사장님 2026-09-22).
+    for (const [mallKey, orders] of Object.entries(todayOrdersQuery.data?.byMall ?? {})) {
+      const stat = merged.get(mallKey);
+      merged.set(mallKey, stat
+        ? { ...stat, orderRows: orders }
+        : { key: mallKey, name: mallKey, files: 0, orderRows: orders, newRows: 0, productRows: 0, latestAt: 0 });
+    }
+    // 대조를 돌렸으면 "신규"(=아직 셀피아에 안 올라간 주문)를 로컬 전송기록 대신 실측으로 바꾼다.
+    for (const [mallKey, missing] of sellpiaReconcile?.missingCountByMallKey ?? []) {
       const stat = merged.get(mallKey);
       if (stat) merged.set(mallKey, { ...stat, newRows: missing });
     }
     return merged;
-  }, [orderCollectionSummary.mallStatsByKey, sellpiaReconcile]);
+  }, [orderCollectionSummary.mallStatsByKey, sellpiaReconcile, todayOrdersQuery.data?.byMall]);
   const [reconciling, setReconciling] = useState(false);
   const handleReconcileWithSellpia = async (
     { silentWhenClean = false }: { silentWhenClean?: boolean } = {},
@@ -274,6 +296,17 @@ export function OrderCollectionWorkspace() {
     () => buildOrderCollectionPipelineSummary(history),
     [history],
   );
+  /**
+   * 오늘 주문만 서버 기록으로 덮는다. 전송 대기 · 요청 · 완료는 이 브라우저가 어떤 파일을
+   * 셀피아로 보냈는지에 달린 값이라 서버 기록에 없다.
+   */
+  const todayOrdersSummary = useMemo(() => {
+    const total = todayOrdersQuery.data?.total;
+    return total === undefined || total === null
+      ? pipelineSummary
+      : { ...pipelineSummary, todayOrders: total };
+  }, [pipelineSummary, todayOrdersQuery.data?.total]);
+
 
   const {
     events,
@@ -899,7 +932,7 @@ export function OrderCollectionWorkspace() {
         onUpload={handleModalUpload}
       />
 
-      <OrderCollectionPipeline summary={pipelineSummary} />
+      <OrderCollectionPipeline summary={todayOrdersSummary} />
 
       <div className="grid gap-3 xl:grid-cols-4">
         <div className="min-w-0 xl:col-span-3">

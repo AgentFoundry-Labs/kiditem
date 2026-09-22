@@ -30,7 +30,7 @@ function salesBaseline(
   monthly: Partial<DashboardSalesSummary['monthly']> = {},
 ): DashboardSalesSummary {
   return {
-    today: { revenue: 0, orders: 0 },
+    today: { revenue: 0, orders: 0, collectedOrders: 0, missingDateCount: 0 },
     monthly: {
       revenue: null,
       wingRevenue: null,

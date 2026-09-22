@@ -14,6 +14,7 @@ import type {
   MallPriceCandidateListingOption,
   MallPriceCandidateProduct,
 } from '../../../../domain/sales-product-mall-prices';
+import type { CoupangCatalogFacts } from '../../../../domain/mall-bulk-sheet/coupang-catalog-edit';
 import type { MallSheetSourceProduct } from '../../../../domain/mall-bulk-sheet/mall-sheet-product';
 
 export const SALES_PRODUCT_REPOSITORY_PORT = Symbol('SALES_PRODUCT_REPOSITORY_PORT');
@@ -206,6 +207,14 @@ export interface SalesProductRepositoryPort {
     detailHtml?: string | null;
     extraDetailHtml?: string[];
   }): Promise<boolean>;
+  /**
+   * 쿠팡상품정보 수정요청: 윙 옵션 ID → 그 옵션과 이어진 우리 단품 · 판매상품이 아는 값.
+   * 이어지지 않은 옵션은 빠진다 — 채울 근거가 없다.
+   */
+  readCoupangCatalogFacts(
+    organizationId: string,
+    optionIds: readonly string[],
+  ): Promise<CoupangCatalogFacts[]>;
   /** 몰 엑셀: 이 조직의 판매상품(없는 id 는 빠진다), 코드 순. */
   readMallSheetProducts(organizationId: string, salesProductIds: readonly string[]): Promise<MallSheetSourceProduct[]>;
   /**

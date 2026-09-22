@@ -44,7 +44,10 @@ import {
   SaveCoupangDirectPoSnapshotRequestSchema,
 } from '@kiditem/shared/coupang-direct-order';
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
-import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
+import {
+  orderCollectionOrderCount,
+  type OrderCollectionSourceStatus,
+} from '@kiditem/shared/order-collection-source';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../auth/auth.types';
@@ -78,6 +81,14 @@ const OrderCollectionConfirmedCoverageHeader = createParamDecorator(
     );
   },
 );
+
+/**
+ * 변환 결과가 말하는 주문 건수. 화면과 같은 셈법을 쓰려고 shared 규칙을 그대로 부른다 —
+ * 여기서 다시 세면 주문수집 화면과 대시보드가 다른 수를 말하게 된다.
+ */
+function orderCount(result: Readonly<{ outputRows: number; productRows: number }>): number | undefined {
+  return orderCollectionOrderCount(result) ?? undefined;
+}
 
 @Controller('orders/collection')
 export class OrderCollectionController {
@@ -357,6 +368,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -434,6 +447,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -491,6 +506,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -527,6 +544,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -563,6 +582,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -599,6 +620,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -638,6 +661,7 @@ export class OrderCollectionController {
       source,
       response,
       confirmedCoverage,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -692,6 +716,7 @@ export class OrderCollectionController {
       source,
       response,
       confirmedCoverage,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -742,6 +767,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -792,6 +819,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -842,6 +871,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -892,6 +923,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -942,6 +975,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -971,6 +1006,8 @@ export class OrderCollectionController {
       attemptToken,
       source,
       response,
+      null,
+      orderCount(result),
     );
     return new StreamableFile(result.buffer);
   }
@@ -1000,7 +1037,7 @@ export class OrderCollectionController {
         organizationId,
         attemptId: fence.attemptId,
         attemptToken: fence.attemptToken,
-        code: 'CONVERSION_FAILED',
+        code: conversionFailureCode(error),
         message: conversionFailureMessage(error),
         source,
       });
@@ -1026,6 +1063,15 @@ export class OrderCollectionController {
     source: Parameters<OrderCollectionSourcePort['completeAttempt']>[0]['source'],
     response: Response,
     confirmedCoverage: OrderCollectionConfirmedCoverage | null = null,
+    /**
+     * 이 수집이 실어 온 **주문 건수**(줄 수가 아니다). 완료 시점에는 원본 바이트만 있어 몇
+     * 건인지 모르고, 셀피아 양식으로 변환할 때 비로소 안다. 적지 않으면 성공한 수집도 0 건으로
+     * 남아 대시보드의 '오늘 주문' 이 모자라게 센다(사장님 2026-09-21).
+     *
+     * 출력 줄을 그대로 적으면 상품 줄만큼 부풀어 주문수집 화면과 어긋난다 — 63 대 82
+     * (사장님 2026-09-22). `orderCollectionOrderCount` 가 유일한 셈법이다.
+     */
+    rowCount?: number,
   ): Promise<void> {
     const fence = this.requireAttemptFence(attemptId, attemptToken);
     const artifact = await this.orderCollectionSource.completeAttempt({
@@ -1036,6 +1082,14 @@ export class OrderCollectionController {
       source,
       confirmedCoverage,
     });
+    if (rowCount !== undefined) {
+      // 0 건도 적는다 — "걷었는데 없었다" 는 측정이지 모름이 아니다.
+      await this.orderCollectionSource.recordCollectedRows({
+        organizationId,
+        attemptId: fence.attemptId,
+        rowCount,
+      });
+    }
     response.setHeader('X-Order-Collection-Artifact-Id', artifact.artifactId);
   }
 
@@ -1068,6 +1122,24 @@ function fileSubmission(file: MulterFile) {
     contentType: file.mimetype || 'application/octet-stream',
     isFile: true,
   } as const;
+}
+
+/**
+ * 변환이 스스로 붙인 코드를 그대로 쓴다. 없을 때만 `CONVERSION_FAILED` 다.
+ *
+ * 전에는 무엇이 잘못됐든 `CONVERSION_FAILED` 로 덮었다. 그래서 "그날 신규 주문이 없다"
+ * (`NO_NEW_ORDERS`) 는 멀쩡한 날도 실패한 몰로 기록됐고, 화면은 꼬망세를 고장난 몰처럼
+ * 보여 줬다(사장님 2026-09-21). 변환기는 이미 옳은 코드를 던지고 있었다.
+ */
+function conversionFailureCode(error: unknown): string {
+  if (error instanceof BadRequestException) {
+    const response = error.getResponse();
+    if (response && typeof response === 'object') {
+      const code = (response as { code?: unknown }).code;
+      if (typeof code === 'string' && code.trim()) return code.trim().slice(0, 80);
+    }
+  }
+  return 'CONVERSION_FAILED';
 }
 
 function conversionFailureMessage(error: unknown): string {

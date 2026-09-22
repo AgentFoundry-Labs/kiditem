@@ -581,6 +581,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     await expect(collect()).rejects.toThrow();
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
   });
+
 });
 
 describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {

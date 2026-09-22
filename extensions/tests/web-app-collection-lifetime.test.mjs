@@ -36,6 +36,8 @@ function createHarness({
   officeTabs = [],
   queryErrors = {},
   authReady = true,
+  /** 소유자에게 말을 걸 때마다 불린다. 동시에 몇 개가 떠 있는지 재는 데 쓴다. */
+  onOwnerCancel = null,
 } = {}) {
   const storage = {};
   const connectedEnvironments = new Set(
@@ -114,6 +116,7 @@ function createHarness({
     cancelCollectionSession: async (attemptId, environmentId) => {
       calls.order.push(`owner:${attemptId}`);
       calls.cancellations.push({ attemptId, environmentId });
+      if (onOwnerCancel) await onOwnerCancel(attemptId, environmentId);
       return manager.cancel(attemptId, {
         closeManagedTab: true,
         ownerFailure: async () => ({ accepted: true }),
@@ -207,6 +210,42 @@ async function start(manager, attemptId, environmentId = 'local') {
     producer: 'inventory.sellpia',
   });
 }
+
+test('쌓인 세션을 정리할 때 소유자에게 한꺼번에 몰아 묻지 않는다', async () => {
+  // 끝났는데도 지워지지 않은 세션이 쌓이면 정리 한 번이 그 수만큼 `/control` 읽기를
+  // 동시에 쏜다. 실제로 40개가 몰려 API 분당 한도를 통째로 먹었고, 읽기가 429 로 실패하니
+  // 세션을 지우지도 못해 같은 40개를 다시 쏘는 고리가 됐다(2026-09-21 라이브).
+  let inFlight = 0;
+  let peak = 0;
+  const release = [];
+  const harness = createHarness({
+    localTabs: [{ id: 101 }],
+    onOwnerCancel: async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => release.push(resolve));
+      inFlight -= 1;
+    },
+  });
+  const attempts = Array.from({ length: 12 }, (_, index) =>
+    `4${String(index).padStart(7, '0')}-4444-4444-8444-444444444444`);
+  for (const attemptId of attempts) await start(harness.manager, attemptId);
+
+  harness.lifetime.install();
+  harness.appTabs.local = [];
+  harness.onRemoved.emit(101, { windowId: 1, isWindowClosing: true });
+
+  // 묶음이 끝나야 다음 묶음이 뜬다. 다 풀릴 때까지 돌려 준다.
+  for (let guard = 0; guard < 60; guard += 1) {
+    await flush();
+    for (const resolve of release.splice(0)) resolve();
+    if (harness.calls.cancellations.length >= attempts.length && release.length === 0) break;
+  }
+  await flush();
+
+  assert.equal(harness.calls.cancellations.length, attempts.length);
+  assert.ok(peak <= 4, `동시에 ${peak} 개가 떴습니다 — 4 개 이하여야 합니다`);
+});
 
 test('last-tab policy keeps one-of-many tabs alive and cancels only the matching environment', async () => {
   const harness = createHarness({

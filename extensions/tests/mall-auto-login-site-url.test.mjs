@@ -178,3 +178,18 @@ test("the dialog recorder runs in the page world — an isolated override would 
   assert.match(record, /world: "MAIN"/);
   assert.match(take, /world: "MAIN"/);
 });
+
+test("쿠팡 윙도 자동 로그인 표에 있다 — 로그인 화면이 다른 도메인이어도", () => {
+  // 윙 첫 화면은 로그아웃이면 `xauth.coupang.com` 판매자 로그인으로 넘어간다. 두 주소 모두
+  // manifest 권한에 있고, 공용 폼 채우기가 모든 프레임을 훑으므로 그대로 채워진다
+  // (사장님 2026-09-22: "자동로그인 만들어").
+  const ensure = extractFunction(workerSource, "ensureMallLoggedIn");
+  assert.match(ensure, /coupang: WING_LOGIN_URL,/);
+  assert.match(workerSource, /const WING_LOGIN_URL = "https:\/\/wing\.coupang\.com\/";/);
+  const manifest = readFileSync(
+    new URL("../kiditem-os/manifest.json", import.meta.url),
+    "utf8",
+  );
+  assert.ok(manifest.includes("https://xauth.coupang.com/*"), "xauth 호스트 권한이 있어야 한다");
+  assert.ok(manifest.includes("https://wing.coupang.com/*"), "wing 호스트 권한이 있어야 한다");
+});

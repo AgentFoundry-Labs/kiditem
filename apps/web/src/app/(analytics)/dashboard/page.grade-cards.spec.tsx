@@ -52,7 +52,7 @@ vi.mock('@/lib/api-client', async () => {
 });
 
 const sales = {
-  today: { revenue: 0, orders: 0 },
+  today: { revenue: 0, orders: 0, collectedOrders: 0, missingDateCount: 0 },
   monthly: {
     revenue: 0,
     profit: 0,
@@ -325,7 +325,7 @@ describe('Dashboard absolute ABC grade cards', () => {
   it('renders an uncovered Today read as unavailable rather than zero', async () => {
     salesResponse = {
       ...sales,
-      today: { revenue: null, orders: null },
+      today: { revenue: null, orders: null, collectedOrders: null, missingDateCount: 0 },
       metricBasis: {
         'today.revenue': {
           kind: 'period',
@@ -561,7 +561,7 @@ describe('Dashboard absolute ABC grade cards', () => {
   it('keeps nullable traffic orders unavailable instead of falling back to today orders', async () => {
     salesResponse = {
       ...sales,
-      today: { revenue: 0, orders: 99 },
+      today: { revenue: 0, orders: 99, collectedOrders: 99, missingDateCount: 0 },
       trafficKpi: {
         ...sales.trafficKpi,
         visitors: null,

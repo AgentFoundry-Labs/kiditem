@@ -73,7 +73,14 @@ function control(overrides = {}) {
   };
 }
 
-function createHarness({ initialControl = control(), collectResult, failMode = 'ack', storageState = {} }) {
+function createHarness({
+  initialControl = control(),
+  collectResult,
+  failMode = 'ack',
+  storageState = {},
+  /** 서버가 그 시도를 모른다고 답하게 한다(404). */
+  controlStatus = 200,
+}) {
   let current = structuredClone(initialControl);
   let session = null;
   let cancelCount = 0;
@@ -161,7 +168,15 @@ function createHarness({ initialControl = control(), collectResult, failMode = '
   );
   const request = async (_environmentId, requestPath, init = {}) => {
     requests.push({ path: requestPath, init });
-    if (requestPath.endsWith('/control')) return response(structuredClone(current));
+    if (requestPath.endsWith('/control')) {
+      if (controlStatus !== 200) {
+        return response(
+          { message: 'ORDER_COLLECTION_ATTEMPT_NOT_FOUND' },
+          { ok: false, status: controlStatus },
+        );
+      }
+      return response(structuredClone(current));
+    }
     if (requestPath.endsWith('/fail')) {
       const body = JSON.parse(String(init.body));
       failBodies.push(body);
@@ -669,4 +684,37 @@ test('leaves the owner running when a failure ACK cannot be reconciled', async (
   assert.equal(harness.cancelCount(), 0);
   assert.equal(harness.current().state, 'RUNNING');
   assert.equal(harness.failBodies.length, 3);
+});
+
+
+test('서버에 없는 시도는 붙들지 않고 이 브라우저의 세션을 놓아 준다', async () => {
+  // 404 를 '서버 상태를 확인하지 못함' 으로 두면 세션이 남는다. 그러면 정리할 때마다 같은
+  // 시도를 다시 읽어 또 404 를 받고, 운영자는 누를 때마다
+  // `ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 만 본다(2026-09-21 라이브).
+  const harness = createHarness({ controlStatus: 404 });
+  await harness.sessions.start({
+    attemptId: ATTEMPT_ID,
+    environmentId: 'local',
+    producer: 'orders.mall',
+  });
+
+  const result = await harness.owner.cancel({ environmentId: 'local', attemptId: ATTEMPT_ID });
+
+  assert.equal(result.errorCode, 'ORDER_COLLECTION_ATTEMPT_MISSING');
+  assert.equal(result.terminalState, 'FAILED');
+  assert.equal(harness.cancelCount(), 1);
+});
+
+test('서버 상태를 못 읽은 것뿐이면 세션을 그대로 둔다', async () => {
+  const harness = createHarness({ controlStatus: 503 });
+  await harness.sessions.start({
+    attemptId: ATTEMPT_ID,
+    environmentId: 'local',
+    producer: 'orders.mall',
+  });
+
+  const result = await harness.owner.cancel({ environmentId: 'local', attemptId: ATTEMPT_ID });
+
+  assert.equal(result.errorCode, 'SOURCE_OWNER_UNAVAILABLE');
+  assert.equal(harness.cancelCount(), 0);
 });

@@ -881,13 +881,16 @@ export default function Dashboard() {
   };
   const orderCollectAgo = collectedAgo('order_collection_mall');
   const trackingAgo = collectedAgo('sellpia_shipment_tracking');
+  const todayCollectedOrders = today?.collectedOrders ?? null;
   const headlineMall: HeadlineMetric[] = [
     {
       key: 'mallOrders',
       label: '오늘 주문',
-      value: today?.orders === null || today?.orders === undefined ? null : formatNumber(today.orders),
+      // 주문일이 아니라 **오늘 걷은 주문**이다. 주문수집 화면이 세는 것과 같은 사실을 읽어야
+      // 두 화면이 같은 수를 말한다(사장님 2026-09-22: 63 대 82).
+      value: todayCollectedOrders === null ? null : formatNumber(todayCollectedOrders),
       unit: '건',
-      note: today?.orders === null || today?.orders === undefined
+      note: todayCollectedOrders === null
         ? (orderCollectAgo ? `오늘은 아직 — 마지막 수집 ${orderCollectAgo}` : '아직 수집 전')
         : '몰에서 수집한 주문',
       href: '/order-collection',

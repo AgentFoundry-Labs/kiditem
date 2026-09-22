@@ -103,6 +103,18 @@ export interface DetailPageQueryRepositoryPort {
     id: string;
     organizationId: string;
   }): Promise<DetailPageDuplicateSourceSnapshot | null>;
+  /**
+   * 다른 데서 가져온 상세페이지를 우리 상세페이지 한 판으로 만든다. AI 가 만든 것과 같은 자리
+   * (`ContentGeneration`)에 들어가되 출처가 `uploaded` 이고, 돌릴 작업이 없으니 바로 완료다.
+   */
+  createUploadedVersion(input: {
+    organizationId: string;
+    triggeredByUserId: string | null;
+    contentWorkspaceId: string;
+    sourceCandidateId: string | null;
+    title: string;
+    imageUrls: readonly string[];
+  }): Promise<DetailPageGenerationSnapshot>;
   duplicateVersion(input: {
     organizationId: string;
     triggeredByUserId: string | null;

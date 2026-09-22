@@ -65,6 +65,11 @@ export interface RegisterManualProductCommand {
 }
 
 export interface CreateProductGenerationCommand extends RegisterManualProductCommand {
+  /**
+   * 이미 있는 상세페이지 이미지. 차 있으면 AI 생성을 돌리지 않고 이걸 그대로 건다
+   * (사장님 2026-09-22). 순서가 곧 상세페이지에 쌓이는 순서다.
+   */
+  detailPageImageUrls?: string[];
   templateId?: 'kids-playful' | 'bold-vertical';
   detailImageCount?: '2' | '3' | '4' | '5' | '6';
   usageSectionMode?: 'include' | 'exclude';

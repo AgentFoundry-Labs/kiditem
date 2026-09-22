@@ -381,6 +381,13 @@ export const DashboardSalesSummarySchema = z.object({
   today: z.object({
     revenue: z.number().nullable(),
     orders: z.number().nullable(),
+    /**
+     * 지금까지 걷힌 주문 수. 하루가 다 걷히지 않아 `orders` 가 null 이어도 이 수는 진짜
+     * 걷힌 수다 — 주문수집 화면이 보여 주는 그 수와 같다(사장님 2026-09-21).
+     */
+    collectedOrders: z.number().nullable(),
+    /** 오늘 몫 중 아직 못 걷은 날 수. 0 이면 다 걷었다는 뜻. */
+    missingDateCount: z.number().int().nonnegative(),
   }),
   monthly: z.object({
     // `null` means the period has no complete order or Wing evidence. A

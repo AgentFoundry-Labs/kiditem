@@ -13,6 +13,15 @@ import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
 } from "../../../../../products/application/port/in/product-transactional-read.port";
+import { readCompletedImportRowCount } from "../../../../../core/read/source-import-run.reader";
+
+/**
+ * 주문을 실어 오는 수집 원천. 몰 주문 수집과 쿠팡직배송 발주 수집이 오늘 주문을 만든다.
+ */
+const ORDER_COLLECTION_SOURCE_TYPES = [
+  "order_collection_mall",
+  "coupang_direct_order_capture",
+] as const;
 import {
   buildPerListingProfit,
   readAdEvidenceFromLedger,
@@ -96,19 +105,29 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     todayStart: Date,
     todayEnd: Date,
   ): Promise<TodayKpiRow> {
-    const facts = await this.prisma.$transaction(
-      (tx) =>
+    const [facts, collectedOrders] = await this.prisma.$transaction(
+      async (tx) => Promise.all([
         readOrderLineWindowFacts(tx, {
           organizationId,
           from: todayStart,
           to: todayEnd,
           excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
         }),
+        // 오늘 걷은 주문 수. 주문일이 아니라 **걷은 날** 기준이라 주문수집 화면과 같은 수다
+        // (사장님 2026-09-21: "오늘 주문 50건이잖아").
+        readCompletedImportRowCount(tx, {
+          organizationId,
+          sourceTypes: ORDER_COLLECTION_SOURCE_TYPES,
+          from: todayStart,
+          to: todayEnd,
+        }),
+      ]),
       { isolationLevel: "RepeatableRead" },
     );
     return {
       revenue: facts.window.revenue,
       orders: facts.window.orderCount,
+      collectedOrders,
       requestedDates: facts.window.requestedDates,
       includedDates: facts.window.includedDates,
       missingDates: facts.window.missingDates,

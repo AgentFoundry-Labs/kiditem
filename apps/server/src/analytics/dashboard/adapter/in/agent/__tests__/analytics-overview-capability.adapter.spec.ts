@@ -47,7 +47,7 @@ describe('AnalyticsOverviewCapabilityAdapter', () => {
   it('reads the current KST business day for today and keeps unmeasured values null', async () => {
     const sales = {
       getSummary: vi.fn().mockResolvedValue({
-        today: { revenue: null, orders: null },
+        today: { revenue: null, orders: null, collectedOrders: null, missingDateCount: 0 },
         monthly: { revenue: 120_000 },
         profitDetail: { orderCount: 8 },
         lastSyncAt: null,
@@ -91,7 +91,7 @@ describe('AnalyticsOverviewCapabilityAdapter', () => {
   it('keeps month revenue and order count null when the sales owner has not measured them', async () => {
     const sales = {
       getSummary: vi.fn().mockResolvedValue({
-        today: { revenue: 5_000, orders: 2 },
+        today: { revenue: 5_000, orders: 2, collectedOrders: 2, missingDateCount: 0 },
         monthly: { revenue: null },
         profitDetail: null,
         lastSyncAt: '2026-08-14T00:00:00.000Z',

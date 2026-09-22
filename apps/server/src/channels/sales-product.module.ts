@@ -11,6 +11,7 @@ import { SalesProductLinkService } from './application/usecase/sales-product-lin
 import { SalesProductImageService } from './application/usecase/sales-product-image.service';
 import { SalesProductMallPriceService } from './application/usecase/sales-product-mall-price.service';
 import { SalesProductMallSheetService } from './application/usecase/sales-product-mall-sheet.service';
+import { SalesProductCoupangCatalogService } from './application/usecase/sales-product-coupang-catalog.service';
 import { MallBulkSheetFilesAdapter } from './adapter/out/storage/mall-bulk-sheet-files.adapter';
 import { MALL_BULK_SHEET_FILES_PORT } from './application/port/out/storage/mall-bulk-sheet-files.port';
 import { SalesProductImageMirrorAdapter } from './adapter/out/storage/sales-product-image-mirror.adapter';
@@ -42,6 +43,7 @@ import { SalesProductUseCase } from './application/usecase/sales-product.usecase
     SalesProductImageService,
     SalesProductMallPriceService,
     SalesProductMallSheetService,
+    SalesProductCoupangCatalogService,
     SalesProductRepositoryAdapter,
     { provide: SALES_PRODUCT_REPOSITORY_PORT, useExisting: SalesProductRepositoryAdapter },
     SalesProductImageMirrorAdapter,

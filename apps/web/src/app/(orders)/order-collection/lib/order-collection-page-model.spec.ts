@@ -11,6 +11,7 @@ import {
   isBrowserCollectableMall,
   isLoginRequiredMessage,
   isNoNewOrdersMessage,
+  mallCollectionFailureMessage,
   orderCollectionBatchNotice,
   todayYmd,
 } from './order-collection-page-model';
@@ -312,5 +313,30 @@ describe('isBrowserCollectableMall — 채널 레지스트리 파생', () => {
 
   it('레지스트리에 없는 키는 꺼진다', () => {
     expect(isBrowserCollectableMall(account('order_collection'))).toBe(false);
+  });
+});
+
+describe('우리 API 가 스스로 막은 요청', () => {
+  // 몰 카드에 `ThrottlerException: Too Many Requests` 가 그대로 뜨면 사장님은 몰이 고장난
+  // 줄 안다. 우리 쪽 한도이므로 몰 이름으로 사정을 말하고, 로그인 문제로 적지 않는다.
+  it('raw 예외 대신 무슨 일인지 말한다', () => {
+    expect(mallCollectionFailureMessage('롯데ON', 'ThrottlerException: Too Many Requests'))
+      .toBe('요청이 한꺼번에 몰려 롯데ON 수집을 잠시 미뤘습니다. 잠시 뒤 다시 수집해주세요.');
+  });
+
+  it('로그인 문제로 적지 않는다 — 멀쩡한 몰에 다시 로그인하러 가게 된다', () => {
+    expect(isLoginRequiredMessage('ThrottlerException: Too Many Requests')).toBe(false);
+    expect(classifyOrderCollectionFailure(null, 'ThrottlerException: Too Many Requests'))
+      .toBe('error');
+  });
+
+  it('우리 버그를 정상 뒷정리처럼 적지 않는다', () => {
+    // 안심시키는 말로 덮으면 진짜 원인이 가려진다 — 실제로 열흘 넘게 가려졌다.
+    expect(mallCollectionFailureMessage('쿠팡직배송', 'ORDER_COLLECTION_ATTEMPT_NOT_FOUND'))
+      .toBe('쿠팡직배송 수집이 KidItem 내부 오류로 멈췄습니다(시도를 찾지 못함). 개발에 알려 주세요.');
+  });
+
+  it('몰이 보낸 진짜 메시지는 손대지 않는다', () => {
+    expect(mallCollectionFailureMessage('도매꾹', '주문이 없습니다')).toBe('주문이 없습니다');
   });
 });

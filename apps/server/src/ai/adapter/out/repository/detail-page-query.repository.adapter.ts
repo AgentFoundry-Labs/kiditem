@@ -1,5 +1,8 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+
+/** 이 상세페이지가 AI 가 만든 것이 아니라 밖에서 가져와 올린 것임을 적는 표시. */
+const UPLOADED_DETAIL_PAGE_SOURCE = 'uploaded_detail_page';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
@@ -153,6 +156,70 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
       },
     });
     return source as DetailPageDuplicateSourceSnapshot | null;
+  }
+
+  /**
+   * 올린 상세페이지 한 판. AI 가 만든 것과 같은 자리에 넣어 에디터 · 몰 등록 · 대량등록 엑셀이
+   * 그대로 읽게 한다(사장님 2026-09-22). 돌릴 작업이 없으니 `COMPLETED` 로 열고, HTML 은
+   * 부르는 쪽이 기존 저장 경로로 넣는다 — 자산 승격 규칙을 두 벌로 두지 않는다.
+   */
+  async createUploadedVersion(input: {
+    organizationId: string;
+    triggeredByUserId: string | null;
+    contentWorkspaceId: string;
+    sourceCandidateId: string | null;
+    title: string;
+    imageUrls: readonly string[];
+  }): Promise<DetailPageGenerationSnapshot> {
+    const title = input.title.trim().slice(0, 80) || '상세페이지';
+    const imageUrls = [...input.imageUrls];
+    return this.prisma.$transaction(async (tx) => {
+      const group = await tx.contentGenerationGroup.create({
+        data: {
+          organizationId: input.organizationId,
+          contentWorkspaceId: input.contentWorkspaceId,
+          groupType: 'input_variation',
+          title,
+          createdByUserId: input.triggeredByUserId,
+          metadata: { source: UPLOADED_DETAIL_PAGE_SOURCE },
+        },
+        select: { id: true },
+      });
+      const created = await tx.contentGeneration.create({
+        data: {
+          organizationId: input.organizationId,
+          contentType: 'detail_page',
+          generationGroupId: group.id,
+          contentWorkspaceId: input.contentWorkspaceId,
+          sourceCandidateId: input.sourceCandidateId,
+          triggeredByUserId: input.triggeredByUserId,
+          templateId: null,
+          generationInput: { source: UPLOADED_DETAIL_PAGE_SOURCE, imageUrls },
+          generationResult: { source: UPLOADED_DETAIL_PAGE_SOURCE, imageUrls },
+          generatedTitle: title,
+          status: 'COMPLETED',
+        },
+      });
+      const artifact = await tx.detailPageArtifact.create({
+        data: {
+          organizationId: input.organizationId,
+          contentWorkspaceId: input.contentWorkspaceId,
+          sourceContentGenerationId: created.id,
+          title,
+          status: 'draft',
+          createdByUserId: input.triggeredByUserId,
+          metadata: { source: UPLOADED_DETAIL_PAGE_SOURCE, imageUrls },
+        },
+        select: { id: true },
+      });
+      await tx.contentGeneration.updateMany({
+        where: { id: created.id, organizationId: input.organizationId },
+        data: { detailPageArtifactId: artifact.id },
+      });
+      return tx.contentGeneration.findFirstOrThrow({
+        where: { id: created.id, organizationId: input.organizationId },
+      });
+    });
   }
 
   async duplicateVersion(input: {

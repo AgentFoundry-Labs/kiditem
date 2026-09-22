@@ -52,7 +52,7 @@ vi.mock('@/lib/api-client', async () => {
 });
 
 const sales = {
-  today: { revenue: 0, orders: 0 },
+  today: { revenue: 0, orders: 0, collectedOrders: 0, missingDateCount: 0 },
   monthly: {
     revenue: 0,
     profit: 0,
@@ -269,7 +269,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
   it('renders an uncovered Today read as unavailable rather than zero', async () => {
     salesResponse = {
       ...sales,
-      today: { revenue: null, orders: null },
+      today: { revenue: null, orders: null, collectedOrders: null, missingDateCount: 0 },
       metricBasis: {
         'today.revenue': {
           kind: 'period',

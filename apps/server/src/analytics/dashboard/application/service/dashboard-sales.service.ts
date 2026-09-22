@@ -175,6 +175,9 @@ export class DashboardSalesService {
       const today = {
         revenue: todayRows.revenue,
         orders: todayRows.orders,
+        // 아직 다 못 걷은 날에도 지금까지 걷힌 수는 말해 준다. 감추면 화면끼리 답이 달라진다.
+        collectedOrders: todayRows.collectedOrders,
+        missingDateCount: todayRows.missingDates.length,
       };
 
       const wingLastSync = wingTrafficMonth.lastObservedAt;

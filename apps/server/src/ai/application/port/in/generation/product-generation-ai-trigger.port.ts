@@ -49,6 +49,30 @@ export interface ProductGenerationAiResult {
   href: string;
 }
 
+/**
+ * 다른 데서 가져온 상품의 **이미 있는 상세페이지**를 등록한다. AI 를 돌리지 않는다 —
+ * 올린 이미지를 우리 상세페이지 한 판으로 만들어 그 상품의 현재 상세페이지로 건다
+ * (사장님 2026-09-22: "상세페이지를 업로드해서 등록을 하고 싶어").
+ */
+export interface RegisterUploadedDetailPageRequest {
+  organizationId: string;
+  triggeredByUserId: string | null;
+  candidateId: string;
+  productName: string;
+  /** 올린 상세페이지 이미지. 순서가 곧 상세페이지에 쌓이는 순서다. */
+  detailPageImageUrls: string[];
+}
+
+export interface RegisterUploadedDetailPageResult {
+  candidateId: string;
+  detailGenerationId: string;
+  contentWorkspaceId: string;
+  href: string;
+}
+
 export interface ProductGenerationAiTriggerPort {
   startForCandidate(input: ProductGenerationAiRequest): Promise<ProductGenerationAiResult>;
+  registerUploadedDetailPage(
+    input: RegisterUploadedDetailPageRequest,
+  ): Promise<RegisterUploadedDetailPageResult>;
 }

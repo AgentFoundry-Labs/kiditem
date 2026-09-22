@@ -15,10 +15,11 @@ import {
   Query,
   Res,
   StreamableFile,
+  UploadedFile,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { SALES_PRODUCT_PORT, type SalesProductPort } from '../../../application/port/in/sales-product.port';
@@ -27,6 +28,7 @@ import { SalesProductLinkService } from '../../../application/usecase/sales-prod
 import { SalesProductImageService } from '../../../application/usecase/sales-product-image.service';
 import { SalesProductMallPriceService } from '../../../application/usecase/sales-product-mall-price.service';
 import { SalesProductMallSheetService } from '../../../application/usecase/sales-product-mall-sheet.service';
+import { SalesProductCoupangCatalogService } from '../../../application/usecase/sales-product-coupang-catalog.service';
 import {
   SabangnetImportSelectionSchema,
   SalesProductCreateInputSchema,
@@ -62,6 +64,7 @@ export class SalesProductController {
     private readonly images: SalesProductImageService,
     private readonly mallPrices: SalesProductMallPriceService,
     private readonly mallSheets: SalesProductMallSheetService,
+    private readonly coupangCatalog: SalesProductCoupangCatalogService,
   ) {}
 
   /** 몰 대량등록 엑셀 목록 — 몰마다 고정값 칸과 기본값. */
@@ -120,6 +123,56 @@ export class SalesProductController {
     response.setHeader('X-Mall-Sheet-Products', String(file.products));
     response.setHeader('X-Mall-Sheet-Rows', String(file.rows));
     return new StreamableFile(file.buffer);
+  }
+
+  /**
+   * 쿠팡상품정보 수정요청: 윙에서 내려받은 엑셀을 올리면 **무엇이 채워지는지**만 돌려준다.
+   * 파일은 만들지 않는다.
+   */
+  @Post('coupang-catalog/check')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_WORKBOOK_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (WORKBOOK_EXTENSIONS.test(file.originalname)) return cb(null, true);
+        cb(new BadRequestException('윙에서 내려받은 쿠팡상품정보 엑셀(.xlsx) 파일만 받습니다.'), false);
+      },
+    }),
+  )
+  checkCoupangCatalog(
+    @CurrentOrganization() organizationId: string,
+    @UploadedFile() file: UploadedWorkbookFile | undefined,
+  ) {
+    return this.coupangCatalog.plan(organizationId, file?.buffer);
+  }
+
+  /**
+   * 우리가 아는 값으로 흰 칸을 채운 쿠팡상품정보 수정요청 파일. 몰에 올리지 않는다 — 사람이 윙
+   * 업로드 화면에 올리고, 윙의 업로드 목록이 결과다. 쿠팡은 여러 판매자의 제안 중 골라 쓰므로
+   * 이 파일을 만든 것은 몰에 값이 들어갔다는 뜻이 아니다.
+   */
+  @Post('coupang-catalog/file')
+  @Header('Access-Control-Expose-Headers', 'Content-Disposition')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_WORKBOOK_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (WORKBOOK_EXTENSIONS.test(file.originalname)) return cb(null, true);
+        cb(new BadRequestException('윙에서 내려받은 쿠팡상품정보 엑셀(.xlsx) 파일만 받습니다.'), false);
+      },
+    }),
+  )
+  async coupangCatalogFile(
+    @CurrentOrganization() organizationId: string,
+    @UploadedFile() file: UploadedWorkbookFile | undefined,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const made = await this.coupangCatalog.file(organizationId, file?.buffer, file?.originalname);
+    response.setHeader('Content-Disposition', contentDisposition(made.fileName));
+    response.setHeader('Content-Type', made.contentType);
+    response.setHeader('X-Coupang-Catalog-Rows', String(made.changedRows));
+    response.setHeader('X-Coupang-Catalog-Cells', String(made.changedCells));
+    return new StreamableFile(made.buffer);
   }
 
   /** 판매상품 사진 중 몰이 못 읽는(우리 저장소) 사진 주소 — 확장이 공개 저장소에 올린다. */

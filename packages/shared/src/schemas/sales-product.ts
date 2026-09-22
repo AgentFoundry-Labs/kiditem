@@ -666,6 +666,51 @@ export const SalesProductMallCategoryAssignResultSchema = z.object({
 });
 export type SalesProductMallCategoryAssignResult = z.infer<typeof SalesProductMallCategoryAssignResultSchema>;
 
+// ── 쿠팡상품정보 수정요청 엑셀(윙이 내려준 파일을 우리가 채워 돌려준다) ───────────
+
+/** 한 칸의 수정 제안. `before` 가 비어 있으면 우리가 채운 것이고, 아니면 다르지만 두고 센 것이다. */
+export const CoupangCatalogChangeSchema = z.object({
+  column: z.string(),
+  before: z.string(),
+  after: z.string(),
+});
+export type CoupangCatalogChange = z.infer<typeof CoupangCatalogChangeSchema>;
+
+export const CoupangCatalogRowSchema = z.object({
+  /** 윙 옵션 ID. 한 줄은 상품이 아니라 옵션 하나다. */
+  optionId: z.string(),
+  listingName: z.string(),
+  optionName: z.string(),
+  /** 이어진 판매상품 코드. 이어지지 않았으면 null. */
+  salesProductCode: z.string().nullable(),
+  unlinked: z.boolean(),
+  changes: z.array(CoupangCatalogChangeSchema),
+  conflicts: z.array(CoupangCatalogChangeSchema),
+});
+export type CoupangCatalogRow = z.infer<typeof CoupangCatalogRowSchema>;
+
+/**
+ * 올린 파일로 무엇을 채울지 — 파일은 만들지 않는다. 채우는 것은 **비어 있는 칸**뿐이고,
+ * 우리 값과 다르지만 이미 값이 있는 칸은 `conflicts` 로 세어 사람이 본다.
+ */
+export const CoupangCatalogPlanResultSchema = z.object({
+  /** 파일의 옵션 줄 수. */
+  rows: z.number().int(),
+  /** 우리 단품과 이어진 옵션 줄 수. */
+  linked: z.number().int(),
+  /** 값이 바뀌는 줄 수. */
+  changedRows: z.number().int(),
+  /** 바뀌는 칸 수. */
+  changedCells: z.number().int(),
+  /** 다르지만 두고 센 칸 수. */
+  conflicts: z.number().int(),
+  /** 칸 이름 → 그 칸을 채우는 줄 수. */
+  byColumn: z.record(z.string(), z.number().int()),
+  /** 화면이 보여 줄 줄(바뀌는 줄 · 다른 줄 먼저). */
+  samples: z.array(CoupangCatalogRowSchema),
+});
+export type CoupangCatalogPlanResult = z.infer<typeof CoupangCatalogPlanResultSchema>;
+
 // ── 수집상품 → 판매상품(수집상품 화면에서 몰 대량등록) ─────────────────────────
 
 export const SALES_PRODUCT_FROM_CANDIDATES_MAX = 200;

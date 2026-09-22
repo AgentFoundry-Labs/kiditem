@@ -2,6 +2,26 @@
   "use strict";
 
   const DEFAULT_ENVIRONMENT_IDS = ["local", "office"];
+  /**
+   * 한 번에 소유자에게 말을 거는 세션 수. 정리는 보관된 세션 전부를 훑는데, 끝났는데도
+   * 지워지지 않은 세션이 쌓이면 그 수만큼 `/control` 읽기가 한꺼번에 날아간다. 실제로 40개가
+   * 몰려 API 분당 한도를 통째로 먹었고, 읽기가 429 로 실패하니 세션을 지우지도 못해 다음
+   * 정리 때 같은 40개를 다시 쏘는 고리가 됐다(2026-09-21 라이브). 나눠 보내면 고리가 끊긴다.
+   */
+  const CANCEL_CONCURRENCY = 4;
+
+  /** 목록을 크기 `limit` 묶음으로 잘라, 묶음끼리는 차례로 돈다. */
+  async function inBatches(items, limit, run) {
+    const results = [];
+    for (let start = 0; start < items.length; start += limit) {
+      const batch = items.slice(start, start + limit);
+      const settled = await Promise.allSettled(
+        batch.map((item, offset) => run(item, start + offset)),
+      );
+      results.push(...settled);
+    }
+    return results;
+  }
   const ENVIRONMENT_PROFILE_STORAGE_KEY = "kiditem_environment_profiles_v1";
 
   function errorMessage(error) {
@@ -163,8 +183,10 @@
       // managed tab therefore cannot delay fencing or owner cancellation for
       // another attempt in the same environment.
       const fenceResults = [];
-      const ownerResults = await Promise.allSettled(
-        sessionsToCancel.map(async (session, index) => {
+      const ownerResults = await inBatches(
+        sessionsToCancel,
+        CANCEL_CONCURRENCY,
+        async (session, index) => {
           let fenceResult;
           try {
             const value = await (
@@ -183,7 +205,7 @@
             return null;
           }
           return routeSessionCancellation(session, environmentId);
-        }),
+        },
       );
 
       const additionalSettled = await additionalPromise;
