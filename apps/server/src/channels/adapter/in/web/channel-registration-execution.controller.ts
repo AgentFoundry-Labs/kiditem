@@ -1,6 +1,6 @@
 import { UseFilters } from '@nestjs/common';
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
-import { Body, Controller, Get, Inject, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import {
@@ -20,34 +20,35 @@ import type { AuthUser } from '../../../../auth/auth.types';
  *
  * 수집상품 화면과 몰 마법사가 같은 경로를 쓴다 — 계정에 제출하는 길은 하나다
  * ([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
- * 경로가 수집후보로 시작하는 것은 울타리가 (초안, 계정) 한 쌍을 지키기 때문이고,
- * 후보는 그 초안을 부르는 이름이다.
+ * 경로가 판매상품으로 시작하는 것은 울타리가 (판매상품, 계정) 한 쌍을 지키기 때문이다.
+ * 수집에서 온 상품이든 직접 작성한 상품이든 같은 문을 지난다
+ * ([ADR-0022](../../../../../../../docs/adr/0022-sales-product-draft-exists-from-collection.md)).
  */
 @UseFilters(ChannelBusinessExceptionFilter)
-@Controller('channels/candidates')
+@Controller('products/sales-products')
 export class ChannelRegistrationExecutionController {
   constructor(
     @Inject(REGISTRATION_EXECUTION_PORT)
     private readonly executions: RegistrationExecutionPort,
   ) {}
 
-  @Post(':id/registration-executions/prepare')
+  @Post(':salesProductId/registration/executions/prepare')
   prepareWingRegistration(
-    @Param('id') id: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
     @Body() body: PrepareWingRegistrationExecutionDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.executions.prepareWingRegistration(organizationId, id, user.id ?? null, body);
+    return this.executions.prepareWingRegistration(organizationId, salesProductId, user.id ?? null, body);
   }
 
-  @Post(':id/registration-executions/match-preview')
+  @Post(':salesProductId/registration/executions/match-preview')
   previewWingRegistrationMatch(
-    @Param('id') id: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
     @Body() body: PreviewWingRegistrationMatchDto,
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.executions.previewWingRegistrationMatch(organizationId, id, body);
+    return this.executions.previewWingRegistrationMatch(organizationId, salesProductId, body);
   }
 
   /**
@@ -58,46 +59,46 @@ export class ChannelRegistrationExecutionController {
    * 등록상품ID 와 확장이 확인한 WING 계정을 대조한 뒤 확정한다. 준비 시 내부
    * 동기화 리스팅을 찾은 경우에는 그 frozen 결과를 재사용한다.
    */
-  @Post(':id/registration-executions/confirm')
+  @Post(':salesProductId/registration/executions/confirm')
   confirmRegistrationExecution(
-    @Param('id') id: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
     @Body() body: ConfirmRegistrationExecutionDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.executions.confirmExecution(organizationId, id, user.id ?? null, body);
+    return this.executions.confirmExecution(organizationId, salesProductId, user.id ?? null, body);
   }
 
-  @Post(':id/registration-executions/:executionId/start')
+  @Post(':salesProductId/registration/executions/:executionId/start')
   startRegistrationExecution(
-    @Param('id') id: string,
-    @Param('executionId') executionId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+    @Param('executionId', new ParseUUIDPipe()) executionId: string,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.executions.startExecution(organizationId, id, user.id ?? null, executionId);
+    return this.executions.startExecution(organizationId, salesProductId, user.id ?? null, executionId);
   }
 
-  @Get(':id/registration-executions/:executionId')
+  @Get(':salesProductId/registration/executions/:executionId')
   registrationExecutionStatus(
-    @Param('id') id: string,
-    @Param('executionId') executionId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+    @Param('executionId', new ParseUUIDPipe()) executionId: string,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.executions.getExecution(organizationId, id, user.id ?? null, executionId);
+    return this.executions.getExecution(organizationId, salesProductId, user.id ?? null, executionId);
   }
 
-  @Post(':id/registration-executions/:executionId/unresolved')
+  @Post(':salesProductId/registration/executions/:executionId/unresolved')
   markRegistrationExecutionUnresolved(
-    @Param('id') id: string,
-    @Param('executionId') executionId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+    @Param('executionId', new ParseUUIDPipe()) executionId: string,
     @Body() body: RegistrationExecutionEvidenceDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
     return this.executions.markExecutionUnresolved(
-      organizationId, id, user.id ?? null, executionId, body.evidence,
+      organizationId, salesProductId, user.id ?? null, executionId, body.evidence,
     );
   }
 
@@ -105,16 +106,16 @@ export class ChannelRegistrationExecutionController {
    * 확장이 WING 폼을 채우다 실패해 제출 자체가 없었던 실행을 닫는다.
    * `unresolved` 로 두면 실행이 `reconciling` 에 갇혀 재시도·취소가 모두 막힌다.
    */
-  @Post(':id/registration-executions/:executionId/not-submitted')
+  @Post(':salesProductId/registration/executions/:executionId/not-submitted')
   markRegistrationExecutionNotSubmitted(
-    @Param('id') id: string,
-    @Param('executionId') executionId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+    @Param('executionId', new ParseUUIDPipe()) executionId: string,
     @Body() body: RegistrationExecutionEvidenceDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
     return this.executions.markExecutionNotSubmitted(
-      organizationId, id, user.id ?? null, executionId, body.evidence,
+      organizationId, salesProductId, user.id ?? null, executionId, body.evidence,
     );
   }
 }

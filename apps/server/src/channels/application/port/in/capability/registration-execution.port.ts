@@ -33,7 +33,12 @@ export interface ConfirmRegistrationExecutionInput {
 }
 
 /**
- * 등록 실행 울타리. 채널 계정 하나에 초안 하나를 최대 한 번만 제출한다.
+ * 등록 실행 울타리. 판매상품 하나를 채널 계정 하나에 최대 한 번만 제출한다.
+ *
+ * 울타리의 정체성은 `{organizationId, salesProductId, channelAccountId}` 다 — 수집에서
+ * 온 상품이든 직접 작성한 상품이든 같은 문을 지난다
+ * ([ADR-0022](../../../../../../../docs/adr/0022-sales-product-draft-exists-from-collection.md)).
+ * 원천 기록(`sourceCandidateId`)은 이력에만 남는 출처 표시이지 열쇠가 아니다.
  *
  * Wing autoSubmit, 스프레드시트, API 몰 — 계정에 제출하는 모든 경로가 이 한 인터페이스를
  * 지난다([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
@@ -62,34 +67,34 @@ export interface RegistrationExecutionPort {
 
   prepareWingRegistration(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     input: PrepareWingRegistrationInput,
   ): Promise<PreparedWingRegistration>;
 
   previewWingRegistrationMatch(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     input: { listingName: string; itemName?: string },
   ): Promise<ExternalProductRegistrationMatchPreviewResult>;
 
   startExecution(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     executionId: string,
   ): Promise<RegistrationExecutionResult>;
 
   getExecution(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     executionId: string,
   ): Promise<RegistrationExecutionResult>;
 
   markExecutionUnresolved(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     executionId: string,
     evidence: unknown,
@@ -104,7 +109,7 @@ export interface RegistrationExecutionPort {
    */
   markExecutionNotSubmitted(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     executionId: string,
     evidence: unknown,
@@ -112,7 +117,7 @@ export interface RegistrationExecutionPort {
 
   confirmExecution(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     input: ConfirmRegistrationExecutionInput,
   ): Promise<{ preparationId: string; status: 'registered' | 'failed'; listingId?: string }>;

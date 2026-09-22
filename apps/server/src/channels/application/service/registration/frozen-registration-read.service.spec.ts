@@ -7,6 +7,7 @@ const candidateId = "00000000-0000-4000-8000-000000000003";
 const executionId = "00000000-0000-4000-8000-000000000004";
 const accountId = "00000000-0000-4000-8000-000000000005";
 const userId = "00000000-0000-4000-8000-000000000006";
+const salesProductId = "00000000-0000-4000-8000-000000000009";
 
 const reference = {
   organizationId,
@@ -18,6 +19,7 @@ const frozen = {
   executionId,
   preparationId,
   sourceCandidateId: candidateId,
+  salesProductId,
   channelAccountId: accountId,
   submissionKey: "frozen-submission",
   submissionPayloadHash: "a".repeat(64),
@@ -75,7 +77,7 @@ describe("FrozenRegistrationReadService", () => {
     );
     expect(executions.get).toHaveBeenCalledWith({
       organizationId,
-      sourceCandidateId: candidateId,
+      salesProductId,
       executionId,
       requestedByUserId: userId,
     });

@@ -141,7 +141,7 @@ describe('RegistrationExecutionService', () => {
   it('prepares and starts a WING execution before returning a browser payload', async () => {
     const { service, executions } = setup();
 
-    await expect(service.prepareWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await expect(service.prepareWingRegistration(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       channelAccountId: ACCOUNT_ID,
       displayName: '꿀사과슬랑이',
       registrationInput: {
@@ -156,19 +156,45 @@ describe('RegistrationExecutionService', () => {
       executionId: 'execution-1',
       expectedVendorId: 'A00012345',
     }));
-    await service.startExecution(ORG_ID, CANDIDATE_ID, USER_ID, 'execution-1');
+    await service.startExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, 'execution-1');
 
     expect(executions.prepare).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORG_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      salesProductId: SALES_PRODUCT_ID,
       providerAbsenceVerified: false,
     }));
     expect(executions.start).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORG_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: USER_ID,
       executionId: 'execution-1',
     }));
+  });
+
+  it('keys the fence by the sales product so a directly authored product can register', async () => {
+    const { service, executions, drafts } = setup({
+      executions: {
+        loadFrozenSubmission: vi.fn().mockResolvedValue(
+          frozenSubmission({ sourceCandidateId: null, sourceContentWorkspaceId: null }),
+        ),
+        recordProviderResult: vi.fn().mockResolvedValue(
+          frozenSubmission({ sourceCandidateId: null, providerOutcome: 'succeeded' }),
+        ),
+      },
+    });
+
+    await expect(service.confirmExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
+      executionId: 'execution-1',
+      externalListingId: '427011919',
+      evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
+    })).resolves.toMatchObject({ status: 'registered', listingId: LISTING_ID });
+
+    expect(executions.get).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID,
+      salesProductId: SALES_PRODUCT_ID,
+    }));
+    // 원천 기록이 없는 초안에는 분기할 작업공간도 없다.
+    expect(drafts.branchContentToListing).not.toHaveBeenCalled();
   });
 
   it('returns the server-frozen bundle code and ignores a client-assigned code', async () => {
@@ -177,7 +203,7 @@ describe('RegistrationExecutionService', () => {
         status: 'prepared', kidItemCode: 'KID00000999',
       })) },
     });
-    const result = await service.prepareWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+    const result = await service.prepareWingRegistration(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       channelAccountId: ACCOUNT_ID,
       displayName: 'Bundle',
       registrationInput: {
@@ -215,7 +241,7 @@ describe('RegistrationExecutionService', () => {
       registration: { preflightExternalProductRegistration },
     });
 
-    await expect(service.prepareWingRegistration(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await expect(service.prepareWingRegistration(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       channelAccountId: ACCOUNT_ID,
       displayName: '꿀사과슬랑이',
       registrationInput: {
@@ -234,7 +260,7 @@ describe('RegistrationExecutionService', () => {
     expect(preflightExternalProductRegistration).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       channelAccountId: ACCOUNT_ID,
-      channelListingOptionId: CANDIDATE_ID,
+      channelListingOptionId: SALES_PRODUCT_ID,
       listingName: '꿀사과슬랑이',
       itemName: '꿀사과슬랑이 1p',
     });
@@ -270,7 +296,7 @@ describe('RegistrationExecutionService', () => {
       registration: { assertExternalProductRegistrationAccount },
     });
 
-    await service.confirmExecution(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await service.confirmExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       executionId: 'execution-1',
       externalListingId: '427011919',
       evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
@@ -308,7 +334,7 @@ describe('RegistrationExecutionService', () => {
       })),
     } });
 
-    await expect(service.confirmExecution(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await expect(service.confirmExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       executionId: 'execution-1',
       externalListingId: '427011919',
       evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
@@ -340,7 +366,7 @@ describe('RegistrationExecutionService', () => {
     }));
     const { service, executions } = setup({ executions: { get } as never });
 
-    await service.confirmExecution(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await service.confirmExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       executionId: 'execution-1',
       externalListingId: '427011919',
       evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
@@ -348,7 +374,7 @@ describe('RegistrationExecutionService', () => {
 
     expect(executions.start).toHaveBeenCalledWith({
       organizationId: ORG_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: 'execution-1',
       requestedByUserId: USER_ID,
     });
@@ -356,7 +382,7 @@ describe('RegistrationExecutionService', () => {
 
   it('rejects completion when WING extension evidence belongs to another vendor', async () => {
     const { service, executions } = setup();
-    await expect(service.confirmExecution(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await expect(service.confirmExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       executionId: 'execution-1', externalListingId: '427011919',
       evidence: { wingVendorId: 'B00012345', wingIdentitySource: 'dom:data-vendor-id' },
     })).rejects.toThrow('does not match the prepared registration');
@@ -365,7 +391,7 @@ describe('RegistrationExecutionService', () => {
 
   it('rejects completion without deterministic WING extension evidence', async () => {
     const { service, executions } = setup();
-    await expect(service.confirmExecution(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await expect(service.confirmExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       executionId: 'execution-1', externalListingId: '427011919',
     })).rejects.toThrow('WING extension evidence is required');
     expect(executions.recordProviderResult).not.toHaveBeenCalled();
@@ -389,7 +415,7 @@ describe('RegistrationExecutionService', () => {
       executions: { loadFrozenSubmission } as never,
     });
 
-    await expect(service.confirmExecution(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await expect(service.confirmExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       executionId: 'execution-1', externalListingId: '427011919',
     })).resolves.toMatchObject({ status: 'registered' });
     expect(executions.recordProviderResult).toHaveBeenCalledWith(
@@ -411,7 +437,7 @@ describe('RegistrationExecutionService', () => {
       },
     });
 
-    await expect(service.confirmExecution(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await expect(service.confirmExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       executionId: 'execution-1', externalListingId: '427011919',
       evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
     })).rejects.toThrow('identity changed');
@@ -425,7 +451,7 @@ describe('RegistrationExecutionService', () => {
       submissionLeaseToken: null, listingId: LISTING_ID,
     }));
     const { service, executions } = setup({ executions: { get } as never });
-    await expect(service.confirmExecution(ORG_ID, CANDIDATE_ID, USER_ID, {
+    await expect(service.confirmExecution(ORG_ID, SALES_PRODUCT_ID, USER_ID, {
       executionId: 'execution-1', externalListingId: '427011919',
       evidence: { wingVendorId: 'A00012345', wingIdentitySource: 'dom:data-vendor-id' },
     })).resolves.toEqual({ preparationId: PREPARATION_ID, status: 'registered', listingId: LISTING_ID });
@@ -437,11 +463,11 @@ describe('RegistrationExecutionService', () => {
     const { service, executions } = setup();
 
     await expect(service.markExecutionNotSubmitted(
-      ORG_ID, CANDIDATE_ID, USER_ID, 'execution-1', { reason: 'extension_error' },
+      ORG_ID, SALES_PRODUCT_ID, USER_ID, 'execution-1', { reason: 'extension_error' },
     )).resolves.toMatchObject({ status: 'failed', providerOutcome: 'definitive_failure' });
     expect(executions.markNotSubmitted).toHaveBeenCalledWith({
       organizationId: ORG_ID,
-      sourceCandidateId: CANDIDATE_ID,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: 'execution-1',
       requestedByUserId: USER_ID,
       evidence: { reason: 'extension_error' },

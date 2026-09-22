@@ -42,7 +42,7 @@ export interface FrozenRegistrationDraft extends RegistrationDraftRow {
 /** `freezeForSubmission` 이 만들거나 갱신할 제출 동결본. */
 export interface FreezeRegistrationDraftInput {
   organizationId: string;
-  sourceCandidateId: string;
+  salesProductId: string;
   channelAccountId: string;
   displayName: string;
   registrationInput: Record<string, unknown>;
@@ -54,7 +54,7 @@ export interface FreezeRegistrationDraftInput {
 export interface CloseRegistrationDraftInput {
   organizationId: string;
   preparationId: string;
-  sourceCandidateId?: string;
+  salesProductId?: string;
   closedAt: Date;
   archive?: boolean;
 }
@@ -75,17 +75,34 @@ export interface ClaimedRegistrationDraft {
 }
 
 export interface RegistrationDraftPort {
-  /** 후보 행을 잠근다. 울타리 트랜잭션의 첫 단계. */
-  lockCandidate(
+  /**
+   * 판매상품 행을 잠근다. 울타리 트랜잭션의 첫 단계.
+   *
+   * 원천 기록에서 온 상품이면 그 후보 행을 먼저 잠근다 — 후보 거절도 같은 순서로
+   * 잠그므로 두 경로가 서로를 기다리지 않는다.
+   */
+  lockProduct(
     tx: ChannelsRepositoryTransaction,
-    input: { organizationId: string; sourceCandidateId: string },
+    input: { organizationId: string; salesProductId: string },
   ): Promise<void>;
 
-  /** 등록을 받을 수 있는 후보인지 확인한다. 아니면 던진다. */
-  requireActiveCandidate(
+  /**
+   * 등록을 받을 수 있는 판매상품인지 확인한다. 아니면 던진다. 보관 · 미사용 상품과,
+   * 원천 후보가 이미 거절 · 삭제된 상품을 막는다.
+   */
+  requireActiveProduct(
+    tx: ChannelsRepositoryTransaction,
+    input: { organizationId: string; salesProductId: string },
+  ): Promise<void>;
+
+  /**
+   * 원천 기록이 만든 판매상품 id. 후보 삭제 준비만 쓴다 — 후보는 Sourcing 의 이름이고
+   * 울타리는 판매상품으로만 움직인다.
+   */
+  findSalesProductIdForSource(
     tx: ChannelsRepositoryTransaction,
     input: { organizationId: string; sourceCandidateId: string },
-  ): Promise<void>;
+  ): Promise<string | null>;
 
   lockDraft(
     tx: ChannelsRepositoryTransaction,
@@ -97,12 +114,12 @@ export interface RegistrationDraftPort {
     input: { organizationId: string; preparationId: string },
   ): Promise<FrozenRegistrationDraft | null>;
 
-  /** 후보에 달린 초안 id. 실행을 좁힐 때 쓴다(owner 를 넘는 join 이 없다). */
+  /** 판매상품에 달린 등록 설정 id. 실행을 좁힐 때 쓴다. */
   findDraftIds(
     tx: ChannelsRepositoryTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      salesProductId: string;
       isDeleted?: boolean;
       /** 제출 흔적이 전혀 없는 초안만. 후보 삭제 준비가 쓴다. */
       fenceIdle?: boolean;
@@ -114,7 +131,7 @@ export interface RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      salesProductId: string;
       channelAccountId: string;
       status?: string;
     },

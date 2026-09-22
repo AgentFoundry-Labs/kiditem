@@ -149,7 +149,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
 
   async prepareWingRegistration(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     input: PrepareWingRegistrationInput,
   ): Promise<PreparedWingRegistration> {
@@ -172,7 +172,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
     const preflight = await this.registration.preflightExternalProductRegistration({
       organizationId,
       channelAccountId: input.channelAccountId,
-      channelListingOptionId: candidateId,
+      channelListingOptionId: salesProductId,
       listingName,
       itemName,
       ...(input.sellpiaInventorySkuId
@@ -207,7 +207,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
     };
     const operation = await this.executions.prepare({
       organizationId,
-      sourceCandidateId: candidateId,
+      salesProductId,
       requestedByUserId: userId,
       channelAccountId: input.channelAccountId,
       displayName: input.displayName,
@@ -226,12 +226,12 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
 
   previewWingRegistrationMatch(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     input: { listingName: string; itemName?: string },
   ) {
     return this.registration.previewExternalProductRegistrationMatch({
       organizationId,
-      channelListingOptionId: candidateId,
+      channelListingOptionId: salesProductId,
       listingName: input.listingName,
       itemName: optionalString(input.itemName),
     });
@@ -239,13 +239,13 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
 
   startExecution(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     executionId: string,
   ) {
     return this.executions.start({
       organizationId,
-      sourceCandidateId: candidateId,
+      salesProductId,
       executionId,
       requestedByUserId: userId,
     });
@@ -253,13 +253,13 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
 
   getExecution(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     executionId: string,
   ) {
     return this.executions.get({
       organizationId,
-      sourceCandidateId: candidateId,
+      salesProductId,
       executionId,
       requestedByUserId: userId,
     });
@@ -267,14 +267,14 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
 
   markExecutionUnresolved(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     executionId: string,
     evidence: unknown,
   ) {
     return this.executions.markUnresolved({
       organizationId,
-      sourceCandidateId: candidateId,
+      salesProductId,
       executionId,
       requestedByUserId: userId,
       evidence,
@@ -283,14 +283,14 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
 
   markExecutionNotSubmitted(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     executionId: string,
     evidence: unknown,
   ) {
     return this.executions.markNotSubmitted({
       organizationId,
-      sourceCandidateId: candidateId,
+      salesProductId,
       executionId,
       requestedByUserId: userId,
       evidence,
@@ -316,7 +316,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
    */
   async confirmExecution(
     organizationId: string,
-    candidateId: string,
+    salesProductId: string,
     userId: string | null,
     input: ConfirmRegistrationExecutionInput,
   ): Promise<{ preparationId: string; status: 'registered' | 'failed'; listingId?: string }> {
@@ -325,7 +325,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
       throw new Error('등록상품ID가 비어 있습니다.');
     }
     let operation = await this.executions.get({
-      organizationId, sourceCandidateId: candidateId, executionId: input.executionId,
+      organizationId, salesProductId, executionId: input.executionId,
       requestedByUserId: userId,
     });
     if (operation.status === 'succeeded' && operation.listingId) {
@@ -336,7 +336,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
       // 등록을 마치고 ID를 제출한 이 시점에만 실행을 uncertain으로 승격한다.
       operation = await this.executions.start({
         organizationId,
-        sourceCandidateId: candidateId,
+        salesProductId,
         executionId: input.executionId,
         requestedByUserId: userId,
       });

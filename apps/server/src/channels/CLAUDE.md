@@ -46,7 +46,10 @@ sync, registration, matching, and capacity behavior is executable in
 
 - Every submission to a channel account passes the registration execution fence
   (`ProductRegistrationExecution`), which opens the transaction, writes the
-  execution row itself. Channels also owns reusable registration targets:
+  execution row itself. The fence identity is
+  `{organizationId, salesProductId, channelAccountId}`: a collected product and a
+  directly authored one enter the same door, and `SalesProduct.sourceCandidateId`
+  is provenance the execution history keeps, never a key (ADR-0022). Channels also owns reusable registration targets:
   successful execution does not close the target, and new intent creates a new
   frozen execution. A form fill without submission returns only the
   current browser result; it is not confirmed registration.

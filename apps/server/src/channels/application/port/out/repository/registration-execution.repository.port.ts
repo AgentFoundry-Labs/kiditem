@@ -56,7 +56,8 @@ export type RegistrationExecutionClaimResult =
 
 export interface PrepareRegistrationExecutionInput {
   organizationId: string;
-  sourceCandidateId: string;
+  /** 울타리의 열쇠. 이 판매상품 × 계정에 최대 하나의 살아 있는 실행이 있다. */
+  salesProductId: string;
   requestedByUserId: string | null;
   channelAccountId: string;
   displayName: string;
@@ -126,21 +127,21 @@ export interface RegistrationExecutionRepositoryPort {
 
   start(input: {
     organizationId: string;
-    sourceCandidateId: string | null;
+    salesProductId: string;
     executionId: string;
     requestedByUserId: string | null;
   }): Promise<RegistrationExecutionResult>;
 
   get(input: {
     organizationId: string;
-    sourceCandidateId: string | null;
+    salesProductId: string;
     executionId: string;
     requestedByUserId: string | null;
   }): Promise<RegistrationExecutionResult>;
 
   markUnresolved(input: {
     organizationId: string;
-    sourceCandidateId: string | null;
+    salesProductId: string;
     executionId: string;
     requestedByUserId: string | null;
     evidence: unknown;
@@ -159,7 +160,7 @@ export interface RegistrationExecutionRepositoryPort {
    */
   markNotSubmitted(input: {
     organizationId: string;
-    sourceCandidateId: string | null;
+    salesProductId: string;
     executionId: string;
     requestedByUserId: string | null;
     evidence: unknown;

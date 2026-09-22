@@ -930,11 +930,15 @@ export class RegistrationExecutionRepositoryAdapter
     },
   ): Promise<number> {
     const tx = ownerTransactionClient(transaction);
-    // 초안은 다른 owner 의 행이다. 관계 join 대신 초안 id 를 먼저 읽고 실행을
-    // 그 id 로 좁힌다(ADR-0013).
-    const preparationIds = await this.drafts.findDraftIds(transaction, {
+    // 후보는 Sourcing 의 이름이다. 울타리는 그 후보가 만든 판매상품으로만 움직인다.
+    const salesProductId = await this.drafts.findSalesProductIdForSource(transaction, {
       organizationId: input.organizationId,
       sourceCandidateId: input.sourceCandidateId,
+    });
+    if (!salesProductId) return 0;
+    const preparationIds = await this.drafts.findDraftIds(transaction, {
+      organizationId: input.organizationId,
+      salesProductId,
       isDeleted: false,
       fenceIdle: true,
     });
@@ -983,7 +987,7 @@ export class RegistrationExecutionRepositoryAdapter
         current,
         draft,
         input.organizationId,
-        input.sourceCandidateId,
+        salesProductId,
       )) {
         continue;
       }
@@ -1013,7 +1017,7 @@ export class RegistrationExecutionRepositoryAdapter
 
       const draftCancelled = await this.drafts.closeDraft(transaction, {
         organizationId: input.organizationId, preparationId: current.registrationTargetId,
-        sourceCandidateId: input.sourceCandidateId, closedAt: input.cancelledAt, archive: true,
+        salesProductId, closedAt: input.cancelledAt, archive: true,
       });
       if (draftCancelled !== 1) {
         throw new ConflictException(
@@ -1045,15 +1049,15 @@ export class RegistrationExecutionRepositoryAdapter
           }
           if (replay.registrationTargetId === null
             || replay.channelAccountId !== input.channelAccountId
-            || await this.executionCandidateId(handle, input.organizationId, replay) !== input.sourceCandidateId
+            || await this.executionSalesProductId(handle, input.organizationId, replay) !== input.salesProductId
             || replay.requestedByUserId !== input.requestedByUserId) {
-            throw new ConflictException('External registration execution belongs to another account, candidate, or actor.');
+            throw new ConflictException('External registration execution belongs to another account, product, or actor.');
           }
           return externalExecutionResult(replay);
         }
-        await this.drafts.lockCandidate(handle, {
+        await this.drafts.lockProduct(handle, {
           organizationId: input.organizationId,
-          sourceCandidateId: input.sourceCandidateId,
+          salesProductId: input.salesProductId,
         });
         const lockedReplay = await tx.productRegistrationExecution.findFirst({
           where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
@@ -1062,15 +1066,15 @@ export class RegistrationExecutionRepositoryAdapter
           if (!matchesPreparedRequest(lockedReplay, requested.hash)
             || lockedReplay.registrationTargetId === null
             || lockedReplay.channelAccountId !== input.channelAccountId
-            || await this.executionCandidateId(handle, input.organizationId, lockedReplay) !== input.sourceCandidateId
+            || await this.executionSalesProductId(handle, input.organizationId, lockedReplay) !== input.salesProductId
             || lockedReplay.requestedByUserId !== input.requestedByUserId) {
             throw new ConflictException('External registration idempotency key belongs to a different request.');
           }
           return externalExecutionResult(lockedReplay);
         }
-        await this.drafts.requireActiveCandidate(handle, {
+        await this.drafts.requireActiveProduct(handle, {
           organizationId: input.organizationId,
-          sourceCandidateId: input.sourceCandidateId,
+          salesProductId: input.salesProductId,
         });
         const account = await tx.channelAccount.findFirst({
           where: { id: input.channelAccountId, organizationId: input.organizationId, status: 'active' },
@@ -1086,7 +1090,7 @@ export class RegistrationExecutionRepositoryAdapter
         // 그 실행을 돌려줘 수동 완료/정산 UI가 이어받게 한다.
         const livePreparationIds = await this.drafts.findDraftIds(handle, {
           organizationId: input.organizationId,
-          sourceCandidateId: input.sourceCandidateId,
+          salesProductId: input.salesProductId,
           isDeleted: false,
         });
         const previousExecutions = livePreparationIds.length === 0 ? [] : await tx.productRegistrationExecution.findMany({
@@ -1112,7 +1116,7 @@ export class RegistrationExecutionRepositoryAdapter
 
         const draft = await this.drafts.findAccountDraft(handle, {
           organizationId: input.organizationId,
-          sourceCandidateId: input.sourceCandidateId,
+          salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
           status: 'draft',
         });
@@ -1137,7 +1141,7 @@ export class RegistrationExecutionRepositoryAdapter
         } as RegistrationSubmissionJson, channelIntegrity.sha256);
         const frozenDraft = await this.drafts.freezeForSubmission(handle, {
           organizationId: input.organizationId,
-          sourceCandidateId: input.sourceCandidateId,
+          salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
           displayName: input.displayName,
           registrationInput,
@@ -1175,7 +1179,7 @@ export class RegistrationExecutionRepositoryAdapter
           || !matchesPreparedRequest(replay, requested.hash)
           || replay.registrationTargetId === null
           || replay.channelAccountId !== input.channelAccountId
-          || await this.executionCandidateId(ownerTransaction(tx), input.organizationId, replay) !== input.sourceCandidateId
+          || await this.executionSalesProductId(ownerTransaction(tx), input.organizationId, replay) !== input.salesProductId
           || replay.requestedByUserId !== input.requestedByUserId) {
           throw new ConflictException('Concurrent external registration preparation conflicted.');
         }
@@ -1202,7 +1206,7 @@ export class RegistrationExecutionRepositoryAdapter
     const handle = ownerTransaction(tx);
     const activeIdentity = await this.drafts.findAccountDraft(handle, {
       organizationId: input.organizationId,
-      sourceCandidateId: input.sourceCandidateId,
+      salesProductId: input.salesProductId,
       channelAccountId: input.channelAccountId,
     });
     if (!activeIdentity) return;
@@ -1227,7 +1231,7 @@ export class RegistrationExecutionRepositoryAdapter
     await lockExecution(tx, input.organizationId, executionIdentities[0]!.id);
     const active = await this.drafts.findAccountDraft(handle, {
       organizationId: input.organizationId,
-      sourceCandidateId: input.sourceCandidateId,
+      salesProductId: input.salesProductId,
       channelAccountId: input.channelAccountId,
     });
     const execution = await tx.productRegistrationExecution.findFirst({
@@ -1290,21 +1294,21 @@ export class RegistrationExecutionRepositoryAdapter
 
   async start(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
     executionId: string;
     requestedByUserId: string | null;
   }): Promise<RegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
       const handle = ownerTransaction(tx);
-      const identity = await this.findCandidateExecutionIdentity(handle, {
+      const identity = await this.findProductExecutionIdentity(handle, {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        salesProductId: input.salesProductId,
         executionId: input.executionId,
       });
       if (!identity) throw new NotFoundException('External registration execution not found.');
-      await this.drafts.lockCandidate(handle, {
+      await this.drafts.lockProduct(handle, {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        salesProductId: input.salesProductId,
       });
       await this.drafts.lockDraft(handle, {
         organizationId: input.organizationId,
@@ -1331,7 +1335,7 @@ export class RegistrationExecutionRepositoryAdapter
       if (
         !execution
         || !preparation
-        || preparation.sourceCandidateId !== input.sourceCandidateId
+        || preparation.salesProductId !== input.salesProductId
         || preparation.organizationId !== input.organizationId
       ) {
         throw new NotFoundException('External registration execution not found.');
@@ -1380,7 +1384,7 @@ export class RegistrationExecutionRepositoryAdapter
 
   async get(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
     executionId: string;
     requestedByUserId: string | null;
   }): Promise<RegistrationExecutionResult> {
@@ -1395,7 +1399,7 @@ export class RegistrationExecutionRepositoryAdapter
           registrationTargetId: {
             in: await this.drafts.findDraftIds(handle, {
               organizationId: input.organizationId,
-              sourceCandidateId: input.sourceCandidateId,
+              salesProductId: input.salesProductId,
             }),
           },
         },
@@ -1407,23 +1411,23 @@ export class RegistrationExecutionRepositoryAdapter
 
   async markUnresolved(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
     executionId: string;
     requestedByUserId: string | null;
     evidence: unknown;
   }): Promise<RegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
       const handle = ownerTransaction(tx);
-      const identity = await this.findCandidateExecutionIdentity(handle, {
+      const identity = await this.findProductExecutionIdentity(handle, {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        salesProductId: input.salesProductId,
         executionId: input.executionId,
         requestedByUserId: input.requestedByUserId,
       });
       if (!identity) throw new NotFoundException('External registration execution not found.');
-      await this.drafts.lockCandidate(handle, {
+      await this.drafts.lockProduct(handle, {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        salesProductId: input.salesProductId,
       });
       await this.drafts.lockDraft(handle, {
         organizationId: input.organizationId,
@@ -1476,23 +1480,23 @@ export class RegistrationExecutionRepositoryAdapter
 
   async markNotSubmitted(input: {
     organizationId: string;
-    sourceCandidateId: string;
+    salesProductId: string;
     executionId: string;
     requestedByUserId: string | null;
     evidence: unknown;
   }): Promise<ClosedRegistrationExecutionResult> {
     return this.prisma.$transaction(async (tx) => {
       const handle = ownerTransaction(tx);
-      const identity = await this.findCandidateExecutionIdentity(handle, {
+      const identity = await this.findProductExecutionIdentity(handle, {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        salesProductId: input.salesProductId,
         executionId: input.executionId,
         requestedByUserId: input.requestedByUserId,
       });
       if (!identity) throw new NotFoundException('External registration execution not found.');
-      await this.drafts.lockCandidate(handle, {
+      await this.drafts.lockProduct(handle, {
         organizationId: input.organizationId,
-        sourceCandidateId: input.sourceCandidateId,
+        salesProductId: input.salesProductId,
       });
       await this.drafts.lockDraft(handle, {
         organizationId: input.organizationId,
@@ -1564,12 +1568,12 @@ export class RegistrationExecutionRepositoryAdapter
       const handle = ownerTransaction(tx);
       const identity = await this.drafts.loadDraft(handle, { organizationId, preparationId });
       if (!identity) throw new NotFoundException('Product preparation not found.');
-      if (identity.sourceCandidateId) {
-        await this.drafts.lockCandidate(handle, {
-          organizationId,
-          sourceCandidateId: identity.sourceCandidateId,
-        });
-      }
+      await this.drafts.lockProduct(handle, {
+        organizationId,
+        salesProductId: identity.salesProductId,
+      });
+
+
       await this.drafts.lockDraft(handle, { organizationId, preparationId });
       const current = await this.drafts.loadDraft(handle, { organizationId, preparationId });
       if (!current) throw new NotFoundException('Product preparation not found.');
@@ -1596,9 +1600,9 @@ export class RegistrationExecutionRepositoryAdapter
         };
       }
       assertRegistrationIdentity(current);
-      await this.drafts.requireActiveCandidate(handle, {
+      await this.drafts.requireActiveProduct(handle, {
         organizationId,
-        sourceCandidateId: current.sourceCandidateId,
+        salesProductId: current.salesProductId,
       });
       const now = new Date();
       if (execution && ['prepared', 'executing', 'reconciling'].includes(execution.status) && hasLiveExecutionLease({
@@ -1839,12 +1843,12 @@ export class RegistrationExecutionRepositoryAdapter
       const handle = ownerTransaction(tx);
       const identity = await this.drafts.loadDraft(handle, { organizationId, preparationId });
       if (!identity || identity.isDeleted) throw new NotFoundException('Product preparation not found.');
-      if (identity.sourceCandidateId) {
-        await this.drafts.lockCandidate(handle, {
-          organizationId,
-          sourceCandidateId: identity.sourceCandidateId,
-        });
-      }
+      await this.drafts.lockProduct(handle, {
+        organizationId,
+        salesProductId: identity.salesProductId,
+      });
+
+
       await this.drafts.lockDraft(handle, { organizationId, preparationId });
       const current = await this.drafts.loadDraft(handle, { organizationId, preparationId });
       if (!current || current.isDeleted) throw new NotFoundException('Product preparation not found.');
@@ -1861,9 +1865,9 @@ export class RegistrationExecutionRepositoryAdapter
         throw new ConflictException('Preparation is not ready for finalization.');
       }
       assertRegistrationIdentity(current);
-      await this.drafts.requireActiveCandidate(handle, {
+      await this.drafts.requireActiveProduct(handle, {
         organizationId,
-        sourceCandidateId: current.sourceCandidateId,
+        salesProductId: current.salesProductId,
       });
       if (execution.leaseToken !== submissionLeaseToken) {
         throw new ConflictException('Product registration submission lease was lost.');
@@ -1906,7 +1910,7 @@ export class RegistrationExecutionRepositoryAdapter
     }, { timeout: 15_000 });
   }
 
-  private async executionCandidateId(
+  private async executionSalesProductId(
     tx: ChannelsRepositoryTransaction,
     organizationId: string,
     execution: { registrationTargetId: string | null },
@@ -1916,20 +1920,20 @@ export class RegistrationExecutionRepositoryAdapter
       organizationId,
       preparationId: execution.registrationTargetId,
     });
-    return draft?.sourceCandidateId ?? null;
+    return draft?.salesProductId ?? null;
   }
 
-  private async findCandidateExecutionIdentity(
+  private async findProductExecutionIdentity(
     handle: ChannelsRepositoryTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string | null;
+      salesProductId: string;
       executionId: string;
       requestedByUserId?: string | null;
     },
   ): Promise<{ id: string; registrationTargetId: string } | null> {
-    if (input.sourceCandidateId === null) return null;
     const tx = ownerTransactionClient(handle);
+
     const execution = await tx.productRegistrationExecution.findFirst({
       where: {
         id: input.executionId,
@@ -1943,8 +1947,8 @@ export class RegistrationExecutionRepositoryAdapter
     });
     if (!execution || execution.registrationTargetId === null) return null;
     const identity = { id: execution.id, registrationTargetId: execution.registrationTargetId };
-    const candidateId = await this.executionCandidateId(handle, input.organizationId, identity);
-    return candidateId === input.sourceCandidateId ? identity : null;
+    const salesProductId = await this.executionSalesProductId(handle, input.organizationId, identity);
+    return salesProductId === input.salesProductId ? identity : null;
   }
 }
 
@@ -2170,7 +2174,7 @@ function isUnstartedExternalRegistrationIntent(
   execution: ProductRegistrationExecution,
   draft: FrozenRegistrationDraft,
   organizationId: string,
-  sourceCandidateId: string,
+  salesProductId: string,
 ): boolean {
   return execution.organizationId === organizationId
     && execution.executionKind === 'external_wing'
@@ -2184,7 +2188,7 @@ function isUnstartedExternalRegistrationIntent(
     && execution.startedAt === null
     && execution.completedAt === null
     && draft.organizationId === organizationId
-    && draft.sourceCandidateId === sourceCandidateId
+    && draft.salesProductId === salesProductId
     && draft.status === 'submitting'
     && draft.isDeleted === false;
 }
@@ -2317,10 +2321,10 @@ function externalExecutionResult(
 function assertRegistrationIdentity(
   draft: FrozenRegistrationDraft,
 ): asserts draft is FrozenRegistrationDraft & {
-  sourceCandidateId: string;
+  salesProductId: string;
   channelAccountId: string;
 } {
-  if (!draft.sourceCandidateId || !draft.channelAccountId) {
+  if (!draft.salesProductId || !draft.channelAccountId) {
     throw new ConflictException('Product preparation is missing its registration identity.');
   }
 }

@@ -19,10 +19,10 @@ import {
 import {
   assertRegistrationIdentity,
   assertThumbnailBelongsToProduct,
-  requireConfirmedProductForCandidate,
   requireConfirmedSalesProduct,
   findCandidateAccountPreparation,
   lockPreparation,
+  lockSalesProduct,
   resolvedSelectionData,
   selectionResolutionInput,
 } from './candidate-registration-rows';
@@ -53,18 +53,56 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     private readonly thumbnailSources?: SalesProductThumbnailSourcePort,
   ) {}
 
-  async lockCandidate(
+  async lockProduct(
     tx: ChannelsRepositoryTransaction,
-    input: { organizationId: string; sourceCandidateId: string },
+    input: { organizationId: string; salesProductId: string },
   ): Promise<void> {
-    await this.source.lock(tx, input.organizationId, input.sourceCandidateId);
+    const sourceCandidateId = await this.sourceOf(tx, input);
+    // 후보 거절도 후보 행을 먼저 잠근다. 두 경로가 같은 순서로 잠가야 서로를 기다리지 않는다.
+    if (sourceCandidateId) await this.source.lock(tx, input.organizationId, sourceCandidateId);
+    await lockSalesProduct(client(tx), input.organizationId, input.salesProductId);
   }
 
-  async requireActiveCandidate(
+  async requireActiveProduct(
+    tx: ChannelsRepositoryTransaction,
+    input: { organizationId: string; salesProductId: string },
+  ): Promise<void> {
+    const product = await client(tx).salesProduct.findFirst({
+      where: { id: input.salesProductId, organizationId: input.organizationId },
+      select: { name: true, status: true, sourceCandidateId: true },
+    });
+    if (!product) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+    if (product.status === 'archived' || product.status === 'unused') {
+      throw new ConflictException(
+        `'${product.name}' 은(는) 보관한 판매상품입니다. 다시 쓰려면 판매상품에서 상태를 되돌리세요.`,
+      );
+    }
+    // 원천에서 온 상품은 그 후보가 살아 있어야 한다. 직접 작성한 상품에는 볼 후보가 없다.
+    if (product.sourceCandidateId) {
+      await this.source.requireActive(tx, input.organizationId, product.sourceCandidateId);
+    }
+  }
+
+  async findSalesProductIdForSource(
     tx: ChannelsRepositoryTransaction,
     input: { organizationId: string; sourceCandidateId: string },
-  ): Promise<void> {
-    await this.source.requireActive(tx, input.organizationId, input.sourceCandidateId);
+  ): Promise<string | null> {
+    const product = await client(tx).salesProduct.findFirst({
+      where: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId },
+      select: { id: true },
+    });
+    return product?.id ?? null;
+  }
+
+  private async sourceOf(
+    tx: ChannelsRepositoryTransaction,
+    input: { organizationId: string; salesProductId: string },
+  ): Promise<string | null> {
+    const product = await client(tx).salesProduct.findFirst({
+      where: { id: input.salesProductId, organizationId: input.organizationId },
+      select: { sourceCandidateId: true },
+    });
+    return product?.sourceCandidateId ?? null;
   }
 
   async lockDraft(
@@ -115,7 +153,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      salesProductId: string;
       isDeleted?: boolean;
       fenceIdle?: boolean;
     },
@@ -123,8 +161,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const rows = await client(tx).registrationTarget.findMany({
       where: {
         organizationId: input.organizationId,
-        // 후보는 초안(판매상품)을 거쳐 닿는다 — 등록 설정은 판매상품에 걸린다.
-        salesProduct: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId },
+        salesProductId: input.salesProductId,
         ...(input.isDeleted === undefined ? {} : {
           archivedAt: input.isDeleted ? { not: null } : null,
         }),
@@ -143,17 +180,12 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     input: {
       organizationId: string;
-      sourceCandidateId: string;
+      salesProductId: string;
       channelAccountId: string;
       status?: string;
     },
   ): Promise<FrozenRegistrationDraft | null> {
-    const product = await client(tx).salesProduct.findFirst({
-      where: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId },
-      select: { id: true },
-    });
-    if (!product) return null;
-    const row = await findCandidateAccountPreparation(client(tx), input.organizationId, product.id, input.channelAccountId);
+    const row = await findCandidateAccountPreparation(client(tx), input.organizationId, input.salesProductId, input.channelAccountId);
     if (!row) return null;
     const named = await this.ensureDisplayName(tx, row);
     const draft = await toFrozenDraft(client(tx), named, await this.readSourceContext(tx, named));
@@ -168,7 +200,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     input: FreezeRegistrationDraftInput,
   ): Promise<FrozenRegistrationDraft> {
     const tx = client(handle);
-    const product = await requireConfirmedProductForCandidate(tx, input.organizationId, input.sourceCandidateId);
+    const product = await requireConfirmedSalesProduct(tx, input.organizationId, input.salesProductId);
     const existing = await findCandidateAccountPreparation(tx, input.organizationId, product.id, input.channelAccountId);
     const { workspaceId: sourceContentWorkspaceId } = await this.contentWorkspaces.ensureSalesProductWorkspace(handle, {
       organizationId: input.organizationId,
@@ -210,7 +242,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
         },
       });
     return toFrozenDraft(tx, row, {
-      sourceCandidateId: input.sourceCandidateId,
+      sourceCandidateId: product.sourceCandidateId,
       sourceContentWorkspaceId,
     });
   }
@@ -233,9 +265,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const updated = await client(tx).registrationTarget.updateMany({
       where: { id: input.preparationId, organizationId: input.organizationId,
         archivedAt: null,
-        ...(input.sourceCandidateId
-          ? { salesProduct: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId } }
-          : {}) },
+        ...(input.salesProductId ? { salesProductId: input.salesProductId } : {}) },
       data: { archivedAt: input.closedAt },
     });
     return updated.count;

@@ -28,6 +28,9 @@ const SECOND_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
 const BUNDLE_MASTER_PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
 const SALES_PRODUCT_ID = '44444444-4444-4444-8444-444444444444';
 const SALES_PRODUCT_OPTION_ID = '55555555-5555-4555-8555-555555555555';
+/** 직접 작성한 판매상품 — 원천 기록(후보)이 없다. */
+const DIRECT_SALES_PRODUCT_ID = '66666666-6666-4666-8666-666666666666';
+const DIRECT_SALES_PRODUCT_OPTION_ID = '77777777-7777-4777-8777-777777777777';
 
 describe('registration execution fence (PG integration)', () => {
   let prisma: PrismaClient;
@@ -771,7 +774,7 @@ describe('registration execution fence (PG integration)', () => {
   it('cancels an unstarted external WING intent before a candidate terminal transition', async () => {
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Kids rain boots',
@@ -814,7 +817,7 @@ describe('registration execution fence (PG integration)', () => {
   it('keeps a started external WING execution as a candidate deletion blocker', async () => {
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Kids rain boots',
@@ -823,7 +826,7 @@ describe('registration execution fence (PG integration)', () => {
     });
     await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     });
@@ -858,7 +861,7 @@ describe('registration execution fence (PG integration)', () => {
     const idempotencyKey = randomUUID();
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Kids rain boots',
@@ -874,7 +877,7 @@ describe('registration execution fence (PG integration)', () => {
 
     const replay = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Kids rain boots',
@@ -884,7 +887,7 @@ describe('registration execution fence (PG integration)', () => {
     expect(replay.executionId).toBe(prepared.executionId);
     await expect(repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Changed name',
@@ -894,27 +897,27 @@ describe('registration execution fence (PG integration)', () => {
 
     const started = await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     });
     expect(started).toMatchObject({ status: 'executing', providerOutcome: 'uncertain' });
     expect((await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     })).executionId).toBe(prepared.executionId);
     await expect(repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     })).rejects.toBeInstanceOf(ConflictException);
 
     const unresolved = await repository.markUnresolved({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
       evidence: { reason: 'browser_timeout' },
@@ -955,16 +958,107 @@ describe('registration execution fence (PG integration)', () => {
     expect(completed.status).toBe('registered');
     await expect(repository.get({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     })).resolves.toMatchObject({ status: 'succeeded', listingId: completed.listingId });
   });
 
+  it('runs the same fence for a directly authored product that has no source candidate', async () => {
+    await createDirectlyAuthoredProduct();
+
+    const prepared = await repository.prepare({
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId: DIRECT_SALES_PRODUCT_ID,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Direct rain boots',
+      registrationInput: { wingProduct: { productName: 'Direct rain boots' } },
+      idempotencyKey: randomUUID(),
+    });
+    expect(prepared).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
+    expect(await prisma.registrationTarget.findUniqueOrThrow({
+      where: { id: prepared.preparationId },
+      select: { salesProductId: true, channelAccountId: true },
+    })).toEqual({ salesProductId: DIRECT_SALES_PRODUCT_ID, channelAccountId: ACCOUNT_ID });
+
+    await expect(repository.start({
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId: DIRECT_SALES_PRODUCT_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    })).resolves.toMatchObject({ status: 'executing', providerOutcome: 'uncertain' });
+
+    const frozen = await repository.loadFrozenSubmission(
+      TEST_ORGANIZATION_ID, prepared.preparationId, prepared.executionId,
+    );
+    expect(frozen).toMatchObject({
+      salesProductId: DIRECT_SALES_PRODUCT_ID,
+      sourceCandidateId: null,
+    });
+
+    await repository.recordProviderResult(
+      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
+      { externalListingId: '427011920', channel: 'coupang', rawResult: { source: 'wing' } },
+      prepared.executionId,
+    );
+    await expect(repository.finalizeRegistered(
+      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
+      async (opaqueTx) => ({
+        listingId: await createListingBranch(tx(opaqueTx), '427011920', DIRECT_SALES_PRODUCT_ID),
+      }),
+      prepared.executionId,
+    )).resolves.toMatchObject({ status: 'registered' });
+
+    // 원천 기록이 없는 상품은 후보 삭제 준비가 볼 것도 없다.
+    await expect(candidateRepository.runInTransaction(async (_transaction, ownerTx) =>
+      repository.cancelUnstartedExecutions(ownerTx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidateId,
+        cancelledAt: new Date('2026-07-30T12:00:00.000Z'),
+      }))).resolves.toBe(0);
+  });
+
+  it('keeps the source candidate as execution provenance and still refuses a rejected source', async () => {
+    const prepared = await repository.prepare({
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId: SALES_PRODUCT_ID,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    });
+
+    await prisma.sourcingCandidate.update({
+      where: { id: candidateId },
+      data: { status: 'rejected' },
+    });
+
+    // 이미 남은 실행의 출처 표시는 그대로다.
+    await expect(repository.loadFrozenSubmission(
+      TEST_ORGANIZATION_ID, prepared.preparationId, prepared.executionId,
+    )).resolves.toMatchObject({
+      salesProductId: SALES_PRODUCT_ID,
+      sourceCandidateId: candidateId,
+    });
+
+    // 그래도 거절된 원천으로 새 준비를 열지는 않는다.
+    await expect(repository.prepare({
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId: SALES_PRODUCT_ID,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: SECOND_ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    })).rejects.toBeInstanceOf(ConflictException);
+  });
+
   it('does not downgrade provider success when an unresolved report was waiting on the execution lock', async () => {
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Kids rain boots',
@@ -973,7 +1067,7 @@ describe('registration execution fence (PG integration)', () => {
     });
     await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     });
@@ -1011,7 +1105,7 @@ describe('registration execution fence (PG integration)', () => {
 
     const unresolved = repository.markUnresolved({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
       evidence: { reason: 'late_browser_timeout' },
@@ -1030,7 +1124,7 @@ describe('registration execution fence (PG integration)', () => {
     });
     await expect(repository.get({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     })).resolves.toMatchObject({
@@ -1044,7 +1138,7 @@ describe('registration execution fence (PG integration)', () => {
     const idempotencyKey = randomUUID();
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Kids rain boots',
@@ -1064,7 +1158,7 @@ describe('registration execution fence (PG integration)', () => {
   it('resumes the same prepared manual execution after the browser page is reopened', async () => {
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Kids rain boots',
@@ -1185,13 +1279,13 @@ describe('registration execution fence (PG integration)', () => {
     });
     await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: first.executionId,
       requestedByUserId: TEST_USER_ID,
     });
     await repository.markNotSubmitted({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: first.executionId,
       requestedByUserId: TEST_USER_ID,
       evidence: { reason: 'extension_failed_before_provider_submission' },
@@ -1279,7 +1373,7 @@ describe('registration execution fence (PG integration)', () => {
   it('abandons a never-submitted execution and reuses its target for a changed payload', async () => {
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
     };
@@ -1382,7 +1476,7 @@ describe('registration execution fence (PG integration)', () => {
 
     await expect(repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Changed into manual WING flow',
@@ -1408,7 +1502,7 @@ describe('registration execution fence (PG integration)', () => {
   it('restarts a reconciled unknown WING attempt only after the channel absence was verified', async () => {
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
     };
@@ -1420,13 +1514,13 @@ describe('registration execution fence (PG integration)', () => {
     });
     await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: stale.executionId,
       requestedByUserId: TEST_USER_ID,
     });
     await repository.markUnresolved({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: stale.executionId,
       requestedByUserId: TEST_USER_ID,
       evidence: { reason: 'browser_timeout' },
@@ -1474,7 +1568,7 @@ describe('registration execution fence (PG integration)', () => {
   it('restarts a started unknown attempt only after the channel absence was verified', async () => {
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
     };
@@ -1487,7 +1581,7 @@ describe('registration execution fence (PG integration)', () => {
     // Without a fresh provider lookup, a started execution remains protected.
     await repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
     });
@@ -1514,7 +1608,7 @@ describe('registration execution fence (PG integration)', () => {
   it('serializes start behind a concurrent supersede and never resurrects the stale execution', async () => {
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
     };
@@ -1570,7 +1664,7 @@ describe('registration execution fence (PG integration)', () => {
 
     const start = repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: stale.executionId,
       requestedByUserId: TEST_USER_ID,
     });
@@ -1601,7 +1695,7 @@ describe('registration execution fence (PG integration)', () => {
     });
     await expect(repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Kids rain boots',
@@ -1620,19 +1714,19 @@ describe('registration execution fence (PG integration)', () => {
     if (claimed.status === 'registered') throw new Error('unexpected registered claim');
     await expect(repository.start({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: claimed.executionId,
       requestedByUserId: TEST_USER_ID,
     })).rejects.toBeInstanceOf(NotFoundException);
     await expect(repository.get({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: claimed.executionId,
       requestedByUserId: TEST_USER_ID,
     })).rejects.toBeInstanceOf(NotFoundException);
     await expect(repository.markUnresolved({
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       executionId: claimed.executionId,
       requestedByUserId: TEST_USER_ID,
       evidence: { reason: 'must-not-reconcile-create-execution' },
@@ -1646,7 +1740,7 @@ describe('registration execution fence (PG integration)', () => {
     const sourceCode = options.sourceCode ?? 'KID00000001';
     return {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceCandidateId: candidateId,
+      salesProductId: SALES_PRODUCT_ID,
       requestedByUserId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       displayName: 'Kids rain boots',
@@ -1665,6 +1759,30 @@ describe('registration execution fence (PG integration)', () => {
       },
       idempotencyKey,
     };
+  }
+
+  async function createDirectlyAuthoredProduct(): Promise<void> {
+    await prisma.salesProduct.create({
+      data: {
+        id: DIRECT_SALES_PRODUCT_ID,
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'DIRECTLY-AUTHORED-FENCE',
+        name: 'Direct rain boots',
+      },
+    });
+    await prisma.salesProductOption.create({
+      data: {
+        id: DIRECT_SALES_PRODUCT_OPTION_ID,
+        organizationId: TEST_ORGANIZATION_ID,
+        salesProductId: DIRECT_SALES_PRODUCT_ID,
+        optionCode: 'KID-DIRECT-0001',
+        optionKey: '단일',
+        values: [],
+        salePrice: 19900,
+        supplyStatus: 'selling',
+        sortOrder: 0,
+      },
+    });
   }
 
   function createInput(channelAccountId: string) {
@@ -1689,20 +1807,26 @@ describe('registration execution fence (PG integration)', () => {
       findSalesProductWorkspaceId: async () => null,
       resolveSourceSelections: async (_opaqueTx: OwnerTransaction, input: unknown) => input,
       validateSourceSelections: async () => undefined,
-      ensureSalesProductWorkspace: async (ownerTx: OwnerTransaction) => ({
-        workspaceId: await ensureWorkspace(ownerTx),
+      ensureSalesProductWorkspace: async (
+        ownerTx: OwnerTransaction,
+        input: { salesProductId: string },
+      ) => ({
+        workspaceId: await ensureWorkspace(ownerTx, input.salesProductId),
       }),
       attachToListing: async () => ({ workspaceId: '' }),
     } as never;
   }
 
   /** 콘텐츠 작업공간은 판매상품 초안이 가진다(KID-310). 후보는 그 초안이 가리킨다. */
-  async function ensureWorkspace(ownerTx: OwnerTransaction): Promise<string> {
+  async function ensureWorkspace(
+    ownerTx: OwnerTransaction,
+    salesProductId: string = SALES_PRODUCT_ID,
+  ): Promise<string> {
     const client = ownerTransactionClient(ownerTx);
     const existing = await client.contentWorkspace.findFirst({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        salesProductId: SALES_PRODUCT_ID,
+        salesProductId,
         status: 'active',
         isDeleted: false,
       },
@@ -1712,7 +1836,7 @@ describe('registration execution fence (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'sales_product',
-        salesProductId: SALES_PRODUCT_ID,
+        salesProductId,
         displayName: 'Kids rain boots',
         normalizedTitle: 'kids rain boots',
         createdByUserId: TEST_USER_ID,
@@ -1739,12 +1863,13 @@ describe('registration execution fence (PG integration)', () => {
   async function createListingBranch(
     client: Prisma.TransactionClient,
     externalId: string,
+    salesProductId: string = SALES_PRODUCT_ID,
   ): Promise<string> {
     const listing = await client.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: ACCOUNT_ID,
-        salesProductId: SALES_PRODUCT_ID,
+        salesProductId,
         externalId,
         displayName: 'Kids rain boots',
         status: 'active',
@@ -1756,7 +1881,7 @@ describe('registration execution fence (PG integration)', () => {
         ownerType: 'channel_listing',
         channelListingId: listing.id,
         originWorkspaceId: (await client.contentWorkspace.findFirstOrThrow({
-          where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: SALES_PRODUCT_ID },
+          where: { organizationId: TEST_ORGANIZATION_ID, salesProductId },
         })).id,
         displayName: 'Kids rain boots',
         normalizedTitle: 'kids rain boots',

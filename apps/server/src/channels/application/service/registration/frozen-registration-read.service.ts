@@ -52,7 +52,7 @@ export class FrozenRegistrationReadService implements FrozenRegistrationReadPort
     }
     const execution = await this.executions.get({
       organizationId: input.organizationId,
-      sourceCandidateId: frozen.sourceCandidateId,
+      salesProductId: frozen.salesProductId,
       executionId: input.executionId,
       requestedByUserId: input.initiatingUserId,
     });

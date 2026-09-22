@@ -29,11 +29,11 @@ export interface ConfirmedSalesProduct {
  * 등록 준비가 쓰는 단일 가격 게이트. 판매상품 줄을 잠그고 초안(판매가 미정)이면 거절한다.
  * 몰 엑셀 · 품절 송신도 같은 도메인 함수(`requireConfirmedPrice`)를 쓴다.
  */
-export async function requireConfirmedSalesProduct(
+export async function lockSalesProduct(
   tx: Prisma.TransactionClient,
   organizationId: string,
   salesProductId: string,
-): Promise<ConfirmedSalesProduct> {
+): Promise<void> {
   const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT id FROM sales_products
     WHERE organization_id = ${organizationId}::uuid
@@ -41,6 +41,14 @@ export async function requireConfirmedSalesProduct(
     FOR UPDATE
   `);
   if (locked.length !== 1) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+}
+
+export async function requireConfirmedSalesProduct(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  salesProductId: string,
+): Promise<ConfirmedSalesProduct> {
+  await lockSalesProduct(tx, organizationId, salesProductId);
   const product = await tx.salesProduct.findFirstOrThrow({
     where: { id: salesProductId, organizationId },
     select: {
