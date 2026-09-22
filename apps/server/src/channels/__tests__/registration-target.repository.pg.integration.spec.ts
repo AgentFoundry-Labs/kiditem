@@ -36,7 +36,11 @@ describe('registration target repository (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('creates multiple targets for one product and account and resolves canonical option prices', async () => {
+  /**
+   * 상품 × 몰 계정당 등록 설정은 하나다(KID-310 · ADR-0022). 행사용 등록은 같은 원천 재고를
+   * 쓰는 **다른 판매상품**이지 같은 상품의 둘째 설정이 아니다.
+   */
+  it('refuses a second active target for one product and account, and resolves canonical option prices', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
     const first = await repository.create(TEST_ORGANIZATION_ID, createInput({
@@ -49,19 +53,14 @@ describe('registration target repository (PostgreSQL)', () => {
         supplyPrice: null,
       }],
     }));
-    const second = await repository.create(TEST_ORGANIZATION_ID, createInput({
+
+    await expect(repository.create(TEST_ORGANIZATION_ID, createInput({
       salesProductId: productId,
       channelAccountId: accountId,
       displayName: '기획전',
-      selectedOptions: [{
-        salesProductOptionId: options[0]!.id,
-        salePrice: 2_500,
-        normalPrice: 4_000,
-        supplyPrice: 1_900,
-      }],
-    }));
+      selectedOptions: [selected(options[0]!.id)],
+    }))).rejects.toThrow();
 
-    expect(second).not.toBe(first);
     await expect(repository.list(TEST_ORGANIZATION_ID, productId)).resolves.toEqual([
       expect.objectContaining({
         id: first,
@@ -79,16 +78,6 @@ describe('registration target repository (PostgreSQL)', () => {
             normalPrice: 5_000,
           })]),
         }),
-      }),
-      expect.objectContaining({
-        id: second,
-        displayName: '기획전',
-        selectedOptions: [{
-          salesProductOptionId: options[0]!.id,
-          salePrice: 2_500,
-          normalPrice: 4_000,
-          supplyPrice: 1_900,
-        }],
       }),
     ]);
   });

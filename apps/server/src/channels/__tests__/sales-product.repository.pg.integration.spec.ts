@@ -139,20 +139,14 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     });
   });
 
-  it('requires an explicit target even when multiple targets exist and fences organizations', async () => {
+  /** 등록 설정은 상품 × 몰 계정당 하나다(KID-310 · ADR-0022). 그래도 고칠 설정은 불러야 한다. */
+  it('requires the caller to name the setting it is writing, and fences organizations', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
     const firstTargetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: accountId,
       displayName: '첫 대상',
-      registrationInput: {},
-      selectedOptions: [selected(options[0]!.id)],
-    });
-    const secondTargetId = await targets.create(TEST_ORGANIZATION_ID, {
-      salesProductId: productId,
-      channelAccountId: accountId,
-      displayName: '둘째 대상',
       registrationInput: {},
       selectedOptions: [selected(options[0]!.id)],
     });
@@ -165,7 +159,6 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
       optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 1_000 }],
     })])).rejects.toThrow(ConflictException);
     await expect(targets.get(TEST_ORGANIZATION_ID, firstTargetId)).resolves.toMatchObject({ version: 1 });
-    await expect(targets.get(TEST_ORGANIZATION_ID, secondTargetId)).resolves.toMatchObject({ version: 1 });
 
     const otherAccountId = await createAccount(prisma, OTHER_ORGANIZATION_ID);
     const otherProduct = await createProduct(prisma, OTHER_ORGANIZATION_ID);
@@ -186,8 +179,9 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     await expect(targets.get(OTHER_ORGANIZATION_ID, otherTargetId)).resolves.toMatchObject({ version: 1 });
   });
 
-  it('reports every registration setting of one product and mall, and only this organization\'s', async () => {
+  it('reports the one registration setting of each mall, and only this organization\'s', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const secondAccountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
     const firstTargetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
@@ -198,8 +192,8 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     });
     const secondTargetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
-      channelAccountId: accountId,
-      displayName: '별도 등록',
+      channelAccountId: secondAccountId,
+      displayName: '별도 몰 등록',
       registrationInput: {},
       selectedOptions: [
         selected(options[0]!.id, { salePrice: 7_700 }),
@@ -207,12 +201,13 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
       ],
     });
     const channel = (await prisma.channelAccount.findUniqueOrThrow({ where: { id: accountId } })).channel;
+    const secondChannel = (await prisma.channelAccount.findUniqueOrThrow({ where: { id: secondAccountId } })).channel;
 
     const [product] = await repository.readMallSheetProducts(TEST_ORGANIZATION_ID, [productId]);
     expect(product!.overrides.map((item) => [item.targetId, item.mallKey, item.name, item.selectedOptionIds?.length]))
       .toEqual([
         [firstTargetId, channel, '기본 등록', 1],
-        [secondTargetId, channel, '별도 등록', 2],
+        [secondTargetId, secondChannel, '별도 몰 등록', 2],
       ]);
     expect(product!.overrides[0]!.optionPrices)
       .toEqual([{ salesProductOptionId: options[0]!.id, salePrice: 3_300, normalPrice: null, supplyPrice: 2_000 }]);
@@ -221,20 +216,25 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     await expect(repository.readMallSheetProducts(OTHER_ORGANIZATION_ID, [productId])).resolves.toEqual([]);
   });
 
-  it('saves a mall category on the chosen setting only, and refuses to guess or create one', async () => {
+  /**
+   * 설정이 하나뿐이라 고를 것이 없다(KID-310). 분류는 그 상품 · 그 몰의 설정에만 붙고, 다른
+   * 몰의 설정은 손대지 않는다.
+   */
+  it('saves a mall category on that product and mall only', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const otherAccountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
-    const firstTargetId = await targets.create(TEST_ORGANIZATION_ID, {
+    const targetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: accountId,
       displayName: '기본 등록',
       registrationInput: {},
       selectedOptions: [selected(options[0]!.id)],
     });
-    const secondTargetId = await targets.create(TEST_ORGANIZATION_ID, {
+    const otherMallTargetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
-      channelAccountId: accountId,
-      displayName: '별도 등록',
+      channelAccountId: otherAccountId,
+      displayName: '다른 몰 등록',
       registrationInput: {},
       selectedOptions: [selected(options[1]!.id)],
     });
@@ -242,20 +242,14 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     await expect(repository.setMallCategoryPaths(TEST_ORGANIZATION_ID, [
       { salesProductId: productId, channelAccountId: accountId, path: '완구>블록' },
     ])).resolves.toBe(1);
-    await expect(targets.get(TEST_ORGANIZATION_ID, secondTargetId)).resolves.toMatchObject({
+    await expect(targets.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
       version: 2,
       registrationInput: { mallRegisterValues: { categoryPath: '완구>블록' } },
     });
-    await expect(targets.get(TEST_ORGANIZATION_ID, firstTargetId)).resolves.toMatchObject({ version: 1 });
-
-    // 고르지 않고 부르면 어느 설정을 고칠지 모른다 — 하나를 몰래 고르지 않는다.
-    await expect(repository.setMallCategoryPaths(TEST_ORGANIZATION_ID, [
-      { salesProductId: productId, channelAccountId: accountId, path: '완구>인형' },
-    ])).rejects.toThrow('여러 판매 설정');
-    await expect(targets.get(TEST_ORGANIZATION_ID, firstTargetId)).resolves.toMatchObject({ version: 1 });
+    await expect(targets.get(TEST_ORGANIZATION_ID, otherMallTargetId)).resolves.toMatchObject({ version: 1 });
   });
 
-  it('refuses a chosen setting that this product and mall does not have, without creating one', async () => {
+  it('leaves another product and mall setting alone while it makes its own', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId } = await createProduct(prisma, TEST_ORGANIZATION_ID);
     const otherAccountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
@@ -270,10 +264,10 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
 
     await expect(repository.setMallCategoryPaths(TEST_ORGANIZATION_ID, [
       { salesProductId: productId, channelAccountId: accountId, path: '완구>블록' },
-    ])).rejects.toThrow('설정을 찾지 못했습니다');
+    ])).resolves.toBe(1);
     await expect(prisma.registrationTarget.count({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, channelAccountId: accountId },
-    })).resolves.toBe(0);
+    })).resolves.toBe(1);
     await expect(targets.get(TEST_ORGANIZATION_ID, strangerId)).resolves.toMatchObject({ version: 1 });
   });
 
@@ -378,9 +372,11 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
       data: { salePrice: 777 },
     });
 
+    // 상품 × 몰 계정당 설정 하나이므로, 손으로 만든 편집값은 다른 몰 계정의 설정이다.
+    const otherAccountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const secondTarget = await prisma.registrationTarget.create({
       data: { organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id,
-        channelAccountId: accountId, displayName: '기획전 편집값' },
+        channelAccountId: otherAccountId, displayName: '기획전 편집값' },
     });
     const second = importWrite(accountId, {
       code: first.create.code!,
@@ -702,7 +698,9 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     expect(row).toMatchObject({ status: 'draft', description: '수집한 설명', sourcePlatform: '1688' });
     const options = await prisma.salesProductOption.findMany({ where: { salesProductId: row.id } });
     expect(options.map((option) => option.salePrice)).toEqual([null]);
-    expect(options[0]!.optionCode).toMatch(/^KID/);
+    // KID 는 팔기로 정한 순간에 발급한다(ADR-0022). 수집 초안은 아직 '미발급'이다.
+    expect(row.code).toBeNull();
+    expect(options[0]!.optionCode).toBeNull();
   });
 
   it('lets the collected-products tabs filter drafts by their source platform without a Sourcing join', async () => {

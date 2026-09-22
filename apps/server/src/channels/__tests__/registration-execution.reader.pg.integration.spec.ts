@@ -18,6 +18,9 @@ const OTHER_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
 const SAME_CHANNEL_ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
 const SALES_PRODUCT_ID = '60000000-0000-4000-8000-000000000001';
 const OTHER_SALES_PRODUCT_ID = '60000000-0000-4000-8000-000000000002';
+// 상품 × 몰 계정당 등록 설정은 하나다(KID-310). 한 계정의 설정 셋은 서로 다른 판매상품이다.
+const SECOND_SALES_PRODUCT_ID = '60000000-0000-4000-8000-000000000003';
+const THIRD_SALES_PRODUCT_ID = '60000000-0000-4000-8000-000000000004';
 const COMPOSITION_LISTING_ID = '70000000-0000-4000-8000-000000000001';
 const SECOND_COMPOSITION_LISTING_ID = '70000000-0000-4000-8000-000000000002';
 const PREPARING_LISTING_ID = '70000000-0000-4000-8000-000000000003';
@@ -92,6 +95,18 @@ describe('registration execution reader (PostgreSQL)', () => {
           name: 'Reader fixture product',
         },
         {
+          id: SECOND_SALES_PRODUCT_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'READER-TEST-2',
+          name: 'Reader fixture product 2',
+        },
+        {
+          id: THIRD_SALES_PRODUCT_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'READER-TEST-3',
+          name: 'Reader fixture product 3',
+        },
+        {
           id: OTHER_SALES_PRODUCT_ID,
           organizationId: OTHER_ORGANIZATION_ID,
           code: 'READER-OTHER',
@@ -102,8 +117,8 @@ describe('registration execution reader (PostgreSQL)', () => {
     await prisma.registrationTarget.createMany({
       data: [
         preparation('50000000-0000-4000-8000-000000000001', ACCOUNT_ID, SALES_PRODUCT_ID),
-        preparation('50000000-0000-4000-8000-000000000002', ACCOUNT_ID, SALES_PRODUCT_ID),
-        preparation('50000000-0000-4000-8000-000000000003', ACCOUNT_ID, SALES_PRODUCT_ID),
+        preparation('50000000-0000-4000-8000-000000000002', ACCOUNT_ID, SECOND_SALES_PRODUCT_ID),
+        preparation('50000000-0000-4000-8000-000000000003', ACCOUNT_ID, THIRD_SALES_PRODUCT_ID),
         preparation('50000000-0000-4000-8000-000000000004', SECOND_ACCOUNT_ID, SALES_PRODUCT_ID),
         preparation('50000000-0000-4000-8000-000000000005', SAME_CHANNEL_ACCOUNT_ID, SALES_PRODUCT_ID),
         preparation('50000000-0000-4000-8000-000000000006', OTHER_ACCOUNT_ID, OTHER_SALES_PRODUCT_ID, OTHER_ORGANIZATION_ID),
@@ -232,11 +247,23 @@ describe('registration execution reader (PostgreSQL)', () => {
         [{ channelListingOptionId: 'option-terminal-failure' }],
       ),
     ];
+    // 설정 하나에 판매상품 하나다(KID-310) — 같은 계정의 설정이 여럿이면 상품도 여럿이다.
+    const targetProducts = executionRows.map((executionRow, index) => ({
+      id: `61000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+      organizationId: TEST_ORGANIZATION_ID,
+      code: `READER-COMPOSITION-${index + 1}`,
+      name: `Reader composition product ${index + 1}`,
+      registrationTargetId: executionRow.registrationTargetId,
+      channelAccountId: executionRow.channelAccountId,
+    }));
+    await prisma.salesProduct.createMany({
+      data: targetProducts.map(({ registrationTargetId: _target, channelAccountId: _account, ...product }) => product),
+    });
     await prisma.registrationTarget.createMany({
-      data: executionRows.map((executionRow) => preparation(
-        executionRow.registrationTargetId,
-        executionRow.channelAccountId,
-        SALES_PRODUCT_ID,
+      data: targetProducts.map((product) => preparation(
+        product.registrationTargetId,
+        product.channelAccountId,
+        product.id,
       )),
     });
     await prisma.productRegistrationExecution.createMany({ data: executionRows });

@@ -114,14 +114,14 @@ describe('registration execution fence (PG integration)', () => {
       data: { sourceCandidateId: null },
     });
     await expect(drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections))
-      .rejects.toThrow('수집상품 상세에서 판매가를 확인한 뒤 판매상품으로 준비해주세요.');
+      .rejects.toThrow('이 수집상품의 판매상품이 없습니다.');
 
     await prisma.salesProduct.update({
       where: { id: SALES_PRODUCT_ID },
       data: { sourceCandidateId: candidateId, status: 'archived' },
     });
     await expect(drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections))
-      .rejects.toThrow('판매상품의 판매가와 사용할 옵션을 확인해주세요.');
+      .rejects.toThrow('보관한 판매상품');
 
     await prisma.salesProduct.update({
       where: { id: SALES_PRODUCT_ID },
@@ -132,7 +132,7 @@ describe('registration execution fence (PG integration)', () => {
       data: { salePrice: 0 },
     });
     await expect(drafts.createOrGetActiveDraft(input, ensureWorkspace, resolveSelections))
-      .rejects.toThrow('판매상품의 판매가와 사용할 옵션을 확인해주세요.');
+      .rejects.toThrow('아직 판매가를 정하지 않은 초안');
   });
 
   it('returns one draft under concurrent same-account creation', async () => {
