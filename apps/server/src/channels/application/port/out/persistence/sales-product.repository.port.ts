@@ -130,6 +130,8 @@ export interface SalesProductRepositoryPort {
    * 판매상품 줄을 잠근 채 한 트랜잭션에서 끝난다.
    */
   ensureCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }>;
+  /** 배치판. 몰 엑셀 한 파일이 상품마다 트랜잭션을 여는 것을 막는다 — 한 번에 한 트랜잭션이다. */
+  ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number>;
   readMasterProductCodes(organizationId: string, ids: readonly string[]): Promise<Map<string, string>>;
   list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse>;
   get(organizationId: string, salesProductId: string): Promise<SalesProduct | null>;

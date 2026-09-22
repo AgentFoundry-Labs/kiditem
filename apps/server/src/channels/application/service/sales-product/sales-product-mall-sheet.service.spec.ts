@@ -32,7 +32,8 @@ function setup(overrides = [target(FIRST, 3000)], product: Partial<MallSheetSour
     listChannelAccounts: vi.fn().mockResolvedValue([{ id: ACCOUNT, channel: 'teacher-mall' }]),
     setMallCategoryPaths: vi.fn().mockResolvedValue(1),
     // 파일을 만드는 순간이 판매 결정이다 — 서비스가 여기서 KID 를 발급한다.
-    ensureCodes: vi.fn().mockResolvedValue({ code: 'KID00000001', issued: 0 }) };
+    ensureCodes: vi.fn().mockResolvedValue({ code: 'KID00000001', issued: 0 }),
+    ensureCodesForMany: vi.fn().mockResolvedValue(0) };
   const files = { categoryTables: vi.fn().mockResolvedValue({ paths: {}, esmBySite: {}, coupang: {},
     icecream: { byCode: {}, ambiguous: {}, notices: {}, brands: {} } }), write: vi.fn().mockResolvedValue(Buffer.from('sheet')) };
   const activity = { log: vi.fn(), warn: vi.fn() };

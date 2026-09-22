@@ -150,6 +150,23 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     );
   }
 
+  async ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number> {
+    const ids = [...new Set(salesProductIds)];
+    if (ids.length === 0) return 0;
+    return this.prisma.$transaction(
+      async (tx) => {
+        let issued = 0;
+        for (const salesProductId of ids) {
+          const result = await ensureSalesProductCodesInTransaction(tx, organizationId, salesProductId,
+            (componentIds) => readMasterProductCodesInTransaction(this.productTransactionalRead, tx, organizationId, componentIds));
+          issued += result.issued;
+        }
+        return issued;
+      },
+      TRANSACTION_OPTIONS,
+    );
+  }
+
   async list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse> {
     const base: Prisma.SalesProductWhereInput = {
       organizationId,

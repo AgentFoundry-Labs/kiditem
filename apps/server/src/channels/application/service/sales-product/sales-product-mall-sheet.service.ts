@@ -147,7 +147,8 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     // 등록 동결 · 품절 송신과 같은 게이트다. 판매가를 정하지 않은 초안은 몰 파일에 들어가지 않는다.
     for (const source of preflight) this.assertConfirmedPrice(source);
     // 파일을 만드는 순간이 판매 결정이다 — 등록 설정 없이 나가는 상품도 여기서 KID 를 받는다.
-    for (const source of preflight) await this.repository.ensureCodes(organizationId, source.id);
+    // 한 파일이 상품 수만큼 트랜잭션을 열지 않게 한 번에 발급한다.
+    await this.repository.ensureCodesForMany(organizationId, preflight.map((source) => source.id));
     const sources = await this.repository.readMallSheetProducts(organizationId, ids);
     const context = await this.context(spec, request, sources, organizationId);
     const missingFixed = missingFixedFields(spec, context.fixed);
