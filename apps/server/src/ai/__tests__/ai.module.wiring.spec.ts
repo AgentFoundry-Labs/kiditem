@@ -10,6 +10,8 @@ import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direct-job.repository.adapter';
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../../channels/application/port/out/cross-domain/catalog-media-publication.port';
+import { DetailPageGeneratedImagesService } from '../application/service/detail-page-generated-images.service';
+import { DetailPageHeroImageService } from '../application/service/detail-page-hero-image.service';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
@@ -137,6 +139,34 @@ describe('AiModule hexagonal wiring contract', () => {
   it('re-exports the product-generation owner module instead of a port it does not provide', () => {
     const exports: unknown[] = Reflect.getMetadata(EXPORTS_KEY, AiAgentRuntimeModule) ?? [];
     expect(exports).toContain(AiProductGenerationRuntimeModule);
+  });
+
+  /**
+   * 상세페이지의 Gemini 이미지가 한 장도 안 들어가던 까닭.
+   *
+   * `DetailPageHeroImageService` 는 `AiAgentRuntimeModule` 의 provider 인데 내보내지지
+   * 않았고, 그것을 쓰는 `DetailPageGeneratedImagesService` 는 `AiModule` 에 있다. 받는 쪽이
+   * `@Optional()` 이라 Nest 는 예외 대신 **undefined 를 조용히 꽂았고**, 서비스는 빈 객체를
+   * 돌려주고 끝났다 — 상세페이지는 멀쩡히 만들어지고 로그도 한 줄 없었다.
+   *
+   * 그래서 2026-07-18 뒤에 만든 상세페이지에는 히어로 배너 · 사이즈표 · 색상표 · 사용법
+   * 사진이 하나도 들어가지 않았다(실측: 07-18 생성물 11장, 09-20 · 09-22 생성물 0장).
+   */
+  it('⭐ publishes the hero image service the API-side generated images depend on', () => {
+    const exports: unknown[] = Reflect.getMetadata(EXPORTS_KEY, AiAgentRuntimeModule) ?? [];
+    expect(exports).toContain(DetailPageHeroImageService);
+
+    // 쓰는 쪽과 가진 쪽이 다른 모듈이다 — 그래서 내보내기가 필요하다.
+    const runtimeProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AiAgentRuntimeModule) ?? [];
+    const apiProviders: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AiModule) ?? [];
+    expect(runtimeProviders).toContain(DetailPageHeroImageService);
+    expect(apiProviders).toContain(DetailPageGeneratedImagesService);
+
+    // 받는 자리가 그 클래스를 그대로 가리킨다 — 토큰이 어긋나면 또 조용히 undefined 가 된다.
+    const paramTypes: unknown[] =
+      Reflect.getMetadata('design:paramtypes', DetailPageGeneratedImagesService) ?? [];
+    expect(paramTypes[0]).toBe(DetailPageHeroImageService);
   });
 
   it('publishes the refiner consumed by API-side direct generation executors', () => {

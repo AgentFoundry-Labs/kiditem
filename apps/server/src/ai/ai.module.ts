@@ -203,6 +203,10 @@ import { AiProductGenerationRuntimeModule } from './ai-product-generation-runtim
   exports: [
     AiProductGenerationRuntimeModule,
     ThumbnailWingService,
+    // 상세페이지 생성 이미지는 `AiModule` 에 있고 이 서비스를 쓴다. 내보내지 않으면 그쪽에서
+    // 보이지 않고, 받는 쪽이 `@Optional()` 이라 **조용히 undefined 가 꽂힌다** — 상세페이지가
+    // 만들어지긴 하는데 Gemini 이미지가 한 장도 안 들어간다(라이브 2026-09-22, 07-18 이후 계속).
+    DetailPageHeroImageService,
     DETAIL_PAGE_MEDIA_PORT,
     THUMBNAIL_WING_REPOSITORY_PORT,
     WING_AUTOMATION_PORT,

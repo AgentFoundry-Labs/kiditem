@@ -54,7 +54,16 @@ export class DetailPageGeneratedImagesService {
     signal?: AbortSignal;
   }): Promise<Record<string, string>> {
     input.signal?.throwIfAborted();
-    if (!this.heroImageService) return {};
+    if (!this.heroImageService) {
+      // 조용히 빈 손으로 돌아가지 않는다. 이 한 줄이 없어서 상세페이지에 Gemini 이미지가
+      // 한 장도 안 들어가는 것을 두 달 넘게 아무도 못 봤다 — 화면은 멀쩡히 만들어지고
+      // 로그도 없었다(라이브 2026-09-22).
+      this.logger.error(
+        'detail page generated images skipped: hero image service is not wired'
+        + ' — AiAgentRuntimeModule 이 DetailPageHeroImageService 를 내보내는지 확인하세요.',
+      );
+      return {};
+    }
     const processedImages: Record<string, string> = {};
     const sourcePolicy = buildNormalSectionSourcePolicy(
       input.parsed,
