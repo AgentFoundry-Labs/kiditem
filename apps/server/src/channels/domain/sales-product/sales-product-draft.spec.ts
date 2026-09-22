@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  KID_ISSUE_MOMENT,
   SalesProductDraftError,
-  issuesKidCodes,
   planDraftOptions,
   requireConfirmedPrice,
   resolveSalesProductStatus,
@@ -69,14 +67,6 @@ describe('requireConfirmedPrice', () => {
   it('보관한 상품은 거절한다', () => {
     expect(() => requireConfirmedPrice({ name: '테스트 상품', status: 'archived', options: [selling(1000)] }))
       .toThrow(SalesProductDraftError);
-  });
-});
-
-describe('issuesKidCodes', () => {
-  it('지금 발급 시점은 초안 생성이다', () => {
-    expect(KID_ISSUE_MOMENT).toBe('draft_created');
-    expect(issuesKidCodes('draft_created')).toBe(true);
-    expect(issuesKidCodes('first_active')).toBe(false);
   });
 });
 

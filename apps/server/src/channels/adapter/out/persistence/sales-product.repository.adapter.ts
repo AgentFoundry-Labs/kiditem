@@ -1,5 +1,6 @@
 import { readSalesProductOptionExecutionCounts } from '../../../read/registration-execution.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
+import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -139,6 +140,14 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
 
   async allocateCode(_organizationId: string): Promise<string> {
     return this.prisma.$transaction((tx) => allocateKidItemCode(tx));
+  }
+
+  async ensureCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }> {
+    return this.prisma.$transaction(
+      (tx) => ensureSalesProductCodesInTransaction(tx, organizationId, salesProductId,
+        (ids) => readMasterProductCodesInTransaction(this.productTransactionalRead, tx, organizationId, ids)),
+      TRANSACTION_OPTIONS,
+    );
   }
 
   async list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse> {
@@ -289,7 +298,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       where: { organizationId, code: { startsWith: prefix } },
       select: { code: true },
     });
-    return rows.map((row) => row.code);
+    return rows.flatMap((row) => row.code ? [row.code] : []);
   }
 
   async readMasterProductCodes(
@@ -673,7 +682,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   }
 
   async readMallPriceCandidates(organizationId: string): Promise<{
-    products: (MallPriceCandidateProduct & { code: string; name: string })[];
+    products: (MallPriceCandidateProduct & { code: string | null; name: string })[];
     listingOptions: MallPriceCandidateListingOption[];
   }> {
     const [products, listingOptions] = await Promise.all([
@@ -883,7 +892,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         where: { organizationId, ownCode: { in: ownCodes.slice(start, start + 500) } },
         select: { code: true, ownCode: true },
       });
-      for (const row of rows) if (row.ownCode) codes.set(row.ownCode, row.code);
+      for (const row of rows) if (row.ownCode && row.code) codes.set(row.ownCode, row.code);
     }
     return codes;
   }
@@ -892,7 +901,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
   ): Promise<{
     id: string;
-    code: string;
+    code: string | null;
     version: number;
     imageUrls: string[];
     detailHtml: string | null;
@@ -1846,4 +1855,20 @@ function sabangnetImageUrls(sourceRaw: Prisma.JsonValue | null): string[] {
 function minimumOptionPrice(options: readonly { salePrice: number | null }[]): number | null {
   const prices = options.map((option) => option.salePrice).filter((price): price is number => price !== null);
   return prices.length > 0 ? Math.min(...prices) : null;
+}
+
+
+/** 셀피아 단품 id → 코드. KID 발급이 단품 하나짜리 구성의 원천 코드를 다시 쓸 때만 읽는다. */
+async function readMasterProductCodesInTransaction(
+  reader: ProductTransactionalReadPort,
+  tx: Tx,
+  organizationId: string,
+  masterProductIds: readonly string[],
+): Promise<ReadonlyMap<string, string>> {
+  if (masterProductIds.length === 0) return new Map();
+  const identities = await reader.readSourceIdentities(
+    { client: tx },
+    { organizationId, selector: { kind: 'ids', values: [...masterProductIds] } },
+  );
+  return new Map(identities.map((identity) => [identity.masterProductId, identity.code]));
 }

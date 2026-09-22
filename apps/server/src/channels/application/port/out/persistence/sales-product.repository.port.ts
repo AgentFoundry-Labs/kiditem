@@ -57,7 +57,8 @@ export interface SalesProductBasicsRecord {
 }
 
 export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
-  code: string;
+  /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 null 이다. */
+  code: string | null;
   sabangnetGoodsNo: string | null;
   optionAxes: string[];
   sourceRaw: Record<string, unknown> | null;
@@ -70,7 +71,7 @@ export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
 
 export interface SalesProductOptionState {
   productId: string;
-  productCode: string;
+  productCode: string | null;
   productName: string;
   status: SalesProductStatus;
   version: number;
@@ -124,6 +125,11 @@ export interface SalesProductImportResult {
 export interface SalesProductRepositoryPort {
   /** Allocate from the shared noncycling KID sequence, never from existing row maxima. */
   allocateCode(organizationId: string): Promise<string>;
+  /**
+   * 팔기로 정한 시점에 KID 를 채운다(상품 + 파는 단품 전부). 이미 있으면 그대로 두는 멱등 연산이고,
+   * 판매상품 줄을 잠근 채 한 트랜잭션에서 끝난다.
+   */
+  ensureCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }>;
   readMasterProductCodes(organizationId: string, ids: readonly string[]): Promise<Map<string, string>>;
   list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse>;
   get(organizationId: string, salesProductId: string): Promise<SalesProduct | null>;
@@ -183,7 +189,7 @@ export interface SalesProductRepositoryPort {
   ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>>;
   /** 몰 가격 가져오기 후보: 판매상품(단품 추가금액 · 몰별 값)과 이어진 활성 몰 옵션의 가격. */
   readMallPriceCandidates(organizationId: string): Promise<{
-    products: (MallPriceCandidateProduct & { code: string; name: string })[];
+    products: (MallPriceCandidateProduct & { code: string | null; name: string })[];
     listingOptions: MallPriceCandidateListingOption[];
   }>;
   /** 명시한 대상·버전에 옵션별 최종가를 반영한다. 없거나 바뀐 대상은 거부한다. */
@@ -209,7 +215,7 @@ export interface SalesProductRepositoryPort {
   /** 가져오기: 자체상품코드 → 판매상품코드(이미 있는 것만). */
   findCodesByOwnCodes(organizationId: string, ownCodes: readonly string[]): Promise<Map<string, string>>;
   /** 사진 옮기기: 이 조직 판매상품의 사진 주소와 버전. */
-  listImageUrls(organizationId: string): Promise<{ id: string; code: string; version: number; imageUrls: string[]; detailHtml: string | null; extraDetailHtml: string[] }[]>;
+  listImageUrls(organizationId: string): Promise<{ id: string; code: string | null; version: number; imageUrls: string[]; detailHtml: string | null; extraDetailHtml: string[] }[]>;
   /** 버전이 같을 때만 사진 주소를 바꾸고 버전을 올린다. 버전이 다르면 false. */
   replaceImageUrls(input: {
     organizationId: string;

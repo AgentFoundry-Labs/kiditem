@@ -20,13 +20,15 @@ describe('channel Sellpia final schema contract', () => {
     }
   });
 
-  it('requires account-owned parent listings with source-candidate identity', () => {
+  it('requires account-owned parent listings that reach their source through the selling product', () => {
     const listing = modelBlock(channels, 'ChannelListing');
     assert.match(listing, /^\s*channelAccountId\s+String\s+/m);
-    assert.match(listing, /^\s*sourceCandidateId\s+String\?/m);
+    // 원천은 판매상품이 가리킨다(KID-310) — 몰 상품에 후보 칸을 두지 않는다.
+    assert.match(listing, /^\s*salesProductId\s+String\?/m);
+    assert.doesNotMatch(listing, /^\s*sourceCandidateId\s+/m);
     assert.match(listing, /^\s*rawJson\s+Json\?/m);
     assert.match(listing, /^\s*lastImportRunId\s+String\?/m);
-    assert.match(listing, /@@index\(\[sourceCandidateId\]\)/);
+    assert.match(listing, /@@index\(\[organizationId, salesProductId\]\)/);
     assert.doesNotMatch(listing, /^\s*(?:masterProductId|masterId|channel|channelPrice|currentStock|barcode|purchasePrice|salePrice)\s+/m);
     assert.match(listing, /@@unique\(\[organizationId, channelAccountId, externalId\]\)/);
   });

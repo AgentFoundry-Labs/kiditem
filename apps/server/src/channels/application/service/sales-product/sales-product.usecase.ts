@@ -1,4 +1,3 @@
-import { issueSalesProductOptionCodes } from './sales-product-code';
 import type {
   SalesProductDraftRetireResult,
   SalesProductDraftSource,
@@ -21,11 +20,12 @@ import {
   type SalesProductOptionDraft,
 } from '../../../domain/sales-product/sales-product';
 import {
-  issuesKidCodes,
   planDraftOptions,
   resolveSalesProductStatus,
   type SalesProductPricedOption,
 } from '../../../domain/sales-product/sales-product-draft';
+import { issuesKidCodes } from '../../../domain/sales-product/sales-product-code';
+import { issueSalesProductOptionCodes } from './sales-product-code';
 import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SalesProductBasicsRecord,
@@ -60,23 +60,31 @@ export class SalesProductUseCase implements SalesProductPort {
     const input = parseOrBadRequest(SalesProductCreateInputSchema, body, '판매상품 내용이 올바르지 않습니다.');
     await this.assertSellpiaSkus(organizationId, input.options.flatMap((option) =>
       option.components.map((component) => component.masterProductId)));
-    const code = await this.issueDraftKid(organizationId);
     const plan = planOrBadRequest(() => planSalesProductOptionReplacement({
-      productCode: code,
+      productCode: '',
       existing: [],
       options: input.options.map(toDraft),
     }));
-    await issueSalesProductOptionCodes(organizationId, plan, this.repository);
     const id = await this.repository.create(organizationId, {
       ...basicsRecord(input),
       // 판매가를 다 채우지 않은 채로 만들면 초안이다. 저장할 때마다 같은 규칙으로 다시 판정한다.
       status: resolveSalesProductStatus({ current: input.status ?? 'active', options: plan.writes }),
-      code,
+      code: null,
       sabangnetGoodsNo: null,
       optionAxes: input.optionAxes,
       sourceRaw: null,
     }, plan);
+    // 직접 작성은 팔려고 만드는 것이다 — 만드는 순간이 곧 판매 결정이라 여기서 KID 를 발급한다.
+    await this.ensureSalesProductCodes(organizationId, id);
     return this.get(organizationId, id);
+  }
+
+  /** KID 발급의 단일 진입점. 발급 시점은 `KID_ISSUE_MOMENT` 하나가 정한다. */
+  async ensureSalesProductCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }> {
+    if (!issuesKidCodes('sale_decided')) {
+      throw new Error('KID 발급 시점이 바뀌었습니다. ensureSalesProductCodes 를 부르는 자리를 함께 옮기세요.');
+    }
+    return this.repository.ensureCodes(organizationId, salesProductId);
   }
 
   /**
@@ -88,10 +96,9 @@ export class SalesProductUseCase implements SalesProductPort {
   async createFromSource(organizationId: string, input: SalesProductDraftSource): Promise<SalesProduct> {
     const existing = await this.repository.findIdBySourceCandidate(organizationId, input.candidateId);
     if (existing) return this.get(organizationId, existing);
-    const code = await this.issueDraftKid(organizationId);
     const { optionAxes, optionValues } = planDraftOptions(input.optionNames);
     const plan = planOrBadRequest(() => planSalesProductOptionReplacement({
-      productCode: code,
+      productCode: '',
       existing: [],
       options: optionValues.map((values) => ({
         values,
@@ -102,7 +109,6 @@ export class SalesProductUseCase implements SalesProductPort {
         components: [],
       })),
     }));
-    await issueSalesProductOptionCodes(organizationId, plan, this.repository);
     try {
       const id = await this.repository.create(organizationId, {
         ...basicsRecord({
@@ -118,7 +124,8 @@ export class SalesProductUseCase implements SalesProductPort {
           certifications: [],
         }),
         status: 'draft',
-        code,
+        // 수집 초안은 코드 없이 만든다. 팔기로 정할 때(첫 등록 설정 · 몰 엑셀) 발급한다.
+        code: null,
         sabangnetGoodsNo: null,
         optionAxes,
         sourceRaw: sourceSnapshot(input),
@@ -189,7 +196,9 @@ export class SalesProductUseCase implements SalesProductPort {
       existing: state.options,
       options: input.options.map(toDraft),
     }));
-    await issueSalesProductOptionCodes(organizationId, plan, this.repository);
+    // 이미 팔기로 정한 상품(KID 가 있는 상품)에 새 단품을 더하면 그 자리에서 번호를 준다.
+    // 아직 코드가 없는 초안은 발급 시점(`KID_ISSUE_MOMENT`)까지 비워 둔다.
+    if (state.productCode) await issueSalesProductOptionCodes(organizationId, plan, this.repository);
     const applied = await this.repository.applyOptionPlan({
       organizationId,
       salesProductId,
@@ -217,16 +226,7 @@ export class SalesProductUseCase implements SalesProductPort {
     }
   }
 
-  /**
-   * KID 발급. 시점은 도메인 정책 한 곳(`KID_ISSUE_MOMENT`)이 정하고, 지금은 초안을 만들 때다.
-   * 첫 `active` 전환 시 발급으로 바꾸려면 상수를 옮기고 이 호출을 그 전환 자리로 옮긴다.
-   */
-  private async issueDraftKid(organizationId: string): Promise<string> {
-    if (!issuesKidCodes('draft_created')) {
-      throw new Error('KID 발급 시점이 바뀌었습니다. 초안 생성과 첫 active 전환 경로를 함께 옮기세요.');
-    }
-    return this.repository.allocateCode(organizationId);
-  }
+
 }
 
 function toDraft(option: {

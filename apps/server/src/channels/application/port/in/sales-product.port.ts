@@ -51,6 +51,11 @@ export interface SalesProductPort {
   createFromSource(organizationId: string, input: SalesProductDraftSource): Promise<SalesProduct>;
   /** 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다. 몰에 올라가 있으면 그대로 두고 이유를 돌려준다. */
   retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireResult>;
+  /**
+   * 팔기로 정한 시점에 KID 를 발급한다(상품 + 파는 단품). 멱등이다 — 이미 있으면 그대로 둔다.
+   * 부르는 곳은 첫 등록 설정 생성 · 몰 엑셀 파일 · 직접 작성뿐이다(`KID_ISSUE_MOMENT`).
+   */
+  ensureSalesProductCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }>;
   update(organizationId: string, salesProductId: string, input: SalesProductUpdateInput): Promise<SalesProduct>;
   replaceOptions(organizationId: string, salesProductId: string, input: SalesProductOptionsReplaceInput): Promise<SalesProduct>;
   mallCategories(organizationId: string, mallKey: string): Promise<SalesProductMallCategories>;

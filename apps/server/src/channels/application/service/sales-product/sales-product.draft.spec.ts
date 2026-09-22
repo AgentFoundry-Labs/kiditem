@@ -133,11 +133,12 @@ const source = {
 };
 
 describe('SalesProductUseCase.createFromSource', () => {
-  it('원천 한 줄에서 판매가 없는 초안을 만들고 KID 를 바로 발급한다', async () => {
+  it('원천 한 줄에서 판매가도 KID 도 없는 초안을 만든다', async () => {
     const { rows, service } = setup();
     await service.createFromSource(ORG, source);
+    // 수집 초안은 KID 없이 만들어진다 — 팔기로 정할 때 발급한다.
     expect(rows[0]).toMatchObject({
-      code: 'KID00000001',
+      code: null,
       status: 'draft',
       name: '비눗방울총',
       description: '수집한 설명',
@@ -147,7 +148,7 @@ describe('SalesProductUseCase.createFromSource', () => {
       optionAxes: [],
     });
     expect(rows[0]!.options).toEqual([
-      expect.objectContaining({ optionCode: 'KID00000002', salePrice: null, supplyStatus: 'selling' }),
+      expect.objectContaining({ optionCode: null, salePrice: null, supplyStatus: 'selling' }),
     ]);
   });
 

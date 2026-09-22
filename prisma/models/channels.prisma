@@ -392,8 +392,9 @@ model ProductRegistrationExecution {
 model SalesProduct {
   id                   String   @id @default(uuid()) @db.Uuid
   organizationId       String   @map("organization_id") @db.Uuid
-  /// 판매상품코드. 사방넷에서 옮긴 상품은 사방넷 품번코드다.
-  code                 String   @db.VarChar(60)
+  /// 발급된 KID(판매상품코드). 사방넷에서 옮긴 상품은 사방넷 품번코드다.
+  /// 팔기로 정한 시점에 발급한다 — 아직 정하지 않은 초안은 비어 있다.
+  code                 String?  @db.VarChar(60)
   /// 자체상품코드(사방넷에서 중복 불가). 비어 있을 수 있다.
   ownCode              String?  @map("own_code") @db.VarChar(100)
   sabangnetGoodsNo     String?  @map("sabangnet_goods_no") @db.VarChar(30)
@@ -465,7 +466,7 @@ model SalesProduct {
   registrationTargets RegistrationTarget[]
   channelListings     ChannelListing[]     @relation("ChannelListingSalesProduct")
 
-  @@unique([organizationId, code])
+  @@unique([organizationId, code], map: "sales_products_org_code_key", where: raw("code IS NOT NULL"))
   @@unique([organizationId, ownCode], map: "sales_products_org_own_code_key", where: raw("own_code IS NOT NULL"))
   @@unique([organizationId, sabangnetGoodsNo], map: "sales_products_org_sabangnet_goods_key", where: raw("sabangnet_goods_no IS NOT NULL"))
   @@unique([organizationId, sourceCandidateId], map: "sales_products_org_source_candidate_key", where: raw("source_candidate_id IS NOT NULL"))
@@ -482,8 +483,9 @@ model SalesProductOption {
   id                  String   @id @default(uuid()) @db.Uuid
   organizationId      String   @map("organization_id") @db.Uuid
   salesProductId      String   @map("sales_product_id") @db.Uuid
-  /// Issued KID code. External bootstrap identity is stored separately below.
-  optionCode          String   @map("option_code") @db.VarChar(80)
+  /// 발급된 KID(단품코드). 상품과 같은 시점에 발급하므로 초안의 단품은 비어 있다.
+  /// 가져오기 정체성(사방넷 단품코드)은 아래 별도 칸이다.
+  optionCode          String?  @map("option_code") @db.VarChar(80)
   sabangnetOptionCode String?  @map("sabangnet_option_code") @db.VarChar(80)
   /// SalesProduct.optionAxes 순서대로의 값.
   values              String[] @default([])
@@ -509,7 +511,7 @@ model SalesProductOption {
 
   @@unique([salesProductId, optionKey], map: "sales_product_options_active_key", where: raw("supply_status <> 'unused'"))
   @@unique([id, organizationId], map: "sales_product_options_id_org_key")
-  @@index([organizationId, optionCode])
+  @@unique([organizationId, optionCode], map: "sales_product_options_org_code_key", where: raw("option_code IS NOT NULL"))
   @@index([salesProductId, organizationId])
   @@index([organizationId, barcode])
   @@map("sales_product_options")

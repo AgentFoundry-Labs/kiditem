@@ -19,7 +19,7 @@ export interface PendingMirrorImage {
 }
 
 export interface SalesProductImageSnapshot {
-  code: string;
+  code: string | null;
   imageUrls: readonly string[];
   detailHtml?: string | null;
   extraDetailHtml?: readonly (string | null)[];
@@ -133,7 +133,7 @@ export function pendingMirrorImages(
 ): PendingMirrorImage[] {
   const seen = new Set<string>();
   const pending: PendingMirrorImage[] = [];
-  for (const product of [...products].sort((left, right) => left.code.localeCompare(right.code))) {
+  for (const product of [...products].sort((left, right) => (left.code ?? '').localeCompare(right.code ?? ''))) {
     for (const rawUrl of imageReferenceUrls(product)) {
       const url = normalizeImageReferenceUrl(rawUrl);
       if (!url || seen.has(url) || options.isOwnedUrl?.(url)) continue;

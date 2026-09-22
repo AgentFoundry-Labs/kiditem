@@ -143,29 +143,17 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     if (ids.length > spec.maxProducts) {
       throw new BadRequestException(`${spec.label}은(는) 한 파일에 ${spec.maxProducts}개까지 받습니다. 나눠서 받으세요.`);
     }
+    const preflight = await this.repository.readMallSheetProducts(organizationId, ids);
+    // 등록 동결 · 품절 송신과 같은 게이트다. 판매가를 정하지 않은 초안은 몰 파일에 들어가지 않는다.
+    for (const source of preflight) this.assertConfirmedPrice(source);
+    // 파일을 만드는 순간이 판매 결정이다 — 등록 설정 없이 나가는 상품도 여기서 KID 를 받는다.
+    for (const source of preflight) await this.repository.ensureCodes(organizationId, source.id);
     const sources = await this.repository.readMallSheetProducts(organizationId, ids);
     const context = await this.context(spec, request, sources, organizationId);
     const missingFixed = missingFixedFields(spec, context.fixed);
     if (missingFixed.length) throw new BadRequestException(`비어 있는 고정값: ${missingFixed.join(', ')}`);
 
     if (sources.length !== new Set(ids).size) throw new NotFoundException('없는 판매상품이 섞여 있습니다.');
-    // 등록 동결 · 품절 송신과 같은 게이트다. 판매가를 정하지 않은 초안은 몰 파일에 들어가지 않는다.
-    for (const source of sources) {
-      try {
-        requireConfirmedPrice({
-          name: source.name,
-          status: source.status,
-          options: source.options.map((option) => ({
-            id: option.id ?? '',
-            supplyStatus: option.supplyStatus as 'selling' | 'sold_out' | 'unused',
-            salePrice: option.salePrice ?? null,
-          })),
-        });
-      } catch (error) {
-        if (error instanceof SalesProductDraftError) throw new BadRequestException(error.message);
-        throw error;
-      }
-    }
     const rows: MallSheetRow[] = [];
     const blocked: string[] = [];
     for (const source of sources) {
@@ -218,6 +206,24 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
       categories: new MallCategoryLookup(await this.files.categoryTables()),
       publicCopies: await this.repository.readPublicImages(organizationId, sources.flatMap(privateImageUrls)),
     };
+  }
+
+  /** 등록 동결 · 품절 송신과 같은 단일 가격 게이트. */
+  private assertConfirmedPrice(source: MallSheetSourceProduct): void {
+    try {
+      requireConfirmedPrice({
+        name: source.name,
+        status: source.status,
+        options: source.options.map((option) => ({
+          id: option.id ?? '',
+          supplyStatus: option.supplyStatus as 'selling' | 'sold_out' | 'unused',
+          salePrice: option.salePrice ?? null,
+        })),
+      });
+    } catch (error) {
+      if (error instanceof SalesProductDraftError) throw new BadRequestException(error.message);
+      throw error;
+    }
   }
 
   private rowsFor(

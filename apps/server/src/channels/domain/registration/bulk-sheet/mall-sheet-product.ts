@@ -11,7 +11,8 @@ import type { MallCategoryLookup } from './mall-sheet-categories';
 /** 몰 엑셀을 만들려고 읽은 판매상품 한 건(저장소가 채운다). */
 export interface MallSheetSourceProduct {
   id: string;
-  code: string;
+  /** 발급된 KID. 파일을 만드는 순간 발급되므로 이 자리에서는 늘 차 있다. */
+  code: string | null;
   ownCode: string | null;
   name: string;
   brand: string | null;
@@ -33,7 +34,8 @@ export interface MallSheetSourceProduct {
   optionAxes: string[];
   options: {
     id?: string;
-    code: string;
+    /** 발급된 KID. 초안의 단품은 비어 있다 — 파일을 만드는 순간 발급된다. */
+    code: string | null;
     values: string[];
     /** canonical final price, before a mall target override is applied. */
     salePrice?: number | null;
@@ -246,7 +248,9 @@ export function toMallSheetProduct(
       optionPrices,
       optionNormalPrices,
       optionSupplyPrices,
-      selectedOptionCodes: selected.map((option) => option.code),
+      // 파일을 만드는 경로는 KID 를 먼저 발급한다(`ensureSalesProductCodes`). 확인만 하는 화면에서는
+      // 아직 번호가 없을 수 있어 빈 칸으로 보인다.
+      selectedOptionCodes: selected.map((option) => option.code ?? ''),
       name: override?.name?.trim()
         || joinText([values[KEYS.namePrefix], mallDisplayName(source.name), values[KEYS.nameSuffix]], ' '),
       nameIsMallSpecific: Boolean(override?.name?.trim()),
@@ -266,7 +270,7 @@ export function toMallSheetProduct(
   const commonNormalPrice = commonPrice(selling.map((option) => option.normalPrice));
   return {
     salesProductId: source.id,
-    code: source.code,
+    code: source.code ?? '',
     ownCode: source.ownCode,
     internalName: source.name,
     brand: source.brand,
@@ -284,7 +288,7 @@ export function toMallSheetProduct(
     optionAxes: source.optionAxes,
     options: selling.map((option) => ({
       id: option.id,
-      code: option.code,
+      code: option.code ?? '',
       values: option.values,
       extraPrice: option.salePrice - canonicalBasePrice,
       normalPrice: option.normalPrice,

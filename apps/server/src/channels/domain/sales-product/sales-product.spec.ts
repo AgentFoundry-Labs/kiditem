@@ -32,7 +32,7 @@ describe('planSalesProductOptionReplacement', () => {
     });
     expect(plan.writes).toEqual([
       expect.objectContaining({ id: 'a', optionCode: '100300-0001', optionKey: '파랑', sortOrder: 0 }),
-      expect.objectContaining({ id: null, optionCode: '', optionKey: '초록', salePrice: 3500, sortOrder: 1 }),
+      expect.objectContaining({ id: null, optionCode: null, optionKey: '초록', salePrice: 3500, sortOrder: 1 }),
     ]);
   });
 
@@ -90,7 +90,7 @@ describe('planSalesProductOptionReplacement', () => {
         id: 'a', components: [{ masterProductId: 'source', quantity: 2 }],
       })],
     });
-    expect(plan.writes[0]).toMatchObject({ id: null, replacesOptionId: 'a', optionCode: '' });
+    expect(plan.writes[0]).toMatchObject({ id: null, replacesOptionId: 'a', optionCode: null });
     expect(plan.retireIds).toEqual(['a']);
     expect(plan.deleteIds).toEqual([]);
   });

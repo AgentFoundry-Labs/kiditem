@@ -63,21 +63,6 @@ export function requireConfirmedPrice(product: {
   return confirmed.map((option) => ({ id: option.id, salePrice: option.salePrice }));
 }
 
-export type KidIssueMoment = 'draft_created' | 'first_active';
-
-/**
- * KID(판매상품코드 · 단품코드) 발급 시점(사장님 결정 2026-09-23).
- *
- * 지금은 초안을 만들 때 바로 준다. 안 파는 초안이 번호를 소모해 구멍이 생기지만 KID 는 8자리
- * 조회 키라 무해하다. 첫 `active` 전환 시 발급으로 바꾸려면 이 상수 하나만 옮긴다 — 발급을
- * 부르는 곳은 모두 `issuesKidCodes` 에게 묻는다.
- */
-export const KID_ISSUE_MOMENT: KidIssueMoment = 'draft_created';
-
-export function issuesKidCodes(moment: KidIssueMoment): boolean {
-  return moment === KID_ISSUE_MOMENT;
-}
-
 /** 초안 옵션 한 단의 이름. 원천이 옵션을 주지 않으면 옵션 없는 단품 하나다. */
 export const DRAFT_OPTION_AXIS = '옵션';
 

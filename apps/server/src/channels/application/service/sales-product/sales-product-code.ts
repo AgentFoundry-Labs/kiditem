@@ -1,7 +1,10 @@
 import type { SalesProductOptionReplacementPlan } from '../../../domain/sales-product/sales-product';
 import type { SalesProductRepositoryPort } from '../../port/out/persistence/sales-product.repository.port';
 
-/** Codes are issued once by the shared sequence; known singleton units may reuse their source KID. */
+/**
+ * 가져오기(사방넷)가 쓰는 단품 KID 발급. 운영 경로의 발급은 `ensureSalesProductCodes` 하나다 —
+ * 이 함수는 품번코드를 이미 들고 오는 이관 · 가져오기에서만 쓴다.
+ */
 export async function issueSalesProductOptionCodes(
   organizationId: string,
   plan: SalesProductOptionReplacementPlan,

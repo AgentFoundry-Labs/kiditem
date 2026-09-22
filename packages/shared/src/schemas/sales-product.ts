@@ -218,7 +218,8 @@ export type SalesProductOptionComponent = z.infer<typeof SalesProductOptionCompo
 
 export const SalesProductOptionSchema = z.object({
   id: z.string().uuid(),
-  optionCode: z.string(),
+  /** 발급된 KID. 초안의 단품은 비어 있다. */
+  optionCode: z.string().nullable(),
   values: z.array(z.string()),
   optionKey: z.string(),
   alias: z.string().nullable(),
@@ -274,7 +275,8 @@ export type SalesProductChannelListing = z.infer<typeof SalesProductChannelListi
 
 export const SalesProductSchema = z.object({
   id: z.string().uuid(),
-  code: z.string(),
+  /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다(화면은 '미발급'). */
+  code: z.string().nullable(),
   ownCode: z.string().nullable(),
   sabangnetGoodsNo: z.string().nullable(),
   /** 이 초안을 만든 원천 기록(수집상품) id. 후보를 지워도 초안은 남는다. */
@@ -341,7 +343,8 @@ export type SalesProductListQuery = z.infer<typeof SalesProductListQuerySchema>;
 
 export const SalesProductListItemSchema = z.object({
   id: z.string().uuid(),
-  code: z.string(),
+  /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다. */
+  code: z.string().nullable(),
   ownCode: z.string().nullable(),
   /** 이 초안을 만든 원천 기록(수집상품) id. */
   sourceCandidateId: z.string().uuid().nullable(),
@@ -646,7 +649,8 @@ export const SalesProductMallSheetCheckSchema = z.object({
   maybeListed: z.number().int(),
   products: z.array(z.object({
     salesProductId: z.string().uuid(),
-    code: z.string(),
+    /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있고, 파일을 만들 때 발급된다. */
+    code: z.string().nullable(),
     name: z.string(),
     /** 파일에 들어갈 행 수(쿠팡은 단품마다 한 줄). 못 넣는 상품은 0. */
     rows: z.number().int(),
