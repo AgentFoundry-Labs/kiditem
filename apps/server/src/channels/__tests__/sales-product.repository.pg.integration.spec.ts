@@ -587,6 +587,44 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       .toBe(1);
   });
 
+  it('keeps a standalone product whole when it is archived, and drops it from the default list', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const created = await service.create(TEST_ORGANIZATION_ID, {
+      name: '직접 만든 상품',
+      optionAxes: ['색상'],
+      options: [{ values: ['빨강'], salePrice: 4_000 }, { values: ['파랑'], salePrice: 4_500 }],
+    });
+    const before = await repository.readOptionState(TEST_ORGANIZATION_ID, created.id);
+    const targetId = await new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService)
+      .create(TEST_ORGANIZATION_ID, {
+        salesProductId: created.id,
+        channelAccountId: accountId,
+        displayName: null,
+        registrationInput: {},
+        selectedOptions: [selected(before!.options[0]!.id)],
+      });
+
+    const archived = await service.update(
+      TEST_ORGANIZATION_ID,
+      created.id,
+      { expectedVersion: created.version, status: 'archived' },
+    );
+
+    expect(archived).toMatchObject({ id: created.id, code: created.code, status: 'archived' });
+    const after = await repository.readOptionState(TEST_ORGANIZATION_ID, created.id);
+    expect(after!.options.map((option) => option.id)).toEqual(before!.options.map((option) => option.id));
+    expect(after!.options.map((option) => option.optionCode)).toEqual(before!.options.map((option) => option.optionCode));
+    expect(await prisma.registrationTarget.count({ where: { id: targetId, organizationId: TEST_ORGANIZATION_ID } }))
+      .toBe(1);
+    expect((await repository.list(TEST_ORGANIZATION_ID, listQuery('all'))).items).toEqual([]);
+    expect((await repository.list(TEST_ORGANIZATION_ID, listQuery('unregistered'))).items).toEqual([]);
+    const onlyArchived = await repository.list(
+      TEST_ORGANIZATION_ID,
+      { ...listQuery('all'), status: 'archived' },
+    );
+    expect(onlyArchived.items.map((item) => item.id)).toEqual([created.id]);
+  });
+
   it('keeps the KID, the option identities, the notice and KC input and the registration target across a send-back and a revival', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const candidateId = randomUUID();
