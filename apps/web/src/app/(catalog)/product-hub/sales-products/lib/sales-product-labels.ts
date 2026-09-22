@@ -12,7 +12,7 @@ export const SALES_PRODUCT_STATUS_LABEL: Record<SalesProductStatus, string> = {
   paused: '일시중지',
   sold_out: '완전품절',
   unused: '미사용',
-  archived: '삭제',
+  archived: '보관',
 };
 
 export const SALES_PRODUCT_STATUS_TONE: Record<SalesProductStatus, string> = {
