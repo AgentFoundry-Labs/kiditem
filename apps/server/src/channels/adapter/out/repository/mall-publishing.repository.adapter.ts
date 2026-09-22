@@ -197,7 +197,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         .filter((listing) => listing.masterProductId !== null
           && selectedIds.includes(listing.masterProductId));
     const latestListingUpdatedAt = latestDatesByMasterProduct(listingRows);
-    selected.sort(byNewestCodeFirst);
+    selected.sort(byNewestSellpiaCodeFirst);
     const total = selected.length;
     const records = selected.slice(query.offset, query.offset + query.limit);
     const listingByMasterProductId = groupListingRowsByMasterProductId(listingRows);
@@ -449,7 +449,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       return true;
     });
     const latestListingUpdatedAt = latestDatesByMasterProduct(listingRows);
-    filtered.sort(byNewestCodeFirst);
+    filtered.sort(byNewestSellpiaCodeFirst);
     const total = filtered.length;
     const records = filtered.slice(query.offset, query.offset + query.limit);
     const stockByMaster = await this.readMatrixStock(
@@ -459,7 +459,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     const rows = records.map<MallMatrixProductRow>((record) => ({
       masterProductId: record.masterProductId,
       code: record.code,
-      sellpiaCode: record.code,
+      sellpiaCode: sellpiaCodeOf(record),
       name: record.name,
       imageUrl: firstListingImageUrl(
         listingByMasterProductId.get(record.masterProductId) ?? [],
@@ -522,23 +522,44 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
 }
 
 /**
- * 표가 서는 차례 — **KID 번호가 큰 것부터**, 곧 나중에 만들어진 상품부터다
- * (사장님 2026-09-22 "상품 최신순이 아닌거 같은데 정렬좀 해놔줘").
+ * 표가 서는 차례 — **셀피아 상품코드 번호가 큰 것부터**다. 셀피아가 번호를 차례로 내주므로
+ * 번호가 큰 것이 나중에 등록한 상품이다(사장님 2026-09-18 · 2026-09-22).
  *
  * 리스팅의 마지막 변경 시각을 1차 키로 쓰던 때는 최신순이 **한 번도 아니었다**. 몰 가져오기
  * 한 번이 수천 줄에 같은 시각을 찍어서(실측: 한 값에 2,703 · 2,581 · 1,258건) 한 페이지가
  * 통째로 동점이 되고, 그러면 2차 키인 코드 **오름차순**이 화면을 지배해 가장 오래된 번호가
  * 맨 위로 왔다.
  *
- * 코드는 시퀀스(`kid_item_code_seq`)가 발급하므로 나중에 생긴 상품일수록 번호가 크다 —
- * 마스터의 `createdAt` 은 일괄 적재 시각이라 오히려 덩어리로 뭉쳐 순서를 만들지 못한다.
+ * KID 코드로 세우지 않는다. 그것은 우리가 그 줄을 **언제 만들었나**이지 사장님이 셀피아에
+ * 언제 등록했나가 아니다 — 같은 상품을 다시 담으면 옛 상품인데도 새 KID 를 받는다.
  */
-function byNewestCodeFirst(
-  left: Readonly<{ code: string; masterProductId: string }>,
-  right: Readonly<{ code: string; masterProductId: string }>,
+export function sellpiaCodeNumber(sourceProductCode: string): number {
+  const digits = /^\s*(\d+)/.exec(sourceProductCode)?.[1];
+  // 번호로 읽히지 않는 코드는 맨 뒤에 세운다 — 0 으로 접으면 옛 번호와 섞인다.
+  return digits === undefined ? -1 : Number(digits);
+}
+
+export function byNewestSellpiaCodeFirst(
+  left: Readonly<{ sourceProductCode: string; sourceOptionCode: string; masterProductId: string }>,
+  right: Readonly<{ sourceProductCode: string; sourceOptionCode: string; masterProductId: string }>,
 ): number {
-  return right.code.localeCompare(left.code)
+  return sellpiaCodeNumber(right.sourceProductCode) - sellpiaCodeNumber(left.sourceProductCode)
+    // 같은 상품의 옵션은 적힌 번호 차례로 — 옵션이 뒤섞이면 한 상품이 흩어져 보인다.
+    || left.sourceOptionCode.localeCompare(right.sourceOptionCode, undefined, { numeric: true })
     || right.masterProductId.localeCompare(left.masterProductId);
+}
+
+/**
+ * 화면에 적는 셀피아 상품코드. 옵션이 있으면 `10487-1` 로 붙여 적는다 — 셀피아가 그렇게
+ * 보여 주고, 사장님이 그 번호로 상품을 찾는다.
+ */
+export function sellpiaCodeOf(
+  record: Readonly<{ sourceProductCode: string; sourceOptionCode: string }>,
+): string | null {
+  if (!record.sourceProductCode) return null;
+  return record.sourceOptionCode
+    ? `${record.sourceProductCode}-${record.sourceOptionCode}`
+    : record.sourceProductCode;
 }
 
 function latestDatesByMasterProduct(
