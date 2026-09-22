@@ -37,22 +37,6 @@ identifiers and frozen execution rows/hashes remain unchanged. Already linked
 settings are not overwritten. Successful legacy preparations become reusable;
 explicitly cancelled or deleted settings retain their archive time.
 
-After 023, `024_content_workspace_owner_cutover` moves each candidate-owned
-content workspace onto that candidate's sales-product draft and flips its
-`owner_type` to `sales_product`. It adds `content_workspaces.sales_product_id`
-itself so the move happens before the schema push drops `source_candidate_id`
-from the workspace and from the thumbnail, content-generation and render-intent
-ledgers. A candidate with no draft, a ledger row naming a candidate its
-workspace does not, or a draft that would end up with two active workspaces
-aborts the whole transaction and names what to fix. Only live workspaces need a
-draft: a deleted candidate leaves an archived workspace with no draft to move,
-so those rows keep their archived state and lose only the candidate column under
-the data-loss policy. Those archived rows therefore keep
-`owner_type = 'sourcing_candidate'`, a legacy value no live workspace carries;
-reads name the owner types they want rather than excluding `sales_product`, so
-the rows stay out of the direct-workspace list. Re-running after the push writes nothing. `ContentGenerationSource.source_candidate_id` and
-`ThumbnailGenerationInputImage.candidate_image_id` stay as provenance.
-
 Legacy account overrides become registration targets with the same UUID. The old
 base-plus-extra and explicit-price-before-rate behavior is materialized once as
 final selected-option prices. No persistent price ratio or independent cost
@@ -112,19 +96,23 @@ candidate edit onto one selling-product draft:
    projected in priority order: the registration target's `registrationInput`,
    then the candidate's `rawData.manualBasics`, then the raw payload. Options
    come from the collected option names (one axis) or a single option, and the
-   image list is thumbnail → representative → `candidate_images` order.
+   image list is thumbnail → representative → `candidate_images` order. A value
+   wider than its column is cut to that width and counted in `truncatedValues` —
+   a collected name routinely exceeds 255 characters, and refusing one would stop
+   the whole cutover. A rejected candidate's draft is `unused`, the same state
+   the runtime puts it in when somebody rejects the candidate.
 4. A candidate that already has a draft only gets its **empty** columns filled;
-   a value a person typed is never overwritten.
-5. Link every `channel_listings` row that still names a candidate to that
-   candidate's draft (`linkedListings`). The listing's own candidate column goes
-   away in the schema step, and a mall product with no draft would lose its KC
-   evidence for good.
-6. `mallRegisterValues` merge into that mall's registration target, creating the
+   a value a person typed, including its status, is never overwritten.
+5. `mallRegisterValues` merge into that mall's registration target, creating the
    one setting when the product and account has none, because the owner typed
    those values for that mall. A mall with no account row has nowhere to put
    them and is reported as `discardedMallValues`. Two active settings for one
    product and account stop the migration. `mallRegisterShared` becomes the
    draft's `registrationDefaults` (`movedDefaults`).
+6. Once every draft exists, link each `channel_listings` row that still names a
+   candidate to that candidate's draft (`linkedListings`) — including the drafts
+   this run just made. The listing's own candidate column goes away in the schema
+   step, and a mall product with no draft would lose its KC evidence for good.
 7. The live candidate's `rawData` keeps the raw payload only: `manualBasics`,
    `registrationInput`, `mallRegisterValues` and `mallRegisterShared` are
    removed. A deleted candidate keeps its payload — nothing projected it.
@@ -139,6 +127,31 @@ now `{ salesProductId }` and the request hash covers the selling product, so a
 receipt written before the cutover no longer matches and its key is refused as a
 conflict rather than replayed. Writers are stopped during the cutover, so no
 in-flight key can be replayed across it; leave the old rows in place.
+
+The run details report the move: `createdDrafts`, `filledDrafts`,
+`movedMallValues`, `movedDefaults`, `createdTargets`, `discardedMallValues`,
+`strippedCandidates`, `truncatedValues`, `archivedDuplicateTargets` and
+`linkedListings`. `truncatedValues` counts source values wider than their column,
+which 023 cuts rather than refusing — a collected name routinely exceeds 255
+characters and refusing one would stop the whole cutover.
+
+## Content workspace cutover (`024_content_workspace_owner_cutover`, KID-310)
+
+After 023, `024_content_workspace_owner_cutover` moves each candidate-owned
+content workspace onto that candidate's sales-product draft and flips its
+`owner_type` to `sales_product`. It adds `content_workspaces.sales_product_id`
+itself so the move happens before the schema push drops `source_candidate_id`
+from the workspace and from the thumbnail, content-generation and render-intent
+ledgers. A candidate with no draft, a ledger row naming a candidate its
+workspace does not, or a draft that would end up with two active workspaces
+aborts the whole transaction and names what to fix. Only live workspaces need a
+draft: a deleted candidate leaves an archived workspace with no draft to move,
+so those rows keep their archived state and lose only the candidate column under
+the data-loss policy. Those archived rows therefore keep
+`owner_type = 'sourcing_candidate'`, a legacy value no live workspace carries;
+reads name the owner types they want rather than excluding `sales_product`, so
+the rows stay out of the direct-workspace list. Re-running after the push writes nothing. `ContentGenerationSource.source_candidate_id` and
+`ThumbnailGenerationInputImage.candidate_image_id` stay as provenance.
 
 The focused Testcontainers suite is
 `apps/server/src/__tests__/sales-product-draft-cutover.pg.integration.spec.ts`.
