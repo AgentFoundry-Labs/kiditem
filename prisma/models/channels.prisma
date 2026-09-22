@@ -390,51 +390,73 @@ model ProductRegistrationExecution {
 /// @namespace Channels
 /// @describe Channels-owned common selling product identified by its KID. Reusable registration targets select its options and override its defaults; inventory and ABC remain Products-owned (ADR-0020).
 model SalesProduct {
-  id                  String   @id @default(uuid()) @db.Uuid
-  organizationId      String   @map("organization_id") @db.Uuid
+  id                   String   @id @default(uuid()) @db.Uuid
+  organizationId       String   @map("organization_id") @db.Uuid
   /// 판매상품코드. 사방넷에서 옮긴 상품은 사방넷 품번코드다.
-  code                String   @db.VarChar(60)
+  code                 String   @db.VarChar(60)
   /// 자체상품코드(사방넷에서 중복 불가). 비어 있을 수 있다.
-  ownCode             String?  @map("own_code") @db.VarChar(100)
-  sabangnetGoodsNo    String?  @map("sabangnet_goods_no") @db.VarChar(30)
-  name                String   @db.VarChar(255)
-  shortName           String?  @map("short_name") @db.VarChar(255)
-  englishName         String?  @map("english_name") @db.VarChar(255)
-  printName           String?  @map("print_name") @db.VarChar(255)
-  modelName           String?  @map("model_name") @db.VarChar(60)
-  modelNo             String?  @map("model_no") @db.VarChar(60)
-  brand               String?  @db.VarChar(50)
-  manufacturer        String?  @db.VarChar(50)
-  originCountry       String?  @map("origin_country") @db.VarChar(50)
-  originRegion        String?  @map("origin_region") @db.VarChar(50)
-  keywords            String[] @default([])
-  standardCategory    String?  @map("standard_category") @db.VarChar(40)
-  /// draft | active | paused | sold_out | unused | archived
-  status              String   @default("active")
+  ownCode              String?  @map("own_code") @db.VarChar(100)
+  sabangnetGoodsNo     String?  @map("sabangnet_goods_no") @db.VarChar(30)
+  name                 String   @db.VarChar(255)
+  shortName            String?  @map("short_name") @db.VarChar(255)
+  englishName          String?  @map("english_name") @db.VarChar(255)
+  printName            String?  @map("print_name") @db.VarChar(255)
+  modelName            String?  @map("model_name") @db.VarChar(60)
+  modelNo              String?  @map("model_no") @db.VarChar(60)
+  brand                String?  @db.VarChar(50)
+  manufacturer         String?  @db.VarChar(50)
+  originCountry        String?  @map("origin_country") @db.VarChar(50)
+  originRegion         String?  @map("origin_region") @db.VarChar(50)
+  keywords             String[] @default([])
+  standardCategory     String?  @map("standard_category") @db.VarChar(40)
+  /// 상세설명 본문(사람이 쓰는 글). 몰 상세 HTML(detailHtml)과 다르다.
+  description          String   @default("")
+  /// 누구에게 파는 상품인가(예: '3~5세 여아').
+  targetAudience       String?  @map("target_audience") @db.VarChar(200)
+  /// 연령대 표기(예: '36개월 이상').
+  ageGroup             String?  @map("age_group") @db.VarChar(100)
+  /// 상품 크기 한 줄(예: '가로 30 x 세로 20cm').
+  productSize          String?  @map("product_size") @db.VarChar(200)
+  /// 색상 이름 목록. 옵션 단과 달리 문서에 적는 설명값이다.
+  colorVariantNames    String[] @default([]) @map("color_variant_names")
+  /// 한 박스에 들어가는 개수.
+  boxSetQuantity       Int?     @map("box_set_quantity")
+  /// 몰 공통 등록 문서 입력값. 몰별 값은 RegistrationTarget.registrationInput 이다.
+  registrationDefaults Json?    @map("registration_defaults")
+  /// draft | active | paused | sold_out | unused | archived.
+  /// `draft` 는 판매(selling) 옵션 중 판매가가 비어 있다는 뜻이다 — 저장할 때마다 다시 판정한다.
+  /// paused · sold_out · unused · archived 는 사람이 정한 상태라 그대로 둔다.
+  status               String   @default("active")
   /// taxable | tax_free | zero_rated | unknown
-  taxType             String   @default("taxable") @map("tax_type")
+  taxType              String   @default("taxable") @map("tax_type")
   /// free | collect | prepay | collect_or_prepay
-  deliveryFeeType     String?  @map("delivery_fee_type")
-  deliveryFee         Int?     @map("delivery_fee")
+  deliveryFeeType      String?  @map("delivery_fee_type")
+  deliveryFee          Int?     @map("delivery_fee")
   /// 옵션 단 제목(최대 3). 비어 있으면 옵션 없는 단일 상품이다.
-  optionAxes          String[] @default([]) @map("option_axes")
-  stockManaged        Boolean  @default(false) @map("stock_managed")
+  optionAxes           String[] @default([]) @map("option_axes")
+  stockManaged         Boolean  @default(false) @map("stock_managed")
   /// [0] 대표, 그다음 추가 사진 순서.
-  imageUrls           String[] @default([]) @map("image_urls")
-  detailHtml          String?  @map("detail_html")
-  extraDetailHtml     String[] @default([]) @map("extra_detail_html")
+  imageUrls            String[] @default([]) @map("image_urls")
+  detailHtml           String?  @map("detail_html")
+  extraDetailHtml      String[] @default([]) @map("extra_detail_html")
   /// 사방넷 속성분류코드(상품정보고시)와 그 순서대로의 값.
-  noticeCategory      String?  @map("notice_category") @db.VarChar(10)
-  noticeValues        String[] @default([]) @map("notice_values")
+  noticeCategory       String?  @map("notice_category") @db.VarChar(10)
+  noticeValues         String[] @default([]) @map("notice_values")
   /// 인증 문서 목록(번호 · 기관 · 분야 · 유효기간 · 발급일 · 인증일 · 이미지).
-  certifications      Json?
-  importDeclarationNo String?  @map("import_declaration_no") @db.VarChar(60)
-  adminMemo           String?  @map("admin_memo")
+  certifications       Json?
+  importDeclarationNo  String?  @map("import_declaration_no") @db.VarChar(60)
+  adminMemo            String?  @map("admin_memo")
   /// 가져온 원문 한 줄(사방넷 엑셀 칸 그대로). 화면은 읽지 않는다.
-  sourceRaw           Json?    @map("source_raw")
-  /// 수집상품에서 만든 판매상품이면 그 수집상품 id(Sourcing 소유, 외래키 없이 id 만). 같은 수집상품은 판매상품 하나다.
-  sourceCandidateId   String?  @map("source_candidate_id") @db.Uuid
-  version             Int      @default(1)
+  sourceRaw            Json?    @map("source_raw")
+  /// 이 초안을 만든 원천 기록(SourcingCandidate)의 id. Sourcing 소유라 외래키 없이 id 만 둔다.
+  /// 후보 하나에 초안 하나다 — 원천 기록을 가리키는 포인터일 뿐, 후보를 지워도 초안은 남는다.
+  sourceCandidateId    String?  @map("source_candidate_id") @db.Uuid
+  /// 원천 장터(1688 · coupang · sabangnet …). 초안을 만들 때 후보에서 복사하고 바꾸지 않는다.
+  /// 목록의 원천 탭이 Sourcing 조인 없이 걸러지도록 여기에 둔다.
+  sourcePlatform       String?  @map("source_platform") @db.VarChar(40)
+  /// 원천 상품 주소. sourcePlatform 과 같은 시점에 복사하고 바꾸지 않는다.
+  sourceUrl            String?  @map("source_url")
+  version              Int      @default(1)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -449,6 +471,7 @@ model SalesProduct {
   @@unique([organizationId, sourceCandidateId], map: "sales_products_org_source_candidate_key", where: raw("source_candidate_id IS NOT NULL"))
   @@unique([id, organizationId], map: "sales_products_id_org_key")
   @@index([organizationId, status])
+  @@index([organizationId, sourcePlatform, status])
   @@index([organizationId, updatedAt, id])
   @@map("sales_products")
 }
@@ -468,7 +491,8 @@ model SalesProductOption {
   optionKey           String   @map("option_key") @db.VarChar(500)
   alias               String?  @db.VarChar(100)
   barcode             String?  @db.VarChar(60)
-  salePrice           Int      @map("sale_price")
+  /// 판매가. 초안은 아직 정하지 않아 비어 있을 수 있다 — 비어 있으면 상품이 `draft` 이고 등록 · 몰 시트 · 품절에서 막힌다.
+  salePrice           Int?     @map("sale_price")
   normalPrice         Int?     @map("normal_price")
   /// selling | sold_out | unused
   supplyStatus        String   @default("selling") @map("supply_status")
@@ -536,9 +560,7 @@ model RegistrationTarget {
   salesProductId String @map("sales_product_id") @db.Uuid
   version        Int    @default(1)
 
-  sourceCandidateId        String? @map("source_candidate_id") @db.Uuid
-  channelAccountId         String  @map("channel_account_id") @db.Uuid
-  sourceContentWorkspaceId String? @map("source_content_workspace_id") @db.Uuid
+  channelAccountId String @map("channel_account_id") @db.Uuid
 
   archivedAt DateTime? @map("archived_at") @db.Timestamptz
 
@@ -567,9 +589,7 @@ model RegistrationTarget {
   @@unique([id, organizationId, channelAccountId], map: "registration_targets_id_org_account_key")
   @@index([salesProductId, organizationId])
   @@index([organizationId, archivedAt])
-  @@index([sourceCandidateId])
   @@index([channelAccountId])
-  @@index([sourceContentWorkspaceId])
   @@index([selectedDetailPageArtifactId])
   @@index([selectedDetailPageRevisionId])
   @@index([selectedDetailPageGenerationId])
@@ -636,12 +656,11 @@ model ChannelAccount {
 /// @namespace Channels
 /// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
 model ChannelListing {
-  salesProductId    String?       @map("sales_product_id") @db.Uuid
-  salesProduct      SalesProduct? @relation("ChannelListingSalesProduct", fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  id                String        @id @default(uuid()) @db.Uuid
-  organizationId    String        @map("organization_id") @db.Uuid
-  channelAccountId  String        @map("channel_account_id") @db.Uuid
-  sourceCandidateId String?       @map("source_candidate_id") @db.Uuid
+  salesProductId   String?       @map("sales_product_id") @db.Uuid
+  salesProduct     SalesProduct? @relation("ChannelListingSalesProduct", fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  id               String        @id @default(uuid()) @db.Uuid
+  organizationId   String        @map("organization_id") @db.Uuid
+  channelAccountId String        @map("channel_account_id") @db.Uuid
 
   externalId String @map("external_id")
 
@@ -686,7 +705,6 @@ model ChannelListing {
   @@index([organizationId, salesProductId])
   @@index([organizationId])
   @@index([channelAccountId])
-  @@index([sourceCandidateId])
   @@index([lastImportRunId])
   @@index([organizationId, channelAccountId, isActive])
   @@index([organizationId, updatedAt, id])
