@@ -43,7 +43,7 @@ import {
   readMallAdminListingsSource,
 } from '../../../read/mall-admin-listings.reader';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
-import { deactivateSourceAbsence } from './source-scoped-absence';
+import { deactivateCatalogAbsence } from './catalog-absence';
 
 const SOURCE_TYPE = MALL_ADMIN_LISTINGS_SOURCE_TYPE;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
@@ -223,12 +223,16 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
           });
         }
       }
-      const deactivated = await deactivateSourceAbsence(tx, {
+      const present = products.map((product) => product.externalProductId);
+      const deactivated = await deactivateCatalogAbsence(tx, {
         organizationId: input.organizationId,
         channelAccountId: plan.channelAccountId,
-        sourceType: SOURCE_TYPE,
         sourceImportRunId: run.id,
-        externalIds: products.map((product) => product.externalProductId),
+        // 같은 몰 계정에 사방넷 수집이나 KidItem 등록이 만든 행이 함께 있다.
+        scope: { kind: 'source', sourceType: SOURCE_TYPE },
+        presentExternalProductIds: present,
+        // 이 원천은 리스팅 하나에 옵션 한 줄이고 둘의 외부 ID 가 같다.
+        presentExternalOptionIds: present,
       });
       mappingChanged ||= deactivated.listings > 0 || deactivated.options > 0;
       if (mappingChanged) await advanceProductMappingGeneration(tx, input.organizationId);

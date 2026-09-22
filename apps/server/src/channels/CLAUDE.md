@@ -128,7 +128,7 @@ sync, registration, matching, and capacity behavior is executable in
   `@kiditem/shared/mall-admin-listings`). Completion publishes that mall's
   products as listings with one option whose `itemName` is the Sellpia name the
   mall keeps, and turns off only listings this source created that left the
-  list (shared `deactivateSourceAbsence`). It sets no `sellerSku`; matching
+  list (shared `deactivateCatalogAbsence` with source scope). It sets no `sellerSku`; matching
   links by that name. Statuses come from the mall itself and fold without a
   Sabangnet warning.
 - Orders owns Rocket PO attempts, snapshots and lines. It publishes observed

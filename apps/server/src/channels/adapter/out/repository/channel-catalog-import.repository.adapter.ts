@@ -29,6 +29,7 @@ import {
 } from '../../../../common/product-mapping-generation';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
+import { deactivateCatalogAbsence } from './catalog-absence';
 import { liveCatalogImport, lockCatalogAccount } from './channel-catalog-attempt-fence';
 import {
   upsertChannelCatalogIdentities,
@@ -242,38 +243,22 @@ implements ChannelCatalogImportRepositoryPort {
         channelListingIds: [...identities.listingIds.values()],
       });
 
-      let deactivatedSkuCount = 0;
-      if (snapshotCoverage.canDeactivateUnseenSkus) {
-        const deactivatedSkus = await tx.channelListingOption.updateMany({
-          where: {
-            organizationId: input.organizationId,
-            listing: { channelAccountId: input.channelAccountId },
-            externalOptionId: { notIn: snapshotCoverage.externalSkuIds },
-            isActive: true,
-          },
-          data: {
-            isActive: false,
-            lastImportRunId: input.runId,
-          },
-        });
-        deactivatedSkuCount = deactivatedSkus.count;
-      }
-      let deactivatedProductCount = 0;
-      if (snapshotCoverage.canDeactivateUnseenProducts) {
-        const deactivatedProducts = await tx.channelListing.updateMany({
-          where: {
-            organizationId: input.organizationId,
-            channelAccountId: input.channelAccountId,
-            externalId: { notIn: snapshotCoverage.externalProductIds },
-            isActive: true,
-          },
-          data: {
-            isActive: false,
-            lastImportRunId: input.runId,
-          },
-        });
-        deactivatedProductCount = deactivatedProducts.count;
-      }
+      // 건너뛴 줄 때문에 한 차원을 완전히 덮지 못했으면 그 차원은 끄지 않는다.
+      const absence = await deactivateCatalogAbsence(tx, {
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+        sourceImportRunId: input.runId,
+        // 윙 엑셀은 계정의 상품 목록 전체를 한 번에 담는다.
+        scope: { kind: 'account' },
+        presentExternalProductIds: snapshotCoverage.canDeactivateUnseenProducts
+          ? snapshotCoverage.externalProductIds
+          : null,
+        presentExternalOptionIds: snapshotCoverage.canDeactivateUnseenSkus
+          ? snapshotCoverage.externalSkuIds
+          : null,
+      });
+      const deactivatedSkuCount = absence.options;
+      const deactivatedProductCount = absence.listings;
 
       if (mappingIdentityChanged || deactivatedSkuCount > 0 || deactivatedProductCount > 0) {
         await advanceProductMappingGeneration(tx, input.organizationId);
