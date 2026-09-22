@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type {
   SalesProduct,
   SalesProductCreateInput,
@@ -56,8 +57,18 @@ export interface SalesProductPort {
     organizationId: string,
     candidateIds: readonly string[],
   ): Promise<Map<string, string>>;
-  /** 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다. 몰에 올라가 있으면 그대로 두고 이유를 돌려준다. */
-  retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireResult>;
+  /**
+   * 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다. 몰에 올라가 있으면 그대로 두고
+   * 이유를 돌려준다.
+   *
+   * 부르는 쪽(Sourcing)의 트랜잭션에서 실행되어 후보 종료와 한 커밋에 들어간다 — 후보만
+   * 거절되고 초안이 살아 있는 중간 상태를 두지 않는다.
+   */
+  retireDraftForSource(
+    transaction: OwnerTransaction,
+    organizationId: string,
+    candidateId: string,
+  ): Promise<SalesProductDraftRetireResult>;
   /**
    * 팔기로 정한 시점에 KID 를 발급한다(상품 + 파는 단품). 멱등이다 — 이미 있으면 그대로 둔다.
    * 부르는 곳은 첫 등록 설정 생성 · 몰 엑셀 파일 · 직접 작성뿐이다(ADR-0022).

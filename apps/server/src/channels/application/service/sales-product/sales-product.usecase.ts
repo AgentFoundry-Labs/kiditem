@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type {
   SalesProductDraftRetireResult,
   SalesProductDraftSource,
@@ -159,14 +160,21 @@ export class SalesProductUseCase implements SalesProductPort {
    *
    * 몰에 올라가 있거나 살아 있는 등록 실행이 있으면 초안을 그대로 두고 이유만 돌려준다 — 후보
    * 거절을 막지 않는다(몰에 있는 상품의 기준을 잃으면 수정 · 품절을 어디에 걸지 모른다).
+   *
+   * 후보를 종료하는 트랜잭션에서 실행된다. 초안 내리기와 그 작업공간 보관이 후보 거절과 한
+   * 커밋에 들어가므로, 후보만 거절되고 초안이 살아 있는 중간 상태가 없다.
    */
-  async retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireResult> {
-    const row = await this.repository.retireDraftForSource(organizationId, candidateId);
+  async retireDraftForSource(
+    transaction: OwnerTransaction,
+    organizationId: string,
+    candidateId: string,
+  ): Promise<SalesProductDraftRetireResult> {
+    const row = await this.repository.retireDraftForSource(transaction, organizationId, candidateId);
     if (row.salesProductId === null || row.retired) {
       // 초안을 더 쓰지 않으면 그 콘텐츠 작업공간도 함께 보관한다 — 남겨 두면 지운 상품의 작업물이
       // 화면에 계속 뜬다.
       if (row.retired && row.salesProductId) {
-        await this.workspaceArchive?.archiveSalesProductWorkspace({
+        await this.workspaceArchive?.archiveSalesProductWorkspace(transaction, {
           organizationId,
           salesProductId: row.salesProductId,
           archivedAt: new Date(),

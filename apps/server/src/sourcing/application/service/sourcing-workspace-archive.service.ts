@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   SALES_PRODUCT_DRAFT_PORT,
   type SalesProductDraftPort,
@@ -34,12 +34,12 @@ export class SourcingWorkspaceArchiveService {
     private readonly preparations: CandidateRegistrationPort,
     @Inject(REGISTRATION_EXECUTION_PORT)
     private readonly executions: RegistrationExecutionPort,
-    @Optional() @Inject(SALES_PRODUCT_DRAFT_PORT)
-    private readonly salesProductDrafts?: SalesProductDraftPort,
+    @Inject(SALES_PRODUCT_DRAFT_PORT)
+    private readonly salesProductDrafts: SalesProductDraftPort,
   ) {}
 
   async archive(candidateId: string, organizationId: string): Promise<SourcingWorkspaceArchiveResult> {
-    const archived = await this.candidates.runInTransaction(async (tx, ownerTx) => {
+    return this.candidates.runInTransaction(async (tx, ownerTx) => {
       const archivedAt = new Date();
       await this.candidates.lockCandidate(tx, {
         id: candidateId,
@@ -71,18 +71,16 @@ export class SourcingWorkspaceArchiveService {
         throw new NotFoundException('Sourcing candidate not found');
       }
 
+      // 후보를 지우면 그 초안도 더 쓰지 않는다(KID-310). 콘텐츠 작업공간은 초안 소유라
+      // 초안을 내리는 쪽(Channels)이 AI 계약으로 함께 보관한다 — 여기서 AI 행을 쓰지 않는다.
+      // 같은 트랜잭션이라 후보만 지워지고 초안이 남는 중간 상태가 없다.
+      const draft = await this.salesProductDrafts.retireForSource(ownerTx, organizationId, candidateId);
       return {
         ok: true as const,
         archivedCandidateImages: candidate.archivedCandidateImages,
+        draftRetired: draft.retired,
+        ...(draft.blockedReason ? { draftWarning: draft.blockedReason } : {}),
       };
     });
-    // 후보를 지우면 그 초안도 더 쓰지 않는다(KID-310). 콘텐츠 작업공간은 초안 소유라
-    // 초안을 내리는 쪽(Channels)이 AI 계약으로 함께 보관한다 — 여기서 AI 행을 쓰지 않는다.
-    const draft = await this.salesProductDrafts?.retireForSource(organizationId, candidateId);
-    return {
-      ...archived,
-      ...(draft ? { draftRetired: draft.retired } : {}),
-      ...(draft?.blockedReason ? { draftWarning: draft.blockedReason } : {}),
-    };
   }
 }

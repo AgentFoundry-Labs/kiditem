@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   SalesProduct,
   SalesProductCertification,
@@ -263,7 +264,12 @@ export interface SalesProductRepositoryPort {
    * 후보에서 만든 초안을 `unused` 로 내린다. 활성 몰 상품이나 살아 있는 등록 실행이 있으면 내리지
    * 않고 그 수를 돌려준다 — 후보 거절을 막지는 않는다.
    */
-  retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireRow>;
+  /** 부르는 쪽의 트랜잭션에서 실행한다 — 후보 종료와 한 커밋이다. */
+  retireDraftForSource(
+    transaction: OwnerTransaction,
+    organizationId: string,
+    candidateId: string,
+  ): Promise<SalesProductDraftRetireRow>;
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(있는 것만). */
   readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>>;
   /** 공개 복사본을 저장한다(같은 주소면 바꾼다). 쓴 수. */

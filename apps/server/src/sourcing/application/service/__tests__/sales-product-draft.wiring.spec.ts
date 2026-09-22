@@ -4,11 +4,13 @@ import type { SalesProductDraftPort } from '../../port/out/cross-domain/sales-pr
 
 const ORG = 'org-1';
 const CANDIDATE = 'candidate-1';
+/** 후보를 거절하는 트랜잭션. 초안 내리기가 이 안에서 일어난다. */
+const OWNER_TX = { owner: true };
 
 function setup(draft: Partial<SalesProductDraftPort> = {}) {
   const candidates = {
     runInTransaction: vi.fn(async (operation: (tx: unknown, ownerTx: unknown) => Promise<unknown>) =>
-      operation({}, {})),
+      operation({}, OWNER_TX)),
     lockCandidate: vi.fn(),
     findCandidateState: vi.fn().mockResolvedValue({ id: CANDIDATE, status: 'sourced' }),
     rejectCandidate: vi.fn().mockResolvedValue({ count: 1 }),
@@ -33,7 +35,7 @@ describe('SourcingPromotionService.reject', () => {
     await expect(service.reject(CANDIDATE, ORG, {}, 'user-1'))
       .resolves.toEqual({ status: 'rejected', draftRetired: true });
 
-    expect(drafts.retireForSource).toHaveBeenCalledWith(ORG, CANDIDATE);
+    expect(drafts.retireForSource).toHaveBeenCalledWith(OWNER_TX, ORG, CANDIDATE);
   });
 
   it('still rejects the candidate when a mall holds its draft, and reports why', async () => {

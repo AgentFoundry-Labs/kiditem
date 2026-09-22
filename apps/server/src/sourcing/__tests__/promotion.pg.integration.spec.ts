@@ -17,6 +17,7 @@ import {
 import { ProductPreparationRepositoryAdapter } from '../../channels/adapter/out/persistence/candidate-registration.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
+import type { SalesProductDraftPort } from '../application/port/out/cross-domain/sales-product-draft.port';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 
@@ -24,16 +25,21 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
   let prisma: PrismaClient;
   let service: SourcingPromotionService;
 
-  beforeAll(async () => {
-    prisma = makeTestPrisma();
-    await prisma.$connect();
-    service = new SourcingPromotionService(
+  function promotionService(drafts?: SalesProductDraftPort): SourcingPromotionService {
+    return new SourcingPromotionService(
       new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService, realSalesProductDraftPort(prisma)),
       new ProductPreparationRepositoryAdapter(prisma as unknown as PrismaService, {
         lock: async () => undefined,
         requireActive: async () => undefined,
       }, { findSalesProductWorkspaceId: async () => null } as never),
+      drafts ?? realSalesProductDraftPort(prisma),
     );
+  }
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    service = promotionService();
   });
 
   afterAll(async () => prisma?.$disconnect());
@@ -51,7 +57,7 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
       TEST_ORGANIZATION_ID,
       { reason: 'Not commercially viable' },
       TEST_USER_ID,
-    )).resolves.toEqual({ status: 'rejected' });
+    )).resolves.toEqual({ status: 'rejected', draftRetired: false });
 
     await expect(prisma.sourcingCandidate.findUniqueOrThrow({
       where: { id: candidateId },
@@ -140,6 +146,32 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
       { reason: 'Blocked while registering' },
       TEST_USER_ID,
     )).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(prisma.sourcingCandidate.findUniqueOrThrow({
+      where: { id: candidateId },
+      select: { status: true, rejectedAt: true },
+    })).resolves.toEqual({ status: 'sourced', rejectedAt: null });
+  });
+
+  /**
+   * 초안 내리기가 거절과 한 커밋인지 본다.
+   *
+   * 두 트랜잭션이면 거절만 커밋되고 초안이 살아 있는 중간 상태가 남는데, 그 어긋남은 어느
+   * 화면에도 보이지 않는다 — 수집상품 목록에서 사라진 상품이 판매상품 목록에 그대로 있다.
+   */
+  it('⭐ 초안을 내리지 못하면 후보 거절도 커밋되지 않는다', async () => {
+    const candidateId = await seedCandidate(prisma, TEST_ORGANIZATION_ID);
+    const failing = {
+      ...realSalesProductDraftPort(prisma),
+      retireForSource: async () => { throw new Error('draft retirement failed'); },
+    } as unknown as SalesProductDraftPort;
+
+    await expect(promotionService(failing).reject(
+      candidateId,
+      TEST_ORGANIZATION_ID,
+      { reason: 'Not commercially viable' },
+      TEST_USER_ID,
+    )).rejects.toThrow('draft retirement failed');
 
     await expect(prisma.sourcingCandidate.findUniqueOrThrow({
       where: { id: candidateId },

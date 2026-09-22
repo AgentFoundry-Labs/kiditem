@@ -109,7 +109,7 @@ function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {
       write(row, input.plan);
       return true;
     },
-    retireDraftForSource: async (_org: string, candidateId: string) => {
+    retireDraftForSource: async (_tx: unknown, _org: string, candidateId: string) => {
       const row = rows.find((candidate) => candidate.sourceCandidateId === candidateId);
       if (!row) return { salesProductId: null, retired: false, activeListingCount: 0, activeExecutionCount: 0 };
       if (row.name === '몰에 올라간 상품') {
@@ -122,6 +122,9 @@ function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {
   const workspaceArchive = { archiveSalesProductWorkspace: vi.fn().mockResolvedValue(undefined) };
   return { rows, plans, workspaceArchive, service: new SalesProductUseCase(repository, workspaceArchive) };
 }
+
+/** 부르는 쪽(Sourcing)이 넘기는 불투명한 트랜잭션 손잡이. 안을 들여다보지 않는다. */
+const TX = { opaque: true } as never;
 
 const source = {
   candidateId: CANDIDATE,
@@ -227,10 +230,10 @@ describe('SalesProductUseCase.retireDraftForSource', () => {
   it('후보를 거절하면 그 초안을 unused 로 내리고 콘텐츠 작업공간도 보관한다', async () => {
     const { rows, service, workspaceArchive } = setup();
     await service.createFromSource(ORG, source);
-    await expect(service.retireDraftForSource(ORG, CANDIDATE))
+    await expect(service.retireDraftForSource(TX, ORG, CANDIDATE))
       .resolves.toEqual({ salesProductId: rows[0]!.id, retired: true, blockedReason: null });
     expect(rows[0]!.status).toBe('unused');
-    expect(workspaceArchive.archiveSalesProductWorkspace).toHaveBeenCalledWith({
+    expect(workspaceArchive.archiveSalesProductWorkspace).toHaveBeenCalledWith(TX, {
       organizationId: ORG,
       salesProductId: rows[0]!.id,
       archivedAt: expect.any(Date),
@@ -240,7 +243,7 @@ describe('SalesProductUseCase.retireDraftForSource', () => {
   it('몰에 올라가 있으면 내리지 않고 이유를 돌려준다 — 후보 거절을 막지는 않는다', async () => {
     const { rows, service, workspaceArchive } = setup();
     await service.createFromSource(ORG, { ...source, name: '몰에 올라간 상품' });
-    const result = await service.retireDraftForSource(ORG, CANDIDATE);
+    const result = await service.retireDraftForSource(TX, ORG, CANDIDATE);
     expect(result.retired).toBe(false);
     expect(result.blockedReason).toContain('몰');
     expect(rows[0]!.status).toBe('draft');
@@ -250,7 +253,7 @@ describe('SalesProductUseCase.retireDraftForSource', () => {
 
   it('초안이 없는 후보는 조용히 지나간다', async () => {
     const { service } = setup();
-    await expect(service.retireDraftForSource(ORG, CANDIDATE))
+    await expect(service.retireDraftForSource(TX, ORG, CANDIDATE))
       .resolves.toEqual({ salesProductId: null, retired: false, blockedReason: null });
   });
 });

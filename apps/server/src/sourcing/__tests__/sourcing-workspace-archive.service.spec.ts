@@ -95,7 +95,7 @@ describe('SourcingWorkspaceArchiveService', () => {
         organizationId: ORG,
         archivedAt: new Date('2026-05-15T08:00:00.000Z'),
       });
-      expect(drafts.retireForSource).toHaveBeenCalledWith(ORG, CANDIDATE_ID);
+      expect(drafts.retireForSource).toHaveBeenCalledWith(OWNER_TX, ORG, CANDIDATE_ID);
     } finally {
       vi.useRealTimers();
     }

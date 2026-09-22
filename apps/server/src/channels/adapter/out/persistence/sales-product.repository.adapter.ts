@@ -1,3 +1,5 @@
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { readSalesProductOptionExecutionCounts } from '../../../read/registration-execution.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
@@ -1204,10 +1206,11 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
    * 상품의 기준을 잃으면 수정 보내기 · 품절을 어디에 걸지 모른다. 그래도 후보 거절은 막지 않는다.
    */
   async retireDraftForSource(
+    transaction: OwnerTransaction,
     organizationId: string,
     candidateId: string,
   ): Promise<SalesProductDraftRetireRow> {
-    return this.prisma.$transaction(async (tx) => {
+    return (async (tx: Tx) => {
       const product = await tx.salesProduct.findFirst({
         where: { organizationId, sourceCandidateId: candidateId },
         select: { id: true, status: true },
@@ -1235,7 +1238,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         });
       }
       return { salesProductId: product.id, retired: true, activeListingCount: 0, activeExecutionCount: 0 };
-    }, TRANSACTION_OPTIONS);
+    })(ownerTransactionClient(transaction) as Tx);
   }
 
   async readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>> {

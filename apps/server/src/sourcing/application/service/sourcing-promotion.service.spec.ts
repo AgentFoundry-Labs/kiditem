@@ -21,11 +21,17 @@ function setup() {
   const preparations = {
     assertCandidateTerminalTransitionAllowed: vi.fn().mockResolvedValue(undefined),
   };
+  const drafts = {
+    retireForSource: vi.fn().mockResolvedValue({
+      salesProductId: 'draft-1', retired: true, blockedReason: null,
+    }),
+  };
   const service = new SourcingPromotionService(
     candidates as never,
     preparations as never,
+    drafts as never,
   );
-  return { service, candidates, preparations };
+  return { service, candidates, preparations, drafts };
 }
 
 describe('SourcingPromotionService candidate terminal transitions', () => {
@@ -37,7 +43,7 @@ describe('SourcingPromotionService candidate terminal transitions', () => {
       ORGANIZATION_ID,
       { reason: 'not viable' },
       USER_ID,
-    )).resolves.toEqual({ status: 'rejected' });
+    )).resolves.toEqual({ status: 'rejected', draftRetired: true });
 
     expect(candidates.lockCandidate).toHaveBeenCalledWith(TX, {
       id: CANDIDATE_ID,

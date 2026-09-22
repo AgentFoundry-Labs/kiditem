@@ -3,6 +3,7 @@ import {
   SALES_PRODUCT_PORT,
   type SalesProductPort,
 } from '../../../../channels/application/port/in/sales-product.port';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { SalesProduct } from '@kiditem/shared/sales-product';
 import type {
   SalesProductDraftPort,
@@ -37,7 +38,7 @@ export class SalesProductDraftAdapter implements SalesProductDraftPort {
     return this.salesProducts.get(organizationId, salesProductId);
   }
 
-  async retireForSource(organizationId: string, candidateId: string) {
-    return this.salesProducts.retireDraftForSource(organizationId, candidateId);
+  async retireForSource(transaction: OwnerTransaction, organizationId: string, candidateId: string) {
+    return this.salesProducts.retireDraftForSource(transaction, organizationId, candidateId);
   }
 }

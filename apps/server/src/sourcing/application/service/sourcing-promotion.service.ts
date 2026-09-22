@@ -3,7 +3,6 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-  Optional,
   UnprocessableEntityException,
 } from '@nestjs/common';
 import {
@@ -28,8 +27,8 @@ export class SourcingPromotionService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(CANDIDATE_REGISTRATION_PORT)
     private readonly preparations: CandidateRegistrationPort,
-    @Optional() @Inject(SALES_PRODUCT_DRAFT_PORT)
-    private readonly salesProductDrafts?: SalesProductDraftPort,
+    @Inject(SALES_PRODUCT_DRAFT_PORT)
+    private readonly salesProductDrafts: SalesProductDraftPort,
   ) {}
 
   async reject(
@@ -38,7 +37,7 @@ export class SourcingPromotionService {
     body: RejectCandidateCommand,
     userId: string | null,
   ): Promise<{ status: 'rejected'; draftRetired?: boolean; draftWarning?: string }> {
-    const rejected = await this.candidates.runInTransaction(async (tx, ownerTx) => {
+    return this.candidates.runInTransaction(async (tx, ownerTx) => {
       await this.candidates.lockCandidate(tx, { id: candidateId, organizationId });
       const candidate = await this.candidates.findCandidateState(tx, {
         id: candidateId,
@@ -64,15 +63,16 @@ export class SourcingPromotionService {
       if (count === 0) {
         throw new ConflictException('Sourcing candidate state changed concurrently');
       }
-      return { status: 'rejected' as const };
+      // 후보를 거절하면 그 초안도 더 쓰지 않는다(KID-310). 같은 트랜잭션에서 내린다 — 거절만
+      // 커밋되고 초안이 살아 있으면 그 어긋남이 어느 화면에도 보이지 않는다.
+      // 몰에 올라가 있으면 초안은 그대로 두고 경고만 돌려준다: 몰에 있는 상품의 기준을 잃으면
+      // 수정 · 품절을 어디에 걸지 모른다.
+      const draft = await this.salesProductDrafts.retireForSource(ownerTx, organizationId, candidateId);
+      return {
+        status: 'rejected' as const,
+        draftRetired: draft.retired,
+        ...(draft.blockedReason ? { draftWarning: draft.blockedReason } : {}),
+      };
     });
-    // 후보를 거절하면 그 초안도 더 쓰지 않는다(KID-310). 몰에 올라가 있으면 초안은 그대로 두고
-    // 경고만 돌려준다 — 몰에 있는 상품의 기준을 잃으면 수정 · 품절을 어디에 걸지 모른다.
-    const draft = await this.salesProductDrafts?.retireForSource(organizationId, candidateId);
-    return {
-      ...rejected,
-      ...(draft ? { draftRetired: draft.retired } : {}),
-      ...(draft?.blockedReason ? { draftWarning: draft.blockedReason } : {}),
-    };
   }
 }

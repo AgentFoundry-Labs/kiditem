@@ -1,3 +1,4 @@
+import { ownerTransaction } from '../../prisma/owner-transaction';
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -725,12 +726,18 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     expect(again).toMatchObject({ id: first.id, code: first.code, name: '사람이 고친 이름' });
   });
 
+  /** 초안 내리기는 부르는 쪽(Sourcing)의 트랜잭션에서 돈다. 여기서는 spec 이 그 역할을 한다. */
+  function retireDraft(organizationId: string, candidateId: string) {
+    return prisma.$transaction((tx) =>
+      service.retireDraftForSource(ownerTransaction(tx), organizationId, candidateId));
+  }
+
   it('sends the draft to unused when its source candidate is rejected, and keeps it when a mall holds it', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const candidateId = randomUUID();
     const draft = await service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '버려진 상품' });
 
-    await expect(service.retireDraftForSource(TEST_ORGANIZATION_ID, candidateId))
+    await expect(retireDraft(TEST_ORGANIZATION_ID, candidateId))
       .resolves.toMatchObject({ salesProductId: draft.id, retired: true, blockedReason: null });
     expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe('unused');
 
@@ -746,7 +753,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       },
     });
 
-    const blocked = await service.retireDraftForSource(TEST_ORGANIZATION_ID, listedCandidateId);
+    const blocked = await retireDraft(TEST_ORGANIZATION_ID, listedCandidateId);
 
     expect(blocked).toMatchObject({ salesProductId: listed.id, retired: false });
     expect(blocked.blockedReason).toContain('몰');
@@ -758,7 +765,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     const mine = await service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '우리 초안' });
     const theirs = await service.createFromSource(OTHER_ORGANIZATION_ID, { candidateId, name: '남의 초안' });
 
-    await service.retireDraftForSource(TEST_ORGANIZATION_ID, candidateId);
+    await retireDraft(TEST_ORGANIZATION_ID, candidateId);
 
     expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: mine.id } })).status).toBe('unused');
     expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: theirs.id } })).status).toBe('draft');
