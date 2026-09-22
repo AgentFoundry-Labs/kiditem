@@ -16,6 +16,7 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
+import { productTransactionalRead } from './product-transactional-read.fake';
 
 describe('sales product repository mall price adoption (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -25,7 +26,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService);
+    targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead());
     repository = new SalesProductRepositoryAdapter(
       prisma as unknown as PrismaService,
       undefined as never,
@@ -239,7 +240,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     });
 
     await expect(repository.setMallCategoryPaths(TEST_ORGANIZATION_ID, [
-      { salesProductId: productId, channelAccountId: accountId, targetId: secondTargetId, path: '완구>블록' },
+      { salesProductId: productId, channelAccountId: accountId, path: '완구>블록' },
     ])).resolves.toBe(1);
     await expect(targets.get(TEST_ORGANIZATION_ID, secondTargetId)).resolves.toMatchObject({
       version: 2,
@@ -268,7 +269,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     });
 
     await expect(repository.setMallCategoryPaths(TEST_ORGANIZATION_ID, [
-      { salesProductId: productId, channelAccountId: accountId, targetId: strangerId, path: '완구>블록' },
+      { salesProductId: productId, channelAccountId: accountId, path: '완구>블록' },
     ])).rejects.toThrow('설정을 찾지 못했습니다');
     await expect(prisma.registrationTarget.count({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, channelAccountId: accountId },
@@ -382,7 +383,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
         channelAccountId: accountId, displayName: '기획전 편집값' },
     });
     const second = importWrite(accountId, {
-      code: first.create.code,
+      code: first.create.code!,
       optionPrices: [{ sabangnetOptionCode: 'SOURCE-EDIT', salePrice: 999 }],
       priceRateBp: null,
     });
@@ -498,6 +499,13 @@ function importWrite(channelAccountId: string, options: {
       code,
       sabangnetGoodsNo: code,
       name: '가져오기 상품',
+      description: '',
+      targetAudience: null,
+      ageGroup: null,
+      productSize: null,
+      colorVariantNames: [],
+      boxSetQuantity: null,
+      registrationDefaults: null,
       ownCode: null,
       shortName: null,
       englishName: null,
@@ -584,7 +592,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     repository = new SalesProductRepositoryAdapter(
       prisma as unknown as PrismaService,
       productsRead,
-      new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService),
+      new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead()),
     );
     service = new SalesProductUseCase(repository);
   });
@@ -765,7 +773,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       options: [{ values: ['빨강'], salePrice: 4_000 }, { values: ['파랑'], salePrice: 4_500 }],
     });
     const before = await repository.readOptionState(TEST_ORGANIZATION_ID, created.id);
-    const targetId = await new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService)
+    const targetId = await new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead())
       .create(TEST_ORGANIZATION_ID, {
         salesProductId: created.id,
         channelAccountId: accountId,

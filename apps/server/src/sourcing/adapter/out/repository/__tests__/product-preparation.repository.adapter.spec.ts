@@ -96,6 +96,8 @@ function setup(existingExecution: {
   const repository = new ProductPreparationRepositoryAdapter(
     prisma as unknown as PrismaService,
     source,
+    // 작업공간 id 는 등록 설정 줄에 저장하지 않고 AI 계약에 묻는다(KID-310).
+    { findSalesProductWorkspaceId: vi.fn().mockResolvedValue(null) } as never,
   );
   const resolveSelections = vi.fn(async (_transaction, input) => ({
     selectedThumbnailUrl: input.selectedThumbnailUrl,

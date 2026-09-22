@@ -90,20 +90,18 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       where: { id: row.salesProductId, organizationId: row.organizationId },
       select: { name: true, sourceCandidateId: true },
     });
-    const sourceCandidateId = product?.sourceCandidateId ?? null;
-    if (!sourceCandidateId) return { sourceCandidateId: null, sourceContentWorkspaceId: null };
     const workspaceId = options.ensure
-      ? await this.contentWorkspaces.ensureCandidateWorkspace(tx, {
+      ? await this.contentWorkspaces.ensureSalesProductWorkspace(tx, {
         organizationId: row.organizationId,
-        sourceCandidateId,
+        salesProductId: row.salesProductId,
         displayName: row.displayName ?? product?.name ?? '',
         createdByUserId: null,
       })
-      : await this.contentWorkspaces.findCandidateWorkspaceId({
+      : await this.contentWorkspaces.findSalesProductWorkspaceId({
         organizationId: row.organizationId,
-        sourceCandidateId,
+        salesProductId: row.salesProductId,
       });
-    return { sourceCandidateId, sourceContentWorkspaceId: workspaceId };
+    return { sourceCandidateId: product?.sourceCandidateId ?? null, sourceContentWorkspaceId: workspaceId };
   }
 
   async findDraftIds(
@@ -165,9 +163,9 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     const tx = client(handle);
     const product = await requireConfirmedProductForCandidate(tx, input.organizationId, input.sourceCandidateId);
     const existing = await findCandidateAccountPreparation(tx, input.organizationId, product.id, input.channelAccountId);
-    const sourceContentWorkspaceId = await this.contentWorkspaces.ensureCandidateWorkspace(handle, {
+    const sourceContentWorkspaceId = await this.contentWorkspaces.ensureSalesProductWorkspace(handle, {
       organizationId: input.organizationId,
-      sourceCandidateId: input.sourceCandidateId,
+      salesProductId: product.id,
       displayName: input.displayName,
       createdByUserId: input.requestedByUserId,
     });
@@ -275,6 +273,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     input: {
       organizationId: string;
+      salesProductId: string;
       sourceWorkspaceId: string;
       listingId: string;
       displayName: string;
@@ -287,10 +286,11 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       selectedDetailPageGenerationId: string | null;
     },
   ): Promise<{ workspaceId: string }> {
-    return this.contentWorkspaces.branchToListing(
-      tx,
-      input,
-    );
+    return this.contentWorkspaces.attachToListing(tx, {
+      organizationId: input.organizationId,
+      salesProductId: input.salesProductId,
+      listingId: input.listingId,
+    });
   }
 
 }

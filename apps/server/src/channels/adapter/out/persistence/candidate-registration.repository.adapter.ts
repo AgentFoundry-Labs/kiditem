@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   Inject,
+  Optional,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -13,6 +14,14 @@ import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
 } from '../../../../sourcing/application/port/in/registration-content-workspace.port';
+import {
+  SALES_PRODUCT_THUMBNAIL_SOURCE_PORT,
+  type SalesProductThumbnailSourcePort,
+} from '../../../application/port/out/ai/sales-product-thumbnail-source.port';
+import {
+  SelectedThumbnailError,
+  assertSelectedThumbnailAllowed,
+} from '../../../domain/registration/selected-thumbnail';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   blocksCandidateTerminalTransition as executionsBlockTerminalTransition,
@@ -60,7 +69,35 @@ export class ProductPreparationRepositoryAdapter
   constructor(private readonly prisma: PrismaService,
     @Inject(REGISTRATION_SOURCE_PORT) private readonly source: RegistrationSourcePort,
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
-    private readonly contentWorkspaces: RegistrationContentWorkspacePort) {}
+    private readonly contentWorkspaces: RegistrationContentWorkspacePort,
+    @Optional() @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
+    private readonly thumbnailSources?: SalesProductThumbnailSourcePort) {}
+
+  /**
+   * 몰에 나갈 대표 사진은 그 판매상품의 사진이어야 한다(KID-310). 손으로 적은 주소나 다른 상품의
+   * 사진을 그대로 얼리면 몰에서 엉뚱한 상품이 되고 되돌릴 방법이 없다.
+   */
+  private async assertThumbnailBelongsToProduct(
+    organizationId: string,
+    salesProductId: string,
+    selectedThumbnailUrl: string | null,
+  ): Promise<void> {
+    if (!selectedThumbnailUrl || !this.thumbnailSources) return;
+    const [product, generated] = await Promise.all([
+      this.prisma.salesProduct.findFirst({
+        where: { id: salesProductId, organizationId },
+        select: { imageUrls: true },
+      }),
+      this.thumbnailSources.listGeneratedThumbnailUrls(organizationId, salesProductId),
+    ]);
+    const allowed = [...(product?.imageUrls ?? []), ...generated];
+    try {
+      assertSelectedThumbnailAllowed(selectedThumbnailUrl, allowed);
+    } catch (error) {
+      if (error instanceof SelectedThumbnailError) throw new BadRequestException(error.message);
+      throw error;
+    }
+  }
 
   async readForCandidates(
     organizationId: string,
@@ -316,13 +353,16 @@ export class ProductPreparationRepositoryAdapter
 
       assertPatchFresh(current, input.command.input);
       assertRegistrationIdentity(current);
+      await this.assertThumbnailBelongsToProduct(
+        input.organizationId,
+        current.salesProductId,
+        mergedSelectionValues(current, input.command.input).selectedThumbnailUrl,
+      );
       if (sourceCandidateId) await this.source.requireActive(handle, input.organizationId, sourceCandidateId);
-      const workspaceId = sourceCandidateId
-        ? await this.contentWorkspaces.findCandidateWorkspaceId({
-          organizationId: input.organizationId,
-          sourceCandidateId,
-        })
-        : null;
+      const workspaceId = await this.contentWorkspaces.findSalesProductWorkspaceId({
+        organizationId: input.organizationId,
+        salesProductId: current.salesProductId,
+      });
       const resolvedSelections = await resolveSelections(
         handle,
         selectionResolutionInput(

@@ -349,7 +349,7 @@ export class SourcingService {
     // Registration images come from ContentAsset.role, not from the scrape
     // originals on the candidate row. Missing assets stay empty so the caller
     // can fall back explicitly instead of shipping an off-spec source image.
-    const [registrationMedia, contentWorkspaceId, salesProductId] = await Promise.all([
+    const [registrationMedia, salesProductId] = await Promise.all([
       // 갤러리와 현재 대표를 하나의 미디어 읽기로 받아, 응답 중간에
       // 선택이 바뀌어도 등록 이미지와 `등록 대표` 배지가 엇갈리지 않게 한다.
       this.candidateContentAssets.loadRegistrationMedia({
@@ -359,11 +359,6 @@ export class SourcingService {
       // 후보가 이미 가진 content workspace. 없으면 null 이고, 읽기 경로에서
       // 새로 만들지 않는다. 워크스페이스 화면은 이 값이 있어야 썸네일 구성을
       // 저장할 수 있다.
-      this.registrationContentWorkspaces.findCandidateWorkspaceId({
-        organizationId,
-        sourceCandidateId: productId,
-      }),
-      // 편집 정본은 이 후보에서 만든 판매상품 초안이다(KID-310). 화면은 이 id 로 넘어간다.
       this.salesProductDrafts?.findDraftIdForSource(organizationId, productId) ?? null,
     ]);
     const {
@@ -372,7 +367,6 @@ export class SourcingService {
     } = registrationMedia;
     return {
       ...row,
-      contentWorkspaceId,
       salesProductId,
       registrationImages,
       currentThumbnail: workspaceThumbnailSelection,

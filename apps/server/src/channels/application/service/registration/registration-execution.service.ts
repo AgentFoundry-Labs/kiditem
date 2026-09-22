@@ -423,6 +423,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
           // 콘텐츠 작업공간이 없는 초안(직접 작성)은 분기할 것이 없다.
           if (submission.sourceContentWorkspaceId) await this.drafts.branchContentToListing(tx, {
             organizationId,
+            salesProductId: submission.salesProductId,
             sourceWorkspaceId: submission.sourceContentWorkspaceId,
             listingId: listing.listingId,
             displayName: submission.displayName,

@@ -26,6 +26,7 @@ import {
 } from '../../../domain/sales-product/sales-product-draft';
 import { issuesKidCodes } from '../../../domain/sales-product/sales-product-code';
 import { issueSalesProductOptionCodes } from './sales-product-code';
+import type { SalesProductWorkspaceArchivePort } from '../../port/out/ai/sales-product-workspace-archive.port';
 import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SalesProductBasicsRecord,
@@ -43,6 +44,7 @@ export class SalesProductUseCase implements SalesProductPort {
   constructor(
 
     private readonly repository: SalesProductRepositoryPort,
+    private readonly workspaceArchive?: SalesProductWorkspaceArchivePort,
   ) {}
 
   list(organizationId: string, rawQuery: unknown): Promise<SalesProductListResponse> {
@@ -155,6 +157,15 @@ export class SalesProductUseCase implements SalesProductPort {
   async retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireResult> {
     const row = await this.repository.retireDraftForSource(organizationId, candidateId);
     if (row.salesProductId === null || row.retired) {
+      // 초안을 더 쓰지 않으면 그 콘텐츠 작업공간도 함께 보관한다 — 남겨 두면 지운 상품의 작업물이
+      // 화면에 계속 뜬다.
+      if (row.retired && row.salesProductId) {
+        await this.workspaceArchive?.archiveSalesProductWorkspace({
+          organizationId,
+          salesProductId: row.salesProductId,
+          archivedAt: new Date(),
+        });
+      }
       return { salesProductId: row.salesProductId, retired: row.retired, blockedReason: null };
     }
     return {

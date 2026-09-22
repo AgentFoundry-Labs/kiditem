@@ -15,6 +15,7 @@ import type {
   RegistrationTargetUpdateInput,
 } from '@kiditem/shared/sales-product';
 import type { PrismaClient } from '@prisma/client';
+import { productTransactionalRead } from './product-transactional-read.fake';
 
 describe('registration target repository (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -23,7 +24,7 @@ describe('registration target repository (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService);
+    repository = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead());
   });
 
   afterAll(async () => {

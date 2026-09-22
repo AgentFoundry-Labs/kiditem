@@ -146,6 +146,7 @@ export interface RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     input: {
       organizationId: string;
+      salesProductId: string;
       sourceWorkspaceId: string;
       listingId: string;
       displayName: string;

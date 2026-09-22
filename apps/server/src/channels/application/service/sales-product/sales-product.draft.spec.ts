@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SalesProductUseCase } from './sales-product.usecase';
 import type { SalesProduct } from '@kiditem/shared/sales-product';
 import type { SalesProductOptionReplacementPlan } from '../../../domain/sales-product/sales-product';
@@ -119,7 +119,8 @@ function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {
       return { salesProductId: row.id, retired: true, activeListingCount: 0, activeExecutionCount: 0 };
     },
   } as unknown as SalesProductRepositoryPort;
-  return { rows, plans, service: new SalesProductUseCase(repository) };
+  const workspaceArchive = { archiveSalesProductWorkspace: vi.fn().mockResolvedValue(undefined) };
+  return { rows, plans, workspaceArchive, service: new SalesProductUseCase(repository, workspaceArchive) };
 }
 
 const source = {
@@ -223,21 +224,28 @@ describe('SalesProductUseCase.replaceOptions', () => {
 });
 
 describe('SalesProductUseCase.retireDraftForSource', () => {
-  it('후보를 거절하면 그 초안을 unused 로 내린다', async () => {
-    const { rows, service } = setup();
+  it('후보를 거절하면 그 초안을 unused 로 내리고 콘텐츠 작업공간도 보관한다', async () => {
+    const { rows, service, workspaceArchive } = setup();
     await service.createFromSource(ORG, source);
     await expect(service.retireDraftForSource(ORG, CANDIDATE))
       .resolves.toEqual({ salesProductId: rows[0]!.id, retired: true, blockedReason: null });
     expect(rows[0]!.status).toBe('unused');
+    expect(workspaceArchive.archiveSalesProductWorkspace).toHaveBeenCalledWith({
+      organizationId: ORG,
+      salesProductId: rows[0]!.id,
+      archivedAt: expect.any(Date),
+    });
   });
 
   it('몰에 올라가 있으면 내리지 않고 이유를 돌려준다 — 후보 거절을 막지는 않는다', async () => {
-    const { rows, service } = setup();
+    const { rows, service, workspaceArchive } = setup();
     await service.createFromSource(ORG, { ...source, name: '몰에 올라간 상품' });
     const result = await service.retireDraftForSource(ORG, CANDIDATE);
     expect(result.retired).toBe(false);
     expect(result.blockedReason).toContain('몰');
     expect(rows[0]!.status).toBe('draft');
+    // 몰에 남아 있으면 작업공간도 그대로 둔다.
+    expect(workspaceArchive.archiveSalesProductWorkspace).not.toHaveBeenCalled();
   });
 
   it('초안이 없는 후보는 조용히 지나간다', async () => {
