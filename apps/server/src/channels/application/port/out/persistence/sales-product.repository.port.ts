@@ -34,6 +34,13 @@ export interface SalesProductBasicsRecord {
   originRegion: string | null;
   keywords: string[];
   standardCategory: string | null;
+  description: string;
+  targetAudience: string | null;
+  ageGroup: string | null;
+  productSize: string | null;
+  colorVariantNames: string[];
+  boxSetQuantity: number | null;
+  registrationDefaults: Record<string, unknown> | null;
   status: SalesProductStatus;
   taxType: SalesProductTaxType;
   deliveryFeeType: SalesProductDeliveryFeeType | null;
@@ -53,26 +60,29 @@ export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
   code: string;
   sabangnetGoodsNo: string | null;
   optionAxes: string[];
-  sourceRaw: Record<string, string> | null;
-  /** 수집상품에서 만든 판매상품이면 그 수집상품 id. */
+  sourceRaw: Record<string, unknown> | null;
+  /** 이 초안을 만든 원천 기록(수집상품) id. */
   sourceCandidateId?: string | null;
-}
-
-/** 수집상품에서 만든 판매상품 — 다시 올릴 때 새로 만들지 않고 쓰는 데 필요한 것만. */
-export interface SalesProductFromCandidateRecord {
-  id: string;
-  code: string;
-  version: number;
-  status: SalesProductStatus;
-  imageUrls: string[];
-  detailHtml: string | null;
+  /** 원천 장터와 주소. 초안을 만들 때만 쓰고 바꾸지 않는다. */
+  sourcePlatform?: string | null;
+  sourceUrl?: string | null;
 }
 
 export interface SalesProductOptionState {
   productId: string;
   productCode: string;
+  productName: string;
+  status: SalesProductStatus;
   version: number;
   options: ExistingSalesProductOption[];
+}
+
+/** 후보 거절 · 삭제가 초안을 `unused` 로 내린 결과. */
+export interface SalesProductDraftRetireRow {
+  salesProductId: string | null;
+  retired: boolean;
+  activeListingCount: number;
+  activeExecutionCount: number;
 }
 
 export interface SabangnetImportProductWrite {
@@ -144,6 +154,8 @@ export interface SalesProductRepositoryPort {
     expectedVersion: number;
     optionAxes: string[];
     plan: SalesProductOptionReplacementPlan;
+    /** 저장 뒤 상태. 팔 옵션에 값이 다 차면 `active`, 아니면 `draft` 다. */
+    status: SalesProductStatus;
   }): Promise<boolean>;
   /** 이 조직의 활성 셀피아 SKU 가 맞는지. 아닌 id 를 돌려준다. */
   findInvalidMasterProductIds(organizationId: string, skuIds: readonly string[]): Promise<string[]>;
@@ -229,11 +241,13 @@ export interface SalesProductRepositoryPort {
   listMallCategoryPaths(
     organizationId: string,
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]>;
-  /** 수집상품 id → 그 수집상품에서 만든 판매상품(있는 것만, 수집상품으로 되돌린 것 포함). */
-  findBySourceCandidates(
-    organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, SalesProductFromCandidateRecord>>;
+  /** 원천 기록 id → 그 후보에서 만든 초안 id(있으면). 초안은 후보당 하나다. */
+  findIdBySourceCandidate(organizationId: string, candidateId: string): Promise<string | null>;
+  /**
+   * 후보에서 만든 초안을 `unused` 로 내린다. 활성 몰 상품이나 살아 있는 등록 실행이 있으면 내리지
+   * 않고 그 수를 돌려준다 — 후보 거절을 막지는 않는다.
+   */
+  retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireRow>;
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(있는 것만). */
   readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>>;
   /** 공개 복사본을 저장한다(같은 주소면 바꾼다). 쓴 수. */

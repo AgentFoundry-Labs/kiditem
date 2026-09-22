@@ -122,7 +122,7 @@ function setup(overrides: {
   return {
     service: new RegistrationExecutionService(executions, registration, drafts, {
       list: vi.fn(), findByCandidate: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
-      replaceOptions: vi.fn(), createFromCandidates: vi.fn(), demoteToCandidate: vi.fn(), mallCategories: vi.fn(),
+      replaceOptions: vi.fn(), createFromSource: vi.fn(), retireDraftForSource: vi.fn(), mallCategories: vi.fn(),
     }, {
       resolve: vi.fn(), list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
     }, {

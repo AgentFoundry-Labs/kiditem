@@ -1,23 +1,31 @@
 import { issueSalesProductOptionCodes } from './sales-product-code';
-import type { SalesProductPort } from '../../port/in/sales-product.port';
+import type {
+  SalesProductDraftRetireResult,
+  SalesProductDraftSource,
+  SalesProductPort,
+} from '../../port/in/sales-product.port';
 import { ChannelInputError as BadRequestException, ChannelConflictError as ConflictException, ChannelNotFoundError as NotFoundException } from '../../../domain/exception/channel-business-error';
 import {
   SalesProductCreateInputSchema,
-  SalesProductDemoteRequestSchema,
-  SalesProductFromCandidatesRequestSchema,
   SalesProductListQuerySchema,
   SalesProductOptionsReplaceInputSchema,
   SalesProductUpdateInputSchema,
   type SalesProduct,
-  type SalesProductFromCandidatesResult,
   type SalesProductListResponse,
   type SalesProductMallCategories,
+  type SalesProductStatus,
 } from '@kiditem/shared/sales-product';
 import {
   planSalesProductOptionReplacement,
   SalesProductOptionPlanError,
   type SalesProductOptionDraft,
 } from '../../../domain/sales-product/sales-product';
+import {
+  issuesKidCodes,
+  planDraftOptions,
+  resolveSalesProductStatus,
+  type SalesProductPricedOption,
+} from '../../../domain/sales-product/sales-product-draft';
 import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SalesProductBasicsRecord,
@@ -52,7 +60,7 @@ export class SalesProductUseCase implements SalesProductPort {
     const input = parseOrBadRequest(SalesProductCreateInputSchema, body, '판매상품 내용이 올바르지 않습니다.');
     await this.assertSellpiaSkus(organizationId, input.options.flatMap((option) =>
       option.components.map((component) => component.masterProductId)));
-    const code = await this.nextProductCode(organizationId);
+    const code = await this.issueDraftKid(organizationId);
     const plan = planOrBadRequest(() => planSalesProductOptionReplacement({
       productCode: code,
       existing: [],
@@ -61,6 +69,8 @@ export class SalesProductUseCase implements SalesProductPort {
     await issueSalesProductOptionCodes(organizationId, plan, this.repository);
     const id = await this.repository.create(organizationId, {
       ...basicsRecord(input),
+      // 판매가를 다 채우지 않은 채로 만들면 초안이다. 저장할 때마다 같은 규칙으로 다시 판정한다.
+      status: resolveSalesProductStatus({ current: input.status ?? 'active', options: plan.writes }),
       code,
       sabangnetGoodsNo: null,
       optionAxes: input.optionAxes,
@@ -70,98 +80,98 @@ export class SalesProductUseCase implements SalesProductPort {
   }
 
   /**
-   * 수집상품 여러 개를 판매상품으로 만든다(수집상품 화면의 몰 대량등록). 같은 수집상품에서 만든 판매상품이 있으면 새로
-   * 만들지 않고 그것을 쓴다 — 사람이 고친 값은 덮지 않고, 비어 있는 사진 · 상세설명만 채운다.
+   * 원천 한 줄에서 초안을 만든다(수집 · 직접 작성이 같은 모델로 들어온다).
+   *
+   * 후보 하나에 초안 하나다 — 같은 후보를 다시 담아도, 두 요청이 동시에 들어와도 초안은 늘어나지
+   * 않는다. 원천 값은 초안의 첫 내용일 뿐이라 사람이 고친 뒤에는 덮지 않는다.
    */
-  async findByCandidate(organizationId: string, candidateId: string): Promise<SalesProduct | null> {
-    const found = (await this.repository.findBySourceCandidates(organizationId, [candidateId])).get(candidateId);
-    return found ? this.get(organizationId, found.id) : null;
-  }
-
-  async createFromCandidates(organizationId: string, body: unknown): Promise<SalesProductFromCandidatesResult> {
-    const input = parseOrBadRequest(SalesProductFromCandidatesRequestSchema, body, '수집상품 내용이 올바르지 않습니다.');
-    const candidateIds = input.items.map((item) => item.candidateId);
-    if (new Set(candidateIds).size !== candidateIds.length) throw new BadRequestException('같은 수집상품이 두 번 있습니다.');
-    await this.assertSellpiaSkus(organizationId, input.items.flatMap((item) =>
-      item.product.options.flatMap((option) => option.components.map((component) => component.masterProductId))));
-    const existing = await this.repository.findBySourceCandidates(organizationId, candidateIds);
-    const products: SalesProductFromCandidatesResult['products'] = [];
-    for (const item of input.items) {
-      const found = existing.get(item.candidateId);
-      if (found) {
-        const patch: Partial<SalesProductBasicsRecord> = {};
-        if (found.imageUrls.length === 0 && item.product.imageUrls.length > 0) patch.imageUrls = item.product.imageUrls;
-        if (!found.detailHtml?.trim() && item.product.detailHtml?.trim()) patch.detailHtml = item.product.detailHtml;
-        // 수집상품으로 되돌렸던 판매상품은 다시 올리면 같은 코드 · 몰별 값 그대로 되살아난다.
-        if (found.status === 'archived') patch.status = 'active';
-        const updated = Object.keys(patch).length > 0
-          ? await this.repository.updateBasics(organizationId, found.id, found.version, patch)
-          : true;
-        // 그사이 사람이 고쳤으면(버전이 다르면) 채우지 않는다. 되살려야 하는데 못 했으면 다시 누르게 한다.
-        if (!updated && patch.status) throw new ConflictException(VERSION_CONFLICT);
-        products.push({ candidateId: item.candidateId, salesProductId: found.id, code: found.code, created: false });
-        continue;
-      }
-      const code = await this.nextProductCode(organizationId);
-      const plan = planOrBadRequest(() => planSalesProductOptionReplacement({
-        productCode: code,
-        existing: [],
-        options: item.product.options.map(toDraft),
-      }));
-      await issueSalesProductOptionCodes(organizationId, plan, this.repository);
-      try {
-        const id = await this.repository.create(organizationId, {
-          ...basicsRecord(item.product),
-          code,
-          sabangnetGoodsNo: null,
-          optionAxes: item.product.optionAxes,
-          sourceRaw: null,
-          sourceCandidateId: item.candidateId,
-        }, plan);
-        products.push({ candidateId: item.candidateId, salesProductId: id, code, created: true });
-      } catch (error) {
-        // 같은 수집상품을 다른 곳에서 먼저 만들었으면 그것을 쓴다.
-        const made = (await this.repository.findBySourceCandidates(organizationId, [item.candidateId])).get(item.candidateId);
-        if (!made) throw error;
-        products.push({ candidateId: item.candidateId, salesProductId: made.id, code: made.code, created: false });
-      }
+  async createFromSource(organizationId: string, input: SalesProductDraftSource): Promise<SalesProduct> {
+    const existing = await this.repository.findIdBySourceCandidate(organizationId, input.candidateId);
+    if (existing) return this.get(organizationId, existing);
+    const code = await this.issueDraftKid(organizationId);
+    const { optionAxes, optionValues } = planDraftOptions(input.optionNames);
+    const plan = planOrBadRequest(() => planSalesProductOptionReplacement({
+      productCode: code,
+      existing: [],
+      options: optionValues.map((values) => ({
+        values,
+        // 초안은 판매가가 없다. 사람이 채우면 그 저장이 상품을 active 로 올린다.
+        salePrice: null,
+        normalPrice: null,
+        supplyStatus: 'selling' as const,
+        components: [],
+      })),
+    }));
+    await issueSalesProductOptionCodes(organizationId, plan, this.repository);
+    try {
+      const id = await this.repository.create(organizationId, {
+        ...basicsRecord({
+          name: input.name,
+          description: input.description ?? '',
+          keywords: [],
+          status: 'draft',
+          taxType: 'taxable',
+          stockManaged: false,
+          imageUrls: [...(input.imageUrls ?? [])],
+          extraDetailHtml: [],
+          noticeValues: [],
+          certifications: [],
+        }),
+        status: 'draft',
+        code,
+        sabangnetGoodsNo: null,
+        optionAxes,
+        sourceRaw: sourceSnapshot(input),
+        sourceCandidateId: input.candidateId,
+        sourcePlatform: input.sourcePlatform ?? null,
+        sourceUrl: input.sourceUrl ?? null,
+      }, plan);
+      return this.get(organizationId, id);
+    } catch (error) {
+      // 같은 후보로 다른 요청이 먼저 만들었으면(유일키 충돌) 그것을 쓴다.
+      const made = await this.repository.findIdBySourceCandidate(organizationId, input.candidateId);
+      if (!made) throw error;
+      return this.get(organizationId, made);
     }
-    return {
-      products,
-      created: products.filter((product) => product.created).length,
-      reused: products.filter((product) => !product.created).length,
-    };
   }
 
   /**
-   * 수집상품으로 되돌리기 — 수집상품에서 만든 판매상품만, 몰에 올라간 상품과 이어져 있지 않을 때 `archived` 로 내린다.
-   * 지우지 않는다: 코드 · 몰별 값이 남아 같은 수집상품을 다시 올리면 그대로 되살아나고, 코드가 다른 상품에 다시 쓰이지 않는다.
+   * 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다.
+   *
+   * 몰에 올라가 있거나 살아 있는 등록 실행이 있으면 초안을 그대로 두고 이유만 돌려준다 — 후보
+   * 거절을 막지 않는다(몰에 있는 상품의 기준을 잃으면 수정 · 품절을 어디에 걸지 모른다).
    */
-  async demoteToCandidate(organizationId: string, salesProductId: string, body: unknown): Promise<SalesProduct> {
-    const input = parseOrBadRequest(SalesProductDemoteRequestSchema, body, '버전이 필요합니다.');
-    const product = await this.get(organizationId, salesProductId);
-    if (!product.sourceCandidateId) {
-      throw new BadRequestException('수집상품에서 만든 판매상품만 수집상품으로 되돌릴 수 있습니다.');
+  async retireDraftForSource(organizationId: string, candidateId: string): Promise<SalesProductDraftRetireResult> {
+    const row = await this.repository.retireDraftForSource(organizationId, candidateId);
+    if (row.salesProductId === null || row.retired) {
+      return { salesProductId: row.salesProductId, retired: row.retired, blockedReason: null };
     }
-    const linkedListings = product.channelListings.filter((listing) => listing.isActive).length;
-    const linkedOptions = product.options.reduce((sum, option) => sum + option.linkedChannelOptionCount, 0);
-    if (linkedListings > 0 || linkedOptions > 0) {
-      throw new ConflictException('몰에 올라간 상품과 이어져 있어 되돌릴 수 없습니다. 몰에서 내리고 연결을 끊은 뒤 되돌리세요.');
-    }
-    if (product.status === 'archived') return product;
-    const updated = await this.repository.updateBasics(organizationId, salesProductId, input.expectedVersion, { status: 'archived' });
-    if (!updated) throw new ConflictException(VERSION_CONFLICT);
-    return this.get(organizationId, salesProductId);
+    return {
+      salesProductId: row.salesProductId,
+      retired: false,
+      blockedReason: row.activeListingCount > 0
+        ? '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.'
+        : '등록 실행이 남아 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    };
   }
 
   async update(organizationId: string, salesProductId: string, body: unknown): Promise<SalesProduct> {
     const input = parseOrBadRequest(SalesProductUpdateInputSchema, body, '판매상품 내용이 올바르지 않습니다.');
     const { expectedVersion, ...patch } = input;
+    const state = await this.repository.readOptionState(organizationId, salesProductId);
+    if (!state) throw new NotFoundException('판매상품을 찾지 못했습니다.');
     const updated = await this.repository.updateBasics(
       organizationId,
       salesProductId,
       expectedVersion,
-      patch as Partial<SalesProductBasicsRecord>,
+      {
+        ...(patch as Partial<SalesProductBasicsRecord>),
+        // 기본 칸만 고쳐도 상태는 옵션 판매가가 정한다.
+        status: resolveSalesProductStatus({
+          current: (patch.status as SalesProductStatus | undefined) ?? state.status,
+          options: pricedOptions(state.options),
+        }),
+      },
     );
     if (!updated) throw new ConflictException(VERSION_CONFLICT);
     return this.get(organizationId, salesProductId);
@@ -186,6 +196,8 @@ export class SalesProductUseCase implements SalesProductPort {
       expectedVersion: input.expectedVersion,
       optionAxes: input.optionAxes,
       plan,
+      // 저장이 곧 "판매가 확인"이다 — 팔 옵션에 값이 다 차면 여기서 active 로 올라간다.
+      status: resolveSalesProductStatus({ current: state.status, options: plan.writes }),
     });
     if (!applied) throw new ConflictException(VERSION_CONFLICT);
     return this.get(organizationId, salesProductId);
@@ -205,7 +217,14 @@ export class SalesProductUseCase implements SalesProductPort {
     }
   }
 
-  private async nextProductCode(organizationId: string): Promise<string> {
+  /**
+   * KID 발급. 시점은 도메인 정책 한 곳(`KID_ISSUE_MOMENT`)이 정하고, 지금은 초안을 만들 때다.
+   * 첫 `active` 전환 시 발급으로 바꾸려면 상수를 옮기고 이 호출을 그 전환 자리로 옮긴다.
+   */
+  private async issueDraftKid(organizationId: string): Promise<string> {
+    if (!issuesKidCodes('draft_created')) {
+      throw new Error('KID 발급 시점이 바뀌었습니다. 초안 생성과 첫 active 전환 경로를 함께 옮기세요.');
+    }
     return this.repository.allocateCode(organizationId);
   }
 }
@@ -216,13 +235,30 @@ function toDraft(option: {
   values: string[];
   alias?: string | null;
   barcode?: string | null;
-  salePrice: number;
+  salePrice: number | null;
   normalPrice: number | null;
   supplyStatus: SalesProductOptionDraft['supplyStatus'];
   safetyStock?: number | null;
   components: { masterProductId: string; quantity: number }[];
 }): SalesProductOptionDraft {
   return { ...option };
+}
+
+function pricedOptions(
+  options: readonly { supplyStatus?: string; salePrice?: number | null; id: string }[],
+): SalesProductPricedOption[] {
+  return options.map((option) => ({
+    id: option.id,
+    supplyStatus: (option.supplyStatus ?? 'selling') as SalesProductPricedOption['supplyStatus'],
+    salePrice: option.salePrice ?? null,
+  }));
+}
+
+/** 원천 원문(원가 위안 포함)을 초안에 얼려 둔다. 편집 화면은 읽지 않는다. */
+function sourceSnapshot(input: SalesProductDraftSource): Record<string, unknown> | null {
+  const raw = { ...(input.rawBasics ?? {}) };
+  if (input.costCny !== undefined && input.costCny !== null) raw.costCny = input.costCny;
+  return Object.keys(raw).length > 0 ? raw : null;
 }
 
 function basicsRecord(input: {
@@ -239,6 +275,13 @@ function basicsRecord(input: {
   originRegion?: string | null;
   keywords: string[];
   standardCategory?: string | null;
+  description?: string;
+  targetAudience?: string | null;
+  ageGroup?: string | null;
+  productSize?: string | null;
+  colorVariantNames?: string[];
+  boxSetQuantity?: number | null;
+  registrationDefaults?: Record<string, unknown> | null;
   status: SalesProductBasicsRecord['status'];
   taxType: SalesProductBasicsRecord['taxType'];
   deliveryFeeType?: SalesProductBasicsRecord['deliveryFeeType'];
@@ -267,6 +310,13 @@ function basicsRecord(input: {
     originRegion: input.originRegion ?? null,
     keywords: input.keywords,
     standardCategory: input.standardCategory ?? null,
+    description: input.description ?? '',
+    targetAudience: input.targetAudience ?? null,
+    ageGroup: input.ageGroup ?? null,
+    productSize: input.productSize ?? null,
+    colorVariantNames: input.colorVariantNames ?? [],
+    boxSetQuantity: input.boxSetQuantity ?? null,
+    registrationDefaults: input.registrationDefaults ?? null,
     status: input.status,
     taxType: input.taxType,
     deliveryFeeType: input.deliveryFeeType ?? null,

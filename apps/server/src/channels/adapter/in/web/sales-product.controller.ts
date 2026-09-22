@@ -37,8 +37,6 @@ import {
   SalesProductUpdateInputSchema,
   SalesProductOptionsReplaceInputSchema,
   SalesProductListQuerySchema,
-  SalesProductFromCandidatesRequestSchema,
-  SalesProductDemoteRequestSchema,
 
   type SabangnetImportSelection,
 } from '@kiditem/shared/sales-product';
@@ -71,12 +69,6 @@ export class SalesProductController {
   ) {}
 
   /** 몰 대량등록 엑셀 목록 — 몰마다 고정값 칸과 기본값. */
-  @Get('from-candidate/:candidateId')
-  findByCandidate(@CurrentOrganization() organizationId: string,
-    @Param('candidateId', new ParseUUIDPipe()) candidateId: string) {
-    return this.salesProducts.findByCandidate(organizationId, candidateId);
-  }
-
   @Get('mall-sheets')
   mallSheetList() {
     return this.mallSheets.list();
@@ -261,15 +253,6 @@ export class SalesProductController {
     return this.salesProducts.create(organizationId, parseInput(SalesProductCreateInputSchema, body));
   }
 
-  /** 수집상품 화면의 몰 대량등록 — 고른 수집상품을 판매상품으로 만든다(이미 만든 것은 그대로 쓴다). */
-  @Post('from-candidates')
-  createFromCandidates(
-    @CurrentOrganization() organizationId: string,
-    @Body() body: unknown,
-  ) {
-    return this.salesProducts.createFromCandidates(organizationId, parseInput(SalesProductFromCandidatesRequestSchema, body));
-  }
-
   @Post('imports/sabangnet')
   @UseInterceptors(
     FilesInterceptor('files', 6, {
@@ -303,16 +286,6 @@ export class SalesProductController {
     @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
   ) {
     return this.salesProducts.get(organizationId, salesProductId);
-  }
-
-  /** 수집상품에서 만든 판매상품을 수집상품으로 되돌린다(지우지 않고 `archived`, 다시 올리면 되살아난다). */
-  @Post(':salesProductId/demote')
-  demoteToCandidate(
-    @CurrentOrganization() organizationId: string,
-    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
-    @Body() body: unknown,
-  ) {
-    return this.salesProducts.demoteToCandidate(organizationId, salesProductId, parseInput(SalesProductDemoteRequestSchema, body));
   }
 
   @Patch(':salesProductId')

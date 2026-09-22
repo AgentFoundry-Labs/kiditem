@@ -23,6 +23,8 @@ export interface ExistingSalesProductOption {
   /** Persistent registration targets still select this option. */
   registrationSelectionCount?: number;
   supplyStatus?: string;
+  /** 초안은 아직 정하지 않아 비어 있을 수 있다. */
+  salePrice?: number | null;
   components?: readonly { masterProductId: string; quantity: number }[];
 }
 
@@ -33,7 +35,7 @@ export interface SalesProductOptionDraft {
   values: string[];
   alias?: string | null;
   barcode?: string | null;
-  salePrice: number;
+  salePrice: number | null;
   normalPrice: number | null;
   supplyStatus: SalesProductOptionSupplyStatus;
   safetyStock?: number | null;
@@ -51,7 +53,7 @@ export interface PlannedOptionWrite {
   values: string[];
   alias: string | null;
   barcode: string | null;
-  salePrice: number;
+  salePrice: number | null;
   normalPrice: number | null;
   supplyStatus: SalesProductOptionSupplyStatus;
   safetyStock: number | null;
@@ -170,8 +172,8 @@ export function salesProductImportFingerprint(input: {
   options: readonly {
     optionCode: string;
     optionKey: string;
-    salePrice: number;
-  normalPrice: number | null;
+    salePrice: number | null;
+    normalPrice: number | null;
     supplyStatus: string;
     components: readonly { masterProductId: string; quantity: number }[];
   }[];
