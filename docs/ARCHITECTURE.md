@@ -794,7 +794,8 @@ raster executor was removed.
 
 Sourcing intelligence is a truth-data and decision-audit capability, not an
 LLM-generated ordering shortcut. Sourcing owns source permission, evidence,
-candidate identity, and recommendation policy. Supply owns observed supplier
+candidate identity, and recommendation policy. Editing a collected item happens
+on its Channels sales-product draft, not on the candidate. Supply owns observed supplier
 commercial terms and every pre-purchase intent. The only cross-owner mutation
 is `SOURCING_SUPPLY_INTELLIGENCE_PORT` backed by Supply's exported
 `SUPPLY_SOURCING_PROCUREMENT_PORT`; Sourcing never writes Supply models.
@@ -891,19 +892,24 @@ training or automatic provider action is enabled by this foundation.
 
 ## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.26`)
 
-Channels owns `SalesProduct` (one mall registration unit including options),
-reusable `RegistrationTarget` settings and their selected options. Candidate
-provenance is optional; a target references a priced selling product and active
-account. Several targets may serve the same product/account. Archiving sets
-`archivedAt`; successful submission leaves the target reusable.
+Channels owns `SalesProduct` (the single editable draft of one item, including
+options), reusable `RegistrationTarget` settings and their selected options.
+A collected or authored item becomes a `draft` sales product immediately, and
+every preparation step edits that draft; the sourcing candidate stays an
+immutable source record whose id the draft carries. A product has at most one
+active target per channel account, and a promotional listing is a separate sales
+product sharing the same source stock. A target references a priced selling
+product and active account. Archiving sets `archivedAt`; successful submission
+leaves the target reusable ([ADR-0022](adr/0022-sales-product-drafts-exist-from-collection.md)).
 
 `ProductRegistrationExecution` freezes each intent's payload, hash, approval,
 actor, account, idempotency key, lease and provider outcome. Changing a target
 cannot change an existing execution. Only one unresolved execution may hold a
 target or actual listing's active fence. Sourcing provides candidate eligibility
-through its public contract; AI owns content workspaces and assets. Neither owner
-writes Channels targets or executions, and registration never creates a source
-`MasterProduct`.
+through its public contract; AI owns content workspaces and assets, and one
+workspace belongs to one sales-product draft or channel-listing branch.
+Neither owner writes Channels targets or executions, and registration never
+creates a source `MasterProduct`.
 
 ```text
 optional SourcingCandidate provenance
