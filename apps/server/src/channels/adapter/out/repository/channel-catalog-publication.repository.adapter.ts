@@ -421,6 +421,8 @@ async function upsertCoupangCatalogRows(
   const identities = await upsertChannelCatalogIdentities(tx, {
     organizationId: input.organizationId,
     channelAccountId: input.channelAccountId,
+    // 윙 브라우저 수집은 옵션의 판매가와 판매자코드를 모두 읽는다.
+    unobservedOptionFields: [],
     products: input.products.map(({ product }) => product),
     lastImportRunId: input.lastImportRunId,
     rawSource: 'coupang_catalog_browser',

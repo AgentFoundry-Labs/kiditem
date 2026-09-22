@@ -48,6 +48,7 @@ describe('channel catalog identity upsert (PG integration)', () => {
       channelAccountId,
       lastImportRunId: null,
       rawSource: 'coupang_rocket_po_catalog',
+      unobservedOptionFields: [],
       products: [
         product('P-KEPT', { poNumber: '1001' }),
         product('P-REPLACED', { poNumber: '1002', createdOn: '2026-05-02 09:00:00' }),
@@ -64,6 +65,57 @@ describe('channel catalog identity upsert (PG integration)', () => {
       { externalId: 'P-REPLACED', rawJson: { poNumber: '1002', createdOn: '2026-05-02 09:00:00' } },
       { externalId: 'P-UNREGISTERED', rawJson: { poNumber: '1003' } },
     ]);
+  });
+
+  it('keeps an option value the publishing source did not observe and clears one it observed empty', async () => {
+    const seeded = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId,
+        externalId: 'P-1',
+        rawJson: { source: 'coupang_catalog_basics' },
+      },
+      select: { id: true },
+    });
+    await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: seeded.id,
+        externalOptionId: 'P-1-O',
+        sellerSku: 'KID00000001',
+        salePrice: 19_900,
+        rawJson: { source: 'coupang_catalog_basics' },
+      },
+    });
+
+    await prisma.$transaction((tx) => upsertChannelCatalogIdentities(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId,
+      lastImportRunId: null,
+      rawSource: 'coupang_wing_catalog_workbook',
+      // 윙 엑셀은 판매자코드도 판매가도 싣지 않는다 — 이 원천이 읽지 않는 칸이다.
+      unobservedOptionFields: ['sellerSku', 'salePrice'],
+      products: [product('P-1', {})],
+    }));
+
+    await expect(prisma.channelListingOption.findFirst({
+      where: { listingId: seeded.id },
+      select: { sellerSku: true, salePrice: true },
+    })).resolves.toEqual({ sellerSku: 'KID00000001', salePrice: 19_900 });
+
+    await prisma.$transaction((tx) => upsertChannelCatalogIdentities(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId,
+      lastImportRunId: null,
+      rawSource: 'mall_admin_listings',
+      unobservedOptionFields: [],
+      products: [product('P-1', {})],
+    }));
+
+    await expect(prisma.channelListingOption.findFirst({
+      where: { listingId: seeded.id },
+      select: { sellerSku: true, salePrice: true },
+    })).resolves.toEqual({ sellerSku: null, salePrice: null });
   });
 });
 

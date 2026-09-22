@@ -30,7 +30,10 @@ import {
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 import { liveCatalogImport, lockCatalogAccount } from './channel-catalog-attempt-fence';
-import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
+import {
+  upsertChannelCatalogIdentities,
+  type ChannelCatalogIdentityOption,
+} from './channel-catalog-identity-upsert';
 import {
   CHANNEL_OPTION_RECIPE_PORT,
   type ChannelOptionRecipePort,
@@ -192,219 +195,51 @@ implements ChannelCatalogImportRepositoryPort {
         input.rows,
         input.skippedRows,
       );
-      const externalProductIds = canonicalParents.map(
-        (row) => row.externalProductId,
-      );
-      const externalSkuIds = input.rows.map((row) => row.externalSkuId);
-      const [existingProducts, existingSkus] = await Promise.all([
-        tx.channelListing.findMany({
-          where: {
-            organizationId: input.organizationId,
-            channelAccountId: input.channelAccountId,
-            externalId: { in: externalProductIds },
-          },
-          select: { id: true, externalId: true, isActive: true },
-        }),
-        tx.channelListingOption.findMany({
-          where: {
-            organizationId: input.organizationId,
-            listing: { channelAccountId: input.channelAccountId },
-            externalOptionId: { in: externalSkuIds },
-          },
-          select: { id: true, listingId: true, externalOptionId: true, isActive: true },
-        }),
-      ]);
-      const existingProductIds = new Set(
-        existingProducts.map((row) => row.externalId),
-      );
-      const existingSkuIds = new Set(
-        existingSkus.map((row) => row.externalOptionId),
-      );
-      const existingProductByExternalId = new Map(
-        existingProducts.map((row) => [row.externalId, row]),
-      );
-      const existingSkuByExternalId = new Map(
-        existingSkus.map((row) => [row.externalOptionId, row]),
-      );
-      const mappingIdentityChanged =
-        canonicalParents.some((row) => {
-          const existing = existingProductByExternalId.get(row.externalProductId);
-          return !existing || !existing.isActive;
-        })
-        || input.rows.some((row) => {
-          const existing = existingSkuByExternalId.get(row.externalSkuId);
-          return !existing || !existing.isActive;
+      const optionsByProduct = new Map<string, ChannelCatalogIdentityOption[]>();
+      for (const row of input.rows) {
+        const options = optionsByProduct.get(row.externalProductId) ?? [];
+        options.push({
+          externalOptionId: row.externalSkuId,
+          optionName: row.optionName,
+          barcode: row.barcode,
+          modelNumber: row.modelNumber,
+          skuStatus: row.skuStatus,
+          attributes: row.attributesJson,
+          raw: row.rawJson,
         });
-      const createdProductCount = canonicalParents.filter(
-        (row) => !existingProductIds.has(row.externalProductId),
-      ).length;
-      const updatedProductCount = canonicalParents.length - createdProductCount;
-      const createdSkuCount = input.rows.filter(
-        (row) => !existingSkuIds.has(row.externalSkuId),
-      ).length;
-      const updatedSkuCount = input.rows.length - createdSkuCount;
-
-      for (
-        let offset = 0;
-        offset < canonicalParents.length;
-        offset += UPSERT_BATCH_SIZE
-      ) {
-        const batch = canonicalParents.slice(offset, offset + UPSERT_BATCH_SIZE);
-        const payload = JSON.stringify(
-          batch.map((row) => ({ id: randomUUID(), ...row })),
-        );
-        await tx.$executeRaw`
-          INSERT INTO channel_listings (
-            id,
-            organization_id,
-            channel_account_id,
-            external_id,
-            channel_name,
-            display_name,
-            category,
-            manufacturer,
-            brand,
-            status,
-            raw_json,
-            last_import_run_id,
-            is_active,
-            created_at,
-            updated_at
-          )
-          SELECT
-            (record->>'id')::uuid,
-            ${input.organizationId}::uuid,
-            ${input.channelAccountId}::uuid,
-            record->>'externalProductId',
-            record->>'registeredName',
-            record->>'displayName',
-            record->>'category',
-            record->>'manufacturer',
-            record->>'brand',
-            record->>'productStatus',
-            record->'rawJson',
-            ${input.runId}::uuid,
-            TRUE,
-            NOW(),
-            NOW()
-          FROM jsonb_array_elements(${payload}::jsonb) AS record
-          ON CONFLICT (organization_id, channel_account_id, external_id)
-            WHERE channel_account_id IS NOT NULL
-          DO UPDATE SET
-            channel_name = EXCLUDED.channel_name,
-            display_name = EXCLUDED.display_name,
-            category = EXCLUDED.category,
-            manufacturer = EXCLUDED.manufacturer,
-            brand = EXCLUDED.brand,
-            status = EXCLUDED.status,
-            raw_json = ${listingRawJsonReplacementSql},
-            last_import_run_id = EXCLUDED.last_import_run_id,
-            is_active = TRUE,
-            updated_at = NOW()
-        `;
+        optionsByProduct.set(row.externalProductId, options);
       }
 
-      const persistedProducts = await tx.channelListing.findMany({
-        where: {
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          externalId: { in: externalProductIds },
-        },
-        select: { id: true, externalId: true },
+      const identities = await upsertChannelCatalogIdentities(tx, {
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+        lastImportRunId: input.runId,
+        rawSource: SOURCE_TYPE,
+        // 윙 엑셀에는 판매자코드 칸도 판매가 칸도 없다. 브라우저 수집이 본 값을 지우지 않는다.
+        unobservedOptionFields: ['sellerSku', 'salePrice'],
+        products: canonicalParents.map((parent) => ({
+          externalProductId: parent.externalProductId,
+          registeredName: parent.registeredName,
+          displayName: parent.displayName,
+          category: parent.category,
+          manufacturer: parent.manufacturer,
+          brand: parent.brand,
+          productStatus: parent.productStatus,
+          raw: parent.rawJson,
+          options: optionsByProduct.get(parent.externalProductId) ?? [],
+        })),
       });
-      const productIdByExternalId = new Map(
-        persistedProducts.map((row) => [row.externalId, row.id]),
-      );
-      if (productIdByExternalId.size !== canonicalParents.length) {
-        throw new ConflictException(
-          'Coupang Wing parent upsert did not resolve every imported product',
-        );
-      }
-
-      const importedParentBySku = new Map(
-        input.rows.map((row) => [row.externalSkuId, row.externalProductId]),
-      );
-      for (const existingSku of existingSkus) {
-        const importedParentId = productIdByExternalId.get(
-          importedParentBySku.get(existingSku.externalOptionId) ?? '',
-        );
-        if (!importedParentId || existingSku.listingId !== importedParentId) {
-          throw new BadRequestException(
-            `External SKU ${existingSku.externalOptionId} is already attached to a different parent`,
-          );
-        }
-      }
-
-      for (let offset = 0; offset < input.rows.length; offset += UPSERT_BATCH_SIZE) {
-        const batch = input.rows.slice(offset, offset + UPSERT_BATCH_SIZE);
-        const payload = JSON.stringify(
-          batch.map((row) => ({
-            id: randomUUID(),
-            listingId: productIdByExternalId.get(row.externalProductId),
-            externalSkuId: row.externalSkuId,
-            optionName: row.optionName,
-            skuStatus: row.skuStatus,
-            modelNumber: row.modelNumber,
-            barcode: row.barcode,
-            attributesJson: row.attributesJson,
-            rawJson: row.rawJson,
-          })),
-        );
-        await tx.$executeRaw`
-          INSERT INTO channel_listing_options (
-            id,
-            listing_id,
-            organization_id,
-            external_option_id,
-            item_name,
-            seller_sku,
-            sale_price,
-            barcode,
-            model_number,
-            status,
-            attributes_json,
-            raw_json,
-            last_import_run_id,
-            is_active,
-            created_at,
-            updated_at
-          )
-          SELECT
-            (record->>'id')::uuid,
-            (record->>'listingId')::uuid,
-            ${input.organizationId}::uuid,
-            record->>'externalSkuId',
-            record->>'optionName',
-            NULL,
-            NULL,
-            record->>'barcode',
-            record->>'modelNumber',
-            record->>'skuStatus',
-            record->'attributesJson',
-            record->'rawJson',
-            ${input.runId}::uuid,
-            TRUE,
-            NOW(),
-            NOW()
-          FROM jsonb_array_elements(${payload}::jsonb) AS record
-          ON CONFLICT (listing_id, external_option_id)
-          DO UPDATE SET
-            listing_id = EXCLUDED.listing_id,
-            item_name = EXCLUDED.item_name,
-            barcode = EXCLUDED.barcode,
-            model_number = EXCLUDED.model_number,
-            status = EXCLUDED.status,
-            attributes_json = EXCLUDED.attributes_json,
-            raw_json = EXCLUDED.raw_json,
-            last_import_run_id = EXCLUDED.last_import_run_id,
-            is_active = TRUE,
-            updated_at = NOW()
-        `;
-      }
+      const { mappingIdentityChanged } = identities;
+      const {
+        createdProductCount,
+        updatedProductCount,
+        createdSkuCount,
+        updatedSkuCount,
+      } = identities.changes;
 
       await applyRegisteredOptionRecipes(ownerTransaction(tx), this.recipes, {
         organizationId: input.organizationId,
-        channelListingIds: [...productIdByExternalId.values()],
+        channelListingIds: [...identities.listingIds.values()],
       });
 
       let deactivatedSkuCount = 0;

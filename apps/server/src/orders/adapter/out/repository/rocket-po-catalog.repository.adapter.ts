@@ -326,6 +326,8 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
           channelAccountId: plan.channelAccountId,
           lastImportRunId: run.id,
           rawSource: SOURCE_TYPE,
+          // 발주서에는 판매가 칸이 없다. 다른 수집이 본 가격을 지우지 않는다.
+          unobservedOptionFields: ['salePrice'],
           products: productsFromRows(rows),
         });
       await createRocketPoCatalogSnapshot(tx, publication, run.id);

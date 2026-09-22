@@ -6,8 +6,8 @@ import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
 
 const UPSERT_BATCH_SIZE = 500;
 
-import type { ChannelCatalogIdentityOption, ChannelCatalogIdentityMedia, ChannelCatalogIdentityProduct, ChannelCatalogIdentityUpsertInput, ChannelCatalogDetailIdentityOption, ChannelCatalogDetailIdentityProduct, ChannelCatalogIdentityUpsertResult, PersistedChannelCatalogListing } from '../../../domain/collection/catalog-identities';
-export type { ChannelCatalogIdentityOption, ChannelCatalogIdentityMedia, ChannelCatalogIdentityProduct, ChannelCatalogIdentityUpsertInput, ChannelCatalogDetailIdentityOption, ChannelCatalogDetailIdentityProduct, ChannelCatalogIdentityUpsertResult, PersistedChannelCatalogListing } from '../../../domain/collection/catalog-identities';
+import type { ChannelCatalogIdentityOption, ChannelCatalogIdentityMedia, ChannelCatalogIdentityProduct, ChannelCatalogBasicsUpsertInput, ChannelCatalogIdentityUpsertInput, ChannelCatalogUnobservedOptionField, ChannelCatalogDetailIdentityOption, ChannelCatalogDetailIdentityProduct, ChannelCatalogIdentityUpsertResult, PersistedChannelCatalogListing } from '../../../domain/collection/catalog-identities';
+export type { ChannelCatalogIdentityOption, ChannelCatalogIdentityMedia, ChannelCatalogIdentityProduct, ChannelCatalogBasicsUpsertInput, ChannelCatalogIdentityUpsertInput, ChannelCatalogUnobservedOptionField, ChannelCatalogDetailIdentityOption, ChannelCatalogDetailIdentityProduct, ChannelCatalogIdentityUpsertResult, PersistedChannelCatalogListing } from '../../../domain/collection/catalog-identities';
 
 /**
  * Publish the complete Wing inventory-list stage without touching fields
@@ -17,7 +17,7 @@ export type { ChannelCatalogIdentityOption, ChannelCatalogIdentityMedia, Channel
  */
 export async function upsertChannelCatalogBasics(
   tx: Prisma.TransactionClient,
-  input: ChannelCatalogIdentityUpsertInput,
+  input: ChannelCatalogBasicsUpsertInput,
 ): Promise<ChannelCatalogIdentityUpsertResult> {
   const externalProductIds = input.products.map((product) => product.externalProductId);
   const externalOptionIds = input.products.flatMap((product) =>
@@ -183,8 +183,9 @@ export async function upsertChannelCatalogBasics(
         existing,
         externalOptionId,
         itemName: option.optionName,
-        salePrice: option.salePrice,
-        sellerSku: option.sellerSku,
+        // basics 단계는 모든 칸을 COALESCE 로 합치므로 값이 없으면 저장값이 남는다.
+        salePrice: option.salePrice ?? null,
+        sellerSku: option.sellerSku ?? null,
         status: option.skuStatus,
         barcode: option.barcode,
         modelNumber: option.modelNumber,
@@ -990,6 +991,25 @@ function stableJson(value: unknown): string {
   return JSON.stringify(String(value));
 }
 
+/**
+ * 원천이 읽지 않는다고 선언한 칸은 저장된 관측값을 그대로 두고, 그 밖의 칸은 이번 관측으로
+ * 덮는다. 칸 이름은 닫힌 union 에서만 오므로 식별자가 입력으로 새지 않는다.
+ */
+function observedOptionColumn(
+  input: ChannelCatalogIdentityUpsertInput,
+  field: ChannelCatalogUnobservedOptionField,
+  column: 'sale_price' | 'seller_sku',
+): Prisma.Sql {
+  if (!input.unobservedOptionFields?.includes(field)) {
+    return column === 'sale_price'
+      ? Prisma.sql`EXCLUDED.sale_price`
+      : Prisma.sql`EXCLUDED.seller_sku`;
+  }
+  return column === 'sale_price'
+    ? Prisma.sql`channel_listing_options.sale_price`
+    : Prisma.sql`channel_listing_options.seller_sku`;
+}
+
 export async function upsertChannelCatalogIdentities(
   tx: Prisma.TransactionClient,
   input: ChannelCatalogIdentityUpsertInput,
@@ -1155,8 +1175,8 @@ export async function upsertChannelCatalogIdentities(
       ON CONFLICT (listing_id, external_option_id)
       DO UPDATE SET
         item_name = EXCLUDED.item_name,
-        sale_price = EXCLUDED.sale_price,
-        seller_sku = EXCLUDED.seller_sku,
+        sale_price = ${observedOptionColumn(input, 'salePrice', 'sale_price')},
+        seller_sku = ${observedOptionColumn(input, 'sellerSku', 'seller_sku')},
         barcode = EXCLUDED.barcode,
         model_number = EXCLUDED.model_number,
         status = EXCLUDED.status,

@@ -1103,6 +1103,41 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     ]);
   });
 
+  it('keeps observed listing facts the reimported workbook leaves blank', async () => {
+    const identity = { externalProductId: 'P-BLANK', externalSkuId: 'S-BLANK' };
+    await importCatalog([makeRow(0, identity)], fileHash('blank-first'));
+
+    // 윙 엑셀은 칸이 비어 나올 수 있다. 비었다는 것은 "몰에서 사라졌다"가 아니다.
+    await importCatalog(
+      [makeRow(0, {
+        ...identity,
+        displayName: null,
+        category: null,
+        manufacturer: null,
+        brand: null,
+        productStatus: null,
+      })],
+      fileHash('blank-second'),
+    );
+
+    await expect(prisma.channelListing.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'P-BLANK' },
+      select: {
+        displayName: true,
+        category: true,
+        manufacturer: true,
+        brand: true,
+        status: true,
+      },
+    })).resolves.toEqual({
+      displayName: '노출 상품 0',
+      category: '카테고리 0',
+      manufacturer: '제조사 0',
+      brand: '브랜드 0',
+      status: '승인완료',
+    });
+  });
+
   it('rejects moving an existing external SKU to another parent and rolls back the whole import', async () => {
     await importCatalog(
       [
@@ -1134,7 +1169,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         ],
         rejectedHash,
       ),
-    ).rejects.toThrow('different parent');
+    ).rejects.toThrow('cannot move to another parent');
 
     const after = await prisma.channelListingOption.findFirstOrThrow({
       where: { id: before.id },
@@ -1203,7 +1238,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     await expect(importCatalog([makeRow(0, {
       externalProductId: 'P-3',
       externalSkuId: 'S-2',
-    })], fileHash('mapping-rejected'))).rejects.toThrow('different parent');
+    })], fileHash('mapping-rejected'))).rejects.toThrow('cannot move to another parent');
     await expect(mappingGeneration()).resolves.toBe(2n);
     await expect(prisma.masterProductAbcFormulaState.findUnique({
       where: { organizationId: OTHER_ORGANIZATION_ID },

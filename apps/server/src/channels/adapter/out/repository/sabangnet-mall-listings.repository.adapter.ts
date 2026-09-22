@@ -210,6 +210,8 @@ export class SabangnetMallListingsRepositoryAdapter implements SabangnetMallList
             channelAccountId: mall.channelAccountId,
             lastImportRunId: run.id,
             rawSource: SOURCE_TYPE,
+            // 사방넷 송신 기록은 판매가와 모델명(=판매자코드)을 모두 싣는다.
+            unobservedOptionFields: [],
             products: listings,
           });
           mappingChanged ||= upserted.mappingIdentityChanged;
