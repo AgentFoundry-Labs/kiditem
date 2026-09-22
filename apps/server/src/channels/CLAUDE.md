@@ -86,6 +86,17 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Ports And Boundaries
 
+- Refactored capabilities use `adapter/in/web|agent` → `application/port/in`
+  implemented by `application/service/<business>` → `application/port/out`
+  → `adapter/out`. Application and domain are plain TypeScript; Nest DI lives
+  in module composition and adapters. Queries follow the same direction.
+- Persistence adapters may query Channels-owned facts without a dedicated
+  reader file. Other owners use public capabilities (ADR-0021); preserve
+  organization scope, complete-source evidence, and required transactions.
+- Keep cross-owner IDs as logical references validated by owner contracts.
+  Remove a migrated boundary's FK and Prisma relationship after its consumers
+  move; keep intra-Channels FK and organization constraints.
+
 - Auto-matching, registration, manual replacement and clearing call the
   Channel recipe input port. Its transaction validates organization-scoped
   Products identities, replaces the full composition atomically. Listing summaries are read from

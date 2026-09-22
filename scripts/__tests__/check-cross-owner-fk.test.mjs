@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 import {
   classifyRelations,
+  loadConfig,
+  parseModelOwners,
   parseRelationEdges,
 } from '../check-cross-owner-fk.mjs';
 
@@ -61,6 +63,22 @@ model MasterProduct {
 
 const CHANNELS_SOURCE = `model ChannelAccount {
   id String @id @default(uuid()) @db.Uuid
+}
+`;
+
+const CHANNELS_BOUNDARY_SOURCE = `model ChannelAccount {
+  id String @id @default(uuid()) @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  requestedBy User @relation(fields: [requestedByUserId], references: [id])
+  sourceImportRun SourceImportRun @relation(fields: [sourceImportRunId], references: [id])
+  listing ChannelListing @relation(fields: [listingId], references: [id])
+}
+
+model ChannelListing {
+  id String @id @default(uuid()) @db.Uuid
+
+  account ChannelAccount @relation(fields: [channelAccountId], references: [id])
 }
 `;
 
@@ -177,6 +195,147 @@ test('classifies scope, SourceImportRun, intra-owner, and cross-owner relations'
   assert.deepEqual(result.unlisted.map((edge) => edge.key), [
     'orders.Order -> channels.ChannelAccount',
   ]);
+});
+
+test('Channels references to Organization, User, and SourceImportRun require exact transition entries', () => {
+  const { edges } = parseRelationEdges(
+    'channels.prisma',
+    CHANNELS_BOUNDARY_SOURCE,
+  );
+  const modelOwners = new Map([
+    ...parseModelOwners('core.prisma', SUPPORTING_SOURCE),
+    ...parseModelOwners('channels.prisma', CHANNELS_BOUNDARY_SOURCE),
+  ]);
+  const result = classifyRelations({
+    edges,
+    config: CONFIG,
+    modelOwners,
+  });
+
+  assert.deepEqual(
+    result.classifications.map(({ field, kind }) => ({ field, kind })),
+    [
+      { field: 'organization', kind: 'cross' },
+      { field: 'requestedBy', kind: 'cross' },
+      { field: 'sourceImportRun', kind: 'cross' },
+      { field: 'listing', kind: 'intra' },
+      { field: 'account', kind: 'intra' },
+    ],
+  );
+  assert.deepEqual(
+    result.unlisted.map(({ key }) => key),
+    [
+      'channels.ChannelAccount -> scope.Organization',
+      'channels.ChannelAccount -> scope.User',
+      'channels.ChannelAccount -> runs.SourceImportRun',
+    ],
+  );
+});
+
+test('an undeclared scope target with no owner remains unknown', () => {
+  const { edges } = parseRelationEdges(
+    'channels.prisma',
+    `model ChannelAccount {
+  scopeAlias MissingScope @relation(fields: [scopeAliasId], references: [id])
+}
+`,
+  );
+  const result = classifyRelations({
+    edges,
+    config: {
+      ...CONFIG,
+      scopeTargets: ['MissingScope'],
+    },
+    modelOwners: new Map([['ChannelAccount', 'channels']]),
+  });
+
+  assert.deepEqual(
+    result.classifications.map(({ field, kind }) => ({ field, kind })),
+    [{ field: 'scopeAlias', kind: 'unknown' }],
+  );
+  assert.equal(result.summary.scope, 0);
+  assert.deepEqual(result.unknownTargets.map(({ target }) => target), [
+    'MissingScope',
+  ]);
+});
+
+test('exact transitional entries permit existing Channels scope and run relations', () => {
+  const { edges } = parseRelationEdges(
+    'channels.prisma',
+    CHANNELS_BOUNDARY_SOURCE,
+  );
+  const modelOwners = new Map([
+    ...parseModelOwners('core.prisma', SUPPORTING_SOURCE),
+    ...parseModelOwners('channels.prisma', CHANNELS_BOUNDARY_SOURCE),
+  ]);
+  const result = classifyRelations({
+    edges,
+    config: {
+      ...CONFIG,
+      allowlist: [
+        'channels.ChannelAccount -> scope.Organization',
+        'channels.ChannelAccount -> scope.User',
+        'channels.ChannelAccount -> runs.SourceImportRun',
+      ],
+    },
+    modelOwners,
+  });
+
+  assert.deepEqual(result.unlisted, []);
+  assert.deepEqual(result.stale, []);
+  assert.equal(result.summary.cross, 3);
+  assert.equal(result.summary.intra, 2);
+});
+
+test('the CLI rejects new Channels foreign keys to scope and SourceImportRun', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'kiditem-cross-owner-fk-'));
+
+  try {
+    write(root, 'prisma/models/channels.prisma', CHANNELS_BOUNDARY_SOURCE);
+    write(root, 'prisma/models/core.prisma', SUPPORTING_SOURCE);
+    write(
+      root,
+      'scripts/cross-owner-fk.json',
+      JSON.stringify({ version: 1, ...CONFIG }),
+    );
+
+    const result = runScanner(root);
+
+    assert.equal(result.status, 1);
+    assert.match(
+      result.stderr,
+      /ChannelAccount\.organization -> scope\.Organization/,
+    );
+    assert.match(result.stderr, /ChannelAccount\.requestedBy -> scope\.User/);
+    assert.match(
+      result.stderr,
+      /ChannelAccount\.sourceImportRun -> runs\.SourceImportRun/,
+    );
+    assert.equal((result.stderr.match(/not allowlisted/g) ?? []).length, 3);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test('the configured owner map follows ChannelAd and current Rocket PO responsibility', () => {
+  const config = loadConfig(repoRoot);
+
+  assert.equal(config.owners.ChannelAdTargetDailySnapshot, 'advertising');
+  assert.equal(config.owners.ChannelAdListingProductMonthlyFact, 'advertising');
+  assert.equal(config.owners.CoupangRepresentativeKeywordOverride, 'advertising');
+  assert.equal(config.owners.CoupangKeywordTracker, 'advertising');
+  assert.equal(config.owners.CoupangKeywordRankDailySnapshot, 'advertising');
+  assert.equal(config.owners.CoupangWingTrackedProduct, 'advertising');
+  assert.equal(
+    config.owners.CoupangWingTrackedProductDailySnapshot,
+    'advertising',
+  );
+  assert.equal(config.owners.CoupangKeywordSerpDailySnapshot, 'advertising');
+  assert.equal(config.owners.CoupangWingSalesRankDailySnapshot, 'advertising');
+  assert.equal(config.owners.SellpiaSalesDailySnapshot, 'analytics');
+  assert.equal(config.owners.SellpiaProductMonthlySales, 'analytics');
+  assert.equal(config.owners.RocketPoCatalogSnapshot, 'channels');
+  assert.equal(config.owners.RocketPoCatalogLine, 'channels');
 });
 
 test('treats an allowlisted cross-owner relation as satisfied and reports no stale entry', () => {
@@ -343,5 +502,5 @@ test('passes on the current schema with the recorded cross-owner allowlist', () 
   // intra-owner totals too would turn any unrelated model with an organization
   // foreign key into a failure of this guard.
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /27 cross-owner allowlisted/);
+  assert.match(result.stdout, /63 cross-owner transitional allowlisted/);
 });

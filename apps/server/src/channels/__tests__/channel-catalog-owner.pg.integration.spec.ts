@@ -24,8 +24,8 @@ import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repos
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { CHANNEL_CATALOG_COLLECTION_PORT } from '../application/port/in/channel-catalog-collection.port';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { ChannelListingQueryService } from '../application/service/channel-listing-query.service';
-import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
+import { ChannelListingQueryService } from '../application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
@@ -76,7 +76,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     }) as unknown as PrismaClient;
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    listings = new ChannelListingQueryService(new ChannelListingRepositoryAdapter(prisma as never));
+    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never));
     const productTransactions = new ProductTransactionalReadRepositoryAdapter();
     recipes = new ChannelOptionRecipeUseCase(
       new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions),

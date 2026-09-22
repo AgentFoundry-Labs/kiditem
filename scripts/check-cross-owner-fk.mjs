@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Guards ADR-0013: a reference to another owner's row is a plain id column with
-// an index and no Prisma `@relation`. Organization/user scope, relations inside
-// one owner, and SourceImportRun keep their foreign keys. The remaining
+// an index and no Prisma `@relation`. ADR-0021 makes Channels-related scope and
+// attempt references explicit migration exceptions too; same-owner constraints
+// remain. Other owners retain ADR-0013's platform exceptions. The remaining
 // cross-owner relations live on the allowlist in scripts/cross-owner-fk.json and
 // leave it only by deletion.
 import { readFileSync, readdirSync } from 'node:fs';
@@ -147,23 +148,24 @@ export function classifyRelations({ edges, config, modelOwners }) {
 
   for (const edge of edges) {
     summary.total += 1;
-
-    if (scopeTargets.has(edge.target)) {
-      summary.scope += 1;
-      classifications.push({ ...edge, kind: 'scope' });
-      continue;
-    }
-    if (keptTargets.has(edge.target)) {
-      summary.kept += 1;
-      classifications.push({ ...edge, kind: 'kept' });
-      continue;
-    }
-
     const sourceOwner = ownerOf(edge.model);
     const targetOwner = ownerOf(edge.target);
     if (targetOwner === null) {
       unknownTargets.push(edge);
       classifications.push({ ...edge, kind: 'unknown' });
+      continue;
+    }
+    // Scope is a business-owner boundary, not the Prisma filename. Only the
+    // migrated Channels boundary loses the legacy platform-target exemptions.
+    const channelsBoundary = sourceOwner === 'channels' || targetOwner === 'channels';
+    if (!channelsBoundary && scopeTargets.has(edge.target)) {
+      summary.scope += 1;
+      classifications.push({ ...edge, kind: 'scope' });
+      continue;
+    }
+    if (!channelsBoundary && keptTargets.has(edge.target)) {
+      summary.kept += 1;
+      classifications.push({ ...edge, kind: 'kept' });
       continue;
     }
 
@@ -314,7 +316,7 @@ function main() {
 
   const { total, scope, kept, intra, cross } = result.summary;
   console.log(
-    `check:cross-owner-fk PASS (${total} relations: ${scope} scope, ${kept} SourceImportRun, ${intra} intra-owner, ${cross} cross-owner allowlisted)`,
+    `check:cross-owner-fk PASS (${total} relations: ${scope} scope, ${kept} SourceImportRun, ${intra} intra-owner, ${cross} cross-owner transitional allowlisted)`,
   );
 }
 

@@ -20,8 +20,8 @@ import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repos
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
-import { ChannelListingQueryService } from '../application/service/channel-listing-query.service';
-import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
+import { ChannelListingQueryService } from '../application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { lockProductMapping } from '../../common/product-mapping-generation';
 import type {
   CoupangCatalogProductV1,
@@ -56,7 +56,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
       new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
       publisher,
     );
-    listings = new ChannelListingQueryService(new ChannelListingRepositoryAdapter(prisma as never));
+    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never));
   });
   afterAll(async () => {
     await prisma?.$disconnect();

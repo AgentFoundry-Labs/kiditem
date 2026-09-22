@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -61,6 +61,13 @@ const LEDGER_MUTATION_ACCESS_KINDS = new Set([
   'Prisma delegate mutation',
   'Prisma relation mutation',
   'raw SQL mutation',
+]);
+const OWNER_NON_READ_SUBMODULE_NAMES = new Set([
+  'application',
+  'domain',
+  'adapter',
+  'mapper',
+  'transaction',
 ]);
 
 function slash(relativePath) {
@@ -267,9 +274,59 @@ function validateRelationNames({
   return { relationNames: [...declared].sort(), prismaRelations };
 }
 
+function validateDirectoryPath(root, value, label) {
+  const relativePath = validateRelativePath(root, value, label);
+  if (!statSync(path.join(root, relativePath)).isDirectory()) {
+    throw new Error(`${label} must be a directory: ${relativePath}`);
+  }
+  return relativePath;
+}
+
+function isWithinPath(file, directory) {
+  return file.startsWith(`${directory}/`);
+}
+
+function validateOwners(root, input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('ledger reader manifest needs owner boundaries');
+  }
+  const owners = new Map();
+  for (const [name, boundary] of Object.entries(input)) {
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+      throw new Error(`invalid ledger owner name: ${name}`);
+    }
+    const ownerRoot = validateDirectoryPath(
+      root,
+      boundary?.root,
+      `owners.${name}.root`,
+    );
+    if (ownerRoot !== `apps/server/src/${name}`) {
+      throw new Error(
+        `owners.${name}.root must be the canonical domain root apps/server/src/${name}: ${ownerRoot}`,
+      );
+    }
+    for (const [otherName, other] of owners) {
+      if (
+        ownerRoot === other.root ||
+        isWithinPath(ownerRoot, other.root) ||
+        isWithinPath(other.root, ownerRoot)
+      ) {
+        throw new Error(
+          `owner roots overlap: ${name} (${ownerRoot}) and ${otherName} (${other.root})`,
+        );
+      }
+    }
+    owners.set(name, { name, root: ownerRoot });
+  }
+  if (owners.size === 0) {
+    throw new Error('ledger reader manifest needs owner boundaries');
+  }
+  return owners;
+}
+
 function validateManifest(root, input) {
-  if (!input || input.version !== 1)
-    throw new Error('ledger reader manifest version must be 1');
+  if (!input || input.version !== 2)
+    throw new Error('ledger reader manifest version must be 2');
   if (!Array.isArray(input.scanRoots) || input.scanRoots.length === 0) {
     throw new Error('ledger reader manifest needs at least one scanRoot');
   }
@@ -291,6 +348,7 @@ function validateManifest(root, input) {
   const prismaSchemaRoots = input.prismaSchemaRoots.map((entry, index) =>
     validateRelativePath(root, entry, `prismaSchemaRoots[${index}]`),
   );
+  const owners = validateOwners(root, input.owners);
   const tables = new Set();
   const prismaModels = new Set();
   const ledgers = input.ledgers.map((entry, ledgerIndex) => {
@@ -302,6 +360,11 @@ function validateManifest(root, input) {
       `${prefix}.prismaModel`,
     );
     const prismaType = requireString(entry?.prismaType, `${prefix}.prismaType`);
+    const ownerName = requireString(entry?.owner, `${prefix}.owner`);
+    const owner = owners.get(ownerName);
+    if (!owner) {
+      throw new Error(`${prefix}.owner is not declared: ${ownerName}`);
+    }
     const { relationNames, prismaRelations } = validateRelationNames({
       root,
       prismaSchemaRoots,
@@ -309,11 +372,6 @@ function validateManifest(root, input) {
       relationNames: entry?.relationNames,
       prefix,
     });
-    const reader = validateRelativePath(
-      root,
-      entry?.reader,
-      `${prefix}.reader`,
-    );
     if (tables.has(table)) throw new Error(`duplicate ledger table: ${table}`);
     if (prismaModels.has(prismaModel))
       throw new Error(`duplicate Prisma ledger model: ${prismaModel}`);
@@ -358,7 +416,6 @@ function validateManifest(root, input) {
     });
 
     const allowedPaths = [
-      reader,
       ...ownerPublications.map((publication) => publication.path),
       ...legacyReaders.map((legacy) => legacy.path),
     ];
@@ -369,18 +426,18 @@ function validateManifest(root, input) {
     }
     return {
       name,
+      owner,
       table,
       prismaModel,
       prismaType,
       relationNames,
       prismaRelations,
-      reader,
       ownerPublications,
       legacyReaders,
     };
   });
 
-  return { scanRoots, prismaSchemaRoots, ledgers };
+  return { scanRoots, prismaSchemaRoots, owners, ledgers };
 }
 
 function listSourceFiles(root, scanRoots) {
@@ -943,6 +1000,15 @@ function detectLedgerAccess(source, ledger, file) {
   return reads;
 }
 
+function isOwnerReadSubtree(file, ownerRoot) {
+  const relativePath = path.posix.relative(ownerRoot, file);
+  if (relativePath.startsWith('../')) return false;
+  const directories = relativePath.split('/').slice(0, -1);
+  if (directories.length === 1) return directories[0] === 'read';
+  if (directories.length !== 2 || directories[1] !== 'read') return false;
+  return !OWNER_NON_READ_SUBMODULE_NAMES.has(directories[0]);
+}
+
 export function inspectLedgerReaders({
   root,
   manifest,
@@ -955,8 +1021,10 @@ export function inspectLedgerReaders({
   );
 
   for (const ledger of manifest.ledgers) {
+    const ownerReadRoots = [
+      path.posix.join(ledger.owner.root, 'adapter/out/persistence'),
+    ];
     const readAllowed = new Set([
-      ledger.reader,
       ...ledger.ownerPublications.map((publication) => publication.path),
       ...ledger.legacyReaders.map((legacy) => legacy.path),
     ]);
@@ -968,13 +1036,17 @@ export function inspectLedgerReaders({
       for (const kind of detectLedgerAccess(source, ledger, file)) {
         const allowed = LEDGER_MUTATION_ACCESS_KINDS.has(kind)
           ? mutationAllowed.has(file)
-          : readAllowed.has(file);
+          : readAllowed.has(file) ||
+            ownerReadRoots.some((ownerReadRoot) =>
+              isWithinPath(file, ownerReadRoot),
+            ) ||
+            isOwnerReadSubtree(file, ledger.owner.root);
         if (allowed) continue;
         violations.push({
           file,
           kind,
           ledger: ledger.name,
-          reader: ledger.reader,
+          owner: ledger.owner.name,
         });
       }
     }
@@ -1010,8 +1082,11 @@ function main() {
   if (result.violations.length > 0 || result.legacyViolations.length > 0) {
     console.error('check:ledger-readers FAIL');
     for (const violation of result.violations) {
+      const guidance = LEDGER_MUTATION_ACCESS_KINDS.has(violation.kind)
+        ? 'mutations are limited to registered owner publications'
+        : `use the ${violation.owner} owner's persistence/read contract`;
       console.error(
-        `${violation.file}: ${violation.kind} of ${violation.ledger}; use ${violation.reader}`,
+        `${violation.file}: ${violation.kind} of ${violation.ledger} owned by ${violation.owner}; ${guidance}`,
       );
     }
     for (const legacy of result.legacyViolations) {
@@ -1029,7 +1104,7 @@ function main() {
     0,
   );
   console.log(
-    `check:ledger-readers PASS (${ledgerCount} ledger${ledgerCount === 1 ? '' : 's'}, ${legacyCount} legacy reader${legacyCount === 1 ? '' : 's'})`,
+    `check:ledger-readers PASS (${ledgerCount} ledger${ledgerCount === 1 ? '' : 's'}, ${legacyCount} legacy read exception${legacyCount === 1 ? '' : 's'})`,
   );
 }
 

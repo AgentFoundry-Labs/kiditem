@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "scanRoots": [
     "apps/server/src",
     "apps/web/src",
@@ -8,9 +8,33 @@
   "prismaSchemaRoots": [
     "prisma"
   ],
+  "owners": {
+    "advertising": {
+      "root": "apps/server/src/advertising"
+    },
+    "channels": {
+      "root": "apps/server/src/channels"
+    },
+    "finance": {
+      "root": "apps/server/src/finance"
+    },
+    "orders": {
+      "root": "apps/server/src/orders"
+    },
+    "products": {
+      "root": "apps/server/src/products"
+    },
+    "sourcing": {
+      "root": "apps/server/src/sourcing"
+    },
+    "analytics": {
+      "root": "apps/server/src/analytics"
+    }
+  },
   "ledgers": [
     {
       "name": "Advertising target day",
+      "owner": "advertising",
       "table": "channel_ad_target_daily_snapshots",
       "prismaModel": "channelAdTargetDailySnapshot",
       "prismaType": "ChannelAdTargetDailySnapshot",
@@ -19,7 +43,6 @@
         "adTargetDailySnapshots",
         "channelAdTargetDailySnapshots"
       ],
-      "reader": "apps/server/src/advertising/read/ad-target-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/daily-fact-helpers.ts",
@@ -46,6 +69,7 @@
     },
     {
       "name": "Channel listing daily facts",
+      "owner": "channels",
       "table": "channel_listing_daily_snapshots",
       "prismaModel": "channelListingDailySnapshot",
       "prismaType": "ChannelListingDailySnapshot",
@@ -53,7 +77,6 @@
         "channelListingDailySnapshots",
         "listingDailySnapshots"
       ],
-      "reader": "apps/server/src/channels/read/channel-listing-daily-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/analytics/traffic/traffic-upload.ts",
@@ -76,13 +99,13 @@
     },
     {
       "name": "Sellpia daily sales",
+      "owner": "analytics",
       "table": "sellpia_sales_daily_snapshots",
       "prismaModel": "sellpiaSalesDailySnapshot",
       "prismaType": "SellpiaSalesDailySnapshot",
       "relationNames": [
         "sellpiaSalesDailySnapshots"
       ],
-      "reader": "apps/server/src/analytics/sellpia-sales/read/sellpia-sales-daily-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/analytics/sellpia-sales/sellpia-sales-source.service.ts",
@@ -93,13 +116,13 @@
     },
     {
       "name": "Sellpia product monthly sales",
+      "owner": "analytics",
       "table": "sellpia_product_monthly_sales",
       "prismaModel": "sellpiaProductMonthlySales",
       "prismaType": "SellpiaProductMonthlySales",
       "relationNames": [
         "sellpiaProductMonthlySales"
       ],
-      "reader": "apps/server/src/analytics/sellpia-product-sales/read/sellpia-product-monthly-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.service.ts",
@@ -114,13 +137,13 @@
     },
     {
       "name": "Finance settlements",
+      "owner": "finance",
       "table": "settlements",
       "prismaModel": "settlement",
       "prismaType": "Settlement",
       "relationNames": [
         "settlements"
       ],
-      "reader": "apps/server/src/finance/settlements/read/settlement-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/finance/settlements/settlements.service.ts",
@@ -131,6 +154,7 @@
     },
     {
       "name": "Orders canonical order",
+      "owner": "orders",
       "table": "orders",
       "prismaModel": "order",
       "prismaType": "Order",
@@ -138,7 +162,6 @@
         "order",
         "orders"
       ],
-      "reader": "apps/server/src/orders/read/order-facts.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/orders/adapter/out/transaction/coupang-direct-order-collection.transaction.adapter.ts",
@@ -149,6 +172,7 @@
     },
     {
       "name": "Orders canonical line item",
+      "owner": "orders",
       "table": "order_line_items",
       "prismaModel": "orderLineItem",
       "prismaType": "OrderLineItem",
@@ -156,7 +180,6 @@
         "lineItems",
         "orderLineItems"
       ],
-      "reader": "apps/server/src/orders/read/order-facts.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/orders/adapter/out/transaction/coupang-direct-order-collection.transaction.adapter.ts",
@@ -167,6 +190,7 @@
     },
     {
       "name": "Orders current complete review",
+      "owner": "orders",
       "table": "reviews",
       "prismaModel": "review",
       "prismaType": "Review",
@@ -174,7 +198,6 @@
         "reviewCollectionFacts",
         "reviews"
       ],
-      "reader": "apps/server/src/orders/read/review-facts.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/orders/adapter/out/repository/review-collection-source.repository.ts",
@@ -189,6 +212,7 @@
     },
     {
       "name": "Products source inventory",
+      "owner": "products",
       "table": "master_products",
       "prismaModel": "masterProduct",
       "prismaType": "MasterProduct",
@@ -196,7 +220,6 @@
         "masterProduct",
         "masterProducts"
       ],
-      "reader": "apps/server/src/products/adapter/out/persistence/read/product-source-availability.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/products/adapter/out/persistence/product-source-publication.repository.adapter.ts",
@@ -211,6 +234,7 @@
     },
     {
       "name": "Sourcing evidence ingestion run",
+      "owner": "sourcing",
       "table": "sourcing_evidence_ingestion_runs",
       "prismaModel": "sourcingEvidenceIngestionRun",
       "prismaType": "SourcingEvidenceIngestionRun",
@@ -219,7 +243,6 @@
         "sourcingEvidenceIngestionRuns",
         "triggeredSourcingEvidenceIngestionRuns"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.repository.adapter.ts",
@@ -230,6 +253,7 @@
     },
     {
       "name": "Sourcing evidence observation",
+      "owner": "sourcing",
       "table": "sourcing_evidence_observations",
       "prismaModel": "sourcingEvidenceObservation",
       "prismaType": "SourcingEvidenceObservation",
@@ -238,7 +262,6 @@
         "observations",
         "sourcingEvidenceObservations"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -249,6 +272,7 @@
     },
     {
       "name": "Sourcing Wing catalog product fact",
+      "owner": "sourcing",
       "table": "sourcing_wing_catalog_product_facts",
       "prismaModel": "sourcingWingCatalogProductFact",
       "prismaType": "SourcingWingCatalogProductFact",
@@ -257,7 +281,6 @@
         "wingCatalogProductFact",
         "wingCatalogProductFacts"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -272,6 +295,7 @@
     },
     {
       "name": "Sourcing keyword suggestion fact",
+      "owner": "sourcing",
       "table": "sourcing_keyword_suggestion_facts",
       "prismaModel": "sourcingKeywordSuggestionFact",
       "prismaType": "SourcingKeywordSuggestionFact",
@@ -280,7 +304,6 @@
         "keywordSuggestionFacts",
         "sourcingKeywordSuggestionFacts"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -291,6 +314,7 @@
     },
     {
       "name": "Sourcing Naver keyword analysis fact",
+      "owner": "sourcing",
       "table": "sourcing_naver_keyword_analysis_facts",
       "prismaModel": "sourcingNaverKeywordAnalysisFact",
       "prismaType": "SourcingNaverKeywordAnalysisFact",
@@ -299,7 +323,6 @@
         "naverKeywordAnalysisFacts",
         "sourcingNaverKeywordAnalysisFacts"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -310,6 +333,7 @@
     },
     {
       "name": "Sourcing market shadow fact",
+      "owner": "sourcing",
       "table": "sourcing_market_shadow_facts",
       "prismaModel": "sourcingMarketShadowFact",
       "prismaType": "SourcingMarketShadowFact",
@@ -318,7 +342,6 @@
         "marketShadowFacts",
         "sourcingMarketShadowFacts"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -329,6 +352,7 @@
     },
     {
       "name": "Sourcing 1688 offer keyword observation",
+      "owner": "sourcing",
       "table": "sourcing_1688_offer_keyword_observations",
       "prismaModel": "sourcing1688OfferKeywordObservation",
       "prismaType": "Sourcing1688OfferKeywordObservation",
@@ -337,7 +361,6 @@
         "offerKeywordObservations",
         "sourcing1688OfferKeywordObservations"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -348,13 +371,13 @@
     },
     {
       "name": "Sourcing Naver keyword daily snapshot",
+      "owner": "sourcing",
       "table": "naver_keyword_daily_snapshots",
       "prismaModel": "naverKeywordDailySnapshot",
       "prismaType": "NaverKeywordDailySnapshot",
       "relationNames": [
         "naverKeywordDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -365,13 +388,13 @@
     },
     {
       "name": "Sourcing Naver popular keyword daily snapshot",
+      "owner": "sourcing",
       "table": "naver_popular_keyword_daily_snapshots",
       "prismaModel": "naverPopularKeywordDailySnapshot",
       "prismaType": "NaverPopularKeywordDailySnapshot",
       "relationNames": [
         "naverPopularKeywordDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -382,13 +405,13 @@
     },
     {
       "name": "Sourcing Shorts trend daily snapshot",
+      "owner": "sourcing",
       "table": "shorts_trend_daily_snapshots",
       "prismaModel": "shortsTrendDailySnapshot",
       "prismaType": "ShortsTrendDailySnapshot",
       "relationNames": [
         "shortsTrendDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -399,13 +422,13 @@
     },
     {
       "name": "Sourcing TikTok creative trend daily snapshot",
+      "owner": "sourcing",
       "table": "tiktok_creative_trend_daily_snapshots",
       "prismaModel": "tiktokCreativeTrendDailySnapshot",
       "prismaType": "TiktokCreativeTrendDailySnapshot",
       "relationNames": [
         "tiktokCreativeTrendDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -416,13 +439,13 @@
     },
     {
       "name": "Sourcing live commerce broadcast daily snapshot",
+      "owner": "sourcing",
       "table": "live_commerce_broadcast_daily_snapshots",
       "prismaModel": "liveCommerceBroadcastDailySnapshot",
       "prismaType": "LiveCommerceBroadcastDailySnapshot",
       "relationNames": [
         "liveCommerceBroadcastDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -433,13 +456,13 @@
     },
     {
       "name": "Sourcing live commerce product daily snapshot",
+      "owner": "sourcing",
       "table": "live_commerce_product_daily_snapshots",
       "prismaModel": "liveCommerceProductDailySnapshot",
       "prismaType": "LiveCommerceProductDailySnapshot",
       "relationNames": [
         "liveCommerceProductDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -450,6 +473,7 @@
     },
     {
       "name": "Sourcing launch candidate",
+      "owner": "sourcing",
       "table": "sourcing_launch_candidates",
       "prismaModel": "sourcingLaunchCandidate",
       "prismaType": "SourcingLaunchCandidate",
@@ -459,7 +483,6 @@
         "launchCandidates",
         "sourcingLaunchCandidates"
       ],
-      "reader": "apps/server/src/sourcing/read/launch-candidate.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-launch-candidate.repository.adapter.ts",
@@ -470,6 +493,7 @@
     },
     {
       "name": "Sourcing recommendation publication",
+      "owner": "sourcing",
       "table": "sourcing_recommendation_runs",
       "prismaModel": "sourcingRecommendationRun",
       "prismaType": "SourcingRecommendationRun",
@@ -477,7 +501,6 @@
         "recommendationRun",
         "sourcingRecommendationRuns"
       ],
-      "reader": "apps/server/src/sourcing/read/recommendation-publication.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-recommendation.repository.adapter.ts",
@@ -488,6 +511,7 @@
     },
     {
       "name": "Sourcing validation publication",
+      "owner": "sourcing",
       "table": "sourcing_validation_episodes",
       "prismaModel": "sourcingValidationEpisode",
       "prismaType": "SourcingValidationEpisode",
@@ -496,7 +520,6 @@
         "validationEpisode",
         "validationEpisodes"
       ],
-      "reader": "apps/server/src/sourcing/read/validation-publication.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-validation.repository.adapter.ts",
@@ -507,6 +530,7 @@
     },
     {
       "name": "Sourcing decision publication",
+      "owner": "sourcing",
       "table": "sourcing_decision_batches",
       "prismaModel": "sourcingDecisionBatch",
       "prismaType": "SourcingDecisionBatch",
@@ -515,7 +539,6 @@
         "requestedSourcingDecisionBatches",
         "sourcingDecisionBatches"
       ],
-      "reader": "apps/server/src/sourcing/read/decision-publication.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-decision-batch.repository.adapter.ts",
@@ -526,6 +549,7 @@
     },
     {
       "name": "Coupang keyword SERP day",
+      "owner": "advertising",
       "table": "coupang_keyword_serp_daily_snapshots",
       "prismaModel": "coupangKeywordSerpDailySnapshot",
       "prismaType": "CoupangKeywordSerpDailySnapshot",
@@ -533,7 +557,6 @@
         "coupangKeywordSerpDailySnapshots",
         "keywordSerpDailyProjections"
       ],
-      "reader": "apps/server/src/advertising/read/keyword-rank-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts",
@@ -544,6 +567,7 @@
     },
     {
       "name": "Coupang Wing sales rank day",
+      "owner": "advertising",
       "table": "coupang_wing_sales_rank_daily_snapshots",
       "prismaModel": "coupangWingSalesRankDailySnapshot",
       "prismaType": "CoupangWingSalesRankDailySnapshot",
@@ -551,7 +575,6 @@
         "coupangWingSalesRankDailySnapshots",
         "wingRankDailyProjections"
       ],
-      "reader": "apps/server/src/advertising/read/keyword-rank-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts",
@@ -562,6 +585,7 @@
     },
     {
       "name": "Coupang keyword rank day",
+      "owner": "advertising",
       "table": "coupang_keyword_rank_daily_snapshots",
       "prismaModel": "coupangKeywordRankDailySnapshot",
       "prismaType": "CoupangKeywordRankDailySnapshot",
@@ -569,7 +593,6 @@
         "coupangKeywordRankDailySnapshots",
         "keywordRankDailyProjections"
       ],
-      "reader": "apps/server/src/advertising/read/keyword-rank-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts",
@@ -580,6 +603,7 @@
     },
     {
       "name": "Master product ABC evaluations",
+      "owner": "products",
       "table": "master_product_abc_evaluations",
       "prismaModel": "masterProductAbcEvaluation",
       "prismaType": "MasterProductAbcEvaluation",
@@ -590,7 +614,6 @@
         "abcEvaluation",
         "evaluations"
       ],
-      "reader": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts",
@@ -601,6 +624,7 @@
     },
     {
       "name": "Advertising listing-product monthly allocations",
+      "owner": "advertising",
       "table": "channel_ad_listing_product_monthly_facts",
       "prismaModel": "channelAdListingProductMonthlyFact",
       "prismaType": "ChannelAdListingProductMonthlyFact",
@@ -608,7 +632,6 @@
         "channelAdListingProductMonthlyFacts",
         "adListingProductMonthlyFacts"
       ],
-      "reader": "apps/server/src/advertising/read/monthly-ad-allocation.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts",
@@ -619,6 +642,7 @@
     },
     {
       "name": "Rocket PO catalog snapshot",
+      "owner": "channels",
       "table": "rocket_po_catalog_snapshots",
       "prismaModel": "rocketPoCatalogSnapshot",
       "prismaType": "RocketPoCatalogSnapshot",
@@ -627,7 +651,6 @@
         "rocketPoCatalogSnapshots",
         "snapshot"
       ],
-      "reader": "apps/server/src/channels/read/rocket-po-catalog.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/channels/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
@@ -638,6 +661,7 @@
     },
     {
       "name": "Rocket PO catalog line",
+      "owner": "channels",
       "table": "rocket_po_catalog_lines",
       "prismaModel": "rocketPoCatalogLine",
       "prismaType": "RocketPoCatalogLine",
@@ -645,7 +669,6 @@
         "lines",
         "rocketPoCatalogLines"
       ],
-      "reader": "apps/server/src/channels/read/rocket-po-catalog.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/channels/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
@@ -656,13 +679,13 @@
     },
     {
       "name": "Coupang shipment date summary",
+      "owner": "orders",
       "table": "coupang_shipment_date_summaries",
       "prismaModel": "coupangShipmentDateSummary",
       "prismaType": "CoupangShipmentDateSummary",
       "relationNames": [
         "coupangShipmentDateSummaries"
       ],
-      "reader": "apps/server/src/orders/shipments/read/coupang-shipment-date-summary.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/orders/shipments/adapter/out/persistence/coupang-shipment-date-summary.repository.adapter.ts",
@@ -673,6 +696,7 @@
     },
     {
       "name": "Product registration execution",
+      "owner": "channels",
       "table": "product_registration_executions",
       "prismaModel": "productRegistrationExecution",
       "prismaType": "ProductRegistrationExecution",
@@ -681,7 +705,6 @@
         "requestedProductRegistrationExecutions",
         "executions"
       ],
-      "reader": "apps/server/src/channels/read/registration-execution.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/channels/adapter/out/repository/registration-execution.repository.adapter.ts",

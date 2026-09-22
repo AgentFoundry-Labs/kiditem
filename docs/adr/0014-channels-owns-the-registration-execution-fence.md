@@ -39,7 +39,7 @@ account and listing relations stay as intra-owner foreign keys, and the three
 execution lifecycle (create, lease, submit, confirm, cancel) is a Channels
 interface; the product-pipeline Wing flow, the mall wizard and the extension's
 result report all call it. Sourcing reflects candidate state by reading the
-Channels execution reader ([ADR-0009](0009-one-ledger-one-reader.md)) and
+Channels execution query capability ([ADR-0021](0021-owner-capabilities-replace-dedicated-readers.md)) and
 never writes execution rows. Channels rejects a submission whose frozen hash no
 longer matches the draft's approval hash. Drafts retain editable content,
 approval and `closedAt`; their displayed status and resulting listing are read

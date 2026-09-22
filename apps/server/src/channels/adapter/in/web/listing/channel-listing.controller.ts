@@ -1,28 +1,34 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../../../auth/auth.types';
-import { ChannelListingDeletionService } from '../../../application/service/channel-listing-deletion.service';
-import { ChannelListingQueryService } from '../../../application/service/channel-listing-query.service';
+import { Body, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../../auth/auth.types';
+import { ChannelListingDeletionService } from '../../../../application/service/channel-listing-deletion.service';
+import {
+  CHANNEL_LISTING_QUERY_PORT,
+  type ChannelListingQueryPort,
+} from '../../../../application/port/in/listing/channel-listing-query.port';
 import {
   ChannelListingDeletionDto,
   ChannelListingDeletionUnresolvedDto,
   ChannelListingQueryDto,
-} from './dto';
+} from './dto/channel-listing-query.dto';
 
 @Controller('channels/listings')
 export class ChannelListingController {
   constructor(
-    private readonly listings: ChannelListingQueryService,
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly listings: ChannelListingQueryPort,
     private readonly deletion: ChannelListingDeletionService,
   ) {}
 
   @Get(':listingId/workspace')
-  getWorkspace(
+  async getWorkspace(
     @CurrentOrganization() organizationId: string,
     @Param('listingId', new ParseUUIDPipe()) listingId: string,
   ) {
-    return this.listings.getWorkspace(organizationId, listingId);
+    const workspace = await this.listings.getWorkspace(organizationId, listingId);
+    if (!workspace) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+    return workspace;
   }
 
   @Get()

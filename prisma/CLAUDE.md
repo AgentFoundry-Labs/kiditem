@@ -39,8 +39,11 @@ generic guidance.
   an existing composite index when its leftmost columns cover the FK access path.
 - Optional FKs declare `onDelete` explicitly.
 - A reference to another owner's row is a plain id column with an index and no
-  `@relation`; organization/user scope, relations inside one owner, and
-  `SourceImportRun` keep their foreign keys. Retained Inventory transfer history
+  `@relation`; validate it through the owner's public contract. Same-owner
+  relations retain their constraints. For Channels-related boundaries,
+  organization/user and `SourceImportRun` references are also explicit migration
+  exceptions rather than automatic exemptions (ADR-0021); other domains retain
+  ADR-0013's scoped exceptions until their boundary changes. Retained Inventory transfer history
   follows the scoped SKU-reference exception in
   [ADR-0016](../docs/adr/0016-inventory-history-retains-deleted-sku-identities.md).
   `npm run check:cross-owner-fk`

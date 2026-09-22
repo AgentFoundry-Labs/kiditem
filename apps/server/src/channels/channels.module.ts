@@ -14,7 +14,7 @@ import { RocketAccountController } from './adapter/in/http/rocket-account.contro
 import { RocketPoSourceController } from './adapter/in/http/rocket-po-source.controller';
 import { SabangnetMallListingsController } from './adapter/in/http/sabangnet-mall-listings.controller';
 import { MallAdminListingsController } from './adapter/in/http/mall-admin-listings.controller';
-import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
+import { ChannelListingController } from './adapter/in/web/listing/channel-listing.controller';
 import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
 import { RocketSellpiaMatchingCsvImportController } from './adapter/in/http/rocket-sellpia-matching-csv-import.controller';
 import { ChannelCatalogCollectionController } from './adapter/in/http/channel-catalog-collection.controller';
@@ -28,6 +28,7 @@ import { CoupangWingRegistrationExportController } from './adapter/in/http/coupa
 import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
 import { ChannelListingRepositoryAdapter } from './adapter/out/repository/channel-listing.repository.adapter';
+import { ChannelListingQueryPersistenceAdapter } from './adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from './adapter/out/repository/marketplace-registration.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
 import { RocketSellpiaMatchingCsvImportRepositoryAdapter } from './adapter/out/repository/rocket-sellpia-matching-csv-import.repository.adapter';
@@ -38,7 +39,12 @@ import { ChannelRecipeSuggestionContextRepositoryAdapter } from './adapter/out/r
 import { SellpiaManualMatchRepositoryAdapter } from './adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { SellpiaRecipeEvidenceAdapter } from './adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelDashboardService } from './application/service/channel-dashboard.service';
-import { ChannelListingQueryService } from './application/service/channel-listing-query.service';
+import { ChannelListingQueryService } from './application/service/listing/channel-listing-query.service';
+import { CHANNEL_LISTING_QUERY_PORT } from './application/port/in/listing/channel-listing-query.port';
+import {
+  CHANNEL_LISTING_QUERY_PERSISTENCE_PORT,
+  type ChannelListingQueryPersistencePort,
+} from './application/port/out/persistence/channel-listing-query.persistence.port';
 import { ChannelListingDeletionService } from './application/service/channel-listing-deletion.service';
 import { ChannelAccountQueryService } from './application/service/channel-account-query.service';
 import { MarketplaceRegistrationService } from './application/service/marketplace-registration.service';
@@ -124,7 +130,18 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
   ],
   providers: [
     ChannelDashboardService,
-    ChannelListingQueryService,
+    {
+      provide: ChannelListingQueryService,
+      useFactory: (persistence: ChannelListingQueryPersistencePort) =>
+        new ChannelListingQueryService(persistence),
+      inject: [CHANNEL_LISTING_QUERY_PERSISTENCE_PORT],
+    },
+    { provide: CHANNEL_LISTING_QUERY_PORT, useExisting: ChannelListingQueryService },
+    ChannelListingQueryPersistenceAdapter,
+    {
+      provide: CHANNEL_LISTING_QUERY_PERSISTENCE_PORT,
+      useExisting: ChannelListingQueryPersistenceAdapter,
+    },
     ChannelListingDeletionService,
     ChannelAccountQueryService,
     MarketplaceRegistrationService,
@@ -249,6 +266,7 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT,
     ROCKET_PO_CATALOG_PORT,
     CHANNEL_LISTING_REPORT_READ_PORT,
+    CHANNEL_LISTING_QUERY_PORT,
   ],
 })
 export class ChannelsModule {}

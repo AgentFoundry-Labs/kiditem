@@ -9,8 +9,8 @@ import {
   OTHER_ORGANIZATION_ID as OTHER_ORG,
   OTHER_USER_ID as OTHER_USER,
 } from '../../test-helpers/real-prisma';
-import { ChannelListingQueryService } from '../../channels/application/service/channel-listing-query.service';
-import { ChannelListingRepositoryAdapter } from '../../channels/adapter/out/repository/channel-listing.repository.adapter';
+import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
@@ -35,7 +35,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     publisher = new AiCatalogMediaPublicationRepositoryAdapter();
     library = new ContentAssetLibraryRepositoryAdapter(prisma as never);
     selection = new ContentWorkspaceThumbnailSelectionRepositoryAdapter(prisma as never);
-    catalog = new ChannelListingQueryService(new ChannelListingRepositoryAdapter(prisma as never));
+    catalog = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never));
   });
   afterAll(async () => {
     await prisma?.$disconnect();

@@ -332,7 +332,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/todo` | Owner Domain | Operator-written to-do list (`/api/todo`): who owes the work (operator or development), its area, and its status. Nothing derives it from other screens. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its registered reader — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -343,7 +343,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
 | `apps/server/src/products` | Owner Domain | Source-inventory `MasterProduct` identity/current stock/purchase price, Sellpia collection/publication, image metadata, reads/exports and explicit ABC evaluation; `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
-| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, and reviewed ProductPreparation input. Sourcing stops at the draft: the submission fence is owned by Channels and read back through its reader ([ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)). |
+| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, and reviewed ProductPreparation input. Sourcing stops at the draft: the submission fence is owned by Channels and read back through its public capability ([ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)). |
 | `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, MasterProduct supplier policy, collected-inventory-fenced purchase submission attempts/reconciliation, and Rocket capacity preview after Sellpia publication. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
@@ -394,7 +394,7 @@ apps/server/src/{owner}/
   application/usecase/   orchestration; existing application/service lanes follow owner guides
   domain/                 pure policy/model/service code
   mapper/                 row/DTO/domain/shared contract mapping
-  read/                   pure ledger readers over the caller's transaction client
+  read/                   transitional internal query helpers, when still needed
   transaction/            lock/fence functions for the caller's transaction (not a port lane)
 ```
 
@@ -405,16 +405,35 @@ Optional: `adapter/in/web/` when no HTTP entrypoint exists, `application/port/in
 when no other owner consumes the use case, `domain/` when no pure policy/model
 exists yet, and `mapper/` when mapping is trivial.
 
-`read/` exists when the owner publishes a ledger
-([ADR-0009](adr/0009-one-ledger-one-reader.md)) and `<owner>/transaction/` when
-other code must take the owner's lock or fence inside its own transaction. Both
-export plain functions with no DI or HTTP; `<owner>/transaction/` is not the
-`application/port/out/transaction/` lane. A reader imports no adapter,
-application, or NestJS code and takes no lock: its caller locks and owns the
-transaction, and the reader takes the lock evidence and only verifies it. A
-reader signals a missing, conflicting, or unselectable fact with
-`common/errors/fact-errors`, which the global exception filter maps to 404, 409,
-and 400; an integrity failure stays a plain `Error`.
+Owner persistence adapters implement fact queries behind public capabilities
+([ADR-0021](adr/0021-owner-capabilities-replace-dedicated-readers.md)). They
+preserve organization scope, complete generations, coverage, and required
+transaction evidence; one registered reader file per ledger is not required.
+The access guard permits canonical owner persistence queries and restricts
+writes to declared publication paths. Existing direct consumers are explicit
+migration exceptions, not reusable patterns.
+
+Existing `read/` helpers are internal pure transaction functions. The optional
+`<owner>/transaction/` helpers preserve caller-owned locks and fences; they are
+not the `application/port/out/transaction/` lane. Missing or conflicting facts
+use `common/errors/fact-errors`, mapped by the global exception filter;
+integrity failures remain plain errors.
+
+Channels' migrated capabilities use `application/service/<business>` and
+`application/port/in` for both reads and writes. Application services and domain
+policies are plain TypeScript; input adapters, persistence/provider adapters,
+and module composition contain framework and IO dependencies. The business
+areas are account, sales-product, registration, listing, and collection. Only
+implemented capabilities create directories; no parallel Marketplace business
+layer is part of the target structure.
+
+Cross-owner Channels references retain scalar IDs and indexes while consumers
+move to owner input contracts through their own output adapters. Organization,
+user, and source-attempt FKs are inventoried migration exceptions as well;
+intra-owner FK and organization constraints remain. Removing a relation also
+requires lifecycle, missing-reference, and concurrent-change coverage. Account,
+PO, provider, and schema migrations remain separately tracked work under
+[the Channels redesign spec](https://linear.app/kiditem/issue/KID-286).
 
 Agent-facing capabilities use the neutral contract in
 `apps/server/src/common/capability-definition.ts`. Each owner domain owns its
@@ -946,7 +965,8 @@ and lease fences, and atomic publication of current stock. Its implementation
 separates `domain/`, `application/usecase/`, `application/port/in|out/`,
 `adapter/in/web/`, and `adapter/out/persistence/`; `products.module.ts` and its source runtime modules binds
 contracts to implementations. Consumers use published Products contracts.
-The canonical reader and locking implementation remain single authorities.
+Products retains its canonical facts and lock authority behind those contracts;
+a dedicated reader implementation is no longer an architectural requirement.
 MasterProduct has fourteen scalar fields; source identity is stored directly as
 organization/account/product-code/option-code, without a second source table or
 per-product collection pointer. Operator metadata is images only. Unknown

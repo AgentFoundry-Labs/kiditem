@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NotFoundException } from '@nestjs/common';
-import { ChannelListingRepositoryAdapter } from '../../../adapter/out/repository/channel-listing.repository.adapter';
+import type { ChannelListingPersistenceQuery } from '../../../../application/port/out/persistence/channel-listing-query.persistence.port';
+import { ChannelListingQueryPersistenceAdapter } from '../channel-listing-query.persistence.adapter';
+
+function listQuery(overrides: Partial<ChannelListingPersistenceQuery> = {}): ChannelListingPersistenceQuery {
+  return {
+    page: 1,
+    limit: 20,
+    includeDeleted: false,
+    ...overrides,
+  };
+}
 
 function listingRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -67,24 +76,24 @@ function makePrisma() {
   };
 }
 
-describe('ChannelListingRepositoryAdapter', () => {
+describe('ChannelListingQueryPersistenceAdapter', () => {
   let prisma: ReturnType<typeof makePrisma>;
-  let repository: ChannelListingRepositoryAdapter;
+  let repository: ChannelListingQueryPersistenceAdapter;
 
   beforeEach(() => {
     prisma = makePrisma();
-    repository = new ChannelListingRepositoryAdapter(prisma as never);
+    repository = new ChannelListingQueryPersistenceAdapter(prisma as never);
   });
 
   it('lists active marketplace products with account, mapping, and content metadata', async () => {
-    const result = await repository.list('org-1', {
+    const result = await repository.list('org-1', listQuery({
       page: 1,
       limit: 20,
       sort: 'newest',
       channel: 'coupang',
       channelAccountId: 'account-1',
       search: '다트',
-    });
+    }));
 
     expect(prisma.channelListing.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
@@ -159,7 +168,7 @@ describe('ChannelListingRepositoryAdapter', () => {
     })]);
     prisma.channelListing.groupBy.mockResolvedValueOnce([]);
 
-    const result = await repository.list('org-1');
+    const result = await repository.list('org-1', listQuery());
 
     expect(prisma.channelListing.findMany.mock.calls[0]?.[0].where)
       .not.toHaveProperty('masterId');
@@ -184,7 +193,7 @@ describe('ChannelListingRepositoryAdapter', () => {
     })]);
     prisma.channelListing.groupBy.mockResolvedValueOnce([]);
 
-    const result = await repository.list('org-1');
+    const result = await repository.list('org-1', listQuery());
 
     expect(result.items[0]).toEqual(expect.objectContaining({
       id: 'mixed-listing-1',
@@ -324,10 +333,9 @@ describe('ChannelListingRepositoryAdapter', () => {
     expect(result.providerDetail?.sourceDetail).not.toHaveProperty('contents');
   });
 
-  it('rejects an inactive or cross-organization workspace', async () => {
+  it('returns no workspace for an inactive or cross-organization listing', async () => {
     prisma.channelListing.findFirst.mockResolvedValueOnce(null);
 
-    await expect(repository.getWorkspace('org-1', 'foreign-listing'))
-      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.getWorkspace('org-1', 'foreign-listing')).resolves.toBeNull();
   });
 });

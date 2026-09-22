@@ -1,5 +1,5 @@
 import { IsIn, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
-import { PaginationQueryDto } from '../../../../../common/dto';
+import { PaginationQueryDto } from '../../../../../../common/dto';
 
 const CHANNEL_LISTING_SORTS = ['newest', 'oldest', 'name_asc'] as const;
 const CHANNEL_LISTING_TABS = ['registered', 'deleted'] as const;

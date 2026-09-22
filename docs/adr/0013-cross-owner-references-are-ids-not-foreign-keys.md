@@ -38,3 +38,7 @@ owner's reader or a raw query, never `include`.
 [ADR-0016](0016-inventory-history-retains-deleted-sku-identities.md) defines
 the scoped exception for retained Inventory transfer history: its SKU ID may
 outlive the current SKU while organization and warehouse foreign keys remain.
+
+[ADR-0021](0021-owner-capabilities-replace-dedicated-readers.md) supersedes the
+dedicated-reader requirements and, for Channels-related references, automatic
+platform FK exceptions. Evidence, organization, and transaction guarantees remain.
