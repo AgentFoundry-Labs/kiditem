@@ -74,6 +74,15 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
   async upsertSourcedWithIdempotencyReceipt(
     input: UpsertCandidateWithIdempotencyReceiptInput,
   ): Promise<{ candidateId: string }> {
+    const result = await this.upsertSourcedReceiptInTransaction(input);
+    // 직접 작성 · Agent 경로도 후보 하나에 초안 하나다(KID-310). 멱등이라 영수증 재생에도 안전하다.
+    await this.ensureDraft(input, result.candidateId);
+    return result;
+  }
+
+  private async upsertSourcedReceiptInTransaction(
+    input: UpsertCandidateWithIdempotencyReceiptInput,
+  ): Promise<{ candidateId: string }> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         return await this.prisma.$transaction(async (tx) => {
@@ -384,7 +393,11 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
    * Channels 에 초안을 부탁한다 — 멱등이라 다시 담아도 초안은 하나다.
    */
   private async ensureDraft(input: UpsertCandidateInput, candidateId: string): Promise<void> {
-    if (!this.salesProductDrafts) return;
+    // 초안 없는 수집은 없다(KID-310). 배선이 빠졌으면 조용히 건너뛰지 않고 수집을 세운다 —
+    // 초안이 없으면 편집 · 등록 · 몰 엑셀이 모두 갈 곳을 잃는다.
+    if (!this.salesProductDrafts) {
+      throw new Error('SALES_PRODUCT_DRAFT_PORT is not wired; a collected candidate cannot exist without its draft.');
+    }
     await this.salesProductDrafts.createFromSource(input.organizationId, {
       candidateId,
       name: input.name,

@@ -3,6 +3,7 @@ import { ChannelsRegistrationPreparationModule } from '../channels/channels-regi
 import { AiAgentRuntimeModule } from '../ai/ai-agent-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
+import { SalesProductDraftAdapter } from './adapter/out/channels/sales-product-draft.adapter';
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingInterestTargetRepositoryAdapter } from './adapter/out/repository/sourcing-interest-target.repository.adapter';
 import { SourcingRecommendationRepositoryAdapter } from './adapter/out/repository/sourcing-recommendation.repository.adapter';
@@ -20,11 +21,13 @@ import { SOURCING_VALIDATION_REPOSITORY_PORT } from './application/port/out/repo
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/out/repository/sourcing-workspace-snapshot.repository.port';
 import { TREND_COLLECTION_REPOSITORY_PORT } from './application/port/out/repository/trend-collection.repository.port';
 import { SOURCING_AGENT_GATEWAY_PORT } from './application/port/out/runtime/sourcing-agent.gateway.port';
+import { SALES_PRODUCT_DRAFT_PORT } from './application/port/out/cross-domain/sales-product-draft.port';
 import { SourcingAgentCommandService } from './application/service/sourcing-agent-command.service';
 import { SourcingAgentWorkspaceMutationCapabilityService } from './application/service/sourcing-agent-workspace-capability.service';
 import { SourcingReviewService } from './application/service/sourcing-review.service';
 import { SourcingValidationService } from './application/service/sourcing-validation.service';
 import { SourcingAgentReadCapabilityModule } from './sourcing-agent-read-capability.module';
+import { SalesProductModule } from '../channels/sales-product.module';
 
 @Module({
   imports: [
@@ -32,6 +35,7 @@ import { SourcingAgentReadCapabilityModule } from './sourcing-agent-read-capabil
     PrismaModule,
     AiAgentRuntimeModule,
     SourcingAgentReadCapabilityModule,
+    SalesProductModule,
   ],
   providers: [
     SourcingAgentCommandService,
@@ -39,6 +43,8 @@ import { SourcingAgentReadCapabilityModule } from './sourcing-agent-read-capabil
     SourcingReviewService,
     SourcingValidationService,
     SourcingAgentGatewayAdapter,
+    SalesProductDraftAdapter,
+    { provide: SALES_PRODUCT_DRAFT_PORT, useExisting: SalesProductDraftAdapter },
     SourcingCandidateRepositoryAdapter,
     SourcingInterestTargetRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
