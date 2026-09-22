@@ -5,8 +5,7 @@ import { AgentOsCapabilityModule } from '../../agent-os/agent-os-capability.modu
 import { PrismaModule } from '../../prisma/prisma.module';
 import { StorageModule } from '../../common/storage/storage.module';
 import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
-import { AiAgentRuntimeModule, AiModule } from '../ai.module';
-import { AiProductGenerationRuntimeModule } from '../ai-product-generation-runtime.module';
+import { AiAgentRuntimeModule, AiModule, AiProductGenerationRuntimeModule } from '../ai.module';
 import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing-registration-capability.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direct-job.repository.adapter';
@@ -129,10 +128,7 @@ describe('AiModule hexagonal wiring contract', () => {
   });
 
   it('keeps AI direct generation independent from OperationAlert and panel runtime', () => {
-    const moduleSources = [
-      readFileSync(new URL('../ai.module.ts', import.meta.url), 'utf8'),
-      readFileSync(new URL('../ai-product-generation-runtime.module.ts', import.meta.url), 'utf8'),
-    ].join('\n');
+    const moduleSources = readFileSync(new URL('../ai.module.ts', import.meta.url), 'utf8');
     expect(moduleSources).not.toMatch(/OperationAlert|OperationRun|Panel/);
   });
 

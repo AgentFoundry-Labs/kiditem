@@ -10,25 +10,33 @@ import { STOCKOUT_CHECK_PORT } from './application/port/in/listing/stockout-chec
 import { STOCKOUT_CHECK_PERSISTENCE_PORT, type StockoutCheckPersistencePort } from './application/port/out/persistence/stockout-check.persistence.port';
 import { Module } from '@nestjs/common';
 import { SalesProductModule } from './sales-product.module';
-import { ChannelOptionRecipeModule } from './channel-option-recipe.module';
+import { ChannelCatalogModule } from './channel-catalog.module';
 import { RegistrationTargetExecutionController } from './adapter/in/web/registration-target-execution.controller';
 import { PrismaModule } from '../prisma/prisma.module';
-import { ChannelsRegistrationPreparationModule } from './channels-registration-preparation.module';
+import { SourcingRegistrationSourceModule } from '../sourcing/sourcing-registration-source.module';
 import { ChannelsModule } from './channels.module';
 import { ChannelRegistrationExecutionController } from './adapter/in/web/channel-registration-execution.controller';
 import { RegistrationExecutionRepositoryAdapter } from './adapter/out/repository/registration-execution.repository.adapter';
 import { RegistrationExecutionService } from './application/service/registration/registration-execution.service';
 import { REGISTRATION_EXECUTION_PORT } from './application/port/in/capability/registration-execution.port';
 import { REGISTRATION_EXECUTION_REPOSITORY_PORT, type RegistrationExecutionRepositoryPort } from './application/port/out/repository/registration-execution.repository.port';
+import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-product-thumbnail-source.adapter';
+import { RegistrationDraftAdapter } from './adapter/out/persistence/candidate-registration-draft.adapter';
+import { ProductPreparationRepositoryAdapter } from './adapter/out/persistence/candidate-registration.repository.adapter';
+import { CANDIDATE_REGISTRATION_PORT } from './application/port/in/candidate-registration.port';
+import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/sales-product-thumbnail-source.port';
 
 /**
  * 등록 실행 울타리([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
  *
  * 계정 · 리스팅 · 영수증을 가진 `ChannelsModule` 과 초안을 가진 Sourcing 사이에
  * 따로 서 있다. 이 모듈만 실행 행을 쓴다.
+ *
+ * 예전 channels-registration-preparation.module.ts(수집후보 기원 등록의 호환 진입점)를
+ * 합쳤다 — 등록 실행 서비스가 이미 그 모듈을 가져왔었다.
  */
 @Module({
-  imports: [ProductCollectionRuntimeModule, PrismaModule, ChannelsModule, ChannelsRegistrationPreparationModule, SalesProductModule, ChannelOptionRecipeModule],
+  imports: [ProductCollectionRuntimeModule, PrismaModule, ChannelsModule, SourcingRegistrationSourceModule, SalesProductModule, ChannelCatalogModule],
   controllers: [StockoutCheckController, ChannelRegistrationExecutionController, RegistrationTargetExecutionController],
   providers: [
     StockoutCheckPersistenceAdapter,
@@ -42,7 +50,15 @@ import { REGISTRATION_EXECUTION_REPOSITORY_PORT, type RegistrationExecutionRepos
       useExisting: RegistrationExecutionRepositoryAdapter,
     },
     { provide: REGISTRATION_EXECUTION_PORT, useExisting: RegistrationExecutionService },
+    // 예전 channels-registration-preparation.module.ts.
+    RegistrationDraftAdapter,
+    ProductPreparationRepositoryAdapter,
+    SalesProductThumbnailSourceAdapter,
+    // 대표 사진 울타리가 쓰는 생성 썸네일 목록. 없으면 울타리가 조용히 꺼진다.
+    { provide: SALES_PRODUCT_THUMBNAIL_SOURCE_PORT, useExisting: SalesProductThumbnailSourceAdapter },
+    { provide: REGISTRATION_DRAFT_PORT, useExisting: RegistrationDraftAdapter },
+    { provide: CANDIDATE_REGISTRATION_PORT, useExisting: ProductPreparationRepositoryAdapter },
   ],
-  exports: [STOCKOUT_CHECK_PORT, REGISTRATION_EXECUTION_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT],
+  exports: [STOCKOUT_CHECK_PORT, REGISTRATION_EXECUTION_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT, REGISTRATION_DRAFT_PORT, CANDIDATE_REGISTRATION_PORT],
 })
 export class ChannelsRegistrationExecutionModule {}

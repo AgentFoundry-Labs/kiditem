@@ -28,7 +28,6 @@ import { AiModule } from '../content/ai.module';
 import { AlertsModule } from '../alerts/alerts.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
-import { ChannelOptionRecipeModule } from './channel-option-recipe.module';
 import { ChannelSyncController } from './adapter/in/web/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/web/channel-dashboard.controller';
 import { ChannelAccountController } from './adapter/in/web/account/channel-account.controller';
@@ -108,7 +107,6 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     InventoryModule,
     ProductCollectionRuntimeModule,
     AlertsModule,
-    ChannelOptionRecipeModule,
   ],
   controllers: [
     OrderCollectionMallAccountController,

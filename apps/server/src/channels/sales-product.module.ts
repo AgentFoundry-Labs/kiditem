@@ -20,7 +20,7 @@ import { RegistrationTargetRepositoryAdapter } from './adapter/out/persistence/r
 import { SALES_PRODUCT_PORT } from './application/port/in/sales-product.port';
 import { forwardRef, Module } from '@nestjs/common';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
-import { ChannelOptionRecipeModule } from './channel-option-recipe.module';
+import { ChannelCatalogModule } from './channel-catalog.module';
 import { SalesProductLinkService } from './application/service/sales-product/sales-product-link.service';
 import { SalesProductImageService } from './application/service/sales-product/sales-product-image.service';
 import { SalesProductMallPriceService } from './application/service/sales-product/sales-product-mall-price.service';
@@ -48,7 +48,7 @@ import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from './application/port/out/ai/
 @Module({
   // AI 는 판매상품 초안을 읽고(작업공간 소유자 확인) Channels 는 초안을 내릴 때 AI 작업공간을
   // 보관한다 — 두 owner 가 서로의 공개 계약만 부르는 양방향 의존이라 forwardRef 로 푼다.
-  imports: [ProductCollectionRuntimeModule, ChannelOptionRecipeModule, forwardRef(() => AiModule)],
+  imports: [ProductCollectionRuntimeModule, ChannelCatalogModule, forwardRef(() => AiModule)],
   controllers: [SalesProductController, RegistrationTargetController],
   providers: [
     { provide: SALES_PRODUCT_COUPANG_CATALOG_PORT, useExisting: SalesProductCoupangCatalogService },

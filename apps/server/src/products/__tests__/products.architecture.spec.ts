@@ -17,7 +17,7 @@ import { FinanceModule } from '../../finance/finance.module';
 import { ProductAbcController } from '../adapter/in/web/product-abc.controller';
 import { MASTER_PRODUCT_ABC_RECALCULATION_PORT } from '../application/port/in/master-product-abc-recalculation.port';
 import { RecalculateProductAbcUseCase } from '../application/usecase/recalculate-product-abc.usecase';
-import { ChannelOptionRecipeModule } from '../../channels/channel-option-recipe.module';
+import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import { CHANNEL_OPTION_RECIPE_PORT } from '../../channels/application/port/in/channel-option-recipe.port';
 
 describe('Products architecture', () => {
@@ -98,8 +98,8 @@ describe('Products architecture', () => {
 
   it('publishes the focused recipe mutation owner port', () => {
     const imports = Reflect.getMetadata('imports', ProductsModule) ?? [];
-    const exports = Reflect.getMetadata('exports', ChannelOptionRecipeModule) ?? [];
-    expect(imports).toContain(ChannelOptionRecipeModule);
+    const exports = Reflect.getMetadata('exports', ChannelCatalogModule) ?? [];
+    expect(imports).toContain(ChannelCatalogModule);
     expect(exports).toContain(CHANNEL_OPTION_RECIPE_PORT);
   });
 

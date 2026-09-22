@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { SalesProductModule } from '../sales-product.module';
-import { ChannelsRegistrationPreparationModule } from '../channels-registration-preparation.module';
+import { ChannelsRegistrationExecutionModule } from '../channels-registration-execution.module';
 import { SalesProductWorkspaceArchiveAdapter } from '../adapter/out/repository/sales-product-workspace-archive.adapter';
 import { SalesProductThumbnailSourceAdapter } from '../adapter/out/ai/sales-product-thumbnail-source.adapter';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
@@ -35,10 +35,10 @@ describe('초안 콘텐츠 계약 배선', () => {
       .toContain(SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT);
   });
 
-  it('대표 사진 울타리가 볼 생성 썸네일 목록을 등록 준비 모듈이 제공한다', () => {
-    expect(bindingFor(ChannelsRegistrationPreparationModule, SALES_PRODUCT_THUMBNAIL_SOURCE_PORT))
+  it('대표 사진 울타리가 볼 생성 썸네일 목록을 등록 실행 모듈이 제공한다', () => {
+    expect(bindingFor(ChannelsRegistrationExecutionModule, SALES_PRODUCT_THUMBNAIL_SOURCE_PORT))
       .toMatchObject({ useExisting: SalesProductThumbnailSourceAdapter });
-    expect(providersOf(ChannelsRegistrationPreparationModule))
+    expect(providersOf(ChannelsRegistrationExecutionModule))
       .toContain(SalesProductThumbnailSourceAdapter);
   });
 });

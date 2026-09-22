@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
+import { SalesProductModule } from '../channels/sales-product.module';
+import { SalesProductOwnerReadAdapter } from './adapter/out/channels/sales-product-owner.adapter';
+import { SALES_PRODUCT_OWNER_READ_PORT } from './application/port/out/cross-domain/sales-product-owner.port';
 import { StorageService } from '../common/storage/storage.service';
 import { StorageModule } from '../common/storage/storage.module';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
@@ -171,7 +174,88 @@ import {
   THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
 } from './application/port/out/sink';
 import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
-import { AiProductGenerationRuntimeModule } from './ai-product-generation-runtime.module';
+
+/**
+ * Controller-free owner composition for the listing product-generation path.
+ * It deliberately excludes Agent OS API/HTTP and the direct-job worker; callers
+ * receive only the owner trigger port and enqueue durable jobs for API workers.
+ */
+@Module({
+  // Channels 는 판매상품 초안을 내릴 때 AI 작업공간을 보관한다(AiModule 을 forwardRef 로
+  // 문다). AI 는 그 반대편에서 SalesProductModule 을 바로 가져와도 된다 — 순환은 이미 그
+  // 한쪽에서 끊겼다.
+  imports: [ChannelCatalogModule, SalesProductModule, PrismaModule, StorageModule],
+  providers: [
+    ProductGenerationAiService,
+    ContentWorkspaceService,
+    DetailPageGenerationService,
+    DetailPageQueryService,
+    DetailPageResultRefinerService,
+    BoldVerticalRefinerService,
+    KidsPlayfulRefinerService,
+    DetailPageDirectGenerationJobService,
+    ThumbnailEditorAiService,
+    ThumbnailGenerationJobService,
+    ThumbnailGenerationLifecycleService,
+    ThumbnailDirectGenerationJobService,
+    AiDirectJobRepositoryAdapter,
+    ContentAssetLibraryRepositoryAdapter,
+    ContentWorkspaceLifecycleRepositoryAdapter,
+    SalesProductOwnerReadAdapter,
+    DetailPageGenerationRepositoryAdapter,
+    DetailPageQueryRepositoryAdapter,
+    ProductGenerationContextRepositoryAdapter,
+    ThumbnailGenerationEventAdapter,
+    ThumbnailGenerationLedgerRepositoryAdapter,
+    ThumbnailImageFetcherService,
+    SharpGeneratedImageValidatorAdapter,
+    ThumbnailImageGenerationAdapter,
+    ThumbnailReferenceImagesService,
+    { provide: AI_DIRECT_JOB_RUNTIME_CONFIG, useFactory: resolveAiDirectJobRuntimeConfig },
+    { provide: AI_DIRECT_JOB_REPOSITORY_PORT, useExisting: AiDirectJobRepositoryAdapter },
+    { provide: CONTENT_ASSET_LIBRARY_REPOSITORY_PORT, useExisting: ContentAssetLibraryRepositoryAdapter },
+    { provide: CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT, useExisting: ContentWorkspaceLifecycleRepositoryAdapter },
+    { provide: SALES_PRODUCT_OWNER_READ_PORT, useExisting: SalesProductOwnerReadAdapter },
+    { provide: DETAIL_PAGE_GENERATION_REPOSITORY_PORT, useExisting: DetailPageGenerationRepositoryAdapter },
+    { provide: DETAIL_PAGE_QUERY_REPOSITORY_PORT, useExisting: DetailPageQueryRepositoryAdapter },
+    { provide: GENERATED_IMAGE_VALIDATOR_PORT, useExisting: SharpGeneratedImageValidatorAdapter },
+    { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
+    { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
+    { provide: PRODUCT_GENERATION_AI_TRIGGER_PORT, useExisting: ProductGenerationAiService },
+    { provide: PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT, useExisting: ProductGenerationContextRepositoryAdapter },
+    { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
+    { provide: THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT, useExisting: ThumbnailGenerationLedgerRepositoryAdapter },
+    { provide: THUMBNAIL_IMAGE_GENERATION_PORT, useExisting: ThumbnailImageGenerationAdapter },
+    { provide: THUMBNAIL_REFERENCE_IMAGES_PORT, useExisting: ThumbnailReferenceImagesService },
+  ],
+  exports: [
+    PRODUCT_GENERATION_AI_TRIGGER_PORT,
+    AI_DIRECT_JOB_REPOSITORY_PORT,
+    AI_DIRECT_JOB_RUNTIME_CONFIG,
+    CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
+    CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
+    DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
+    DETAIL_PAGE_QUERY_REPOSITORY_PORT,
+    GENERATED_IMAGE_VALIDATOR_PORT,
+    IMAGE_FETCH_PORT,
+    IMAGE_STORAGE_PORT,
+    PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
+    THUMBNAIL_GENERATION_EVENT_PORT,
+    THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
+    THUMBNAIL_IMAGE_GENERATION_PORT,
+    THUMBNAIL_REFERENCE_IMAGES_PORT,
+    ContentWorkspaceService,
+    DetailPageDirectGenerationJobService,
+    DetailPageGenerationService,
+    DetailPageQueryService,
+    DetailPageResultRefinerService,
+    ThumbnailDirectGenerationJobService,
+    ThumbnailEditorAiService,
+    ThumbnailGenerationJobService,
+    ThumbnailGenerationLifecycleService,
+  ],
+})
+export class AiProductGenerationRuntimeModule {}
 
 @Module({
   imports: [

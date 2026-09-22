@@ -1,7 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { SourcingModule } from '../sourcing.module';
-import { SourcingAgentRuntimeModule } from '../sourcing-agent-runtime.module';
 import { SalesProductDraftAdapter } from '../adapter/out/channels/sales-product-draft.adapter';
 import { SALES_PRODUCT_DRAFT_PORT } from '../application/port/out/cross-domain/sales-product-draft.port';
 
@@ -18,7 +17,6 @@ function providersOf(module: unknown): Binding[] {
 describe('판매상품 초안 계약 배선', () => {
   it.each([
     ['SourcingModule', SourcingModule],
-    ['SourcingAgentRuntimeModule', SourcingAgentRuntimeModule],
   ])('%s 이 초안 계약을 제공한다', (_name, module) => {
     expect(providersOf(module)).toContain(SalesProductDraftAdapter);
     expect(providersOf(module).find((provider) =>
