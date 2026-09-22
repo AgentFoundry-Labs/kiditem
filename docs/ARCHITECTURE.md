@@ -906,8 +906,9 @@ leaves the target reusable ([ADR-0022](adr/0022-sales-product-draft-exists-from-
 actor, account, idempotency key, lease and provider outcome. Changing a target
 cannot change an existing execution. Only one unresolved execution may hold a
 target or actual listing's active fence. Sourcing provides candidate eligibility
-through its public contract; AI owns content workspaces and assets, and one
-workspace belongs to one sales-product draft or channel-listing branch.
+through its public contract; Content(AI) — the `content` directory — owns content
+workspaces and assets, and one workspace belongs to one sales-product draft or
+channel-listing branch.
 Neither owner writes Channels targets or executions, and registration never
 creates a source `MasterProduct`.
 
@@ -923,7 +924,8 @@ optional SourcingCandidate provenance
 
 Actual listings collected from a mall need no fabricated selling product or
 registration target. Listing-only availability operations use the same execution
-ledger. Registered views preserve these listings even without an AI workspace.
+ledger. Registered views preserve these listings even without a Content(AI)
+workspace.
 Unregistered candidate views exclude provenance already represented by an active
 listing, including provenance through the linked selling product.
 
