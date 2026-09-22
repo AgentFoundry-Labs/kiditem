@@ -1,3 +1,4 @@
+import { SourcingCollectedDraftService } from './sourcing-collected-draft.service';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { z } from 'zod';
 import {
@@ -37,6 +38,7 @@ export class SourcingExtensionIngestService {
   constructor(
     @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
     private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
+    private readonly collectedDrafts: SourcingCollectedDraftService,
   ) {}
 
   async begin(context: AuthenticatedSourcingContext, raw: unknown, idempotencyKey: string) {
@@ -98,9 +100,21 @@ export class SourcingExtensionIngestService {
       discoveredCount: outputs.length, rejectedCount: 0,
       qualityReport: { schemaVersion: 'v1', completeSnapshot: true, searchArtifact: outputs.length === 0 },
     };
-    return this.attempts.completeAttempt({ organizationId: context.organizationId, attemptId, attemptToken,
+    const completed = await this.attempts.completeAttempt({ organizationId: context.organizationId, attemptId, attemptToken,
       planChecksum: attempt.planChecksum, contentChecksum: hashCollectionRequest(content), output,
       sourceWindowStartAt: null, sourceWindowEndAt: new Date(),});
+    // 수집한 상품은 편집할 초안을 갖는다(KID-310). 커밋 뒤에 보장한다 — 멱등이다.
+    await this.collectedDrafts.ensureDraftsForSourceIdentities(
+      context.organizationId,
+      output.typedRecords.flatMap((record) => record.kind === 'extension_candidate'
+        ? [{
+          sourcePlatform: record.row.sourcePlatform,
+          sourceIdentityHash: record.row.sourceIdentityHash,
+          sourceUrl: record.row.sourceUrl,
+        }]
+        : []),
+    );
+    return completed;
   }
 
   async fail(organizationId: string, attemptId: string, attemptToken: string, raw: unknown) {

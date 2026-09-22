@@ -1,3 +1,4 @@
+import type { SalesProductDraftSourceFacts } from '../cross-domain/sales-product-draft.port';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { ProductPreparationRow } from '../../../../../channels/application/port/in/candidate-registration.port';
 export type { ProductPreparationRow } from '../../../../../channels/application/port/in/candidate-registration.port';
@@ -108,6 +109,23 @@ export interface SourcingCandidateRepositoryPort {
     sourceUrl: string;
   }): Promise<CandidateRow | null>;
   upsertSourced(input: UpsertCandidateInput): Promise<CandidateRow>;
+  /**
+   * 이번 수집이 만들거나 갱신한 후보들. 원천 정체성(플랫폼 · 해시)이 있으면 그것으로, 없으면
+   * 주소로 찾는다 — 확장 투영이 후보를 찾는 규칙과 같다.
+   */
+  findIdsBySourceIdentities(
+    organizationId: string,
+    identities: readonly {
+      sourcePlatform: string;
+      sourceIdentityHash: string | null;
+      sourceUrl: string;
+    }[],
+  ): Promise<string[]>;
+  /** 초안이 받을 원천 사실. 후보가 없거나 지워졌으면 그 줄은 빠진다. */
+  readDraftSourceFacts(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<SalesProductDraftSourceFacts[]>;
   upsertSourcedWithIdempotencyReceipt(
     input: UpsertCandidateWithIdempotencyReceiptInput,
   ): Promise<{ candidateId: string }>;

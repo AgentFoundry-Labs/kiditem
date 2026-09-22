@@ -15,6 +15,7 @@ import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
+import { SourcingCollectedDraftService } from '../application/service/sourcing-collected-draft.service';
 
 const sourceUrl = 'https://detail.1688.com/offer/123.html';
 const scraped = {
@@ -39,13 +40,14 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     prisma = makeTestPrisma(); await prisma.$connect();
     candidates = new SourcingCandidateRepositoryAdapter(prisma as never, realSalesProductDraftPort(prisma));
     const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never));
-    const owner = new SourcingScrapeUrlService(attempts, candidates, { scrapeProductUrl: async () => { providerCalls++; return provider(); } });
+    const collectedDrafts = new SourcingCollectedDraftService(candidates, realSalesProductDraftPort(prisma));
+    const owner = new SourcingScrapeUrlService(attempts, candidates, { scrapeProductUrl: async () => { providerCalls++; return provider(); } }, collectedDrafts);
     capability = new SourcingFinalCapabilityAdapter(undefined as never, undefined as never, undefined as never,
       undefined as never, owner, undefined as never, undefined as never);
     const sourcing = new SourcingService(candidates, undefined as never, undefined as never,
       undefined as never, owner);
     const module = await Test.createTestingModule({ controllers: [SourcingExtensionIngestController], providers: [
-      { provide: SourcingService, useValue: sourcing }, { provide: SourcingExtensionIngestService, useValue: new SourcingExtensionIngestService(attempts) },
+      { provide: SourcingService, useValue: sourcing }, { provide: SourcingExtensionIngestService, useValue: new SourcingExtensionIngestService(attempts, collectedDrafts) },
     ] }).compile();
     app = module.createNestApplication(); app.setGlobalPrefix('api');
     app.use((req: any, _res: any, next: () => void) => { req.authUser = { id: TEST_USER_ID, organizationId: TEST_ORGANIZATION_ID }; next(); });
@@ -171,6 +173,50 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     } finally {
       await prisma.$executeRaw`ALTER TABLE sourcing_candidate_images DROP CONSTRAINT scrape_url_fixture_failure`;
     }
+  });
+
+  /**
+   * 수집이 끝나면 그 상품을 편집할 자리가 있어야 한다(KID-310 · ADR-0022).
+   *
+   * 브라우저 수집은 attempt 트랜잭션 안에서 후보를 쓰므로 후보 저장소의 초안 만들기를 지나지
+   * 않았다. 그래서 수집은 됐는데 편집 · 등록 · 몰 엑셀이 갈 곳이 없었다.
+   */
+  it('⭐ 브라우저 수집이 끝나면 그 후보의 판매상품 초안이 있다', async () => {
+    const collected = (await collect('draft-after-collect').expect(201)).body;
+
+    const candidateId = collected.candidateId as string;
+    expect(candidateId).toEqual(expect.any(String));
+    const draft = await prisma.salesProduct.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId },
+    });
+    expect(draft).toMatchObject({
+      status: 'draft',
+      // 초안은 코드도 판매가도 없이 존재한다. 팔기로 정할 때 발급한다.
+      code: null,
+      name: '실리콘 식판',
+      sourcePlatform: 'ALIBABA_1688',
+    });
+    expect(await prisma.salesProductOption.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: draft.id },
+    })).toBe(1);
+  });
+
+  it('⭐ 같은 상품을 다시 수집해도 초안은 하나다', async () => {
+    const first = (await collect('draft-idempotent-1').expect(201)).body;
+    const draftId = (await prisma.salesProduct.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: first.candidateId },
+    })).id;
+
+    // 같은 URL 은 두 번째부터 수집을 건너뛰고 기존 후보를 돌려준다. 그래도 초안은 보장한다.
+    const again = (await collect('draft-idempotent-2').expect(201)).body;
+
+    expect(again.candidateId).toBe(first.candidateId);
+    expect(await prisma.salesProduct.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: first.candidateId },
+    })).toBe(1);
+    expect((await prisma.salesProduct.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: first.candidateId },
+    })).id).toBe(draftId);
   });
 
   it('reads fixed expiry without mutation and rejects the old provider result after a new explicit attempt', async () => {

@@ -6,6 +6,7 @@ import { parseAllowedSupplierUrl } from '../../domain/supplier-source-url-policy
 import { hashCollectionRequest } from './sourcing-collection-mappers';
 import { requireIdempotencyKey } from './sourcing-source-attempt-primitives';
 import { prepareSourcingScrapeResult } from './sourcing-scrape-result.service';
+import { SourcingCollectedDraftService } from './sourcing-collected-draft.service';
 import type { AuthorizedCollectionOutput } from '../port/out/repository/sourcing-collection.repository.port';
 
 @Injectable()
@@ -14,7 +15,15 @@ export class SourcingScrapeUrlService {
     @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT) private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
     @Inject(SOURCING_CANDIDATE_REPOSITORY_PORT) private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_BROWSER_SCRAPE_PORT) private readonly browser: SourcingBrowserScrapePort,
+    private readonly collectedDrafts: SourcingCollectedDraftService,
   ) {}
+
+  /** 수집한 상품은 편집할 초안을 갖는다(KID-310). 커밋 뒤에 보장한다 — 멱등이다. */
+  private async ensureDraft(organizationId: string, attempt: SourcingBrowserSourceAttempt) {
+    const candidateId = attempt.scrapeUrlResult?.candidateId;
+    if (candidateId) await this.collectedDrafts.ensureDraftsForCandidates(organizationId, [candidateId]);
+    return attempt;
+  }
 
   async collect(input: { organizationId: string; userId: string | null; sourceUrl: string; idempotencyKey: string }) {
     const plan = scrapePlan(input.sourceUrl);
@@ -23,8 +32,9 @@ export class SourcingScrapeUrlService {
     const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
     const replay = await this.attempts.readScrapeUrlAttemptByKey({ organizationId: input.organizationId,
       sourceKey: plan.source, idempotencyKey, requestFingerprint: checksum });
-    if (replay) return scrapeResponse(replay);
+    if (replay) return scrapeResponse(await this.ensureDraft(input.organizationId, replay));
     const existing = await this.candidates.findActiveBySourceUrl({ organizationId: input.organizationId, sourceUrl: plan.sourceUrl });
+    if (existing) await this.collectedDrafts.ensureDraftsForCandidates(input.organizationId, [existing.id]);
     if (existing) return { ok: true, skipped: true, message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
       candidateId: existing.id, product_id: existing.id, href: `/product-pipeline/collected-products/${encodeURIComponent(existing.id)}`, attempt: null };
     const { attempt, created } = await this.attempts.beginAttempt({ organizationId: input.organizationId,
@@ -32,7 +42,7 @@ export class SourcingScrapeUrlService {
       idempotencyKey, requestFingerprint: checksum,
       plan, planChecksum: checksum, requestedByUserId: input.userId, collectorKey: 'sourcing-playwright',
       collectorVersion: 'sourcing-scrape-url/v1', triggerKind: 'manual', expiresInMs: 15 * 60_000, failureAlert });
-    if (!created) return scrapeResponse(attempt);
+    if (!created) return scrapeResponse(await this.ensureDraft(input.organizationId, attempt));
     try {
       const terminal = { organizationId: input.organizationId, attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
         planChecksum: checksum, failureAlert };
@@ -48,8 +58,9 @@ export class SourcingScrapeUrlService {
         sourceUrl: plan.sourceUrl, eventAt: capturedAt, observedAt: capturedAt, availableAt: capturedAt,
         revisionAt: null, ingestedAt: capturedAt, payloadHash: hashCollectionRequest(candidate.rawData), rawPayload: candidate.rawData,
       }], typedRecords: [], discoveredCount: 1, rejectedCount: 0, qualityReport: {} };
-      return scrapeResponse(await this.attempts.completeScrapeUrlAttempt({ ...terminal, candidate,
-        contentChecksum: hashCollectionRequest(output), output: evidence, sourceWindowEndAt: capturedAt }));
+      return scrapeResponse(await this.ensureDraft(input.organizationId,
+        await this.attempts.completeScrapeUrlAttempt({ ...terminal, candidate,
+          contentChecksum: hashCollectionRequest(output), output: evidence, sourceWindowEndAt: capturedAt })));
     } catch (error) {
       // Provider IO is never retried here. Only a new explicit request may retry a failed owner attempt.
       const failed = await this.attempts.failAttempt({ organizationId: input.organizationId, attemptId: attempt.attemptId,

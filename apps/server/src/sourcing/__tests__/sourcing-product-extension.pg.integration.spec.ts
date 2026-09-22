@@ -1,3 +1,6 @@
+import { SourcingCollectedDraftService } from '../application/service/sourcing-collected-draft.service';
+import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
+import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -23,10 +26,14 @@ describe('product extension actual HTTP source owner (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma(); await prisma.$connect();
     const owner = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never));
+    const drafts = realSalesProductDraftPort(prisma);
+    const collectedDrafts = new SourcingCollectedDraftService(
+      new SourcingCandidateRepositoryAdapter(prisma as never, drafts), drafts,
+    );
     const module = await Test.createTestingModule({
       controllers: [SourcingExtensionIngestController],
       providers: [{ provide: SourcingService, useValue: {} },
-        { provide: SourcingExtensionIngestService, useValue: new SourcingExtensionIngestService(owner as never) }],
+        { provide: SourcingExtensionIngestService, useValue: new SourcingExtensionIngestService(owner as never, collectedDrafts) }],
     }).compile();
     app = module.createNestApplication(); app.setGlobalPrefix('api');
     app.use((req: any, _res: any, next: () => void) => {
@@ -66,8 +73,13 @@ describe('product extension actual HTTP source owner (PostgreSQL)', () => {
       images: product.images, sku_attrs: product.sku_attrs, sku_list: product.sku_list, price_tiers: product.price_tiers,
       price_min: product.price_min, price_max: product.price_max,
     }) }));
+    // 수집이 끝나면 그 상품을 편집할 초안이 있다(KID-310 · ADR-0022). 확장 투영 경로도 같다.
+    const draft = await prisma.salesProduct.findFirstOrThrow({ where: { sourceCandidateId: candidate.id } });
+    expect(draft).toMatchObject({ status: 'draft', code: null, name: product.title, sourcePlatform: 'ALIBABA_1688' });
     const terminal = (await complete(attempt).expect(200)).body;
     expect(terminal).toMatchObject({ state: 'COMPLETE' }); expect(terminal).not.toHaveProperty('attemptToken');
+    // 같은 키로 다시 보내도 초안은 하나다.
+    expect(await prisma.salesProduct.count({ where: { sourceCandidateId: candidate.id } })).toBe(1);
     await complete(attempt, { product: { ...product, title: 'changed' }, description, hadDescription: true }).expect(409);
     expect(await prisma.sourcingEvidenceObservation.count()).toBe(2);
   });

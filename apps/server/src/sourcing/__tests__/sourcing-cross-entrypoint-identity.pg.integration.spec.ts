@@ -1,3 +1,4 @@
+import { SourcingCollectedDraftService } from '../application/service/sourcing-collected-draft.service';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -189,10 +190,17 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
 });
 
 function extensionOwner(prisma: PrismaClient): SourcingExtensionIngestService {
-  return new SourcingExtensionIngestService(new SourcingBrowserSourceAttemptRepositoryAdapter(
+  const candidates = new SourcingCandidateRepositoryAdapter(
     prisma as unknown as PrismaService,
-    new SourceFailureAlerts(prisma as unknown as PrismaService),
-  ));
+    realSalesProductDraftPort(prisma),
+  );
+  return new SourcingExtensionIngestService(
+    new SourcingBrowserSourceAttemptRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new SourceFailureAlerts(prisma as unknown as PrismaService),
+    ),
+    new SourcingCollectedDraftService(candidates, realSalesProductDraftPort(prisma)),
+  );
 }
 
 async function completeExtension(

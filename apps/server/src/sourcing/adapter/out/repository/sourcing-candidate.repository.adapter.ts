@@ -13,6 +13,7 @@ import { upsertSourcedCandidateIn, ensureSourcedCandidateImages } from './sourci
 import {
   SALES_PRODUCT_DRAFT_PORT,
   type SalesProductDraftPort,
+  type SalesProductDraftSourceFacts,
 } from '../../../application/port/out/cross-domain/sales-product-draft.port';
 import type {
   CandidateImageRow,
@@ -377,6 +378,64 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         rejectedByUserId: input.rejectedByUserId,
       },
     });
+  }
+
+  async findIdsBySourceIdentities(
+    organizationId: string,
+    identities: readonly {
+      sourcePlatform: string;
+      sourceIdentityHash: string | null;
+      sourceUrl: string;
+    }[],
+  ): Promise<string[]> {
+    if (identities.length === 0) return [];
+    const hashes = [...new Set(identities
+      .map((identity) => identity.sourceIdentityHash)
+      .filter((hash): hash is string => Boolean(hash)))];
+    const urls = [...new Set(identities.map((identity) => identity.sourceUrl).filter(Boolean))];
+    const rows = await this.prisma.sourcingCandidate.findMany({
+      where: {
+        organizationId,
+        isDeleted: false,
+        status: 'sourced',
+        OR: [
+          ...(hashes.length > 0 ? [{ sourceIdentityHash: { in: hashes } }] : []),
+          ...(urls.length > 0 ? [{ sourceUrl: { in: urls } }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  async readDraftSourceFacts(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<SalesProductDraftSourceFacts[]> {
+    const unique = [...new Set(candidateIds.filter(Boolean))];
+    if (unique.length === 0) return [];
+    const rows = await this.prisma.sourcingCandidate.findMany({
+      where: { organizationId, id: { in: unique }, isDeleted: false },
+      select: {
+        id: true, name: true, description: true, sourcePlatform: true, sourceUrl: true,
+        costCny: true, rawData: true,
+        images: {
+          where: { organizationId, isDeleted: false },
+          orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
+          select: { url: true },
+        },
+      },
+    });
+    return rows.map((row) => ({
+      candidateId: row.id,
+      name: row.name,
+      description: row.description,
+      imageUrls: row.images.map((image) => image.url),
+      sourcePlatform: row.sourcePlatform,
+      sourceUrl: row.sourceUrl,
+      costCny: row.costCny === null ? null : Number(row.costCny),
+      rawBasics: (row.rawData as Record<string, unknown> | null) ?? null,
+    }));
   }
 
   private async upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {

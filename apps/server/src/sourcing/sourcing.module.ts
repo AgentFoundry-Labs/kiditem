@@ -51,6 +51,7 @@ import { Sourcing1688KeywordSearchService } from "./application/service/sourcing
 import { Sourcing1688SearchResultService } from "./application/service/sourcing-1688-search-result.service";
 import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingScrapeUrlService } from "./application/service/sourcing-scrape-url.service";
+import { SourcingCollectedDraftService } from "./application/service/sourcing-collected-draft.service";
 import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
 import { SalesProductDraftAdapter } from "./adapter/out/channels/sales-product-draft.adapter";
 import { SALES_PRODUCT_DRAFT_PORT } from "./application/port/out/cross-domain/sales-product-draft.port";
@@ -187,6 +188,7 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     { provide: MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT, useExisting: MarketShadowSnapshotRepositoryAdapter },
     SourcingService,
     SourcingScrapeUrlService,
+    SourcingCollectedDraftService,
     SourcingFinalCapabilityAdapter,
     SourcingCapabilityCompositionAdapter,
     {
