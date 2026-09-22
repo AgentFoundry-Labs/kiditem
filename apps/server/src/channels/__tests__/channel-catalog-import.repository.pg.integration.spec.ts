@@ -1,11 +1,8 @@
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import type { ParsedWingCatalogWorkbook } from '../application/port/out/documents/channel-document.models';
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ChannelConflictError } from '../domain/exception/channel-business-error';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -1103,6 +1100,41 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     ]);
   });
 
+  it('keeps observed listing facts the reimported workbook leaves blank', async () => {
+    const identity = { externalProductId: 'P-BLANK', externalSkuId: 'S-BLANK' };
+    await importCatalog([makeRow(0, identity)], fileHash('blank-first'));
+
+    // 윙 엑셀은 칸이 비어 나올 수 있다. 비었다는 것은 "몰에서 사라졌다"가 아니다.
+    await importCatalog(
+      [makeRow(0, {
+        ...identity,
+        displayName: null,
+        category: null,
+        manufacturer: null,
+        brand: null,
+        productStatus: null,
+      })],
+      fileHash('blank-second'),
+    );
+
+    await expect(prisma.channelListing.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'P-BLANK' },
+      select: {
+        displayName: true,
+        category: true,
+        manufacturer: true,
+        brand: true,
+        status: true,
+      },
+    })).resolves.toEqual({
+      displayName: '노출 상품 0',
+      category: '카테고리 0',
+      manufacturer: '제조사 0',
+      brand: '브랜드 0',
+      status: '승인완료',
+    });
+  });
+
   it('rejects moving an existing external SKU to another parent and rolls back the whole import', async () => {
     await importCatalog(
       [
@@ -1134,7 +1166,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         ],
         rejectedHash,
       ),
-    ).rejects.toThrow('different parent');
+    ).rejects.toThrow('cannot move to another parent');
 
     const after = await prisma.channelListingOption.findFirstOrThrow({
       where: { id: before.id },
@@ -1154,6 +1186,82 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID, fileHash: rejectedHash },
       }),
     ).toMatchObject({ status: 'failed', publicationSequence: null });
+  });
+
+  it('turns off another sources listing that left the account list', async () => {
+    await importCatalog([makeRow(0, { externalProductId: 'P-WORKBOOK' })], fileHash('scope-first'));
+    // 같은 윙 계정을 브라우저 수집도 본다. 윙 엑셀과 브라우저 수집은 둘 다 계정의 상품 목록
+    // 전체를 한 번에 담으므로, 서로가 만든 행도 목록에서 사라지면 몰에서 내려간 것이다.
+    const browserListing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        externalId: 'P-BROWSER',
+        rawJson: { source: 'coupang_catalog_basics' },
+      },
+      select: { id: true },
+    });
+
+    await importCatalog([makeRow(0, { externalProductId: 'P-WORKBOOK' })], fileHash('scope-second'));
+
+    await expect(prisma.channelListing.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: WING_ACCOUNT_ID },
+      select: { externalId: true, isActive: true },
+      orderBy: { externalId: 'asc' },
+    })).resolves.toEqual([
+      { externalId: 'P-BROWSER', isActive: false },
+      { externalId: 'P-WORKBOOK', isActive: true },
+    ]);
+    expect(browserListing.id).toBeTruthy();
+  });
+
+  it('keeps the previous complete snapshot when the latest attempt fails', async () => {
+    const completedHash = fileHash('complete-before-failure');
+    await importCatalog(
+      [
+        makeRow(0, { externalProductId: 'P-ONE', externalSkuId: 'S-ONE' }),
+        makeRow(1, { externalProductId: 'P-TWO', externalSkuId: 'S-TWO' }),
+      ],
+      completedHash,
+    );
+
+    // 옵션을 다른 부모로 옮기려는 파일은 통째로 거절된다.
+    await expect(importCatalog(
+      [makeRow(2, { externalProductId: 'P-THREE', externalSkuId: 'S-ONE' })],
+      fileHash('failed-after-complete'),
+    )).rejects.toThrow('cannot move to another parent');
+
+    await expect(prisma.channelListing.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: WING_ACCOUNT_ID },
+      select: { externalId: true, isActive: true },
+      orderBy: { externalId: 'asc' },
+    })).resolves.toEqual([
+      { externalId: 'P-ONE', isActive: true },
+      { externalId: 'P-TWO', isActive: true },
+    ]);
+    // 실패한 시도가 이전 완료를 최신 완료 자리에서 밀어내지 않는다.
+    await expect(prisma.sourceImportRun.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        status: 'completed',
+      },
+      orderBy: { publicationSequence: 'desc' },
+      select: { fileHash: true },
+    })).resolves.toEqual({ fileHash: completedHash });
+  });
+
+  it('publishes a complete import without starting a transmission or a calculation', async () => {
+    await importCatalog([makeRow(0)], fileHash('no-downstream'));
+
+    // 몰로 나가는 모든 제출은 등록 실행 울타리를 지난다. 품절 전송도 마찬가지다.
+    await expect(prisma.productRegistrationExecution.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    // 원천 수집이 발행된 계산을 대신 만들지 않는다 (ADR-0009).
+    await expect(prisma.masterProductAbcEvaluation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
   });
 
   it('returns a completed same-hash/account import as a no-op', async () => {
@@ -1203,7 +1311,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     await expect(importCatalog([makeRow(0, {
       externalProductId: 'P-3',
       externalSkuId: 'S-2',
-    })], fileHash('mapping-rejected'))).rejects.toThrow('different parent');
+    })], fileHash('mapping-rejected'))).rejects.toThrow('cannot move to another parent');
     await expect(mappingGeneration()).resolves.toBe(2n);
     await expect(prisma.masterProductAbcFormulaState.findUnique({
       where: { organizationId: OTHER_ORGANIZATION_ID },
@@ -1281,8 +1389,10 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       fileHash: fileHash('live-second'),
       bytes: workbookBytes({ rows: [makeRow(0)], skippedRows: [], headers: [] }),
     }).catch((error: unknown) => error);
-    expect(conflict).toBeInstanceOf(ConflictException);
-    expect((conflict as ConflictException).getResponse()).toEqual({
+    // 계정 fence 는 업무 계약의 충돌이다 — 입력 adapter 가 HTTP 409 로 옮긴다.
+    expect(conflict).toBeInstanceOf(ChannelConflictError);
+    expect((conflict as ChannelConflictError).kind).toBe('conflict');
+    expect((conflict as ChannelConflictError).details).toEqual({
       code: 'ATTEMPT_IN_PROGRESS',
       attemptId: first.runId,
       message: expect.any(String),

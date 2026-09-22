@@ -41,6 +41,7 @@ import {
   lockCatalogAccount,
   lockCatalogAttempt,
 } from './channel-catalog-attempt-fence';
+import { deactivateCatalogAbsence } from './catalog-absence';
 import {
   updateChannelCatalogDetails,
   upsertChannelCatalogBasics,
@@ -343,8 +344,16 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           organizationId: input.organizationId,
           channelListingIds: upserted.listingIds,
         });
-        const absence = await deactivateCatalogAbsence(tx, input, sourceRun.id, upserted);
-        if (upserted.mappingIdentityChanged || absence.deactivatedProductCount > 0 || absence.deactivatedSkuCount > 0) {
+        const absence = await deactivateCatalogAbsence(tx, {
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          sourceImportRunId: sourceRun.id,
+          // 윙 수집은 계정의 상품 목록 전체를 한 번에 본다.
+          scope: { kind: 'account' },
+          presentExternalProductIds: upserted.externalProductIds,
+          presentExternalOptionIds: upserted.externalOptionIds,
+        });
+        if (upserted.mappingIdentityChanged || absence.listings > 0 || absence.options > 0) {
           await advanceProductMappingGeneration(tx, input.organizationId);
         }
         result = {
@@ -352,8 +361,8 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           duplicate: false,
           changes: {
             ...upserted.changes,
-            deactivatedProductCount: absence.deactivatedProductCount,
-            deactivatedSkuCount: absence.deactivatedSkuCount,
+            deactivatedProductCount: absence.listings,
+            deactivatedSkuCount: absence.options,
           },
         };
         qualityReport = {
@@ -421,6 +430,8 @@ async function upsertCoupangCatalogRows(
   const identities = await upsertChannelCatalogIdentities(tx, {
     organizationId: input.organizationId,
     channelAccountId: input.channelAccountId,
+    // 윙 브라우저 수집은 옵션 칸을 모두 읽는다 (CoupangCatalogOptionV1).
+    unobservedOptionFields: [],
     products: input.products.map(({ product }) => product),
     lastImportRunId: input.lastImportRunId,
     rawSource: 'coupang_catalog_browser',
@@ -503,39 +514,6 @@ async function upsertCoupangCatalogBasicsRows(
       deactivatedSkuCount: 0,
       ...media,
     },
-  };
-}
-
-async function deactivateCatalogAbsence(
-  tx: Prisma.TransactionClient,
-  input: PublishInput,
-  sourceImportRunId: string,
-  published: { externalProductIds: string[]; externalOptionIds: string[] },
-): Promise<{ deactivatedProductCount: number; deactivatedSkuCount: number }> {
-  const deactivatedOptions = await tx.channelListingOption.updateMany({
-    where: {
-      organizationId: input.organizationId,
-      listing: {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-      },
-      externalOptionId: { notIn: published.externalOptionIds },
-      isActive: true,
-    },
-    data: { isActive: false, lastImportRunId: sourceImportRunId },
-  });
-  const deactivatedListings = await tx.channelListing.updateMany({
-    where: {
-      organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId,
-      externalId: { notIn: published.externalProductIds },
-      isActive: true,
-    },
-    data: { isActive: false, lastImportRunId: sourceImportRunId },
-  });
-  return {
-    deactivatedProductCount: deactivatedListings.count,
-    deactivatedSkuCount: deactivatedOptions.count,
   };
 }
 

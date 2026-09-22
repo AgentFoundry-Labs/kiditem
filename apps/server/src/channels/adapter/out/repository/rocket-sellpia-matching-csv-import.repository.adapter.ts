@@ -56,6 +56,8 @@ implements RocketSellpiaMatchingCsvImportRepositoryPort {
           channelAccountId: input.channelAccountId,
           lastImportRunId: duplicate.id,
           rawSource: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
+          // 매칭 CSV 에는 판매가·모델번호 칸이 없다.
+          unobservedOptionFields: ['salePrice', 'modelNumber'],
           products: rocketMatchingCsvRowsToCatalogProducts(input.rows),
         });
         return CoupangRocketMatchingCsvImportResponseSchema.parse({
@@ -82,6 +84,8 @@ implements RocketSellpiaMatchingCsvImportRepositoryPort {
         channelAccountId: input.channelAccountId,
         lastImportRunId: sourceRun.id,
         rawSource: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
+        // 매칭 CSV 에는 판매가·모델번호 칸이 없다.
+        unobservedOptionFields: ['salePrice', 'modelNumber'],
         products: rocketMatchingCsvRowsToCatalogProducts(input.rows),
       });
       const completed = await tx.sourceImportRun.update({

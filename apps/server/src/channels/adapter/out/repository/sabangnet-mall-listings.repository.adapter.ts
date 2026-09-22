@@ -44,7 +44,7 @@ import {
   sabangnetMallListingsRunWhere,
 } from '../../../read/sabangnet-mall-listings.reader';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
-import { deactivateSourceAbsence } from './source-scoped-absence';
+import { deactivateCatalogAbsence } from './catalog-absence';
 
 const SOURCE_TYPE = SABANGNET_MALL_LISTINGS_SOURCE_TYPE;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
@@ -210,16 +210,22 @@ export class SabangnetMallListingsRepositoryAdapter implements SabangnetMallList
             channelAccountId: mall.channelAccountId,
             lastImportRunId: run.id,
             rawSource: SOURCE_TYPE,
+            // 사방넷 송신 기록은 판매가·모델명(=판매자코드)·바코드를 싣지만 모델번호 칸은 없다.
+            unobservedOptionFields: ['modelNumber'],
             products: listings,
           });
           mappingChanged ||= upserted.mappingIdentityChanged;
         }
-        const deactivated = await deactivateSourceAbsence(tx, {
+        const present = listings.map((listing) => listing.externalProductId);
+        const deactivated = await deactivateCatalogAbsence(tx, {
           organizationId: input.organizationId,
           channelAccountId: mall.channelAccountId,
-          sourceType: SOURCE_TYPE,
           sourceImportRunId: run.id,
-          externalIds: listings.map((listing) => listing.externalProductId),
+          // 같은 몰 계정에 KidItem 등록이나 몰 관리자 수집이 만든 행이 함께 있다.
+          scope: { kind: 'source', sourceType: SOURCE_TYPE },
+          presentExternalProductIds: present,
+          // 이 원천은 리스팅 하나에 옵션 한 줄이고 둘의 외부 ID 가 같다.
+          presentExternalOptionIds: present,
         });
         mappingChanged ||= deactivated.listings > 0 || deactivated.options > 0;
         publication.push({
