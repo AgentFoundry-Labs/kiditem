@@ -1,74 +1,120 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import {
-  recordMallOperationOutcome,
-  type MallOperationOutcomeInput,
-} from '@/lib/mall-operation-outcomes-api';
+import { registrationTargetApi } from '@/lib/registration-target-api';
+import { executeTargetRegistration, isActiveTargetExecution } from '../../_shared/target-registration-execution';
+import { listRegistrationTargetExecutions } from '../../_shared/registration-execution-api';
 import { getMallPublishAdapter } from '../../_shared/adapters';
-import type { MallSendOutcome } from '../../_shared/mall-publish-adapter';
-import type { PublishTask } from '../lib/publish-plan';
+import type { MallPublishItem, MallSendOutcome } from '../../_shared/mall-publish-adapter';
+import type { SalesProduct } from '@kiditem/shared/sales-product';
+import type { PublishTask, PublishTaskStatus } from '../lib/publish-plan';
 
-/**
- * 송신 실행기.
- *
- * 작업을 **한 번에 하나씩** 돌린다. 폼 자동채움은 브라우저 탭을 열어 이미지를
- * 올리고 계단식 분류를 기다리므로, 두 개를 동시에 돌리면 서로의 탭을 밟는다.
- * 동시성은 여기서 아낄 자원이 아니다 — 사람이 지켜보는 화면 하나가 자원이다.
- *
- * 작업 하나가 실패해도 멈추지 않는다. 몰 하나의 로그인이 풀렸다고 나머지 몰까지
- * 못 보내는 것은 운영에서 더 나쁘다. 실패는 그 작업에만 남는다.
- *
- * 작업이 끝날 때마다 결과를 기억(몰 작업 결과)에 한 줄 남긴다. 시작 전에 멈춘 작업은 몰에서
- * 한 일이 없으므로 남기지 않는다.
- */
+export interface MallPublishRunOptions {
+  ensureCandidateSalesProduct?: (candidateId: string) => Promise<SalesProduct>;
+}
 
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-type PublishRecord = Pick<MallOperationOutcomeInput, 'outcome' | 'reasonCode' | 'message' | 'warningCount'>;
-
-/**
- * 몰에서 다시 확인된 것만 성공이다(ok ≠ confirmed). 확장이 [등록]을 눌러 몰이 받았어도 재조회 전이면 '확인 필요'이고,
- * 누르지 않았으면(확인 전 몰 · 확인할 칸) 사람이 [등록]할 몫으로 남긴다(ADR-0015).
- */
-function sendRecord(outcome: MallSendOutcome): PublishRecord {
-  const warningCount = outcome.warnings.length;
-  if (!outcome.ok) {
-    const refused = outcome.submitted === true && outcome.accepted === false;
-    return { outcome: 'failed', reasonCode: refused ? 'mall_refused' : 'send_failed', message: outcome.error ?? null, warningCount };
-  }
-  if (outcome.confirmed) return { outcome: 'succeeded', reasonCode: null, message: null, warningCount };
-  if (outcome.submitted) {
-    return {
-      outcome: 'attention',
-      reasonCode: outcome.accepted ? 'submitted_awaiting_recheck' : 'submitted_unconfirmed',
-      message: outcome.productNo ? `몰 상품번호 ${outcome.productNo}` : null,
-      warningCount,
-    };
-  }
-  return { outcome: 'attention', reasonCode: 'manual_submit_required', message: null, warningCount };
+function newIdempotencyKey(): string {
+  const cryptoApi = globalThis.crypto as Crypto | undefined;
+  return cryptoApi?.randomUUID?.() ?? `publish-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function recordTask(task: PublishTask, record: PublishRecord): void {
-  void recordMallOperationOutcome({
-    mallKey: task.mallKey,
-    operation: 'registration_fill',
-    itemCount: task.items.length,
-    ...record,
+function taskStatusForExecution(status: string): PublishTaskStatus {
+  if (status === 'succeeded') return 'succeeded';
+  if (status === 'prepared' || status === 'executing' || status === 'reconciling') return 'reconciling';
+  if (status === 'cancelled') return 'cancelled';
+  return 'failed';
+}
+
+function combineOutcomes(outcomes: readonly MallSendOutcome[]): MallSendOutcome {
+  const unique = (values: readonly string[]) => [...new Set(values)];
+  const accepted = outcomes.length > 0 && outcomes.every((outcome) => outcome.accepted === true)
+    ? true
+    : outcomes.some((outcome) => outcome.accepted === false) ? false : null;
+  return {
+    ok: outcomes.length > 0 && outcomes.every((outcome) => outcome.ok),
+    confirmed: outcomes.length > 0 && outcomes.every((outcome) => outcome.confirmed),
+    ...(outcomes.some((outcome) => outcome.submitted === true) ? { submitted: true } : {}),
+    ...(accepted !== null ? { accepted } : {}),
+    manualSteps: unique(outcomes.flatMap((outcome) => outcome.manualSteps)),
+    warnings: unique(outcomes.flatMap((outcome) => outcome.warnings)),
+    ...(outcomes.find((outcome) => outcome.error)?.error
+      ? { error: outcomes.find((outcome) => outcome.error)?.error }
+      : {}),
+  };
+}
+
+function latestActive(history: Awaited<ReturnType<typeof listRegistrationTargetExecutions>>) {
+  return [...history]
+    .sort((left, right) => {
+      const time = (value: typeof left.createdAt) => value instanceof Date ? value.getTime() : Date.parse(value ?? '');
+      return time(right.createdAt) - time(left.createdAt);
+    })
+    .find(isActiveTargetExecution);
+}
+
+async function executeItem(
+  task: PublishTask,
+  item: MallPublishItem,
+  options: MallPublishRunOptions,
+): Promise<{ status: PublishTaskStatus; outcome: MallSendOutcome }> {
+  const adapter = getMallPublishAdapter(task.mallKey);
+  if (!adapter) throw new Error(`${task.mallName} 어댑터가 없습니다.`);
+
+  // The WING Excel path only creates a file for the operator. It has no selected
+  // account or provider submit, so retain its original grouped, ephemeral flow.
+  if (adapter.mode === 'excel') {
+    const outcome = await adapter.send({ items: [item], values: task.values });
+    return { status: outcome.ok ? 'succeeded' : 'failed', outcome };
+  }
+
+  if (!task.channelAccountId) throw new Error(`${task.mallName} 계정 식별자를 확인하지 못했습니다.`);
+  const salesProduct = item.source === 'candidate'
+    ? await options.ensureCandidateSalesProduct?.(item.candidateId)
+    : undefined;
+  if (item.source === 'candidate' && !salesProduct) {
+    throw new Error('수집상품을 판매상품으로 준비할 실행 경로가 없습니다.');
+  }
+  const salesProductId = salesProduct?.id ?? item.candidateId;
+  const registrationTargetId = task.registrationTargetIdsByItem?.[item.candidateId];
+  const target = await registrationTargetApi.resolve({
+    salesProductId,
+    channelAccountId: task.channelAccountId,
+    ...(registrationTargetId ? { targetId: registrationTargetId } : {}),
   });
+  const history = await listRegistrationTargetExecutions(target.id);
+  const activeExecution = latestActive(history);
+  const adapterValues = task.adapterValues;
+  const result = await executeTargetRegistration({
+    targetId: target.id,
+    expectedVersion: target.version,
+    channelAccountId: task.channelAccountId,
+    mallKey: task.mallKey,
+    adapter,
+    ...(activeExecution ? { existingExecution: activeExecution } : { idempotencyKey: newIdempotencyKey() }),
+    ...(Object.keys(adapterValues).length > 0 ? { adapterValues } : {}),
+  });
+  return {
+    status: taskStatusForExecution(result.execution.status),
+    outcome: result.outcome,
+  };
 }
 
+/** Registration runs stay serial because form adapters share the user's browser tab. */
 export function useMallPublishRun() {
   const [tasks, setTasks] = useState<PublishTask[]>([]);
   const [running, setRunning] = useState(false);
+  const runningRef = useRef(false);
   const cancelledRef = useRef(false);
 
   const reset = useCallback(() => {
     cancelledRef.current = false;
     setTasks([]);
     setRunning(false);
+    runningRef.current = false;
   }, []);
 
   const cancel = useCallback(() => {
@@ -80,8 +126,9 @@ export function useMallPublishRun() {
   }, []);
 
   const start = useCallback(
-    async (queue: readonly PublishTask[]) => {
-      if (running || queue.length === 0) return;
+    async (queue: readonly PublishTask[], options: MallPublishRunOptions = {}) => {
+      if (runningRef.current || queue.length === 0) return;
+      runningRef.current = true;
       cancelledRef.current = false;
       setTasks(queue.map((task) => ({ ...task, status: 'pending', outcome: null, error: null })));
       setRunning(true);
@@ -95,28 +142,45 @@ export function useMallPublishRun() {
           const adapter = getMallPublishAdapter(task.mallKey);
           if (!adapter) {
             patch(task.id, { status: 'failed', error: `${task.mallName} 어댑터가 없습니다.` });
-            recordTask(task, { outcome: 'failed', reasonCode: 'adapter_missing', message: null, warningCount: null });
             continue;
           }
           patch(task.id, { status: 'running', error: null });
+          const itemOutcomes: MallSendOutcome[] = [];
+          let finalStatus: PublishTaskStatus = 'succeeded';
+          let errorMessage: string | null = null;
           try {
-            const outcome = await adapter.send({ items: task.items, values: task.values });
-            patch(task.id, {
-              status: outcome.ok ? 'succeeded' : 'failed',
-              outcome,
-              error: outcome.error ?? null,
-            });
-            recordTask(task, sendRecord(outcome));
+            if (adapter.mode === 'excel') {
+              const outcome = await adapter.send({ items: task.items, values: task.values });
+              itemOutcomes.push(outcome);
+              finalStatus = outcome.ok ? 'succeeded' : 'failed';
+            } else {
+              for (const item of task.items) {
+                if (cancelledRef.current) {
+                  finalStatus = 'cancelled';
+                  break;
+                }
+                const result = await executeItem(task, item, options);
+                itemOutcomes.push(result.outcome);
+                if (result.status === 'failed') finalStatus = 'failed';
+                else if (result.status === 'reconciling' && finalStatus !== 'failed') finalStatus = 'reconciling';
+              }
+            }
           } catch (error) {
-            patch(task.id, { status: 'failed', error: toMessage(error) });
-            recordTask(task, { outcome: 'failed', reasonCode: 'send_error', message: toMessage(error), warningCount: null });
+            finalStatus = 'failed';
+            errorMessage = toMessage(error);
           }
+          patch(task.id, {
+            status: finalStatus,
+            outcome: itemOutcomes.length > 0 ? combineOutcomes(itemOutcomes) : null,
+            error: errorMessage,
+          });
         }
       } finally {
+        runningRef.current = false;
         setRunning(false);
       }
     },
-    [patch, running],
+    [patch],
   );
 
   return { tasks, running, start, cancel, reset };

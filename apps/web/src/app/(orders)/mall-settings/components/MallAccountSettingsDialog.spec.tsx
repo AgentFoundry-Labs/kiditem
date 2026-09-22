@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OrderCollectionMallAccount } from '../../order-collection/lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { MallAccountSettingsDialog } from './MallAccountSettingsDialog';
 
 /**
@@ -22,7 +22,7 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 
-vi.mock('../../order-collection/lib/order-mall-account-api', () => ({
+vi.mock('@/lib/order-mall-account-api', () => ({
   orderMallAccountApi: {
     list: vi.fn(),
     update: (...args: unknown[]) => mockUpdate(...args),

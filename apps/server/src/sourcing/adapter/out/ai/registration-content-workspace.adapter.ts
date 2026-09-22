@@ -10,7 +10,7 @@ import type {
   RegistrationContentWorkspacePort,
   ResolvedRegistrationContentSelections,
   ValidateRegistrationContentSelectionsInput,
-} from '../../../application/port/out/cross-domain/registration-content-workspace.port';
+} from '../../../application/port/in/registration-content-workspace.port';
 import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 @Injectable()

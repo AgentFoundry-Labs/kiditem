@@ -1,92 +1,55 @@
 Before working in this directory, always read this document first rather than relying on memory.
 
-# products — Product Operations + Categories Compatibility
+# products — Source Products And ABC
 
-`src/products/` owns canonical inventory-product (`MasterProduct`) operations,
-absolute profitability ABC, and the direct inventory composition of channel
-listing options. It also retains `/api/categories` compatibility CRUD. It never
-owns physical stock quantities.
+Products owns `MasterProduct`, Sellpia collection and publication, current stock,
+source price, operator-managed images, product reads/exports and ABC evaluation.
+Channels owns marketplace listings, options and recipes (ADR-0017). Inventory
+retains warehouse records only; no second mutable source stock exists.
 
-## Owned Surfaces
+## Source Product Contract
 
-- Canonical `MasterProduct` operations and category compatibility.
-- Sales products, their options, per-mall values, the Sabangnet workbook import,
-  sales products made from collected candidates, and mall bulk-registration
-  sheets filled from stored mall templates with public copies of our photos.
-- Direct channel-option inventory composition.
-- Products-owned absolute ABC formula, evaluation, publication, current grade,
-  and history.
+- Internal references use the immutable UUID; `code` is an immutable globally
+  issued `KID` plus eight digits. Source account/product/option codes are plain
+  identity fields, unique together with organization. Never infer identity from
+  a name or barcode. Only explicit source-binding correction changes source codes.
+- Successful complete Sellpia publication updates name, option, barcode, stock
+  and nullable purchase price atomically with source-scope completion. Preserve
+  UUID, KID code and images. Missing products remain with zero stock; a confirmed
+  empty collection zeros the entire source scope. Failed/partial/cancelled
+  attempts do not change current products.
+- Only images are manually editable. Unknown purchase price stays null, is
+  excluded from priced asset totals and is counted separately. No product
+  activation, sale-price, raw-payload or per-row import-run field is authoritative.
+- Preserve attempt fencing, idempotency, source-deduplicated failure alerts and
+  success resolution. A later attempt never rewrites an earlier failure record.
+- Ordinary reads return stored current products. Purchase/Rocket calculations
+  use the exact completed collection attempt and locked current generation;
+  elapsed time is not an availability rule.
+- Source completion never triggers ABC or downstream calculations implicitly.
+- Sellpia transport may retain existing Inventory URLs during caller migration;
+  its implementation and canonical mutation authority are Products.
 
-## Final Owners
+## Hexagonal Boundaries
 
-- Canonical inventory product and ABC: Products `MasterProduct`.
-- Marketplace product/option identity: Channels `ChannelListing` and
-  `ChannelListingOption`.
-- Derived single-inventory-product listing summary:
-  `ChannelListing.masterProductId`.
-- Per-sale inventory consumption: Products-owned
-  `ChannelListingOptionInventoryComponent`, keyed by channel option and
-  `SellpiaInventorySku`.
-- Sellpia source identity, stock, purchase price, provider imports, and
-  one-to-one canonical MasterProduct provisioning: Inventory
-  `SellpiaInventorySku`.
-- Collected sourcing candidates and product preparation: Sourcing.
-- Registered thumbnail/detail content: AI `ContentWorkspace` and its revisions.
+- Put public capability contracts in `application/port/in`, external contracts
+  in `application/port/out`, orchestration in `application/usecase`, pure product
+  and ABC rules in `domain`, and failures in the relevant `exception` directory.
+- Web adapters live in `adapter/in/web`; persistence readers and locks live in
+  `adapter/out/persistence`. Module wiring binds tokens to implementations.
+- Consumers use input ports. The transactional read port binds directly to its
+  persistence adapter and preserves the caller's transaction and organization
+  lock evidence (ADR-0015); do not add a forwarding service just for symmetry.
+- Channels validates recipe components against Products and owns atomic recipe
+  replacement/clearing and derived listing summaries. Product reads never mutate
+  recipes, and recipes never mutate current stock.
+- Product list totals cover the complete filtered result before pagination.
+  Selling-status filters derive from Channel facts, not a MasterProduct flag.
+- `imageUrls` is operator-owned; derived display images may use Channel media
+  without copying it into source-product metadata.
 
-## Boundary Rules
+## ABC Contract
 
-- Do not recreate `ProductVariant`, `ProductVariantComponent`, an operating
-  option table, a master-level inventory recipe, or a second stock balance.
-- `SalesProduct` / `SalesProductOption` (판매상품 · 단품) are the registration
-  definition sent to malls ([ADR-0014](../../../../docs/adr/0014-sales-products-are-a-products-owned-registration-definition.md)).
-  An option's Sellpia composition is declared intent: it never feeds capacity
-  and is copied only into an empty channel option recipe when that option is
-  linked. Only `SalesProductService` and the Sabangnet import write them.
-- Mall bulk sheets only produce a file from the stored mall template; they
-  never upload, never mark a listing registered, and save a suggested mall
-  category only when an operator confirms it.
-- A collected candidate becomes at most one sales product
-  (`sourceCandidateId`). Converting it again reuses that product and fills
-  only empty photos or detail; operator edits are never overwritten.
-- Sending a candidate-made sales product back to 수집상품 archives it instead
-  of deleting it, so its code is never reused and converting the candidate
-  again revives it. A product linked to a live mall listing or option is not
-  sent back.
-- Photos a mall cannot read (our storage) are swapped for their
-  `SalesProductPublicImage` copies only inside a sheet file. A sales product's
-  own image URLs are never rewritten, and a copy is saved only with a public
-  URL.
-- `MasterProduct` is the only ABC owner. Channel option inventory composition is
-  logistics data and does not create a second product grade.
-- A channel option recipe is an atomic complete replacement of distinct,
-  organization-owned Sellpia SKU IDs with positive integer quantities. An empty
-  replacement explicitly clears the composition. Physical stock is never
-  mutated by this endpoint.
-- Capacity is derived from the option's direct components using Inventory's
-  physical `availableStock === currentStock` projection.
-- Product-level inventory is the owned source SKU of the canonical
-  MasterProduct. Channel options are consumers of that inventory product;
-  Products never creates a second ledger.
-- Stock-aware recipe candidate search uses `INVENTORY_AVAILABILITY_PORT` with
-  the session-owned `organizationId`; unavailable stock stays nullable, and
-  the published inventory fence applies before pagination. Identity-only
-  lookup uses `SELLPIA_INVENTORY_SKU_READ_PORT`. Neither port grants a writer.
-- Product list pagination returns summary counts over the complete filtered
-  result before page slicing. Consumers do not rebuild counts from one page.
-- `MasterProduct.imageUrls` is operator-managed metadata. Read responses may
-  expose calculated `displayImageUrls`; channel collection never copies media
-  into the product.
-- Channel import creates or updates only Channels-owned listing identities and
-  preserves existing option recipes. The listing-level `masterProductId` is
-  rebuilt from those recipes and is null when options are incomplete or span
-  multiple inventory products.
-- Products is the only mutation boundary for channel-option recipes and their
-  derived listing summary. Channels may submit a complete operator replacement
-  or ask Products to fill an empty recipe; it never writes component rows.
-- Automatic name matching requires one clearly separated candidate, no
-  identifier/spec/option conflict, and a confirmed positive selling quantity.
-  Ambiguous names, conflicting evidence, and unknown quantities require
-  operator review. AI output and rank alone never confirm inventory identity.
 - The current `MasterProductAbcEvaluation` is the nullable official ABC output;
   `MasterProduct` has no grade column, and no grade is operator input.
   Products publishes ABC only through the explicit grade-refresh command, which

@@ -234,25 +234,23 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
    * hub's first screen — and each count opens the hub filtered to it. Profit
    * contribution that was never computed is not "0 loss-making products".
    */
-  it("renders the stock card from Products' summary and links each count to its list", async () => {
+  it('renders stock cards from owner-published dashboard facts and preserves unknown profit', async () => {
+    const baselineRead = getParsedMock.getMockImplementation()!;
+    const measured = buildSnapshotBasis({ asOf: '2026-09-08', requiredAsOf: '2026-09-08', observedAt: '2026-09-08T00:00:00Z', sources: ['channel_listings'] });
+    inventoryResponse = { ...inventory, warnings: { ...inventory.warnings, outOfStockSkus: 4, mappingAttentionSkus: 3 }, metricBasis: {
+      'warnings.outOfStockSkus': measured, 'warnings.mappingAttentionSkus': measured,
+    } };
     getParsedMock.mockImplementation((path: string) => {
-      if (path.startsWith('/api/products/masters?')) {
-        return Promise.resolve({
-          summary: {
-            reorderProductCount: 78,
-            imminentProductCount: 36,
-            negativeProfitCount: 0,
-            contributionOverview: null,
-            inventoryStatusCounts: {
-              sellable: 500, out_of_stock: 4, configuration_required: 1, review_required: 2, uncollected: 0,
-            },
-          },
-        });
-      }
+      if (path === '/api/dashboard/findings') return Promise.resolve({
+        productSalesCapturedAt: null, reorderSuggestions: [],
+        salesDecline: { month: null, keyProductLimit: 30, count: null, items: [] },
+        registrationFailures: { count: 0, byChannel: [] },
+        reorderProductCount: 78, metricBasis: { reorderProductCount: measured },
+      });
       if (path === '/api/dashboard/sales') return Promise.resolve(salesResponse);
       if (path === '/api/dashboard/ad') return Promise.resolve(adResponse);
       if (path === '/api/dashboard/inventory') return Promise.resolve(inventoryResponse);
-      return Promise.resolve(null);
+      return baselineRead(path);
     });
 
     renderDashboard();
@@ -265,7 +263,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const loss = screen.getByTestId('headline-lossProducts');
     expect(loss).toHaveTextContent('—');
     // 까닭은 줄 밑이 아니라 마우스를 얹으면 뜬다(받침 줄은 이름과 숫자뿐).
-    expect(within(loss).getByTitle('손익 근거 없음')).toBeInTheDocument();
+    expect(within(loss).getByTitle('기존 상품×쇼핑몰 손익 기준')).toBeInTheDocument();
   });
 
   it('renders an uncovered Today read as unavailable rather than zero', async () => {
@@ -743,23 +741,12 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
  */
 describe('Dashboard AI findings', () => {
   it('renders each area from its owner read and links the suggestion to its product', async () => {
+    const baselineRead = getParsedMock.getMockImplementation()!;
     getParsedMock.mockImplementation((path: string) => {
-      if (path.startsWith('/api/products/masters?')) {
-        return Promise.resolve({
-          summary: {
-            reorderProductCount: 78,
-            imminentProductCount: 36,
-            negativeProfitCount: 0,
-            contributionOverview: null,
-            inventoryStatusCounts: {
-              sellable: 500, out_of_stock: 4, configuration_required: 1, review_required: 2, uncollected: 0,
-            },
-          },
-        });
-      }
       if (path === '/api/dashboard/findings') {
         return Promise.resolve({
           productSalesCapturedAt: '2026-09-17T17:10:53.758Z',
+          reorderProductCount: 78,
           salesDecline: { month: '2026-08', keyProductLimit: 30, count: 23, items: [] },
           reorderSuggestions: [{
             productCode: '3189',
@@ -778,7 +765,7 @@ describe('Dashboard AI findings', () => {
       if (path === '/api/dashboard/sales') return Promise.resolve(salesResponse);
       if (path === '/api/dashboard/ad') return Promise.resolve(adResponse);
       if (path === '/api/dashboard/inventory') return Promise.resolve(inventoryResponse);
-      return Promise.resolve(null);
+      return baselineRead(path);
     });
 
     renderDashboard();
@@ -786,7 +773,7 @@ describe('Dashboard AI findings', () => {
     // 발견한 수는 이제 칸이 아니라 '지금 해야 할 일' 줄로 나온다(사장님 2026-09-20).
     const queue = await screen.findByTestId('dashboard-work-queue');
     await waitFor(() => expect(queue).toHaveTextContent('주요 상품 23개가 덜 팔립니다'));
-    expect(queue).toHaveTextContent('몰이 거절한 등록 12건');
+    expect(queue).toHaveTextContent('등록 실패 12건');
     expect(queue).toHaveTextContent('쿠팡(마켓플레이스) 12건');
     expect(screen.queryByTestId('dashboard-issue-stock')).toBeNull();
     expect(screen.getByTestId('dashboard-ai-suggestion-reorder:3189')).toHaveAttribute(

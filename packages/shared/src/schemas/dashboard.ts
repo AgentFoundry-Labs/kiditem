@@ -146,6 +146,8 @@ export type TopProductGradeAbsence = z.infer<typeof TopProductGradeAbsenceSchema
 
 export const TopProductSchema = z.object({
   id: z.string(),
+  masterProductId: z.string().uuid().nullable().optional(),
+  abc: ProductAbcReadModelSchema.nullable().optional(),
   name: z.string(),
   organization: z.string(),
   grade: ProductAbcGradeSchema.nullable(),
@@ -758,11 +760,11 @@ export const SellpiaProductSalesIngestResultSchema = z.object({
   months: z.array(z.string()),
 });
 
-// Read 응답: GET /api/sellpia-product-sales
+// Read 응답: GET /api/sellpia-product-sales. Unit prices are transient
+// collection inputs and are intentionally absent from this read model.
 export const SellpiaProductSalesMonthPointSchema = z.object({
   yearMonth: z.string(),
   orderQty: z.number(),
-  anomaly: z.boolean().optional(), // 이상치(일회성 벌크/저가 대량) 월 — 평균/등급 산정 제외
 });
 export const SellpiaProductTrendSchema = z.enum(['up', 'down', 'flat']);
 export const SellpiaProductDestinationDisplayImageSchema = z.object({
@@ -805,29 +807,19 @@ export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
     }).strict(),
     z.object({
       status: z.literal('mapping_required'),
-      reason: z.enum(['not_found', 'inactive_candidate', 'ambiguous_barcode']),
+      reason: z.enum(['not_found', 'ambiguous_barcode']),
       candidateCount: z.number().int().nonnegative(),
     }).strict(),
     z.object({
       status: z.literal('matched'),
-      sellpiaInventorySkuId: z.string().uuid(),
+      masterProductId: z.string().uuid(),
       currentStock: z.number().int().nonnegative(),
-      availableStock: z.number().int().nonnegative(),
       salesRowCount: z.number().int().positive(),
       inventoryProduct: SellpiaInventoryMasterProductSchema.nullable(),
       destinations: z.array(SellpiaProductDestinationSchema),
     }).strict(),
   ],
-).superRefine((resolution, ctx) => {
-  if (resolution.status !== 'matched') return;
-  if (resolution.availableStock !== resolution.currentStock) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['availableStock'],
-      message: 'availableStock must equal currentStock',
-    });
-  }
-});
+);
 
 export const SellpiaProductSalesRowSchema = z.object({
   productCode: z.string(),
@@ -835,8 +827,6 @@ export const SellpiaProductSalesRowSchema = z.object({
   productName: z.string(),
   optionName: z.string().nullable(),
   providerName: z.string().nullable(),
-  salePrice: z.number(),
-  buyPrice: z.number(),
   barcode: z.string().nullable(),
   monthly: z.array(SellpiaProductSalesMonthPointSchema), // 월별 추이(오름차순)
   qty1m: z.number(), // 최근 1개월(직전 완결 월) 소진량
@@ -848,17 +838,9 @@ export const SellpiaProductSalesRowSchema = z.object({
   deadStock: z.boolean(), // 악성재고 여부(정체/급감)
   deadStockReason: z.string().nullable(), // 악성 사유
   seasonTag: z.string().nullable(), // 시즌 분류(여름/겨울/어린이날/신학기/상시), 근거 부족 시 null
-  anomaly: z.boolean(), // 이상치(일회성 벌크/저가 대량) 포함 — 평균/ABC/발주는 이상치 제외로 산정
-  anomalyReason: z.string().nullable(), // 이상치 사유
   // ─── 재고 소진(발주) — 수집/매칭/가용재고 상태를 명시적으로 구분 ───
   inventoryResolution: SellpiaProductInventoryResolutionSchema,
-  /**
-   * 그 SKU 가 한 달에 몇 개 나가는가 — 완결 최근 두 달 평균(개/월). 같은 SKU 로 해소된
-   * 판매행들은 이 값을 나눠 가지므로 세기 전에 SKU 로 합쳐야 한다. 완결 월이 없으면 null
-   * (0 은 '안 팔렸다', null 은 '잴 근거가 없다').
-   */
   monthlyOutflow: z.number().nonnegative().nullable(),
-  /** 그 평균이 덮은 완결 월 수. */
   outflowMonthCount: z.number().int().nonnegative(),
   monthsOfAvailableStockLeft: z.number().nonnegative().nullable(),
   reorderPoint: z.number().nullable(), // 발주점 = 월평균 × (리드타임+안전)
@@ -885,7 +867,6 @@ export const SellpiaProductSalesSummarySchema = z.object({
   }).strict(),
   reorderCount: z.number().int().nonnegative(), // 발주 필요 distinct SKU 수
   deadStockCount: z.number().int().nonnegative(), // 악성재고 distinct SKU 수
-  anomalyCount: z.number(), // 이상치 포함 상품 수
   abcCounts: z.object({
     A: z.number().int().nonnegative(),
     B: z.number().int().nonnegative(),
@@ -987,7 +968,7 @@ export type DashboardCollections = z.infer<typeof DashboardCollectionsSchema>;
  *
  * Every verdict here is one an owner already published: the decline trend and
  * the reorder need come from Sellpia product depletion, and a failed
- * registration is a listing the mall listing state reads as `error`. This read
+ * registration is the latest failed Channels execution for a draft/account. This read
  * picks and counts them; it does not decide anything of its own.
  *
  * Unknown is null, never 0 — a depletion read that was never collected has no
@@ -1000,13 +981,13 @@ export const DashboardFindingProductSchema = z.object({
   productCode: z.string().min(1),
   name: z.string().min(1),
   optionName: z.string().nullable(),
-  /** The operational product the Sellpia SKU is linked to, when it is. */
+  /** The operational product the source identity resolves to, when it is. */
   masterProductId: z.string().uuid().nullable(),
   imageUrl: z.string().url().nullable(),
 }).strict();
 
 export const DashboardSalesDeclineItemSchema = DashboardFindingProductSchema.extend({
-  /** Units sold in the compared month (anomalous months counted as 0, as the trend does). */
+  /** Units sold in the compared month (complete published months only). */
   recentQty: z.number().int().nonnegative(),
   /** Monthly average of the up-to-three complete months before it. */
   baselineQty: z.number().nonnegative(),
@@ -1017,11 +998,11 @@ export const DashboardSalesDeclineItemSchema = DashboardFindingProductSchema.ext
 export const DashboardSalesDeclineSchema = z.object({
   /** The last complete month the trend compared; null without two complete months. */
   month: YearMonthSchema.nullable(),
-  /** 주요 상품 = this many products with the largest monthly revenue before the compared month. */
+  /** 주요 상품 = this many products with the largest baseline monthly quantities before the compared month. */
   keyProductLimit: z.number().int().positive(),
   /** Key products whose depletion trend is `down`; null when the trend was not measurable. */
   count: z.number().int().nonnegative().nullable(),
-  /** The largest losses first. */
+  /** The largest quantity declines first. */
   items: z.array(DashboardSalesDeclineItemSchema).max(5),
 }).strict();
 
@@ -1035,7 +1016,7 @@ export const DashboardReorderSuggestionSchema = DashboardFindingProductSchema.ex
 }).strict();
 
 export const DashboardRegistrationFailuresSchema = z.object({
-  /** Active listings a mall rejected — read as `error` by the mall listing state. */
+  /** Draft/account pairs whose latest registration execution failed. */
   count: z.number().int().nonnegative(),
   byChannel: z.array(z.object({
     /** The mall key (`ChannelAccount.channel`). */
@@ -1055,6 +1036,8 @@ export const DashboardFindingsSchema = z.object({
    * soonest-to-run-out first. Null when stock or depletion was never collected.
    */
   reorderSuggestions: z.array(DashboardReorderSuggestionSchema).max(5).nullable(),
+  /** Owner-counted reorder products; null without completed depletion and stock evidence. */
+  reorderProductCount: z.number().int().nonnegative().nullable(),
   registrationFailures: DashboardRegistrationFailuresSchema,
   /** Snapshot evidence for `salesDecline.count`, `reorderSuggestions`, `registrationFailures.count`. */
   metricBasis: DashboardMetricBasisMapSchema.optional(),

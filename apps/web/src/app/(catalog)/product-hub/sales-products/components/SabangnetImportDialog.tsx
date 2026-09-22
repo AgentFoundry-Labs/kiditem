@@ -4,9 +4,13 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { SabangnetImportPreview, SalesProductLinkResult } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
+import type {
+  SabangnetImportPreview,
+  SabangnetImportSelection,
+  SalesProductLinkResult,
+} from '@kiditem/shared/sales-product';
 
 const KIND_LABEL: Record<SabangnetImportPreview['files'][number]['kind'], string> = {
   products: '상품(사방넷상품대량수정)',
@@ -25,6 +29,11 @@ const LINK_SOURCE_LABEL: Record<keyof SalesProductLinkResult['bySource'], string
 
 const MAX_FILES = 6;
 
+interface ImportRun {
+  dryRun: boolean;
+  selections: SabangnetImportSelection;
+}
+
 /**
  * 사방넷에서 내려받은 엑셀을 그대로 올린다. 먼저 미리보기로 무엇이 바뀌는지 보고, 같은 파일로 옮긴다 —
  * 판매상품코드(사방넷 품번)로 찾아 덮어써서 두 번 올려도 결과가 같다.
@@ -33,11 +42,13 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const [files, setFiles] = useState<File[]>([]);
   const [preview, setPreview] = useState<SabangnetImportPreview | null>(null);
+  const [selectedExistingIds, setSelectedExistingIds] = useState<string[]>([]);
 
   const run = useMutation({
-    mutationFn: (dryRun: boolean) => salesProductApi.importSabangnet(files, dryRun),
+    mutationFn: ({ dryRun, selections }: ImportRun) => salesProductApi.importSabangnet(files, dryRun, selections),
     onSuccess: (result) => {
       setPreview(result);
+      if (result.dryRun) setSelectedExistingIds([]);
       if (!result.dryRun) {
         toast.success(result.products.total > 0
           ? `옮겼습니다 — 새로 ${result.products.created} · 고침 ${result.products.updated} · 그대로 ${result.products.unchanged}`
@@ -53,6 +64,17 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
   const pick = (list: FileList | null) => {
     setFiles(list ? [...list].slice(0, MAX_FILES) : []);
     setPreview(null);
+    setSelectedExistingIds([]);
+  };
+
+  const selections: SabangnetImportSelection = preview?.existingChanges
+    .filter((change) => selectedExistingIds.includes(change.salesProductId))
+    .map(({ salesProductId, expectedVersion }) => ({ salesProductId, expectedVersion })) ?? [];
+
+  const toggleExisting = (salesProductId: string, checked: boolean) => {
+    setSelectedExistingIds((current) => checked
+      ? current.includes(salesProductId) ? current : [...current, salesProductId]
+      : current.filter((id) => id !== salesProductId));
   };
 
   return (
@@ -94,7 +116,13 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
           </ul>
         )}
 
-        {preview && <ImportPreview preview={preview} />}
+        {preview && (
+          <ImportPreview
+            preview={preview}
+            selectedExistingIds={selectedExistingIds}
+            onToggleExisting={toggleExisting}
+          />
+        )}
 
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={onClose}>닫기</button>
@@ -102,17 +130,17 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
             type="button"
             className="btn-secondary"
             disabled={files.length === 0 || run.isPending}
-            onClick={() => run.mutate(true)}
+            onClick={() => run.mutate({ dryRun: true, selections: [] })}
           >
-            {run.isPending && run.variables === true ? '읽는 중…' : '미리보기'}
+            {run.isPending && run.variables?.dryRun === true ? '읽는 중…' : '미리보기'}
           </button>
           <button
             type="button"
             className="btn-primary disabled:opacity-50"
             disabled={!preview?.dryRun || run.isPending}
-            onClick={() => run.mutate(false)}
+            onClick={() => run.mutate({ dryRun: false, selections })}
           >
-            {run.isPending && run.variables === false ? '옮기는 중…' : '옮기기'}
+            {run.isPending && run.variables?.dryRun === false ? '옮기는 중…' : '옮기기'}
           </button>
         </div>
       </div>
@@ -120,7 +148,15 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function ImportPreview({ preview }: { preview: SabangnetImportPreview }) {
+function ImportPreview({
+  preview,
+  selectedExistingIds,
+  onToggleExisting,
+}: {
+  preview: SabangnetImportPreview;
+  selectedExistingIds: readonly string[];
+  onToggleExisting: (salesProductId: string, checked: boolean) => void;
+}) {
   const skipped = Object.entries(preview.channelOverrides.skippedByShop);
   const hasProducts = preview.files.some((file) => file.kind === 'products');
   return (
@@ -150,6 +186,41 @@ function ImportPreview({ preview }: { preview: SabangnetImportPreview }) {
             {preview.channelOverrides.saved.toLocaleString()}줄 / {preview.channelOverrides.total.toLocaleString()}줄
           </dd>
         </dl>
+      )}
+      {preview.existingChanges.length > 0 && (
+        <fieldset className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+          <legend className="px-1 font-semibold text-slate-800">기존 판매상품 고치기</legend>
+          <p className="mb-2 text-xs text-slate-500">
+            기본값은 기존 상품을 그대로 둡니다. 고칠 상품만 고르세요. 미리보기 버전이 달라지면 다시 미리보기가 필요합니다.
+          </p>
+          <ul className="space-y-2">
+            {preview.existingChanges.map((change) => {
+              const checked = selectedExistingIds.includes(change.salesProductId);
+              return (
+                <li key={change.salesProductId} className="rounded-md border border-slate-100 px-2 py-1.5">
+                  <label className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="checkbox"
+                      name="applyExisting"
+                      checked={checked}
+                      disabled={!preview.dryRun}
+                      onChange={(event) => onToggleExisting(change.salesProductId, event.target.checked)}
+                      aria-label={`${change.name} (${change.code}) 기존 상품 고치기`}
+                      className="mt-0.5 size-4 accent-purple-600"
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-medium text-slate-800">{change.name}</span>
+                      <span className="block text-xs text-slate-500">
+                        {change.code} · 원천키 {change.sourceKey} · 버전 {change.expectedVersion}
+                        {change.changed ? ' · 바뀐 내용 있음' : ' · 바뀐 내용 없음'}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </fieldset>
       )}
       {preview.links && <LinkSummary links={preview.links} dryRun={preview.dryRun} />}
       {preview.mallValues && (

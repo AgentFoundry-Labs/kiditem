@@ -14,7 +14,6 @@
 | LiveCommerceProductDailySnapshot | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
 | NaverKeywordDailySnapshot | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 수집 attempt별 키워드/날짜 불변 관측. COMPLETE 범위에서 최신 관측을 조회한다. trendRatio 는 latestRatio 반올림(0-100). |
 | NaverPopularKeywordDailySnapshot | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다. |
-| ProductRegistrationExecution | `product_registration_executions` | Reviewed product preparation의 marketplace create/reconcile side effect 실행 기록. 준비 입력과 provider lifecycle을 분리해 보존한다. |
 | ShortsTrendDailySnapshot | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
 | Sourcing1688OfferKeywordObservation | `sourcing_1688_offer_keyword_observations` | 1688 키워드 검색에서 수집한 정확한 offer/variant 관측치. 같은 offer가 여러 키워드에서 발견된 provenance를 보존한다. |
 | SourcingCandidate | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
@@ -141,34 +140,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  ProductRegistrationExecution {
-    String id PK
-    String organizationId FK
-    String productPreparationId FK
-    String channelAccountId FK
-    String channelListingId FK
-    String executionKind
-    String expectedProviderAccountId
-    String idempotencyKey
-    String requestHash
-    String ownerIdempotencyKey
-    Json submissionPayloadJson
-    String submissionPayloadHash
-    String status
-    String providerOutcome
-    String providerSubmissionId
-    String externalListingId
-    Json resultJson
-    String lastErrorCode
-    String lastErrorMessage
-    String leaseToken
-    DateTime leaseClaimedAt
-    String requestedByUserId FK
-    DateTime startedAt
-    DateTime completedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   ShortsTrendDailySnapshot {
     String id PK
     String organizationId FK
@@ -228,7 +199,7 @@ erDiagram
     String imageUrl
     Decimal costCny
     String status
-    String provenanceMasterProductId FK
+    String provenanceMasterProductId
     String rejectedReason
     DateTime rejectedAt
     String rejectedByUserId FK
@@ -727,23 +698,16 @@ erDiagram
 | LiveCommerceProductDailySnapshot | organization | references external | Core | Organization |
 | NaverKeywordDailySnapshot | organization | references external | Core | Organization |
 | NaverPopularKeywordDailySnapshot | organization | references external | Core | Organization |
-| ProductRegistrationExecution | channelAccount | references external | Core | ChannelAccount |
-| ProductRegistrationExecution | channelListing | references external | Core | ChannelListing |
-| ProductRegistrationExecution | organization | references external | Core | Organization |
-| ProductRegistrationExecution | productPreparation | references external | AI | ProductPreparation |
-| ProductRegistrationExecution | requestedByUser | references external | Core | User |
 | ShortsTrendDailySnapshot | organization | references external | Core | Organization |
 | Sourcing1688OfferKeywordObservation | organization | references external | Core | Organization |
 | SourcingCandidate | organization | references external | Core | Organization |
-| SourcingCandidate | provenanceMasterProduct | references external | Core | MasterProduct |
 | SourcingCandidate | rejectedByUser | references external | Core | User |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentWorkspace |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageImageRenderIntent |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | ProductPreparation |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
-| SourcingCandidate | sourceCandidate | referenced by external | Core | ChannelListing |
+| SourcingCandidate | sourceCandidate | referenced by external | Channels | ChannelListing |
 | SourcingCandidate | triggeredByUser | references external | Core | User |
 | SourcingCollectionSourceControl | organization | references external | Core | Organization |
 | SourcingDecisionBatch | organization | references external | Core | Organization |

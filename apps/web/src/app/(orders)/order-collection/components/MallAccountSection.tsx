@@ -19,7 +19,7 @@ import {
   type MallAccountDraft,
 } from "../lib/order-collection-page-model";
 import type { MallCollectionStat } from "../lib/order-collection-stats";
-import type { OrderCollectionMallAccount } from "../lib/order-mall-account-api";
+import type { OrderCollectionMallAccount } from "@/lib/order-mall-account-api";
 import type { FailedMallReason } from "../hooks/use-order-activity-events";
 import { MallAccountGroups, type MallCardCollection } from "./MallAccountGroups";
 
@@ -67,7 +67,7 @@ interface MallAccountSectionProps {
     renderCard: (collection: MallCardCollection) => ReactNode,
   ) => ReactNode;
   /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). */
-  onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
+  onOpenChooser?: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
   onToggleAutoDetect: () => void;
   onAutoIntervalChange: (minutes: number) => void;
@@ -116,7 +116,7 @@ export function MallAccountSection({
   onRefresh,
   onOpenSettings,
   renderCollectionControl,
-  onOpenCalendar,
+  onOpenChooser,
   onUploadTracking,
   onToggleAutoDetect,
   onAutoIntervalChange,
@@ -272,7 +272,7 @@ export function MallAccountSection({
               autoRunning={autoRunning}
               onOpenSettings={onOpenSettings}
               renderCollectionControl={renderCollectionControl}
-              onOpenCalendar={onOpenCalendar}
+              onOpenChooser={onOpenChooser}
               onUploadTracking={onUploadTracking}
             />
           )}

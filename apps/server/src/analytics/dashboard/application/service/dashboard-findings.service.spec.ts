@@ -23,7 +23,6 @@ function emptySummary(overrides: Partial<SellpiaProductSalesSummary> = {}): Sell
     inventoryResolutionCounts: { matchedSalesRows: 0, mappingRequiredSalesRows: 0, matchedSkus: 0, unlinkedSkus: 0 },
     reorderCount: 0,
     deadStockCount: 0,
-    anomalyCount: 0,
     abcCounts: { A: 0, B: 0, C: 0 },
     abcStatusCounts: { READY: 0, INSUFFICIENT_EVIDENCE: 0, SOURCE_UNMAPPED: 0, SELLPIA_SOURCE_STALE: 0, AD_SOURCE_STALE: 0 },
     abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
@@ -39,7 +38,7 @@ function service(
   rejected = [{ channel: 'coupang', mallName: '쿠팡(마켓플레이스)', count: 12 }],
 ) {
   const productSales = { getSummary: vi.fn().mockResolvedValue(summary) };
-  const repository = { readRejectedListings: vi.fn().mockResolvedValue(rejected) };
+  const repository = { readRegistrationFailures: vi.fn().mockResolvedValue(rejected) };
   return { findings: new DashboardFindingsService(productSales, repository), productSales, repository };
 }
 
@@ -50,18 +49,57 @@ describe('DashboardFindingsService', () => {
     const result = await findings.getFindings(ctx, 'org-1');
 
     expect(productSales.getSummary).toHaveBeenCalledWith('org-1');
-    expect(repository.readRejectedListings).toHaveBeenCalledWith('org-1');
+    expect(repository.readRegistrationFailures).toHaveBeenCalledWith('org-1');
     expect(DashboardFindingsSchema.parse(result)).toEqual(result);
   });
 
   it('keeps depletion findings unknown when Sellpia product sales were never collected', async () => {
-    const { findings } = service(emptySummary());
+    const { findings } = service(emptySummary({
+      inventoryResolutionCounts: {
+        matchedSalesRows: 0,
+        mappingRequiredSalesRows: 2,
+        matchedSkus: 0,
+        unlinkedSkus: 0,
+      },
+    }));
 
     const result = await findings.getFindings(ctx, 'org-1');
 
     expect(result.productSalesCapturedAt).toBeNull();
     expect(result.salesDecline.count).toBeNull();
     expect(result.reorderSuggestions).toBeNull();
+    expect(result.reorderProductCount).toBeNull();
+    expect(result.metricBasis?.reorderProductCount).toMatchObject({
+      measured: false,
+      withheldCount: 2,
+    });
+  });
+
+  it.each([
+    ['zero', 0],
+    ['positive', 4],
+  ] as const)('publishes the owner reorder count when depletion and stock are measured (%s)', async (_label, reorderCount) => {
+    const { findings } = service(emptySummary({
+      hasData: true,
+      hasStock: true,
+      completeMonths: ['2026-08'],
+      stockCapturedAt: '2026-09-17T14:00:00.000Z',
+      reorderCount,
+      inventoryResolutionCounts: {
+        matchedSalesRows: 0,
+        mappingRequiredSalesRows: 3,
+        matchedSkus: 0,
+        unlinkedSkus: 0,
+      },
+    }));
+
+    const result = await findings.getFindings(ctx, 'org-1');
+
+    expect(result.reorderProductCount).toBe(reorderCount);
+    expect(result.metricBasis?.reorderProductCount).toMatchObject({
+      measured: true,
+      withheldCount: 3,
+    });
   });
 
   it('says the decline verdict is stale when the last complete month is not the one that just closed', async () => {
@@ -85,7 +123,7 @@ describe('DashboardFindingsService', () => {
     expect(result.metricBasis?.reorderSuggestions).toMatchObject({ measured: false });
   });
 
-  it('counts rejected listings across channels', async () => {
+  it('counts current failed registration executions across channels', async () => {
     const { findings } = service(emptySummary(), [
       { channel: 'coupang', mallName: '쿠팡(마켓플레이스)', count: 12 },
       { channel: 'kidkids', mallName: '키드키즈', count: 3 },

@@ -1,29 +1,11 @@
 import {
   DIAGRAM_AGENT_GROUPS,
-  DIAGRAM_NODES,
   type DiagramAgentGroup,
 } from './pipe-diagram-layout';
-import { mergeStageViews, type PipeSnapshot, type PipeStageView } from './pipe-model';
-import type { PipeStageId } from './pipe-stages';
-import { worstPipeState, type PipeState } from './pipe-states';
-
-/** 에이전트 목록 · 하단 막대가 쓰는 네 갈래. 상태 열두 개를 사람이 한눈에 세는 크기로 줄인다. */
-export type PipeAgentHealth = 'working' | 'attention' | 'ok' | 'unknown';
-
-export const PIPE_AGENT_HEALTH: Readonly<Record<PipeState, PipeAgentHealth>> = {
-  running: 'working',
-  queued: 'working',
-  retrying: 'working',
-  waiting_human: 'attention',
-  blocked_external: 'attention',
-  failed: 'attention',
-  stale: 'attention',
-  done: 'ok',
-  partial: 'ok',
-  skipped: 'ok',
-  rejected: 'ok',
-  unknown: 'unknown',
-};
+import { buildAgentOrgStatuses, type AgentOrgAgentStatus, type PipeAgentHealth } from '@/lib/agent-org/agent-status';
+import type { PipeSnapshot } from '@/lib/agent-org/pipe-model';
+import type { PipeStageId } from '@/lib/agent-org/pipe-stages';
+import type { PipeState } from '@/lib/agent-org/pipe-states';
 
 export interface PipeAgentSummary {
   group: DiagramAgentGroup;
@@ -43,33 +25,11 @@ export interface PipeAgentSummary {
  * 모름이다 — 정상으로 칠하지 않는다.
  */
 export function buildPipeAgents(snapshot: PipeSnapshot): PipeAgentSummary[] {
-  const views = new Map(snapshot.stages.map((view) => [view.def.id, view]));
-  return DIAGRAM_AGENT_GROUPS.map((group) => {
-    const stageIds = DIAGRAM_NODES.flatMap((node) =>
-      node.agent === group.id && node.kind === 'stage' ? [...node.stageIds] : [],
-    );
-    const parts = stageIds.map((id) => views.get(id)).filter((view): view is PipeStageView => view !== undefined);
-    const merged = parts.length > 0 ? mergeStageViews(parts as [PipeStageView, ...PipeStageView[]]) : null;
-
-    let state: PipeState = merged?.state ?? 'unknown';
-    let reason = merged?.reason ?? null;
-    if (group.id === 'mall' && snapshot.connectors.needsLogin > 0) {
-      const worst = worstPipeState([state, 'blocked_external']) ?? state;
-      if (worst !== state) {
-        state = worst;
-        reason = `로그인이 필요한 몰 ${snapshot.connectors.needsLogin}곳`;
-      }
-    }
-
-    return {
-      group,
-      stageIds,
-      state,
-      health: PIPE_AGENT_HEALTH[state],
-      reason,
-      attention: snapshot.inbox.filter((item) => item.stageIds.some((id) => stageIds.includes(id))).length,
-    };
-  });
+  const groups = new Map(DIAGRAM_AGENT_GROUPS.map((group) => [group.id, group]));
+  return buildAgentOrgStatuses(snapshot).map((status: AgentOrgAgentStatus) => ({
+    ...status,
+    group: groups.get(status.id)!,
+  }));
 }
 
 export function countAgentHealth(agents: readonly PipeAgentSummary[]): Record<PipeAgentHealth, number> {

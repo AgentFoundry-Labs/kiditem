@@ -22,10 +22,13 @@ import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
   basicsFromProduct,
   basicsPatch,
+  commonNormalPrice,
   optionsChanged,
   optionsFromProduct,
   optionsPayload,
   optionTableProblems,
+  setBaseSalePrice,
+  setCommonNormalPrice,
   type BasicsDraft,
   type OptionTableDraft,
 } from '../lib/sales-product-draft';
@@ -93,6 +96,7 @@ function Editor({ product }: { product: SalesProduct }) {
   const queryClient = useQueryClient();
   const [basics, setBasics] = useState<BasicsDraft>(() => basicsFromProduct(product));
   const [options, setOptions] = useState<OptionTableDraft>(() => optionsFromProduct(product));
+  const commonTagPrice = commonNormalPrice(options);
   const patch = useMemo(() => basicsPatch(product, basics), [product, basics]);
   const optionsDirty = useMemo(() => optionsChanged(product, options), [product, options]);
   const problems = useMemo(() => optionTableProblems(options), [options]);
@@ -239,14 +243,23 @@ function Editor({ product }: { product: SalesProduct }) {
 
       <Section id="price" title="가격 · 배송">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Field label="원가">
-            <MoneyInput value={basics.costPrice} onChange={(value) => set('costPrice', value)} />
-          </Field>
           <Field label="판매가">
-            <MoneyInput value={basics.salePrice} onChange={(value) => set('salePrice', value ?? 0)} />
+            <MoneyInput
+              value={options.baseSalePrice}
+              onChange={(value) => setOptions((current) => setBaseSalePrice(current, value ?? 0))}
+            />
           </Field>
           <Field label="TAG가(소비자가)">
-            <MoneyInput value={basics.tagPrice} onChange={(value) => set('tagPrice', value)} />
+            <MoneyInput
+              value={commonTagPrice.value}
+              ariaDescribedBy={commonTagPrice.mixed ? 'tag-price-mixed-hint' : undefined}
+              onChange={(value) => setOptions((current) => setCommonNormalPrice(current, value))}
+            />
+            {commonTagPrice.mixed && (
+              <p id="tag-price-mixed-hint" className="mt-1 text-xs text-slate-500">
+                옵션별 정상가가 다릅니다. 입력하면 사용 중인 모든 옵션에 적용됩니다.
+              </p>
+            )}
           </Field>
           <Field label="세금">
             <select value={basics.taxType} onChange={(event) => set('taxType', event.target.value as BasicsDraft['taxType'])} className={inputClass}>
@@ -266,20 +279,13 @@ function Editor({ product }: { product: SalesProduct }) {
           <Field label="배송비">
             <MoneyInput value={basics.deliveryFee} onChange={(value) => set('deliveryFee', value)} />
           </Field>
-          <Field label="이익률">
-            <p className="py-1.5 text-sm tabular-nums text-slate-700">
-              {basics.costPrice && basics.salePrice
-                ? `${Math.round(((basics.salePrice - basics.costPrice) / basics.salePrice) * 1000) / 10}%`
-                : '—'}
-            </p>
-          </Field>
         </div>
+        <p className="mt-3 text-xs text-slate-500">옵션별 추가금액을 더한 값이 몰 판매가입니다.</p>
       </Section>
 
       <Section id="options" title="옵션(단품)" description="줄마다 셀피아 상품을 이어 두면 재고 · 품절이 그 줄을 따라갑니다. 몰에 올라간 옵션은 지우지 않고 미사용으로 남깁니다.">
         <OptionTableEditor
           value={options}
-          salePrice={basics.salePrice}
           skuSearchHint={(basics.modelName ?? basics.modelNo ?? '').split('-')[0] ?? ''}
           onChange={setOptions}
         />
@@ -383,13 +389,22 @@ function Field({ label, wide, children }: { label: string; wide?: boolean; child
   );
 }
 
-function MoneyInput({ value, onChange }: { value: number | null; onChange: (value: number | null) => void }) {
+function MoneyInput({
+  value,
+  onChange,
+  ariaDescribedBy,
+}: {
+  value: number | null;
+  onChange: (value: number | null) => void;
+  ariaDescribedBy?: string;
+}) {
   return (
     <input
       type="number"
       min={0}
       value={value ?? ''}
       onChange={(event) => onChange(event.target.value === '' ? null : Math.max(0, Math.round(Number(event.target.value))))}
+      aria-describedby={ariaDescribedBy}
       className={cn(inputClass, 'text-right tabular-nums')}
     />
   );

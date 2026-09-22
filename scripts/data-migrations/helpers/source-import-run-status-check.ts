@@ -4,9 +4,11 @@ import { SOURCE_IMPORT_RUN_STATUSES } from '@kiditem/shared/source-import';
 /**
  * PostgreSQL holds `source_import_runs.status` to `SOURCE_IMPORT_RUN_STATUSES`
  * with this CHECK constraint, which a Prisma `String` field cannot declare.
- * `db push` leaves a CHECK constraint it does not know in place, so data
- * migration v0.1.31:012 creates it once per database and the integration test
- * setup creates it after every push. Both call this module.
+ * `db push` leaves a CHECK constraint it does not know in place. Data
+ * migration v0.1.31:012 creates it during the 0.1.31 cutover, the
+ * `ensure:source_import_run_status_check` step re-applies it after every
+ * post-schema `data:migrate -- up`, and the integration test setup creates it
+ * after every push. All three call this module.
  */
 export const SOURCE_IMPORT_RUN_STATUS_CHECK = 'source_import_runs_status_check';
 

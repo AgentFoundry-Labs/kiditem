@@ -7,7 +7,8 @@ import type {
   OrphanSellpiaProductProfitFact,
 } from '../application/port/in/master-product-profit-fact-read.port';
 import { PrismaService } from '../../prisma/prisma.service';
-import { datesInclusive } from '../../common/kst';
+import type { MasterProductMonthlySales, MasterProductMonthlySalesReadPort } from '../application/port/in/master-product-monthly-sales-read.port';
+import { businessDateKey, datesInclusive } from '../../common/kst';
 import {
   readCurrentSellpiaProductMonthlyFacts,
   type SellpiaProductMonthlyFact,
@@ -17,9 +18,45 @@ type SourceFactRow = SellpiaProductMonthlyFact;
 
 @Injectable()
 export class SellpiaMasterProductProfitFactReader
-  implements MasterProductProfitFactReadPort
+  implements MasterProductProfitFactReadPort, MasterProductMonthlySalesReadPort
 {
   constructor(private readonly prisma: PrismaService) {}
+
+  async readMonthlySales(input: {
+    organizationId: string;
+    masterProductIds: readonly string[];
+    yearMonth: string;
+  }): Promise<ReadonlyMap<string, MasterProductMonthlySales>> {
+    if (input.masterProductIds.length === 0) return new Map();
+    const requested = new Set(input.masterProductIds);
+    const { facts } = await this.prisma.$transaction((tx) =>
+      readCurrentSellpiaProductMonthlyFacts(tx, {
+        organizationId: input.organizationId,
+        scope: { yearMonths: [input.yearMonth] },
+      }));
+    const groups = new Map<string, SourceFactRow[]>();
+    for (const row of facts) {
+      if (!row.masterProductId || !requested.has(row.masterProductId)) continue;
+      const rows = groups.get(row.masterProductId) ?? [];
+      rows.push(row);
+      groups.set(row.masterProductId, rows);
+    }
+    const monthly = new Map<string, MasterProductMonthlySales>();
+    for (const [id, rows] of groups) {
+      if (!hasMatchingCoverage(rows)) continue;
+      const first = rows[0]!;
+      const from = businessDateKey(first.coverageStartDate!);
+      const to = businessDateKey(first.coverageEndDate!);
+      if (from > to || from.slice(0, 7) !== input.yearMonth || to.slice(0, 7) !== input.yearMonth) continue;
+      monthly.set(id, {
+        revenue: rows.reduce((sum, row) => sum + row.orderAmount, 0),
+        soldQuantity: rows.reduce((sum, row) => sum + row.orderQty, 0),
+        coverageStartDate: from,
+        coverageEndDate: to,
+      });
+    }
+    return monthly;
+  }
 
   async readProfitFacts(input: {
     organizationId: string;
@@ -74,11 +111,6 @@ export class SellpiaMasterProductProfitFactReader
         coverageEndDate: first.coverageEndDate!,
         coveredDays: calendarDaysInclusive(first.coverageStartDate!, first.coverageEndDate!),
         revenue: sourceRows.reduce((sum, row) => sum + row.orderAmount, 0),
-        orderQty: sourceRows.reduce((sum, row) => sum + row.orderQty, 0),
-        soldCost: sourceRows.reduce((sum, row) => sum + row.orderQty * row.buyPrice, 0),
-        // 팔린 줄은 전부 매입 단가가 있어야 원가를 안다고 말할 수 있다. 안 팔린 줄은 원가에
-        // 보태는 것이 없으므로 따지지 않는다.
-        soldCostComplete: sourceRows.every((row) => row.orderQty <= 0 || row.buyPrice > 0),
         sellpiaInAmount: sourceRows.reduce((sum, row) => sum + row.inAmount, 0),
         sourceProductCodes: [...new Set(sourceRows.map((row) => row.productCode))].sort(),
         sourceOptionCodes: [...new Set(sourceRows.map((row) => row.optionCode))].sort(),

@@ -11,7 +11,6 @@ import {
   ChannelDashboardSummarySchema,
   type ChannelDashboardSummary,
 } from '@kiditem/shared/channel-dashboard';
-import type { MallOperationOutcomeSummary } from '@kiditem/shared/mall-operation-outcomes';
 import {
   ChannelProductAutoMatchResponseSchema,
   type ChannelProductAutoMatchResponse,
@@ -30,7 +29,6 @@ import {
   type MallAdminListingsSource,
 } from '@kiditem/shared/mall-admin-listings';
 import { apiClient } from '@/lib/api-client';
-import { mallOperationOutcomesApi } from '@/lib/mall-operation-outcomes-api';
 
 const BASE = '/api/channels/mall-publishing';
 const SABANGNET_BASE = '/api/channels/sabangnet-listings';
@@ -103,11 +101,6 @@ export const mallPublishingApi = {
     return apiClient.get<MallAvailabilityPreview>(
       `${BASE}/availability-preview${toQuery({ limit: String(limit) })}`,
     );
-  },
-
-  /** 쇼핑몰 에이전트의 관찰 기록 — 몰 · 작업마다 최근 결과와 결과별 건수. */
-  outcomeSummary(days = 7): Promise<MallOperationOutcomeSummary> {
-    return mallOperationOutcomesApi.summary(days);
   },
 
   /** 사방넷 등록 상품 가져오기의 현재 — 받을 몰, 최근 시도, 최근 완료와 몰별 결과. */

@@ -57,7 +57,7 @@ export function InventoryTable({
           <tbody>
             {items.map((item) => (
               <tr
-                key={item.sellpiaInventorySkuId}
+                key={item.masterProductId}
                 className={cn(item.currentStock === 0 && 'bg-red-50/60')}
               >
                 <td className="overflow-hidden align-top">
@@ -88,24 +88,14 @@ export function InventoryTable({
                   </dl>
                 </td>
                 <td className="overflow-hidden align-top">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div>
-                      <p className="text-[11px] font-medium text-[var(--text-secondary)]">현재고</p>
-                      <p className={cn(
-                        'text-base font-bold',
-                        item.currentStock === 0 ? 'text-red-600' : 'text-emerald-700',
-                      )}>
-                        {formatNumber(item.currentStock)}
-                      </p>
-                    </div>
-                    <span className={cn(
-                      'rounded px-2 py-0.5 text-xs font-medium',
-                      item.isActive
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-slate-100 text-slate-600',
+                  <div>
+                    <p className="text-[11px] font-medium text-[var(--text-secondary)]">현재고</p>
+                    <p className={cn(
+                      'text-base font-bold',
+                      item.currentStock === 0 ? 'text-red-600' : 'text-emerald-700',
                     )}>
-                      {item.isActive ? '활성' : '비활성'}
-                    </span>
+                      {formatNumber(item.currentStock)}
+                    </p>
                   </div>
                   <dl className="mt-3 space-y-1 text-xs">
                     <div className="flex flex-wrap justify-between gap-x-2">

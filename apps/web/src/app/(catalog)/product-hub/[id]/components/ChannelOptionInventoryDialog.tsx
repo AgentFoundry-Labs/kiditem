@@ -23,10 +23,10 @@ import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
 
 type DraftComponent = {
   clientId: string;
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   quantity: number | null;
-  code: string;
-  name: string;
+  code: string | null;
+  name: string | null;
   optionName: string | null;
   currentStock: number | null;
 };
@@ -37,9 +37,9 @@ export type ChannelOptionInventoryEditorTarget = {
   itemName: string | null;
   inventoryComponents: Array<{
     id: string;
-    sellpiaInventorySkuId: string;
-    code: string;
-    name: string;
+    masterProductId: string;
+    code: string | null;
+    name: string | null;
     optionName: string | null;
     currentStock: number | null;
     quantity: number;
@@ -94,10 +94,10 @@ export function ChannelOptionInventoryDialog({
 
   const mutation = useMutation({
     mutationFn: () => apiClient.put<{ id: string }>(
-      `/api/products/channel-options/${option.id}/inventory-components`,
+      `/api/channels/options/${option.id}/inventory-components`,
       {
         components: draft.map((component) => ({
-          sellpiaInventorySkuId: component.sellpiaInventorySkuId.trim(),
+          masterProductId: component.masterProductId.trim(),
           quantity: component.quantity,
         })),
       },
@@ -114,12 +114,12 @@ export function ChannelOptionInventoryDialog({
   });
 
   const hasInvalidComponent = draft.some((component) => (
-    component.sellpiaInventorySkuId.trim().length === 0
+    component.masterProductId.trim().length === 0
     || component.quantity === null
     || !Number.isInteger(component.quantity)
     || component.quantity <= 0
   ));
-  const hasDuplicates = new Set(draft.map((component) => component.sellpiaInventorySkuId.trim().toLowerCase())).size !== draft.length;
+  const hasDuplicates = new Set(draft.map((component) => component.masterProductId.trim().toLowerCase())).size !== draft.length;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (hasInvalidComponent || hasDuplicates) return;
@@ -127,12 +127,12 @@ export function ChannelOptionInventoryDialog({
   };
   const addInventorySku = (item: ProductRecipeComponentCandidate) => {
     setDraft((current) => {
-      if (current.some(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId === item.sellpiaInventorySkuId)) {
+      if (current.some(({ masterProductId }) => masterProductId === item.masterProductId)) {
         return current;
       }
       return [...current, {
         clientId: `recipe-${option.id}-${nextDraftId.current++}`,
-        sellpiaInventorySkuId: item.sellpiaInventorySkuId,
+        masterProductId: item.masterProductId,
         quantity: null,
         code: item.code,
         name: item.name,
@@ -196,13 +196,13 @@ export function ChannelOptionInventoryDialog({
                   ) : candidateQuery.error ? (
                     <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">재고 SKU를 불러오지 못했습니다.</p>
                   ) : candidateQuery.data?.items.length ? candidateQuery.data.items.map((item) => {
-                    const selected = draft.some(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId === item.sellpiaInventorySkuId);
+                    const selected = draft.some(({ masterProductId }) => masterProductId === item.masterProductId);
                     return (
-                      <div key={item.sellpiaInventorySkuId} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2">
+                      <div key={item.masterProductId} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2">
                         <div className="min-w-0">
                           <p className="truncate text-xs font-extrabold text-[var(--text-primary)]">{item.code} · {item.name}</p>
                           <p className="mt-0.5 truncate text-[11px] text-[var(--text-tertiary)]">{item.optionName ?? '옵션 없음'} · 재고 {stockLabel(item.currentStock)}</p>
-                          <code className="mt-0.5 block select-all truncate text-[10px] text-[var(--text-muted)]">{item.sellpiaInventorySkuId}</code>
+                          <code className="mt-0.5 block select-all truncate text-[10px] text-[var(--text-muted)]">{item.masterProductId}</code>
                         </div>
                         <button
                           type="button"
@@ -225,14 +225,14 @@ export function ChannelOptionInventoryDialog({
                 {draft.map((component, index) => (
                   <div key={component.clientId} className="grid gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-4 sm:grid-cols-[1fr_120px_40px]">
                     <div className="min-w-0 text-xs text-[var(--text-secondary)]">
-                      <p className="truncate font-extrabold text-[var(--text-primary)]">{component.code} · {component.name}</p>
+                      <p className="truncate font-extrabold text-[var(--text-primary)]">{component.code ?? '연결 없음'} · {component.name ?? '삭제된 재고'}</p>
                       <p className="mt-1 truncate">{component.optionName ?? '옵션 없음'} · 현재고 {stockLabel(component.currentStock)}</p>
-                      <code className="mt-1 block select-all truncate text-[10px] text-[var(--text-muted)]">{component.sellpiaInventorySkuId}</code>
+                      <code className="mt-1 block select-all truncate text-[10px] text-[var(--text-muted)]">{component.masterProductId}</code>
                     </div>
                     <label className="text-xs font-bold text-[var(--text-secondary)]">
-                      <span className="sr-only">{component.code} </span>필요 수량
+                      <span className="sr-only">{component.code ?? '연결 없음'} </span>필요 수량
                       <input
-                        aria-label={`${component.code} 필요 수량`}
+                        aria-label={`${component.code ?? '연결 없음'} 필요 수량`}
                         type="number"
                         min={1}
                         required
@@ -243,7 +243,7 @@ export function ChannelOptionInventoryDialog({
                     </label>
                     <button
                       type="button"
-                      aria-label={`${component.code} 제거`}
+                      aria-label={`${component.code ?? '연결 없음'} 제거`}
                       onClick={() => setDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}
                       className="mt-5 flex h-10 w-10 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50"
                     >
@@ -281,7 +281,7 @@ function stockLabel(value: number | null): string {
 function toDraft(option: ChannelOptionInventoryEditorTarget): DraftComponent[] {
   return option.inventoryComponents.map((component) => ({
     clientId: component.id,
-    sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+    masterProductId: component.masterProductId,
     quantity: component.quantity,
     code: component.code,
     name: component.name,

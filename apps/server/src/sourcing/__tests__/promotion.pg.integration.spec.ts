@@ -15,7 +15,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { ProductPreparationRepositoryAdapter } from '../adapter/out/repository/product-preparation.repository.adapter';
+import { ProductPreparationRepositoryAdapter } from '../../channels/adapter/out/persistence/candidate-registration.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
 
@@ -28,7 +28,10 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
     await prisma.$connect();
     service = new SourcingPromotionService(
       new SourcingCandidateRepositoryAdapter(prisma as unknown as PrismaService),
-      new ProductPreparationRepositoryAdapter(prisma as unknown as PrismaService),
+      new ProductPreparationRepositoryAdapter(prisma as unknown as PrismaService, {
+        lock: async () => undefined,
+        requireActive: async () => undefined,
+      }),
     );
   });
 
@@ -101,15 +104,34 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
         normalizedTitle: 'activeregistrationcandidate',
       },
     });
+    const salesProduct = await prisma.salesProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidateId,
+        code: 'PROMOTION-ACTIVE-REGISTRATION',
+        name: 'Active registration candidate',
+      },
+    });
+    await prisma.salesProductOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        salesProductId: salesProduct.id,
+        optionCode: 'PROMOTION-ACTIVE-REGISTRATION-1',
+        values: ['단품'],
+        optionKey: '단품',
+        salePrice: 1000,
+      },
+    });
     await prisma.productPreparation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        salesProductId: salesProduct.id,
         sourceCandidateId: candidateId,
         channelAccountId: account.id,
         sourceContentWorkspaceId: workspace.id,
         displayName: 'Active registration candidate',
-        status: 'draft',
-        submissionKey: randomUUID(),
+        closedAt: null,
+        registrationInput: {},
       },
     });
 

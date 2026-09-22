@@ -87,10 +87,10 @@ export const queryKeys = {
     importRuns: () => [...queryKeys.inventory.all, 'sellpia-import-runs'] as const,
     importRunList: (params: Record<string, string>) =>
       [...queryKeys.inventory.importRuns(), params] as const,
-    freshness: () => [...queryKeys.inventory.all, 'sellpia-freshness'] as const,
-    // The collection control's read: the organization's freshness, which names its running attempt.
-    sellpiaSource: (organizationId: string) =>
-      [...queryKeys.inventory.freshness(), 'source', organizationId] as const,
+    collectionStatus: () => [...queryKeys.inventory.all, 'sellpia-collection-status'] as const,
+    // The collection control's read names the organization's running attempt.
+    sellpiaCollectionStatus: (organizationId: string) =>
+      [...queryKeys.inventory.collectionStatus(), 'source', organizationId] as const,
     currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
@@ -123,8 +123,7 @@ export const queryKeys = {
     // When each collection last completed (range-agnostic)
     collections: () =>
       [...queryKeys.dashboard.all, 'collections'] as const,
-    // What the dashboard flags — declining key products, reorder suggestions,
-    // rejected listings (range-agnostic)
+    // Read-only findings assembled by the dashboard owner.
     findings: () =>
       [...queryKeys.dashboard.all, 'findings'] as const,
     // Trend — keyed by the window it asked for, so a selected range does not
@@ -153,7 +152,9 @@ export const queryKeys = {
     manualReportsAll: () => [...queryKeys.ads.all, 'manual-reports'] as const,
     manualReports: (from: string, to: string) =>
       [...queryKeys.ads.manualReportsAll(), from, to] as const,
-    keywords: (period?: string) => [...queryKeys.ads.all, 'keywords', period] as const,
+    // Every period's keyword list; a keyword's pause proposal is the same in each.
+    keywordsAll: () => [...queryKeys.ads.all, 'keywords'] as const,
+    keywords: (period?: string) => [...queryKeys.ads.keywordsAll(), period] as const,
     campaignProducts: (channelAccountId: string, campaignIdentity: string, period?: string) =>
       [...queryKeys.ads.all, 'campaigns', channelAccountId, campaignIdentity, period] as const,
     trends: (period?: string | number) => [...queryKeys.ads.all, 'trends', period] as const,
@@ -217,10 +218,6 @@ export const queryKeys = {
     returnSummary: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnSummary', params] as const,
     returnReasons: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnReasons', params] as const,
     returnFaultSplit: (params: Record<string, string>) => [...queryKeys.coupangDashboard.all, 'returnFaultSplit', params] as const,
-  },
-  mallOperationOutcomes: {
-    all: ['mallOperationOutcomes'] as const,
-    summary: (days: number) => [...queryKeys.mallOperationOutcomes.all, 'summary', days] as const,
   },
   logs: {
     all: ['logs'] as const,

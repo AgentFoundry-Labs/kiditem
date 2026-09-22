@@ -4,18 +4,14 @@ import {
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { mallStopBadge, type MallStopKind } from './mall-presentation';
+import type { ListingAvailabilityExecutionContext } from './listing-availability-execution-api';
 
 /**
- * 몰 품절 송신 호출.
+ * 몰 품절·재개 송신 호출.
  *
- * 확장이 그 몰에 **끝까지 보낸다.** 사람이 몰마다 들어가 다시 누르지 않는다
- * (사장님 2026-09-18: "내가 버튼 누르면 너가 알아서 몰에 들어가서 품절 처리해야지").
- *
- * 상품등록과 다른 이유: 등록은 승인이 붙고 되돌리기 어렵지만, 품절은 같은 화면에서
- * 같은 값으로 되돌릴 수 있다(매니페스트 `supports.resume`). 되돌릴 수 있는 일이라
- * 끝까지 한다.
- *
- * ⚠️ 그래도 `sent` 는 "보냈다"이지 "반영됐다"가 아니다. 반영은 몰 재조회가 답한다.
+ * 확장이 기존 몰별 화면과 옵션 처리를 맡는다. 화면은 새 실행 lease를 함께 보내며,
+ * `sent`는 전송 시도 건수일 뿐 실제 몰 반영의 증거가 아니다. 반영은 실제 몰 상태를
+ * 다시 확인한 결과로 기록한다.
  */
 
 /** 목록을 읽고 몰마다 한 번씩 보낸다. 몰 관리자는 느리다. */
@@ -277,6 +273,19 @@ export interface MallAvailabilityOutcome {
 }
 
 /**
+ * The extension uses a stable machine reason when it cannot match the mall's
+ * option composition. Keep that reason out of operator-facing toasts while
+ * preserving any provider detail after the code.
+ */
+export function translateMallAvailabilityWarning(warning: string): string {
+  if (!/composition_unconfirmed/i.test(warning)) return warning;
+  const detail = warning.replace(/composition_unconfirmed/gi, '').replace(/^[\s:：-]+/, '').trim();
+  return detail
+    ? `상품 구성을 확인하지 못했습니다. ${detail}`
+    : '상품 구성을 확인하지 못했습니다. 몰에서 옵션 구성을 확인한 뒤 다시 시도하세요.';
+}
+
+/**
  * 보낸 결과를 관찰 기록 한 줄로. 몰을 다시 읽어 **보낸 것이 전부 확인된 것만** 성공이다 — 보냈다는
  * 것만으로는 `attention` 이다(반영은 몰 재조회가 답한다).
  */
@@ -308,6 +317,8 @@ interface SendResponse {
 
 interface SendOptions {
   resume?: boolean;
+  /** Server-issued execution fence; carried with the extension request. */
+  executionContext?: ListingAvailabilityExecutionContext;
   /** 상품코드 → 그 상품의 품절 옵션코드. 옵션 단위로 보내는 몰(쿠팡 윙)만 쓴다. 없으면 상품 전체다. */
   optionCodes?: Readonly<Record<string, readonly string[]>>;
   /** 나눠 보내는 몰에서 한 묶음이 끝날 때마다. `done` 은 끝낸 상품 수다. */
@@ -421,6 +432,7 @@ async function sendChunk(
         mallKey,
         codes,
         resume: options.resume === true,
+        ...(options.executionContext ? { executionContext: options.executionContext } : {}),
         ...(optionCodes ? { options: optionCodes } : {}),
         ...(options.show ? { show: true } : {}),
       },

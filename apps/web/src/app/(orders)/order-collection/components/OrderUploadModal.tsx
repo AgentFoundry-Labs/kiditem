@@ -6,7 +6,7 @@ import { FileSpreadsheet, Loader2, LockKeyhole, Store, Upload, X } from 'lucide-
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
 

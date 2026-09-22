@@ -25,7 +25,7 @@
 // published nothing for a requested day withholds profit. A failed read is
 // distinct from both and keeps `adEvidenceError`.
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
@@ -33,16 +33,19 @@ import {
   readOrderLineWindowFacts,
   type OrderWindowFacts,
 } from '../../../../../orders/read/order-facts.reader';
-import { readInventorySkuIdentities } from '../../../../../inventory/read/inventory-availability';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../../products/application/port/in/product-transactional-read.port';
 import {
   type ResolvedDashboardPeriod,
 } from '../../../domain/period/dashboard-period';
 import {
   advertisingApplies,
-  dayAfter,
   readAdWindowFacts,
   type AdWindowDay,
 } from '../../../../../advertising/read/ad-target-facts';
+import { addDays } from '../../../../../common/kst';
 import {
   resolveOrderLineSalesCosts,
   resolveUnitCost,
@@ -73,7 +76,11 @@ export class ProfitCalculationRepositoryAdapter
 {
   private readonly logger = new Logger(ProfitCalculationRepositoryAdapter.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+  ) {}
 
   async calculateForRange(
     organizationId: string,
@@ -325,7 +332,7 @@ export class ProfitCalculationRepositoryAdapter
       return { rows: [], hasAdAccount: true };
     }
     const from = new Date(`${requestedDates[0]}T00:00:00.000Z`);
-    const to = dayAfter(new Date(`${requestedDates[requestedDates.length - 1]}T00:00:00.000Z`));
+    const to = addDays(new Date(`${requestedDates[requestedDates.length - 1]}T00:00:00.000Z`), 1);
     try {
       const applies = await advertisingApplies(tx, organizationId);
       const facts = await readAdWindowFacts(tx, { organizationId, from, to });
@@ -378,7 +385,7 @@ export class ProfitCalculationRepositoryAdapter
           id: true,
           inventoryComponents: {
             where: { organizationId },
-            select: { quantity: true, sellpiaInventorySkuId: true },
+            select: { quantity: true, masterProductId: true },
           },
         },
       });
@@ -390,21 +397,21 @@ export class ProfitCalculationRepositoryAdapter
         select: { id: true, channel: true },
       });
       const accountById = new Map(accounts.map((account) => [account.id, account]));
-      const inventorySkuIds = [...new Set(options.flatMap((option) =>
-        option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
-      const identities = await readInventorySkuIdentities(tx, {
+      const masterProductIds = [...new Set(options.flatMap((option) =>
+        option.inventoryComponents.map((component) => component.masterProductId)))];
+      const identities = await this.inventoryTransactionalRead.readSourceIdentities({ client: tx }, {
         organizationId,
-        selector: { kind: 'ids', values: inventorySkuIds },
+        selector: { kind: 'ids', values: masterProductIds },
       });
-      const purchasePriceBySkuId = new Map(identities.map((sku) => [
-        sku.sellpiaInventorySkuId,
-        sku.purchasePrice,
+      const purchasePriceByMasterProductId = new Map(identities.map((product) => [
+        product.masterProductId,
+        product.purchasePrice,
       ]));
       const recipeByOptionId = new Map(options.map((option) => [
         option.id,
         option.inventoryComponents.map((component) => ({
           quantity: component.quantity,
-          purchasePrice: purchasePriceBySkuId.get(component.sellpiaInventorySkuId) ?? null,
+          purchasePrice: purchasePriceByMasterProductId.get(component.masterProductId) ?? null,
         })),
       ]));
       const orders = facts.orders.map((order): CostOrder => ({

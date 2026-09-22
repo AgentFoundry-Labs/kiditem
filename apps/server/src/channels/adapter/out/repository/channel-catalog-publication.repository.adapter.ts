@@ -44,6 +44,11 @@ import {
   upsertChannelCatalogBasics,
   upsertChannelCatalogIdentities,
 } from './channel-catalog-identity-upsert';
+import {
+  CHANNEL_OPTION_RECIPE_PORT,
+  type ChannelOptionRecipePort,
+} from '../../../application/port/in/channel-option-recipe.port';
+import { applyRegisteredOptionRecipes } from '../persistence/registered-option-recipes';
 import type {
   ChannelCatalogPublicationPort,
   ChannelCatalogPublicationResult,
@@ -64,6 +69,8 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
     @Inject(CATALOG_MEDIA_PUBLICATION_PORT)
     private readonly media: CatalogMediaPublicationPort,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT)
+    private readonly recipes: ChannelOptionRecipePort,
   ) {}
 
   async publishDetailChunk(input: DetailChunkInput): Promise<ChannelCatalogPublicationResult> {
@@ -114,6 +121,10 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
       })),
       lastImportRunId: sourceRun.id,
       rawSource: 'coupang_catalog_details',
+    });
+    await applyRegisteredOptionRecipes(tx, this.recipes, {
+      organizationId: input.organizationId,
+      channelListingIds: [...identities.listingIds.values()],
     });
     // Detail and option media are independent observations.  Reconcile only
     // the role present in this response; publishing both through the old
@@ -268,6 +279,20 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
         if (detailChunks.some((chunk) => !chunk.publishedAt)) {
           throw new ConflictException('A detail chunk was not atomically published');
         }
+        const detailListings = await tx.channelListing.findMany({
+          where: {
+            organizationId: input.organizationId,
+            channelAccountId: input.channelAccountId,
+            externalId: {
+              in: snapshot.products.map((item) => item.product.externalProductId),
+            },
+          },
+          select: { id: true },
+        });
+        await applyRegisteredOptionRecipes(tx, this.recipes, {
+          organizationId: input.organizationId,
+          channelListingIds: detailListings.map(({ id }) => id),
+        });
         optionCount = snapshot.products.reduce((sum, item) => sum + item.product.options.length, 0);
         result = {
           sourceImportRunId: sourceRun.id,
@@ -310,7 +335,10 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
               lastImportRunId: sourceRun.id,
               publicationReference: { type: 'source_import_run', id: sourceRun.id },
             });
-        await publishDiscoveryImages(tx, input.organizationId, chunks);
+        await applyRegisteredOptionRecipes(tx, this.recipes, {
+          organizationId: input.organizationId,
+          channelListingIds: upserted.listingIds,
+        });
         const absence = await deactivateCatalogAbsence(tx, input, sourceRun.id, upserted);
         if (upserted.mappingIdentityChanged || absence.deactivatedProductCount > 0 || absence.deactivatedSkuCount > 0) {
           await advanceProductMappingGeneration(tx, input.organizationId);
@@ -406,6 +434,7 @@ async function upsertCoupangCatalogRows(
     })),
   });
   return {
+    listingIds: [...identities.listingIds.values()],
     mappingIdentityChanged: identities.mappingIdentityChanged,
     externalProductIds: identities.externalProductIds,
     externalOptionIds: identities.externalOptionIds,
@@ -460,6 +489,7 @@ async function upsertCoupangCatalogBasicsRows(
     })),
   });
   return {
+    listingIds: [...identities.listingIds.values()],
     mappingIdentityChanged: identities.mappingIdentityChanged,
     externalProductIds: identities.externalProductIds,
     externalOptionIds: identities.externalOptionIds,
@@ -503,44 +533,6 @@ async function deactivateCatalogAbsence(
     deactivatedProductCount: deactivatedListings.count,
     deactivatedSkuCount: deactivatedOptions.count,
   };
-}
-
-/**
- * 몰이 들고 있는 대표 사진을 리스팅에 남긴다.
- *
- * Wing 상품 목록은 처음부터 사진 주소를 함께 주는데(`discovery_page` 의 `primaryImageUrl`)
- * 상세·기본 상품 줄에는 그 값이 없어 저장되지 않았다. 목록 줄은 이미 이 발행이 신원 확인에
- * 쓰고 있으므로 같은 줄에서 사진만 더 옮긴다 — 다시 수집하지 않는다.
- *
- * 우리가 만든 콘텐츠 작업물은 건드리지 않는다. 화면이 그쪽을 먼저 쓰고 이 값은 없을 때의
- * 자리다.
- */
-async function publishDiscoveryImages(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  chunks: ReadonlyArray<{ kind: string; payload: unknown }>,
-): Promise<void> {
-  const byExternalId = new Map<string, string>();
-  for (const chunk of chunks) {
-    if (chunk.kind !== 'discovery_page') continue;
-    const parsed = CoupangCatalogDiscoveryPageV1Schema.safeParse(chunk.payload);
-    if (!parsed.success) continue;
-    for (const item of parsed.data.items) {
-      if (item.primaryImageUrl) byExternalId.set(item.externalProductId, item.primaryImageUrl);
-    }
-  }
-  if (byExternalId.size === 0) return;
-  // 값이 달라진 줄만 쓴다. `NOT: { imageUrl }` 로 거르면 SQL 에서 NULL 비교가 참이 아니라
-  // **비어 있는 줄이 통째로 빠진다** — 사진을 처음 넣는 줄이 바로 그 줄이다.
-  const listings = await tx.channelListing.findMany({
-    where: { organizationId, externalId: { in: [...byExternalId.keys()] } },
-    select: { id: true, externalId: true, imageUrl: true },
-  });
-  for (const listing of listings) {
-    const imageUrl = byExternalId.get(listing.externalId);
-    if (!imageUrl || listing.imageUrl === imageUrl) continue;
-    await tx.channelListing.update({ where: { id: listing.id }, data: { imageUrl } });
-  }
 }
 
 async function assertDetailChunkAgainstDiscovery(

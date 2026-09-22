@@ -20,18 +20,13 @@ import {
   type CandidateContentAssetPort,
 } from '../port/out/cross-domain/candidate-content-asset.port';
 import {
-  SOURCING_SELLPIA_SALE_PRICE_PORT,
-  type SellpiaSalePricePort,
-} from '../port/out/cross-domain/sellpia-sale-price.port';
-import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
-} from '../port/out/cross-domain/registration-content-workspace.port';
+} from '../port/in/registration-content-workspace.port';
 import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,
 } from '../../domain/supplier-source-url-policy';
-import { sellpiaNameJoinKey } from '../../domain/sellpia-name-key';
 import {
   normalizeSourcingVariantKey,
   canonicalSourcingCandidateIdentity,
@@ -80,8 +75,6 @@ export class SourcingService {
     private readonly agentGateway: SourcingAgentGatewayPort,
     @Inject(SOURCING_CANDIDATE_CONTENT_ASSET_PORT)
     private readonly candidateContentAssets: CandidateContentAssetPort,
-    @Inject(SOURCING_SELLPIA_SALE_PRICE_PORT)
-    private readonly sellpiaSalePrices: SellpiaSalePricePort,
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly registrationContentWorkspaces: RegistrationContentWorkspacePort,
     private readonly agentCommands: SourcingAgentCommandService,
@@ -347,22 +340,16 @@ export class SourcingService {
   async getProduct(productId: string, organizationId: string) {
     const row = await this.candidates.findById(productId, organizationId);
     if (!row) throw new NotFoundException('Sourcing candidate not found');
-    // 수기 판매가가 비어 있을 때만 쓸 셀피아 폴백. 이름이 정확히 일치할 때만
-    // 채워지고, 실패하면 조용히 0원으로 남는다(추정 금지).
-    const nameKey = sellpiaNameJoinKey(row.name);
     // Registration images come from ContentAsset.role, not from the scrape
     // originals on the candidate row. Missing assets stay empty so the caller
     // can fall back explicitly instead of shipping an off-spec source image.
-    const [registrationMedia, salePriceMatches, contentWorkspaceId] = await Promise.all([
+    const [registrationMedia, contentWorkspaceId] = await Promise.all([
       // 갤러리와 현재 대표를 하나의 미디어 읽기로 받아, 응답 중간에
       // 선택이 바뀌어도 등록 이미지와 `등록 대표` 배지가 엇갈리지 않게 한다.
       this.candidateContentAssets.loadRegistrationMedia({
         organizationId,
         sourceCandidateId: productId,
       }),
-      nameKey === null
-        ? Promise.resolve([])
-        : this.sellpiaSalePrices.findSalePricesByNormalizedNames(organizationId, [nameKey]),
       // 후보가 이미 가진 content workspace. 없으면 null 이고, 읽기 경로에서
       // 새로 만들지 않는다. 워크스페이스 화면은 이 값이 있어야 썸네일 구성을
       // 저장할 수 있다 — ProductPreparation 이 없는 후보의 유일한 저장 위치다.
@@ -375,8 +362,6 @@ export class SourcingService {
       registrationImages,
       currentThumbnail: workspaceThumbnailSelection,
     } = registrationMedia;
-    const sellpiaSalePrice =
-      salePriceMatches.find((match) => match.normalizedName === nameKey)?.salePrice ?? null;
     return {
       ...row,
       contentWorkspaceId,
@@ -385,7 +370,6 @@ export class SourcingService {
         preparation: row.productPreparation,
         registrationImages,
         workspaceThumbnailSelection,
-        sellpiaSalePrice,
       }),
     };
   }

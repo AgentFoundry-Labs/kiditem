@@ -22,9 +22,9 @@ type Props = {
 };
 
 type DraftComponent = {
-  sellpiaInventorySkuId: string;
-  code: string;
-  name: string;
+  masterProductId: string;
+  code: string | null;
+  name: string | null;
   optionName: string | null;
   currentStock: number | null;
   quantity: number | null;
@@ -62,7 +62,7 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
     return [{
       channelListingOptionId: optionRow.option.id,
       components: draft.map((component) => ({
-        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+        masterProductId: component.masterProductId,
         quantity: component.quantity!,
       })),
     }];
@@ -84,12 +84,12 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
     if (!activeOptionId) return;
     setDrafts((current) => {
       const components = current[activeOptionId] ?? [];
-      if (components.some(({ sellpiaInventorySkuId }) =>
-        sellpiaInventorySkuId === candidate.sellpiaInventorySkuId)) return current;
+      if (components.some(({ masterProductId }) =>
+        masterProductId === candidate.masterProductId)) return current;
       return {
         ...current,
         [activeOptionId]: [...components, {
-          sellpiaInventorySkuId: candidate.sellpiaInventorySkuId,
+          masterProductId: candidate.masterProductId,
           code: candidate.code,
           name: candidate.name,
           optionName: candidate.optionName,
@@ -192,16 +192,16 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
                             : inventoryCandidates.error ? <ErrorLabel message={friendlyError(inventoryCandidates.error) ?? 'Sellpia 재고를 불러오지 못했습니다.'} />
                               : (inventoryCandidates.data?.items.length ?? 0) === 0 ? <EmptyLabel message="조건에 맞는 Sellpia 재고가 없습니다." />
                                 : inventoryCandidates.data?.items.map((candidate) => {
-                                  const selected = activeDraft.some(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId === candidate.sellpiaInventorySkuId);
-                                  return <div key={candidate.sellpiaInventorySkuId} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{candidate.code} · {candidate.name}</p><p className="mt-0.5 truncate text-[11px] text-slate-500">{candidate.optionName ?? '옵션 없음'} · 현재고 {stockLabel(candidate.currentStock)}</p></div><button type="button" aria-label={`${candidate.code} 재고 선택`} disabled={selected} onClick={() => addInventory(candidate)} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-purple-100 px-3 py-2 text-xs font-bold text-purple-700 disabled:opacity-50"><Plus size={13} /> {selected ? '선택됨' : '선택'}</button></div>;
+                                  const selected = activeDraft.some(({ masterProductId }) => masterProductId === candidate.masterProductId);
+                                  return <div key={candidate.masterProductId} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{candidate.code} · {candidate.name}</p><p className="mt-0.5 truncate text-[11px] text-slate-500">{candidate.optionName ?? '옵션 없음'} · 현재고 {stockLabel(candidate.currentStock)}</p></div><button type="button" aria-label={`${candidate.code} 재고 선택`} disabled={selected} onClick={() => addInventory(candidate)} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-purple-100 px-3 py-2 text-xs font-bold text-purple-700 disabled:opacity-50"><Plus size={13} /> {selected ? '선택됨' : '선택'}</button></div>;
                                 })}
                       </div>
                       <div className="space-y-2">
                         {activeDraft.length === 0 ? <EmptyLabel message="이 옵션이 차감할 Sellpia 재고를 선택해 주세요." /> : activeDraft.map((component, index) => (
-                          <div key={component.sellpiaInventorySkuId} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_40px]">
-                            <div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{component.code} · {component.name}</p><p className="mt-1 truncate text-[11px] text-slate-500">{component.optionName ?? '옵션 없음'} · 현재고 {stockLabel(component.currentStock)}</p></div>
-                            <label className="text-xs font-bold text-slate-600">차감 수량<input aria-label={`${component.code} 차감 수량`} type="number" min={1} required value={component.quantity ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, quantity: event.target.value === '' ? null : Number(event.target.value) } : item) }))} className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
-                            <button type="button" aria-label={`${component.code} 재고 제거`} onClick={() => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).filter((_, itemIndex) => itemIndex !== index) }))} className="mt-4 flex h-9 w-9 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 size={15} /></button>
+                          <div key={component.masterProductId} className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_120px_40px]">
+                            <div className="min-w-0"><p className="truncate text-xs font-extrabold text-slate-900">{component.code ?? '연결 없음'} · {component.name ?? '삭제된 재고'}</p><p className="mt-1 truncate text-[11px] text-slate-500">{component.optionName ?? '옵션 없음'} · 현재고 {stockLabel(component.currentStock)}</p></div>
+                            <label className="text-xs font-bold text-slate-600">차감 수량<input aria-label={`${component.code ?? '연결 없음'} 차감 수량`} type="number" min={1} required value={component.quantity ?? ''} onChange={(event) => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).map((item, itemIndex) => itemIndex === index ? { ...item, quantity: event.target.value === '' ? null : Number(event.target.value) } : item) }))} className="mt-1 h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
+                            <button type="button" aria-label={`${component.code ?? '연결 없음'} 재고 제거`} onClick={() => setDrafts((current) => ({ ...current, [activeOption.option.id]: (current[activeOption.option.id] ?? []).filter((_, itemIndex) => itemIndex !== index) }))} className="mt-4 flex h-9 w-9 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50"><Trash2 size={15} /></button>
                           </div>
                         ))}
                       </div>
@@ -226,7 +226,7 @@ function draftsFrom(options: ChannelOptionMatchingQueueRow[]): Record<string, Dr
   return Object.fromEntries(options.map(({ option }) => [
     option.id,
     option.inventoryComponents.map((component) => ({
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+      masterProductId: component.masterProductId,
       code: component.code,
       name: component.name,
       optionName: component.optionName,
@@ -246,9 +246,9 @@ function optionSearch(row?: ChannelOptionMatchingQueueRow): string {
     : row.option.itemName ?? sellerSku;
 }
 
-function recipeSignature(components: Array<{ sellpiaInventorySkuId: string; quantity: number | null }>): string {
+function recipeSignature(components: Array<{ masterProductId: string; quantity: number | null }>): string {
   return [...components]
-    .map(({ sellpiaInventorySkuId, quantity }) => `${sellpiaInventorySkuId}:${quantity ?? ''}`)
+    .map(({ masterProductId, quantity }) => `${masterProductId}:${quantity ?? ''}`)
     .sort()
     .join('|');
 }

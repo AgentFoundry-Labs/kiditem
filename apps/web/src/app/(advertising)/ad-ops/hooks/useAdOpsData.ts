@@ -1,17 +1,20 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  AD_ACTION_COMMAND_MAX_IDS,
+  type AdActionCommandResult,
+  type AdActionExpectedApprovalStatus,
+  type AdCampaignSnapshot,
+  type AdExtensionStatus,
+  type AdKeywordsData,
+  type AdProductSnapshot,
+  type AdRulesData,
+  type AdWeeklyPlan,
+  type AdTrendsData,
+} from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import type {
-  AdCampaignSnapshot,
-  AdExtensionStatus,
-  AdKeywordsData,
-  AdProductSnapshot,
-  AdRulesData,
-  AdWeeklyPlan,
-  AdTrendsData,
-} from '@kiditem/shared/advertising';
 
 export type CampaignProductData = {
   vendorItemId: string;
@@ -320,6 +323,48 @@ export function useRunKeywordAgent(period: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.ads.keywords(period) });
       queryClient.invalidateQueries({ queryKey: queryKeys.ads.all });
     },
+  });
+}
+
+/**
+ * Approve or reject keyword pause proposals through the ad action command.
+ * Approval records the operator's confirmation and queues nothing for the
+ * browser extension (KID-138 decision A), so the operator pauses the keyword
+ * in the ad center. Rejection closes a proposal, and cancels an attempt approved before
+ * that decision that has not started. Every command names the review its
+ * proposals must still be in; the server skips the others and counts only
+ * what it changed.
+ *
+ * The distinct ids go in commands of at most `AD_ACTION_COMMAND_MAX_IDS`, one
+ * after another, and `updated` sums what the server counted. A refused command
+ * ends the review with its error, and the commands after it are not sent. The
+ * keyword lists of every period are read again afterwards, after a refusal
+ * too: a refusal means a proposal changed state since the list was read, and a
+ * proposal reads the same in every period.
+ */
+export function useReviewKeywordProposals() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      action: 'approve' | 'reject';
+      expectedApprovalStatus: AdActionExpectedApprovalStatus;
+      ids: readonly string[];
+    }) => {
+      const ids = [...new Set(input.ids)];
+      let updated = 0;
+      for (let start = 0; start < ids.length; start += AD_ACTION_COMMAND_MAX_IDS) {
+        // A refusal throws here, before the next command is sent.
+        const result = await apiClient.post<AdActionCommandResult>('/api/ads/actions', {
+          action: input.action,
+          expectedApprovalStatus: input.expectedApprovalStatus,
+          ids: ids.slice(start, start + AD_ACTION_COMMAND_MAX_IDS),
+        });
+        updated += result.updated;
+      }
+      return { updated } satisfies AdActionCommandResult;
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.keywordsAll() }),
   });
 }
 

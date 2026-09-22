@@ -468,6 +468,7 @@ describe('dashboard sales metricBasis', () => {
   });
 });
 
+
 describe('dashboard ad metricBasis', () => {
   it('publishes account ad bases and intersects the ad-rate denominator', async () => {
     const { ad } = salesService({
@@ -661,6 +662,7 @@ describe('dashboard inventory metricBasis', () => {
       gradeChanges: [],
       aGradeMasterProductIds: [],
       ...abcOverrides,
+      newProductCount: abcOverrides.newProductCount ?? 0,
     });
     repository.findUnreadAlerts.mockResolvedValue([]);
     repository.countActiveProducts.mockResolvedValue(5);
@@ -1038,4 +1040,3 @@ describe('dashboard Top products source', () => {
     expect(result.metricBasis?.['topProducts.revenue']).toMatchObject({ sources: ['orders'] });
   });
 });
-

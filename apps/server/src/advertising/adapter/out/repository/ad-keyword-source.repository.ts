@@ -33,10 +33,8 @@ import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempo
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
 import { addDays, businessDateKey, evidenceCutoffDate } from '../../../../common/kst';
-import {
-  normalizeAdKeywordTarget,
-  mergeKeywordTargets,
-} from '../../../application/service/ad-keyword-normalizer';
+import { normalizeAdKeywordTarget } from '../../../application/service/ad-keyword-normalizer';
+import { mergeKeywordTargets } from '../../../domain/ad-keyword-target-merge';
 import { readCompleteAdKeywordFacts } from '../../../read/ad-target-facts';
 import type { UpsertAdTargetDailyInput } from '../../../application/port/out/repository/channel-target-daily.repository.port';
 import type { ListingMap } from '../../../domain/listing-match';

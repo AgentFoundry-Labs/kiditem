@@ -1,20 +1,25 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { salesProductMallPrice, type SalesProduct } from '@kiditem/shared/sales-product';
 import { cn } from '@/lib/utils';
+import { registrationExecutionKeys } from '@/app/(channels)/_shared/registration-execution-api';
 import {
   canSendMallPrice,
   MALL_PRICE_SEND_NOTE,
   mallPriceResendAllowed,
-  sendMallPrice,
 } from '../lib/mall-price-send';
+import { executeTargetMallPrice, resolveTargetPrice } from '../lib/mall-price-execution';
+import { registrationTargetApi, registrationTargetKeys } from '@/lib/registration-target-api';
 import { formatWon } from '../lib/sales-product-labels';
+import type { RegistrationTarget, SalesProduct } from '@kiditem/shared/sales-product';
 
 interface ListingPriceRow {
   listing: SalesProduct['channelListings'][number];
-  /** 이 몰 상품의 옵션 가운데 판매상품 기준 가격과 다른 것. */
+  candidates: RegistrationTarget[];
+  target: RegistrationTarget | undefined;
+  /** 이 몰 상품의 옵션 가운데 선택한 등록 설정의 가격과 다른 것. */
   differing: { name: string; mallPrice: number; expected: number }[];
   /** 몰 가격을 모르는(가져올 때 못 읽은) 옵션 수. */
   unknownPrices: number;
@@ -29,17 +34,29 @@ type SendState =
   | { status: 'failed'; message: string };
 
 /**
- * 몰에 올라간 상품 — 판매상품에 이어진 몰 상품과, 몰 가격이 판매상품 기준 가격(몰별 값 > 판매가 + 추가금액)과 다른 곳.
+ * 몰에 올라간 상품 — 판매상품에 이어진 몰 상품과, 몰 가격이 단품 최종 판매가(몰별 값 > 옵션 판매가)와 다른 곳.
  * 사방넷 수정송신의 "판매가(송신) ≠ 판매가(상품)" 거르기와 같다. 몰 가격은 가져올 때 읽은 값이고, 몰마다 뜻이 다를 수
  * 있다(할인 전 가격 등) — 다르다고 틀린 것은 아니다.
  */
 export function ChannelListingsSection({ product }: { product: SalesProduct }) {
   const [onlyDiffering, setOnlyDiffering] = useState(false);
+  const [selectedTargets, setSelectedTargets] = useState<Record<string, string>>({});
+  const queryClient = useQueryClient();
+  const targetsQuery = useQuery({
+    queryKey: registrationTargetKeys.list(product.id),
+    queryFn: () => registrationTargetApi.list(product.id),
+  });
+  const inFlight = useRef(new Set<string>());
+  const requestKeys = useRef(new Map<string, string>());
   const rows = useMemo<ListingPriceRow[]>(() => {
     const optionById = new Map(product.options.map((option) => [option.id, option]));
-    const overrideByAccount = new Map(product.channelOverrides.map((override) => [override.channelAccountId, override]));
     return product.channelListings.map((listing) => {
-      const override = overrideByAccount.get(listing.channelAccountId);
+      const accountTargets = (targetsQuery.data ?? []).filter((candidate) => candidate.channelAccountId === listing.channelAccountId);
+      const target = accountTargets.length === 1
+        ? accountTargets[0]
+        : accountTargets.find((candidate) => candidate.id === selectedTargets[listing.id]);
+      const resolution = resolveTargetPrice(listing, targetsQuery.data ?? [], target?.id);
+      const candidates = resolution.candidates;
       const differing: ListingPriceRow['differing'] = [];
       let unknownPrices = 0;
       let single: ListingPriceRow['single'] = null;
@@ -50,7 +67,9 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
           unknownPrices += 1;
           continue;
         }
-        const expected = salesProductMallPrice({ salePrice: product.salePrice, extraPrice: option.extraPrice, override });
+        const resolved = target?.resolved.options.find(row => row.salesProductOptionId === option.id);
+        const expected = resolved?.salePrice ?? (candidates.length === 0 ? option.salePrice : undefined);
+        if (expected === undefined) continue;
         if (listing.options.length === 1) single = { mallPrice: channelOption.salePrice, expected };
         if (channelOption.salePrice !== expected) {
           differing.push({
@@ -62,34 +81,66 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
       }
       if (listing.options.length === 1 && !single) {
         const option = optionById.get(listing.options[0]!.salesProductOptionId ?? '');
-        if (option) {
+        const expected = option && target
+          ? target.resolved.options.find((row) => row.salesProductOptionId === option.id)?.salePrice
+          : candidates.length === 0 ? option?.salePrice : undefined;
+        if (option && expected !== undefined) {
           single = {
             mallPrice: null,
-            expected: salesProductMallPrice({ salePrice: product.salePrice, extraPrice: option.extraPrice, override }),
+            expected,
           };
         }
       }
-      return { listing, differing, unknownPrices, single };
+      return { listing, differing, unknownPrices, single, candidates, target };
     });
-  }, [product]);
+  }, [product, targetsQuery.data, selectedTargets]);
   const [sendStates, setSendStates] = useState<Record<string, SendState>>({});
 
-  const sendPrice = async (listing: SalesProduct['channelListings'][number], price: number, ifPrice: number | null) => {
+  const sendPrice = async (
+    listing: SalesProduct['channelListings'][number],
+    target: RegistrationTarget | undefined,
+    expectedPrice: number,
+  ) => {
+    if (inFlight.current.has(listing.id)) return;
+    if (!listing.channelAccountId) {
+      toast.error('몰 계정을 확인할 수 없어 가격을 보내지 않았습니다.');
+      return;
+    }
+    inFlight.current.add(listing.id);
+    const key = `${listing.id}:${target?.id ?? 'common'}:${target?.version ?? 0}`;
+    const idempotencyKey = requestKeys.current.get(key) ?? crypto.randomUUID();
+    requestKeys.current.set(key, idempotencyKey);
     setSendStates((current) => ({ ...current, [listing.id]: { status: 'sending' } }));
+    let executionTargetId = target?.id;
     try {
-      const result = await sendMallPrice(listing.mallKey, [{ code: listing.externalId, price, ifPrice }]);
-      const answer = result.results[0];
-      const confirmed = result.confirmed > 0 && answer?.confirmed === true;
-      const message = confirmed
-        ? `${listing.mallName}에서 ${formatWon(answer?.after ?? price)} 확인`
-        : result.warnings[0] ?? `${listing.mallName}에 보냈지만 몰에서 가격을 확인하지 못했습니다.`;
-      setSendStates((current) => ({ ...current, [listing.id]: { status: 'done', confirmed, after: answer?.after ?? null, message } }));
+      const result = await executeTargetMallPrice({
+        salesProductId: product.id,
+        channelAccountId: listing.channelAccountId,
+        ...(target ? { targetId: target.id } : {}),
+        expectedPrice,
+        listingId: listing.id,
+        mallKey: listing.mallKey,
+        idempotencyKey,
+      });
+      executionTargetId = result.execution.targetId;
+      const confirmed = result.decision?.confirmed === true;
+      const message = result.decision?.message ?? '이 상품의 전송 실행이 남아 있습니다. 등록 설정의 실행 기록에서 결과를 확인해주세요.';
+      if (result.execution.status === 'succeeded' || result.execution.status === 'failed') requestKeys.current.delete(key);
+      setSendStates((current) => ({ ...current, [listing.id]: {
+        status: result.decision?.outcome === 'not_submitted' ? 'failed' : 'done',
+        confirmed, after: result.decision?.after ?? null, message,
+      } }));
       if (confirmed) toast.success(message);
       else toast.warning(message);
     } catch (error) {
       const message = error instanceof Error ? error.message : '가격을 보내지 못했습니다.';
       setSendStates((current) => ({ ...current, [listing.id]: { status: 'failed', message } }));
       toast.error(message);
+    } finally {
+      inFlight.current.delete(listing.id);
+      if (executionTargetId) {
+        void queryClient.invalidateQueries({ queryKey: registrationExecutionKeys.targetHistory(executionTargetId) });
+      }
     }
   };
 
@@ -110,7 +161,7 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
         <p className="text-slate-600">
           몰 상품 <span className="tabular-nums">{rows.length.toLocaleString()}</span>개
           {differingCount > 0 && (
-            <> · 가격이 판매상품 기준과 다른 곳 <span className="font-semibold tabular-nums text-amber-700">{differingCount.toLocaleString()}</span>개</>
+            <> · 가격이 선택한 설정과 다른 곳 <span className="font-semibold tabular-nums text-amber-700">{differingCount.toLocaleString()}</span>개</>
           )}
         </p>
         {differingCount > 0 && (
@@ -128,12 +179,12 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
               <th className="w-32 px-2 py-2 text-left font-semibold">몰 상품코드</th>
               <th className="px-2 py-2 text-left font-semibold">몰 상품명</th>
               <th className="w-24 px-2 py-2 text-left font-semibold">상태</th>
-              <th className="w-56 px-3 py-2 text-left font-semibold">몰 가격 · 판매상품 기준</th>
+              <th className="w-56 px-3 py-2 text-left font-semibold">몰 가격 · 등록 설정 기준</th>
               <th className="w-44 px-3 py-2 text-right font-semibold">가격 보내기</th>
             </tr>
           </thead>
           <tbody>
-            {shown.map(({ listing, differing, unknownPrices, single }) => (
+            {shown.map(({ listing, differing, unknownPrices, single, candidates, target }) => (
               <tr key={listing.id} className="border-b border-slate-100 align-top">
                 <td className="px-3 py-2 font-medium text-slate-800">{listing.mallName}</td>
                 <td className="px-2 py-2 font-mono text-xs text-slate-500">{listing.externalId}</td>
@@ -142,7 +193,28 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
                 </td>
                 <td className="px-2 py-2 text-xs text-slate-500">{listing.status ?? ''}</td>
                 <td className={cn('px-3 py-2 text-xs tabular-nums', differing.length > 0 ? 'text-amber-800' : 'text-slate-500')}>
-                  {differing.length > 0 ? (
+                  {targetsQuery.isPending ? '등록 설정을 읽는 중…' : targetsQuery.isError ? '등록 설정 조회 실패' : candidates.length === 0 ? (
+                    listing.options.length === 1 && single ? `공통 판매가 ${formatWon(single.expected)}` : '공통 판매가 기준'
+                  ) : candidates.length === 1 ? (
+                    <span className="mb-1 block text-slate-500">{target?.displayName || target?.resolved.name || '등록 설정 1개'}</span>
+                  ) : (
+                    <select
+                      aria-label={`${listing.externalId} 등록 설정`}
+                      className="mb-1 block w-full rounded border border-slate-200 bg-white p-1 text-slate-700"
+                      value={selectedTargets[listing.id] ?? ''}
+                      disabled={sendStates[listing.id]?.status === 'sending'}
+                      onChange={(event) => {
+                        setSelectedTargets(current => ({ ...current, [listing.id]: event.target.value }));
+                        setSendStates(({ [listing.id]: _dropped, ...rest }) => rest);
+                      }}
+                    >
+                      <option value="">등록 설정 선택</option>
+                      {candidates.map(candidate => <option key={candidate.id} value={candidate.id}>
+                        {candidate.displayName ?? candidate.resolved.name} · {candidate.id.slice(0, 8)}
+                      </option>)}
+                    </select>
+                  )}
+                  {!target ? null : differing.length > 0 ? (
                     <ul className="space-y-0.5">
                       {differing.slice(0, 3).map((item) => (
                         <li key={`${item.name}-${item.mallPrice}`}>
@@ -161,14 +233,14 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
                   )}
                 </td>
                 <td className="px-3 py-2 text-right text-xs">
-                  <PriceSendCell
+                  {(target || candidates.length === 0) ? <PriceSendCell
                     listing={listing}
                     single={single}
                     state={sendStates[listing.id]}
                     onConfirm={() => setSendStates((current) => ({ ...current, [listing.id]: { status: 'confirming' } }))}
                     onCancel={() => setSendStates(({ [listing.id]: _dropped, ...rest }) => rest)}
-                    onSend={(price) => void sendPrice(listing, price, single?.mallPrice ?? null)}
-                  />
+                    onSend={(price) => void sendPrice(listing, target, price)}
+                  /> : <span className="text-slate-400">등록 설정 선택 필요</span>}
                 </td>
               </tr>
             ))}
@@ -177,7 +249,7 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
       </div>
       <p className="text-xs text-slate-400">
         몰 가격은 몰에서 가져올 때 읽은 값입니다. 몰마다 가격의 뜻이 다를 수 있습니다(할인 전 가격을 주는 몰 등). 가격
-        보내기는 판매상품 기준 가격을 그 몰에 보내고 몰을 다시 읽어 확인합니다 — 지금은 카카오 톡스토어 · 키즈노트가 됩니다.
+        보내기는 선택한 등록 설정의 가격을 그 몰에 보내고 몰을 다시 읽어 확인합니다 — 지금은 카카오 톡스토어 · 키즈노트가 됩니다.
       </p>
     </div>
   );

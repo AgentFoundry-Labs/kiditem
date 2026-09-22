@@ -17,26 +17,44 @@ import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
+import {
+  ensureCandidateSalesProduct,
+  type CandidateSalesProductRegistrationDeps,
+} from '@/lib/candidate-sales-product-registration';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
 import { useKidsPlayfulFromSourcing } from '../../../hooks/useKidsPlayfulFromSourcing';
 import TemplateSelectionModal from '@/app/(product-pipeline)/product-pipeline/_shared/components/detail-page/TemplateSelectionModal';
 import {
   candidatesApi,
+  productsApi,
+  registrationStateFromPreparation,
+  type CandidateRegistrationState,
   type ProductBasics,
   type ProductPreparationSelection,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import { salesProductInputFromCandidate } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/candidate-sales-products';
+import { prepareSavedCandidateDetailImage } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow';
 import {
   channelListingsApi,
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
 import { getInlineGenerationProgressLabel } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
 import ProductPreparationDraftDialog from './ProductPreparationDraftDialog';
 
+const CANDIDATE_SALES_PRODUCT_DEPS: CandidateSalesProductRegistrationDeps = {
+  findByCandidate: salesProductApi.findByCandidate,
+  update: salesProductApi.update,
+  createFromCandidates: salesProductApi.createFromCandidates,
+};
+
 interface ProductEditHeaderProps {
   productName: string;
   productId: string;
   status?: SourcingCandidateStatus;
   productPreparation?: ProductPreparationSelection | null;
+  /** 울타리가 답하는 등록 상태. 구버전 응답에서만 `null` 이다. */
+  registrationState?: CandidateRegistrationState | null;
   isEditComplete: boolean;
   isLocked: boolean;
   basicInfo?: ProductBasics | null;
@@ -61,6 +79,7 @@ export default function ProductEditHeader({
   productId,
   status = 'sourced',
   productPreparation = null,
+  registrationState = null,
   basicInfo = null,
   selectedThumbnailUrl = null,
   selectedThumbnailGenerationId = null,
@@ -94,8 +113,25 @@ export default function ProductEditHeader({
   });
 
   const createPreparationDraftMutation = useMutation({
-    mutationFn: (channelAccountId: string) =>
-      candidatesApi.createPreparationDraft(productId, {
+    mutationFn: async (channelAccountId: string) => {
+      await ensureCandidateSalesProduct(
+        productId,
+        async (candidateId) => {
+          const detail = await productsApi.getDetail(candidateId);
+          const rendered = await prepareSavedCandidateDetailImage(candidateId, detail).catch(() => null);
+          return salesProductInputFromCandidate(
+            detail,
+            rendered?.status === 'ready' ? rendered.imageUrl : null,
+            {
+              name: productName === '(상품명 없음)' ? undefined : productName,
+              salePrice: basicInfo?.salePrice,
+            },
+          );
+        },
+        CANDIDATE_SALES_PRODUCT_DEPS,
+      );
+      void queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
+      return candidatesApi.createPreparationDraft(productId, {
         channelAccountId,
         displayName: productName,
         registrationInput: preparationRegistrationInput(productName, basicInfo),
@@ -105,7 +141,8 @@ export default function ProductEditHeader({
         selectedDetailPageGenerationId,
         selectedDetailPageArtifactId: basicInfo?.selectedDetailPageArtifactId ?? null,
         selectedDetailPageRevisionId: basicInfo?.selectedDetailPageRevisionId ?? null,
-      }),
+      });
+    },
     onSuccess: (data) => {
       setPreparationDialogOpen(false);
       toast.success('제품 등록 준비를 저장했습니다.', {
@@ -115,7 +152,9 @@ export default function ProductEditHeader({
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
     },
     onError: (err) => {
-      toast.error(isApiError(err) ? err.detail : '제품 등록 준비를 저장하지 못했습니다.');
+      toast.error(
+        isApiError(err) ? err.detail : err instanceof Error ? err.message : '제품 등록 준비를 저장하지 못했습니다.',
+      );
     },
   });
 
@@ -155,12 +194,25 @@ export default function ProductEditHeader({
     createPreparationDraftMutation.data?.status ?? null;
   const preparationId = accountScopedPreparation?.id ??
     createPreparationDraftMutation.data?.preparationId ?? null;
+  /**
+   * 등록이 어디까지 갔는가는 울타리가 답한다(ADR-0014). 초안 행의 `status` 는 거울이라
+   * 울타리와 어긋날 수 있고, 어긋난 거울을 믿으면 이미 마켓에 올라간 상품에 '제품 등록
+   * 준비' 버튼이 다시 열린다. 울타리 값이 없는 구버전 응답에서만 거울로 환산한다.
+   */
+  const fenceState = registrationState ?? registrationStateFromPreparation(preparationStatus);
+  const registrationStarted = fenceState !== 'none';
+  // 방금 만든 초안은 아직 울타리를 열지 않았다(`none`). "초안이 있다"는 사실은 초안
+  // 행이 답하고, "등록이 시작됐다"는 울타리가 답한다 — 둘 다 만족해야 다시 준비한다.
   const canCreatePreparation = status === 'sourced' &&
+    !registrationStarted &&
     (preparationStatus === null || preparationStatus === 'cancelled') &&
     !createPreparationDraftMutation.isPending &&
     !rejectMutation.isPending;
-  const canReject = status === 'sourced' && preparationStatus === null &&
+  const canReject = status === 'sourced' && !registrationStarted && preparationStatus === null &&
     !createPreparationDraftMutation.isPending && !rejectMutation.isPending;
+  const registrationBadge = registrationStarted
+    ? registrationStateLabel(fenceState)
+    : preparationStatus === 'draft' ? '등록 준비됨' : null;
   const hasRegistrationThumbnail = !!selectedThumbnailUrl;
   const hasRegistrationDetailPage = !!selectedDetailPageGenerationId;
   const registrationAssetsTitle = [
@@ -189,15 +241,15 @@ export default function ProductEditHeader({
           <p className="text-[10px] text-slate-400 truncate font-mono">
             {productId.slice(0, 8)}
           </p>
-          {preparationStatus && preparationStatus !== 'cancelled' && (
+          {registrationBadge && (
             <span
               className={cn(
                 'text-[10px] font-bold',
-                preparationStatus === 'failed' ? 'text-rose-600' : 'text-emerald-600',
+                fenceState === 'failed' ? 'text-rose-600' : 'text-emerald-600',
               )}
               title={preparationId ? `제품 등록 준비 ${preparationId}` : undefined}
             >
-              {preparationStatusLabel(preparationStatus)}
+              {registrationBadge}
             </span>
           )}
           {status === 'rejected' && (
@@ -297,7 +349,8 @@ export default function ProductEditHeader({
 
         {showCandidateActions && status === 'sourced' && (
           <>
-            {(preparationStatus === null || preparationStatus === 'cancelled') && (
+            {!registrationStarted
+              && (preparationStatus === null || preparationStatus === 'cancelled') && (
               <button
                 type="button"
                 onClick={() => setPreparationDialogOpen(true)}
@@ -318,7 +371,7 @@ export default function ProductEditHeader({
                 제품 등록 준비
               </button>
             )}
-            {preparationStatus === null && (
+            {preparationStatus === null && !registrationStarted && (
               <button
                 type="button"
                 onClick={() => setRejectInputOpen((v) => !v)}
@@ -335,7 +388,7 @@ export default function ProductEditHeader({
                 반려
               </button>
             )}
-            {preparationStatus === null && rejectInputOpen && (
+            {preparationStatus === null && !registrationStarted && rejectInputOpen && (
               <div className="flex items-center gap-1.5">
                 <input
                   type="text"
@@ -401,17 +454,18 @@ function preparationRegistrationInput(
   return { ...registrationInput, name: productName };
 }
 
-function preparationStatusLabel(status: ProductPreparationSelection['status']): string {
-  switch (status) {
-    case 'draft':
+/** 울타리 상태를 사장님이 읽을 한 줄로. `none` 은 배지를 세우지 않는다. */
+function registrationStateLabel(state: CandidateRegistrationState): string | null {
+  switch (state) {
+    case 'preparing':
       return '등록 준비됨';
-    case 'submitting':
+    case 'confirming':
       return '마켓 등록 중';
     case 'registered':
       return '제품 등록됨';
     case 'failed':
       return '등록 실패';
-    case 'cancelled':
-      return '등록 취소됨';
+    case 'none':
+      return null;
   }
 }

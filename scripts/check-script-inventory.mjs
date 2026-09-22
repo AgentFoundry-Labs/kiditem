@@ -11,6 +11,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-agents-hygiene.mjs',
   'check-business-date-arithmetic.mjs',
   'check-copilotkit-train.mjs',
+  'check-cross-owner-fk.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-identifier-contracts.mjs',
@@ -24,12 +25,14 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-sourcing-long-running-actions.mjs',
   'check-script-inventory.mjs',
   'check-cutover-data-blockers.mjs',
+  'check-cutover-blocker-coverage.mjs',
   'check-server-type-baseline.mjs',
   'check-shared-interface-names.mjs',
   'check-shared-root-imports.sh',
   'check-tenant-scope.sh',
   'dev-data-coupang.ts',
   'dev-data.ts',
+  'generate-channel-registry.mjs',
   'generate-prisma-erd.mjs',
   'local-agent-gateway.mjs',
   'office-deploy.mjs',
@@ -42,6 +45,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'seed-agent-os-browser-qa.ts',
   'seed-order-collection-mall-accounts.ts',
   'smoke-interaction-os.mjs',
+  'sync-local-database.ts',
   'setup-macos-development.mjs',
   'vitest.config.ts',
 ]);
@@ -52,6 +56,8 @@ const SUPPORT_FILES = new Set([
   '.shared-root-imports-baseline.txt',
   '.tenant-scope-allowlist.txt',
   'ledger-readers.json',
+  'cross-owner-fk.json',
+  'cutover-blocker-coverage.json',
   'README.md',
 ]);
 
@@ -128,6 +134,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (packageScripts['gateway:login:codex'] !== 'node scripts/local-agent-gateway.mjs login codex') {
     missingPackageHooks.push('gateway:login:codex');
   }
+  if (packageScripts['db:sync:local'] !== 'tsx scripts/sync-local-database.ts') {
+    missingPackageHooks.push('db:sync:local');
+  }
   if (packageScripts['dev:bootstrap-user'] !== 'bash bin/bootstrap-local-auth-user.sh') {
     missingPackageHooks.push('dev:bootstrap-user');
   }
@@ -140,8 +149,14 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
   }
+  if (packageScripts['check:cutover-blocker-coverage'] !== 'node scripts/check-cutover-blocker-coverage.mjs') {
+    missingPackageHooks.push('check:cutover-blocker-coverage');
+  }
   if (packageScripts['check:ledger-readers'] !== 'node scripts/check-ledger-readers.mjs') {
     missingPackageHooks.push('check:ledger-readers');
+  }
+  if (packageScripts['check:cross-owner-fk'] !== 'node scripts/check-cross-owner-fk.mjs') {
+    missingPackageHooks.push('check:cross-owner-fk');
   }
   if (packageScripts['deploy:office:local'] !== 'node scripts/office-deploy.mjs deploy') {
     missingPackageHooks.push('deploy:office:local');
@@ -175,6 +190,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:ledger-readers')) {
     missingPackageHooks.push('check:conventions -> check:ledger-readers');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:cross-owner-fk')) {
+    missingPackageHooks.push('check:conventions -> check:cross-owner-fk');
   }
   if (!packageScripts['check:conventions']?.includes('check:schema-artifact-sync')) {
     missingPackageHooks.push('check:conventions -> check:schema-artifact-sync');

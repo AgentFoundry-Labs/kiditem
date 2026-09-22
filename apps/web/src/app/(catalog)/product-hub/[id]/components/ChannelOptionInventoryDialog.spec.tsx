@@ -15,7 +15,7 @@ const option = {
   inventoryComponents: [],
 };
 const candidate = {
-  sellpiaInventorySkuId: '22222222-2222-4222-8222-222222222222',
+  masterProductId: '22222222-2222-4222-8222-222222222222',
   code: 'SP-100',
   name: '동물 블록 낱개',
   optionName: null,
@@ -50,8 +50,8 @@ describe('<ChannelOptionInventoryDialog />', () => {
     fireEvent.click(screen.getByRole('button', { name: '전체 레시피 저장' }));
 
     await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith(
-      `/api/products/channel-options/${option.id}/inventory-components`,
-      { components: [{ sellpiaInventorySkuId: candidate.sellpiaInventorySkuId, quantity: 10 }] },
+      `/api/channels/options/${option.id}/inventory-components`,
+      { components: [{ masterProductId: candidate.masterProductId, quantity: 10 }] },
     ));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });

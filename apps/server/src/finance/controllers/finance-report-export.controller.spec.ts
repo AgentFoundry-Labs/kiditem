@@ -34,7 +34,7 @@ describe('FinanceReportExportController', () => {
       }),
     };
     const response = { setHeader: vi.fn() };
-    const controller = new FinanceReportExportController(exporter);
+    const controller = new FinanceReportExportController(exporter as never);
 
     await controller.exportReport(ORG, {
       type: 'profitloss',

@@ -3,7 +3,8 @@
 import { memo, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Database, Inbox, Maximize2, Minus, NotebookTabs, Plus, Send, ShoppingBag } from 'lucide-react';
-import { mallLogoPath, mallMonogram } from '@/app/(channels)/_shared/mall-presentation';
+import { channelLogoPath } from '@kiditem/shared/channel-registry';
+import { mallMonogram } from '@/app/(channels)/_shared/mall-presentation';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
 import {
   DIAGRAM_AGENT_BY_ID,
@@ -21,10 +22,10 @@ import {
   type DiagramStageNode,
   type DiagramTile,
 } from '../lib/pipe-diagram-layout';
-import { mergeStageViews, type PipeMallConnector, type PipeSnapshot, type PipeStageView } from '../lib/pipe-model';
-import { PIPE_NO_DATA, type PipeState } from '../lib/pipe-states';
+import { mergeStageViews, type PipeMallConnector, type PipeSnapshot, type PipeStageView } from '@/lib/agent-org/pipe-model';
+import { PIPE_NO_DATA, type PipeState } from '@/lib/agent-org/pipe-states';
 import { NO_CANVAS_INSETS, useCanvasView, type CanvasInsets } from '../hooks/use-canvas-view';
-import type { PipeConfirmChannel } from '../hooks/use-confirm-report';
+import type { PipeConfirmChannel } from '@/hooks/use-confirm-report';
 import { BrandMark } from './BrandMark';
 import { PipeStateChip } from './PipeStateChip';
 
@@ -274,7 +275,7 @@ function MallsNode({ node, snapshot }: { node: DiagramExternalNode; snapshot: Pi
           {/* 가로 · 세로 간격이 같게: 칸이 열 너비를 꽉 채우는 정사각형이고, 테두리는 칸 안쪽에 그린다. */}
           <ul className="grid grid-cols-7 gap-2" aria-label="몰별 로그인 상태">
             {shown.map((mall) => {
-              const logo = mallLogoPath(mall.key);
+              const logo = channelLogoPath(mall.key);
               return (
                 <li
                   key={mall.key}
@@ -488,14 +489,13 @@ function MemoryNode({ node, snapshot, connection }: { node: DiagramPanelNode; sn
   const { sources } = snapshot;
   const rows = [
     { label: '열린 알림', value: sources.openAlerts },
-    { label: '관찰 기록', value: sources.outcomes },
     { label: '알림 기록', value: sources.alerts },
   ];
   return (
-    <ExternalFrame node={node} label="관찰 기록 · 알림 열기">
+    <ExternalFrame node={node} label="알림 열기">
       <div className="flex items-center gap-2">
         <NotebookTabs className="h-4 w-4 text-slate-300" aria-hidden />
-        <span className="text-[12px] text-slate-400">모든 단계가 여기에 남습니다</span>
+        <span className="text-[12px] text-slate-400">현재 알림이 여기에 모입니다</span>
       </div>
       <ul className="flex flex-col gap-1">
         {rows.map((row) => (

@@ -1,6 +1,5 @@
 import { ArrowLeft, Pencil } from 'lucide-react';
 import { MasterProductImage } from '../../components/MasterProductImage';
-import { isInternalProductCode } from '@/lib/operator-product-reference';
 import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
 export default function ProductHeader({
@@ -12,9 +11,6 @@ export default function ProductHeader({
   onBack: () => void;
   onEdit: () => void;
 }) {
-  const hasVisibleDisplayReference = product.displayReference.type !== 'product_code'
-    || !isInternalProductCode(product.displayReference.value);
-
   return (
     <header className="space-y-4">
       <button
@@ -37,19 +33,13 @@ export default function ProductHeader({
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              {hasVisibleDisplayReference ? <span className="rounded bg-[var(--primary-soft)] px-2 py-0.5 font-mono text-xs font-bold text-[var(--primary)]">
-                {product.displayReference.label} {product.displayReference.value}
-              </span> : null}
-              <span className={`rounded px-2 py-0.5 text-[11px] font-bold ${product.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                {product.isActive ? '활성' : '비활성'}
+              <span className="rounded bg-[var(--primary-soft)] px-2 py-0.5 font-mono text-xs font-bold text-[var(--primary)]">
+                상품 코드 {product.code}
               </span>
             </div>
             <h1 className="mt-2 truncate text-2xl font-extrabold text-[var(--text-primary)]">
               {product.name}
             </h1>
-            <p className="mt-1 text-sm text-[var(--text-tertiary)]">
-              {product.category ?? '미분류'} · {product.brand ?? '브랜드 미등록'}
-            </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">

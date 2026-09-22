@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../channels/read/listing-product-summary.reader';
 import type { Prisma } from '@prisma/client';
 import {
   buildPeriodBasis,
@@ -20,20 +21,22 @@ import {
   type KstQueryWindow,
 } from './kst';
 import {
-  adSweepCoversChannelAccount,
   advertisingApplies,
-  advertisingAppliesToSale,
   readAdWindowFacts,
   readListingAdWindowFacts,
 } from '../advertising/read/ad-target-facts';
+import {
+  adSweepCoversChannelAccount,
+  advertisingAppliesToSale,
+} from '../advertising/domain/ad-sweep-coverage';
 import { resolveOrderLineSalesCosts, resolveUnitCost } from './option-pricing-resolver';
-import { readInventorySkuIdentities } from '../inventory/read/inventory-availability';
+import type { ProductTransactionalReadPort } from '../products/application/port/in/product-transactional-read.port';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
   type OrderWindowFacts,
 } from '../orders/read/order-facts.reader';
-import { readPublishedProductAbcGrades } from '../products/read/product-abc-publication.reader';
+import { readPublishedProductAbcGrades } from '../products/adapter/out/persistence/read/product-abc-publication.reader';
 
 /**
  * Per-listing and window profit over live owner facts, shared by finance
@@ -251,6 +254,7 @@ async function readProfitLines(
   organizationId: string,
   from: Date,
   to: Date,
+  inventory: ProductTransactionalReadPort,
 ): Promise<Pick<
   ProfitWindowFacts,
   'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount' | 'unallocatedShipping'
@@ -269,7 +273,7 @@ async function readProfitLines(
       id: true,
       inventoryComponents: {
         where: { organizationId },
-        select: { quantity: true, sellpiaInventorySkuId: true },
+        select: { quantity: true, masterProductId: true },
       },
       listing: {
         select: {
@@ -278,7 +282,6 @@ async function readProfitLines(
           channelName: true,
           displayName: true,
           category: true,
-          masterProduct: { select: { id: true, code: true, name: true, category: true } },
           channelAccount: { select: { channel: true, status: true } },
           thumbnails: {
             where: { status: 'active' },
@@ -290,6 +293,7 @@ async function readProfitLines(
       },
     },
   });
+  const listingProducts = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(options.map((option) => option.listing.id))] });
   // The order's channel account decides whether a commission and other
   // per-sale cost apply to its lines (KID-114).
   const accountIds = [...new Set(facts.orders.map((order) => order.channelAccountId))];
@@ -301,31 +305,44 @@ async function readProfitLines(
     account.id,
     resolveOrderLineSalesCosts(account),
   ]));
-  const inventorySkuIds = [...new Set(options.flatMap((option) =>
-    option.inventoryComponents.map((component) => component.sellpiaInventorySkuId)))];
-  const inventorySkus = await readInventorySkuIdentities(tx, {
-    organizationId,
-    selector: { kind: 'ids', values: inventorySkuIds },
-  });
-  const purchasePriceBySkuId = new Map(inventorySkus.map((sku) => [
-    sku.sellpiaInventorySkuId,
-    sku.purchasePrice,
+  const masterProductIds = [...new Set(options.flatMap((option) =>
+    [
+      ...(listingProducts.get(option.listing.id) ? [listingProducts.get(option.listing.id)!] : []),
+      ...option.inventoryComponents.map((component) => component.masterProductId),
+    ]))];
+  const inventorySkus = await inventory.readSourceIdentities(
+    { client: tx },
+    { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+  );
+  const purchasePriceByMasterProductId = new Map(inventorySkus.map((product) => [
+    product.masterProductId,
+    product.purchasePrice,
+  ]));
+  const masterProductById = new Map(inventorySkus.map((product) => [
+    product.masterProductId,
+    product,
   ]));
   const optionById = new Map(options.map((option) => {
-    const listing = option.listing;
+    const listing = { ...option.listing, masterProductId: listingProducts.get(option.listing.id) ?? null };
     const identity: ProfitListingIdentity = {
       listingId: listing.id,
       externalId: listing.externalId,
       channelName: listing.channelName ?? null,
       channel: listing.channelAccount.channel,
       adSweepCovers: adSweepCoversChannelAccount(listing.channelAccount),
-      masterProductId: listing.masterProduct?.id ?? null,
-      masterCode: listing.masterProduct?.code ?? listing.externalId,
-      masterName: listing.masterProduct?.name
+      masterProductId: listing.masterProductId ?? null,
+      masterCode: listing.masterProductId
+        ? masterProductById.get(listing.masterProductId)?.code ?? listing.externalId
+        : listing.externalId,
+      masterName: listing.masterProductId
+        ? masterProductById.get(listing.masterProductId)?.name
         ?? listing.displayName
         ?? listing.channelName
-        ?? listing.externalId,
-      category: listing.masterProduct?.category ?? listing.category,
+        ?? listing.externalId
+        : listing.displayName
+          ?? listing.channelName
+          ?? listing.externalId,
+      category: listing.category,
       thumbnailUrl: listing.thumbnails[0]?.imageUrl ?? null,
     };
     const unitCost = resolveUnitCost({
@@ -333,7 +350,7 @@ async function readProfitLines(
         quantity: component.quantity,
         // A component whose Sellpia SKU the Inventory reader does not return
         // has no recorded purchase price.
-        purchasePrice: purchasePriceBySkuId.get(component.sellpiaInventorySkuId) ?? null,
+        purchasePrice: purchasePriceByMasterProductId.get(component.masterProductId) ?? null,
       })),
     });
     return [option.id, { identity, unitCost }] as const;
@@ -420,10 +437,11 @@ export async function readProfitWindowFacts(
   tx: Prisma.TransactionClient,
   organizationId: string,
   window: FinanceWindow,
+  inventory: ProductTransactionalReadPort,
 ): Promise<ProfitWindowFacts> {
   const { from, to } = window.effective;
   const ad = await readAdWindowEvidence(tx, organizationId, from, to);
-  const lineFacts = await readProfitLines(tx, organizationId, from, to);
+  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory);
   const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return { ...lineFacts, window, ad, listingAdSpend, gradeByProductId };
@@ -753,8 +771,9 @@ async function readPerListingProfit(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  inventory: ProductTransactionalReadPort,
 ): Promise<{ rows: PerListingProfit[]; orderWindow: OrderWindowFacts }> {
-  const lineFacts = await readProfitLines(tx, organizationId, from, to);
+  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory);
   const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return {
@@ -782,8 +801,16 @@ export async function buildPerListingProfit(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  inventory: ProductTransactionalReadPort,
 ): Promise<PerListingProfit[]> {
-  return (await readPerListingProfit(tx, organizationId, from, to, accountAdEvidence)).rows;
+  return (await readPerListingProfit(
+    tx,
+    organizationId,
+    from,
+    to,
+    accountAdEvidence,
+    inventory,
+  )).rows;
 }
 
 /**
@@ -824,7 +851,8 @@ export async function buildPerListingMetricsCoverage(
   to: Date,
   accountAdEvidence: AccountAdEvidence,
   /** Limit the population to these listings; every sold listing when omitted. */
-  listingIds?: ReadonlySet<string>,
+  listingIds: ReadonlySet<string> | undefined,
+  inventory: ProductTransactionalReadPort,
 ): Promise<PerListingMetricsCoverage> {
   const { rows: soldRows, orderWindow } = await readPerListingProfit(
     tx,
@@ -832,6 +860,7 @@ export async function buildPerListingMetricsCoverage(
     from,
     to,
     accountAdEvidence,
+    inventory,
   );
   const rows = soldRows.filter((row) => listingIds === undefined || listingIds.has(row.listingId));
   const metrics = rows.filter(hasMeasuredProfit);
@@ -852,7 +881,16 @@ export async function buildPerListingMetrics(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  inventory: ProductTransactionalReadPort,
 ): Promise<PerListingMetrics[]> {
-  const coverage = await buildPerListingMetricsCoverage(tx, organizationId, from, to, accountAdEvidence);
+  const coverage = await buildPerListingMetricsCoverage(
+    tx,
+    organizationId,
+    from,
+    to,
+    accountAdEvidence,
+    undefined,
+    inventory,
+  );
   return coverage.metrics;
 }

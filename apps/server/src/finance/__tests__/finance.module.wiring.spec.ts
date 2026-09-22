@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { AdvertisingModule } from '../../advertising/advertising.module';
 import { AnalyticsModule } from '../../analytics/analytics.module';
 import { ChannelsModule } from '../../channels/channels.module';
-import { InventoryModule } from '../../inventory/inventory.module';
+import { ProductCollectionRuntimeModule } from '../../products/product-collection-runtime.module';
+import { ProductSourceModule } from '../../products/product-source.module';
 import { FinanceReportExportController } from '../controllers/finance-report-export.controller';
 import { MasterProductContributionRepositoryAdapter } from '../adapter/out/repository/master-product-contribution.repository.adapter';
 import { MASTER_PRODUCT_CONTRIBUTION_READ_PORT } from '../application/port/in/master-product-contribution-read.port';
@@ -35,7 +36,8 @@ describe('FinanceModule capability wiring', () => {
       AnalyticsModule,
       AdvertisingModule,
       ChannelsModule,
-      InventoryModule,
+      ProductCollectionRuntimeModule,
+      ProductSourceModule,
       ProfitabilityEvidenceModule,
     ]);
     expect(controllers).toEqual([

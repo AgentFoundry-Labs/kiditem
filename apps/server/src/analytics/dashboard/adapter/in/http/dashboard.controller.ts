@@ -28,7 +28,6 @@ export class DashboardController {
     private readonly findingsService: DashboardFindingsService,
   ) {}
 
-  /** When each collection last completed. Not a period read: no window applies. */
   @Get('collections')
   async getCollections(
     @CurrentOrganization() organizationId: string,

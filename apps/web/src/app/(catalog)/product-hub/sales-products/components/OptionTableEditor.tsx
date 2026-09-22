@@ -7,11 +7,13 @@ import { cn } from '@/lib/utils';
 import {
   addMissingCombinations,
   emptyRow,
+  optionExtraPrice,
+  setOptionExtraPrice,
   setAxes,
   type OptionRowDraft,
   type OptionTableDraft,
 } from '../lib/sales-product-draft';
-import { formatWon, OPTION_SUPPLY_LABEL, OPTION_SUPPLY_TONE } from '../lib/sales-product-labels';
+import { OPTION_SUPPLY_LABEL, OPTION_SUPPLY_TONE } from '../lib/sales-product-labels';
 import { SellpiaSkuPicker } from './SellpiaSkuPicker';
 
 /** 화면은 사방넷 엑셀처럼 두 단까지. 계약은 셋까지 받는다. */
@@ -26,12 +28,10 @@ const UI_MAX_AXES = Math.min(2, SALES_PRODUCT_MAX_OPTION_AXES);
  */
 export function OptionTableEditor({
   value,
-  salePrice,
   skuSearchHint,
   onChange,
 }: {
   value: OptionTableDraft;
-  salePrice: number;
   /** 셀피아 상품 찾기 첫 검색어 — 모델명의 셀피아 상품번호(`10333-1` → `10333`). */
   skuSearchHint: string;
   onChange: (next: OptionTableDraft) => void;
@@ -143,7 +143,7 @@ export function OptionTableEditor({
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200">
-        <table className="w-full min-w-[960px] text-sm">
+        <table className="w-full min-w-[1080px] text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
             <tr>
               <th className="w-32 px-3 py-2 text-left font-semibold">단품코드</th>
@@ -155,6 +155,7 @@ export function OptionTableEditor({
               <th className="w-16 px-2 py-2 text-right font-semibold">재고</th>
               <th className="w-28 px-2 py-2 text-right font-semibold">추가금액</th>
               <th className="w-24 px-2 py-2 text-right font-semibold">몰 판매가</th>
+              <th className="w-28 px-2 py-2 text-right font-semibold">선택 정상가</th>
               <th className="w-36 px-2 py-2 text-left font-semibold">바코드</th>
               <th className="w-24 px-2 py-2 text-center font-semibold">상태</th>
               <th className="w-10 px-2 py-2" aria-label="지우기" />
@@ -214,7 +215,7 @@ export function OptionTableEditor({
                           updateRow(row.rowKey, {
                             barcode: row.barcode || candidate.barcode || '',
                             components: [{
-                              sellpiaInventorySkuId: candidate.sellpiaInventorySkuId,
+                              masterProductId: candidate.masterProductId,
                               quantity: component?.quantity ?? 1,
                               sellpiaCode: candidate.code,
                               name: candidate.name,
@@ -233,13 +234,32 @@ export function OptionTableEditor({
                   <td className="px-2 py-1.5">
                     <input
                       type="number"
-                      value={row.extraPrice}
-                      onChange={(event) => updateRow(row.rowKey, { extraPrice: Math.round(Number(event.target.value) || 0) })}
+                      value={optionExtraPrice(row, value)}
+                      onChange={(event) => onChange(setOptionExtraPrice(
+                        value,
+                        row.rowKey,
+                        Math.round(Number(event.target.value) || 0),
+                      ))}
                       className="w-full rounded border border-slate-200 px-2 py-1 text-right text-sm tabular-nums"
                       aria-label={`${row.optionCode ?? '새 단품'} 추가금액`}
                     />
                   </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{formatWon(salePrice + row.extraPrice)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">
+                    {row.salePrice.toLocaleString('ko-KR')}원
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      value={row.normalPrice ?? ''}
+                      onChange={(event) => updateRow(row.rowKey, {
+                        normalPrice: event.target.value.trim() ? Math.max(0, Math.round(Number(event.target.value) || 0)) : null,
+                      })}
+                      placeholder="없음"
+                      className="w-full rounded border border-slate-200 px-2 py-1 text-right text-sm tabular-nums"
+                      aria-label={`${row.optionCode ?? '새 단품'} 선택 정상가`}
+                    />
+                  </td>
                   <td className="px-2 py-1.5">
                     <input
                       value={row.barcode}
@@ -283,7 +303,16 @@ export function OptionTableEditor({
         <button
           type="button"
           className="btn-secondary btn-sm inline-flex items-center gap-1"
-          onClick={() => onChange({ ...value, rows: [...value.rows, emptyRow(value.axes.map(() => ''))] })}
+          onClick={() => {
+            const firstActive = value.rows.find((row) => row.supplyStatus !== 'unused');
+            onChange({
+              ...value,
+              rows: [...value.rows, emptyRow(value.axes.map(() => ''), {
+                salePrice: value.baseSalePrice,
+                normalPrice: firstActive?.normalPrice ?? null,
+              })],
+            });
+          }}
         >
           <Plus size={14} aria-hidden />
           줄 하나 더하기

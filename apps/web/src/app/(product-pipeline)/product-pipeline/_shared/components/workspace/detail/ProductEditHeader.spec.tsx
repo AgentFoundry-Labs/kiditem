@@ -3,26 +3,43 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductEditHeader from './ProductEditHeader';
-import type { ProductBasics, ProductPreparationSelection } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import type {
+  CandidateRegistrationState,
+  ProductBasics,
+  ProductPreparationSelection,
+} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import { queryKeys } from '@/lib/query-keys';
 
 const {
   createPreparationDraftMock,
+  ensureCandidateSalesProductMock,
   listAccountsMock,
   rejectMock,
   toastSuccessMock,
 } = vi.hoisted(() => ({
   createPreparationDraftMock: vi.fn(),
+  ensureCandidateSalesProductMock: vi.fn(),
   listAccountsMock: vi.fn(),
   rejectMock: vi.fn(),
   toastSuccessMock: vi.fn(),
 }));
 
-vi.mock('@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api', () => ({
-  candidatesApi: {
-    createPreparationDraft: (...args: unknown[]) => createPreparationDraftMock(...args),
-    reject: (...args: unknown[]) => rejectMock(...args),
-  },
+// 네트워크만 막는다. 등록 상태 환산 같은 순수 함수는 진짜 것을 쓴다 — 가짜로 두면
+// 화면이 무엇을 믿는지 테스트가 대신 정해 버린다.
+vi.mock(
+  '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api',
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    candidatesApi: {
+      createPreparationDraft: (...args: unknown[]) => createPreparationDraftMock(...args),
+      reject: (...args: unknown[]) => rejectMock(...args),
+    },
+  }),
+);
+
+vi.mock('@/lib/candidate-sales-product-registration', () => ({
+  candidateSalesProductGap: vi.fn().mockReturnValue(null),
+  ensureCandidateSalesProduct: (...args: unknown[]) => ensureCandidateSalesProductMock(...args),
 }));
 
 vi.mock('@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api', () => ({
@@ -104,13 +121,17 @@ function renderWithQueryClient(ui: React.ReactElement) {
   };
 }
 
-function renderHeader(productPreparation: ProductPreparationSelection | null = null) {
+function renderHeader(
+  productPreparation: ProductPreparationSelection | null = null,
+  registrationState: CandidateRegistrationState | null = null,
+) {
   return renderWithQueryClient(
     <ProductEditHeader
       productName="자석 다트게임"
       productId="candidate-1"
       status="sourced"
       productPreparation={productPreparation}
+      registrationState={registrationState}
       basicInfo={basicInfo}
       selectedThumbnailUrl={basicInfo.selectedThumbnailUrl}
       selectedThumbnailGenerationId={basicInfo.selectedThumbnailGenerationId}
@@ -128,6 +149,7 @@ function renderHeader(productPreparation: ProductPreparationSelection | null = n
 describe('ProductEditHeader preparation draft action', () => {
   beforeEach(() => {
     createPreparationDraftMock.mockReset();
+    ensureCandidateSalesProductMock.mockReset();
     listAccountsMock.mockReset();
     rejectMock.mockReset();
     toastSuccessMock.mockReset();
@@ -146,6 +168,7 @@ describe('ProductEditHeader preparation draft action', () => {
         externalAccountId: 'vendor-rocket',
       },
     ]);
+    ensureCandidateSalesProductMock.mockResolvedValue({});
   });
 
   it('creates a draft for the explicitly selected account and stays in the candidate workspace', async () => {
@@ -183,6 +206,18 @@ describe('ProductEditHeader preparation draft action', () => {
         selectedDetailPageRevisionId: '66666666-6666-4666-8666-666666666666',
       }),
     ));
+    expect(ensureCandidateSalesProductMock).toHaveBeenCalledWith(
+      'candidate-1',
+      expect.any(Function),
+      expect.objectContaining({
+        findByCandidate: expect.any(Function),
+        update: expect.any(Function),
+        createFromCandidates: expect.any(Function),
+      }),
+    );
+    expect(ensureCandidateSalesProductMock.mock.invocationCallOrder[0]).toBeLessThan(
+      createPreparationDraftMock.mock.invocationCallOrder[0]!,
+    );
     const request = createPreparationDraftMock.mock.calls[0]?.[1];
     expect(request?.registrationInput).not.toHaveProperty('selectedThumbnailGenerationId');
     // 몰 등록 값은 후보에만 산다 — 준비로 복사하지 않는다.
@@ -205,6 +240,39 @@ describe('ProductEditHeader preparation draft action', () => {
     expect(queryClient.getQueryData(queryKeys.channelAccounts.active())).toEqual(
       await listAccountsMock.mock.results[0]?.value,
     );
+  });
+
+  /**
+   * 등록이 어디까지 갔는가는 울타리가 답한다(ADR-0014). 초안 행의 `status` 는 거울이라
+   * 울타리와 어긋날 수 있고, 어긋난 거울을 믿으면 이미 마켓에 올라간 상품에 '제품 등록
+   * 준비' 버튼이 다시 열린다.
+   */
+  it('⭐ believes the registration fence over a stale preparation mirror', () => {
+    renderHeader({
+      id: '77777777-7777-4777-8777-777777777777',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: '22222222-2222-4222-8222-222222222222',
+      sourceContentWorkspaceId: '88888888-8888-4888-8888-888888888888',
+      channelListingId: null,
+      status: 'draft',
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageGenerationId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      updatedAt: '2026-07-13T00:00:00.000Z',
+    }, 'registered');
+
+    expect(screen.getByText('제품 등록됨')).toBeInTheDocument();
+    expect(screen.queryByText('등록 준비됨')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '제품 등록 준비' })).not.toBeInTheDocument();
+  });
+
+  /** 울타리가 아직 아무것도 없다고 하면 초안이 있어도 반려·재준비 길은 열려 있다. */
+  it('⭐ keeps the candidate actions open while the fence says nothing was submitted', () => {
+    renderHeader(null, 'none');
+    expect(screen.getByRole('button', { name: '제품 등록 준비' })).toBeInTheDocument();
   });
 
   it('shows registration state from the preparation instead of candidate status', () => {

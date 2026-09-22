@@ -25,7 +25,7 @@ vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ user: { organizationId: 'org-1' } }),
 }));
 
-const FRESHNESS_PATH = '/api/inventory/sellpia-freshness';
+const COLLECTION_STATUS_PATH = '/api/inventory/sellpia-collection-status';
 const STATUS_PATH = '/api/sellpia-product-sales/status';
 const BEGIN_PATH = '/api/sellpia-product-sales/attempts';
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
@@ -59,17 +59,14 @@ function complete(sourceImportRunId: string) {
   };
 }
 
-const freshness = {
-  status: 'fresh',
+const collectionStatus = {
+  status: 'complete',
   sourceBinding: { origin: 'https://kiditem.sellpia.com', accountKey: 'kiditem', confirmed: true },
-  lastVerifiedAt: '2026-09-14T00:30:00.000Z',
-  expiresAt: null,
   requestedGeneration: '7',
   verifiedGeneration: '7',
-  refreshRequestedAt: null,
-  refreshReason: null,
-  requestedSyncScope: 'inventory',
-  syncNotBefore: null,
+  lastCompletedAttemptId: COMPLETE_RUN_ID,
+  lastCompletedAt: '2026-09-14T00:30:00.000Z',
+  lastAttemptId: COMPLETE_RUN_ID,
   activeSync: null,
   lastAttempt: null,
 };
@@ -109,7 +106,7 @@ beforeEach(() => {
   vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
     extensionSessionReply(message) ?? new Promise(() => undefined));
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
-    if (path === FRESHNESS_PATH) return freshness;
+    if (path === COLLECTION_STATUS_PATH) return collectionStatus;
     throw new Error(`unexpected GET ${path}`);
   });
   vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {

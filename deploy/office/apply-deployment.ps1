@@ -2077,6 +2077,35 @@ function Invoke-ExactShaDataMigrations {
   }
 }
 
+function Invoke-ExactShaCutoverDataSurvey {
+  param([Parameter(Mandatory = $true)][string]$WorktreePath)
+
+  # The read-only survey of what prisma db push would hit. It runs like the data
+  # migrations: from the exact-SHA worktree, against the protected DATABASE_URL,
+  # after the pre-schema phase committed. A blocker, a pending backfill decision,
+  # or a survey error is a non-zero exit, and the cutover stops before db push.
+  # The database URL is never printed.
+  $priorLocation = Get-Location
+  $priorDatabaseUrl = $env:DATABASE_URL
+  $surveyExitCode = 1
+  try {
+    Set-Location -LiteralPath $WorktreePath
+    $env:DATABASE_URL = Get-ProtectedServerEnvValue 'DATABASE_URL'
+    & npm.cmd run check:cutover-data-blockers | ForEach-Object { Write-Host $_ }
+    $surveyExitCode = $LASTEXITCODE
+  }
+  finally {
+    Set-Location -LiteralPath $priorLocation
+    if ($null -eq $priorDatabaseUrl) { Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue } else { $env:DATABASE_URL = $priorDatabaseUrl }
+  }
+  if ($surveyExitCode -ne 0) {
+    Write-Warning 'Cutover data survey did not pass; prisma db push was not run.'
+    Write-Warning 'The pre-schema data migrations already committed. Application writers stay stopped.'
+    Write-Warning 'Recover per docs/runbooks/operation-automation-cutover.md: fix forward and rerun the cutover, or restore the pre-cutover database dump.'
+    throw "Cutover data survey exited with code $surveyExitCode before prisma db push."
+  }
+}
+
 function Write-PreDeployRuntimeSnapshot {
   param([Parameter(Mandatory = $true)][string]$BackupRoot)
 
@@ -2266,6 +2295,7 @@ function Install-Deployment {
       $cutoverDatabaseDumpPath = New-CutoverDatabaseDump -GitSha $manifest.gitSha
       $cutoverDatabaseWorkStarted = $true
       Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase pre-schema -ReleaseVersion $manifest.appVersion
+      Invoke-ExactShaCutoverDataSurvey -WorktreePath $SourceWorktree
       Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc 'cd /app && npx prisma db push --accept-data-loss'
       Invoke-ExactShaDataMigrations -WorktreePath $SourceWorktree -Phase post-schema -ReleaseVersion $manifest.appVersion
     }
@@ -2283,7 +2313,7 @@ function Install-Deployment {
         throw [System.InvalidOperationException]::new("Schema/data cutover stopped before database work began; application surfaces stay stopped. Cause: $($deploymentError.Exception.Message)", $deploymentError.Exception)
       }
       Write-Warning "Database dump taken before this cutover: $cutoverDatabaseDumpPath"
-      throw [System.InvalidOperationException]::new('Schema/data cutover failed after database work began; application surfaces are stopped because runtime-only rollback is unsafe.', $deploymentError.Exception)
+      throw [System.InvalidOperationException]::new("Schema/data cutover failed after database work began; application surfaces are stopped because runtime-only rollback is unsafe. Cause: $($deploymentError.Exception.Message)", $deploymentError.Exception)
     }
     try {
       Restore-Transaction $backupRoot

@@ -13,6 +13,7 @@ import {
   SalesProductPublicImagePendingSchema,
   SalesProductSchema,
   type SabangnetImportPreview,
+  type SabangnetImportSelection,
   type SalesProduct,
   type SalesProductExternalImages,
   type SalesProductFromCandidatesRequest,
@@ -27,7 +28,6 @@ import {
   type SalesProductMallSheetList,
   type SalesProductPublicImagePending,
   type SalesProductPublicImageSaveRequest,
-  type SalesProductChannelOverrideInput,
   type SalesProductListQuery,
   type SalesProductListResponse,
   type SalesProductOptionsReplaceInput,
@@ -90,18 +90,18 @@ export const salesProductApi = {
     SalesProductSchema.parse(await apiClient.post<unknown>(`${BASE}/${id}/demote`, { expectedVersion })),
   replaceOptions: async (id: string, body: SalesProductOptionsReplaceInput): Promise<SalesProduct> =>
     SalesProductSchema.parse(await apiClient.put<unknown>(`${BASE}/${id}/options`, body)),
-  upsertChannelOverride: async (
-    id: string,
-    channelAccountId: string,
-    body: SalesProductChannelOverrideInput,
-  ): Promise<SalesProduct> =>
-    SalesProductSchema.parse(await apiClient.put<unknown>(`${BASE}/${id}/channel-overrides/${channelAccountId}`, body)),
-  deleteChannelOverride: async (id: string, channelAccountId: string): Promise<SalesProduct> =>
-    SalesProductSchema.parse(await apiClient.delete<unknown>(`${BASE}/${id}/channel-overrides/${channelAccountId}`)),
-  importSabangnet: (files: readonly File[], dryRun: boolean): Promise<SabangnetImportPreview> => {
+  importSabangnet: (
+    files: readonly File[],
+    dryRun: boolean,
+    selections: SabangnetImportSelection = [],
+  ): Promise<SabangnetImportPreview> => {
     const form = new FormData();
     for (const file of files) form.append('files', file);
-    return apiClient.uploadParsed(`${BASE}/imports/sabangnet?dryRun=${dryRun}`, SabangnetImportPreviewSchema, form);
+    const query = new URLSearchParams({
+      dryRun: String(dryRun),
+      applyExisting: JSON.stringify(selections),
+    });
+    return apiClient.uploadParsed(`${BASE}/imports/sabangnet?${query.toString()}`, SabangnetImportPreviewSchema, form);
   },
   /** 이 몰에서 판매상품이 쓴 사방넷 분류(많이 쓴 순) — 등록 화면 분류 칸의 고를거리. */
   mallCategories: async (mallKey: string): Promise<SalesProductMallCategories> =>
@@ -161,6 +161,10 @@ export const salesProductApi = {
     };
   },
   /** 수집상품 화면의 몰 대량등록 — 고른 수집상품을 판매상품으로 만든다(같은 수집상품에서 만든 것은 그대로 쓴다). */
+  findByCandidate: async (candidateId: string): Promise<SalesProduct | null> => {
+    const value = await apiClient.getNullable<unknown>(`${BASE}/from-candidate/${encodeURIComponent(candidateId)}`);
+    return value === null ? null : SalesProductSchema.parse(value);
+  },
   createFromCandidates: async (body: SalesProductFromCandidatesRequest): Promise<SalesProductFromCandidatesResult> =>
     SalesProductFromCandidatesResultSchema.parse(await apiClient.post<unknown>(`${BASE}/from-candidates`, body)),
   /** 이 판매상품들의 사진 중 몰이 못 읽고(우리 저장소) 공개 주소도 아직 없는 것. */

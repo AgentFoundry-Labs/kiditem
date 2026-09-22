@@ -10,8 +10,8 @@ import {
   snapshotBasisPartial,
   snapshotBasisStatus,
 } from '@kiditem/shared/dashboard';
-import { cn } from '@/lib/utils';
 import { shiftBusinessDateKey } from '@kiditem/shared/common';
+import { cn } from '@/lib/utils';
 import { InfoDisclosure, type DisclosureTone } from '@/components/ui/InfoDisclosure';
 
 export type {
@@ -38,7 +38,7 @@ const SOURCE_LABELS: Record<string, string> = {
   profit: '순이익 계산',
   sellpia: '셀피아',
   sellpia_sales: '셀피아 판매현황',
-  sellpia_product_sales: '셀피아 상품별 매출',
+  sellpia_product_sales: '셀피아 상품별 판매',
   sellpia_inventory: '셀피아 재고',
   coupang_ads: '쿠팡 광고',
   wing: 'Wing',
@@ -48,6 +48,7 @@ const SOURCE_LABELS: Record<string, string> = {
   products: '상품',
   product_abc: 'ABC 등급',
   channel_listings: '채널 리스팅',
+  channel_registrations: '채널 등록 실행',
   alerts: '알림',
 };
 
@@ -55,7 +56,7 @@ const SOURCE_LABELS: Record<string, string> = {
 const SOURCE_COLLECTION: Record<string, string> = {
   orders: '몰 주문수집',
   sellpia_sales: '셀피아 동기화',
-  sellpia_product_sales: '셀피아 동기화',
+  sellpia_product_sales: '셀피아 상품별 판매 수집',
   sellpia_inventory: '셀피아 동기화',
   coupang_ads: '쿠팡 광고 수집',
   wing_traffic: 'Wing 일별 트래픽',

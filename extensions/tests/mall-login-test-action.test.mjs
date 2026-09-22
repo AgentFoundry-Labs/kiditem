@@ -8,6 +8,9 @@ import test from "node:test";
  * `ensureMallLoggedIn` 액션은 주문 수집 시도 안에서만 돈다(수집 시도 ID 필수). 로그인 테스트는
  * 수집이 아니어서 그 액션으로 보내면 늘 `OWNER_ATTEMPT_REQUIRED` 로 끝났다 — 테스트가 실패하고
  * 그 몰의 자동 로그인까지 막혔다. 그래서 수집 시도 없이 도는 액션을 따로 둔다.
+ *
+ * 로그인 자체는 몰 세션 모듈이 한다(KID-254). 이 액션이 수집 시도 없이 그 모듈을 바로 부르는지만
+ * 본다 — 수집 lifecycle 을 거치면 다시 `OWNER_ATTEMPT_REQUIRED` 로 돌아간다.
  */
 const workerSource = readFileSync(
   new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
@@ -23,9 +26,9 @@ function handlerBlock(action) {
 
 test("⭐ the login test logs in without an order collection attempt", () => {
   const block = handlerBlock("testMallLogin");
-  assert.match(block, /ensureMallLoggedIn\(/);
-  assert.match(block, /null,\s*\)\);/, "수집 시도 없이(collection = null) 부른다");
-  assert.doesNotMatch(block, /ensureMallLoginWithLifecycle|runOwnedOrderCollection/);
+  assert.match(block, /mallSession\(\)\.ensureLoggedIn\(/);
+  assert.doesNotMatch(block, /collection|runOwnedOrderCollection/, "수집 시도 없이 부른다");
+  assert.doesNotMatch(block, /ensureMallLoginWithLifecycle/);
 });
 
 test("the login test validates the external payload before opening a tab", () => {

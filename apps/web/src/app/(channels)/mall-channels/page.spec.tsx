@@ -437,17 +437,17 @@ describe('쇼핑몰 현황 — 연결된 몰 표', () => {
     expect(order).toEqual(['온채널', '키즈노트', '토스쇼핑']);
   });
 
-  it('매니페스트를 못 받으면 없는 일로 단정하지 않는다 — 빨강 대신 회색', () => {
+  it('매니페스트가 없어도 레지스트리가 정의한 발주 전용 채널에는 상품등록이 없다', () => {
     manifests = undefined;
     overview = {
       shop: { productCount: 1, connectedChannelCount: 1, publishableChannelCount: 0 },
       channels: [idle('rocket', '쿠팡 로켓')],
     };
     render(<MallChannelsPage />);
-    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '상품등록 아직' })).toBeInTheDocument();
-    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '품절관리 아직' })).toBeInTheDocument();
-    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '판매재개 아직' })).toBeInTheDocument();
-    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '재고송신 아직' })).toBeInTheDocument();
+    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '상품등록 불가' })).toBeInTheDocument();
+    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '품절관리 불가' })).toBeInTheDocument();
+    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '판매재개 불가' })).toBeInTheDocument();
+    expect(within(card('쿠팡 로켓')).getByRole('img', { name: '재고송신 불가' })).toBeInTheDocument();
   });
 
   it('없는 기능을 버튼으로 만들지 않는다 — 채널 추가 대신 모든 몰의 계정 설정 창을 연다', () => {

@@ -35,6 +35,11 @@
       "import": "./dist/channel-listing.js",
       "require": "./dist/channel-listing.cjs"
     },
+    "./registration-execution": {
+      "types": "./dist/registration-execution.d.ts",
+      "import": "./dist/registration-execution.js",
+      "require": "./dist/registration-execution.cjs"
+    },
     "./order": {
       "types": "./dist/order.d.ts",
       "import": "./dist/order.js",
@@ -114,11 +119,6 @@
       "types": "./dist/mall-publishing.d.ts",
       "import": "./dist/mall-publishing.js",
       "require": "./dist/mall-publishing.cjs"
-    },
-    "./mall-operation-outcomes": {
-      "types": "./dist/mall-operation-outcomes.d.ts",
-      "import": "./dist/mall-operation-outcomes.js",
-      "require": "./dist/mall-operation-outcomes.cjs"
     },
     "./inventory-availability": {
       "types": "./dist/inventory-availability.d.ts",
@@ -280,6 +280,11 @@
       "import": "./dist/source-readiness.js",
       "require": "./dist/source-readiness.cjs"
     },
+    "./channel-registry": {
+      "types": "./dist/channel-registry.d.ts",
+      "import": "./dist/channel-registry.js",
+      "require": "./dist/channel-registry.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
@@ -347,9 +352,6 @@
       ],
       "mall-publishing": [
         "dist/mall-publishing.d.ts"
-      ],
-      "mall-operation-outcomes": [
-        "dist/mall-operation-outcomes.d.ts"
       ],
       "inventory-availability": [
         "dist/inventory-availability.d.ts"
@@ -444,6 +446,9 @@
       "order-collection-source": [
         "dist/order-collection-source.d.ts"
       ],
+      "channel-registry": [
+        "dist/channel-registry.d.ts"
+      ],
       "source-readiness": [
         "dist/source-readiness.d.ts"
       ]
@@ -458,6 +463,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
+    "test": "vitest run",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

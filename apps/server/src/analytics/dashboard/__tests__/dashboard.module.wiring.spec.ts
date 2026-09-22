@@ -1,3 +1,5 @@
+import { ProductCollectionRuntimeModule } from '../../../products/product-collection-runtime.module';
+import { SellpiaProductSalesModule } from '../../sellpia-product-sales/sellpia-product-sales.module';
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { AlertsModule } from '../../../alerts/alerts.module';
@@ -6,7 +8,6 @@ import { DashboardCapabilityModule } from '../dashboard-capability.module';
 import { AdvertisingModule } from '../../../advertising/advertising.module';
 import { ProductAbcReadModule } from '../../../products/product-abc-read.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
-import { SellpiaProductSalesModule } from '../../sellpia-product-sales/sellpia-product-sales.module';
 import { DashboardController } from '../adapter/in/http/dashboard.controller';
 // adapter/out/repository
 import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
@@ -39,13 +40,13 @@ const PROVIDERS_KEY = 'providers';
 const PATH_KEY = 'path';
 
 const EXPECTED_PORT_BINDINGS = [
+  [DASHBOARD_FINDINGS_REPOSITORY_PORT, DashboardFindingsRepositoryAdapter],
   [PROFIT_CALCULATION_REPOSITORY_PORT, ProfitCalculationRepositoryAdapter],
   [DASHBOARD_SALES_REPOSITORY_PORT, DashboardSalesRepositoryAdapter],
   [DASHBOARD_TREND_REPOSITORY_PORT, DashboardTrendRepositoryAdapter],
   [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, WingTrafficAggregationRepositoryAdapter],
   [DASHBOARD_INVENTORY_REPOSITORY_PORT, DashboardInventoryRepositoryAdapter],
   [COLLECTION_FRESHNESS_REPOSITORY_PORT, CollectionFreshnessRepositoryAdapter],
-  [DASHBOARD_FINDINGS_REPOSITORY_PORT, DashboardFindingsRepositoryAdapter],
 ] as const;
 
 // Architecture-guard companion to dashboard.architecture.spec.ts. This spec
@@ -58,10 +59,9 @@ describe('DashboardModule capability wiring', () => {
     expect(imports).toEqual([DashboardCapabilityModule]);
     // AlertsModule is here because the alert rows this dashboard shows belong to
     // the alerts module. The inventory adapter used to read that table directly,
-    // with its own filter, order, and limit. SellpiaProductSalesModule publishes
-    // the depletion summary the findings pick declining and reorder products from.
+    // with its own filter, order, and limit.
     expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
-      .toEqual([PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, SellpiaProductSalesModule]);
+      .toEqual([SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule]);
     expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
       .toEqual([]);
   });
@@ -77,11 +77,11 @@ describe('DashboardModule capability wiring', () => {
       Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     for (const cls of [
       ProfitCalculationRepositoryAdapter,
+      DashboardFindingsRepositoryAdapter,
       DashboardSalesRepositoryAdapter,
       DashboardTrendRepositoryAdapter,
       WingTrafficAggregationRepositoryAdapter,
       DashboardInventoryRepositoryAdapter,
-      DashboardFindingsRepositoryAdapter,
     ]) {
       expect(capabilityProviders).toContain(cls);
     }

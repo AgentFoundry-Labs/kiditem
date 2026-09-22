@@ -13,7 +13,7 @@ NEED_DATA_MIGRATIONS=0
 
 if echo "$CHANGED" | grep -Eq "^(prisma/schema\.prisma|prisma/models/|prisma\.config\.ts)"; then
   echo ""
-  echo "⚠️  Prisma schema 변경됨 → npm run db:push + npx prisma generate 필요"
+  echo "⚠️  Prisma schema 변경됨 → 로컬 DB 동기화 필요"
   NEED_SYNC=1
   NEED_PRISMA=1
 fi
@@ -29,25 +29,17 @@ if echo "$CHANGED" | grep -q "prisma/init.sql.gz"; then
 fi
 
 if echo "$CHANGED" | grep -q "scripts/data-migrations/"; then
-  echo "⚠️  release data migration 변경됨 → 로컬 DB ledger/status 확인 필요"
+  echo "⚠️  release data migration 변경됨 → 로컬 DB 동기화 필요"
   NEED_SYNC=1
   NEED_DATA_MIGRATIONS=1
 fi
 
 if [ "$NEED_SYNC" -eq 1 ]; then
   echo ""
-  if [ "$NEED_DATA_MIGRATIONS" -eq 1 ]; then
-    echo "👉 권장 로컬 동기화 순서:"
-    echo "  1. npm run data:migrate -- up --phase pre-schema --target local --confirm APPLY_DATA_MIGRATIONS"
-    if [ "$NEED_PRISMA" -eq 1 ]; then
-      echo "  2. npm run db:push"
-      echo "  3. npx prisma generate"
-      echo "  4. npm run data:migrate -- up --phase post-schema --target local --confirm APPLY_DATA_MIGRATIONS"
-    else
-      echo "  2. npm run data:migrate -- up --phase post-schema --target local --confirm APPLY_DATA_MIGRATIONS"
-    fi
-  elif [ "$NEED_PRISMA" -eq 1 ]; then
-    echo "👉 필요한 로컬 동기화: npm run db:push && npx prisma generate"
+  if [ "$NEED_PRISMA" -eq 1 ] || [ "$NEED_DATA_MIGRATIONS" -eq 1 ]; then
+    # docs/runbooks/local-development.md: the Office cutover order in one command.
+    echo "👉 로컬 DB 동기화: npm run db:sync:local (미리보기: npm run db:sync:local -- --dry-run)"
+    echo "   db push를 먼저 실행하지 마세요. 이 명령이 pre-schema migration → 조사 → db push → post-schema migration 순서로 맞춥니다."
   fi
   if [ "$NEED_SHARED" -eq 1 ]; then
     echo "👉 shared package 동기화: npm run build -w packages/shared"

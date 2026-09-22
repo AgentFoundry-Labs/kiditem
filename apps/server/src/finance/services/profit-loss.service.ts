@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { PLData, ProfitLossResponse } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -10,6 +10,10 @@ import {
   readProfitWindowFacts,
   resolveFinanceWindow,
 } from '../../common/per-listing-profit';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../products/application/port/in/product-transactional-read.port';
 
 /**
  * Live profit and loss for one KST month.
@@ -29,6 +33,8 @@ export class ProfitLossService {
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async findAll(
@@ -41,7 +47,12 @@ export class ProfitLossService {
     const window = resolveFinanceWindow(kstMonthWindow(year, month), now);
 
     const facts = await this.prisma.$transaction(
-      (tx) => readProfitWindowFacts(tx, organizationId, window),
+      (tx) => readProfitWindowFacts(
+        tx,
+        organizationId,
+        window,
+        this.inventoryTransactionalRead,
+      ),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
 

@@ -1092,6 +1092,12 @@ test('a refused managed attachment closes the fresh tab and never executes captu
   assert.deepEqual(events, ['create', ['remove', 402]]);
 });
 
+/**
+ * 수집 전 자동 로그인은 몰 세션 모듈이 하고(KID-254), 탭 소유권은 worker.js 의 드라이버가
+ * 진다. 순서가 중요하다 — 소유권을 먼저 확인하고 탭을 열어 시도에 매달고, 로그인 화면이
+ * 안정된 뒤 스크립트를 넣기 직전에 한 번 더 확인한다. 취소된 시도가 로그인 화면을 남기지
+ * 않게 하는 것이 이 순서다.
+ */
 test('managed login attaches before readiness and fences scripting after the login delay', async () => {
   const runtime = loadWorker();
   const events = [];
@@ -1102,9 +1108,13 @@ test('managed login attaches before readiness and fences scripting after the log
   runtime.chrome.tabs.remove = async (tabId) => events.push(['remove', tabId]);
   runtime.context.waitForTabReady = async () => events.push('ready');
   runtime.context.delay = async (milliseconds) => events.push(['delay', milliseconds]);
-  runtime.context.ensureMallLogin = async () => {
+  // 프레임에 스크립트를 넣는 것과 알림 창을 삼키는 것은 따로 본다 — 여기서는 탭의 생애만 본다.
+  runtime.context.recordMallLoginDialogs = async () => undefined;
+  runtime.context.takeMallLoginDialog = async () => null;
+  runtime.context.loginFormRemainsAfterSubmit = async () => false;
+  runtime.chrome.scripting.executeScript = async () => {
     events.push('login');
-    return { success: true, submitted: true };
+    return [{ result: { state: 'submitted', method: 'exact-text' } }];
   };
   const collection = {
     assertActive: async () => {
@@ -1118,13 +1128,15 @@ test('managed login attaches before readiness and fences scripting after the log
     detachTab: async () => events.push('detach'),
   };
 
-  const result = await runtime.context.ensureMallLoggedIn(
+  const result = await runtime.context.mallSession().ensureLoggedIn(
     'kidsnote',
     { loginId: 'operator@example.test', password: 'top-secret' },
-    collection,
+    { collection },
   );
 
-  assert.deepEqual(result, { success: true, submitted: true });
+  assert.equal(result.verdict, 'ok');
+  assert.equal(result.submitted, true);
+  assert.equal(result.verified, true);
   assert.deepEqual(events, [
     'assert',
     ['create', false],
@@ -1133,6 +1145,9 @@ test('managed login attaches before readiness and fences scripting after the log
     ['delay', 1000],
     'assert',
     'login',
+    ['delay', 1500],
+    'ready',
+    ['delay', 1200],
     'detach',
     ['remove', 403],
   ]);
@@ -1146,21 +1161,24 @@ test('managed login closes only a fresh tab when attachment is refused', async (
     return { id: 404, windowId: 7, status: 'complete', ...properties };
   };
   runtime.chrome.tabs.remove = async (tabId) => events.push(['remove', tabId]);
-  runtime.context.ensureMallLogin = async () => {
+  runtime.chrome.scripting.executeScript = async () => {
     events.push('login');
-    return { success: true };
+    return [{ result: { state: 'submitted' } }];
   };
 
-  const result = await runtime.context.ensureMallLoggedIn(
+  const result = await runtime.context.mallSession().ensureLoggedIn(
     'kidsnote',
     { loginId: 'operator@example.test', password: 'top-secret' },
     {
-      assertActive: async () => true,
-      attachTab: async () => null,
+      collection: {
+        assertActive: async () => true,
+        attachTab: async () => null,
+      },
     },
   );
 
   assert.equal(result.errorCode, 'COLLECTION_CANCELLED');
+  assert.equal(result.reason, 'collection_cancelled');
   assert.deepEqual(events, [['create', false], ['remove', 404]]);
 });
 

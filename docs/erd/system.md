@@ -13,6 +13,7 @@
 | DataMigrationRun | `data_migration_runs` | 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다. |
 | FeatureGate | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | SystemSetting | `system_settings` | - |
+| TodoItem | `todo_items` | 할 일 한 줄(TO DO LIST 화면). 사장님이 해 줘야 하는 일과 우리가 만들 일을 한 곳에 적는다 — 몰 대량등록처럼 여러 화면에 걸친 일의 남은 조각을 잊지 않으려고 둔다. |
 
 ## Mermaid ER Diagram
 
@@ -68,6 +69,19 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  TodoItem {
+    String id PK
+    String organizationId FK
+    String owner
+    String area
+    String title
+    String detail
+    String status
+    Int sortOrder
+    DateTime doneAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
 ```
 
 ## External References
@@ -76,3 +90,4 @@ erDiagram
 |---|---|---|---|---|
 | Alert | organization | references external | Core | Organization |
 | SystemSetting | organization | references external | Core | Organization |
+| TodoItem | organization | references external | Core | Organization |

@@ -13,7 +13,6 @@ export function deriveProductInventoryStatus(facts: {
   if (facts.inventory.skuCount === 0) return 'configuration_required';
   if (facts.inventory.measuredSkuCount < facts.inventory.skuCount
     || facts.inventoryUnits === null) return 'uncollected';
-  if (facts.inventory.inactiveSkuCount > 0) return 'review_required';
   return facts.inventoryUnits === 0 ? 'out_of_stock' : 'sellable';
 }
 

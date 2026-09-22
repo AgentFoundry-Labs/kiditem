@@ -193,10 +193,11 @@ describe('parseCoupangWingWorkbook', () => {
   it('repairs stale Template !ref before parsing cells through row 2248', () => {
     const rows = headerAndRow();
     rows.push(...Array.from({ length: 2_243 }, () => []));
-    rows[2_247] = REQUIRED_HEADERS.map((header) => ({
+    const lastRow: Record<string, string> = {
       등록상품ID: 'P-LAST',
       '옵션 ID': 'S-LAST',
-    })[header] ?? '');
+    };
+    rows[2_247] = REQUIRED_HEADERS.map((header) => lastRow[header] ?? '');
     const buffer = staleTemplateRef(workbookBuffer(rows), 'A1:HW4');
 
     const parsed = parseCoupangWingWorkbook(buffer);

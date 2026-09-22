@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { canSendMallPrice, sendMallPrice } from './mall-price-send';
 
 const bridge = vi.hoisted(() => ({
   detectOrderCollectionExtensionId: vi.fn(),
@@ -7,7 +8,6 @@ const bridge = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/extension-bridge', () => bridge);
 
-import { canSendMallPrice, sendMallPrice } from './mall-price-send';
 
 describe('sendMallPrice', () => {
   beforeEach(() => {
@@ -30,6 +30,18 @@ describe('sendMallPrice', () => {
     expect(result.results[0]).toMatchObject({ after: 2500, confirmed: true });
     expect(canSendMallPrice('domeggook')).toBe(false);
     await expect(sendMallPrice('domeggook', [{ code: '1', price: 1000 }])).rejects.toThrow('아직 가격을 보낼 수 없습니다');
+  });
+
+  it.each([
+    [false, false], [true, true], [undefined, true],
+  ])('preserves explicit no-submission evidence on bridge failure (%s)', async (submissionAttempted, expected) => {
+    bridge.sendToExtension.mockResolvedValue({ success: false, error: 'session expired', submissionAttempted });
+    await expect(sendMallPrice('kakao', [{ code: '1', price: 1000 }])).rejects.toMatchObject({ dispatchAttempted: expected });
+  });
+
+  it('returns explicit preflight no-submission evidence without inferring it from counts', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, sent: 0, failed: 1, submissionAttempted: false });
+    expect(await sendMallPrice('kakao', [{ code: '1', price: 1000 }])).toMatchObject({ submissionAttempted: false, sent: 0 });
   });
 
   it('refuses an extension that does not know price sends', async () => {

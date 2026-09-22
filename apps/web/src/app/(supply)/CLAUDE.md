@@ -29,7 +29,7 @@ explicit Rocket collection -> Channels source attempt
 -> extension reads frozen plan and uploads directly to Channels
 -> read COMPLETE source -> Supply preview by sourceImportRunId
 
-fresh preview -> browser workbook generation -> direct download
+Sellpia collection COMPLETE -> current-stock preview -> browser workbook generation -> direct download
 ```
 
 ## State Rules
@@ -41,10 +41,10 @@ fresh preview -> browser workbook generation -> direct download
 - Purchase-order mutations invalidate `queryKeys.purchaseOrders.all`.
 - `pending -> ordered` uses the submission hook with a browser-created stable
   idempotency key; it never uses generic status mutation.
-- `SELLPIA_SYNC_REQUIRED` shows 재고 수집이 필요합니다 with the shared Sellpia
-  inventory control. Submission never starts a collection or resubmits; the
-  operator submits again after collecting. Provider, identity, inactive, login,
-  quality, and reconciliation-required results are never auto-retried.
+- Before submission, start or join Sellpia collection through the shared control,
+  wait for that exact attempt to complete, and submit its ID. Failed/cancelled
+  collection prevents submission; provider/identity/reconciliation errors are
+  never automatically retried.
 - `provider_unknown` is displayed as an explicit reconciliation state; the UI
   records operator-confirmed success/failure through `reconcileSubmission`.
 - Submission settlement invalidates purchase-order queries on both success and
@@ -56,10 +56,13 @@ fresh preview -> browser workbook generation -> direct download
   including free-text `supplierName` creation.
 - Rocket preview quantities are editable only up to the backend-recomputed
   maximum. Explicit new collection creates fresh provider evidence. A completed
-  persisted catalog snapshot may be reopened. A freshness-pending preview renders
-  its checkpoint rows as prior-snapshot advisory values, keeps export disabled,
-  and shows 재고 수집이 필요합니다 with the shared inventory control. It never
-  starts a collection and recalculates only when the operator retries.
+  persisted catalog snapshot may be reopened. Each calculation action first
+  collects Sellpia inventory and waits for publication; send its completed
+  attempt ID with the source reference. No advisory calculation on old stock
+  is returned while waiting. Repeated previews within one action reuse that
+  same completed attempt. Observation uses React Query, at most 60 reads/minute
+  while waiting (below the default 600-request client budget); leaving the
+  screen stops observation without cancelling the shared collection.
 - Recollection intersects retained edit keys with fresh PO lines and sends all
   retained edits once using the backend's joint clamp mode. UI state uses the
   returned effective quantities because multiple rows may share component
@@ -80,7 +83,7 @@ fresh preview -> browser workbook generation -> direct download
   replaced inline in Rocket review through Products-owned APIs. Only
   recipe-backed insufficient capacity may proceed with an explicit shortage
   reason.
-- Workbook download reruns the fresh preview, builds the reviewed workbook in
+- Workbook download collects Sellpia and reruns the preview, builds the reviewed workbook in
   the browser, and downloads it directly. The UI performs no upload, active
   workbook lookup, exact re-download, abandonment, or completion tracking after
   download.

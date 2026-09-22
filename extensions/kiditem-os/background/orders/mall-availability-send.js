@@ -1818,9 +1818,12 @@
           ownedTabs.add(tabId);
           const waited = await waitForTabComplete(tabId).catch(() => undefined);
           await sleep(waited ? 1200 : 2500);
-          const current = await chromeApi.tabs.get(tabId).catch(() => null);
+          const current = typeof chromeApi.tabs?.get === "function"
+            ? await chromeApi.tabs.get(tabId).catch(() => null)
+            : null;
           const url = String(current?.url || current?.pendingUrl || "");
-          if (!url.startsWith(spec.origin) || /login|signin/i.test(url)) {
+          if (typeof chromeApi.tabs?.get === "function"
+            && (!url.startsWith(spec.origin) || /login|signin/i.test(url))) {
             return { success: false, error: `${spec.label}에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도하세요.` };
           }
         }
@@ -1834,7 +1837,18 @@
           });
           return injected?.result || { status: 0, json: null };
         };
-        return await work(run);
+        const getObservedUrl = async () => {
+          if (typeof chromeApi.tabs?.get !== "function" || tabId === null) return null;
+          const current = await chromeApi.tabs.get(tabId).catch(() => null);
+          const raw = typeof current?.url === "string" ? current.url : "";
+          try {
+            if (new URL(raw).origin !== spec.origin) return null;
+            return raw;
+          } catch {
+            return null;
+          }
+        };
+        return await work(run, { getObservedUrl });
       } finally {
         if (created && tabId !== null) {
           ownedTabs.delete(tabId);
@@ -1949,8 +1963,9 @@
       let sent = 0;
       let confirmed = 0;
       let withOptions = 0;
+      let submissionAttempted = false;
       const results = [];
-      const halted = await withSellerPage(spec, grid.pageUrl, async (run) => {
+      const halted = await withSellerPage(spec, grid.pageUrl, async (run, observation) => {
         const targets = [];
         for (let index = 0; index < valid.length; index += 1) {
           if (index > 0) await sleep(WING_PRODUCT_PACE_MS);
@@ -1986,6 +2001,7 @@
           productId: product.id,
           displayStatus: product.displayStatusType,
         }));
+        submissionAttempted = true;
         const answer = await run(requestOnPage, [
           grid.gridPath, "PUT", "application/json", JSON.stringify(edits),
         ]);
@@ -2008,15 +2024,27 @@
           const before = Number(String(product.salePrice ?? "").replace(/[,\s원]/g, ""));
           const ok = now === price;
           if (ok) confirmed += 1;
-          results.push({ code: String(product.id), before: Number.isFinite(before) ? before : null, after: Number.isFinite(now) ? now : null, confirmed: ok });
+          const result = {
+            code: String(product.id),
+            before: Number.isFinite(before) ? before : null,
+            after: Number.isFinite(now) ? now : null,
+            confirmed: ok,
+          };
+          const observedPrice = after.product?.salePrice;
+          if (observedPrice !== null && observedPrice !== undefined
+            && String(observedPrice).trim() !== "" && Number.isFinite(now)) {
+            const observedUrl = await observation.getObservedUrl();
+            if (observedUrl) result.observedUrl = observedUrl;
+          }
+          results.push(result);
         }
         return null;
       });
-      if (halted) return halted;
+      if (halted) return { ...halted, submissionAttempted };
       if (withOptions > 0) {
         warnings.push(`옵션이 있는 상품 ${withOptions}개는 옵션마다 가격이라 보내지 않았습니다 — ${spec.label}에서 옵션 가격을 고쳐 주세요.`);
       }
-      return { success: true, sent, failed, confirmed, results, warnings };
+      return { success: true, sent, failed, confirmed, results, warnings, submissionAttempted };
     }
 
     /** 올웨이즈 상품 상태를 읽는다(soldOut). 로그인이 풀렸으면 { loggedOut }. */
@@ -3878,8 +3906,9 @@
       if (failed > 0) warnings.push(`${failed}건은 ${spec.label} 상품번호 모양이 아니라 보내지 않았습니다.`);
       let sent = 0;
       let confirmed = 0;
+      let submissionAttempted = false;
       const results = [];
-      const halted = await withSellerPage(spec, api.pageUrl, async (run) => {
+      const halted = await withSellerPage(spec, api.pageUrl, async (run, observation) => {
         if (valid.length === 0) return null;
         const before = await readKidsnoteRows(spec, run, valid.map((item) => item.code), true, "edt_layer_2");
         if (before.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
@@ -3918,6 +3947,7 @@
               return [name, current];
             });
             if (!pairs.some(([name]) => name === "prc_chg_type")) pairs.push(["prc_chg_type", "2"]);
+            submissionAttempted = true;
             const answer = await run(kidsnoteSaveOnPage, [api.savePath, pairs]);
             if (answer?.loggedOut) return { success: false, error: `${spec.label} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.` };
             if (answer?.status !== 200) {
@@ -3941,18 +3971,23 @@
           const now = after?.rows?.get(entry.code)?.price ?? null;
           const ok = now === entry.price;
           if (ok) confirmed += 1;
-          results.push({ code: entry.code, before: entry.before, after: now, confirmed: ok });
+          const result = { code: entry.code, before: entry.before, after: now, confirmed: ok };
+          if (typeof now === "number" && Number.isFinite(now)) {
+            const observedUrl = await observation.getObservedUrl();
+            if (observedUrl) result.observedUrl = observedUrl;
+          }
+          results.push(result);
         }
         return null;
       });
-      if (halted) return halted;
-      return { success: true, sent, failed, confirmed, results, warnings };
+      if (halted) return { ...halted, submissionAttempted };
+      return { success: true, sent, failed, confirmed, results, warnings, submissionAttempted };
     }
 
     /**
      * 한 몰에 가격을 보낸다(가격 · 재고 · 상태 수정 보내기의 가격, KID-247). `items` 는 [{code, price, ifPrice?}] — price 는
      * 그 몰 판매가(원, 정수), ifPrice 는 화면이 본 지금 몰 가격이다(다르면 보내지 않는다). 보낸 뒤 몰을 다시 읽어 확인한 것만
-     * `confirmed` 다. 돌려주는 것은 상품코드와 가격뿐이다.
+     * `confirmed` 다. 성공적으로 다시 읽은 결과에는 실제 판매자센터 탭 URL이 선택적으로 붙고, 집계 결과에는 실제 요청 시도 여부가 붙는다.
      */
     async function sendPrice(msg) {
       const mallKey = String(msg?.mallKey || "");

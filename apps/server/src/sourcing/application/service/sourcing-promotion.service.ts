@@ -10,9 +10,9 @@ import {
   type SourcingCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-candidate.repository.port';
 import {
-  PRODUCT_PREPARATION_REPOSITORY_PORT,
-  type ProductPreparationRepositoryPort,
-} from '../port/out/repository/product-preparation.repository.port';
+  CANDIDATE_REGISTRATION_PORT,
+  type CandidateRegistrationPort,
+} from '../../../channels/application/port/in/candidate-registration.port';
 import type { RejectCandidateCommand } from '../port/in/sourcing.commands';
 
 /** Candidate terminal-state service retained for rejection only. */
@@ -21,8 +21,8 @@ export class SourcingPromotionService {
   constructor(
     @Inject(SOURCING_CANDIDATE_REPOSITORY_PORT)
     private readonly candidates: SourcingCandidateRepositoryPort,
-    @Inject(PRODUCT_PREPARATION_REPOSITORY_PORT)
-    private readonly preparations: ProductPreparationRepositoryPort,
+    @Inject(CANDIDATE_REGISTRATION_PORT)
+    private readonly preparations: CandidateRegistrationPort,
   ) {}
 
   async reject(

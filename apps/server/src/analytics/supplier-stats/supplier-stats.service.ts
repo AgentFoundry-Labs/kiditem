@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   SupplierHistoryItem,
   SupplierHistoryReport,
@@ -9,6 +9,10 @@ import type {
 } from '@kiditem/shared/supplier-stats';
 import { PrismaService } from '../../prisma/prisma.service';
 import { readPublishedOrderLines } from '../../orders/read/order-facts.reader';
+import {
+  PRODUCT_SOURCE_READ_PORT,
+  type ProductSourceReadPort,
+} from '../../products/application/port/in/product-source-read.port';
 
 const ORDER_STATUS_EXCLUDE = ['cancelled', 'returned'] as const;
 
@@ -20,11 +24,10 @@ type SupplierPaymentHistoryRow = {
 
 type PhysicalProductPolicy = {
   id: string;
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   supplyPrice: number;
-  minOrderQty: number;
   isPrimary: boolean;
-  sellpiaInventorySku: {
+  masterProduct: {
     id: string;
     code: string;
     name: string;
@@ -39,7 +42,7 @@ type SupplierProjection = {
 };
 
 type RecipeComponent = {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   quantity: number;
 };
 
@@ -69,8 +72,8 @@ function createRunningStats(): RunningStats {
   return { orderLineIds: new Set(), totalQuantity: 0, totalRevenue: 0 };
 }
 
-function productStatsKey(supplierId: string, sellpiaInventorySkuId: string): string {
-  return `${supplierId}:${sellpiaInventorySkuId}`;
+function productStatsKey(supplierId: string, masterProductId: string): string {
+  return `${supplierId}:${masterProductId}`;
 }
 
 function settledSupplierPaymentAmount(payment: SupplierPaymentHistoryRow): number {
@@ -141,7 +144,11 @@ function summarizeSupplierHistory(items: SupplierHistoryItem[]): SupplierHistory
 
 @Injectable()
 export class SupplierStatsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_SOURCE_READ_PORT)
+    private readonly inventory: ProductSourceReadPort,
+  ) {}
 
   /**
    * Supplier sales are derived from confirmed channel-SKU recipes. A bundle
@@ -180,17 +187,16 @@ export class SupplierStatsService {
     }
 
     const items = supplier.supplierProducts.flatMap((policy): SupplierProductSalesRow[] => {
-      const sku = policy.sellpiaInventorySku;
+      const product = policy.masterProduct;
       const stats = projection.productStats.get(
-        productStatsKey(supplier.id, policy.sellpiaInventorySkuId),
+        productStatsKey(supplier.id, policy.masterProductId),
       ) ?? createRunningStats();
       return [{
-        masterId: sku.id,
-        masterCode: sku.code,
-        masterName: sku.name,
-        optionName: sku.optionName,
+        masterId: product.id,
+        masterCode: product.code,
+        masterName: product.name,
+        optionName: product.optionName,
         supplyPrice: policy.supplyPrice,
-        minOrderQty: policy.minOrderQty,
         totalOrders: stats.orderLineIds.size,
         totalQuantity: stats.totalQuantity,
         totalRevenue: stats.totalRevenue,
@@ -260,18 +266,9 @@ export class SupplierStatsService {
             where: { organizationId },
             select: {
               id: true,
-              sellpiaInventorySkuId: true,
+              masterProductId: true,
               supplyPrice: true,
-              minOrderQty: true,
               isPrimary: true,
-              sellpiaInventorySku: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                  optionName: true,
-                },
-              },
             },
           },
         },
@@ -289,7 +286,7 @@ export class SupplierStatsService {
         id: true,
         inventoryComponents: {
           where: { organizationId },
-          select: { sellpiaInventorySkuId: true, quantity: true },
+          select: { masterProductId: true, quantity: true },
         },
       },
     });
@@ -305,14 +302,36 @@ export class SupplierStatsService {
       };
     });
 
-    return this.projectSales(suppliers as SupplierProjection[], orderLines);
+    const masterProductIds = [...new Set(suppliers.flatMap((supplier) =>
+      supplier.supplierProducts.flatMap((policy) =>
+        policy.masterProductId ? [policy.masterProductId] : [])))];
+    const identities = await this.inventory.findByIds(organizationId, masterProductIds);
+    const byId = new Map(identities.map((identity) => [identity.masterProductId, identity]));
+    const resolvedSuppliers = suppliers.map((supplier) => ({
+      ...supplier,
+      supplierProducts: supplier.supplierProducts.flatMap((policy): PhysicalProductPolicy[] => {
+        const masterProductId = policy.masterProductId;
+        if (!masterProductId) return [];
+        const identity = byId.get(masterProductId);
+        return identity
+          ? [{
+            id: policy.id,
+            masterProductId,
+            supplyPrice: policy.supplyPrice,
+            isPrimary: policy.isPrimary,
+            masterProduct: { ...identity, id: identity.masterProductId },
+          }]
+          : [];
+      }),
+    }));
+    return this.projectSales(resolvedSuppliers, orderLines);
   }
 
   private projectSales(
     suppliers: SupplierProjection[],
     orderLines: OrderLineProjection[],
   ): SalesProjection {
-    const primaryBySellpiaSkuId = new Map<string, {
+    const primaryByMasterProductId = new Map<string, {
       supplierId: string;
       policy: PhysicalProductPolicy;
     }>();
@@ -323,11 +342,11 @@ export class SupplierStatsService {
       supplierStats.set(supplier.id, createRunningStats());
       for (const policy of supplier.supplierProducts) {
         productStats.set(
-          productStatsKey(supplier.id, policy.sellpiaInventorySkuId),
+          productStatsKey(supplier.id, policy.masterProductId),
           createRunningStats(),
         );
         if (policy.isPrimary) {
-          primaryBySellpiaSkuId.set(policy.sellpiaInventorySkuId, { supplierId: supplier.id, policy });
+          primaryByMasterProductId.set(policy.masterProductId, { supplierId: supplier.id, policy });
         }
       }
     }
@@ -336,12 +355,12 @@ export class SupplierStatsService {
     for (const line of orderLines) {
       const components = line.listingOption?.inventoryComponents ?? [];
       const allocations = components.map((component) => {
-        const primary = primaryBySellpiaSkuId.get(component.sellpiaInventorySkuId);
+        const primary = primaryByMasterProductId.get(component.masterProductId);
         if (primary && component.quantity > 0) {
           const physicalQuantity = line.quantity * component.quantity;
           const supplier = supplierStats.get(primary.supplierId)!;
           const product = productStats.get(
-            productStatsKey(primary.supplierId, component.sellpiaInventorySkuId),
+            productStatsKey(primary.supplierId, component.masterProductId),
           )!;
           supplier.orderLineIds.add(line.id);
           supplier.totalQuantity += physicalQuantity;
@@ -366,8 +385,8 @@ export class SupplierStatsService {
       }
 
       const ordered = [...allocations].sort((left, right) =>
-        left.component.sellpiaInventorySkuId.localeCompare(
-          right.component.sellpiaInventorySkuId,
+        left.component.masterProductId.localeCompare(
+          right.component.masterProductId,
         ),
       );
       const totalWeight = ordered.reduce((sum, item) => sum + item.weight, 0);
@@ -379,10 +398,10 @@ export class SupplierStatsService {
           ? line.totalPrice - allocatedRevenue
           : Math.floor((line.totalPrice * allocation.weight) / totalWeight);
         allocatedRevenue += revenue;
-        const sellpiaInventorySkuId = allocation.component.sellpiaInventorySkuId;
+        const masterProductId = allocation.component.masterProductId;
         const supplierId = allocation.primary!.supplierId;
         supplierStats.get(supplierId)!.totalRevenue += revenue;
-        productStats.get(productStatsKey(supplierId, sellpiaInventorySkuId))!.totalRevenue += revenue;
+        productStats.get(productStatsKey(supplierId, masterProductId))!.totalRevenue += revenue;
       }
     }
 

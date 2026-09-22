@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0017
 ---
 
 # Products owns channel-option recipe mutations and bounded automatic matching
@@ -28,6 +28,8 @@ not conflict, and the selling unit/quantity is confirmed. Normalized-name
 duplicates, identifier disagreements, option/color/size conflicts, and unknown
 quantities require operator review. AI output and rank alone remain evidence,
 not confirmation.
+
+Recipe ownership is superseded by [ADR-0017](0017-products-owns-source-products-channels-owns-recipes.md); matching safeguards and preservation of confirmed recipes remain.
 
 ## Consequences
 

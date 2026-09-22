@@ -4,7 +4,7 @@ export type ChannelRecipeNameOption = {
 };
 
 export type ChannelRecipeNameSku = {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   code: string;
   name: string;
   optionName: string | null;
@@ -244,7 +244,7 @@ function compareEvidence(
   return evidencePriority(right.kind) - evidencePriority(left.kind)
     || right.score - left.score
     || left.sku.code.localeCompare(right.sku.code)
-    || left.sku.sellpiaInventorySkuId.localeCompare(right.sku.sellpiaInventorySkuId);
+    || left.sku.masterProductId.localeCompare(right.sku.masterProductId);
 }
 
 function evidencePriority(kind: ChannelRecipeNameEvidence['kind']): number {

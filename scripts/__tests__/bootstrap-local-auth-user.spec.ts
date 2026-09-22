@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   bootstrapLocalAuthUser,
   buildLocalAuthBootstrapPlan,
@@ -6,6 +6,15 @@ import {
   readSinglePasswordLine,
 } from '../bootstrap-local-auth-user';
 import { assertLocalDevelopmentDatabase } from '../_shared/local-development-database';
+
+const { ensureFormula } = vi.hoisted(() => ({ ensureFormula: vi.fn() }));
+vi.mock('../data-migrations/ensure/absolute-product-abc-formula', () => ({
+  ensureAbsoluteProductAbcFormulaForOrganization: ensureFormula,
+}));
+
+beforeEach(() => {
+  ensureFormula.mockReset();
+});
 
 describe('local authentication identity bootstrap', () => {
   it('accepts only loopback non-production databases', () => {
@@ -70,7 +79,7 @@ describe('local authentication identity bootstrap', () => {
     });
   });
 
-  it('upserts organization, user, membership and revokes old sessions atomically', async () => {
+  it('upserts organization, user, membership, installs the ABC formula and revokes old sessions atomically', async () => {
     const organization = { id: 'organization-1' };
     const user = { id: 'user-1' };
     const tx = {
@@ -79,7 +88,21 @@ describe('local authentication identity bootstrap', () => {
       organizationMembership: { upsert: vi.fn().mockResolvedValue({ id: 'membership-1' }) },
       authSession: { updateMany: vi.fn().mockResolvedValue({ count: 2 }) },
     };
-    const prisma = { $transaction: vi.fn(async (callback) => callback(tx)) };
+    let inTransaction = false;
+    const prisma = {
+      $transaction: vi.fn(async (callback) => {
+        inTransaction = true;
+        try {
+          return await callback(tx);
+        } finally {
+          inTransaction = false;
+        }
+      }),
+    };
+    const formulaCalls: Array<{ inTransaction: boolean }> = [];
+    ensureFormula.mockImplementation(async () => {
+      formulaCalls.push({ inTransaction });
+    });
     const plan = buildLocalAuthBootstrapPlan({
       email: 'dev@example.com', name: 'Dev User',
       organizationName: 'KidItem Dev', organizationSlug: 'kiditem-dev',
@@ -87,6 +110,14 @@ describe('local authentication identity bootstrap', () => {
 
     await bootstrapLocalAuthUser(prisma as never, plan);
 
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(ensureFormula).toHaveBeenCalledTimes(1);
+    expect(ensureFormula).toHaveBeenCalledWith(tx, 'organization-1');
+    expect(formulaCalls).toEqual([{ inTransaction: true }]);
+    expect(tx.organizationMembership.upsert.mock.invocationCallOrder[0])
+      .toBeLessThan(ensureFormula.mock.invocationCallOrder[0]!);
+    expect(ensureFormula.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.authSession.updateMany.mock.invocationCallOrder[0]!);
     expect(tx.organization.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { slug: 'kiditem-dev' },
     }));
@@ -100,5 +131,27 @@ describe('local authentication identity bootstrap', () => {
       where: { userId: 'user-1', revokedAt: null },
       data: { revokedAt: new Date('2026-08-29T00:00:00.000Z') },
     });
+  });
+
+  it('fails the bootstrap transaction when the organization cannot be initialized', async () => {
+    const tx = {
+      organization: { upsert: vi.fn().mockResolvedValue({ id: 'organization-1' }) },
+      user: { upsert: vi.fn().mockResolvedValue({ id: 'user-1' }) },
+      organizationMembership: { upsert: vi.fn().mockResolvedValue({ id: 'membership-1' }) },
+      authSession: { updateMany: vi.fn() },
+    };
+    const prisma = { $transaction: vi.fn(async (callback) => callback(tx)) };
+    const failure = new Error('formula conflict');
+    const initializeOrganization = vi.fn().mockRejectedValue(failure);
+    const plan = buildLocalAuthBootstrapPlan({
+      email: 'dev@example.com', name: 'Dev User',
+      organizationName: 'KidItem Dev', organizationSlug: 'kiditem-dev',
+    }, 'scrypt$hash');
+
+    await expect(bootstrapLocalAuthUser(prisma as never, plan, initializeOrganization))
+      .rejects.toBe(failure);
+    expect(initializeOrganization).toHaveBeenCalledWith(tx, 'organization-1');
+    expect(tx.authSession.updateMany).not.toHaveBeenCalled();
+    expect(ensureFormula).not.toHaveBeenCalled();
   });
 });

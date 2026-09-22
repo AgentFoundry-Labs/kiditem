@@ -37,10 +37,36 @@ describe('DashboardInventoryRepositoryAdapter — new products', () => {
         ],
       }),
     };
-    const adapter = new DashboardInventoryRepositoryAdapter(prisma as never, productAbc as never, {} as never);
+    const activeProducts = ['young', 'old', 'never-sold', 'young-but-graded'].map((masterProductId) => ({
+      masterProductId,
+      code: `KID-${masterProductId}`,
+      sourceAccountKey: 'sellpia',
+      sourceProductCode: masterProductId,
+      sourceOptionCode: '',
+      name: `Product ${masterProductId}`,
+      optionName: null,
+      barcode: null,
+      purchasePrice: null,
+      imageUrls: [],
+    }));
+    const productSource = {
+      listActiveForMatching: vi.fn().mockResolvedValue(activeProducts),
+    };
+    const adapter = new DashboardInventoryRepositoryAdapter(
+      prisma as never,
+      productAbc as never,
+      {} as never,
+      {} as never,
+      productSource as never,
+    );
 
     const facts = await adapter.readProductAbcFacts('11111111-1111-4111-8111-111111111111');
 
+    expect(productSource.listActiveForMatching).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
+    expect(productAbc.readAbc).toHaveBeenCalledWith({
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      masterProductIds: activeProducts.map(({ masterProductId }) => masterProductId),
+    });
     expect(facts.newProductCount).toBe(1);
   });
 });

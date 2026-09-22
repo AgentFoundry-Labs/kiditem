@@ -7,10 +7,10 @@ import { friendlyError } from '@/lib/api-error';
 import { cn, timeAgo } from '@/lib/utils';
 import { useSellpiaInventoryCollection } from './sellpia-inventory-source-owner';
 
-const STOCK_FRESHNESS_META: Record<string, { label: string; className: string }> = {
-  fresh: { label: '최신', className: 'bg-emerald-100 text-emerald-700' },
-  refresh_required: { label: '갱신 필요', className: 'bg-amber-100 text-amber-800' },
-  syncing: { label: '갱신 중', className: 'bg-blue-100 text-blue-700' },
+const STOCK_COLLECTION_META: Record<string, { label: string; className: string }> = {
+  not_collected: { label: '미수집', className: 'bg-amber-100 text-amber-800' },
+  complete: { label: '수집 완료', className: 'bg-emerald-100 text-emerald-700' },
+  running: { label: '수집 중', className: 'bg-blue-100 text-blue-700' },
   failed: { label: '실패', className: 'bg-red-100 text-red-700' },
 };
 // A stopped collection is not a failure; the previous snapshot stays in use.
@@ -19,14 +19,14 @@ const STOPPED_META = { label: '수집 중단됨', className: 'bg-slate-100 text-
 export const SELLPIA_INVENTORY_START_TITLE =
   '셀피아 현재고만 동기화합니다. 수익성 데이터는 상품 운영 센터에서 별도로 갱신할 수 있습니다.';
 
-/** The stock screens' Sellpia inventory control, with freshness and the source binding. */
+/** The stock screens' Sellpia inventory control, with collection state and source binding. */
 export function SellpiaSyncAction({ compact = false, showStatus = false }: {
   compact?: boolean;
   showStatus?: boolean;
 }) {
   const { control, state, isConfirming, confirmSourceBinding } = useSellpiaInventoryCollection();
-  const statusMeta = state ? (state.stopped ? STOPPED_META : STOCK_FRESHNESS_META[state.status]) : null;
-  const stockAge = state?.lastVerifiedAt ? timeAgo(state.lastVerifiedAt) : null;
+  const statusMeta = state ? (state.stopped ? STOPPED_META : STOCK_COLLECTION_META[state.status]) : null;
+  const stockAge = state?.lastCompletedAt ? timeAgo(state.lastCompletedAt) : null;
 
   const runConfirmSourceBinding = async () => {
     try {

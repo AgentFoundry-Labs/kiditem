@@ -21,7 +21,10 @@ import {
   type RocketWorkbookWorkflowStatus,
 } from '../../../../inventory/application/port/in/stock/rocket-workbook-progress.port';
 import type { RocketWorkbookExportTransactionPort } from '../../../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
-import { readInventoryAvailability } from '../../../../inventory/read/inventory-availability';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
 
 const LOCK_NAMESPACE = 'rocket-workbook-workflow';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -58,7 +61,7 @@ type WorkbookDecision = {
   workbookQuantity: number;
   shortageReason: string | null;
   allocations: Array<{
-    sellpiaInventorySkuId: string;
+    masterProductId: string;
     unitsPerSale: number;
     quantity: number;
   }>;
@@ -70,6 +73,8 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
     private readonly prisma: PrismaService,
     @Inject(ROCKET_WORKBOOK_PROGRESS_PORT)
     private readonly progress: RocketWorkbookProgressPort,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products: ProductTransactionalReadPort,
   ) {}
 
   async exportWorkbook(
@@ -143,6 +148,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         input.organizationId,
         input.preview.inventoryGeneration,
         decisions,
+        this.products,
       );
 
       const artifactSha256 = createHash('sha256')
@@ -208,14 +214,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
                   unitsPerSale: allocation.unitsPerSale,
                   quantity: allocation.quantity,
                   organization: { connect: { id: input.organizationId } },
-                  sellpiaInventorySku: {
-                    connect: {
-                      id_organizationId: {
-                        id: allocation.sellpiaInventorySkuId,
-                        organizationId: input.organizationId,
-                      },
-                    },
-                  },
+                  masterProductId: allocation.masterProductId,
                 })),
               },
             })),
@@ -387,6 +386,7 @@ async function lockWorkflow(
   organizationId: string,
 ): Promise<void> {
   await tx.$executeRaw`
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
     SELECT pg_advisory_xact_lock(
       hashtext(${LOCK_NAMESPACE}),
       hashtext(${organizationId})
@@ -446,25 +446,27 @@ async function assertInventoryGeneration(
   organizationId: string,
   generation: string | null,
   decisions: WorkbookDecision[],
+  products: ProductTransactionalReadPort,
 ): Promise<void> {
   if (generation === null) return;
-  const sellpiaInventorySkuIds = [
+  const masterProductIds = [
     ...new Set(
       decisions.flatMap(({ source }) =>
         source.components.map(
-          ({ sellpiaInventorySkuId }) => sellpiaInventorySkuId,
+          ({ masterProductId }) => masterProductId,
         ),
       ),
     ),
   ];
-  const current = await readInventoryAvailability(tx, {
+  const productLock = await products.lock({ client: tx }, organizationId);
+  const current = await products.readAvailability({ client: tx }, productLock, {
     organizationId,
-    sellpiaInventorySkuIds,
+    masterProductIds,
   });
   if (
     !current.snapshot.collected ||
     current.snapshot.generation !== generation ||
-    current.items.length !== sellpiaInventorySkuIds.length
+    current.items.length !== masterProductIds.length
   ) {
     throw new ConflictException(
       'Sellpia inventory generation changed before Rocket workbook export.',
@@ -495,7 +497,7 @@ function buildDecisions(
     if (
       !source.channelListingOptionId ||
       source.components.length === 0 ||
-      source.components.some((component) => component.isActive !== true)
+      source.components.some((component) => component.currentStock === null)
     ) {
       throw new ConflictException(
         'Every Rocket workbook line requires a current confirmed recipe.',
@@ -508,7 +510,7 @@ function buildDecisions(
       shortageReason: request.shortageReasons[requestRow.poLineId] ?? null,
       allocations: source.components
         .map((component) => ({
-          sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+          masterProductId: component.masterProductId,
           unitsPerSale: component.quantity,
           quantity: workbookQuantity * component.quantity,
         }))
@@ -539,14 +541,15 @@ async function assertCurrentRecipes(
       listing: {
         channelAccountId,
         isActive: true,
-        masterProductId: { not: null },
+        organizationId,
       },
     },
     select: {
       id: true,
       inventoryComponents: {
-        select: { sellpiaInventorySkuId: true, quantity: true },
-        orderBy: { sellpiaInventorySkuId: 'asc' },
+        where: { organizationId },
+        select: { masterProductId: true, quantity: true },
+        orderBy: { masterProductId: 'asc' },
       },
     },
   });
@@ -554,12 +557,12 @@ async function assertCurrentRecipes(
   for (const decision of decisions) {
     const option = byId.get(decision.source.channelListingOptionId!);
     const expected = decision.source.components
-      .map(({ sellpiaInventorySkuId, quantity }) => ({
-        sellpiaInventorySkuId,
+      .map(({ masterProductId, quantity }) => ({
+        masterProductId,
         quantity,
       }))
       .sort((left, right) =>
-        left.sellpiaInventorySkuId.localeCompare(right.sellpiaInventorySkuId),
+        left.masterProductId.localeCompare(right.masterProductId),
       );
     if (
       !option ||
@@ -693,13 +696,13 @@ function workbookRequestHash(
         shortageReason: input.request.shortageReasons[row.poLineId] ?? null,
         channelListingOptionId: preview?.channelListingOptionId ?? null,
         components: [...(preview?.components ?? [])]
-          .map(({ sellpiaInventorySkuId, quantity }) => ({
-            sellpiaInventorySkuId,
+          .map(({ masterProductId, quantity }) => ({
+            masterProductId,
             quantity,
           }))
           .sort((left, right) =>
-            left.sellpiaInventorySkuId.localeCompare(
-              right.sellpiaInventorySkuId,
+            left.masterProductId.localeCompare(
+              right.masterProductId,
             ),
           ),
       };

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "owners": {
+    "ChannelAccount": "channels",
+    "ChannelListing": "channels",
+    "ChannelListingOption": "channels",
+    "ChannelListingOptionInventoryComponent": "channels",
+    "MasterProduct": "products",
+    "Organization": "scope",
+    "OrganizationMembership": "scope",
+    "SourceImportRun": "runs",
+    "User": "scope",
+    "SellpiaInventoryState": "products",
+    "MasterProductAbcEvaluation": "products",
+    "MasterProductAbcGradeHistory": "products",
+    "MasterProductAbcFormulaVersion": "products",
+    "MasterProductAbcFormulaState": "products"
+  },
+  "scopeTargets": [
+    "Organization",
+    "OrganizationMembership",
+    "User"
+  ],
+  "keptTargets": [
+    "SourceImportRun"
+  ],
+  "allowlist": [
+    "advertising.AdAction -> channels.ChannelAdTargetDailySnapshot",
+    "advertising.AdAction -> channels.ChannelListing",
+    "advertising.AdAction -> channels.ChannelListingOption",
+    "ai.ContentGeneration -> sourcing.SourcingCandidate",
+    "ai.ContentGenerationSource -> sourcing.SourcingCandidate",
+    "ai.ContentWorkspace -> channels.ChannelListing",
+    "ai.ContentWorkspace -> sourcing.SourcingCandidate",
+    "ai.DetailPageImageRenderIntent -> sourcing.SourcingCandidate",
+    "ai.Thumbnail -> channels.ChannelListing",
+    "ai.ThumbnailGeneration -> sourcing.SourcingCandidate",
+    "ai.ThumbnailGenerationInputImage -> sourcing.CandidateImage",
+    "ai.ThumbnailTracking -> channels.ChannelListing",
+    "channels.ChannelListing -> sourcing.SourcingCandidate",
+    "orders.CoupangDirectTransportReceipt -> channels.ChannelAccount",
+    "orders.CoupangDirectTransportReceipt -> supply.RocketPurchaseConfirmation",
+    "orders.Order -> channels.ChannelAccount",
+    "orders.OrderLineItem -> channels.ChannelListingOption",
+    "orders.Review -> channels.ChannelListing",
+    "runs.SourceImportRun -> channels.ChannelAccount",
+    "sourcing.SourcingDecisionBatchItem -> supply.SupplierOfferSkuSnapshot",
+    "sourcing.SourcingLaunchCandidate -> channels.ChannelAccount",
+    "sourcing.SourcingLaunchCandidate -> supply.SupplierOfferSkuSnapshot",
+    "supply.ProcurementTestIntent -> sourcing.SourcingDecisionBatchItem",
+    "supply.ProcurementTestIntent -> sourcing.SourcingLaunchCandidate",
+    "supply.RocketPurchaseConfirmation -> channels.ChannelAccount",
+    "supply.RocketPurchaseConfirmationLine -> channels.ChannelListingOption",
+    "supply.SupplierOfferSkuSnapshot -> sourcing.SourcingEvidenceObservation"
+  ]
+}

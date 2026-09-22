@@ -1,10 +1,18 @@
-import { IsUUID, IsInt, Min, IsString, IsOptional, MaxLength } from 'class-validator';
+import {
+  IsUUID,
+  IsInt,
+  Min,
+  IsString,
+  IsOptional,
+  MaxLength,
+} from 'class-validator';
 
 /**
  * organizationId 는 `req.authUser.organizationId` 에서 주입 — DTO 에는 포함하지 않는다.
  */
 export class CreateReturnTransferDto {
-  @IsUUID() sellpiaInventorySkuId!: string;
+  /** Canonical Products identity for new return-transfer records. */
+  @IsUUID() masterProductId!: string;
   @IsOptional() @IsUUID() orderId?: string;
   @IsInt() @Min(1) quantity!: number;
   @IsOptional() @IsString() @MaxLength(20) condition?: string;

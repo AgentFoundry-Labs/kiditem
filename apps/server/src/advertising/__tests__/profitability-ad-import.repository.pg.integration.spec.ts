@@ -20,6 +20,7 @@ import type {
   AdvertisingProfitabilityPlan,
   AdvertisingProfitabilitySliceUpload,
 } from '../application/port/in/profitability-ad-import.port';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
 const FIRST_KEY = 'advertising-pg-first';
 const SECOND_KEY = 'advertising-pg-second';
@@ -1251,30 +1252,19 @@ async function seedAccount(
       isPrimary: suffix === 'A',
     },
   });
-  const master = await prisma.masterProduct.create({
-    data: {
-      organizationId,
-      code: `AD-MASTER-${suffix}`,
-      name: `Advertising master ${suffix}`,
-    },
-  });
-  const sku = await prisma.sellpiaInventorySku.create({
-    data: {
-      organizationId,
-      masterProductId: master.id,
-      code: `AD-SKU-${suffix}`,
-      name: `Advertising SKU ${suffix}`,
-      optionName: `Option ${suffix}`,
-      currentStock: 100,
-      purchasePrice: 100,
-    },
+  const master = await seedSourceProduct(prisma, {
+    organizationId,
+    code: `AD-SKU-${suffix}`,
+    name: `Advertising SKU ${suffix}`,
+    optionName: `Option ${suffix}`,
+    currentStock: 100,
+    purchasePrice: 100,
   });
   const listing = await prisma.channelListing.create({
     data: {
       organizationId,
       channelAccountId: account.id,
       externalId: `AD-LISTING-${suffix}`,
-      masterProductId: master.id,
       isActive: true,
     },
   });
@@ -1290,7 +1280,7 @@ async function seedAccount(
     data: {
       organizationId,
       channelListingOptionId: option.id,
-      sellpiaInventorySkuId: sku.id,
+      masterProductId: master.id,
       quantity,
     },
   });

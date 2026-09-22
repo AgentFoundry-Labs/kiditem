@@ -1,3 +1,4 @@
+import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
@@ -18,7 +19,7 @@ describe('AdvertisingProfitabilityReadModule', () => {
       AdvertisingProfitabilityReadModule,
     ) ?? [];
 
-    expect(imports).toEqual([PrismaModule, AlertsModule]);
+    expect(imports).toEqual([PrismaModule, AlertsModule, ProductCollectionRuntimeModule]);
     expect(controllers).toEqual([ProfitabilityAdImportController]);
     expect(exports).toEqual([ADVERTISING_PROFITABILITY_READ_PORT]);
   });

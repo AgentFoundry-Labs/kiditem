@@ -1,5 +1,6 @@
+import { formatNumber } from '@/lib/utils';
+import type { PipeInboxItem } from '@/lib/agent-org/pipe-model';
 import type { DashboardFindings } from '@kiditem/shared/dashboard';
-import type { PipeInboxItem } from '@/app/agent-org/lib/pipe-model';
 
 /**
  * 대시보드 맨 위의 '지금 할 일' — 흩어져 있던 긴급 · AI 발견 · AI 제안을 한 줄로 세운다.
@@ -36,7 +37,7 @@ export interface WorkQueueCounts {
 
 const ORDER: Record<WorkQueueKind, number> = { blocked: 0, money: 1, decision: 2 };
 
-/** 몰 등록 반려는 '상품 등록' 화면에서 푼다. */
+/** 등록 실패는 '상품 등록' 화면에서 확인한다. */
 const REORDER_ROWS = 2;
 const REGISTRATION_HREF = '/mall-listings';
 const REORDER_HREF = '/inventory-hub';
@@ -76,7 +77,7 @@ export function buildWorkQueue(input: {
       kind: 'money',
       badge: '재고',
       title: `${suggestion.name} ${daysLeftLabel(suggestion.daysLeft)}`,
-      evidence: `현재고 ${suggestion.availableStock.toLocaleString()}개 · 월 ${Math.round(suggestion.monthlyOutflow).toLocaleString()}개 나감`,
+      evidence: `현재고 ${formatNumber(suggestion.availableStock)}개 · 월 ${formatNumber(Math.round(suggestion.monthlyOutflow))}개 나감`,
       href: REORDER_HREF,
       actionLabel: '발주 검토',
       since: null,
@@ -100,7 +101,7 @@ export function buildWorkQueue(input: {
     });
   }
 
-  // 3) 사장님 결정 — 몰이 거절한 등록은 사람이 고쳐야 다시 올라간다.
+  // 3) 사장님 결정 — 등록 실패는 사람이 원인을 확인해야 다시 시도할 수 있다.
   const failures = input.findings?.registrationFailures;
   if (failures && failures.count > 0) {
     const mall = failures.byChannel[0];
@@ -108,7 +109,7 @@ export function buildWorkQueue(input: {
       key: 'registration-failures',
       kind: 'decision',
       badge: '쇼핑몰',
-      title: `몰이 거절한 등록 ${failures.count}건`,
+      title: `등록 실패 ${failures.count}건`,
       evidence: mall ? `가장 많은 곳: ${mall.mallName} ${mall.count}건` : null,
       href: REGISTRATION_HREF,
       actionLabel: '확인',
@@ -118,12 +119,15 @@ export function buildWorkQueue(input: {
 
   const sorted = [...items].sort((left, right) => ORDER[left.kind] - ORDER[right.kind]
     || (left.since ?? Number.POSITIVE_INFINITY) - (right.since ?? Number.POSITIVE_INFINITY));
+  const declineCount = decline?.count && decline.count > 0 ? 1 : 0;
 
   return {
     items: sorted.slice(0, input.limit ?? 5),
     counts: {
       blocked: countable(input.inbox).length,
-      money: sorted.filter((item) => item.kind === 'money').length,
+      // Reorder rows are capped for the visible list, but the summary is the
+      // complete published suggestion set (at most five), not all reorder products.
+      money: reorders.length + declineCount,
       decision: sorted.filter((item) => item.kind === 'decision').length,
     },
     total: sorted.length + Math.max(0, reorders.length - REORDER_ROWS),

@@ -1,3 +1,4 @@
+import { channelRegistersListings, findChannel } from '@kiditem/shared/channel-registry';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 
 /**
@@ -79,7 +80,9 @@ export function mallCapabilities(
   },
 ): MallCapabilities {
   const { manifest } = context;
-  const applicable = manifest ? manifest.applicable : true;
+  // 채널 레지스트리가 발주 전용 채널의 등록 개념 여부를 정한다.
+  const entry = findChannel(channel.mallKey);
+  const applicable = entry ? channelRegistersListings(entry) : manifest?.applicable ?? true;
   // 확인된 몰인데 품절을 안 받는다고 하면 없는 일이다. 확인 전이면 모른다.
   const takesSoldOut = !manifest || manifest.unverified || manifest.supports?.soldOut !== false;
   // 품절은 받아도 해제를 자동으로 못 받는다고 확인된 몰은 판매재개가 없는 일이다 — 몰에서 사람이 푼다.

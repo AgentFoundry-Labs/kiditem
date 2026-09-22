@@ -2,21 +2,19 @@ import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availab
 import { projectChannelOptionCapacity } from '@kiditem/shared/channel-option-capacity';
 
 type ChannelRecipeComponent = Readonly<{
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   quantity: number;
 }>;
 
 export function projectChannelInventoryComponents<T extends ChannelRecipeComponent>(
   recipeComponents: readonly T[],
-  inventoryBySkuId: ReadonlyMap<string, InventorySkuAvailability>,
+  inventoryByMasterProductId: ReadonlyMap<string, InventorySkuAvailability>,
 ) {
   const components = recipeComponents.map((component) => {
-    const inventory = inventoryBySkuId.get(component.sellpiaInventorySkuId);
+    const inventory = inventoryByMasterProductId.get(component.masterProductId);
     return {
       ...component,
       currentStock: inventory?.currentStock ?? null,
-      availableStock: inventory?.availableStock ?? null,
-      isActive: inventory?.isActive ?? null,
     };
   });
   return {

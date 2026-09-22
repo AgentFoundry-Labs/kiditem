@@ -8,7 +8,11 @@ const accountId = '00000000-0000-4000-8000-000000000004';
 const masterProductId = '00000000-0000-4000-8000-000000000005';
 const skuId = '00000000-0000-4000-8000-000000000006';
 
-function row(overrides: { masterProductId?: string | null; components?: unknown[] } = {}) {
+function row(overrides: {
+  masterProductId?: string | null;
+  components?: unknown[];
+  compositionUnconfirmed?: boolean;
+} = {}) {
   return {
     channelAccount: { id: accountId, channel: 'rocket', name: 'Rocket' },
     listing: {
@@ -21,6 +25,7 @@ function row(overrides: { masterProductId?: string | null; components?: unknown[
         ? masterProductId
         : overrides.masterProductId,
     },
+    compositionUnconfirmed: overrides.compositionUnconfirmed ?? false,
     option: {
       id: optionId,
       externalOptionId: 'OPTION-1',
@@ -33,29 +38,26 @@ function row(overrides: { masterProductId?: string | null; components?: unknown[
       updatedAt: new Date('2026-08-01T00:00:00.000Z'),
     },
     inventoryComponents: overrides.components ?? [{
-      sellpiaInventorySkuId: skuId,
+      masterProductId: skuId,
       code: 'SP-1',
       name: '재고',
       optionName: null,
       barcode: null,
       currentStock: 999,
       purchasePrice: 1_000,
-      isActive: true,
       quantity: 2,
     }],
   };
 }
 
 function dependencies(rows = [row()], inventoryItems = [{
-  sellpiaInventorySkuId: skuId,
+  masterProductId: skuId,
   currentStock: 10,
-  availableStock: 10,
-  isActive: true,
   generation: '1',
 }]) {
   const repository = { listAvailabilityRows: vi.fn().mockResolvedValue(rows) };
   const inventory = {
-    findBySkuIds: vi.fn().mockResolvedValue({
+    findByMasterProductIds: vi.fn().mockResolvedValue({
       snapshot: { collected: true, generation: '1', verifiedAt: '2026-08-01T00:00:00.000Z' },
       items: inventoryItems,
     }),
@@ -71,15 +73,15 @@ describe('ChannelSkuAvailabilityService', () => {
   it('calculates sellable capacity from the direct channel-option recipe and common availability', async () => {
     const { inventory, service } = dependencies();
     const [result] = await service.findByChannelSkuIds(organizationId, [optionId]);
-    expect(inventory.findBySkuIds).toHaveBeenCalledWith({
+    expect(inventory.findByMasterProductIds).toHaveBeenCalledWith({
       organizationId,
-      sellpiaInventorySkuIds: [skuId],
+      masterProductIds: [skuId],
     });
     expect(result).toMatchObject({
       masterProductId,
       recipeStatus: 'matched',
       sku: { id: optionId, mappingStatus: 'matched', sellableStock: 5 },
-      components: [{ quantity: 2, availableStock: 10, componentCapacity: 5, isBottleneck: true }],
+      components: [{ quantity: 2, currentStock: 10, componentCapacity: 5, isBottleneck: true }],
     });
   });
 
@@ -93,6 +95,38 @@ describe('ChannelSkuAvailabilityService', () => {
       recipeStatus: 'matched',
       sku: { mappingStatus: 'matched', sellableStock: 5 },
     });
+  });
+
+  it('holds only the option selected by an unresolved composition execution', async () => {
+    const secondOptionId = '00000000-0000-4000-8000-000000000007';
+    const selected = row({ compositionUnconfirmed: true });
+    const unaffected = {
+      ...row(),
+      option: { ...row().option, id: secondOptionId, externalOptionId: 'OPTION-2' },
+    };
+    const { service } = dependencies([selected, unaffected]);
+
+    const results = await service.findByChannelSkuIds(organizationId, [optionId, secondOptionId]);
+    const selectedResult = results.find((result) => result.sku.id === optionId);
+    const unaffectedResult = results.find((result) => result.sku.id === secondOptionId);
+
+    expect(selectedResult).toMatchObject({
+      recipeStatus: 'review_required',
+      sku: { mappingStatus: 'needs_review', sellableStock: null },
+      components: [{ currentStock: 10, quantity: 2, componentCapacity: 5, isBottleneck: null }],
+      warnings: ['composition_unconfirmed'],
+    });
+    expect(unaffectedResult).toMatchObject({
+      recipeStatus: 'matched',
+      sku: { mappingStatus: 'matched', sellableStock: 5 },
+      components: [{ currentStock: 10, quantity: 2, componentCapacity: 5, isBottleneck: true }],
+      warnings: [],
+    });
+
+    await expect(service.list(organizationId, { status: 'all', page: 1, limit: 50 }))
+      .resolves.toMatchObject({
+        summary: { total: 2, inStock: 1, outOfStock: 0, needsReview: 1 },
+      });
   });
 
   it('marks a linked option without a recipe as configuration required', async () => {
@@ -126,8 +160,6 @@ describe('ChannelSkuAvailabilityService', () => {
       warnings: ['inventory_unavailable'],
       components: [{
         currentStock: null,
-        availableStock: null,
-        isActive: null,
         componentCapacity: null,
         isBottleneck: null,
       }],

@@ -3,6 +3,8 @@ import { Test } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AdvertisingModule } from '../advertising.module';
+import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
+import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
 import { AdActionService } from '../application/service/ad-action.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -14,11 +16,11 @@ import {
 } from '../../test-helpers/real-prisma';
 import type { PrismaClient } from '@prisma/client';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
 describe('AdAction flow (PG integration)', () => {
   let prisma: PrismaClient;
   let adActionService: AdActionService;
-  let inventoryImportRunByOrganization = new Map<string, string>();
 
   async function seedListingWithOption(params: {
     organizationId: string;
@@ -58,12 +60,12 @@ describe('AdAction flow (PG integration)', () => {
         importedAt: new Date(),
       },
     });
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: params.organizationId,
-        code: `M-${unique}`,
-        name: `Master ${unique}`,
-      },
+    const master = await seedSourceProduct(prisma, {
+      organizationId: params.organizationId,
+      code: `SP-${unique}`,
+      name: `Master ${unique}`,
+      currentStock: params.sellableStock ?? 0,
+      purchasePrice: params.costPrice ?? null,
     });
     if (params.abcGrade === 'A' || params.abcGrade === 'B' || params.abcGrade === 'C') {
       await seedPublishedProductAbcGrades(prisma, {
@@ -71,24 +73,10 @@ describe('AdAction flow (PG integration)', () => {
         grades: [{ masterProductId: master.id, abcGrade: params.abcGrade }],
       });
     }
-    const matched = params.sellableStock != null;
-    const inventorySku = matched
-      ? await prisma.sellpiaInventorySku.create({
-          data: {
-            organizationId: params.organizationId,
-            code: `SP-${unique}`,
-            name: `Sellpia ${unique}`,
-            currentStock: params.sellableStock!,
-            purchasePrice: params.costPrice ?? null,
-            lastImportRunId: inventoryImportRunByOrganization.get(params.organizationId),
-          },
-        })
-      : null;
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
         channelAccountId: channelAccount.id,
-        masterProductId: master.id,
         externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
         lastImportRunId: importRun.id,
       },
@@ -103,16 +91,14 @@ describe('AdAction flow (PG integration)', () => {
         isActive: true,
       },
     });
-    if (inventorySku) {
-      await prisma.channelListingOptionInventoryComponent.create({
-        data: {
-          organizationId: params.organizationId,
-          channelListingOptionId: listingOption.id,
-          sellpiaInventorySkuId: inventorySku.id,
-          quantity: 1,
-        },
-      });
-    }
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: params.organizationId,
+        channelListingOptionId: listingOption.id,
+        masterProductId: master.id,
+        quantity: 1,
+      },
+    });
     const option = listingOption;
     return { master, option, listing, listingOption };
   }
@@ -278,20 +264,46 @@ describe('AdAction flow (PG integration)', () => {
     });
   }
 
-  async function seedPendingAction(targetLabel: string, organizationId = TEST_ORGANIZATION_ID) {
+  /**
+   * A proposal awaiting review. The lifecycle cases use campaign registration,
+   * the one action type the browser extension still executes (KID-138
+   * decision A); the others are applied by hand in the ad center.
+   */
+  async function seedPendingAction(
+    targetLabel: string,
+    organizationId = TEST_ORGANIZATION_ID,
+    actionType = 'create_campaign',
+  ) {
+    const numeric = actionType === 'change_bid' || actionType === 'change_daily_budget';
     return prisma.adAction.create({
       data: {
         organizationId,
-        actionType: 'change_daily_budget',
-        targetType: 'campaign',
+        actionType,
+        targetType:
+          actionType === 'pause_keyword' || actionType === 'change_bid' ? 'keyword' : 'campaign',
         targetLabel,
-        reason: targetLabel + ' 예산 조정',
+        reason: targetLabel + ' 제안',
         priority: 'high',
-        currentValue: 5000,
-        proposedValue: 3000,
+        currentValue: numeric ? 5000 : null,
+        proposedValue: numeric ? 3000 : null,
       },
       select: { id: true },
     });
+  }
+
+  /**
+   * An approved action with one queued attempt, written directly: what a
+   * database cut over before migration 015 (KID-230) existed still holds for
+   * an approval made before KID-138 decision A.
+   */
+  async function legacyQueuedAction(actionType: string, targetLabel: string) {
+    const action = await seedPendingAction(targetLabel, TEST_ORGANIZATION_ID, actionType);
+    await prisma.adAction.update({
+      where: { id: action.id },
+      data: { approvalStatus: 'approved', approvedAt: new Date() },
+    });
+    await prisma.executionTask.create({ data: { actionId: action.id, status: 'queued' } });
+    return action;
   }
 
   async function approvedAction(targetLabel: string) {
@@ -371,7 +383,6 @@ describe('AdAction flow (PG integration)', () => {
     vi.useRealTimers();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    inventoryImportRunByOrganization = new Map();
     for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
       const verifiedAt = new Date();
       const inventoryRun = await prisma.sourceImportRun.create({
@@ -389,7 +400,6 @@ describe('AdAction flow (PG integration)', () => {
           freshnessGeneration: 1n,
         },
       });
-      inventoryImportRunByOrganization.set(organizationId, inventoryRun.id);
       await prisma.sellpiaInventoryState.create({
         data: {
           organizationId,
@@ -918,6 +928,167 @@ describe('AdAction flow (PG integration)', () => {
       expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['cancelled']);
     });
 
+    it('#11b reject refuses an attempt running within its deadline; a failed or expired attempt is just rejected (KID-138)', async () => {
+      const running = await approvedAction('CAMP-REJECT-RUNNING');
+      const runningAttempt = await attemptOf(running.id);
+      await adActionService.markRunning(running.id, runningAttempt, { rowText: 'executor' }, TEST_ORGANIZATION_ID);
+
+      // The executor may already be writing to Coupang, so a rejection cannot stop it.
+      expect(await refusal(adActionService.rejectActions([running.id], TEST_ORGANIZATION_ID)))
+        .toMatchObject({ code: 'EXECUTION_TASK_RUNNING' });
+      expect(await reviewItem(running.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'running',
+        executionTaskId: runningAttempt,
+      });
+      await adActionService.markDone(running.id, runningAttempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      expect((await tasksOf(running.id)).map((task) => task.status)).toEqual(['done']);
+
+      const failed = await approvedAction('CAMP-REJECT-FAILED');
+      const failedAttempt = await attemptOf(failed.id);
+      await adActionService.markRunning(failed.id, failedAttempt, undefined, TEST_ORGANIZATION_ID);
+      await adActionService.markFailed(failed.id, failedAttempt, 'row not found', undefined, TEST_ORGANIZATION_ID);
+      const expired = await approvedAction('CAMP-REJECT-EXPIRED');
+      const expiredAttempt = await attemptOf(expired.id);
+      await adActionService.markRunning(expired.id, expiredAttempt, undefined, TEST_ORGANIZATION_ID);
+      await backdateStart(expiredAttempt, 30, 1_000);
+
+      await expect(adActionService.rejectActions([failed.id, expired.id], TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 2 });
+      expect(await reviewItem(failed.id)).toMatchObject({
+        approvalStatus: 'rejected',
+        executeStatus: 'failed',
+        errorMessage: 'row not found',
+      });
+      expect(await reviewItem(expired.id)).toMatchObject({
+        approvalStatus: 'rejected',
+        executeStatus: 'failed',
+        errorMessage: '실행 기한 초과',
+      });
+      expect((await tasksOf(failed.id)).map((task) => task.status)).toEqual(['failed']);
+    });
+
+    it('#11d reject refuses an action whose attempt already ran and changes nothing in the request (KID-138)', async () => {
+      const done = await approvedAction('CAMP-REJECT-DONE');
+      const doneAttempt = await attemptOf(done.id);
+      await adActionService.markRunning(done.id, doneAttempt, { rowText: 'executor' }, TEST_ORGANIZATION_ID);
+      await adActionService.markDone(done.id, doneAttempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+      const queued = await approvedAction('CAMP-REJECT-DONE-QUEUED');
+      const queuedAttempt = await attemptOf(queued.id);
+
+      // The change already reached Coupang; a rejection would hide a pause that happened.
+      expect(await refusal(adActionService.rejectActions([queued.id, done.id], TEST_ORGANIZATION_ID)))
+        .toMatchObject({ code: 'EXECUTION_TASK_DONE' });
+      expect(await reviewItem(done.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'done',
+        executionTaskId: doneAttempt,
+      });
+      // The queued action named in the same request is not rejected or cancelled either.
+      expect(await reviewItem(queued.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'queued',
+        executionTaskId: queuedAttempt,
+      });
+      expect((await tasksOf(done.id)).map((task) => task.status)).toEqual(['done']);
+      expect((await tasksOf(queued.id)).map((task) => task.status)).toEqual(['queued']);
+    });
+
+    it('#11c reject is refused when the executor starts the attempt while the rejection is deciding (KID-138)', async () => {
+      const action = await approvedAction('CAMP-REJECT-RACE');
+      const attempt = await attemptOf(action.id);
+      let claimed = false;
+      // The executor's running report commits right after the rejection read
+      // the attempt as queued, before the rejection cancels it.
+      const racing = prisma.$extends({
+        query: {
+          async $queryRaw({ args, query }) {
+            const result = await query(args);
+            const sql = (args as { strings?: readonly string[] }).strings?.join(' ') ?? '';
+            if (!claimed && sql.includes('execution_tasks')) {
+              claimed = true;
+              await adActionService.markRunning(action.id, attempt, { rowText: 'executor' }, TEST_ORGANIZATION_ID);
+            }
+            return result;
+          },
+        },
+      });
+      const rejecting = new AdActionRepositoryAdapter(
+        racing as never,
+        new AdListingRepositoryAdapter(prisma as never),
+      );
+
+      expect(await refusal(rejecting.rejectAdActions([action.id], TEST_ORGANIZATION_ID)))
+        .toMatchObject({ code: 'EXECUTION_TASK_RUNNING' });
+      expect(claimed).toBe(true);
+      expect(await reviewItem(action.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'running',
+        executionTaskId: attempt,
+      });
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['running']);
+    });
+
+    /**
+     * Rejects `actionId` while `report` commits between the rejection's read of
+     * the queued attempt and its cancellation; resolves to the rejection's result.
+     */
+    async function rejectWhileReported(actionId: string, report: () => Promise<unknown>) {
+      let reported = false;
+      const racing = prisma.$extends({
+        query: {
+          async $queryRaw({ args, query }) {
+            const result = await query(args);
+            const sql = (args as { strings?: readonly string[] }).strings?.join(' ') ?? '';
+            if (!reported && sql.includes('execution_tasks')) {
+              reported = true;
+              await report();
+            }
+            return result;
+          },
+        },
+      });
+      const rejecting = new AdActionRepositoryAdapter(
+        racing as never,
+        new AdListingRepositoryAdapter(prisma as never),
+      );
+      try {
+        return await rejecting.rejectAdActions([actionId], TEST_ORGANIZATION_ID);
+      } finally {
+        expect(reported).toBe(true);
+      }
+    }
+
+    it('#11e a rejection goes through when the queued attempt it read is closed as failed meanwhile, and is refused when that attempt finished (KID-138 review)', async () => {
+      // An executor's claim for a keyword pause approved before decision A
+      // closes its queued attempt as failed while the rejection decides.
+      const manual = await legacyQueuedAction('pause_keyword', 'KW-LEGACY-REJECT-RACE');
+      const manualAttempt = await attemptOf(manual.id);
+      await expect(rejectWhileReported(manual.id, async () => {
+        expect(await refusal(
+          adActionService.markRunning(manual.id, manualAttempt, undefined, TEST_ORGANIZATION_ID),
+        )).toMatchObject({ code: 'EXECUTION_REPORT_MANUAL_ACTION' });
+      })).resolves.toBe(1);
+      expect(await reviewItem(manual.id)).toMatchObject({
+        approvalStatus: 'rejected',
+        executeStatus: 'failed',
+        errorMessage: '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.',
+        executionTaskId: manualAttempt,
+      });
+
+      // An executor reports a campaign registration done while the rejection decides.
+      const campaign = await approvedAction('CAMP-REJECT-DONE-RACE');
+      const campaignAttempt = await attemptOf(campaign.id);
+      expect(await refusal(rejectWhileReported(campaign.id, () =>
+        adActionService.markDone(campaign.id, campaignAttempt, { status: 'submitted' }, TEST_ORGANIZATION_ID),
+      ))).toMatchObject({ code: 'EXECUTION_TASK_DONE' });
+      expect(await reviewItem(campaign.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'done',
+        executionTaskId: campaignAttempt,
+      });
+    });
+
     it('#12 an action awaiting review has no attempt to report against', async () => {
       const action = await seedPendingAction('CAMP-PENDING');
 
@@ -935,6 +1106,300 @@ describe('AdAction flow (PG integration)', () => {
         ),
       )).toMatchObject({ code: 'EXECUTION_TASK_NOT_LATEST' });
       expect(await tasksOf(action.id)).toEqual([]);
+    });
+  });
+
+  describe('actions applied by hand in the ad center (KID-138 decision A)', () => {
+    const MANUAL_TYPES = ['pause_keyword', 'change_bid', 'change_daily_budget'] as const;
+    const MANUAL_MESSAGE = '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.';
+    const MANUAL_REFUSAL = {
+      code: 'EXECUTION_REPORT_MANUAL_ACTION',
+      message: '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.',
+    };
+
+    it('#15 approving a keyword pause, a bid change or a budget change records a failed attempt saying to apply it by hand, and only a campaign registration enters the extension queue', async () => {
+      const manual: string[] = [];
+      for (const actionType of MANUAL_TYPES) {
+        manual.push((await seedPendingAction(`MANUAL-${actionType}`, TEST_ORGANIZATION_ID, actionType)).id);
+      }
+      const campaign = await seedPendingAction('CAMP-STILL-EXECUTED');
+
+      await expect(adActionService.approveActions([...manual, campaign.id], TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 4 });
+
+      for (const id of manual) {
+        const tasks = await tasksOf(id);
+        expect(tasks).toEqual([
+          expect.objectContaining({
+            status: 'failed',
+            errorMessage: MANUAL_MESSAGE,
+            startedAt: null,
+            finishedAt: expect.any(Date),
+          }),
+        ]);
+        expect(await reviewItem(id)).toMatchObject({
+          approvalStatus: 'approved',
+          executeStatus: 'failed',
+          errorMessage: MANUAL_MESSAGE,
+          executionTaskId: tasks[0].id,
+        });
+      }
+      expect((await tasksOf(campaign.id)).map((task) => task.status)).toEqual(['queued']);
+      expect(await extensionQueueIds()).toEqual([campaign.id]);
+      const { summary } = await adActionService.getActions({}, TEST_ORGANIZATION_ID);
+      expect(summary).toMatchObject({ pendingReview: 0, approvedQueued: 1, running: 0, failed: 3 });
+
+      // Approving again records the confirmation again and still queues nothing.
+      await adActionService.approveActions(manual, TEST_ORGANIZATION_ID);
+      for (const id of manual) {
+        expect((await tasksOf(id)).map((task) => [task.status, task.errorMessage])).toEqual([
+          ['failed', MANUAL_MESSAGE],
+          ['failed', MANUAL_MESSAGE],
+        ]);
+      }
+      expect(await extensionQueueIds()).toEqual([campaign.id]);
+    });
+
+    it('#16 a running or done report for the queued attempt of an approval made before decision A is refused and closes that attempt, while a campaign registration still starts', async () => {
+      const campaign = await legacyQueuedAction('create_campaign', 'CAMP-LEGACY-QUEUED');
+      const legacy: Array<{ id: string; reported: 'running' | 'done' }> = [];
+      for (const actionType of MANUAL_TYPES) {
+        for (const reported of ['running', 'done'] as const) {
+          const action = await legacyQueuedAction(actionType, `LEGACY-${actionType}-${reported}`);
+          legacy.push({ id: action.id, reported });
+        }
+      }
+      expect((await extensionQueueIds()).sort()).toEqual(
+        [campaign.id, ...legacy.map(({ id }) => id)].sort(),
+      );
+
+      for (const { id, reported } of legacy) {
+        const attempt = await attemptOf(id);
+        const report =
+          reported === 'running'
+            ? adActionService.markRunning(id, attempt, { url: 'ad-center' }, TEST_ORGANIZATION_ID)
+            : adActionService.markDone(id, attempt, { status: 'submitted' }, TEST_ORGANIZATION_ID);
+        expect(await refusal(report)).toEqual(MANUAL_REFUSAL);
+        expect(await tasksOf(id)).toEqual([
+          expect.objectContaining({
+            id: attempt,
+            status: 'failed',
+            errorMessage: MANUAL_MESSAGE,
+            startedAt: null,
+            finishedAt: expect.any(Date),
+            beforeJson: null,
+            afterJson: null,
+          }),
+        ]);
+        expect(await reviewItem(id)).toMatchObject({
+          executeStatus: 'failed',
+          errorMessage: MANUAL_MESSAGE,
+          executionTaskId: attempt,
+        });
+        // Repeating the report is refused the same way and changes nothing more.
+        expect(await refusal(
+          adActionService.markRunning(id, attempt, undefined, TEST_ORGANIZATION_ID),
+        )).toEqual(MANUAL_REFUSAL);
+        expect((await tasksOf(id)).map((task) => task.status)).toEqual(['failed']);
+      }
+      expect(await extensionQueueIds()).toEqual([campaign.id]);
+
+      const campaignAttempt = await attemptOf(campaign.id);
+      await adActionService.markRunning(campaign.id, campaignAttempt, { url: 'ad-center' }, TEST_ORGANIZATION_ID);
+      expect(await reviewItem(campaign.id)).toMatchObject({
+        executeStatus: 'running',
+        beforeJson: { url: 'ad-center' },
+      });
+    });
+
+    it('#17 a refused done report leaves an attempt that already runs to its deadline, and the failure report of its executor is recorded', async () => {
+      const action = await legacyQueuedAction('pause_keyword', 'LEGACY-RUNNING');
+      const attempt = await attemptOf(action.id);
+      // An extension from before decision A claimed the attempt.
+      await prisma.executionTask.update({
+        where: { id: attempt },
+        data: { status: 'running', startedAt: new Date(Date.now() - 60 * 1000) },
+      });
+
+      expect(await refusal(
+        adActionService.markDone(action.id, attempt, { status: 'paused_attempted' }, TEST_ORGANIZATION_ID),
+      )).toEqual(MANUAL_REFUSAL);
+      expect(await tasksOf(action.id)).toEqual([
+        expect.objectContaining({ id: attempt, status: 'running', finishedAt: null, errorMessage: null }),
+      ]);
+
+      await adActionService.markFailed(
+        action.id,
+        attempt,
+        '대상 행을 찾지 못했습니다: LEGACY-RUNNING',
+        undefined,
+        TEST_ORGANIZATION_ID,
+      );
+      expect(await tasksOf(action.id)).toEqual([
+        expect.objectContaining({
+          id: attempt,
+          status: 'failed',
+          errorMessage: '대상 행을 찾지 못했습니다: LEGACY-RUNNING',
+          finishedAt: expect.any(Date),
+        }),
+      ]);
+    });
+
+    it('#18 a failure report for the queued attempt of a manual action is recorded as reported', async () => {
+      const action = await legacyQueuedAction('change_bid', 'LEGACY-FAILED');
+      const attempt = await attemptOf(action.id);
+
+      await adActionService.markFailed(
+        action.id,
+        attempt,
+        '대상 행을 찾지 못했습니다: LEGACY-FAILED',
+        { url: 'ad-center' },
+        TEST_ORGANIZATION_ID,
+      );
+      // The extension repeats a report whose response it lost.
+      await adActionService.markFailed(
+        action.id,
+        attempt,
+        '대상 행을 찾지 못했습니다: LEGACY-FAILED',
+        { url: 'ad-center' },
+        TEST_ORGANIZATION_ID,
+      );
+
+      expect(await reviewItem(action.id)).toMatchObject({
+        executeStatus: 'failed',
+        errorMessage: '대상 행을 찾지 못했습니다: LEGACY-FAILED',
+        afterJson: { url: 'ad-center' },
+        executionTaskId: attempt,
+      });
+      expect((await tasksOf(action.id)).map((task) => task.status)).toEqual(['failed']);
+      expect(await extensionQueueIds()).toEqual([]);
+    });
+
+    it('#19 keeps an approved bid or budget change out of the next generation until the operator closes it', async () => {
+      const zeroStock = await seedListingWithOption({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+        sellableStock: 0,
+      });
+      await seedSnapshot({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: zeroStock.listing.id,
+        listingOptionId: zeroStock.listingOption.id,
+        optionId: zeroStock.option.id,
+        pageType: 'campaign',
+        externalId: 'CAMP-MANUAL-BUDGET',
+        campaignName: 'Manual budget campaign',
+        dailyBudget: 10000,
+      });
+      const bidTarget = await seedListingWithOption({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+      });
+      await seedSnapshot({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: bidTarget.listing.id,
+        listingOptionId: bidTarget.listingOption.id,
+        optionId: bidTarget.option.id,
+        pageType: 'keyword',
+        externalId: 'KW-MANUAL-BID',
+        keyword: 'manual bid',
+        currentBid: 1000,
+        spend: 1000,
+        conversions: 2,
+        roas: 150,
+      });
+
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID))
+        .resolves.toMatchObject({ generated: 2, skippedExisting: 0 });
+      const proposals = await prisma.adAction.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        select: { id: true, actionType: true },
+      });
+      expect(proposals.map((proposal) => proposal.actionType).sort())
+        .toEqual(['change_bid', 'change_daily_budget']);
+      const ids = proposals.map((proposal) => proposal.id);
+
+      await adActionService.approveActions(ids, TEST_ORGANIZATION_ID);
+      // The ad center keeps the old values until the operator applies them and
+      // a later sweep reads them, so the rules fire again; the confirmed
+      // proposals still stand.
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID))
+        .resolves.toMatchObject({ generated: 0, skippedExisting: 2 });
+
+      await adActionService.rejectActions(ids, TEST_ORGANIZATION_ID);
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID))
+        .resolves.toMatchObject({ generated: 2, skippedExisting: 0 });
+    });
+  });
+
+  describe('reviews that name the review they expect (KID-138 review)', () => {
+    const MANUAL_MESSAGE = '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.';
+    const keywordPause = (label: string) =>
+      seedPendingAction(label, TEST_ORGANIZATION_ID, 'pause_keyword');
+
+    it('#20 a bulk rejection of proposals awaiting review skips one another operator approved meanwhile', async () => {
+      const pending = await keywordPause('KW-PENDING');
+      const confirmed = await keywordPause('KW-CONFIRMED');
+      // Another operator confirms a proposal after this operator's list was read.
+      await adActionService.approveActions([confirmed.id], TEST_ORGANIZATION_ID);
+
+      await expect(
+        adActionService.rejectActions([pending.id, confirmed.id], TEST_ORGANIZATION_ID, {
+          expectedApprovalStatus: 'pending_review',
+        }),
+      ).resolves.toEqual({ updated: 1 });
+
+      expect(await reviewItem(pending.id)).toMatchObject({ approvalStatus: 'rejected' });
+      expect(await reviewItem(confirmed.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'failed',
+        errorMessage: MANUAL_MESSAGE,
+      });
+    });
+
+    it('#21 an approval of proposals awaiting review skips a rejected one and one already approved', async () => {
+      const pending = await keywordPause('KW-PENDING');
+      const closed = await keywordPause('KW-CLOSED');
+      await adActionService.rejectActions([closed.id], TEST_ORGANIZATION_ID);
+      const confirmed = await keywordPause('KW-CONFIRMED');
+      await adActionService.approveActions([confirmed.id], TEST_ORGANIZATION_ID);
+
+      await expect(
+        adActionService.approveActions([pending.id, closed.id, confirmed.id], TEST_ORGANIZATION_ID, {
+          expectedApprovalStatus: 'pending_review',
+        }),
+      ).resolves.toEqual({ updated: 1 });
+
+      expect(await reviewItem(pending.id)).toMatchObject({
+        approvalStatus: 'approved',
+        executeStatus: 'failed',
+      });
+      expect(await reviewItem(closed.id)).toMatchObject({ approvalStatus: 'rejected' });
+      expect(await tasksOf(closed.id)).toEqual([]);
+      // The confirmation is not recorded a second time.
+      expect((await tasksOf(confirmed.id)).map((task) => task.status)).toEqual(['failed']);
+    });
+
+    it('#22 closing approved proposals skips one still awaiting review', async () => {
+      const pending = await keywordPause('KW-PENDING');
+      const confirmed = await keywordPause('KW-CONFIRMED');
+      await adActionService.approveActions([confirmed.id], TEST_ORGANIZATION_ID);
+
+      await expect(
+        adActionService.rejectActions([pending.id, confirmed.id], TEST_ORGANIZATION_ID, {
+          expectedApprovalStatus: 'approved',
+        }),
+      ).resolves.toEqual({ updated: 1 });
+
+      expect(await reviewItem(confirmed.id)).toMatchObject({
+        approvalStatus: 'rejected',
+        executeStatus: 'failed',
+        errorMessage: MANUAL_MESSAGE,
+      });
+      expect(await reviewItem(pending.id)).toMatchObject({
+        approvalStatus: 'pending_review',
+        executionTaskId: null,
+      });
     });
   });
 
@@ -1027,6 +1492,7 @@ describe('AdAction flow (PG integration)', () => {
       const foreignAction = await prisma.adAction.findFirstOrThrow({
         where: { organizationId: OTHER_ORGANIZATION_ID },
       });
+      // A budget change is applied by hand, so its approval records one failed attempt.
       await adActionService.approveActions([foreignAction.id], OTHER_ORGANIZATION_ID);
       const [foreignAttempt] = await tasksOf(foreignAction.id);
 
@@ -1035,13 +1501,35 @@ describe('AdAction flow (PG integration)', () => {
       ).rejects.toThrow(/not found/i);
       await adActionService.approveActions([foreignAction.id], TEST_ORGANIZATION_ID);
 
-      expect((await tasksOf(foreignAction.id)).map((task) => task.status)).toEqual(['queued']);
+      expect((await tasksOf(foreignAction.id)).map((task) => task.status)).toEqual(['failed']);
       const own = await adActionService.getActions({}, TEST_ORGANIZATION_ID);
       expect(own.items).toEqual([]);
-      expect(own.summary).toMatchObject({ pendingReview: 0, approvedQueued: 0, running: 0 });
+      expect(own.summary).toMatchObject({ pendingReview: 0, approvedQueued: 0, running: 0, failed: 0 });
       const foreign = await adActionService.getActions({}, OTHER_ORGANIZATION_ID);
       expect(foreign.items.map((item) => [item.id, item.approvalStatus, item.executeStatus]))
-        .toEqual([[foreignAction.id, 'approved', 'queued']]);
+        .toEqual([[foreignAction.id, 'approved', 'failed']]);
+    });
+
+    it('#14 approve and reject answer how many distinct actions of the organization they found (KID-212)', async () => {
+      const first = await seedPendingAction('CAMP-COUNT-1');
+      const second = await seedPendingAction('CAMP-COUNT-2');
+      const foreign = await seedPendingAction('CAMP-COUNT-FOREIGN', OTHER_ORGANIZATION_ID);
+      const unknownId = '00000000-0000-4000-8000-00000000abcd';
+      // A duplicate id, another organization's action and an id no action has.
+      const requested = [first.id, second.id, first.id, foreign.id, unknownId];
+
+      await expect(adActionService.approveActions(requested, TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 2 });
+      await expect(adActionService.rejectActions(requested, TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 2 });
+      await expect(adActionService.approveActions([foreign.id, unknownId], TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 0 });
+      await expect(adActionService.rejectActions([foreign.id, unknownId], TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 0 });
+
+      expect(await prisma.adAction.findUniqueOrThrow({ where: { id: foreign.id } }))
+        .toMatchObject({ approvalStatus: 'pending_review' });
+      expect(await tasksOf(foreign.id)).toEqual([]);
     });
   });
 });

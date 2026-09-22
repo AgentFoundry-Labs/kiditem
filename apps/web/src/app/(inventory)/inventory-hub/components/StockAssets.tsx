@@ -30,7 +30,6 @@ export default function StockAssets() {
     pricedAssetValue: 0,
     unpricedSkuCount: 0,
   };
-  const hasPublishedSnapshot = Boolean(data?.latestImport);
 
   return (
     <section className="space-y-5">
@@ -45,17 +44,17 @@ export default function StockAssets() {
         <AssetCard
           icon={CircleDollarSign}
           label="평가 재고자산"
-          value={hasPublishedSnapshot ? `${formatNumber(summary.pricedAssetValue)}원` : '미수집'}
+          value={`${formatNumber(summary.pricedAssetValue)}원`}
         />
         <AssetCard
           icon={Package}
           label="총 재고수량"
-          value={hasPublishedSnapshot ? `${formatNumber(summary.totalUnits)}개` : '미수집'}
+          value={`${formatNumber(summary.totalUnits)}개`}
         />
         <AssetCard
           icon={Tags}
           label="가격 미등록 SKU"
-          value={hasPublishedSnapshot ? `${formatNumber(summary.unpricedSkuCount)}개` : '미수집'}
+          value={`${formatNumber(summary.unpricedSkuCount)}개`}
         />
       </div>
       <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
@@ -66,7 +65,7 @@ export default function StockAssets() {
               {isLoading ? (
                 <tr><td colSpan={5} className="py-12 text-center text-[var(--text-secondary)]">불러오는 중...</td></tr>
               ) : data?.items.length ? data.items.map((item) => (
-                <tr key={item.sellpiaInventorySkuId}>
+                <tr key={item.masterProductId}>
                   <td className="font-mono text-xs">{item.code}</td>
                   <td className="font-medium">{item.name}</td>
                   <td className="text-right">{formatNumber(item.currentStock)}</td>

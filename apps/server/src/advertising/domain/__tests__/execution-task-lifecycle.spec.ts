@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isExpiredRunningExecutionTask,
+  isManualAdActionType,
   isOpenExecutionTask,
   resolveExecutionReport,
 } from '../execution-task-lifecycle';
@@ -47,6 +48,22 @@ describe('isOpenExecutionTask', () => {
   });
 });
 
+describe('isManualAdActionType', () => {
+  it('names keyword pauses, bid changes and daily budget changes, and nothing else (KID-138 decision A)', () => {
+    expect(
+      [
+        'pause_keyword',
+        'change_bid',
+        'change_daily_budget',
+        'create_campaign',
+        'pause_campaign',
+        'PAUSE_KEYWORD',
+        '',
+      ].filter(isManualAdActionType),
+    ).toEqual(['pause_keyword', 'change_bid', 'change_daily_budget']);
+  });
+});
+
 describe('resolveExecutionReport', () => {
   const LATEST = 'task-latest';
   const latestTask = (status: string, startedAt: Date | null = startedMinutesAgo(5)) => ({
@@ -54,6 +71,8 @@ describe('resolveExecutionReport', () => {
     status,
     startedAt,
   });
+  // The browser extension still executes campaign registration.
+  const EXECUTED_TYPE = 'create_campaign';
 
   it.each([
     // An action without an attempt has nothing a report could name.
@@ -81,6 +100,7 @@ describe('resolveExecutionReport', () => {
   ] as const)('latest task %s, reported %s for it → %s', (latest, reported, decision) => {
     expect(
       resolveExecutionReport(
+        EXECUTED_TYPE,
         latest === null ? null : latestTask(latest),
         { executionTaskId: LATEST, status: reported },
         NOW,
@@ -94,6 +114,7 @@ describe('resolveExecutionReport', () => {
       for (const startedAt of [startedMinutesAgo(30, 1), null]) {
         expect(
           resolveExecutionReport(
+            EXECUTED_TYPE,
             latestTask('running', startedAt),
             { executionTaskId: LATEST, status: reported },
             NOW,
@@ -106,6 +127,7 @@ describe('resolveExecutionReport', () => {
   it('still takes an outcome report for a running attempt exactly at its deadline', () => {
     expect(
       resolveExecutionReport(
+        EXECUTED_TYPE,
         latestTask('running', startedMinutesAgo(30)),
         { executionTaskId: LATEST, status: 'done' },
         NOW,
@@ -126,12 +148,65 @@ describe('resolveExecutionReport', () => {
       for (const reported of ['running', 'done', 'failed'] as const) {
         expect(
           resolveExecutionReport(
+            EXECUTED_TYPE,
             latestTask(latest, startedAt),
             { executionTaskId: 'task-older', status: reported },
             NOW,
           ),
         ).toBe('not_latest_attempt');
       }
+    },
+  );
+
+  describe.each(['pause_keyword', 'change_bid', 'change_daily_budget'])(
+    'for a %s action, which the extension never applies (KID-138 decision A)',
+    (manualType) => {
+      const decide = (
+        latest: ReturnType<typeof latestTask> | null,
+        status: 'running' | 'done' | 'failed',
+        executionTaskId = LATEST,
+      ) => resolveExecutionReport(manualType, latest, { executionTaskId, status }, NOW);
+
+      it.each([
+        // An executor claiming a queued attempt, such as one a database cut over
+        // before migration 015 (KID-230) existed still holds from an approval
+        // before decision A, never gets to write.
+        ['queued', 'running', 'manual_action'],
+        ['queued', 'done', 'manual_action'],
+        ['running', 'running', 'manual_action'],
+        ['running', 'done', 'manual_action'],
+        ['done', 'running', 'manual_action'],
+        ['failed', 'running', 'manual_action'],
+        ['failed', 'done', 'manual_action'],
+        ['cancelled', 'running', 'manual_action'],
+        ['cancelled', 'done', 'manual_action'],
+        // Repeating the recorded outcome changes nothing, as for any action:
+        // an executor from before decision A repeats a done report whose
+        // response it lost.
+        ['done', 'done', 'replay'],
+        ['failed', 'failed', 'replay'],
+        // A failure report changes nothing in the ad center and follows the lifecycle.
+        ['queued', 'failed', 'apply'],
+        ['running', 'failed', 'apply'],
+        ['done', 'failed', 'invalid_transition'],
+        ['cancelled', 'failed', 'invalid_transition'],
+      ] as const)('latest task %s, reported %s for it → %s', (latest, reported, decision) => {
+        expect(decide(latestTask(latest), reported)).toBe(decision);
+      });
+
+      it('still refuses a report for an older attempt, or for none, before anything else', () => {
+        for (const reported of ['running', 'done', 'failed'] as const) {
+          expect(decide(latestTask('queued'), reported, 'task-older')).toBe('not_latest_attempt');
+          expect(decide(null, reported)).toBe('not_latest_attempt');
+        }
+      });
+
+      it('still refuses a report for a running attempt past its deadline as expired', () => {
+        for (const reported of ['running', 'done', 'failed'] as const) {
+          expect(decide(latestTask('running', startedMinutesAgo(30, 1)), reported)).toBe('expired');
+          expect(decide(latestTask('running', null), reported)).toBe('expired');
+        }
+      });
     },
   );
 });

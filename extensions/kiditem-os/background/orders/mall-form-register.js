@@ -15,6 +15,32 @@
 
   const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
   const FILL_TIMEOUT_MS = 120000;
+  const EXECUTION_CONTEXT_FIELDS = ["executionId", "payloadHash", "leaseToken"];
+
+  /**
+   * A target-backed registration may carry the server's provider-I/O lease.
+   * The extension only echoes this context; it does not create, renew, or
+   * report the execution fence. Fill-only callers omit it entirely.
+   */
+  function normalizeExecutionContext(message) {
+    const nestedProvided = message && typeof message === "object"
+      && Object.prototype.hasOwnProperty.call(message, "executionContext")
+      && message.executionContext !== undefined;
+    const source = nestedProvided ? message.executionContext : message;
+    const topLevelSupplied = !nestedProvided && source && typeof source === "object"
+      && EXECUTION_CONTEXT_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(source, field));
+    if (!nestedProvided && !topLevelSupplied) return null;
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      throw new Error("등록 실행 컨텍스트가 올바르지 않습니다.");
+    }
+    const context = {};
+    for (const field of EXECUTION_CONTEXT_FIELDS) {
+      const value = typeof source[field] === "string" ? source[field].trim() : "";
+      if (!value) throw new Error("등록 실행 컨텍스트가 올바르지 않습니다.");
+      context[field] = value;
+    }
+    return context;
+  }
 
   /**
    * 몰별로 다른 것 전부.
@@ -119,7 +145,7 @@
       // 동작이었다. 이제 아무 창도 열리지 않으므로 사람이 켜고 끌 이유도 없다.
       detailHost: "kidsnote",
     },
-    artgonggu: {
+    art09: {
       label: "아트공구",
       origin: "https://zzogzzog1.cafe24.com",
       pathPrefix: "/disp/admin/shop1/product/ProductRegister",
@@ -164,7 +190,7 @@
         applyWaitMs: 1500,
       },
     },
-    alwayz: {
+    always: {
       label: "올웨이즈",
       origin: "https://alwayzseller.ilevit.com",
       pathPrefix: "/items/registrations",
@@ -541,7 +567,7 @@
      * 사진은 화면의 사진 칸 처리(`imgInfo.uploadPrdImg`)로, 기술서 사진은 편집기가 쓰는 임시 업로드로 GS 서버에
      * 올린다. `임시저장`·`전체저장` 은 부르지 않는다. 확인창은 거절한다.
      */
-    gsshop: {
+    "gs-shop": {
       label: "GS샵",
       origin: "https://partners.gsshop.com",
       pathPrefix: "/product/products/create",
@@ -573,7 +599,7 @@
      * 콜백을 그대로 부른다. 상세 이미지는 편집기(CKEditor)의 사진 업로드 — 편집기 안내대로 사진을 끌어다
      * 놓을 때 도는 그 길 — 로 넣는다. `저장`·`임시저장` 은 부르지 않고, 확인창은 거절한다.
      */
-    lotteon: {
+    "lotte-on": {
       label: "롯데ON",
       origin: "https://store.lotteon.com",
       pathPrefix: "/cm/main/index_SO.wsp",
@@ -746,7 +772,7 @@
      * 판매사이트(G마켓·옥션) 체크박스는 둘 다 켜진 채로 열린다 — 건드리지 않는다.
      * 배송(택배사·발송정책·출고지·배송비·반품지)도 계정 템플릿으로 이미 차 있다.
      */
-    esmplus: {
+    gmarket: {
       label: "ESM Plus(G마켓·옥션)",
       origin: "https://item.esmplus.com",
       pathPrefix: "/goods/new",
@@ -844,7 +870,7 @@
       // ⚠️ `detailHost` 를 두지 않는다. 두면 키즈노트에 먼저 올리려다 그 몰 로그인이
       // 풀렸을 때 ESM 등록까지 막힌다 — 실제로 그렇게 막혔다(라이브 2026-09-11).
     },
-    icecream: {
+    "icecream-mall": {
       label: "아이스크림몰",
       origin: "https://po.i-screammall.co.kr",
       pathPrefix: "/goods/temporaryGeneralGoods",
@@ -911,7 +937,7 @@
       detailHost: "kidsnote",
     },
 
-    teacherville: {
+    "teacher-mall": {
       label: "티처몰",
       origin: "https://shop.teacherville.co.kr",
       pathPrefix: "/selleradmin/goods/regist",
@@ -1095,6 +1121,27 @@
     },
   };
 
+  // The provider implementation predates the shared channel registry and keeps
+  // its historical keys internally. Expose the registry keys as aliases so the
+  // browser uses one channel vocabulary without duplicating any form policy.
+  const CHANNEL_SPEC_ALIASES = Object.freeze({
+    artgonggu: "art09",
+    alwayz: "always",
+    gsshop: "gs-shop",
+    lotteon: "lotte-on",
+    esmplus: "gmarket",
+    icecream: "icecream-mall",
+    teacherville: "teacher-mall",
+  });
+  for (const [channelKey, specKey] of Object.entries(CHANNEL_SPEC_ALIASES)) {
+    Object.defineProperty(SPECS, channelKey, {
+      value: SPECS[specKey],
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+  }
+
   /**
    * 상세 이미지를 올릴 곳.
    *
@@ -1200,7 +1247,10 @@
   }
 
   function specFor(mall) {
-    const spec = SPECS[mall];
+    const registry = root.KidItemChannelRegistry;
+    const channelKey = registry ? registry.channelFormSpec(mall) : mall;
+    const specKey = CHANNEL_SPEC_ALIASES[channelKey] || channelKey;
+    const spec = SPECS[specKey];
     if (!spec) throw new Error(`지원하지 않는 몰입니다 — ${mall}`);
     return spec;
   }
@@ -6263,6 +6313,20 @@
     }
 
     async function register(message) {
+      let executionContext;
+      try {
+        executionContext = normalizeExecutionContext(message);
+      } catch (error) {
+        return {
+          success: false,
+          ok: false,
+          submitted: false,
+          steps: [],
+          warnings: [],
+          manualSteps: [],
+          error: error?.message || "등록 실행 컨텍스트가 올바르지 않습니다.",
+        };
+      }
       const spec = specFor(message?.mall);
       const form = normalizeForm(spec, message?.form);
 
@@ -6646,7 +6710,7 @@
           await chromeApi.tabs.remove(tab.id).catch(() => undefined);
         }
       }
-      return {
+      const result = {
         success: outcome.ok === true,
         ok: outcome.ok === true,
         tabId: tab.id,
@@ -6660,6 +6724,23 @@
         manualSteps: form.manualSteps,
         ...(outcome.error ? { error: outcome.error } : {}),
       };
+      if (executionContext) {
+        result.executionContext = executionContext;
+        // Keep the three fields visible to the web boundary that already
+        // consumes WING registration evidence as top-level values.
+        result.executionId = executionContext.executionId;
+        result.payloadHash = executionContext.payloadHash;
+        result.leaseToken = executionContext.leaseToken;
+        // These are observations of this form attempt only. In particular,
+        // fill success never becomes provider submission success.
+        result.evidence = {
+          submitted: result.submitted,
+          accepted: result.submitted ? (submission?.accepted ?? null) : null,
+          productNo: result.submitted ? (submission?.productNo ?? null) : null,
+          mallMessage: result.submitted ? (submission?.mallMessage ?? null) : null,
+        };
+      }
+      return result;
     }
 
     /**
@@ -6700,6 +6781,7 @@
     FILL_TIMEOUT_MS,
     PUBLIC_IMAGE_SOURCE_ORIGINS,
     PUBLIC_IMAGE_BATCH,
+    FORM_MALL_KEYS: Object.freeze(Object.keys(SPECS)),
     // [등록]까지 누를 수 있는 몰(ADR-0015) — 몰마다 등록 버튼 · 결과 화면을 확인한 몰만.
     SUBMIT_MALL_KEYS: Object.keys(SPECS).filter((key) => Boolean(SPECS[key].submit)),
     pageFunctions: {

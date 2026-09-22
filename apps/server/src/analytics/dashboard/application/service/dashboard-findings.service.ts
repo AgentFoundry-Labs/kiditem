@@ -13,7 +13,7 @@ import {
 } from '../../domain/findings/dashboard-findings';
 import { businessDateText } from '../../domain/period/dashboard-period';
 import {
-  CHANNEL_LISTINGS_SOURCE,
+  CHANNEL_REGISTRATIONS_SOURCE,
   SELLPIA_INVENTORY_SOURCE,
   SELLPIA_PRODUCT_SALES_SOURCE,
   metricBasisMap,
@@ -41,16 +41,20 @@ export class DashboardFindingsService {
   async getFindings(ctx: DashboardContext, organizationId: string): Promise<DashboardFindings> {
     const [summary, rejected] = await Promise.all([
       this.productSales.getSummary(organizationId),
-      this.repository.readRejectedListings(organizationId),
+      this.repository.readRegistrationFailures(organizationId),
     ]);
     const salesDecline = findSalesDecline(summary);
     const reorderSuggestions = findReorderSuggestions(summary);
     const readAsOf = businessDateText(ctx.anchor);
+    const reorderProductCount = summary.hasData && summary.hasStock && summary.completeMonths.length > 0
+      ? summary.reorderCount
+      : null;
 
     return {
       productSalesCapturedAt: summary.hasData ? summary.lastCapturedAt : null,
       salesDecline,
       reorderSuggestions,
+      reorderProductCount,
       registrationFailures: {
         count: rejected.reduce((sum, row) => sum + row.count, 0),
         byChannel: rejected.map((row) => ({ channel: row.channel, mallName: row.mallName, count: row.count })),
@@ -73,12 +77,20 @@ export class DashboardFindingsService {
           sources: [SELLPIA_INVENTORY_SOURCE, SELLPIA_PRODUCT_SALES_SOURCE],
           measured: reorderSuggestions !== null,
         }),
-        // Listing states are read as stored, now.
+        reorderProductCount: snapshotEvidence({
+          asOf: summary.stockCapturedAt ? businessDateText(new Date(summary.stockCapturedAt)) : null,
+          requiredAsOf: readAsOf,
+          observedAt: summary.stockCapturedAt,
+          sources: [SELLPIA_INVENTORY_SOURCE, SELLPIA_PRODUCT_SALES_SOURCE],
+          measured: reorderProductCount !== null,
+          withheldCount: summary.inventoryResolutionCounts.mappingRequiredSalesRows,
+        }),
+        // Latest registration executions are read as stored, now.
         'registrationFailures.count': snapshotEvidence({
           asOf: readAsOf,
           requiredAsOf: readAsOf,
           observedAt: ctx.now,
-          sources: [CHANNEL_LISTINGS_SOURCE],
+          sources: [CHANNEL_REGISTRATIONS_SOURCE],
         }),
       }),
     };

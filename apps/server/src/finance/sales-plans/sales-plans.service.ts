@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { SalesPlanActuals, SalesPlanView } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -10,6 +15,10 @@ import {
 } from '../../common/per-listing-profit';
 import { kstMonthWindow } from '../../common/kst';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../products/application/port/in/product-transactional-read.port';
 
 const PLAN_TARGET_SELECT = {
   id: true,
@@ -41,6 +50,8 @@ function achievementRate(actual: number | null | undefined, target: number): num
 export class SalesPlansService {
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
   ) {}
 
   async findAll(organizationId: string, now: Date): Promise<SalesPlanView[]> {
@@ -148,7 +159,12 @@ export class SalesPlansService {
     if (!match) return null;
     const window = resolveFinanceWindow(kstMonthWindow(Number(match[1]), Number(match[2])), now);
     const facts = await this.prisma.$transaction(
-      (tx) => readProfitWindowFacts(tx, organizationId, window),
+      (tx) => readProfitWindowFacts(
+        tx,
+        organizationId,
+        window,
+        this.inventoryTransactionalRead,
+      ),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
     const totals = profitWindowTotals(facts);

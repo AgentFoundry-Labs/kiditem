@@ -10,7 +10,7 @@ This folder owns four surfaces:
 - `/product-hub/matching`: channel option recipe review;
 - `/product-hub/sales-products`: 판매상품 list, Sabangnet workbook import
   (preview, then commit), and the one-screen editor with the option table,
-  per-option Sellpia link, and per-mall values (ADR-0014). Saving sends only
+  per-option source template, and reusable Channels registration targets (ADR-0020). Saving sends only
   changed fields; options follow the basics save with the returned version.
   The shared mall bulk-sheet dialog (`src/components/mall-sheet/`) downloads
   filled mall templates; the operator uploads them to the mall. The editor
@@ -72,7 +72,7 @@ This folder owns four surfaces:
   source status, never as zero cost or C. Revenue/profit contribution, rank,
   and cumulative share are separate reporting metrics and do not affect the
   absolute ABC grade.
-- Product detail and matching share the Products-owned complete
+- Product detail and matching share the Channels-owned complete
   option-component replacement API. A sole option is displayed as the default
   option; there is no separate listing-level product picker.
 - Matching may confirm one clearly separated name candidate only when option

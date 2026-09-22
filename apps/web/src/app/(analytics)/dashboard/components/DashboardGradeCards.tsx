@@ -27,25 +27,22 @@ type DashboardGradeCardsProps = Pick<
   DashboardInventorySummary,
   | 'gradeCount'
   | 'classifiedProductCount'
-  | 'abcStatusCount'
   | 'abcContributionProfit'
   | 'abcFormula'
 >;
 
 const GRADE_LABELS: Record<ProductAbcGrade, string> = { A: '고수익 핵심', B: '수익 성장', C: '수익 개선' };
 
-const GRADE_NAME = (grade: ProductAbcGrade | null) => grade ?? '미분류';
-
 export function DashboardGradeCards({
-  gradeCount, classifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula,
-  gradeChanges, changesMeasured = false, newProductCount = null,
-  basis, contributionBasis, refetchReads,
+  gradeCount, classifiedProductCount, unclassifiedProductCount, abcContributionProfit, abcFormula,
+  basis, unclassifiedBasis, contributionBasis, refetchReads,
 }: DashboardGradeCardsProps & {
-  /** Ungraded because younger than the minimum sale age — 신상품; null when unmeasured. */
-  newProductCount?: number | null;
-  /** The current publication's grade movement, as the server counted it. */
-  gradeChanges?: DashboardInventorySummary['gradeChanges'];
-  changesMeasured?: boolean;
+  /** Optional for older dashboard fixtures; the API now publishes this count. */
+  unclassifiedProductCount?: number;
+  /** Products' dedicated evidence for the unclassified population. */
+  unclassifiedBasis?: DashboardMetricBasis | null;
+  /** Kept for existing callers; activation timestamps are not published by the current contract. */
+  asOf?: string | null;
   basis?: DashboardMetricBasis | null;
   contributionBasis?: DashboardMetricBasis | null;
   /** The dashboard reads this panel renders, refetched after a publication. */
@@ -56,22 +53,17 @@ export function DashboardGradeCards({
   const [feedback, setFeedback] = useState<ProductAbcRecalculationFeedback | null>(null);
   const refresh = useProductAbcRecalculation({ onFeedback: setFeedback, refetchReads });
   const gradeMeasured = basisHasValues(basis ?? null);
+  const unclassifiedMeasured = basisHasValues(unclassifiedBasis ?? null);
 
-  // 다른 맨 윗줄 칸과 같은 가로 줄로 선다(사장님 2026-09-20). 이름 옆 작은 화살표가 이번
-  // 계산에서 들어오고 나간 수다.
-  const flowOf = (grade: ProductAbcGrade) => {
-    const flow = changesMeasured ? gradeChanges?.byGrade?.[grade] ?? null : null;
-    return flow ? `▲${formatNumber(flow.in)} ▼${formatNumber(flow.out)}` : undefined;
-  };
   const profitOf = (grade: ProductAbcGrade) => (basisHasValues(contributionBasis ?? null)
     ? `가중 영업이익 ${formatNumber(abcContributionProfit.amountByGrade[grade])}원`
     : '가중 영업이익 미수집');
   const gradeMetric = (grade: ProductAbcGrade): HeadlineMetric => ({
     key: `abc${grade}`,
-    label: `${grade} 등급`,
+    label: grade,
+    ariaLabel: `${grade}등급 — ${profitOf(grade)}`,
     value: gradeMeasured ? formatNumber(gradeCount[grade]) : null,
     unit: '개',
-    suffix: flowOf(grade),
     note: profitOf(grade),
     href: `/product-hub?abcGrade=${grade}`,
   });
@@ -79,7 +71,7 @@ export function DashboardGradeCards({
   return (
     <>
       <HeadlineCard
-        title="상품"
+        title="수익성 ABC"
         icon={Layers}
         tone="emerald"
         href="/product-hub"
@@ -90,12 +82,21 @@ export function DashboardGradeCards({
           gradeMetric('B'),
           gradeMetric('C'),
           {
-            key: 'abcNew',
-            label: '신상품',
-            value: newProductCount === null ? null : formatNumber(newProductCount),
+            key: 'abcUnclassified',
+            label: '미분류',
+            value: !unclassifiedMeasured || unclassifiedProductCount === undefined
+              ? null
+              : formatNumber(unclassifiedProductCount),
             unit: '개',
-            note: `판매 ${abcFormula?.minimumSaleAgeDays ?? 30}일이 안 돼 아직 등급을 매기지 않는 상품`,
-            href: '/product-hub',
+            note: '공식 ABC 근거가 아직 없는 상품',
+            href: '/product-hub?abcGrade=unclassified',
+          },
+          {
+            key: 'abcReady',
+            label: '계산 완료',
+            value: gradeMeasured ? formatNumber(classifiedProductCount) : null,
+            unit: '개',
+            note: '현재 ABC 등급이 발행된 상품',
           },
         ]}
         headerRight={(
@@ -104,6 +105,7 @@ export function DashboardGradeCards({
               label="수익성 ABC 근거"
               entries={[
                 { label: 'ABC 등급', basis },
+                { label: '미분류 상품', basis: unclassifiedBasis ?? null },
                 { label: '가중 영업이익', basis: contributionBasis ?? null },
               ]}
               meaning={<AbcCriteria formula={abcFormula} contributionBasis={abcContributionProfit.basis} />}
@@ -157,9 +159,6 @@ function AbcCriteria({
   const { gradeThresholds: t, weights: w, halfLifeDays, minimumSaleAgeDays } = formula;
   return (
     <>
-      {formula.historicalAdvertisingPolicy === 'EXCLUDED_V1' ? (
-        <p className="font-semibold">광고비 제외 판(v{formula.version}): 셀피아 매출과 매입가만으로 이익을 셉니다.</p>
-      ) : null}
       <p>
         경제점수 = 이익 {Math.round(w.profit * 100)}% + 마진 {Math.round(w.margin * 100)}% +
         판매 일관성 {Math.round(w.consistency * 100)}%. 오래된 실적일수록 가볍게 세며, 반감기는 {halfLifeDays}일입니다.

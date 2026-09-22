@@ -3,20 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockDetectRuntime = vi.hoisted(() => vi.fn());
 const mockSend = vi.hoisted(() => vi.fn());
 
-const mockSummary = vi.hoisted(() => vi.fn());
-const mockRecord = vi.hoisted(() => vi.fn());
-
 vi.mock('../extension-bridge', () => ({
   detectOrderCollectionExtensionRuntime: mockDetectRuntime,
   sendToExtension: mockSend,
 }));
 
-vi.mock('../mall-operation-outcomes-api', () => ({
-  mallOperationOutcomesApi: { summary: mockSummary },
-  recordMallOperationOutcome: mockRecord,
-}));
-
-import { detectMallSessionProbe, probeMallSession, sweepMallSessions } from '../mall-session-probe';
+import {
+  detectMallSessionProbe,
+  probeMallSession,
+  sweepMallSessions,
+} from '../mall-session-probe';
 
 describe('detectMallSessionProbe', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -48,7 +44,7 @@ describe('probeMallSession', () => {
     expect(mockSend).toHaveBeenCalledWith(
       'ext',
       { action: 'checkMallLogin', mallKey: 'always', siteUrl: 'https://alwayzseller.ilevit.com/login' },
-      60_000,
+      45_000,
     );
     expect(result).toMatchObject({ mallKey: 'always', state: 'signed_out', reason: 'login_page' });
   });
@@ -56,7 +52,7 @@ describe('probeMallSession', () => {
   it('sends no address when none is saved', async () => {
     mockSend.mockResolvedValueOnce({ success: true, state: 'signed_in', reason: 'admin_page' });
     await probeMallSession('ext', 'onch');
-    expect(mockSend).toHaveBeenCalledWith('ext', { action: 'checkMallLogin', mallKey: 'onch' }, 60_000);
+    expect(mockSend).toHaveBeenCalledWith('ext', { action: 'checkMallLogin', mallKey: 'onch' }, 45_000);
   });
 
   it('keeps a verification answer as its own state', async () => {
@@ -88,11 +84,7 @@ describe('probeMallSession', () => {
 });
 
 describe('sweepMallSessions — 이번 바퀴에 건너뛸 몰', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockSummary.mockResolvedValue({ rows: [] });
-    mockRecord.mockResolvedValue(undefined);
-  });
+  beforeEach(() => vi.clearAllMocks());
 
   /**
    * 로그인이 안 된 몰을 그냥 수집하면 로그인 화면만 열고 실패하면서 몰 탭이 하나 남는다.
@@ -119,8 +111,20 @@ describe('sweepMallSessions — 이번 바퀴에 건너뛸 몰', () => {
     expect(mockSend).toHaveBeenCalledWith(
       'ext',
       { action: 'checkMallLogin', mallKey: 'art09', siteUrl: 'https://zzogzzog1.cafe24.com/admin/php/main.php' },
-      60_000,
+      45_000,
     );
+  });
+
+  it('keeps successful current probing local without calling a history API', async () => {
+    mockDetectRuntime.mockResolvedValueOnce({ status: 'ready', extensionId: 'ext', version: '1.0.96' });
+    mockSend.mockImplementation((_id: string, message: { mallKey: string }) =>
+      Promise.resolve({ success: true, mallKey: message.mallKey, state: 'signed_out' }),
+    );
+
+    const sweep = await sweepMallSessions(['coupang-direct', 'rocket']);
+
+    expect(sweep).toMatchObject({ checked: 2, signedOut: 2 });
+    expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
   it('확장이 없으면 아무 몰도 건드리지 않고 빈 목록을 돌려준다', async () => {

@@ -8,7 +8,6 @@ import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
 import {
   COLLECTION_IDLE_POLL_MS,
-  type CollectionSourceAdapter,
   type CollectionStartOutcome,
 } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
@@ -22,6 +21,7 @@ import {
   orderCollectionExtensionUnavailableMessage,
 } from './order-collection-extension';
 import { todayYmd } from './order-collection-page-model';
+import type { OrderCollectionSourceAdapter } from './order-collection-source-adapter';
 import {
   beginOrderCollectionSourceAttempt,
   ORDER_COLLECTION_SOURCE_PATH,
@@ -30,7 +30,7 @@ import {
   type ActiveOrderCollectionAttempt,
   type OrderCollectionSourceAttemptControl,
 } from './order-collection-source-owner';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 
 export type OrderCollectionMode = 'browser' | 'manual-upload';
@@ -238,10 +238,13 @@ export function mallOrderCollectionSource({
   handOff: (handoff: MallOrderCollectionHandoff) => Promise<void>;
   /** Ends this browser's procedure for the attempt the operator is stopping. */
   abortLocalRun?: (attemptId: string) => void;
-}>): CollectionSourceAdapter<MallOrderCollectionSourceList, MallOrderCollectionStartInput> {
+}>): OrderCollectionSourceAdapter<MallOrderCollectionSourceList> {
   return {
     sourceKey: `orders.mall:${account.key}`,
     label: `${account.name} 주문 수집`,
+    // 몰 카드는 누르면 바로 수집한다 — 무엇을 수집할지 먼저 고르는 화면이 없고, 이 원천만의
+    // 시작 불가 사유도 없다(설정되지 않은 몰은 owner 가 시작을 거절하며 안내한다).
+    card: { opensChooser: false, startBlockedReason: null },
     statusQuery: collectionSourceStatusQueryOptions<
       MallOrderCollectionSourceList,
       Error,

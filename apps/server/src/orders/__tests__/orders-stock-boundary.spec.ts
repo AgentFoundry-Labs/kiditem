@@ -51,15 +51,19 @@ describe('Orders stock boundary', () => {
     expect(moduleSource).not.toContain('RocketPoConfirmService');
   });
 
-  it('reads Sellpia inventory but never re-owns Inventory stock decisions', () => {
+  it('reads Sellpia inventory through the published owner port', () => {
     const source = productionTypeScriptFiles(ORDERS_ROOT)
       .map((file) => readFileSync(file, 'utf8'))
       .join('\n');
 
     // Rocket confirmation is Supply owned. Orders must not create an
-    // accountless reservation or mutate physical stock.
+    // accountless reservation or mutate physical stock, and it must not
+    // import Inventory persistence implementations directly.
     for (const forbidden of [
-      'InventoryModule',
+      "inventory/adapter/out/persistence",
+      "inventory/adapter/out/repository",
+      "inventory/read",
+      "inventory/transaction",
       'INVENTORY_PORT',
       'reservedStock',
       'RocketInventoryLedger',

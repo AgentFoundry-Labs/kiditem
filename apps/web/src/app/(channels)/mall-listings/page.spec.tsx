@@ -17,6 +17,12 @@ const { fillKidsnoteMock, prepareKidsnoteMock, generateWingExcelMock, downloadWi
     generateWingExcelMock: vi.fn(),
     downloadWingExcelMock: vi.fn(),
   }));
+const { resolveTargetMock, targetHistoryMock, executeTargetMock, ensureCandidateMock } = vi.hoisted(() => ({
+  resolveTargetMock: vi.fn(),
+  targetHistoryMock: vi.fn(),
+  executeTargetMock: vi.fn(),
+  ensureCandidateMock: vi.fn(),
+}));
 
 // 등록현황은 쿠팡 칸의 지금 재고를 확장으로 읽는다. 몰에 닿는 그 한 단계만 막는다.
 const { readMallAvailabilityManyMock } = vi.hoisted(() => ({ readMallAvailabilityManyMock: vi.fn() }));
@@ -30,12 +36,15 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
     if (queryKey.includes('targets')) {
-      return { data: [], isLoading: false, isError: false, error: null };
+      return { data: publishTargets, isLoading: false, isSuccess: true, isError: false, error: null };
     }
     // 품절 송신 컨트롤이 읽는 후보. 이 표의 관심사가 아니라 비워 둔다 — 컨트롤은
     // 후보가 없으면 스스로 서지 않는다.
     if (queryKey.includes('availability-preview')) {
       return { data: { candidates: [] }, isLoading: false, isError: false, error: null };
+    }
+    if (queryKey.includes('registration-target-choices')) {
+      return { data: [], isLoading: false, isSuccess: true, isError: false, error: null };
     }
     if (queryKey.includes('sales-products')) {
       return {
@@ -88,6 +97,23 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }));
 
+vi.mock('@/lib/registration-target-api', () => ({
+  registrationTargetApi: { resolve: resolveTargetMock },
+}));
+
+vi.mock('../_shared/registration-execution-api', () => ({
+  listRegistrationTargetExecutions: targetHistoryMock,
+}));
+
+vi.mock('../_shared/target-registration-execution', () => ({
+  executeTargetRegistration: executeTargetMock,
+  isActiveTargetExecution: (execution: { status: string }) => ['prepared', 'executing', 'reconciling'].includes(execution.status),
+}));
+
+vi.mock('@/lib/candidate-sales-product-registration', () => ({
+  ensureCandidateSalesProduct: ensureCandidateMock,
+}));
+
 vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api', () => ({
   productsApi: { list: vi.fn() },
 }));
@@ -115,6 +141,43 @@ vi.mock('../_shared/MallAdminListingsImport', () => ({
 
 let matrixData: unknown = { columns: [], rows: [], total: 0, page: 1, limit: 25 };
 
+function publishTarget(key: string, name: string, channelAccountId: string | null) {
+  return {
+    manifest: {
+      key,
+      name,
+      kind: key === 'coupang' ? 'extension_excel' : 'extension_form',
+      difficulty: 'low',
+      unverified: false,
+      applicable: true,
+      supports: {
+        createListing: true, updateListing: false, setStock: null, setSaleStatus: null,
+        soldOut: false, resume: false,
+      },
+      soldOutRoute: null,
+      resumeRoute: null,
+      hazards: {
+        soldOutDeletesListing: false, suspendAutoDeletesAfterDays: null, irreversibleStates: [],
+        updateResetsApproval: false, stockWriteOverwritesPrice: false, requiresOperatorApproval: false,
+        fullPayloadOnUpdate: false, resumeRequiresAlternatePath: false,
+      },
+      limits: { maxPerRequest: null, ratePerSecond: null, maxOptionsPerListing: null, minStockValue: null },
+      preflightRules: [],
+      requiredProfileFields: [],
+      note: '',
+    },
+    hasCredentials: Boolean(channelAccountId),
+    channelAccountId,
+    hasListingProfile: true,
+    readiness: channelAccountId ? 'ready' : 'needs_account',
+  };
+}
+
+const publishTargets = [
+  publishTarget('coupang', '쿠팡(마켓플레이스)', null),
+  publishTarget('kidsnote', '키즈노트', '11111111-1111-4111-8111-111111111111'),
+];
+
 /** 마법사는 '새 등록' 탭 뒤에 있다. 기본 화면은 등록 현황이다. 기본 출처는 판매상품이다. */
 function goToWizard(source: 'candidate' | 'sales_product' = 'candidate') {
   fireEvent.click(screen.getByRole('button', { name: '새 등록' }));
@@ -139,6 +202,20 @@ beforeEach(() => {
     steps: [],
     warnings: [],
     manualSteps: ['화면에서 등록 신청 버튼을 누르세요.'],
+  });
+  resolveTargetMock.mockResolvedValue({ id: 'target-id', version: 1 });
+  targetHistoryMock.mockResolvedValue([]);
+  ensureCandidateMock.mockImplementation(async (candidateId: string) => ({ id: `sales-${candidateId}` }));
+  executeTargetMock.mockResolvedValue({
+    execution: { executionId: 'execution-id', status: 'reconciling', providerOutcome: 'uncertain' },
+    outcome: {
+      ok: false,
+      confirmed: false,
+      submitted: false,
+      manualSteps: ['화면에서 등록 신청 버튼을 누르세요.'],
+      warnings: ['몰 결과를 확인해야 합니다.'],
+    },
+    adapterCalled: true,
   });
   generateWingExcelMock.mockResolvedValue({ bytes: new Uint8Array([1]), productCount: 2 });
   // 기본은 읽는 중 그대로 둔다 — 창의 버튼을 세는 테스트가 읽기 결과에 흔들리지 않게.
@@ -228,12 +305,13 @@ describe('상품 등록 (N × M)', () => {
     fireEvent.click(screen.getByRole('button', { name: /4건 보내기/ }));
 
     await waitFor(() => {
-      expect(fillKidsnoteMock).toHaveBeenCalledTimes(2);
+      expect(executeTargetMock).toHaveBeenCalledTimes(2);
     });
     // 엑셀은 파일 하나에 2건, 폼은 1건씩 2번. 작업은 3개다.
     expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
     expect(generateWingExcelMock).toHaveBeenCalledWith(['c1', 'c2'], expect.anything());
     expect(downloadWingExcelMock).toHaveBeenCalledTimes(1);
+    expect(resolveTargetMock).toHaveBeenCalledTimes(2);
   });
 
   it('보냈다고 등록됐다고 말하지 않는다', async () => {
@@ -246,20 +324,19 @@ describe('상품 등록 (N × M)', () => {
     fireEvent.click(screen.getByRole('button', { name: /1건 보내기/ }));
 
     await waitFor(() => {
-      expect(screen.getByText('끝남')).toBeInTheDocument();
+      expect(screen.getByText('결과 확인 필요')).toBeInTheDocument();
     });
-    expect(screen.getByText('끝났습니다. 몰에 올라간 것은 몰 상품을 다시 가져와 확인합니다.')).toBeInTheDocument();
+    expect(screen.queryByText('끝남')).not.toBeInTheDocument();
+    expect(screen.queryByText('끝났습니다. 몰에 올라간 것은 몰 상품을 다시 가져와 확인합니다.')).not.toBeInTheDocument();
     expect(screen.getByText('화면에서 등록 신청 버튼을 누르세요.')).toBeInTheDocument();
-    // 확장이 [등록]을 누르지 않은 몰은 사람 몫으로 센다 — 폼을 채운 것은 등록이 아니다(ADR-0015).
-    expect(screen.getByText('폼 채움 — [등록]은 사람이 누릅니다.')).toBeInTheDocument();
     const acceptedCard = screen.getByText('몰이 받음').parentElement as HTMLElement;
     expect(within(acceptedCard).getByText('0')).toBeInTheDocument();
     const personCard = screen.getByText('사람이 등록할 것').parentElement as HTMLElement;
-    expect(within(personCard).getByText('1')).toBeInTheDocument();
+    expect(within(personCard).getByText('0')).toBeInTheDocument();
   });
 
   it('한 몰이 실패해도 다음 몰을 계속 보낸다', async () => {
-    fillKidsnoteMock.mockRejectedValue(new Error('확장을 새로고침하세요'));
+    executeTargetMock.mockRejectedValue(new Error('확장을 새로고침하세요'));
     render(<MallListingsPage />);
     goToWizard();
     selectProduct('킬러볼 스피너 키링');

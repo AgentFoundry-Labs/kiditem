@@ -44,7 +44,15 @@ import {
   parseBusinessDate,
 } from '../../../common/kst';
 import { ProfitLossService } from '../../../finance/services/profit-loss.service';
-import { seedActiveSellpiaInventorySku } from '../../../test-helpers/inventory-seeds';
+import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
+import {
+  PRODUCT_ABC_READ_PORT,
+  type ProductAbcReadPort,
+} from '../../../products/application/port/in/product-abc-read.port';
+import { buildProductAbcReadModel } from '../../../products/domain/product-abc-read-model';
+import { readProductAbcPublication } from '../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import { periodOf } from './test-helpers/period';
 import type { PrismaClient } from '@prisma/client';
 
@@ -55,6 +63,57 @@ import type { PrismaClient } from '@prisma/client';
  * the clock reproduces that instant in any runner timezone.
  */
 const KST_DAWN = new Date('2026-09-14T15:46:00.000Z');
+
+function productAbcRead(prisma: PrismaClient): ProductAbcReadPort {
+  return {
+    readAbc: async (input: {
+      organizationId: string;
+      masterProductIds: readonly string[];
+    }) => {
+      const publication = await prisma.$transaction((tx) =>
+        readProductAbcPublication(tx, input),
+      );
+      const targetCutoff = publication.publication?.officialCutoffDate ?? '2026-06-30';
+      const actualCutoff = publication.publication?.officialCutoffDate ?? null;
+      const source = {
+        requiredCutoff: targetCutoff,
+        actualCutoff,
+        latestAttemptState: publication.publication ? 'COMPLETE' as const : null,
+      };
+      return {
+        targetCutoff,
+        actualCutoff,
+        capturedAt: publication.publication?.publishedAt ?? null,
+        publication: publication.publication,
+        products: publication.products.map((product) => ({
+          masterProductId: product.masterProductId,
+          saleStartDate: product.evaluation?.saleStartDate ?? null,
+          contributionEligible: product.contributionEligible,
+          abc: buildProductAbcReadModel({
+            evaluation: product.evaluation,
+            mappingValid: product.contributionEligible,
+            saleStartDate: product.evaluation?.saleStartDate ?? null,
+            evidence: {
+              actualCutoff,
+              mappingGeneration: publication.publication?.mappingGeneration ?? null,
+              sellpia: source,
+              advertising: source,
+            },
+            formulaState: {
+              formulaRevision: product.evaluation?.formulaRevision
+                ?? publication.publication?.formulaRevision
+                ?? publication.currentFormulaRevision,
+              publicationRevision: publication.publication?.publicationRevision ?? 0,
+              officialCutoffDate: publication.publication?.officialCutoffDate ?? null,
+              publishedAt: publication.publication?.publishedAt ?? null,
+              mappingGeneration: publication.currentMappingGeneration,
+            },
+          }),
+        })),
+      };
+    },
+  };
+}
 
 describe('DashboardSalesService.getSummary (PG integration)', () => {
   let prisma: PrismaClient;
@@ -71,6 +130,8 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         DashboardSalesRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,
         ProfitCalculationRepositoryAdapter,
+        { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
+        { provide: PRODUCT_ABC_READ_PORT, useValue: productAbcRead(prisma) },
         { provide: PrismaService, useValue: prisma },
         { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
         { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
@@ -1119,7 +1180,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: listing.listingOptionId,
-        sellpiaInventorySkuId: secondaryOption.id,
+        masterProductId: secondaryOption.id,
         quantity: 2,
       },
     });
@@ -1160,7 +1221,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const REQUESTED = ['2026-03-01', '2026-03-02', '2026-03-03'];
 
     function buildAdapter(): ProfitCalculationRepositoryAdapter {
-      return new ProfitCalculationRepositoryAdapter(prisma as unknown as PrismaService);
+      return new ProfitCalculationRepositoryAdapter(
+        prisma as unknown as PrismaService,
+        new ProductTransactionalReadRepositoryAdapter(),
+      );
     }
 
     let coverageListingId: string | null = null;
@@ -1338,7 +1402,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         },
       });
       await publishedRows();
-      const failed = await new ProfitCalculationRepositoryAdapter(broken as unknown as PrismaService)
+      const failed = await new ProfitCalculationRepositoryAdapter(
+        broken as unknown as PrismaService,
+        new ProductTransactionalReadRepositoryAdapter(),
+      )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
       const emptyPublication = await buildAdapter().calculateForRange(
         TEST_ORGANIZATION_ID,
@@ -1463,7 +1530,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       let skuId: string;
       if (opts.purchasePrice === null) {
         skuId = randomUUID();
-        await seedActiveSellpiaInventorySku(prisma, {
+        await seedSourceProduct(prisma, {
           id: skuId, organizationId: TEST_ORGANIZATION_ID, code: `SKU-AGREE-${code}`, name: `Unpriced ${code}`,
         });
       } else {
@@ -1491,11 +1558,18 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
     async function profitEverywhere() {
       const client = prisma as unknown as PrismaService;
-      const card = await new ProfitCalculationRepositoryAdapter(client)
+      const card = await new ProfitCalculationRepositoryAdapter(
+        client,
+        new ProductTransactionalReadRepositoryAdapter(),
+      )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO, { anchor: AFTER }));
-      const topProducts = await new DashboardSalesRepositoryAdapter(client)
+      const topProducts = await new DashboardSalesRepositoryAdapter(
+        client,
+        new ProductTransactionalReadRepositoryAdapter(),
+        productAbcRead(prisma),
+      )
         .fetchTopProducts(TEST_ORGANIZATION_ID, FROM, TO);
-      const profitLoss = await new ProfitLossService(client)
+      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter())
         .findAll(TEST_ORGANIZATION_ID, 2026, 3, AFTER);
       return {
         card: card.netProfit,

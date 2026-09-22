@@ -1,9 +1,14 @@
+import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
 // Product identity and published grade hydrated through a scoped channel link.
 
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { readProductAbcPublication } from '../../../../products/read/product-abc-publication.reader';
+import { readProductAbcPublication } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
 import type {
   AdListingRepositoryPort,
   ScopedAdListingReadModel,
@@ -12,7 +17,12 @@ import type {
 
 @Injectable()
 export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products?: ProductTransactionalReadPort,
+  ) {}
 
   async findScopedAdListings(
     organizationId: string,
@@ -47,7 +57,7 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     organizationId: string,
     ids: string[],
   ): Promise<ScopedAdListingSnapshot> {
-    const listings = await tx.channelListing.findMany({
+    const listingRows = await tx.channelListing.findMany({
       where: {
         id: { in: ids },
         organizationId,
@@ -58,20 +68,26 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
         externalId: true,
         channelName: true,
         displayName: true,
-        masterProduct: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-          },
-        },
       },
     });
+    const summaries = await readListingProductIds(tx, { organizationId, listingIds: listingRows.map((row) => row.id) });
+    const listings = listingRows.map((row) => ({ ...row, masterProductId: summaries.get(row.id) ?? null }));
+    const masterProductIds = [...new Set(listings.flatMap((listing) =>
+      listing.masterProductId ? [listing.masterProductId] : []))];
+    const identities = this.products
+      ? await this.products.readSourceIdentities(
+        { client: tx },
+        { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+      )
+      : [];
+    const identityById = new Map(identities.map((identity) => [
+      identity.masterProductId,
+      identity,
+    ]));
     // One publication read yields the grades and the cutoff that fences them.
     const abc = await readProductAbcPublication(tx, {
       organizationId,
-      masterProductIds: listings.flatMap((listing) =>
-        listing.masterProduct ? [listing.masterProduct.id] : []),
+      masterProductIds,
     });
     const gradeByProductId = new Map(abc.products.flatMap((product) =>
       product.evaluation
@@ -79,13 +95,18 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
         : []));
     const out = new Map<string, ScopedAdListingReadModel>();
     for (const listing of listings) {
+      const identity = listing.masterProductId
+        ? identityById.get(listing.masterProductId) ?? null
+        : null;
       out.set(listing.id, {
         id: listing.id,
         externalId: listing.externalId,
         channelName: listing.channelName,
-        masterProduct: listing.masterProduct ? {
-          ...listing.masterProduct,
-          abcGrade: gradeByProductId.get(listing.masterProduct.id) ?? null,
+        masterProduct: identity ? {
+          id: identity.masterProductId,
+          code: identity.code,
+          name: identity.name,
+          abcGrade: gradeByProductId.get(identity.masterProductId) ?? null,
         } : {
           id: listing.id,
           code: listing.externalId,

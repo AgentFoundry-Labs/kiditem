@@ -4,11 +4,11 @@ import { useMemo } from 'react';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
 import {
-  isSellpiaInventoryLastAttemptStopped,
+  isSellpiaInventoryCollectionStopped,
   SellpiaInventoryGenerationSchema,
   SellpiaSyncScopeSchema,
-  type SellpiaInventoryFreshnessStatus,
-  type SellpiaInventoryFreshnessView,
+  type SellpiaInventoryCollectionStatus,
+  type SellpiaInventoryCollectionStatusView,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   COLLECTION_IDLE_POLL_MS,
@@ -22,7 +22,7 @@ import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-stat
 import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
 import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
-import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
+import { sellpiaInventoryCollectionStatusApi } from '@/lib/sellpia-inventory-freshness-api';
 import { invalidateSellpiaInventory } from './invalidate-sellpia-inventory';
 
 export const SELLPIA_INVENTORY_SOURCE_PATH = '/api/inventory/sellpia-source';
@@ -32,9 +32,6 @@ export const SELLPIA_INVENTORY_EXTENSION_CAPABILITY =
 
 const SELLPIA_SOURCE_OWNER_TRIGGERS = [
   'initial_snapshot',
-  'ttl_expired',
-  'same_hash_confirmation',
-  'purchase_preflight',
   'manual_request',
   'retry',
 ] as const;
@@ -83,7 +80,7 @@ export function beginSellpiaInventorySourceAttempt(
   idempotencyKey: string,
   trigger: Extract<
     SellpiaInventorySourceOwnerTrigger,
-    'manual_request' | 'purchase_preflight' | 'retry'
+    'manual_request' | 'retry'
   >,
 ): Promise<SellpiaInventorySourceAttempt> {
   return apiClient
@@ -117,8 +114,10 @@ function cancelSellpiaInventoryAttempt(attemptId: string) {
 }
 
 export type SellpiaInventorySourceOwnerState = {
-  status: SellpiaInventoryFreshnessStatus;
-  lastVerifiedAt: string | null;
+  status: SellpiaInventoryCollectionStatus;
+  lastCompletedAt: string | null;
+  lastCompletedAttemptId: string | null;
+  lastAttemptId: string | null;
   errorMessage: string | null;
   sourceBindingConfirmed: boolean;
   /** The last attempt was stopped; the previous snapshot stays in use. */
@@ -126,15 +125,15 @@ export type SellpiaInventorySourceOwnerState = {
 };
 
 /**
- * The owner's freshness read names the attempt holding the live lease, so every
+ * The owner's collection-status read names the attempt holding the live lease, so every
  * browser shows and stops the same collection. A manual upload holds the lease
  * without an attempt and shows as running without a stop.
  */
-function sellpiaInventoryRunning(freshness: SellpiaInventoryFreshnessView): CollectionRunning | null {
-  if (freshness.activeSync) {
-    return { attemptId: freshness.activeSync.attemptId, scopeLabel: null };
+function sellpiaInventoryRunning(status: SellpiaInventoryCollectionStatusView): CollectionRunning | null {
+  if (status.activeSync) {
+    return { attemptId: status.activeSync.attemptId, scopeLabel: null };
   }
-  return freshness.status === 'syncing' ? { attemptId: null, scopeLabel: null } : null;
+  return status.status === 'running' ? { attemptId: null, scopeLabel: null } : null;
 }
 
 
@@ -147,18 +146,18 @@ export function sellpiaInventoryCollection({
   organizationId,
 }: Readonly<{
   organizationId: string | null;
-}>): CollectionSourceAdapter<SellpiaInventoryFreshnessView> {
+}>): CollectionSourceAdapter<SellpiaInventoryCollectionStatusView> {
   return {
     sourceKey: 'inventory.sellpia',
     label: '셀피아 재고 수집',
     statusQuery: collectionSourceStatusQueryOptions<
-      SellpiaInventoryFreshnessView,
+      SellpiaInventoryCollectionStatusView,
       Error,
-      SellpiaInventoryFreshnessView,
+      SellpiaInventoryCollectionStatusView,
       QueryKey
     >({
-      queryKey: queryKeys.inventory.sellpiaSource(organizationId ?? ''),
-      queryFn: () => sellpiaInventoryFreshnessApi.getState(),
+      queryKey: queryKeys.inventory.sellpiaCollectionStatus(organizationId ?? ''),
+      queryFn: () => sellpiaInventoryCollectionStatusApi.getState(),
       enabled: Boolean(organizationId),
       refetchInterval: COLLECTION_IDLE_POLL_MS,
       refetchIntervalInBackground: false,
@@ -187,7 +186,7 @@ export function sellpiaInventoryCollection({
 }
 
 /**
- * The Sellpia inventory collection control with the freshness state its
+ * The Sellpia inventory collection control with the collection state its
  * screens show. Every mounted copy shares start, stop and running state.
  */
 export function useSellpiaInventoryCollection({ enabled = true }: { enabled?: boolean } = {}) {
@@ -201,19 +200,21 @@ export function useSellpiaInventoryCollection({ enabled = true }: { enabled?: bo
   const control = useCollectionSourceControl(adapter);
   const statusQueryKey = adapter.statusQuery.queryKey;
   const binding = useMutation({
-    mutationFn: sellpiaInventoryFreshnessApi.confirmSourceBinding,
+    mutationFn: sellpiaInventoryCollectionStatusApi.confirmSourceBinding,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: statusQueryKey, exact: true }),
   });
   const freshness = control.status;
   const state: SellpiaInventorySourceOwnerState | null = freshness
     ? {
       status: freshness.status,
-      lastVerifiedAt: freshness.lastVerifiedAt,
+      lastCompletedAt: freshness.lastCompletedAt,
+      lastCompletedAttemptId: freshness.lastCompletedAttemptId,
+      lastAttemptId: freshness.lastAttemptId,
       errorMessage: freshness.status === 'failed'
         ? freshness.lastAttempt?.errorMessage ?? null
         : null,
       sourceBindingConfirmed: freshness.sourceBinding.confirmed,
-      stopped: isSellpiaInventoryLastAttemptStopped(freshness),
+      stopped: isSellpiaInventoryCollectionStopped(freshness),
     }
     : null;
 

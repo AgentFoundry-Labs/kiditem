@@ -11,8 +11,8 @@ families and NestJS owner APIs; generated files may use `fetchRaw()`.
 - Marketplace page access uses the unified extension bridge, never web-page
   scraping or direct page mutation.
 - Order collection and order processing remain independent active routes.
-- Products owns channel-option recipe repair. Rocket may create an empty recipe
-  or replace a reviewed complete recipe through Products' optimistic APIs; it
+- Channels owns channel-option recipe repair. Rocket may create an empty recipe
+  or replace a reviewed complete recipe through Channels' optimistic APIs; it
   never edits physical stock.
 - Rocket catalog and preview use Supply's purchase-order action contract and do
   not create Inventory commitments.

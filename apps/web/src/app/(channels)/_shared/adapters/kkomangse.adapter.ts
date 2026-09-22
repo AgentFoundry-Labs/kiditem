@@ -1,7 +1,5 @@
 import { prepareRegistration } from '../sales-product-registration';
-import {
-  fillMallRegistrationForm,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   KKOMANGSE_COMMISSION_RATE,
   KKOMANGSE_DEFAULT_CATEGORY,
@@ -11,7 +9,7 @@ import {
   kkomangseSupplyPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/kkomangse-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -156,8 +154,7 @@ export const kkomangseAdapter: MallPublishAdapter = {
       ...(category ? { categoryCodes: category } : {}),
       ...(certNumber ? { certNumber } : {}),
     });
-    // [등록]까지 부탁한다(ADR-0015). 확장이 이 몰의 누르기를 확인하지 않았으면 폼만 채우고 사람에게 남긴다.
-    const result = await fillMallRegistrationForm('kkomangse', draft, form, { submit: true });
+    const result = await fillMallRegistrationForm('kkomangse', draft, form, mallFormExecutionOptions(item));
     return registrationOutcome(result);
   },
 };

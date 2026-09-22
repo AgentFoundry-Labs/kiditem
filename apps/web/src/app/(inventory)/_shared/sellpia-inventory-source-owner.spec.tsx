@@ -85,15 +85,15 @@ describe('Sellpia inventory source-owner transport', () => {
     );
   });
 
-  it('accepts the purchase-preflight trigger on the source-owner path', async () => {
+  it('posts an explicit retry trigger after a failed collection', async () => {
     const started = attempt();
     api.post.mockResolvedValue(started);
 
-    await expect(beginSellpiaInventorySourceAttempt(NEW_KEY, 'purchase_preflight'))
+    await expect(beginSellpiaInventorySourceAttempt(NEW_KEY, 'retry'))
       .resolves.toEqual(started);
     expect(api.post).toHaveBeenCalledWith(
       '/api/inventory/sellpia-source/attempts',
-      { scope: 'inventory', trigger: 'purchase_preflight' },
+      { scope: 'inventory', trigger: 'retry' },
       { headers: { 'Idempotency-Key': expect.any(String) } },
     );
   });

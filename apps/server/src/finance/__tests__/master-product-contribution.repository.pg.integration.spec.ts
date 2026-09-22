@@ -4,6 +4,7 @@ import {
   productAbcContributionMetricStatus,
 } from '@kiditem/shared/product-abc';
 import { MasterProductContributionRepositoryAdapter } from '../adapter/out/repository/master-product-contribution.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -11,6 +12,7 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 
 const BASIS_FROM = '2026-07-01';
@@ -27,7 +29,10 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new MasterProductContributionRepositoryAdapter(prisma as never);
+    repository = new MasterProductContributionRepositoryAdapter(
+      prisma as never,
+      new ProductTransactionalReadRepositoryAdapter(),
+    );
   });
 
   afterAll(async () => {
@@ -421,20 +426,16 @@ async function seedProductFact(
     omitSellpia?: boolean;
   },
 ): Promise<string> {
-  const product = await prisma.masterProduct.create({
-    data: {
-      organizationId: sources.organizationId,
-      code: fact.code,
-      name: `${fact.code} product`,
-      isActive: fact.isActive ?? true,
-    },
+  const product = await seedSourceProduct(prisma, {
+    organizationId: sources.organizationId,
+    code: `SELLPIA-${fact.code}`,
+    name: `${fact.code} product`,
   });
   const listing = await prisma.channelListing.create({
     data: {
       organizationId: sources.organizationId,
       channelAccountId: sources.accountId,
       externalId: `contribution-listing-${fact.code}`,
-      masterProductId: product.id,
     },
   });
   if (!fact.omitSellpia) {

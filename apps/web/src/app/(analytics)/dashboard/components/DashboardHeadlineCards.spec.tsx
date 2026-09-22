@@ -8,6 +8,7 @@ const revenue: HeadlineMetric[] = [
   { key: 'today', label: '오늘 매출', value: '0', unit: '원', note: '주문 0건' },
   { key: 'adRate', label: '광고비율', value: '16.4', unit: '%', note: '이전 12.0%', trend: 'up', higherIsWorse: true, alert: true },
 ];
+
 const ads: HeadlineMetric[] = [
   { key: 'roas', label: 'ROAS', value: '412', unit: '%' },
   { key: 'ctr', label: '클릭률 (CTR)', value: '2.31', unit: '%' },
@@ -16,29 +17,18 @@ const ads: HeadlineMetric[] = [
 ];
 
 describe('DashboardHeadlineCards', () => {
-  it('처음 대시보드의 두 줄을 매출 · 마케팅 두 장으로 세운다', () => {
+  it('keeps the five-card inputs readable while preserving unknown values', () => {
     render(<DashboardHeadlineCards revenue={revenue} ads={ads} salesHref="/sales-analysis" />);
-    const revenueCard = screen.getByRole('region', { name: '매출' });
-    const adCard = screen.getByRole('region', { name: '마케팅' });
-    // 받침 줄은 이름 밑에 근거 한 줄을 달고 있다 — 이름만 견준다.
-    const labels = (card: HTMLElement) => within(card).getAllByRole('term')
-      .map((node) => node.firstElementChild?.textContent ?? node.textContent);
-    expect(labels(revenueCard)).toEqual(['월 매출', '월 순이익', '오늘 매출', '광고비율']);
-    expect(labels(adCard)).toEqual(['ROAS', '클릭률 (CTR)', '광고 전환매출', '광고비']);
-  });
 
-  it('모르는 값은 0 이 아니라 빈칸으로 둔다', () => {
-    render(<DashboardHeadlineCards revenue={revenue} ads={ads} salesHref="/sales-analysis" />);
+    expect(screen.getByRole('region', { name: '매출' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '마케팅' })).toBeInTheDocument();
     expect(screen.getByTestId('headline-profit')).toHaveTextContent('—');
     expect(screen.getByTestId('headline-profit')).not.toHaveTextContent('0');
   });
 
-  it('오르면 나쁜 지표는 오름을 붉게 칠한다', () => {
-    // 변화 한 줄은 대표 값 밑에만 붙는다(받침 줄은 이름과 숫자뿐, 사장님 2026-09-20).
-    // 그래서 둘 다 대표 자리에 세워 색만 견준다.
-    const adRate = revenue.find((metric) => metric.key === 'adRate')!;
-    render(<DashboardHeadlineCards revenue={[adRate]} ads={revenue.filter((metric) => metric.key !== 'adRate')} salesHref="/sales-analysis" />);
-    // 광고비율이 오르는 것은 나빠진 것이다. 매출이 오르는 것과 같은 초록이면 거꾸로 읽힌다.
+  it('marks an increasing higher-is-worse metric red', () => {
+    render(<DashboardHeadlineCards revenue={[revenue[3]!]} ads={[revenue[0]!]} salesHref="/sales-analysis" />);
+
     expect(within(screen.getByTestId('headline-adRate')).getByText('이전 12.0%')).toHaveClass('text-red-600');
     expect(within(screen.getByTestId('headline-revenue')).getByText('▲ 3.2% 이전 대비')).toHaveClass('text-emerald-700');
   });

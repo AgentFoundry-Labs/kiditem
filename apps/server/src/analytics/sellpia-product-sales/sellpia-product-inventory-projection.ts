@@ -21,11 +21,10 @@ export type SellpiaProductInventoryProjectionInput = Readonly<{
 }>;
 
 export type SellpiaProductDestinationRow = SellpiaProductDestination & {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
 };
 
 export type SellpiaInventoryProductRow = Readonly<{
-  sellpiaInventorySkuId: string;
   masterProductId: string;
   masterProductCode: string;
   masterProductName: string;
@@ -63,7 +62,7 @@ export function resolveSellpiaProductInventoryRows(
   ]));
   const matchedSkuIds = [...new Set([...resolutions.values()].flatMap((resolution) =>
     resolution.status === 'matched'
-      ? [resolution.sellpiaInventorySkuId]
+      ? [resolution.masterProductId]
       : []))].sort((left, right) => left.localeCompare(right));
   return { resolutions, matchedSkuIds };
 }
@@ -116,12 +115,12 @@ export function projectSellpiaProductInventory(input: {
   }
 
   const availabilityBySkuId = new Map(input.availability.items.map((item) => [
-    item.sellpiaInventorySkuId,
+    item.masterProductId,
     item,
   ]));
   const destinationsBySkuId = groupDestinations(input.destinations);
   const inventoryProductBySkuId = new Map(input.inventoryProducts.map((product) => [
-    product.sellpiaInventorySkuId,
+    product.masterProductId,
     product,
   ]));
   const groups = new Map<string, SellpiaProductInventoryProjectionInput[]>();
@@ -138,26 +137,26 @@ export function projectSellpiaProductInventory(input: {
       }));
       continue;
     }
-    const availability = availabilityBySkuId.get(resolution.sellpiaInventorySkuId);
-    if (!availability || !availability.isActive) {
+    const availability = availabilityBySkuId.get(resolution.masterProductId);
+    if (!availability) {
       mappingRequiredSalesRows += 1;
       byProductKey.set(product.key, emptyMetrics({
         status: 'mapping_required',
-        reason: availability ? 'inactive_candidate' : 'not_found',
-        candidateCount: availability ? 1 : 0,
+        reason: 'not_found',
+        candidateCount: 0,
       }));
       continue;
     }
-    const group = groups.get(resolution.sellpiaInventorySkuId) ?? [];
+    const group = groups.get(resolution.masterProductId) ?? [];
     group.push(product);
-    groups.set(resolution.sellpiaInventorySkuId, group);
+    groups.set(resolution.masterProductId, group);
   }
 
   let reorderCount = 0;
   let deadStockCount = 0;
   let unlinkedSkus = 0;
-  for (const [sellpiaInventorySkuId, products] of groups) {
-    const availability = availabilityBySkuId.get(sellpiaInventorySkuId)!;
+  for (const [masterProductId, products] of groups) {
+    const availability = availabilityBySkuId.get(masterProductId)!;
     const completeQuantities = aggregateCompleteQuantities(products);
     const recent = completeQuantities.slice(-2);
     // 완결 월이 없으면 평균이 아니라 모르는 값이다. 발주 판정은 예전처럼 0 을 받아 그대로
@@ -165,22 +164,21 @@ export function projectSellpiaProductInventory(input: {
     const monthlyOutflow = recent.length > 0
       ? Math.round(recent.reduce((sum, quantity) => sum + quantity, 0) / recent.length)
       : null;
-    const reorder = computeReorder(availability.availableStock, monthlyOutflow ?? 0);
+    const reorder = computeReorder(availability.currentStock, monthlyOutflow ?? 0);
     const deadStock = computeDeadStock(
       completeQuantities,
-      availability.availableStock,
+      availability.currentStock,
     );
-    const destinations = destinationsBySkuId.get(sellpiaInventorySkuId) ?? [];
-    const inventoryProduct = inventoryProductBySkuId.get(sellpiaInventorySkuId);
+    const destinations = destinationsBySkuId.get(masterProductId) ?? [];
+    const inventoryProduct = inventoryProductBySkuId.get(masterProductId);
     if (destinations.length === 0) unlinkedSkus += 1;
     if (reorder.needsReorder) reorderCount += 1;
     if (deadStock.deadStock) deadStockCount += 1;
     const metrics: SellpiaProductInventoryMetrics = {
       inventoryResolution: {
         status: 'matched',
-        sellpiaInventorySkuId,
+        masterProductId,
         currentStock: availability.currentStock,
-        availableStock: availability.availableStock,
         salesRowCount: products.length,
         inventoryProduct: inventoryProduct
           ? {
@@ -217,7 +215,7 @@ export function projectSellpiaProductInventory(input: {
       matchedSkus: groups.size,
       unlinkedSkus,
       ...summarizeInventoryProductAbc(input.inventoryProducts.filter((product) =>
-        groups.has(product.sellpiaInventorySkuId))),
+        groups.has(product.masterProductId))),
     },
   };
 }
@@ -259,7 +257,7 @@ function groupDestinations(
 ): Map<string, SellpiaProductDestination[]> {
   const grouped = new Map<string, Map<string, SellpiaProductDestination>>();
   for (const row of rows) {
-    const byOption = grouped.get(row.sellpiaInventorySkuId) ?? new Map();
+    const byOption = grouped.get(row.masterProductId) ?? new Map();
     byOption.set(row.channelListingOptionId, {
       masterProductId: row.masterProductId,
       masterProductCode: row.masterProductCode,
@@ -273,7 +271,7 @@ function groupDestinations(
       abc: row.abc,
       displayImage: row.displayImage,
     });
-    grouped.set(row.sellpiaInventorySkuId, byOption);
+    grouped.set(row.masterProductId, byOption);
   }
   return new Map([...grouped.entries()].map(([skuId, byOption]) => [
     skuId,

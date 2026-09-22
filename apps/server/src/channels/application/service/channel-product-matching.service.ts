@@ -10,7 +10,6 @@ import {
   type ChannelOptionMatchingQueueRow,
   type ChannelProductCandidateListResponse,
 } from '@kiditem/shared/channel-product-matching';
-import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
 import { z } from 'zod';
 import { rankChannelProductCandidates } from '../../domain/channel-product-candidate-ranking';
 import {
@@ -24,9 +23,9 @@ import {
   type CatalogDisplayMediaPort,
 } from '../../../ai/application/port/in/workspace/catalog-display-media.port';
 import {
-  INVENTORY_AVAILABILITY_PORT,
-  type InventoryAvailabilityPort,
-} from '../../../inventory/application/port/in/stock/inventory-availability.port';
+  PRODUCT_AVAILABILITY_PORT,
+  type ProductAvailabilityPort,
+} from '../../../products/application/port/in/product-availability.port';
 import { projectChannelInventoryComponents } from './channel-inventory-availability.projection';
 
 @Injectable()
@@ -38,8 +37,8 @@ export class ChannelProductMatchingService {
     private readonly repository: ChannelProductMatchingRepositoryPort,
     @Inject(CATALOG_DISPLAY_MEDIA_PORT)
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
-    @Inject(INVENTORY_AVAILABILITY_PORT)
-    private readonly inventory: InventoryAvailabilityPort,
+    @Inject(PRODUCT_AVAILABILITY_PORT)
+    private readonly inventory: ProductAvailabilityPort,
   ) {}
 
   async list(organizationId: string, query: ChannelProductMatchingQuery = {}) {
@@ -92,19 +91,19 @@ export class ChannelProductMatchingService {
     organizationId: string,
     rows: ChannelOptionMatchingRepositoryRow[],
   ): Promise<ChannelOptionMatchingQueueRow[]> {
-    const sellpiaInventorySkuIds = [...new Set(rows.flatMap((row) =>
+    const masterProductIds = [...new Set(rows.flatMap((row) =>
       row.option.inventoryComponents.map((component) =>
-        component.sellpiaInventorySkuId)))].sort((left, right) =>
+        component.masterProductId)))].sort((left, right) =>
       left.localeCompare(right));
-    const availability = await this.inventory.findBySkuIds({
+    const availability = await this.inventory.findByMasterProductIds({
       organizationId,
-      sellpiaInventorySkuIds,
+      masterProductIds,
     });
-    const inventoryBySkuId = new Map(availability.items.map((item) => [
-      item.sellpiaInventorySkuId,
+    const inventoryByMasterProductId = new Map(availability.items.map((item) => [
+      item.masterProductId,
       item,
     ]));
-    return rows.map((row) => toOptionQueueRow(row, inventoryBySkuId));
+    return rows.map((row) => toOptionQueueRow(row, inventoryByMasterProductId));
   }
 
   private async loadChannelImages(organizationId: string, listingIds: string[]) {
@@ -190,11 +189,15 @@ export class ChannelProductMatchingService {
 
 function toOptionQueueRow(
   row: ChannelOptionMatchingRepositoryRow,
-  inventoryBySkuId: ReadonlyMap<string, InventorySkuAvailability>,
+  inventoryByMasterProductId: ReadonlyMap<string, {
+    masterProductId: string;
+    currentStock: number;
+    generation: string | null;
+  }>,
 ): ChannelOptionMatchingQueueRow {
   const { components, projection } = projectChannelInventoryComponents(
     row.option.inventoryComponents,
-    inventoryBySkuId,
+    inventoryByMasterProductId,
   );
   return {
     ...row,

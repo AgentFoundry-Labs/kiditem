@@ -11,9 +11,10 @@ import {
 } from '../apps/server/src/sourcing/domain/supplier-source-url-policy';
 import { canonicalSourcingCandidateIdentity } from '../apps/server/src/sourcing/domain/sourcing-candidate-identity';
 import {
-  freezeProductPreparationPayload,
-  type ProductPreparationJson,
-} from '../apps/server/src/sourcing/domain/product-preparation-payload';
+  freezeProductRegistrationPayload,
+  type RegistrationSubmissionJson,
+} from '../apps/server/src/channels/domain/registration-submission-payload';
+import { ensureAbsoluteProductAbcFormulaForOrganization } from './data-migrations/ensure/absolute-product-abc-formula';
 
 export const GENERATED_DATABASE_MARKER = 'kiditem_agent_os_clean_cutover';
 export const BROWSER_QA_SEED_TARGET_ENV = 'KIDITEM_BROWSER_QA_SEED_TARGET';
@@ -183,9 +184,9 @@ type BrowserQaConfirmedListingPlan = {
     id: string;
     displayName: string;
     status: 'submitting';
-    registrationInput: ProductPreparationJson;
+    registrationInput: RegistrationSubmissionJson;
     submissionKey: string;
-    submissionPayloadJson: ProductPreparationJson;
+    submissionPayloadJson: RegistrationSubmissionJson;
     submissionPayloadHash: string;
     providerOutcome: 'uncertain';
     reviewPayloadHash: string;
@@ -197,7 +198,7 @@ type BrowserQaConfirmedListingPlan = {
     expectedProviderAccountId: typeof BROWSER_QA_CHANNEL_VENDOR_ID;
     idempotencyKey: string;
     requestHash: string;
-    submissionPayloadJson: ProductPreparationJson;
+    submissionPayloadJson: RegistrationSubmissionJson;
     submissionPayloadHash: string;
     status: 'executing';
     providerOutcome: 'uncertain';
@@ -695,6 +696,9 @@ export async function runBrowserQaSeed({
   email,
   password,
   hashPassword = hashAuthPassword,
+  // The clean-cutover QA database gets `db push` but no data migrations, so
+  // the fixture organization gets its ABC formula here, as other bootstraps do.
+  initializeOrganization = ensureAbsoluteProductAbcFormulaForOrganization,
 }: {
   prisma: PrismaClient;
   profile: BrowserQaFixtureProfileId;
@@ -702,6 +706,10 @@ export async function runBrowserQaSeed({
   email: string;
   password: string;
   hashPassword?: (value: string) => Promise<string>;
+  initializeOrganization?: (
+    transaction: Prisma.TransactionClient,
+    organizationId: string,
+  ) => Promise<unknown>;
 }): Promise<BrowserQaSeedResult> {
   const passwordHash = await hashPassword(password);
   const plan = createBrowserQaSeedPlan({ profile, email, passwordHash, variables });
@@ -743,6 +751,7 @@ export async function runBrowserQaSeed({
       },
       select: { id: true },
     });
+    await initializeOrganization(transaction, organization.id);
     const result: BrowserQaSeedResult = {
       profile: plan.profile,
       variables: { ...plan.variables },
@@ -978,9 +987,9 @@ function createBrowserQaConfirmedListingFrozenPayload({
 }: {
   channelAccountId: string;
   displayName: string;
-  registrationInput: ProductPreparationJson;
+  registrationInput: RegistrationSubmissionJson;
 }) {
-  return freezeProductPreparationPayload({
+  return freezeProductRegistrationPayload({
     channelAccountId,
     displayName,
     registrationInput,

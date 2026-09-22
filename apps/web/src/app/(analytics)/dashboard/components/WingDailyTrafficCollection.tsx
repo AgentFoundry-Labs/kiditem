@@ -62,7 +62,7 @@ export function WingDailyTrafficCollection({
     : statusLabel(attempt?.state, control.status, cancelled);
   return (
     <section
-      className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] px-4 py-3 shadow-sm"
+      className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
       data-testid="wing-daily-traffic-collection"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">

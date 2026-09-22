@@ -4,17 +4,18 @@ import type {
   MallPreflightRule,
   MallPublishTarget,
 } from '@kiditem/shared/mall-publishing';
+import { channelLogoPath } from '@kiditem/shared/channel-registry';
 
 export const MALL_READINESS_LABEL: Record<MallPublishTarget['readiness'], string> = {
   ready: '송신 준비됨',
-  needs_profile: '등록 기본값 필요',
+  needs_profile: '등록 기본값 없음 — 송신에는 영향 없음',
   needs_account: '계정 정보 필요',
   unsupported: '경로 미확인',
 };
 
 export const MALL_READINESS_TONE: Record<MallPublishTarget['readiness'], string> = {
   ready: 'bg-emerald-500',
-  needs_profile: 'bg-amber-400',
+  needs_profile: 'bg-emerald-500',
   needs_account: 'bg-slate-300',
   unsupported: 'bg-slate-200',
 };
@@ -35,6 +36,7 @@ export const PREFLIGHT_RULE_LABEL: Record<MallPreflightRule, string> = {
   charset_korean_english_only: '문자 규칙',
   option_count_within_limit: '옵션 수 상한',
   profile_selected: '등록 기본값',
+  out_of_stock: '재고',
 };
 
 export interface MallHazardBadge {
@@ -336,37 +338,6 @@ export function productMonogram(productName: string): string {
  * (`genimarket.co.kr`) 것을 쓴다. 올웨이즈 판매자센터 파비콘은 React 기본 아이콘이라
  * 공식 사이트(`alwayz.co`) 로고로 바꿨다.
  */
-const MALL_LOGO_PATH: Record<string, string> = {
-  '11st': '/mall-logos/11st.ico',
-  'always': '/mall-logos/always.png',
-  'art09': '/mall-logos/art09.ico',
-  'auction': '/mall-logos/auction.png',
-  'benepia-mul': '/mall-logos/benepia-mul.png',
-  'boribori': '/mall-logos/boribori.ico',
-  'coupang-direct': '/mall-logos/coupang-direct.ico',
-  'coupang': '/mall-logos/coupang.ico',
-  'domeggook': '/mall-logos/domeggook.ico',
-  'gmarket': '/mall-logos/gmarket.ico',
-  'gs-shop': '/mall-logos/gs-shop.ico',
-  'haebub-mall': '/mall-logos/haebub-mall.ico',
-  'icecream-mall': '/mall-logos/icecream-mall.png',
-  'kakao': '/mall-logos/kakao.ico',
-  'kidkids': '/mall-logos/kidkids.ico',
-  'kidsnote': '/mall-logos/kidsnote.png',
-  'kkomangse': '/mall-logos/kkomangse.ico',
-  'lotte-on': '/mall-logos/lotte-on.png',
-  'onch': '/mall-logos/onch.ico',
-  'rocket': '/mall-logos/rocket.ico',
-  'smartstore': '/mall-logos/smartstore.ico',
-  'ssg': '/mall-logos/ssg.ico',
-  'teacher-mall': '/mall-logos/teacher-mall.ico',
-  'tekville-edu': '/mall-logos/tekville-edu.ico',
-  'thirtymall': '/mall-logos/thirtymall.ico',
-  'toss': '/mall-logos/toss.ico',
-  'woongjin-class': '/mall-logos/woongjin-class.ico',
-  'yoons': '/mall-logos/yoons.ico',
-};
-
 export function mallLogoPath(mallKey: string): string | null {
-  return MALL_LOGO_PATH[mallKey] ?? null;
+  return channelLogoPath(mallKey);
 }

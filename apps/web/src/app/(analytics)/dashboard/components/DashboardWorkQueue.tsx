@@ -3,12 +3,11 @@
 import { useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowRight, ArrowUpRight, Bot, Clock, ListChecks, Package, ShieldAlert, Store, TrendingDown, type LucideIcon } from 'lucide-react';
-import type { DashboardFindings } from '@kiditem/shared/dashboard';
-import { useAgentOrg } from '@/app/agent-org/hooks/use-agent-org';
+import { useAgentOrg } from '@/hooks/use-agent-org';
 import { cn, timeAgo } from '@/lib/utils';
-import { KRW_RATE_NOTE, formatKrwApprox, formatUsd, monthToDate, useAiUsage } from '../../_shared/ai-usage';
-import { DASHBOARD_TONE, DashboardCardHeader, DashboardIconBadge, type DashboardTone } from './DashboardCardHeader';
 import { buildWorkQueue, type WorkQueueCounts, type WorkQueueItem } from '../lib/work-queue';
+import { DASHBOARD_TONE, DashboardCardHeader, DashboardIconBadge, type DashboardTone } from './DashboardCardHeader';
+import type { DashboardFindings } from '@kiditem/shared/dashboard';
 
 /**
  * 지금 할 일 — 두 칸으로 나뉜다(사장님 2026-09-20).
@@ -47,10 +46,12 @@ function useQueue(findings: DashboardFindings | undefined, limit: number) {
  * 막힌 일 · 돈 새는 일 · 내 결정, 그리고 이번 달 AI 비용 합계. 에이전트마다의 비용 내역은
  * Agent Org 가 보여 준다. 이 줄은 세지 않는다 — `lib/work-queue` 가 센 것을 그린다.
  */
-export function DashboardAgentSummary({ findings }: { findings: DashboardFindings | undefined }) {
-  const { queue, running } = useQueue(findings, 0);
-  const usage = useAiUsage(monthToDate());
-  const total = usage.data?.totals;
+export function DashboardAgentSummary({ findings, findingsError = false, findingsLoading = false }: {
+  findings: DashboardFindings | undefined; findingsError?: boolean; findingsLoading?: boolean;
+}) {
+  const ready = Boolean(findings) && !findingsError && !findingsLoading;
+  const moneyMeasured = ready && findings?.reorderSuggestions !== null && findings?.salesDecline.count !== null;
+  const { queue, running } = useQueue(ready ? findings : undefined, 0);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-0.5">
@@ -66,15 +67,8 @@ export function DashboardAgentSummary({ findings }: { findings: DashboardFinding
       </h2>
       <div className="flex flex-wrap items-center gap-1.5">
         <SummaryChip label="막힌 일" value={queue.counts.blocked} tone="red" />
-        <SummaryChip label="돈 새는 일" value={queue.counts.money} tone="amber" />
-        <SummaryChip label="내 결정" value={queue.counts.decision} tone="violet" />
-        <span
-          className="inline-flex h-7 items-center gap-1 rounded-lg bg-white px-2.5 text-[11px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-200"
-          title={total ? `${formatKrwApprox(total.costMicroUsd)} · ${KRW_RATE_NOTE}` : undefined}
-        >
-          이번 달 비용
-          <span className="tabular-nums text-slate-900">{total ? formatUsd(total.costMicroUsd) : '—'}</span>
-        </span>
+        <SummaryChip label="돈 새는 일" value={moneyMeasured ? queue.counts.money : null} tone="amber" title="선정된 발주 제안(최대 5개)과 매출 하락 묶음 수입니다. 전체 발주 대상은 재고 카드에서 확인하세요." />
+        <SummaryChip label="내 결정" value={ready ? queue.counts.decision : null} tone="violet" />
         <Link
           href="/agent-org"
           className="inline-flex h-7 items-center gap-0.5 rounded-lg px-2 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-50"
@@ -87,17 +81,18 @@ export function DashboardAgentSummary({ findings }: { findings: DashboardFinding
   );
 }
 
-function SummaryChip({ label, value, tone }: { label: string; value: number; tone: DashboardTone }) {
-  const active = value > 0;
+function SummaryChip({ label, value, tone, title }: { label: string; value: number | null; tone: DashboardTone; title?: string }) {
+  const active = value !== null && value > 0;
   return (
     <span
+      title={title}
       className={cn(
         'inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-[11px] font-semibold ring-1 ring-inset',
         active ? cn('bg-white', DASHBOARD_TONE[tone].text, 'ring-slate-200') : 'bg-white text-slate-500 ring-slate-200',
       )}
     >
       {label}
-      <span className={cn('text-sm tabular-nums', active ? '' : 'text-slate-300')}>{value}</span>
+      <span className={cn('text-sm tabular-nums', active ? '' : 'text-slate-300')}>{value ?? '—'}</span>
     </span>
   );
 }
@@ -106,13 +101,20 @@ function SummaryChip({ label, value, tone }: { label: string; value: number; ton
 export function DashboardUrgentQueue({
   findings,
   findingsLoading,
+  findingsError = false,
   className,
 }: {
   findings: DashboardFindings | undefined;
   findingsLoading: boolean;
+  findingsError?: boolean;
   className?: string;
 }) {
-  const { queue, now } = useQueue(findings, 7);
+  const ready = Boolean(findings) && !findingsError && !findingsLoading;
+  const measured = ready && findings?.reorderSuggestions !== null && findings?.salesDecline.count !== null;
+  const { queue, now } = useQueue(ready ? findings : undefined, 7);
+  const unavailable = findingsError ? '업무 조회 실패 · 상단에서 다시 시도해 주세요'
+    : findingsLoading ? '업무를 확인하고 있습니다'
+      : !measured ? '판단할 수집 근거가 부족합니다' : null;
   const nowDate = new Date(now);
 
   return (
@@ -127,13 +129,15 @@ export function DashboardUrgentQueue({
         title="지금 해야 할 일"
         meta={
           <span className="ml-1 truncate text-xs font-normal tabular-nums text-slate-400">
-            {queue.total > queue.items.length ? `${queue.items.length} / ${queue.total}건` : `${queue.total}건`}
+            {!measured ? (queue.total > 0 ? `확인된 ${queue.total}건 · 일부 미측정` : '—')
+              : queue.total > queue.items.length ? `${queue.items.length} / ${queue.total}건` : `${queue.total}건`}
           </span>
         }
       />
+      {unavailable && queue.items.length > 0 ? <p role="status" className="px-4 py-2 text-xs text-amber-700">{unavailable}</p> : null}
       {queue.items.length === 0 ? (
         <p className="flex-1 px-4 py-10 text-center text-xs text-slate-400">
-          {findingsLoading ? '살피는 중이에요' : '지금 손이 필요한 일이 없습니다.'}
+          {unavailable ?? '지금 손이 필요한 일이 없습니다.'}
         </p>
       ) : (
         <ul className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">

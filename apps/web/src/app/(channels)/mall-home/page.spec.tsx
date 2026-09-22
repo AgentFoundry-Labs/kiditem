@@ -35,13 +35,6 @@ vi.mock('@/lib/mall-session-probe', async (importOriginal) => ({
 
 const queryClientStub = vi.hoisted(() => ({ invalidateQueries: vi.fn() }));
 
-/** 쇼핑몰 계정 화면의 로그인 테스트 — 풀린 몰 타일을 누르면 같은 길로 로그인을 다시 해 본다. */
-const mockLoginTest = vi.hoisted(() => vi.fn());
-
-vi.mock('../../(orders)/mall-settings/hooks/use-mall-login-test', () => ({
-  useMallLoginTest: () => ({ testingKey: null, results: {}, test: mockLoginTest }),
-}));
-
 /**
  * 쇼핑몰 홈이 지키는 것.
  *
@@ -54,28 +47,20 @@ let overview: unknown;
 let manifests: unknown;
 let availability: unknown;
 let coupangSummary: unknown;
-let outcomes: unknown;
 /** 쇼핑몰 계정 목록 — 고정 확인 주소가 없는 몰은 여기 저장된 사이트 주소를 연다. */
 let mallAccounts: unknown = [];
-/** 쇼핑몰 에이전트의 이번 달 AI 사용 요약. 받은 쿼리 키도 남겨 에이전트를 확인한다. */
-let aiUsage: unknown;
-let aiUsageKey: readonly unknown[] | null = null;
 
 vi.mock('@tanstack/react-query', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@tanstack/react-query')>()),
   useQueryClient: () => queryClientStub,
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => ({
-    data: queryKey.includes('ai-usage')
-      ? ((aiUsageKey = queryKey), aiUsage)
-      : queryKey.includes('manifests')
+    data: queryKey.includes('manifests')
       ? manifests
       : queryKey.includes('availability-preview')
         ? availability
         : queryKey.includes('coupangDashboard')
           ? coupangSummary
-          : queryKey.includes('mallOperationOutcomes')
-            ? outcomes
-            : queryKey.includes('malls')
+          : queryKey.includes('malls')
               ? mallAccounts
               : overview,
     isLoading: false,
@@ -165,7 +150,6 @@ beforeEach(() => {
   };
   availability = { candidates: [], total: 0, loaded: 0, sendableCount: 0, blockedCount: 0 };
   coupangSummary = { todayOrders: { count: 0, revenue: 0 }, pendingAccept: 0, pendingReturns: 0, lastModifiedAt: null };
-  outcomes = undefined;
   alertsQuery.data = [];
   alertsQuery.isSuccess = true;
   alertsQuery.isError = false;
@@ -174,14 +158,10 @@ beforeEach(() => {
   mockDetectProbe.mockReset();
   mockDetectProbe.mockResolvedValue({ status: 'not_found' });
   mockProbeMall.mockReset();
-  mockLoginTest.mockReset();
-  mockLoginTest.mockResolvedValue(undefined);
   mockApiPost.mockReset();
   mockApiPost.mockResolvedValue({ ok: true });
   queryClientStub.invalidateQueries.mockClear();
   window.sessionStorage.clear();
-  aiUsage = undefined;
-  aiUsageKey = null;
 });
 
 function mission(title: RegExp): HTMLElement {
@@ -198,25 +178,15 @@ function pipelineColumns(): HTMLElement[] {
 }
 
 describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
-  it('⭐ 대시보드 3 : 알림판 1 — 알림판이 오른쪽 1/4 에 서고, 그 위에 AI 비용이 작게 선다', () => {
+  it('⭐ 대시보드 3 : 알림판 1 — 알림판이 오른쪽 1/4 에 선다', () => {
     render(<MallHomePage />);
     const aside = panel();
     const column = aside.parentElement as HTMLElement;
     expect(column.className).toContain('xl:col-span-1');
     expect(column.parentElement?.className).toContain('xl:grid-cols-4');
     expect(column.parentElement?.firstElementChild?.className).toContain('xl:col-span-3');
-    // 오른쪽 칸 맨 위가 AI 비용이고 알림판이 남은 높이를 채운다(사장님 2026-09-19).
     expect(column.firstElementChild).toBe(screen.getByRole('region', { name: 'AI 비용' }));
     expect(aside.className).toContain('flex-1');
-  });
-
-  it('⭐ 자동 운전은 카드가 아니라 머리의 스위치다 — 쇼핑몰 현황 왼쪽', () => {
-    render(<MallHomePage />);
-    const header = screen.getByRole('heading', { name: '쇼핑몰 에이전트' }).closest('header') as HTMLElement;
-    const controls = within(header).getByRole('group', { name: '에이전트 자동 운전' });
-    expect(within(controls).getByRole('button', { name: /자동 운전 시작|멈추기/ })).toBeInTheDocument();
-    expect(controls.compareDocumentPosition(within(header).getByRole('link', { name: /쇼핑몰 현황/ })) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBeTruthy();
   });
 
   it('⭐ 알림판은 몰 알림만 모은다 — 광고 알림은 빠진다', () => {
@@ -253,7 +223,7 @@ describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
     expect(within(aside).getByText('로그인 정보가 비어 있는 몰 1곳')).toBeInTheDocument();
     expect(within(aside).getByText('쿠팡 발주확인 대기 3건')).toBeInTheDocument();
     expect(within(aside).getByText('품절 후보 5개')).toBeInTheDocument();
-    expect(within(aside).getByRole('link', { name: /계정 설정/ })).toHaveAttribute('href', '/mall-channels?account=all');
+    expect(within(aside).getByRole('link', { name: /계정 설정/ })).toHaveAttribute('href', '/mall-settings');
     // 문제 있는 몰 타일은 빨갛다.
     expect(screen.getByRole('button', { name: '온채널 로그인 정보 없음' }).className).toContain('bg-red-50');
     expect(screen.getByRole('button', { name: /^쿠팡 로켓 / }).className).not.toContain('bg-red-50');
@@ -307,24 +277,6 @@ describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
 
     fireEvent.click(within(panel()).getByRole('button', { name: '몰 주문수집 실패 알림 닫기' }));
     expect(mockDismissAlert).toHaveBeenCalledWith(orderCollectionFailed.id, expect.anything());
-  });
-});
-
-describe('쇼핑몰 홈 — AI 비용', () => {
-  it('⭐ 쇼핑몰 에이전트의 이번 달 AI 비용이 쇼핑몰 홈에 선다 — 에이전트 홈 대신', () => {
-    aiUsage = {
-      from: '2026-09-01',
-      to: '2026-09-19',
-      recordingSince: '2026-09-10T00:00:00.000Z',
-      totals: { calls: 12, inputTokens: 34000, outputTokens: 5600, costMicroUsd: 1_250_000, unpricedCalls: 0 },
-      agents: [],
-      models: [],
-    };
-    render(<MallHomePage />);
-    const cost = screen.getByRole('region', { name: 'AI 비용' });
-    expect(within(cost).getByText('$1.25')).toBeInTheDocument();
-    expect(within(cost).getByText(/호출 12회 · 토큰 39,600/)).toBeInTheDocument();
-    expect(aiUsageKey?.[2]).toMatchObject({ agent: 'mall' });
   });
 });
 
@@ -396,38 +348,6 @@ describe('쇼핑몰 홈 — 에이전트 파이프라인', () => {
     }
   });
 
-  it('⭐ 관찰 기록에 남은 결과가 몰별 상태와 기억 칸을 채운다', () => {
-    outcomes = {
-      since: '2026-09-05T00:00:00.000Z',
-      days: 7,
-      total: 3,
-      rows: [
-        {
-          mallKey: 'onch',
-          operation: 'login_test',
-          latest: {
-            id: '33333333-3333-4333-8333-333333333333',
-            mallKey: 'onch',
-            operation: 'login_test',
-            outcome: 'attention',
-            reasonCode: 'login_required',
-            message: null,
-            itemCount: null,
-            failedCount: null,
-            warningCount: null,
-            occurredAt: '2026-09-12T01:00:00.000Z',
-          },
-          counts: { succeeded: 2, empty: 0, attention: 1, failed: 0, cancelled: 0 },
-        },
-      ],
-    };
-    render(<MallHomePage />);
-    const onchTile = screen.getByRole('button', { name: '온채널 로그인 테스트 로그인 필요' });
-    expect(onchTile.className).toContain('bg-red-50');
-    const remember = pipelineColumns()[5]!;
-    expect(within(remember).getByText('최근 7일 3건 · 몰 1곳')).toBeInTheDocument();
-  });
-
   it('감지 칸은 알림판과 같은 숫자를 쓴다', () => {
     seedAlerts(orderCollectionFailed, rocketResolved);
     render(<MallHomePage />);
@@ -496,18 +416,17 @@ describe('쇼핑몰 홈 — 미션', () => {
     expect(within(mission(/네 가지 일이 되게 한다/)).getByText('숫자를 불러오는 중입니다.')).toBeInTheDocument();
   });
 
-  it('지키는 원칙을 적는다 — 되돌릴 수 없는 일은 사람이 누른다', () => {
+  it('지키는 원칙을 적는다 — 되돌리기 어려운 일은 사람이 누른다', () => {
     render(<MallHomePage />);
     expect(screen.getByRole('heading', { name: /지키는 원칙/ })).toBeInTheDocument();
-    expect(screen.getByText(/되돌릴 수 없는 일은 사람이 누른다/)).toBeInTheDocument();
+    expect(screen.getByText(/되돌리기 어려운 일은 사람이 누른다/)).toBeInTheDocument();
   });
 });
 
 /**
  * 열면 확장이 몰마다 로그인 상태를 확인한다. 로그인은 하지 않는다 — 확장에는 몰 키와 저장된
  * 사이트 주소만 간다. 결과는 로그인됨 · 인증 필요 · 로그인 필요 셋뿐이다(사장님 2026-09-17).
- * 확인할 주소가 없어 몰을 보지 못한 결과는 로그인 필요로 서되, 몰에 대한 관찰이 아니라
- * 관찰 기록에는 남지 않는다.
+ * 확인할 주소가 없어 몰을 보지 못한 결과는 로그인 필요로 선다.
  */
 describe('쇼핑몰 홈 — 로그인 상태', () => {
   const REASON = {
@@ -527,31 +446,11 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     return screen.getByRole('status', { name: '로그인 상태' });
   }
 
-  /** 열었다고 확인하지 않는다 — 사람이 '로그인 확인'을 누른다(사장님 2026-09-19). */
-  function startCheck(): void {
-    fireEvent.click(screen.getByRole('button', { name: '로그인 확인' }));
-  }
-
-  it('⭐ 쇼핑몰 홈을 열었다고 몰에 묻지 않는다 — 로그인 확인을 누를 때만 확인한다', async () => {
-    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
-    answer({ onch: 'signed_in', rocket: 'signed_in' });
-    render(<MallHomePage />);
-
-    expect(loginStatus()).toHaveTextContent('로그인 확인 전');
-    expect(mockDetectProbe).not.toHaveBeenCalled();
-    expect(mockProbeMall).not.toHaveBeenCalled();
-
-    startCheck();
-    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2'));
-    expect(screen.getByRole('button', { name: '다시 확인' })).toBeInTheDocument();
-  });
-
-  it('⭐ 확인하면 몰마다 로그인 상태가 선다 — 풀린 몰은 빨갛고, 알림판 · 위 칸이 말한다', async () => {
+  it('⭐ 열면 몰마다 로그인 상태를 확인한다 — 풀린 몰은 빨갛고, 알림판 · 위 칸이 말한다', async () => {
     mallAccounts = [{ key: 'onch', siteUrl: 'https://www.onch3.co.kr/index.php' }];
     mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
     answer({ onch: 'signed_out', rocket: 'signed_in' });
     render(<MallHomePage />);
-    startCheck();
 
     const onchTile = await screen.findByRole('button', { name: '온채널 로그인 필요, 로그인 상태 로그인 필요' });
     expect(onchTile.className).toContain('bg-red-50');
@@ -576,48 +475,27 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
     answer({ onch: 'verification_required', rocket: 'signed_in' });
     render(<MallHomePage />);
-    startCheck();
 
     await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 1 · 인증 필요 1 · 로그인 필요 0'));
     expect(await screen.findByRole('button', { name: /^온채널 .*로그인 상태 인증 필요$/ })).toBeInTheDocument();
   });
 
-  it('⭐ 확인 결과를 관찰 기록에 남긴다 — 몰을 본 결과만, 몰 키와 이유 코드만', async () => {
-    outcomes = { since: '2026-09-05T00:00:00.000Z', days: 7, total: 0, rows: [] };
+  it('⭐ 현재 확인 결과만 보여 주고 history API를 호출하지 않는다', async () => {
     mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
-    answer({ onch: 'signed_out' });
+    answer({ onch: 'signed_out', rocket: 'signed_in' });
     render(<MallHomePage />);
-    startCheck();
 
-    await waitFor(() =>
-      expect(queryClientStub.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['mallOperationOutcomes'] }),
+    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인 필요 1'));
+    expect(mockApiPost).not.toHaveBeenCalledWith(
+      '/api/channels/mall-operation-outcomes',
+      expect.anything(),
     );
-    const recorded = mockApiPost.mock.calls
-      .filter(([url]) => url === '/api/channels/mall-operation-outcomes')
-      .map(([, body]) => body as Record<string, unknown>);
-    // 확인할 주소가 없어 몰을 보지 못한 결과(쿠팡 로켓)는 몰에 대한 관찰이 아니라 적지 않는다.
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]).toMatchObject({
-      mallKey: 'onch',
-      operation: 'login_check',
-      outcome: 'attention',
-      reasonCode: 'login_required',
-    });
-    expect(Object.keys(recorded[0]!).sort()).toEqual([
-      'idempotencyKey',
-      'mallKey',
-      'message',
-      'operation',
-      'outcome',
-      'reasonCode',
-    ]);
   });
 
   it('10분 안에 다시 열면 몰에 다시 묻지 않는다', async () => {
     mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
     answer({ onch: 'signed_in', rocket: 'signed_in' });
     const first = render(<MallHomePage />);
-    startCheck();
     await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2'));
     first.unmount();
     mockDetectProbe.mockClear();
@@ -633,7 +511,6 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
     answer({ onch: 'signed_in', rocket: 'signed_in' });
     render(<MallHomePage />);
-    startCheck();
     await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2'));
 
     answer({ onch: 'signed_out', rocket: 'signed_in' });
@@ -642,94 +519,8 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     expect(mockProbeMall).toHaveBeenCalledTimes(4);
   });
 
-  it('⭐ 화면을 보지 못한 몰은 바로 로그인 필요로 내지 않고, 다른 몰을 다 본 뒤 혼자 한 번 더 본다', async () => {
-    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
-    let onchLooks = 0;
-    mockProbeMall.mockImplementation(async (_extensionId: string, mallKey: string) => {
-      if (mallKey === 'onch') onchLooks += 1;
-      const missed = mallKey === 'onch' && onchLooks === 1;
-      return {
-        mallKey,
-        state: missed ? 'signed_out' : 'signed_in',
-        reason: missed ? 'login_page_not_reachable' : 'admin_page',
-        checkedAt: Date.now(),
-      };
-    });
-    render(<MallHomePage />);
-    startCheck();
-
-    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2 · 인증 필요 0 · 로그인 필요 0'));
-    expect(mockProbeMall.mock.calls.map(([, mallKey]) => mallKey)).toEqual(['onch', 'rocket', 'onch']);
-  });
-
-  it('⭐ 풀린 몰 타일을 누르면 알림판을 거르지 않고 그 몰만 로그인을 다시 해 보고, 그 몰만 다시 확인한다', async () => {
-    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
-    answer({ onch: 'signed_out', rocket: 'signed_in' });
-    render(<MallHomePage />);
-    startCheck();
-    const onchTile = await screen.findByRole('button', { name: '온채널 로그인 필요, 로그인 상태 로그인 필요' });
-    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인 필요 1'));
-
-    answer({ onch: 'signed_in', rocket: 'signed_in' });
-    mockProbeMall.mockClear();
-    fireEvent.click(onchTile);
-
-    expect(mockLoginTest).toHaveBeenCalledWith('onch', '온채널');
-    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2 · 인증 필요 0 · 로그인 필요 0'));
-    expect(mockProbeMall.mock.calls).toEqual([['ext', 'onch', null]]);
-    expect(within(panel()).queryByText(/온채널 알림만 보는 중/)).not.toBeInTheDocument();
-  });
-
-  it('로그인됨 타일은 누르면 전처럼 그 몰 알림만 본다 — 로그인을 시도하지 않는다', async () => {
-    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
-    answer({ onch: 'signed_in', rocket: 'signed_in' });
-    render(<MallHomePage />);
-    startCheck();
-    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2'));
-
-    fireEvent.click(screen.getByRole('button', { name: /^온채널 .*로그인 상태 로그인됨$/ }));
-    expect(mockLoginTest).not.toHaveBeenCalled();
-    expect(within(panel()).getByText(/온채널 알림만 보는 중/)).toBeInTheDocument();
-  });
-
-  it('⭐ 로그인됨 칩에 확인한 시각(시:분)을 적는다', async () => {
-    const at = new Date(2026, 8, 18, 9, 5).getTime();
-    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
-    mockProbeMall.mockImplementation(async (_extensionId: string, mallKey: string) => ({
-      mallKey,
-      state: mallKey === 'rocket' ? 'signed_in' : 'signed_out',
-      reason: mallKey === 'rocket' ? 'admin_page' : 'login_page',
-      checkedAt: at,
-    }));
-    render(<MallHomePage />);
-    startCheck();
-
-    const rocketTile = await screen.findByRole('button', { name: /^쿠팡 로켓 .*로그인 상태 로그인됨$/ });
-    expect(rocketTile).toHaveTextContent('로그인됨09:05');
-    // 풀린 몰에는 시각을 붙이지 않는다 — 로그인됨이 언제 사실이었는지만 적는다.
-    expect(screen.getByRole('button', { name: /^온채널 .*로그인 상태 로그인 필요$/ })).not.toHaveTextContent('09:05');
-  });
-
-  it('⭐ 실패만 다시 확인은 로그인 필요 · 인증 필요로 나온 몰만 다시 본다', async () => {
-    mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
-    answer({ onch: 'signed_out', rocket: 'signed_in' });
-    render(<MallHomePage />);
-    startCheck();
-    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 1 · 인증 필요 0 · 로그인 필요 1'));
-
-    answer({ onch: 'signed_in', rocket: 'signed_in' });
-    mockProbeMall.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: '실패만 다시 확인' }));
-
-    await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인됨 2 · 인증 필요 0 · 로그인 필요 0'));
-    expect(mockProbeMall.mock.calls).toEqual([['ext', 'onch', null]]);
-    // 다 로그인됐으면 다시 볼 실패가 없다.
-    expect(screen.getByRole('button', { name: '실패만 다시 확인' })).toBeDisabled();
-  });
-
   it('확장이 없으면 확인하지 않고 그렇다고 말한다 — 몰마다 지어내지 않는다', async () => {
     render(<MallHomePage />);
-    startCheck();
     expect(await screen.findByText('KidItem 확장이 없어 로그인 상태를 확인하지 못했습니다.')).toBeInTheDocument();
     expect(mockProbeMall).not.toHaveBeenCalled();
     expect(screen.getByRole('link', { name: /^로그인 필요.*세션 풀림 — · 계정 정보 없음 0$/ })).toBeInTheDocument();
@@ -738,7 +529,6 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
   it('옛 확장이면 그 버전과 빠진 기능을 적는다 — 없는 것과 섞지 않는다', async () => {
     mockDetectProbe.mockResolvedValue({ status: 'outdated', version: '1.0.83' });
     render(<MallHomePage />);
-    startCheck();
     expect(
       await screen.findByText(/확장 1\.0\.83에는 로그인 확인\(mallLoginCheckV2\)이 없습니다/),
     ).toBeInTheDocument();

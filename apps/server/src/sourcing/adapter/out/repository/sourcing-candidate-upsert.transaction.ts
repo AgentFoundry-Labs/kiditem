@@ -4,9 +4,10 @@ import type { UpsertCandidateInput } from '../../../application/port/out/reposit
 
 /** One retained candidate policy shared by direct candidate writes and source publication. */
 export async function upsertSourcedCandidateIn(tx: Prisma.TransactionClient, input: UpsertCandidateInput) {
+  // sourcingCandidateIdentityLockKey composes input.organizationId into the key.
   const key = sourcingCandidateIdentityLockKey(input);
   await tx.$queryRaw(
-    // queryraw-tenancy-exempt: exact source identity key contains organization scope.
+    // queryraw-tenancy-exempt: organization-scoped advisory lock keyed by organizationId; reads no tenant data.
     Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
   );
   const existing = await tx.sourcingCandidate.findFirst({

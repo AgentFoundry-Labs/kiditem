@@ -22,6 +22,11 @@ import type {
  * 엑셀은 만들었다고 등록이 아니다. WING 일괄등록 화면에 사람이 올려야 하고,
  * 그 결과는 쿠팡이 따로 알려준다. 그래서 `confirmed` 는 항상 거짓이다.
  *
+ * 그래서 이 경로는 등록 실행 울타리를 열지 않는다 — 계정도 고르지 않았고 제출도 없다.
+ * 확정되지 않을 실행을 열어 두면 그 수집상품이 `reconciling` 에 갇힌다(ADR-0014).
+ * 이 어댑터가 계정을 골라 직접 제출하게 되면 `../registration-execution-api.ts` 의
+ * `prepare` → `start` → `confirm` 을 수집상품 화면과 똑같이 지나야 한다.
+ *
  * 상세설명 이미지는 이 경로에 배선이 없다. 상품별 서버 래스터라이즈가 필요한데
  * 엑셀 생성이 그걸 하지 않는다 — 없는 것을 아무 이미지로 채우지 않고 비워 둔다.
  */
@@ -50,7 +55,6 @@ export const coupangWingAdapter: MallPublishAdapter = {
   mallKey: 'coupang',
   mallName: '쿠팡 WING',
   mode: 'excel',
-  // 윙 엑셀은 서버가 수집상품에서 만든다 — 판매상품은 아직 받지 않는다.
   acceptsSalesProducts: false,
   // 한 파일에 전부 담긴다. 화면이 작업을 쪼개지 않는다.
   batchSize: Number.POSITIVE_INFINITY,

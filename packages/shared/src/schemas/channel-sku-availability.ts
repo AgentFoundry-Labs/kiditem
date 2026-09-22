@@ -41,33 +41,23 @@ export const ChannelSkuAvailabilityMappingStatusSchema = z.enum([
 ]);
 
 export const ChannelSkuAvailabilityWarningSchema = z.enum([
-  'component_inactive',
+  'composition_unconfirmed',
   'configuration_required',
   'inventory_unavailable',
 ]);
 
 export const ChannelSkuAvailabilityComponentSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
-  code: z.string().min(1),
-  name: z.string().min(1),
+  masterProductId: z.string().uuid(),
+  code: z.string().min(1).nullable(),
+  name: z.string().min(1).nullable(),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
   currentStock: z.number().int().nonnegative().nullable(),
-  availableStock: z.number().int().nonnegative().nullable(),
   purchasePrice: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean().nullable(),
   quantity: z.number().int().positive().max(2_147_483_647),
   componentCapacity: z.number().int().nonnegative().nullable(),
   isBottleneck: z.boolean().nullable(),
-}).strict().superRefine((component, ctx) => {
-  if (component.availableStock !== component.currentStock) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['availableStock'],
-      message: 'availableStock must equal currentStock',
-    });
-  }
-});
+}).strict();
 export type ChannelSkuAvailabilityComponent = z.infer<
   typeof ChannelSkuAvailabilityComponentSchema
 >;

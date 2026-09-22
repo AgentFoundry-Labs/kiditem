@@ -1,12 +1,11 @@
 /**
- * `salePrice` 가 어디서 왔는지. 프런트가 "셀피아 재고에서 가져온 값" 임을
- * 표시할 수 있어야 하므로 파생 값이지만 응답에 드러낸다.
+ * `salePrice` 가 직접 입력되었는지 여부를 프런트가 표시할 수 있도록
+ * 파생 값이지만 응답에 드러낸다.
  *
  *   - `input`:   수기 입력(`registrationInput.salePrice`)
- *   - `sellpia`: 이름이 정확히 일치한 셀피아 재고 SKU 판매가 폴백
- *   - `none`:    둘 다 없음. `salePrice` 는 0이다.
+ *   - `none`:    입력값 없음. `salePrice` 는 0이다.
  */
-export type SalePriceSource = 'input' | 'sellpia' | 'none';
+export type SalePriceSource = 'input' | 'none';
 
 export interface ProductBasics {
   name: string;
@@ -160,19 +159,12 @@ export function buildProductBasics({
   preparation,
   registrationImages,
   workspaceThumbnailSelection,
-  sellpiaSalePrice,
 }: {
   candidate: CandidateLike;
   preparation: PreparationLike;
   registrationImages?: RegistrationImages | null;
   /** 조회는 호출자(서비스) 몫이다. 프리젠터는 순수 함수로 남는다. */
   workspaceThumbnailSelection?: WorkspaceThumbnailSelection | null;
-  /**
-   * 이름이 정확히 일치한 셀피아 재고 SKU 의 판매가. 조회는 호출자(서비스) 몫이고
-   * 프리젠터는 순수 함수로 남는다. 매칭 실패는 `null`/`undefined` 이며, 추정하지
-   * 않고 0원으로 남긴다.
-   */
-  sellpiaSalePrice?: number | null;
 }): ProductBasics {
   const raw = toRecord(candidate.rawData);
   // `ProductPreparation` 이 없는 후보가 기본정보를 저장하는 곳. 후보 워크스페이스
@@ -193,15 +185,12 @@ export function buildProductBasics({
     candidate.imageUrl,
   ].filter((url): url is string => typeof url === 'string' && url.trim().length > 0);
 
-  // 수기 입력이 항상 이긴다. 셀피아 판매가는 수기 값이 비어 있을 때만 채우는
-  // 폴백이며, 사용자가 고친 값을 절대 덮어쓰지 않는다. 준비 registrationInput 이
-  // 없으면 후보 수기 저장값(manual)도 사용자 입력으로 취급한다.
+  // 등록 입력과 후보 수기 저장값(manual)은 사용자 입력으로 취급하고, 사용자가
+  // 고친 값을 덮어쓰지 않는다.
   // 상품 등록 초안이 적어 준 값도 사람이 넣은 값이다(rawData). 수기 저장값 다음 순서로 읽는다.
   const inputSalePrice = num(input.salePrice) || num(manual.salePrice) || num(raw.salePrice);
-  const fallbackSalePrice = num(sellpiaSalePrice);
-  const salePrice = inputSalePrice > 0 ? inputSalePrice : fallbackSalePrice;
-  const salePriceSource: SalePriceSource =
-    inputSalePrice > 0 ? 'input' : fallbackSalePrice > 0 ? 'sellpia' : 'none';
+  const salePrice = inputSalePrice;
+  const salePriceSource: SalePriceSource = inputSalePrice > 0 ? 'input' : 'none';
 
   return {
     name: str(input.name) ?? str(input.title) ?? candidate.name,

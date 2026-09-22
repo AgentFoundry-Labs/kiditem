@@ -24,9 +24,8 @@ export type ProductInventoryStatus = z.infer<typeof ProductInventoryStatusSchema
 export const ProductInventoryFactsSchema = z.object({
   skuCount: z.number().int().nonnegative(),
   measuredSkuCount: z.number().int().nonnegative(),
-  inactiveSkuCount: z.number().int().nonnegative(),
-}).strict().refine((facts) => facts.inactiveSkuCount <= facts.measuredSkuCount
-  && facts.measuredSkuCount <= facts.skuCount, 'inventory counts must be nested subsets');
+}).strict().refine((facts) => facts.measuredSkuCount <= facts.skuCount,
+  'inventory counts must be nested subsets');
 export type ProductInventoryFacts = z.infer<typeof ProductInventoryFactsSchema>;
 
 export const ProductOperationsInventoryFocusSchema = z.enum([
@@ -88,30 +87,21 @@ export type ProductOperationsAbcCalculationStatusFilter = z.infer<
   typeof ProductOperationsAbcCalculationStatusFilterSchema
 >;
 
-/** 목록 정렬. 기본은 최신 등록순(사장님 2026-09-21). */
-export const ProductOperationsSortSchema = z.enum([
-  'latest',
-  'revenue',
-  'stock',
-  'profit',
-  'margin',
-  'sold',
-]);
+export const ProductOperationsSortSchema = z.enum(['latest', 'revenue', 'stock', 'sold']);
 export type ProductOperationsSort = z.infer<typeof ProductOperationsSortSchema>;
 
 export const MasterProductOperationsListQuerySchema = z.object({
+  sort: ProductOperationsSortSchema.default('latest'),
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().max(100).default(50),
   query: z.string().trim().min(1).max(200).optional(),
   periodDays: ProductOperationsPeriodDaysSchema.default(30),
-  category: z.string().trim().min(1).max(100).optional(),
   activeStatus: ProductOperationsActiveStatusSchema.default('active'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
   inventoryFocus: ProductOperationsInventoryFocusSchema.optional(),
   abcGrade: ProductOperationsAbcGradeFilterSchema.optional(),
   abcCalculationStatus: ProductOperationsAbcCalculationStatusFilterSchema.optional(),
   adStatus: ProductOperationsAdStatusSchema.default('all'),
-  sort: ProductOperationsSortSchema.default('latest'),
 }).strict();
 export type MasterProductOperationsListQuery = z.infer<
   typeof MasterProductOperationsListQuerySchema
@@ -127,7 +117,7 @@ export type ProductRecipeComponentCandidateQuery = z.infer<
 >;
 
 export const ProductRecipeComponentCandidateSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   code: z.string().min(1),
   name: z.string().min(1),
   optionName: z.string().nullable(),
@@ -162,18 +152,12 @@ export const MasterProductOperationsMetadataSchema = z.object({
   code: ProductCodeSchema,
   displayReference: MasterProductDisplayReferenceSchema,
   name: ProductNameSchema,
-  description: z.string().nullable(),
-  category: z.string().nullable(),
-  brand: z.string().nullable(),
-  tags: z.array(z.string().min(1)),
   imageUrls: z.array(z.string().min(1)),
   displayImageUrls: z.array(z.string().min(1)),
   abcGrade: ProductAbcGradeSchema.nullable(),
   abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   abc: ProductAbcReadModelSchema,
   contribution: ProductAbcContributionProductSchema.nullable(),
-  adBudgetLimit: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean(),
 }).strict();
 export type MasterProductOperationsMetadata = z.infer<
   typeof MasterProductOperationsMetadataSchema
@@ -191,13 +175,7 @@ export const ProductDepletionProjectionSchema = z.object({
   coverage: z.enum(['ready', 'shared', 'no_direct_sales']),
   needsReorder: z.boolean(),
   reorderSkuCount: z.number().int().nonnegative(),
-  /**
-   * 한 달에 몇 개 나가는가 — 그 상품이 가진 셀피아 SKU 들의 완결 2개월 평균 합(개/월).
-   * SKU 하나라도 잴 근거가 없으면 부분 합 대신 `null` 이다: 재고는 다 세고 소진은 일부만
-   * 센 숫자는 남은 개월수를 실제보다 길게 보이게 한다(사장님 2026-09-21).
-   */
   monthlyOutflow: z.number().nonnegative().nullable(),
-  /** 그 평균이 덮은 완결 월 수. 평균이 며칠짜리인지 없이 숫자만 내보내지 않는다. */
   outflowMonthCount: z.number().int().nonnegative(),
   minMonthsOfAvailableStockLeft: z.number().nonnegative().nullable(),
 }).strict();
@@ -257,31 +235,26 @@ export type ProductOperationsDataStatus = z.infer<
   typeof ProductOperationsDataStatusSchema
 >;
 
-/**
- * 한 달치 장사. 상품 분석이 운영 센터가 되면서 매출 · 팔린 개수 · 원가가 한 기준으로 맞아야
- * 한다(사장님 2026-09-21). 셀피아가 그달에 낸 값 그대로이고, 이익은 매출 − 원가라 광고비 ·
- * 몰 수수료를 빼기 전이다. 그 달에 판 적이 없으면 행 자체가 null 이다 — 0 으로 찍지 않는다.
- */
+/** Current KST-month source facts; source coverage is distinct from current stock and ABC cutoff. */
 export const ProductMonthlySalesSchema = z.object({
-  yearMonth: z.string().regex(/^\d{4}-\d{2}$/),
-  revenue: z.number().int(),
-  soldQuantity: z.number().int().nonnegative(),
-  /** 판 물건의 원가 = Σ(팔린 개수 × 매입 단가). 그달 매입금액이 아니다. 매입 단가를 못 읽었으면 null. */
-  cost: z.number().int().nullable(),
-  /** 매입 단가를 모르면 null — 0 으로 빼면 이익률이 100% 로 찍힌다. */
-  grossProfit: z.number().int().nullable(),
-  /** 매출총이익률(%). 매출이 0 이면 null. */
+  yearMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  revenue: z.number().finite(),
+  soldQuantity: z.number().finite(),
+  cost: z.number().finite().nullable(),
+  grossProfit: z.number().finite().nullable(),
   grossMarginRate: z.number().finite().nullable(),
+  coverageStartDate: zIsoDate,
+  coverageEndDate: zIsoDate,
 }).strict();
 export type ProductMonthlySales = z.infer<typeof ProductMonthlySalesSchema>;
 
 export const MasterProductOperationsListItemSchema =
   MasterProductOperationsMetadataSchema.extend({
     isSelling: z.boolean(),
+    monthly: ProductMonthlySalesSchema.nullable(),
     updatedAt: zIsoDate,
     /** 등록된 때. 최신등록순 정렬과 신상품 묶음이 이 값을 쓴다. */
     createdAt: zIsoDate,
-    monthly: ProductMonthlySalesSchema.nullable(),
     depletion: ProductDepletionProjectionSchema,
     channelOptionSummary: ChannelOptionSummarySchema,
     inventoryUnits: z.number().int().nonnegative().nullable(),
@@ -389,24 +362,14 @@ export const ProductChannelListingSummarySchema = z.object({
     capacity: z.number().int().nonnegative().nullable(),
     inventoryComponents: z.array(z.object({
       id: z.string().uuid(),
-      sellpiaInventorySkuId: z.string().uuid(),
-      code: z.string().min(1),
-      name: z.string().min(1),
+      masterProductId: z.string().uuid(),
+      code: z.string().min(1).nullable(),
+      name: z.string().min(1).nullable(),
       optionName: z.string().nullable(),
       barcode: z.string().nullable(),
       currentStock: z.number().int().nonnegative().nullable(),
-      availableStock: z.number().int().nonnegative().nullable(),
-      isActive: z.boolean().nullable(),
       quantity: z.number().int().positive(),
-    }).strict().superRefine((component, ctx) => {
-      if (component.availableStock !== component.currentStock) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['availableStock'],
-          message: 'availableStock must equal currentStock',
-        });
-      }
-    })).max(50),
+    }).strict()).max(50),
   }).strict()),
 }).strict();
 export type ProductChannelListingSummary = z.infer<
@@ -426,7 +389,7 @@ export type MasterProductOperationsDetail = z.infer<
 >;
 
 export const ChannelOptionInventoryComponentInputSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   quantity: z.number().int().positive(),
 }).strict();
 export type ChannelOptionInventoryComponentInput = z.infer<
@@ -441,55 +404,26 @@ export type ReplaceChannelOptionInventoryInput = z.infer<
 >;
 
 function rejectDuplicateRecipeComponents(
-  value: { components?: Array<{ sellpiaInventorySkuId: string }> },
+  value: { components?: Array<{ masterProductId: string }> },
   ctx: z.RefinementCtx,
 ) {
   const seen = new Set<string>();
   value.components?.forEach((component, index) => {
-    const key = component.sellpiaInventorySkuId.toLowerCase();
+    const key = component.masterProductId.toLowerCase();
     if (seen.has(key)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['components', index, 'sellpiaInventorySkuId'],
-        message: 'duplicate sellpiaInventorySkuId',
+        path: ['components', index, 'masterProductId'],
+        message: 'duplicate masterProductId',
       });
     }
     seen.add(key);
   });
 }
 
-const MasterProductMutationFieldsSchema = z.object({
-  code: ProductCodeSchema,
-  name: ProductNameSchema,
-  description: z.string().nullable(),
-  category: z.string().trim().min(1).max(100).nullable(),
-  brand: z.string().trim().min(1).max(100).nullable(),
-  tags: z.array(z.string().trim().min(1).max(100)).max(50),
+export const UpdateMasterProductInputSchema = z.object({
   imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50),
-  adBudgetLimit: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean(),
 }).strict();
-
-export const CreateMasterProductInputSchema = z.object({
-  code: ProductCodeSchema,
-  name: ProductNameSchema,
-  description: z.string().nullable().optional(),
-  category: z.string().trim().min(1).max(100).nullable().optional(),
-  brand: z.string().trim().min(1).max(100).nullable().optional(),
-  tags: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
-  imageUrls: z.array(z.string().trim().min(1).max(2_000)).max(50).optional(),
-  adBudgetLimit: z.number().int().nonnegative().nullable().optional(),
-  isActive: z.boolean().optional(),
-}).strict();
-export type CreateMasterProductInput = z.infer<
-  typeof CreateMasterProductInputSchema
->;
-
-export const UpdateMasterProductInputSchema =
-  MasterProductMutationFieldsSchema.partial().refine(
-    (value) => Object.keys(value).length > 0,
-    { message: 'At least one product field is required' },
-  );
 export type UpdateMasterProductInput = z.infer<
   typeof UpdateMasterProductInputSchema
 >;

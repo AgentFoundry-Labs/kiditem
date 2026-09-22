@@ -1,7 +1,6 @@
 import type { CapabilityKey, CapabilityTotals } from '../../_shared/mall-capabilities';
 import { formatNumber } from '@/lib/utils';
 import type { MallAgentMission, MissionStatus } from './mall-agent-missions';
-import { MALL_ACCOUNT_SETTINGS_HREF } from '../../_shared/mall-account-settings-link';
 
 /**
  * 쇼핑몰 에이전트 파이프라인 — 에이전트가 일하는 순서와, 단계마다 그 단계의 일.
@@ -52,8 +51,6 @@ export interface AgentPipelineInput {
   /** 아직 열린 몰 원천 실패 알림 수. 못 받았으면 `null`. */
   openAlertCount: number | null;
   totals: CapabilityTotals | null;
-  /** 관찰 기록(MallOperationOutcome) 요약 — 최근 7일 건수 · 몰 수 · 로그인 기록 수. 못 받았으면 `null`. */
-  outcomes: { total: number; malls: number; loginRecords: number } | null;
 }
 
 /** 못 받은 숫자 자리. 불러오는 중이든 실패했든 지어내지 않는다. */
@@ -150,7 +147,7 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         title: '로그인 정보 없는 몰',
         status: 'done',
         detail: amount(input.noLoginCount, '곳'),
-        href: { path: MALL_ACCOUNT_SETTINGS_HREF, label: '계정 설정' },
+        href: { path: '/mall-settings', label: '계정 설정' },
       },
       {
         // 확장이 조용히 읽고, 모르면 화면을 열어 봐 몰마다 셋 중 하나로 답한다.
@@ -185,13 +182,6 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         status: 'done',
         detail: amount(input.openAlertCount, '건'),
         href: { path: '#mall-alerts', label: '알림판' },
-      },
-      {
-        id: 'sense-form',
-        title: '등록 폼 경고',
-        status: 'progress',
-        detail: '경고 수가 관찰 기록에 남아 몰별 상태에 보인다. 알림으로는 아직 안 뜬다.',
-        href: null,
       },
       {
         id: 'sense-tracking',
@@ -273,7 +263,7 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         'act-register',
         '상품등록 폼 채우기',
         { path: '/mall-listings', label: '상품 등록' },
-        ' · [등록]은 확인한 몰만 확장이',
+        ' · 제출은 사람이',
       ),
       capability('soldout', 'act-soldout', '품절 · 해제 송신', { path: '/mall-availability', label: '품절 관리' }),
       {
@@ -281,7 +271,7 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         title: '자동 로그인',
         status: 'progress',
         detail: '저장된 계정으로 로그인한다. 캡차 · OTP 몰은 사람을 부른다.',
-        href: { path: MALL_ACCOUNT_SETTINGS_HREF, label: '쇼핑몰 계정' },
+        href: { path: '/mall-settings', label: '쇼핑몰 계정' },
       },
       {
         id: 'act-tidy',
@@ -295,8 +285,8 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
       {
         id: 'approve-submit',
         title: '상품등록 최종 제출',
-        status: 'progress',
-        detail: '[등록]을 확인한 몰은 확장이 끝까지 누르고(사장님 2026-09-20), 확인 전 몰은 폼만 채워 사람이 누른다.',
+        status: 'done',
+        detail: '확장은 폼을 채우기만 한다. 저장 · 등록은 사람이 누른다.',
         href: { path: '/mall-listings', label: '상품 등록' },
       },
       {
@@ -311,7 +301,7 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         title: '몰 계정 비밀번호',
         status: 'done',
         detail: '사람이 계정 설정에서 직접 넣는다. 코드 · 기록에 남기지 않는다.',
-        href: { path: MALL_ACCOUNT_SETTINGS_HREF, label: '쇼핑몰 계정' },
+        href: { path: '/mall-settings', label: '쇼핑몰 계정' },
       },
       {
         id: 'approve-tidy',
@@ -344,15 +334,6 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         href: null,
       },
       {
-        id: 'remember-results',
-        title: '관찰 기록 (로그인 확인 · 로그인 테스트 · 등록 폼)',
-        status: 'done',
-        detail: input.outcomes
-          ? `최근 7일 ${formatNumber(input.outcomes.total)}건 · 몰 ${formatNumber(input.outcomes.malls)}곳`
-          : PIPELINE_UNKNOWN,
-        href: null,
-      },
-      {
         id: 'remember-fixes',
         title: '사람이 고친 칸',
         status: 'todo',
@@ -365,15 +346,6 @@ export function buildAgentPipeline(input: AgentPipelineInput): PipelineStage[] {
         status: 'todo',
         detail: '칸 지도가 언제 어떻게 바뀌었는지 남기지 않는다.',
         href: null,
-      },
-      {
-        id: 'remember-login',
-        title: '로그인 성공 · 실패',
-        status: 'done',
-        detail: input.outcomes
-          ? `최근 7일 로그인 기록 ${formatNumber(input.outcomes.loginRecords)}건`
-          : PIPELINE_UNKNOWN,
-        href: { path: MALL_ACCOUNT_SETTINGS_HREF, label: '로그인 테스트' },
       },
     ]),
   ];

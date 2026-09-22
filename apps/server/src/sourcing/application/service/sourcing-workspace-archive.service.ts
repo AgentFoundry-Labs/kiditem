@@ -8,9 +8,14 @@ import {
   type SourcingCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-candidate.repository.port';
 import {
-  PRODUCT_PREPARATION_REPOSITORY_PORT,
-  type ProductPreparationRepositoryPort,
-} from '../port/out/repository/product-preparation.repository.port';
+  CANDIDATE_REGISTRATION_PORT,
+  type CandidateRegistrationPort,
+} from '../../../channels/application/port/in/candidate-registration.port';
+import {
+  REGISTRATION_EXECUTION_PORT,
+  type RegistrationExecutionPort,
+} from '../../../channels/application/port/in/capability/registration-execution.port';
+import type { ChannelsRepositoryTransaction } from '../../../channels/application/port/out/transaction/repository-transaction';
 
 export interface SourcingWorkspaceArchiveResult {
   ok: true;
@@ -28,8 +33,10 @@ export class SourcingWorkspaceArchiveService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_AI_WORKSPACE_ARCHIVE_PORT)
     private readonly aiArchive: SourcingAiWorkspaceArchivePort,
-    @Inject(PRODUCT_PREPARATION_REPOSITORY_PORT)
-    private readonly preparations: ProductPreparationRepositoryPort,
+    @Inject(CANDIDATE_REGISTRATION_PORT)
+    private readonly preparations: CandidateRegistrationPort,
+    @Inject(REGISTRATION_EXECUTION_PORT)
+    private readonly executions: RegistrationExecutionPort,
   ) {}
 
   async archive(candidateId: string, organizationId: string): Promise<SourcingWorkspaceArchiveResult> {
@@ -46,11 +53,12 @@ export class SourcingWorkspaceArchiveService {
       if (!locked || locked.status !== 'sourced') {
         throw new NotFoundException('Sourcing candidate not found');
       }
-      await this.preparations.cancelUnstartedExternalRegistrationIntents(tx, {
-        organizationId,
-        sourceCandidateId: candidateId,
-        cancelledAt: archivedAt,
-      });
+      // 실행 행은 Channels 것이다. 후보 삭제 준비도 그쪽 울타리가 하고, 우리
+      // 트랜잭션을 넘겨 후보 종료와 한 커밋에 들어가게 한다(ADR-0014).
+      await this.executions.cancelUnstartedExecutions(
+        tx as unknown as ChannelsRepositoryTransaction,
+        { organizationId, sourceCandidateId: candidateId, cancelledAt: archivedAt },
+      );
       await this.preparations.assertCandidateTerminalTransitionAllowed(tx, {
         organizationId,
         sourceCandidateId: candidateId,

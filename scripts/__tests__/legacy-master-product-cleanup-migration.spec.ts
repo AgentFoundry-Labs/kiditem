@@ -23,8 +23,8 @@ function createTransaction(input: {
 
 describe('legacy channel-derived MasterProduct cleanup migration', () => {
   it('leaves the registry when the cached grade column it filters on is dropped', () => {
-    // Release 0.1.30 has not reached main, so the registration goes without
-    // inactive lineage; the applied source stays as it ran.
+    // Release 0.1.30 reached Office, so its inactive lineage lives in
+    // retired.json; the applied source stays as it ran.
     expect(dataMigrations.map((migration) => migration.id)).not.toContain(MIGRATION_ID);
     expect(deleteLegacyChannelDerivedMasterProducts).toMatchObject({
       id: MIGRATION_ID,

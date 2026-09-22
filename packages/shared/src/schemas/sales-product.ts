@@ -64,23 +64,7 @@ export function buildSalesProductOptionCombinations(axesValues: readonly (readon
   );
 }
 
-/** 새 단품코드 — `{판매상품코드}-0001` 모양으로, 이미 쓴 번호 다음. */
-/**
- * 몰로 보낼 단품 가격 — 판매가 + 추가금액. 그 몰의 몰별 값이 있으면 그 값(금액이 %보다 먼저)에 추가금액을 더한다.
- * 서버 · 등록 초안 · 편집 화면이 모두 이 한 규칙을 쓴다.
- */
-export function salesProductMallPrice(input: {
-  salePrice: number;
-  extraPrice: number;
-  override?: { salePrice: number | null; priceRateBp: number | null } | null;
-}): number {
-  const base = input.override?.salePrice
-    ?? (input.override?.priceRateBp
-      ? Math.round((input.salePrice * input.override.priceRateBp) / 10_000)
-      : input.salePrice);
-  return Math.max(0, base + input.extraPrice);
-}
-
+/** Import-only bootstrap option key. Runtime KID issuance belongs to the backend allocator. */
 export function nextSalesProductOptionCode(productCode: string, existingCodes: readonly string[]): string {
   const prefix = `${productCode}-`;
   const used = existingCodes
@@ -104,7 +88,7 @@ export const SalesProductCertificationSchema = z.object({
 export type SalesProductCertification = z.infer<typeof SalesProductCertificationSchema>;
 
 export const SalesProductOptionComponentInputSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   quantity: z.number().int().min(1).max(999),
 }).strict();
 export type SalesProductOptionComponentInput = z.infer<typeof SalesProductOptionComponentInputSchema>;
@@ -116,7 +100,8 @@ export const SalesProductOptionInputSchema = z.object({
   values: z.array(optionText).max(SALES_PRODUCT_MAX_OPTION_AXES),
   alias: optionalText(100),
   barcode: optionalText(60),
-  extraPrice: z.number().int().min(-MAX_KRW).max(MAX_KRW).default(0),
+  salePrice: money,
+  normalPrice: money.nullable().default(null),
   supplyStatus: SalesProductOptionSupplyStatusSchema.default('selling'),
   safetyStock: z.number().int().min(0).max(1_000_000).nullable().optional(),
   components: z.array(SalesProductOptionComponentInputSchema).max(10).default([]),
@@ -151,7 +136,7 @@ function refineOptionSet(value: z.infer<typeof OptionSetSchema>, ctx: z.Refineme
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', index, 'values'], message: '같은 옵션이 두 번 있습니다.' });
     }
     keys.add(key);
-    const skuIds = option.components.map((component) => component.sellpiaInventorySkuId);
+    const skuIds = option.components.map((component) => component.masterProductId);
     if (new Set(skuIds).size !== skuIds.length) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['options', index, 'components'], message: '같은 셀피아 상품이 두 번 있습니다.' });
     }
@@ -180,9 +165,6 @@ export const SalesProductBasicsInputSchema = z.object({
   taxType: SalesProductTaxTypeSchema.default('taxable'),
   deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable().optional(),
   deliveryFee: money.nullable().optional(),
-  costPrice: money.nullable().optional(),
-  salePrice: money,
-  tagPrice: money.nullable().optional(),
   stockManaged: z.boolean().default(false),
   imageUrls: z.array(requiredText(1000)).max(30).default([]),
   detailHtml: z.string().max(200_000).nullable().optional(),
@@ -223,21 +205,8 @@ export const SalesProductOptionsReplaceInputSchema = OptionSetSchema.extend({
 }).strict().superRefine(refineOptionSet);
 export type SalesProductOptionsReplaceInput = z.input<typeof SalesProductOptionsReplaceInputSchema>;
 
-export const SalesProductChannelOverrideInputSchema = z.object({
-  salePrice: money.nullable().optional(),
-  priceRateBp: z.number().int().min(1).max(100_000).nullable().optional(),
-  costPrice: money.nullable().optional(),
-  name: optionalText(255),
-  detailHtml: z.string().max(200_000).nullable().optional(),
-  promoText: optionalText(255),
-  noticeCategory: optionalText(10),
-  stockPercent: z.number().int().min(0).max(100).nullable().optional(),
-  adapterValues: z.record(z.string(), z.string().max(2000)).nullable().optional(),
-}).strict();
-export type SalesProductChannelOverrideInput = z.input<typeof SalesProductChannelOverrideInputSchema>;
-
 export const SalesProductOptionComponentSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   sellpiaCode: z.string(),
   name: z.string(),
   optionName: z.string().nullable(),
@@ -253,7 +222,8 @@ export const SalesProductOptionSchema = z.object({
   optionKey: z.string(),
   alias: z.string().nullable(),
   barcode: z.string().nullable(),
-  extraPrice: z.number().int(),
+  salePrice: money,
+  normalPrice: money.nullable(),
   supplyStatus: SalesProductOptionSupplyStatusSchema,
   safetyStock: z.number().int().nullable(),
   sortOrder: z.number().int(),
@@ -325,9 +295,6 @@ export const SalesProductSchema = z.object({
   taxType: SalesProductTaxTypeSchema,
   deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable(),
   deliveryFee: z.number().int().nullable(),
-  costPrice: z.number().int().nullable(),
-  salePrice: z.number().int(),
-  tagPrice: z.number().int().nullable(),
   optionAxes: z.array(z.string()),
   stockManaged: z.boolean(),
   optionsLocked: z.boolean(),
@@ -439,8 +406,23 @@ export const SabangnetImportIssueSchema = z.object({
 });
 export type SabangnetImportIssue = z.infer<typeof SabangnetImportIssueSchema>;
 
+/** Existing rows are updated only when explicitly selected from this versioned preview. */
+export const SabangnetImportSelectionSchema = z.array(z.object({
+  salesProductId: z.string().uuid(),
+  expectedVersion: z.number().int().positive(),
+}).strict()).max(10000);
+export type SabangnetImportSelection = z.infer<typeof SabangnetImportSelectionSchema>;
+
 export const SabangnetImportPreviewSchema = z.object({
   dryRun: z.boolean(),
+  existingChanges: z.array(z.object({
+    salesProductId: z.string().uuid(),
+    code: z.string(),
+    name: z.string(),
+    sourceKey: z.string(),
+    expectedVersion: z.number().int().positive(),
+    changed: z.boolean(),
+  })),
   files: z.array(z.object({ name: z.string(), kind: SabangnetWorkbookKindSchema, rows: z.number().int() })),
   products: z.object({
     total: z.number().int(),

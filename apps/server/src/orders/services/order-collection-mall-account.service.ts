@@ -8,8 +8,8 @@ import {
   type EncryptedCredentialEnvelope,
   isEncryptedCredentialEnvelope,
 } from '../../channels/domain/channel-credential-crypto';
+import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import {
-  ORDER_COLLECTION_MALLS,
   ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER,
   findOrderCollectionMall,
   orderCollectionMallAccountChannels,
@@ -75,7 +75,7 @@ export class OrderCollectionMallAccountService {
     const byKey = pickOrderCollectionMallAccounts(rows);
 
     // 저장된 순서가 먼저, 없으면 카탈로그 순서. 같은 순번은 카탈로그 순서로 안정 정렬.
-    return ORDER_COLLECTION_MALLS.map((mall, catalogIndex) => ({
+    return MALL_CHANNELS.map((mall, catalogIndex) => ({
       catalogIndex,
       account: toMallAccount(mall.key, mall.name, byKey.get(mall.key) ?? null),
     }))
@@ -116,7 +116,7 @@ export class OrderCollectionMallAccountService {
     const byKey = pickOrderCollectionMallAccounts(rows);
     const nextSortOrderByKey = new Map(orderedKeys.map((key, index) => [key, index]));
 
-    const writes = ORDER_COLLECTION_MALLS.flatMap((mall) => {
+    const writes = MALL_CHANNELS.flatMap((mall) => {
       const existing = byKey.get(mall.key);
       if (!existing) return [];
       const nextSortOrder = nextSortOrderByKey.get(mall.key) ?? null;

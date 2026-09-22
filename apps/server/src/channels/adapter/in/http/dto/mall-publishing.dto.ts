@@ -54,9 +54,7 @@ export class MallAvailabilityPreviewQueryDto {
   @IsOptional()
   @IsInt()
   @IsPositive()
-  // 표는 100건이면 되지만 품절 송신은 **그 몰의 전부**를 알아야 한다. 창 안에 안 든
-  // 몰은 버튼조차 서지 않아 통째로 빠진다(실측 2026-09-18: 후보 958건 중 앞 100건에
-  // 키드키즈·아이스크림몰이 없어 두 몰이 사라졌다). 화면은 남은 건수를 함께 읽는다.
+  // Availability actions need every option for a listing, while the matrix itself remains paged.
   @Max(3_000)
   limit = 50;
 }

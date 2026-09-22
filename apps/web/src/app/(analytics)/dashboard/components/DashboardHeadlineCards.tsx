@@ -22,6 +22,8 @@ import { type DashboardTone } from './DashboardCardHeader';
 export interface HeadlineMetric {
   key: string;
   label: string;
+  /** Optional accessible name when the compact visible label is intentionally abbreviated. */
+  ariaLabel?: string;
   /** 이미 포맷한 값. 모르면 null — 0 으로 그리지 않는다. */
   value: string | null;
   unit?: string;
@@ -103,7 +105,7 @@ function HeroMetric({ metric }: { metric: HeadlineMetric }) {
     </>
   );
   return metric.href ? (
-    <Link href={metric.href} className="block rounded-lg transition-colors hover:bg-slate-50" data-testid={`headline-${metric.key}`}>{body}</Link>
+    <Link href={metric.href} aria-label={metric.ariaLabel} className="block rounded-lg transition-colors hover:bg-slate-50" data-testid={`headline-${metric.key}`}>{body}</Link>
   ) : (
     <div data-testid={`headline-${metric.key}`}>{body}</div>
   );
@@ -144,6 +146,7 @@ function MetricRow({ metric }: { metric: HeadlineMetric }) {
         '-mx-1.5 flex items-center justify-between gap-2 rounded px-1.5 py-1 transition-colors hover:bg-slate-50',
         metric.emphasis && 'border-t-2 border-slate-900/80 pt-1.5',
       )}
+      aria-label={metric.ariaLabel}
       data-testid={`headline-${metric.key}`}
     >
       {row}

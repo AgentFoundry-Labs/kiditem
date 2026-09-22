@@ -160,6 +160,79 @@ test('[등록]을 누르는 페이지 함수 — 확인 창은 받아들이고 �
   assert.equal(missing.clicked, false);
 });
 
+const EXECUTION_CONTEXT = {
+  executionId: '33333333-3333-4333-8333-333333333333',
+  payloadHash: 'sha256:mall-registration-fixture',
+  leaseToken: '88888888-8888-4888-8888-888888888888',
+};
+
+test('target registration echoes its execution context with the provider observation', async () => {
+  const { api } = harness({
+    reads: [{ success: true, failure: false, dialogs: ['상품번호 70123456 등록되었습니다'], productNo: '70123456' }],
+  });
+  const result = await api.register({
+    mall: 'domeggook',
+    form: form(),
+    submit: true,
+    executionContext: EXECUTION_CONTEXT,
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.executionContext)), EXECUTION_CONTEXT);
+  assert.equal(result.executionId, EXECUTION_CONTEXT.executionId);
+  assert.equal(result.payloadHash, EXECUTION_CONTEXT.payloadHash);
+  assert.equal(result.leaseToken, EXECUTION_CONTEXT.leaseToken);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.evidence)), {
+    submitted: true,
+    accepted: true,
+    productNo: '70123456',
+    mallMessage: '상품번호 70123456 등록되었습니다',
+  });
+});
+
+test('target context does not turn fill-only work into a submission', async () => {
+  const { api, calls } = harness();
+  const result = await api.register({
+    mall: 'domeggook',
+    form: form(),
+    executionContext: EXECUTION_CONTEXT,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.submitted, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.executionContext)), EXECUTION_CONTEXT);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.evidence)), {
+    submitted: false,
+    accepted: null,
+    productNo: null,
+    mallMessage: null,
+  });
+  assert.equal(calls.press, 0);
+});
+
+test('rejects a partial execution context before opening or filling a mall form', async () => {
+  const { api, calls } = harness();
+  const result = await api.register({
+    mall: 'domeggook',
+    form: form(),
+    executionContext: { executionId: EXECUTION_CONTEXT.executionId },
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /등록 실행 컨텍스트/);
+  assert.equal(calls.fill, 0);
+  assert.equal(calls.press, 0);
+});
+
+test('keeps execution context scoped to mall registration, not availability transport', () => {
+  const worker = readFileSync(path.join(repoRoot, 'extensions/kiditem-os/background/orders/worker.js'), 'utf8');
+  const registrationStart = worker.indexOf('if (msg?.action === "registerToMallForm")');
+  const availabilityStart = worker.indexOf('if (msg?.action === "sendMallAvailability")');
+  assert.ok(registrationStart >= 0 && availabilityStart > registrationStart);
+  const registrationBranch = worker.slice(registrationStart, availabilityStart);
+  assert.match(registrationBranch, /executionContext/);
+  assert.doesNotMatch(worker.slice(availabilityStart, worker.indexOf('if (msg?.action === "readMallAvailability")', availabilityStart)), /executionId|payloadHash|leaseToken|executionContext/);
+});
+
 test('[등록]까지 누를 수 있는 몰은 확인한 몰뿐이다(지금 없음)', () => {
   assert.deepEqual([...loadModule().SUBMIT_MALL_KEYS], []);
 });

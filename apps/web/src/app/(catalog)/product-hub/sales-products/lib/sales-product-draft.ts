@@ -13,7 +13,7 @@ import {
  */
 
 export interface OptionComponentDraft {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   quantity: number;
   sellpiaCode: string;
   name: string;
@@ -28,7 +28,8 @@ export interface OptionRowDraft {
   values: string[];
   alias: string;
   barcode: string;
-  extraPrice: number;
+  salePrice: number;
+  normalPrice: number | null;
   supplyStatus: SalesProductOptionSupplyStatus;
   safetyStock: number | null;
   components: OptionComponentDraft[];
@@ -37,12 +38,14 @@ export interface OptionRowDraft {
 
 export interface OptionTableDraft {
   axes: string[];
+  /** Local editor base; option rows keep the final prices the API stores. */
+  baseSalePrice: number;
   rows: OptionRowDraft[];
 }
 
 export const BASIC_FIELDS = [
   'name', 'shortName', 'ownCode', 'modelName', 'modelNo', 'brand', 'manufacturer', 'originCountry', 'status',
-  'taxType', 'deliveryFeeType', 'deliveryFee', 'costPrice', 'salePrice', 'tagPrice', 'keywords', 'imageUrls',
+  'taxType', 'deliveryFeeType', 'deliveryFee', 'keywords', 'imageUrls',
   'detailHtml', 'noticeCategory', 'noticeValues', 'certifications', 'adminMemo',
 ] as const;
 export type BasicField = (typeof BASIC_FIELDS)[number];
@@ -59,8 +62,13 @@ export function basicsFromProduct(product: SalesProduct): BasicsDraft {
 }
 
 export function optionsFromProduct(product: SalesProduct): OptionTableDraft {
+  const activeOptions = product.options.filter((option) => option.supplyStatus !== 'unused');
+  const baseSalePrice = activeOptions.length > 0
+    ? Math.min(...activeOptions.map((option) => option.salePrice))
+    : 0;
   return {
     axes: [...product.optionAxes],
+    baseSalePrice,
     rows: product.options.map((option) => ({
       rowKey: nextRowKey(),
       id: option.id,
@@ -68,12 +76,59 @@ export function optionsFromProduct(product: SalesProduct): OptionTableDraft {
       values: [...option.values],
       alias: option.alias ?? '',
       barcode: option.barcode ?? '',
-      extraPrice: option.extraPrice,
+      salePrice: option.salePrice,
+      normalPrice: option.normalPrice,
       supplyStatus: option.supplyStatus,
       safetyStock: option.safetyStock,
       components: option.components.map((component) => ({ ...component })),
       linkedChannelOptionCount: option.linkedChannelOptionCount,
     })),
+  };
+}
+
+/** Apply a common base edit to active rows as a delta, keeping archived prices intact. */
+export function setBaseSalePrice(draft: OptionTableDraft, nextBase: number): OptionTableDraft {
+  const base = Math.max(0, Math.round(nextBase));
+  const delta = base - draft.baseSalePrice;
+  return {
+    ...draft,
+    baseSalePrice: base,
+    rows: draft.rows.map((row) => row.supplyStatus === 'unused'
+      ? row
+      : { ...row, salePrice: Math.max(0, row.salePrice + delta) }),
+  };
+}
+
+/** Set one row's final price from the local base plus the displayed option extra. */
+export function setOptionExtraPrice(
+  draft: OptionTableDraft,
+  rowKey: string,
+  extraPrice: number,
+): OptionTableDraft {
+  const salePrice = Math.max(0, Math.round(draft.baseSalePrice + extraPrice));
+  return {
+    ...draft,
+    rows: draft.rows.map((row) => (row.rowKey === rowKey ? { ...row, salePrice } : row)),
+  };
+}
+
+export function optionExtraPrice(row: OptionRowDraft, draft: OptionTableDraft): number {
+  return row.salePrice - draft.baseSalePrice;
+}
+
+export function commonNormalPrice(draft: OptionTableDraft): { value: number | null; mixed: boolean } {
+  const activeRows = draft.rows.filter((row) => row.supplyStatus !== 'unused');
+  if (activeRows.length === 0) return { value: null, mixed: false };
+  const first = activeRows[0]!.normalPrice;
+  const mixed = activeRows.some((row) => row.normalPrice !== first);
+  return { value: mixed ? null : first, mixed };
+}
+
+/** An explicit common TAG edit applies to active options only. */
+export function setCommonNormalPrice(draft: OptionTableDraft, normalPrice: number | null): OptionTableDraft {
+  return {
+    ...draft,
+    rows: draft.rows.map((row) => row.supplyStatus === 'unused' ? row : { ...row, normalPrice }),
   };
 }
 
@@ -94,8 +149,9 @@ export function optionsChanged(product: SalesProduct, draft: OptionTableDraft): 
   const shape = (table: OptionTableDraft) => JSON.stringify([
     table.axes,
     table.rows.map((row) => [
-      row.id ?? null, row.values, row.alias, row.barcode, row.extraPrice, row.supplyStatus, row.safetyStock,
-      row.components.map((component) => [component.sellpiaInventorySkuId, component.quantity]),
+      row.id ?? null, row.values, row.alias, row.barcode, row.salePrice, row.normalPrice,
+      row.supplyStatus, row.safetyStock,
+      row.components.map((component) => [component.masterProductId, component.quantity]),
     ]),
   ]);
   return shape(current) !== shape(draft);
@@ -111,11 +167,12 @@ export function optionsPayload(draft: OptionTableDraft, expectedVersion: number)
       values: row.values.map((value) => value.trim()),
       alias: row.alias.trim() || null,
       barcode: row.barcode.trim() || null,
-      extraPrice: row.extraPrice,
+      salePrice: row.salePrice,
+      normalPrice: row.normalPrice,
       supplyStatus: row.supplyStatus,
       safetyStock: row.safetyStock,
       components: row.components.map((component) => ({
-        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+        masterProductId: component.masterProductId,
         quantity: component.quantity,
       })),
     })),
@@ -129,19 +186,28 @@ export function optionsPayload(draft: OptionTableDraft, expectedVersion: number)
 export function addMissingCombinations(draft: OptionTableDraft, axisValues: readonly (readonly string[])[]): OptionTableDraft {
   const combinations = buildSalesProductOptionCombinations(axisValues);
   const existing = new Set(draft.rows.map((row) => salesProductOptionKey(row.values)));
+  const firstActive = draft.rows.find((row) => row.supplyStatus !== 'unused');
+  const defaults = {
+    salePrice: draft.baseSalePrice,
+    normalPrice: firstActive?.normalPrice ?? null,
+  };
   const added = combinations
     .filter((values) => !existing.has(salesProductOptionKey(values)))
-    .map((values) => emptyRow(values));
+    .map((values) => emptyRow(values, defaults));
   return { ...draft, rows: [...draft.rows, ...added] };
 }
 
-export function emptyRow(values: string[]): OptionRowDraft {
+export function emptyRow(
+  values: string[],
+  defaults: { salePrice?: number; normalPrice?: number | null } = {},
+): OptionRowDraft {
   return {
     rowKey: nextRowKey(),
     values,
     alias: '',
     barcode: '',
-    extraPrice: 0,
+    salePrice: defaults.salePrice ?? 0,
+    normalPrice: defaults.normalPrice ?? null,
     supplyStatus: 'selling',
     safetyStock: null,
     components: [],
@@ -155,10 +221,11 @@ export function emptyRow(values: string[]): OptionRowDraft {
  */
 export function setAxes(draft: OptionTableDraft, axes: string[]): OptionTableDraft {
   if (axes.length === 0) {
-    const first = draft.rows[0] ?? emptyRow([]);
-    return { axes: [], rows: [{ ...first, values: [] }] };
+    const first = draft.rows[0] ?? emptyRow([], { salePrice: draft.baseSalePrice });
+    return { ...draft, axes: [], rows: [{ ...first, values: [] }] };
   }
   return {
+    ...draft,
     axes,
     rows: draft.rows.map((row) => ({
       ...row,

@@ -1,6 +1,7 @@
+import { MASTER_PRODUCT_MONTHLY_SALES_READ_PORT } from '../application/port/in/master-product-monthly-sales-read.port';
 import { Module } from '@nestjs/common';
 import { ProductAbcReadModule } from '../../products/product-abc-read.module';
-import { InventoryModule } from '../../inventory/inventory.module';
+import { ProductCollectionRuntimeModule } from '../../products/product-collection-runtime.module';
 import { AiModule } from '../../ai/ai.module';
 import { MASTER_PRODUCT_PROFIT_FACT_READ_PORT } from '../application/port/in/master-product-profit-fact-read.port';
 import { SellpiaProductSalesController } from './sellpia-product-sales.controller';
@@ -15,7 +16,7 @@ import { SellpiaProfitabilitySourceModule } from './sellpia-profitability-source
 // PrismaModule 은 @Global 이므로 별도 import 불필요.
 @Module({
   imports: [
-    InventoryModule,
+    ProductCollectionRuntimeModule,
     AiModule,
     SellpiaProfitabilitySourceModule,
     ProductAbcReadModule,
@@ -23,14 +24,12 @@ import { SellpiaProfitabilitySourceModule } from './sellpia-profitability-source
   controllers: [SellpiaProductSalesController],
   providers: [
     SellpiaProductSalesService,
+    { provide: SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT, useExisting: SellpiaProductSalesService },
     SellpiaProductInventoryReader,
     SellpiaMasterProductProfitFactReader,
+    { provide: MASTER_PRODUCT_MONTHLY_SALES_READ_PORT, useExisting: SellpiaMasterProductProfitFactReader },
     {
       provide: SELLPIA_PRODUCT_DEPLETION_READ_PORT,
-      useExisting: SellpiaProductSalesService,
-    },
-    {
-      provide: SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT,
       useExisting: SellpiaProductSalesService,
     },
     {
@@ -39,9 +38,10 @@ import { SellpiaProfitabilitySourceModule } from './sellpia-profitability-source
     },
   ],
   exports: [
+    SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT,
+    MASTER_PRODUCT_MONTHLY_SALES_READ_PORT,
     SellpiaProfitabilitySourceModule,
     SELLPIA_PRODUCT_DEPLETION_READ_PORT,
-    SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT,
     MASTER_PRODUCT_PROFIT_FACT_READ_PORT,
   ],
 })

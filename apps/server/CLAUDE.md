@@ -27,14 +27,22 @@ owns its identity and mutation rules.
 - Prefer one deep owner interface over multiple one-to-one forwarding layers.
 - Domain code is pure: no NestJS, Prisma, HTTP/provider SDK, workflow runtime,
   filesystem, or panel/event infrastructure.
-- Incoming adapters live under `adapter/in/{http,agent,workflow,cli}`.
+- Incoming adapters live under `adapter/in/{web,agent,workflow,cli}` (existing `http` adapters move when their owner is refactored).
   Incoming ports describe capabilities, not caller types.
 - Application services depend on the narrowest
   `application/port/out/<lane>` contract: repository, transaction, provider,
-  storage, runtime, event, sink, workflow, or cross-domain.
+  storage, runtime, event, sink, workflow, or a named external owner. Products
+  uses the `persistence` lane for database contracts.
 - Application code does not import concrete `adapter/out/**`
   implementations or another owner's service. Prisma belongs in outgoing
   persistence adapters or a documented legacy CRUD exception.
+- `read/` ledger readers are pure functions of the caller's transaction with no
+  adapter, application, NestJS, or lock use. Signal a missing, conflicting, or
+  unselectable fact with `common/errors/fact-errors`; an integrity failure
+  stays a plain `Error`.
+- `<owner>/transaction/` (not the `application/port/out/transaction/` lane)
+  exports plain lock and fence functions that run in the caller's transaction.
+  A reader takes the lock evidence and only verifies it.
 - The owner publishes a cross-domain capability. Consumers use that incoming
   interface or a narrow anti-corruption port; shared behavior does not move to
   `common` merely for reuse.

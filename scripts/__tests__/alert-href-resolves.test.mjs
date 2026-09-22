@@ -33,7 +33,9 @@ function tracked(pathspec) {
 function webRoutes() {
   return new Set(
     tracked('apps/web/src/app')
-      .filter((file) => file.endsWith('/page.tsx'))
+      .filter(
+        (file) => file.endsWith('/page.tsx') && existsSync(join(repoRoot, file)),
+      )
       .map((file) =>
         file
           .replace('apps/web/src/app', '')
@@ -61,7 +63,7 @@ test('every alert href leads to a page the app serves', () => {
 
   const broken = [];
   for (const file of tracked('apps/server/src')) {
-    if (!file.endsWith('.ts')) continue;
+    if (!file.endsWith('.ts') || !existsSync(join(repoRoot, file))) continue;
     // Specs use stand-in paths to assert on the row, not to send anyone there.
     if (file.includes('.spec.') || file.includes('__tests__')) continue;
     const source = readFileSync(join(repoRoot, file), 'utf8');

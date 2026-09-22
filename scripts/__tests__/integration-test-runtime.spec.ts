@@ -164,6 +164,8 @@ describe('integration test runtime contract', () => {
       'run: npm ci --ignore-scripts',
       'run: npx prisma generate',
       'run: npm exec --workspace=packages/shared tsup -- --no-dts',
+      'run: git fetch --no-tags --depth=1 origin +refs/heads/release/office:refs/remotes/origin/release/office',
+      'run: node scripts/check-cutover-blocker-coverage.mjs --base-ref origin/release/office',
       'run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep',
       'run: npm run test:scripts',
     ]);

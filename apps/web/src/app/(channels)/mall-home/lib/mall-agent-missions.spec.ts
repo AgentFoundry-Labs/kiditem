@@ -79,7 +79,7 @@ describe('buildMallAgentMissions', () => {
 });
 
 describe('MALL_AGENT_PRINCIPLES', () => {
-  it('되돌릴 수 없는 일은 사람이 누르고, 비밀번호는 남기지 않는다', () => {
+  it('되돌리기 어려운 일은 사람이 누르고, 비밀번호는 남기지 않는다', () => {
     const text = MALL_AGENT_PRINCIPLES.join(' ');
     expect(text).toContain('사람이 누른다');
     expect(text).toContain('비밀번호는 코드·기록·알림 어디에도 남기지 않는다');

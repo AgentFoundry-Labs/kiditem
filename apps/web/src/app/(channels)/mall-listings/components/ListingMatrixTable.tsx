@@ -3,11 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Ban, Check, ChevronDown, CircleSlash, Clock, PackageX, PauseCircle, X } from 'lucide-react';
-import type {
-  MallListingMatrixColumn,
-  MallListingMatrixRow,
-  MallListingState,
-} from '@kiditem/shared/mall-publishing';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import {
   MALL_LISTING_STATE_PRESENTATION,
@@ -18,15 +13,20 @@ import {
   mallMonogram,
   productMonogram,
 } from '../../_shared/mall-presentation';
-import type { MallLiveSummary } from '../../_shared/mall-availability-send';
-import type { MallStopKind } from '../../_shared/mall-presentation';
-import { CellActionPopover, RowActionMenu } from './ListingActionMenus';
 import {
   liveCellKey,
   useMallLiveAvailability,
   type MallLiveAvailability,
   type MallLiveCell,
 } from '../hooks/use-mall-live-availability';
+import { CellActionPopover, RowActionMenu } from './ListingActionMenus';
+import type {
+  MallListingMatrixColumn,
+  MallListingMatrixRow,
+  MallListingState,
+} from '@kiditem/shared/mall-publishing';
+import type { MallLiveSummary } from '../../_shared/mall-availability-send';
+import type { MallStopKind } from '../../_shared/mall-presentation';
 
 const STATE_ICON: Partial<Record<MallListingState, typeof Check>> = {
   published: Check,
@@ -481,7 +481,6 @@ function MatrixRow({
                   productUrl={cell?.productUrl ?? null}
                   live={liveCell}
                   onRefreshLive={() => (externalId ? live.refresh(column.mallKey, externalId) : Promise.resolve())}
-                  onSettleLive={(soldOut) => { if (externalId) live.settle(column.mallKey, externalId, soldOut); }}
                   anchor={openCell.anchor}
                   onClose={onCloseMenus}
                 />

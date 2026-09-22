@@ -125,6 +125,7 @@ export function elevenstFormFromDraft(
     ? Math.round(options.consumerPrice)
     : elevenstConsumerPrice(draft.displayName, salePrice);
   const categoryPath = parseElevenstCategory(options.categoryPath ?? '');
+  const promoText = draft.promoText?.trim() || draft.keywords[0] || '';
   // 추가 이미지는 세 칸뿐이다. 넘치면 넣지 않고 몇 장이 남았는지 알린다.
   const additional = draft.additionalImageUrls.filter(Boolean);
 
@@ -148,8 +149,8 @@ export function elevenstFormFromDraft(
     formId: '#app.l-content--product',
     rowFields: {
       productName: buildElevenstProductName(draft.displayName, draft.keywords, quantity),
-      // 홍보문구는 28자다. 첫 키워드 하나만 넣고 넘치면 비운다.
-      promoText: (draft.keywords[0] ?? '').length <= 28 ? draft.keywords[0] ?? '' : '',
+      // 홍보문구는 28자다. 저장된 몰별 override를 우선하고 넘치면 비운다.
+      promoText: promoText.length <= 28 ? promoText : '',
       salePrice: String(salePrice),
       consumerPrice: String(consumerPrice),
       stock: String(ELEVENST_STOCK),

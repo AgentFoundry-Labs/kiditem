@@ -77,8 +77,8 @@ export function useMallQuickRegister(input: {
     return {
       candidateId,
       name: basicInfo?.name || detail.name,
-      // 0 은 "모른다" 로 접는다. 상세 판매가는 셀피아 이름매칭 폴백이라 매칭이
-      // 실패하면 0 으로 온다 — 그걸 0원 상품으로 읽으면 멀쩡한 상품이 막힌다.
+      // 0 은 "모른다" 로 접는다. 목록에는 가격 칸이 없으므로 원본 상세 가격으로
+      // 보완하고, 끝까지 없으면 null 로 둔다.
       salePrice: basicInfo?.salePrice || detail.price_krw || null,
       thumbnailUrl: detail.thumbnailUrl ?? null,
     };

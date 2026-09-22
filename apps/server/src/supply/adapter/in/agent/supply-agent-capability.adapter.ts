@@ -17,7 +17,7 @@ import type {
 
 const PurchaseOrderDraftInputSchema = z.object({
   recommendationArtifactId: z.string().uuid().optional(),
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   productName: z.string().min(1),
   supplierName: z.string().min(1),
   supplierId: z.string().uuid().optional(),
@@ -33,6 +33,7 @@ const PurchaseOrderDraftOutputSchema = z.object({
 
 const PurchaseOrderSubmissionInputSchema = z.object({
   purchaseOrderId: z.string().uuid(),
+  inventoryAttemptId: z.string().uuid(),
   externalOrderPlatform: z.string().trim().min(1).max(40).nullable().optional(),
   externalOrderId: z.string().trim().min(1).max(100).nullable().optional(),
   externalOrderUrl: z.string().trim().url().nullable().optional(),
@@ -49,7 +50,7 @@ const PurchaseOrderSubmissionOutputSchema = z.object({
 function recommendationFromInput(input: SupplyPurchaseOrderDraftCapabilityInput) {
   const parsed = PurchaseOrderDraftInputSchema.parse(input);
   return {
-    sellpiaInventorySkuId: parsed.sellpiaInventorySkuId,
+    masterProductId: parsed.masterProductId,
     productName: parsed.productName,
     supplierName: parsed.supplierName,
     supplierId: parsed.supplierId ?? null,
@@ -98,6 +99,7 @@ export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabili
     const result = await this.submissions.submit({
       organizationId,
       purchaseOrderId: parsed.purchaseOrderId,
+      inventoryAttemptId: parsed.inventoryAttemptId,
       idempotencyKey,
       requestHash,
       userId,

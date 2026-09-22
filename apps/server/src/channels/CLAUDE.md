@@ -4,19 +4,19 @@ Before working in this directory, always read this document first rather than re
 
 `src/channels/` owns marketplace accounts, listing/option identity, Coupang
 catalog publication/import, matching, account-scoped browser registration,
-channel capacity projections, dashboard reads, and the mall operation
-observation log. Coupang Open API product, order, return, and deletion
+channel capacity projections, shared selling-product authoring and dashboard reads. Coupang Open API product, order, return, and deletion
 verification are unsupported; the legacy sync HTTP routes return 501 without
 IO. Wing/browser evidence and approved internal sources remain supported.
 
-`MallOperationOutcome` is an append-only, idempotent observation log (관찰
-기록) written by the web through `/api/channels/mall-operation-outcomes`. It
-holds only `login_check`, `login_test`, `registration_fill`, and
-`availability_stage`; order collection, Sellpia transfer, and tracking upload
-results are Orders facts and never land here. Organization and actor come from the session, the body is a
-strict shared contract, the mall key must be in the adapter manifest, rows hold
-counts and reason codes only, and reads go through
-`read/mall-operation-outcome.reader.ts`.
+Login checks and registration form fills return current browser results without
+persisting an observation history. Actual submissions and provider outcomes use
+the registration execution ledger.
+
+The channel list lives only in the channel registry
+(`@kiditem/shared/channel-registry`); the adapter manifest, this domain's
+capability reads, and every consumer read it instead of repeating it. The
+manifest covers malls only — marketplace seller systems (`coupang`, `rocket`)
+have no mall registration path, and their listings stay visible read-only.
 
 Mall publishing reads one account row per mall (`channel` = mall key,
 ADR-0012) and never creates or edits account rows; the Orders mall account
@@ -29,11 +29,11 @@ reads KC input from the linked sourcing candidate's `rawData.manualBasics`.
 - `ChannelAccount` is marketplace/store identity; Wing and Rocket are
   separate rows even when they share one vendor identity.
 - Prisma `ChannelListing` and `ChannelListingOption` are the channel product
-  and sellable-option identities. A listing's `masterProductId` is only a
-  derived summary when every option resolves to one canonical product.
-- Products owns each option's complete
-  `ChannelListingOptionInventoryComponent` recipe. Inventory owns physical
-  `SellpiaInventorySku.currentStock`. Channels owns neither recipes nor stock.
+  and sellable-option identities. Listing-level product summaries are computed
+  from every option's recipe and have no stored column.
+- Channels owns each option's complete `ChannelListingOptionInventoryComponent`
+  recipe, keyed by MasterProduct UUID and positive quantity. Products owns
+  physical `MasterProduct.currentStock`; Channels never mutates it (ADR-0017).
 - Registration provenance in `sourceCandidateId` is immutable.
 
 The model authority is
@@ -43,6 +43,12 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Registration And Provider Contract
 
+- Every submission to a channel account passes the registration execution fence
+  (`ProductRegistrationExecution`), which opens the transaction, writes the
+  execution row itself. Channels also owns reusable registration targets:
+  successful execution does not close the target, and new intent creates a new
+  frozen execution (ADR-0020). A form fill without submission returns only the
+  current browser result; it is not confirmed registration.
 - Selected accounts must exist and be active. `ChannelAccount` stores the Wing
   vendor identity used to fence browser evidence; Open API credentials are not
   accepted or resolved.
@@ -80,10 +86,11 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Ports And Boundaries
 
-- Inventory evidence and registration use their named ports. Auto-matching,
-  registration, manual replacement, and clearing call the Products recipe
-  mutation port; Channels never mutates component rows or their listing summary.
-  Consumers import the published capability, never the concrete service.
+- Auto-matching, registration, manual replacement and clearing call the
+  Channel recipe input port. Its transaction validates organization-scoped
+  Products identities, replaces the full composition atomically. Listing summaries are read from
+  recipes; empty replacement clears the option recipe. Consumers import the
+  published capability, never the concrete service.
 - Catalog imports use a fenced `SourceImportRun` attempt and publish only a
   complete source snapshot; stale or post-terminal submissions are rejected.
 - One catalog import runs per account: a browser import from its basics root
@@ -115,3 +122,9 @@ sync, registration, matching, and capacity behavior is executable in
   COMPLETE replaces the current view. Preserve prior snapshots for exact
   source/workbook references. Publication changes source facts and identities,
   not recipes, reservations, provider confirmation, or physical stock.
+
+## Selling Catalog
+
+- Channels owns common selling products, their KID options and registration templates. Templates may initialize an empty confirmed recipe only on explicit application; they never supply operational capacity.
+- Source products remain Products-owned. Catalog storage references MasterProduct UUIDs without a cross-owner foreign key; names and barcodes do not establish source identity.
+- Marketplace transport preserves its existing per-provider stock behavior. Internal capacity does not replace the submitted stock value or mutate source stock.

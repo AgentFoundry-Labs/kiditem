@@ -43,7 +43,6 @@ export const SupplierProductSalesRowSchema = z.object({
   masterName: z.string(),
   optionName: z.string().nullable(),
   supplyPrice: z.number().int(),
-  minOrderQty: z.number().int(),
   totalOrders: z.number().int(),
   totalQuantity: z.number().int(),
   totalRevenue: z.number().int(),

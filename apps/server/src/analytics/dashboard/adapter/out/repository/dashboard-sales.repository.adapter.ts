@@ -1,21 +1,24 @@
-import { Injectable } from "@nestjs/common";
+import { PRODUCT_ABC_READ_PORT, type ProductAbcReadPort } from '../../../../../products/application/port/in/product-abc-read.port';
+import { readListingProductIds } from '../../../../../channels/read/listing-product-summary.reader';
+import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../../prisma/prisma.service";
+import { businessDateKey } from "../../../../../common/kst";
+import { readCurrentSellpiaProductMonthlyFacts } from "../../../../sellpia-product-sales/read/sellpia-product-monthly-facts";
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
 } from "../../../../../orders/read/order-facts.reader";
-import { readMonthlyAdAllocationPublication } from "../../../../../advertising/read/monthly-ad-allocation.reader";
-import { readProductAbcPublication } from "../../../../../products/read/product-abc-publication.reader";
-import { readCurrentSellpiaProductMonthlyFacts } from "../../../../sellpia-product-sales/read/sellpia-product-monthly-facts";
-import { businessDateKey } from "../../../../../common/kst";
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from "../../../../../products/application/port/in/product-transactional-read.port";
 import {
   buildPerListingProfit,
   readAdEvidenceFromLedger,
   type PerListingProfit,
 } from "../../../../../common/per-listing-profit";
-import type { TopProduct, TopProductGradeAbsence } from "@kiditem/shared/dashboard";
-import type { ProductAbcEvaluation } from "@kiditem/shared/product-abc";
+import type { TopProduct } from "@kiditem/shared/dashboard";
 import type {
   DashboardSalesRepositoryPort,
   SellpiaTopProductsRead,
@@ -25,27 +28,15 @@ import type {
 interface SellpiaTopProductRow {
   productCode: string;
   name: string;
-  /** The option whose name the row carries — the product's first. */
   nameOptionCode: string;
   revenue: number;
-  /**
-   * 판 물건의 원가 = Σ(팔린 개수 × 매입 단가). 셀피아의 `inAmount`(그달 매입금액)와 다르다 —
-   * 대량 입고한 달은 판매액의 몇십 배라 이익처럼 빼면 말이 안 된다(사장님 2026-09-21).
-   */
-  cost: number;
-  /**
-   * 판 줄마다 매입 단가가 있었는가. `cost` 는 옵션 줄의 합이라 한 줄만 단가가 0 이어도 합은
-   * 0 보다 커서 '아는 값' 처럼 보인다 — 그 줄의 매출이 통째로 이익이 되어 이익률을
-   * 부풀린다(2026-09-21 점검).
-   */
-  costComplete: boolean;
   revenueByMasterProduct: Map<string, number>;
 }
 
 /**
- * The one coverage window a month's Sellpia facts were captured over, or null
- * when there are no facts or they disagree: a ranking summed across different
- * windows is not one month's ranking.
+ * A Sellpia ranking is one monthly snapshot only when every source row shares
+ * the same captured business-date window. Mixed or absent coverage is
+ * unavailable, so the caller can keep the Orders ranking.
  */
 function sharedCoverage(
   facts: readonly Readonly<{
@@ -57,34 +48,14 @@ function sharedCoverage(
   if (!first?.coverageStartDate || !first.coverageEndDate) return null;
   const startDate = businessDateKey(first.coverageStartDate);
   const endDate = businessDateKey(first.coverageEndDate);
-  const shared = facts.every(
+  return facts.every(
     (fact) =>
       fact.coverageStartDate !== null &&
       fact.coverageEndDate !== null &&
       businessDateKey(fact.coverageStartDate) === startDate &&
       businessDateKey(fact.coverageEndDate) === endDate,
-  );
-  return shared ? { startDate, endDate } : null;
-}
-
-/**
- * The evaluation a Sellpia product's options agree on. Options can map to
- * different master products; a grade is shown only when every one of them
- * carries it, and the evaluation shown is the best-selling one's.
- */
-function agreedEvaluation(
-  revenueByMasterProduct: ReadonlyMap<string, number>,
-  evaluationByProductId: ReadonlyMap<string, ProductAbcEvaluation | null>,
-): ProductAbcEvaluation | null {
-  const evaluations = [...revenueByMasterProduct.entries()]
-    .sort(
-      (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
-    )
-    .map(([id]) => evaluationByProductId.get(id) ?? null);
-  const lead = evaluations[0] ?? null;
-  if (!lead) return null;
-  return evaluations.every((evaluation) => evaluation?.abcGrade === lead.abcGrade)
-    ? lead
+  )
+    ? { startDate, endDate }
     : null;
 }
 
@@ -107,79 +78,15 @@ interface TopProductRawRow {
  * and product lookups below are identity/configuration joins only; revenue and
  * quantity always come from the owner reader.
  */
-
-/**
- * Why these sold products carry no ABC grade. The grade itself is the ABC
- * owner's publication; this only reads the two gates an operator can act on —
- * stock and the Coupang/Rocket recipe — so a blank grade beside a large revenue
- * says which one to fix (사장님 2026-09-21). Anything else is 'pending': the
- * product is eligible and waiting for the next publication.
- */
-async function readGradeAbsence(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  masterProductIds: readonly string[],
-): Promise<Map<string, TopProductGradeAbsence>> {
-  const absence = new Map<string, TopProductGradeAbsence>();
-  if (masterProductIds.length === 0) return absence;
-  const rows = await tx.$queryRaw<Array<{ mp: string; stock: number; linked: boolean }>>`
-    select sk.master_product_id::text as mp,
-           coalesce(sum(sk.current_stock), 0)::int as stock,
-           bool_or(exists (
-             select 1
-             from channel_listing_option_inventory_components c
-             join channel_listing_options o on o.id = c.channel_listing_option_id and o.is_active
-             join channel_listings l on l.id = o.listing_id and l.is_active
-             join channel_accounts a on a.id = l.channel_account_id
-               and a.status = 'active' and a.channel in ('coupang', 'rocket')
-             where c.sellpia_inventory_sku_id = sk.id
-           )) as linked
-    from sellpia_inventory_skus sk
-    where sk.organization_id = ${organizationId}::uuid
-      and sk.is_active
-      and sk.master_product_id = any(${[...masterProductIds]}::uuid[])
-    group by 1`;
-  for (const row of rows) {
-    absence.set(row.mp, row.stock <= 0 ? 'out_of_stock' : row.linked ? 'pending' : 'not_linked');
-  }
-  for (const id of masterProductIds) {
-    if (!absence.has(id)) absence.set(id, 'not_linked');
-  }
-  return absence;
-}
-
-
-/**
- * 그달 상품별 광고비. 광고 owner 가 발표한 배분을 그대로 더한다 — 이 파일은 광고비를 나누지
- * 않는다. 어느 발표를 읽을지는 대시보드가 고르지 않고, ABC 발표가 쓴 그 발표를 따라간다
- * (같은 수를 두 화면이 달리 말하지 않게, 사장님 2026-09-21).
- */
-async function readMonthlyAdSpendByProduct(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  advertisingSourceImportRunId: string | null,
-  yearMonth: string,
-): Promise<Map<string, number> | null> {
-  if (!advertisingSourceImportRunId) return null;
-  const publication = await readMonthlyAdAllocationPublication(tx, {
-    organizationId,
-    sourceImportRunId: advertisingSourceImportRunId,
-  });
-  if (!publication) return null;
-  const spend = new Map<string, number>();
-  for (const allocation of publication.allocations) {
-    if (!allocation.month.startsWith(yearMonth)) continue;
-    spend.set(
-      allocation.masterProductId,
-      (spend.get(allocation.masterProductId) ?? 0) + allocation.allocatedSpend,
-    );
-  }
-  return spend;
-}
-
 @Injectable()
 export class DashboardSalesRepositoryAdapter implements DashboardSalesRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+    @Inject(PRODUCT_ABC_READ_PORT)
+    private readonly productAbc: ProductAbcReadPort,
+  ) {}
 
   /**
    * KST today KPI with the owner's completeness verdict intact.
@@ -212,8 +119,8 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
   /**
    * Top-N (10) listing revenue ranking for the calendar month. Revenue is
    * grouped by ChannelListing so a bundle line is counted once regardless of
-   * how many Sellpia components its option consumes. Product labels and grade
-   * come from the listing's direct operational-product link.
+   * how many source products its option consumes. Source product identity is
+   * derived from option recipes; its retained official grade comes from Products.
    *
    * Revenue comes from the canonical Orders reader, which is the only read that can see a Rocket
    * line. Profit comes from `buildPerListingProfit` — the same helper
@@ -226,10 +133,117 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     monthStart: Date,
     monthEnd: Date,
   ): Promise<TopProduct[]> {
-    return this.prisma.$transaction(
+    const rows = await this.prisma.$transaction(
       (tx) => this.fetchTopProductsSnapshot(tx, organizationId, monthStart, monthEnd),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+    const ids = [...new Set(rows.flatMap((row) => row.masterProductId ? [row.masterProductId] : []))];
+    const snapshot = ids.length ? await this.productAbc.readAbc({ organizationId, masterProductIds: ids }) : null;
+    const byId = new Map(snapshot?.products.map((row) => [row.masterProductId, row.abc]) ?? []);
+    return rows.map((row) => {
+      const abc = row.masterProductId ? byId.get(row.masterProductId) ?? null : null;
+      return {
+        ...row,
+        abc,
+        grade: abc?.abcGrade ?? null,
+        abcEvaluation: abc?.evaluation ?? null,
+      } satisfies TopProduct;
+    });
+  }
+
+  /**
+   * Top-N (10) products for a whole calendar month from Sellpia's published
+   * monthly facts. These facts cover every channel, so this ranking is used
+   * when the selected period is a complete month. The source currently
+   * publishes revenue and quantity, but no stored sale-time cost; monthly
+   * profit therefore stays unavailable rather than borrowing current product
+   * pricing.
+   */
+  async fetchSellpiaTopProducts(
+    organizationId: string,
+    yearMonth: string,
+  ): Promise<SellpiaTopProductsRead | null> {
+    const { facts } = await this.prisma.$transaction(
+      (tx) =>
+        readCurrentSellpiaProductMonthlyFacts(tx, {
+          organizationId,
+          scope: { yearMonths: [yearMonth] },
+        }),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    const coverage = sharedCoverage(facts);
+    if (!coverage) return null;
+
+    const grouped = new Map<string, SellpiaTopProductRow>();
+    for (const fact of facts) {
+      const current = grouped.get(fact.productCode) ?? {
+        productCode: fact.productCode,
+        name: fact.productName,
+        nameOptionCode: fact.optionCode,
+        revenue: 0,
+        revenueByMasterProduct: new Map<string, number>(),
+      };
+      if (fact.optionCode < current.nameOptionCode) {
+        current.nameOptionCode = fact.optionCode;
+        current.name = fact.productName;
+      }
+      current.revenue += fact.orderAmount;
+      if (fact.masterProductId) {
+        current.revenueByMasterProduct.set(
+          fact.masterProductId,
+          (current.revenueByMasterProduct.get(fact.masterProductId) ?? 0)
+            + fact.orderAmount,
+        );
+      }
+      grouped.set(fact.productCode, current);
+    }
+
+    const rows = [...grouped.values()]
+      .filter((row) => row.revenue > 0)
+      .sort(
+        (left, right) =>
+          right.revenue - left.revenue
+          || left.productCode.localeCompare(right.productCode),
+      )
+      .slice(0, 10);
+    const masterProductIds = [
+      ...new Set(rows.flatMap((row) => [...row.revenueByMasterProduct.keys()])),
+    ];
+    const snapshot = masterProductIds.length
+      ? await this.productAbc.readAbc({ organizationId, masterProductIds })
+      : null;
+    const abcByMasterProductId = new Map(
+      snapshot?.products.map((product) => [product.masterProductId, product.abc]) ?? [],
+    );
+
+    return {
+      coverage,
+      products: rows.map((row) => {
+        const orderedMasterProductIds = [...row.revenueByMasterProduct.entries()]
+          .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+          .map(([masterProductId]) => masterProductId);
+        const abcViews = orderedMasterProductIds.map(
+          (masterProductId) => abcByMasterProductId.get(masterProductId) ?? null,
+        );
+        const firstAbc = abcViews[0] ?? null;
+        const abc = firstAbc && abcViews.every(
+          (view) => view?.abcGrade === firstAbc.abcGrade,
+        )
+          ? firstAbc
+          : null;
+        return {
+          id: `sellpia:${row.productCode}`,
+          name: row.name,
+          organization: "셀피아",
+          abc,
+          grade: abc?.abcGrade ?? null,
+          abcEvaluation: abc?.evaluation ?? null,
+          revenue: row.revenue,
+          netProfit: null,
+          profitRate: null,
+        } satisfies TopProduct;
+      }),
+    };
   }
 
   private async fetchTopProductsSnapshot(
@@ -257,7 +271,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     const accountIds = [
       ...new Set(facts.orders.map((order) => order.channelAccountId)),
     ];
-    const options = await tx.channelListingOption.findMany({
+    const optionRows = await tx.channelListingOption.findMany({
         where: { organizationId, id: { in: optionIds } },
         select: {
           id: true,
@@ -267,13 +281,13 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
               externalId: true,
               channelName: true,
               displayName: true,
-              masterProduct: {
-                select: { id: true, name: true },
-              },
+
             },
           },
         },
       });
+    const summaries = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(optionRows.map((row) => row.listing.id))] });
+    const options = optionRows.map((row) => ({ ...row, listing: { ...row.listing, masterProductId: summaries.get(row.listing.id) ?? null } }));
     const accounts = await tx.channelAccount.findMany({
         where: { organizationId, id: { in: accountIds } },
         select: { id: true, name: true, channel: true },
@@ -282,6 +296,16 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     const accountById = new Map(
       accounts.map((account) => [account.id, account]),
     );
+    const masterProductIds = [...new Set(options.flatMap((option) =>
+      option.listing.masterProductId ? [option.listing.masterProductId] : []))];
+    const masterProducts = await this.inventoryTransactionalRead.readSourceIdentities(
+      { client: tx },
+      { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+    );
+    const masterProductById = new Map(masterProducts.map((product) => [
+      product.masterProductId,
+      product,
+    ]));
     const grouped = new Map<string, TopProductRawRow>();
     for (const line of lines) {
       const listing = line.listingOptionId
@@ -292,9 +316,11 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       const current = grouped.get(id) ?? {
         id,
         listingId: listing?.id ?? null,
-        masterProductId: listing?.masterProduct?.id ?? null,
+        masterProductId: listing?.masterProductId ?? null,
         name:
-          listing?.masterProduct?.name ??
+          (listing?.masterProductId
+            ? masterProductById.get(listing.masterProductId)?.name
+            : null) ??
           listing?.displayName ??
           listing?.channelName ??
           listing?.externalId ??
@@ -336,28 +362,6 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
             monthStart,
             monthEnd,
           );
-    const abc = await readProductAbcPublication(tx, {
-      organizationId,
-      masterProductIds: rows.flatMap((row) =>
-        row.masterProductId ? [row.masterProductId] : [],
-      ),
-    });
-    const evaluationByProductId = new Map(
-      abc.products.map((product) => [
-        product.masterProductId,
-        product.evaluation,
-      ]),
-    );
-    const absenceByProductId = await readGradeAbsence(
-      tx,
-      organizationId,
-      rows.flatMap((row) =>
-        row.masterProductId && !evaluationByProductId.get(row.masterProductId)
-          ? [row.masterProductId]
-          : [],
-      ),
-    );
-
     return rows.map((r) => {
       const revenue = r.revenue;
       // A row with no listing has nothing to look up, and a listing the helper
@@ -365,167 +369,18 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       const measured = r.listingId
         ? (profitByListing.get(r.listingId) ?? null)
         : null;
-      const abcEvaluation = r.masterProductId
-        ? (evaluationByProductId.get(r.masterProductId) ?? null)
-        : null;
       return {
         id: r.id,
+        masterProductId: r.masterProductId,
         name: r.name,
         organization: r.organization ?? "미지정",
-        grade: abcEvaluation?.abcGrade ?? null,
-        profitKind: 'net' as const,
-        gradeAbsence: abcEvaluation
-          ? null
-          : (r.masterProductId ? absenceByProductId.get(r.masterProductId) ?? 'not_linked' : 'not_linked'),
-        abcEvaluation,
+        grade: null,
+        abcEvaluation: null,
         revenue,
         netProfit: measured?.netProfit ?? null,
         profitRate: measured?.profitRate ?? null,
       } satisfies TopProduct;
     });
-  }
-
-  /**
-   * Top-N (10) products for one calendar month from Sellpia's per-product
-   * monthly sales. Sellpia sees every channel's sales, Rocket included, while
-   * orders see only what the mall collectors brought in, so for a whole month
-   * this is the complete ranking — and the one the operator checks against
-   * Sellpia's own product report.
-   *
-   * A row is one Sellpia product with its options summed, the unit Sellpia
-   * reports. Its grade is the ABC grade of the master products its options map
-   * to, and only when they agree. Sellpia publishes sales and purchase amounts,
-   * not a settled profit, so profit stays absent rather than passing a gross
-   * margin off as net profit.
-   */
-  async fetchSellpiaTopProducts(
-    organizationId: string,
-    yearMonth: string,
-  ): Promise<SellpiaTopProductsRead | null> {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const { facts } = await readCurrentSellpiaProductMonthlyFacts(tx, {
-          organizationId,
-          scope: { yearMonths: [yearMonth] },
-        });
-        const coverage = sharedCoverage(facts);
-        if (!coverage) return null;
-
-        const grouped = new Map<string, SellpiaTopProductRow>();
-        for (const fact of facts) {
-          const current = grouped.get(fact.productCode) ?? {
-            productCode: fact.productCode,
-            name: fact.productName,
-            nameOptionCode: fact.optionCode,
-            revenue: 0,
-            cost: 0,
-            costComplete: true,
-            revenueByMasterProduct: new Map<string, number>(),
-          };
-          // Sellpia names the product on its first option; later options can
-          // carry a colour's own name ("… (블루)"), which would misname a row
-          // that sums every colour.
-          if (fact.optionCode < current.nameOptionCode) {
-            current.nameOptionCode = fact.optionCode;
-            current.name = fact.productName;
-          }
-          current.revenue += fact.orderAmount;
-          current.cost += fact.orderQty * fact.buyPrice;
-          // 팔린 줄은 전부 매입 단가가 있어야 원가를 안다고 말할 수 있다.
-          if (fact.orderQty > 0 && fact.buyPrice <= 0) current.costComplete = false;
-          if (fact.masterProductId) {
-            current.revenueByMasterProduct.set(
-              fact.masterProductId,
-              (current.revenueByMasterProduct.get(fact.masterProductId) ?? 0) +
-                fact.orderAmount,
-            );
-          }
-          grouped.set(fact.productCode, current);
-        }
-        // Most of a month's rows are products that sold nothing.
-        const rows = [...grouped.values()]
-          .filter((row) => row.revenue > 0)
-          .sort(
-            (left, right) =>
-              right.revenue - left.revenue ||
-              left.productCode.localeCompare(right.productCode),
-          )
-          .slice(0, 10);
-
-        const abc = await readProductAbcPublication(tx, {
-          organizationId,
-          masterProductIds: rows.flatMap((row) => [
-            ...row.revenueByMasterProduct.keys(),
-          ]),
-        });
-        const evaluationByProductId = new Map(
-          abc.products.map((product) => [
-            product.masterProductId,
-            product.evaluation,
-          ]),
-        );
-
-        const adSpendByProductId = await readMonthlyAdSpendByProduct(
-          tx,
-          organizationId,
-          abc.publication?.advertisingSourceImportRunId ?? null,
-          yearMonth,
-        );
-        const absenceByProductId = await readGradeAbsence(
-          tx,
-          organizationId,
-          rows.flatMap((row) =>
-            agreedEvaluation(row.revenueByMasterProduct, evaluationByProductId)
-              ? []
-              : [...row.revenueByMasterProduct.keys()],
-          ),
-        );
-
-        return {
-          coverage,
-          products: rows.map((row) => {
-            const abcEvaluation = agreedEvaluation(
-              row.revenueByMasterProduct,
-              evaluationByProductId,
-            );
-            // 한 셀피아 상품이 여러 마스터에 걸리면 가장 많이 판 쪽의 사정을 적는다.
-            const leadProductId = [...row.revenueByMasterProduct.entries()]
-              .sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
-            // 이익 = 매출 − 셀피아 매입 원가 − 그달 광고비. 광고비는 지금 ABC 공식(v3)이
-            // 광고를 빼고 매기는 탓에 발표를 따라갈 수 없어 0 으로 두는 달이 있다 — 그때는
-            // 매출총이익이고, 화면이 그렇게 적는다(사장님 2026-09-21).
-            const adSpend = adSpendByProductId === null
-              ? 0
-              : [...row.revenueByMasterProduct.keys()]
-                .reduce((sum, id) => sum + (adSpendByProductId.get(id) ?? 0), 0);
-            // 매입 원가가 0 인 상품은 원가를 못 받은 것이다 — 공짜로 떼어 온 물건은 없다.
-            // 그대로 빼면 이익률이 100% 로 찍히므로 이익을 말하지 않는다(사장님 2026-09-21).
-            // 한 옵션이라도 매입 단가를 못 읽었으면 이익은 모르는 값이다. 합계만 보면
-            // 그 옵션의 매출이 통째로 이익이 되어 이익률이 부풀려진다(2026-09-21 점검).
-            const netProfit = row.costComplete && row.cost > 0
-              ? row.revenue - row.cost - adSpend
-              : null;
-            return {
-              id: `sellpia:${row.productCode}`,
-              name: row.name,
-              organization: "셀피아",
-              grade: abcEvaluation?.abcGrade ?? null,
-              gradeAbsence: abcEvaluation
-                ? null
-                : (leadProductId ? absenceByProductId.get(leadProductId) ?? 'not_linked' : 'not_linked'),
-              abcEvaluation,
-              revenue: row.revenue,
-              profitKind: 'gross',
-              netProfit,
-              profitRate: netProfit === null || row.revenue <= 0
-                ? null
-                : Math.round((netProfit / row.revenue) * 1000) / 10,
-            } satisfies TopProduct;
-          }),
-        };
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-    );
   }
 
   /**
@@ -552,6 +407,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       from,
       to,
       adEvidence,
+      this.inventoryTransactionalRead,
     );
     return new Map(rows.map((row) => [row.listingId, row]));
   }

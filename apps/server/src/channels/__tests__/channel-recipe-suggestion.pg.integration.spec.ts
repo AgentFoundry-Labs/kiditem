@@ -1,10 +1,9 @@
 import { NotFoundException } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SellpiaInventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-inventory-sku-read.repository.adapter';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
-import { SellpiaInventorySkuReadService } from '../../inventory/application/service/sellpia-inventory-sku-read.service';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -28,13 +27,13 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
+    const products = new ProductSourceReadRepositoryAdapter(prismaService);
+    const availability = new ProductAvailabilityUseCase(
+      new ProductAvailabilityRepositoryAdapter(prismaService),
+    );
     service = new ChannelRecipeSuggestionService(
-      new ChannelRecipeSuggestionContextRepositoryAdapter(prismaService),
-      new SellpiaRecipeEvidenceAdapter(new SellpiaInventorySkuReadService(
-        new SellpiaInventorySkuReadRepositoryAdapter(prismaService),
-      ), new InventoryAvailabilityService(
-        new InventoryAvailabilityRepositoryAdapter(prismaService),
-      )),
+      new ChannelRecipeSuggestionContextRepositoryAdapter(prismaService, products),
+      new SellpiaRecipeEvidenceAdapter(products, availability),
     );
   });
 
@@ -62,7 +61,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     await expect(service.suggest(TEST_ORGANIZATION_ID, option.id)).resolves.toMatchObject({
       status: 'quantity_review',
       automationDecision: 'quantity_review',
-      proposals: [{ sellpiaInventorySkuId: sku.id, requiresQuantityConfirmation: true }],
+      proposals: [{ masterProductId: sku.id, requiresQuantityConfirmation: true }],
     });
     await expect(service.suggest(TEST_ORGANIZATION_ID, foreign.id))
       .rejects.toBeInstanceOf(NotFoundException);
@@ -85,11 +84,11 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     expect(result.status).toBe('conflict');
     expect(result.proposals).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        sellpiaInventorySkuId: sellerSku.id,
+        masterProductId: sellerSku.id,
         evidence: [expect.objectContaining({ kind: 'seller_sku_code' })],
       }),
       expect.objectContaining({
-        sellpiaInventorySkuId: modelSku.id,
+        masterProductId: modelSku.id,
         evidence: [expect.objectContaining({ kind: 'model_number_code' })],
       }),
     ]));
@@ -103,7 +102,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelListingOptionId: option.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: sku.id,
         quantity: 2,
       },
     });
@@ -112,7 +111,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       status: 'already_configured',
       automationDecision: 'already_configured',
       proposals: [],
-      existingComponents: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }],
+      existingComponents: [{ masterProductId: sku.id, quantity: 2 }],
     });
   });
 
@@ -160,7 +159,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       '8806384804966',
     );
     const beforeComponents = await prisma.channelListingOptionInventoryComponent.count();
-    const beforeStock = await prisma.sellpiaInventorySku.findMany({
+    const beforeStock = await prisma.masterProduct.findMany({
       where: { id: { in: [watergun.id, slime.id] } },
       select: { id: true, currentStock: true },
       orderBy: { id: 'asc' },
@@ -172,10 +171,10 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       status: 'identifier_name_mismatch',
       automationDecision: 'operator_review',
     });
-    expect(result.proposals.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId))
+    expect(result.proposals.map(({ masterProductId }) => masterProductId))
       .toEqual([watergun.id, slime.id]);
     expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(beforeComponents);
-    await expect(prisma.sellpiaInventorySku.findMany({
+    await expect(prisma.masterProduct.findMany({
       where: { id: { in: [watergun.id, slime.id] } },
       select: { id: true, currentStock: true },
       orderBy: { id: 'asc' },
@@ -188,10 +187,13 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       displayName: '키즈 식판',
       itemName: '블루 단품',
     });
-    const sku = await prisma.sellpiaInventorySku.create({
+    const sku = await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        code: 'SP-NAMED',
+        code: 'KID00000001',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'SP-NAMED',
+        sourceOptionCode: '',
         name: '키즈 식판',
         optionName: '블루 단품',
         currentStock: 3,
@@ -202,16 +204,28 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       status: 'exact_name_option',
       automationDecision: 'auto_apply',
       proposals: [{
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: sku.id,
         evidence: [expect.objectContaining({ kind: 'normalized_name_option' })],
       }],
     });
     expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(0);
   });
 
-  function createSku(code: string, name: string, currentStock: number, barcode?: string) {
-    return prisma.sellpiaInventorySku.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, code, name, currentStock, barcode },
+  async function createSku(code: string, name: string, currentStock: number, barcode?: string) {
+    const [{ value }] = await prisma.$queryRaw<Array<{ value: bigint }>>`
+      SELECT nextval('kid_item_code_seq'::regclass) AS value
+    `;
+    return prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: code.length <= 11 ? code : `KID${value.toString().padStart(8, '0')}`,
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: code,
+        sourceOptionCode: '',
+        name,
+        currentStock,
+        barcode,
+      },
     });
   }
 
@@ -232,7 +246,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     modelNumber?: string | null;
     barcode?: string | null;
     itemName?: string | null;
-    rawJson?: Record<string, unknown>;
+    rawJson?: Prisma.InputJsonValue;
     externalId?: string;
     displayName?: string;
   }) {

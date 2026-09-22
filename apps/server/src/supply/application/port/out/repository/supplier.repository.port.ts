@@ -6,14 +6,9 @@ export type SupplierCreateCommand = {
   phone?: string;
   email?: string;
   address?: string;
-  leadTimeDays?: number;
-  paymentTerms?: string;
-  notes?: string;
 };
 
-export type SupplierUpdateCommand = Partial<SupplierCreateCommand> & {
-  status?: string;
-};
+export type SupplierUpdateCommand = Partial<SupplierCreateCommand>;
 
 export type SupplierRecord = {
   id: string;
@@ -23,10 +18,6 @@ export type SupplierRecord = {
   phone: string | null;
   email: string | null;
   address: string | null;
-  leadTimeDays: number;
-  paymentTerms: string | null;
-  notes: string | null;
-  status: string;
   createdAt: Date;
   updatedAt: Date;
 };

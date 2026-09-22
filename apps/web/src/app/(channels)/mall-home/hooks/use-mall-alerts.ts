@@ -9,7 +9,7 @@ import {
   subscribeMallLoginBlocks,
 } from '@/lib/mall-login-block';
 import { queryKeys } from '@/lib/query-keys';
-import { orderMallAccountApi } from '../../../(orders)/order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 import { mallPublishingApi } from '../../_shared/mall-publishing-api';
 import { useMallCapabilityRows } from '../../_shared/use-mall-capability-rows';
 import {
@@ -28,13 +28,10 @@ import { useMallSessionProbe } from './use-mall-session-probe';
 
 /** 품절 관리 화면과 같은 창이라 캐시를 나눠 쓴다. `total` 은 창 크기와 상관없다. */
 const AVAILABILITY_PREVIEW_LIMIT = 100;
-/** 관찰 기록을 몇 날치 읽는가. */
-const OUTCOME_DAYS = 7;
-
 /**
  * 쇼핑몰 홈이 읽는 모든 것 — 몰 판정(쇼핑몰 현황과 같은 곳), 몰 알림(전역 알림 쿼리),
  * 지금 상태(품절 후보, 쿠팡 발주확인 대기, 몰 로그인 상태, 자동 로그인이 멈춘 몰),
- * 관찰 기록(로그인 확인 · 로그인 테스트 · 등록 폼 결과 요약).
+ * 현재 로그인 확인 결과.
  *
  * 하나를 못 받아도 나머지는 선다. 못 받은 숫자는 `null` 로 두고 알림을 지어내지 않는다.
  * 로그인 상태는 확장이 확인한 몰만 말한다 — 확인하지 못한 몰을 로그인 필요로 세지 않는다.
@@ -52,18 +49,11 @@ export function useMallAlerts() {
     queryKey: queryKeys.coupangDashboard.summary(),
     queryFn: () => mallPublishingApi.coupangDashboardSummary(),
   });
-  const outcomesQuery = useQuery({
-    queryKey: queryKeys.mallOperationOutcomes.summary(OUTCOME_DAYS),
-    queryFn: () => mallPublishingApi.outcomeSummary(OUTCOME_DAYS),
-  });
-
   const channels = overview?.channels ?? null;
   const soldOutTotal = availabilityQuery.data?.total ?? null;
   // 레시피가 없는 옵션은 품절 후보에 오르지 않는다 — 따로 센다.
   const noRecipeCount = availabilityQuery.data?.noRecipeCount ?? null;
   const coupangPendingAccept = coupangQuery.data?.pendingAccept ?? null;
-  const outcomeSummary = outcomesQuery.data ?? null;
-
   // 몰 로그인 상태 — 열면 확장이 몰마다 조용히 확인한다(로그인하지 않는다).
   const mallKeys = useMemo(() => channels?.map((channel) => channel.mallKey) ?? null, [channels]);
   // 고정 확인 주소가 없는 몰은 쇼핑몰 계정에 저장된 사이트 주소를 열어 본다.
@@ -80,7 +70,6 @@ export function useMallAlerts() {
   );
   const probe = useMallSessionProbe(
     mallKeys,
-    outcomeSummary?.rows ?? null,
     siteUrls,
     mallAccountsQuery.isSuccess || mallAccountsQuery.isError,
   );
@@ -122,8 +111,8 @@ export function useMallAlerts() {
   );
   const tiles = useMemo(
     () =>
-      channels ? mallStatusTiles(channels, alerts, derived, outcomeSummary?.rows ?? [], sessionStates) : [],
-    [channels, alerts, derived, outcomeSummary, sessionStates],
+      channels ? mallStatusTiles(channels, alerts, derived, sessionStates) : [],
+    [channels, alerts, derived, sessionStates],
   );
   const counts = useMemo(() => mallAlertCounts(alerts, derived), [alerts, derived]);
   const noLoginCount = channels ? channels.filter((channel) => !channel.hasCredentials).length : null;
@@ -136,31 +125,15 @@ export function useMallAlerts() {
     const checked = probe.status === 'running' || probe.status === 'done';
     return { total: keys.size, signedOut: checked ? signedOut.length : null, noCredentials: noCredentials.length };
   }, [channels, signedOut, probe.status]);
-  const checkedAtByMall = useMemo(
-    () => Object.fromEntries(Object.values(probe.results).map((result) => [result.mallKey, result.checkedAt])),
-    [probe.results],
-  );
   const session = useMemo(
     (): MallSessionView => ({
       status: probe.status,
       counts: countMallSessions(sessionStates),
       checkedAt: probe.checkedAt,
       extensionVersion: probe.extensionVersion,
-      checkedAtByMall,
       recheck: probe.recheck,
-      recheckFailed: probe.recheckFailed,
-      recheckMall: probe.recheckMall,
     }),
-    [
-      probe.status,
-      probe.checkedAt,
-      probe.extensionVersion,
-      probe.recheck,
-      probe.recheckFailed,
-      probe.recheckMall,
-      checkedAtByMall,
-      sessionStates,
-    ],
+    [probe.status, probe.checkedAt, probe.extensionVersion, probe.recheck, sessionStates],
   );
 
   return {
@@ -179,6 +152,5 @@ export function useMallAlerts() {
     soldOutTotal,
     noRecipeCount,
     coupangPendingAccept,
-    outcomeSummary,
   };
 }

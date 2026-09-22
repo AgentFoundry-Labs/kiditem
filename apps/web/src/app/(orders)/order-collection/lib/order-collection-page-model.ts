@@ -1,7 +1,8 @@
+import { channelCollectsViaExtension } from '@kiditem/shared/channel-registry';
 import { formatNumber } from '@/lib/utils';
 import type { OrderCollectionFailureCode } from './order-collection-extension';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 export type ConversionState = 'idle' | 'ready' | 'converting' | 'success' | 'error';
 export type ConversionHistoryItem = StoredOrderCollectionFile;
@@ -17,8 +18,6 @@ export interface MallAccountDraft {
 
 export const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
 export const ICECREAM_MALL_KEY = 'icecream-mall';
-/** The one mall card whose collection belongs to the Coupang directship owner. */
-export const COUPANG_DIRECT_MALL_KEY = 'coupang-direct';
 export const MAX_HISTORY_ITEMS = 1000;
 export const MALL_ACCOUNT_GRID_CLASS =
   'grid min-w-[760px] grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] gap-2';
@@ -93,25 +92,16 @@ export function mallStatus(account: OrderCollectionMallAccount): { label: string
   return { label: '사용', tone: 'ready' };
 }
 
+/**
+ * 이 몰을 브라우저에서 수집할 수 있는가 — 판정은 채널 레지스트리의 `collector` 하나다.
+ *
+ * 화면이 몰 목록을 다시 적던 동안 서버와 갈라졌다(카카오는 여기만 켜져 있었고 로켓은
+ * 서버만 켜져 있었다). 아이스크림몰만 예외로 설정·사용 여부까지 본다 — 저장된 계정으로
+ * 로그인해 들어가는 몰이라 계정이 없으면 수집 자체가 시작되지 않는다.
+ */
 export function isBrowserCollectableMall(account: OrderCollectionMallAccount): boolean {
-  // 확장 세션 스크래핑 몰 — 계정설정(ID/비번) 없이도 로그인 세션으로 수집 가능.
-  if (account.key === 'kidsnote') return true;
-  if (account.key === 'kkomangse') return true;
-  if (account.key === 'onch') return true;
-  if (account.key === 'kakao') return true;
-  if (account.key === 'domeggook') return true;
-  if (account.key === 'kidkids') return true;
-  if (account.key === 'lotte-on') return true;
-  if (account.key === 'gs-shop') return true;
-  if (account.key === 'always') return true;
-  if (account.key === 'boribori') return true;
-  if (account.key === 'teacher-mall') return true;
-  if (account.key === 'coupang-direct') return true;
-  if (account.key === 'art09') return true;
-  if (account.key === 'haebub-mall') return true;
-  // 11번가 수집기는 코드만 들어와 있다. 셀피아 양식이 확정되지 않아 파일을 만들지 못하므로
-  // 검증 전 몰로 두고 운영 화면에서 켜지 않는다(KID-105 Q2).
-  return account.key === ICECREAM_MALL_KEY && account.configured && account.enabled;
+  if (!channelCollectsViaExtension(account.key)) return false;
+  return account.key !== ICECREAM_MALL_KEY || (account.configured && account.enabled);
 }
 
 export function isAutoDetectableMall(account: OrderCollectionMallAccount): boolean {

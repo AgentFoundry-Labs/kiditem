@@ -1,5 +1,4 @@
 import type { MallProductDraft } from './mall-product-draft';
-import { mallDisplayName } from '@kiditem/shared/sales-product';
 
 /**
  * 몰 중립 초안 → GS SHOP 파트너스 상품등록(`partners.gsshop.com/product/products/create`).
@@ -146,7 +145,7 @@ function cutBytes(text: string, maxBytes: number): string {
 
 /** 원본명 앞의 소비자가(`1200땅콩말랑키링`). 이름의 일부인 숫자(`3D`)는 떼지 않는다. */
 function stripPricePrefix(name: string): string {
-  return mallDisplayName(name);
+  return name.trim().replace(/^\d{3,}(?=\S)(?!\d)/, '').trim();
 }
 
 function nameParts(name: string, keywords: readonly string[], forbidden: RegExp) {

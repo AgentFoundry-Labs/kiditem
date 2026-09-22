@@ -59,15 +59,6 @@ describe('Coupang direct final-order collection (PG integration)', () => {
         name: 'Rocket',
       },
     });
-    await prisma.sellpiaInventorySku.create({
-      data: {
-        id: SKU_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'SP-ORDER-1',
-        name: 'Order inventory',
-        currentStock: 10,
-      },
-    });
     await prisma.sellpiaInventoryState.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1196,7 +1187,9 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         confirmationLineId: line.id,
-        sellpiaInventorySkuId: SKU_ID,
+        // Preserve the source identifier on this immutable historical
+        // allocation; current rows use MasterProduct identity instead.
+        legacySellpiaInventorySkuId: SKU_ID,
         unitsPerSale: 1,
         quantity,
       },

@@ -36,7 +36,6 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
   const exportItems = async () => fetchAllInventoryForExport({
     query: state.requestParams.query,
     stockStatus: state.stockStatus,
-    activeStatus: state.activeStatus,
     linkStatus: state.linkStatus === 'all' ? undefined : state.linkStatus,
   });
 
@@ -59,7 +58,6 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
       await downloadSellpiaInventoryExport({
         query: state.requestParams.query,
         stockStatus: state.stockStatus,
-        activeStatus: state.activeStatus,
         linkStatus: state.linkStatus === 'all' ? undefined : state.linkStatus,
       });
     } catch (cause) {
@@ -92,14 +90,11 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
       ) : null}
       <InventorySummaryCards
         summary={state.data?.summary ?? EMPTY_SUMMARY}
-        hasPublishedSnapshot={Boolean(state.data?.latestImport)}
       />
       <InventoryFilters
-        activeStatus={state.activeStatus}
         linkStatus={state.linkStatus}
         search={state.search}
         stockStatus={state.stockStatus}
-        onActiveStatusChange={state.setActiveStatus}
         onLinkStatusChange={state.setLinkStatus}
         onSearchChange={state.setSearch}
         onSearchSubmit={(event) => {

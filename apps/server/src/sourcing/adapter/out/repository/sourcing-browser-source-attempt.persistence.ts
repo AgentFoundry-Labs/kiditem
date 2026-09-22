@@ -157,9 +157,10 @@ async function persistExtensionCandidateProjection(
   tx: Transaction,
   row: SourcingExtensionCandidateProjection,
 ): Promise<'accepted' | 'duplicate'> {
+  // sourcingCandidateIdentityLockKey composes row.organizationId into the key.
   const lockKey = sourcingCandidateIdentityLockKey(row);
   await tx.$queryRaw`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock keyed by organizationId; reads no tenant data.
     SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
   `;
   if (row.pageType === 'description') {

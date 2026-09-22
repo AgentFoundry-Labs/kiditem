@@ -11,9 +11,11 @@
 |---|---|---|
 | ChannelAdListingProductMonthlyFact | `channel_ad_listing_product_monthly_facts` | Immutable monthly recipe basis and integer-KRW allocation for one completed advertising source generation. |
 | ChannelAdTargetDailySnapshot | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
+| ChannelListing | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingDeletionOperation | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelListingOptionInventoryComponent | `channel_listing_option_inventory_components` | Confirmed source-product quantities for one channel sellable option. |
 | ChannelRegistrationOwnerIdempotencyReceipt | `channel_registration_owner_idempotency_receipts` | Agent-triggered registration mutation receipt keyed by the exact Channels owner input, atomically retained with local listing resolution. |
 | ChannelScrapeChunk | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
@@ -25,9 +27,15 @@
 | CoupangWingSalesRankDailySnapshot | `coupang_wing_sales_rank_daily_snapshots` | Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다. |
 | CoupangWingTrackedProduct | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
 | CoupangWingTrackedProductDailySnapshot | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
-| MallOperationOutcome | `mall_operation_outcomes` | 쇼핑몰 에이전트의 관찰 기록 — 원천 owner 가 없는 브라우저 몰 작업 결과 한 줄(로그인 확인 · 로그인 테스트 · 등록 폼 채움). 주문 수집 · 송장 전송 결과는 Orders 리더에서 파생하고 여기에 쓰지 않는다. append-only 이고 같은 idempotencyKey 는 한 번만 쓴다. 비밀번호 · 받는 사람 · 주소 · 주문번호는 담지 않는다 — 개수와 이유 코드만. |
+| ProductPreparation | `product_preparations` | Persistent registration target with explicit marketplace overrides. Executions freeze submitted values separately (ADR-0020). |
+| ProductPreparationOption | `product_preparation_options` | Selected common option and explicit price overrides for one persistent registration target. |
+| ProductRegistrationExecution | `product_registration_executions` | One frozen registration intent. A reusable target has many executions; one active execution per target and idempotent requests prevent duplicate submissions (ADR-0020). |
 | RocketPoCatalogLine | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
 | RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
+| SalesProduct | `sales_products` | Channels-owned common selling product identified by its KID. Reusable registration targets select its options and override its defaults; inventory and ABC remain Products-owned (ADR-0020). |
+| SalesProductOption | `sales_product_options` | Selling composition with a stable UUID, issued KID and final option price. Its template is not operational inventory; confirmed channel recipes own that composition (ADR-0020). |
+| SalesProductOptionComponent | `sales_product_option_components` | Declared source composition for a selling option. Applied to an empty channel recipe only by an explicit request; never a capacity source (ADR-0020). |
+| SalesProductPublicImage | `sales_product_public_images` | Public copy of a sales-product image or detail image that malls can download (우리 저장소는 사무실 밖에서 열리지 않는다). Keyed by our storage URL; the sales product keeps its own URL and mall bulk sheets use the copy (ADR-0014). |
 | SellpiaManualMatchAlias | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
 | SellpiaManualMatchSnapshot | `sellpia_manual_match_snapshots` | Current organization-scoped, read-only Sellpia manual-match evidence restricted to exact aliases used by current channel listings. |
 | SellpiaProductMonthlySales | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
@@ -43,7 +51,7 @@ erDiagram
     String sourceImportRunId FK
     String channelAccountId FK
     String channelListingId FK
-    String masterProductId FK
+    String masterProductId
     DateTime month
     DateTime coveredStartDate
     DateTime coveredEndDate
@@ -91,6 +99,31 @@ erDiagram
     Int sampleCount
     DateTime firstObservedAt
     DateTime lastObservedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelListing {
+    String salesProductId FK
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String sourceCandidateId FK
+    String externalId
+    String channelName
+    String displayName
+    String category
+    String brand
+    String manufacturer
+    String imageUrl
+    Json rawJson
+    String lastImportRunId FK
+    String status
+    String exposureStatus
+    String deliveryChargeType
+    Int freeShipOverAmount
+    Int returnCharge
+    Json deliveryInfo
+    Boolean isActive
     DateTime createdAt
     DateTime updatedAt
   }
@@ -177,6 +210,14 @@ erDiagram
     Json metaJson
     DateTime createdAt
     DateTime updatedAt
+  }
+  ChannelListingOptionInventoryComponent {
+    String id PK
+    String organizationId FK
+    String channelListingOptionId FK
+    String masterProductId
+    Int quantity
+    DateTime createdAt
   }
   ChannelRegistrationOwnerIdempotencyReceipt {
     String id PK
@@ -360,20 +401,69 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  MallOperationOutcome {
+  ProductPreparation {
     String id PK
     String organizationId FK
-    String actorUserId FK
+    String salesProductId FK
+    Int version
+    String sourceCandidateId
+    String channelAccountId FK
+    String sourceContentWorkspaceId
+    DateTime closedAt
+    String displayName
+    String selectedThumbnailUrl
+    String selectedThumbnailGenerationId
+    String selectedThumbnailGenerationCandidateId
+    String selectedDetailPageArtifactId
+    String selectedDetailPageRevisionId
+    String selectedDetailPageGenerationId
+    Json registrationInput
+    String reviewPayloadHash
+    DateTime approvedAt
+    String approvedByUserId FK
+    String createdByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ProductPreparationOption {
+    String id PK
+    String organizationId FK
+    String productPreparationId FK
+    String salesProductOptionId FK
+    Int sortOrder
+    Int salePrice
+    Int normalPrice
+    Int supplyPrice
+  }
+  ProductRegistrationExecution {
+    String id PK
+    String organizationId FK
+    String productPreparationId FK
+    String channelAccountId FK
+    String channelListingId FK
+    String executionKind
+    String expectedProviderAccountId
     String idempotencyKey
-    String mallKey
-    String operation
-    String outcome
-    String reasonCode
-    String message
-    Int itemCount
-    Int failedCount
-    Int warningCount
-    DateTime occurredAt
+    String requestHash
+    String ownerIdempotencyKey
+    Json submissionPayloadJson
+    String submissionPayloadHash
+    String status
+    String providerOutcome
+    String providerSubmissionId
+    String externalListingId
+    Json resultJson
+    String lastErrorCode
+    String lastErrorMessage
+    String leaseToken
+    DateTime leaseClaimedAt
+    String requestedByUserId FK
+    DateTime startedAt
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   RocketPoCatalogLine {
     String id PK
@@ -417,44 +507,111 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SalesProduct {
+    String id PK
+    String organizationId FK
+    String code
+    String ownCode
+    String sabangnetGoodsNo
+    String name
+    String shortName
+    String englishName
+    String printName
+    String modelName
+    String modelNo
+    String brand
+    String manufacturer
+    String originCountry
+    String originRegion
+    StringArray keywords
+    String standardCategory
+    String status
+    String taxType
+    String deliveryFeeType
+    Int deliveryFee
+    StringArray optionAxes
+    Boolean stockManaged
+    Boolean optionsLocked
+    StringArray imageUrls
+    String detailHtml
+    StringArray extraDetailHtml
+    String noticeCategory
+    StringArray noticeValues
+    Json certifications
+    String importDeclarationNo
+    String adminMemo
+    Json sourceRaw
+    String sourceCandidateId
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductOption {
+    String id PK
+    String organizationId FK
+    String salesProductId FK
+    String optionCode
+    String sabangnetOptionCode
+    StringArray values
+    String optionKey
+    String alias
+    String barcode
+    Int salePrice
+    Int normalPrice
+    String supplyStatus
+    Int safetyStock
+    Int sortOrder
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductOptionComponent {
+    String id PK
+    String organizationId FK
+    String salesProductOptionId FK
+    String masterProductId
+    Int quantity
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SalesProductPublicImage {
+    String id PK
+    String organizationId FK
+    String sourceUrl
+    String publicUrl
+    String host
+    DateTime createdAt
+  }
   SellpiaManualMatchAlias {
     String id PK
     String organizationId FK
     String snapshotId FK
-    String sellpiaInventorySkuId FK
+    String masterProductId
     String aliasTitle
     String normalizedAlias
     Int itemCount
     String matchedType
     Int evidenceCount
-    DateTime createdAt
   }
   SellpiaManualMatchSnapshot {
     String id PK
     String organizationId FK,UK
-    String sourceOrigin
-    String sourcePath
-    Int schemaVersion
     Int targetCount
     Int matchedTargetCount
     Int aliasCount
     String snapshotHash
     DateTime capturedAt
-    DateTime createdAt
-    DateTime updatedAt
   }
   SellpiaProductMonthlySales {
     String id PK
     String organizationId FK
     String sourceImportRunId FK
-    String sellpiaInventorySkuId FK
-    String masterProductId FK
+    String legacySellpiaInventorySkuId
+    String masterProductId
     String productCode
     String optionCode
     String yearMonth
     Int orderQty
     Int orderAmount
-    Int inQty
     Int inAmount
     String costBasis
     Boolean vatIncluded
@@ -463,12 +620,8 @@ erDiagram
     String productName
     String optionName
     String providerName
-    Int salePrice
-    Int buyPrice
     String barcode
     DateTime capturedAt
-    DateTime createdAt
-    DateTime updatedAt
   }
   SellpiaSalesDailySnapshot {
     String id PK
@@ -485,13 +638,27 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelListing ||--o{ ChannelAdListingProductMonthlyFact : "channelListing"
+  ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
+  ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
+  ChannelListing ||--o{ ChannelListingDeletionOperation : "channelListing"
+  ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
+  ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
+  ChannelListing o|--o{ ProductRegistrationExecution : "channelListing"
   ChannelScrapeRun ||--o{ ChannelScrapeChunk : "scrapeRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
   CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
+  ProductPreparation ||--o{ ProductPreparationOption : "preparation"
+  ProductPreparation o|--o{ ProductRegistrationExecution : "preparation"
   RocketPoCatalogSnapshot ||--o{ RocketPoCatalogLine : "snapshot"
+  SalesProduct o|--o{ ChannelListing : "salesProduct"
+  SalesProduct ||--o{ ProductPreparation : "salesProduct"
+  SalesProduct ||--o{ SalesProductOption : "salesProduct"
+  SalesProductOption ||--o{ ProductPreparationOption : "option"
+  SalesProductOption ||--o{ SalesProductOptionComponent : "salesProductOption"
   SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
 ```
 
@@ -500,31 +667,36 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | ChannelAdListingProductMonthlyFact | channelAccount | references external | Core | ChannelAccount |
-| ChannelAdListingProductMonthlyFact | channelListing | references external | Core | ChannelListing |
-| ChannelAdListingProductMonthlyFact | masterProduct | references external | Core | MasterProduct |
 | ChannelAdListingProductMonthlyFact | organization | references external | Core | Organization |
 | ChannelAdListingProductMonthlyFact | sourceImportRun | references external | Core | SourceImportRun |
 | ChannelAdTargetDailySnapshot | adTargetDaily | referenced by external | Advertising | AdAction |
 | ChannelAdTargetDailySnapshot | channelAccount | references external | Core | ChannelAccount |
-| ChannelAdTargetDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelAdTargetDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelAdTargetDailySnapshot | organization | references external | Core | Organization |
 | ChannelAdTargetDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
-| ChannelListingDailySnapshot | listing | references external | Core | ChannelListing |
+| ChannelListing | channelAccount | references external | Core | ChannelAccount |
+| ChannelListing | channelListing | referenced by external | AI | ContentWorkspace |
+| ChannelListing | lastImportRun | references external | Core | SourceImportRun |
+| ChannelListing | listing | referenced by external | Advertising | AdAction |
+| ChannelListing | listing | referenced by external | AI | Thumbnail |
+| ChannelListing | listing | referenced by external | AI | ThumbnailTracking |
+| ChannelListing | listing | referenced by external | Core | ChannelListingOption |
+| ChannelListing | listing | referenced by external | Orders | Review |
+| ChannelListing | organization | references external | Core | Organization |
+| ChannelListing | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ChannelListingDailySnapshot | organization | references external | Core | Organization |
 | ChannelListingDeletionOperation | channelAccount | references external | Core | ChannelAccount |
-| ChannelListingDeletionOperation | channelListing | references external | Core | ChannelListing |
 | ChannelListingDeletionOperation | organization | references external | Core | Organization |
 | ChannelListingDeletionOperation | requestedByUser | references external | Core | User |
-| ChannelListingOptionDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelListingOptionDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelListingOptionDailySnapshot | organization | references external | Core | Organization |
+| ChannelListingOptionInventoryComponent | channelListingOption | references external | Core | ChannelListingOption |
+| ChannelListingOptionInventoryComponent | organization | references external | Core | Organization |
 | ChannelRegistrationOwnerIdempotencyReceipt | organization | references external | Core | Organization |
 | ChannelScrapeChunk | organization | references external | Core | Organization |
 | ChannelScrapeRun | channelAccount | references external | Core | ChannelAccount |
 | ChannelScrapeRun | organization | references external | Core | Organization |
 | ChannelScrapeRun | sourceImportRun | references external | Core | SourceImportRun |
-| ChannelScrapeSnapshot | listing | references external | Core | ChannelListing |
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelScrapeSnapshot | organization | references external | Core | Organization |
 | ChannelScrapeSnapshot | sourceImportRun | references external | Core | SourceImportRun |
@@ -538,17 +710,25 @@ erDiagram
 | CoupangWingSalesRankDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangWingTrackedProduct | organization | references external | Core | Organization |
 | CoupangWingTrackedProductDailySnapshot | organization | references external | Core | Organization |
-| MallOperationOutcome | actorUser | references external | Core | User |
-| MallOperationOutcome | organization | references external | Core | Organization |
+| ProductPreparation | approvedByUser | references external | Core | User |
+| ProductPreparation | channelAccount | references external | Core | ChannelAccount |
+| ProductPreparation | createdByUser | references external | Core | User |
+| ProductPreparation | organization | references external | Core | Organization |
+| ProductPreparationOption | organization | references external | Core | Organization |
+| ProductRegistrationExecution | channelAccount | references external | Core | ChannelAccount |
+| ProductRegistrationExecution | organization | references external | Core | Organization |
+| ProductRegistrationExecution | requestedByUser | references external | Core | User |
 | RocketPoCatalogLine | organization | references external | Core | Organization |
 | RocketPoCatalogSnapshot | channelAccount | references external | Core | ChannelAccount |
 | RocketPoCatalogSnapshot | organization | references external | Core | Organization |
 | RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
+| SalesProduct | organization | references external | Core | Organization |
+| SalesProductOption | organization | references external | Core | Organization |
+| SalesProductOption | salesProductOption | referenced by external | Core | ChannelListingOption |
+| SalesProductOptionComponent | organization | references external | Core | Organization |
+| SalesProductPublicImage | organization | references external | Core | Organization |
 | SellpiaManualMatchAlias | organization | references external | Core | Organization |
-| SellpiaManualMatchAlias | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | SellpiaManualMatchSnapshot | organization | references external | Core | Organization |
-| SellpiaProductMonthlySales | frozenMasterProduct | references external | Core | MasterProduct |
-| SellpiaProductMonthlySales | frozenSellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | SellpiaProductMonthlySales | organization | references external | Core | Organization |
 | SellpiaProductMonthlySales | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaSalesDailySnapshot | organization | references external | Core | Organization |

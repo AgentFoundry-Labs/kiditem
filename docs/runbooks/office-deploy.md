@@ -70,13 +70,38 @@ npm run deploy:office:local -- --ref origin/release/office --cutover --confirm A
 ```
 
 That operation stops writers, writes a custom-format `pg_dump` to
-`C:\ProgramData\KidItem\deployments\database-dumps`, and runs pre-schema
-migration, Prisma push, and post-schema migration. A failure after database
-work begins leaves API, web, nginx, and Gateway stopped. Runtime-only rollback
-is intentionally blocked for an immediate schema/data cutover.
+`C:\ProgramData\KidItem\deployments\database-dumps`, and runs the pre-schema
+migrations, the read-only cutover data survey
+(`npm run check:cutover-data-blockers`), Prisma push, and the post-schema
+migrations. The survey stops the cutover before Prisma push when a row would
+still block it or the survey cannot finish. The pre-schema migrations have
+committed by then; recover as the
+[cutover runbook](operation-automation-cutover.md#irreversible-boundary-and-recovery)
+describes. A failure after database work begins leaves API, web, nginx, and
+Gateway stopped. Runtime-only rollback is intentionally blocked for an
+immediate schema/data cutover.
+
+Before a schema/data cutover, confirm that the extension Release
+`office-v<VERSION>-<date>-<sha>` exists for the deployed SHA
+([Create A Draft GitHub Release](extension-releases.md#create-a-draft-github-release)).
+After the cutover, install it
+([Install Or Update](extension-releases.md#install-or-update)) and confirm that
+the Office handshake reports its version before any ad-center use of the
+extension, including the popup's "승인 액션 실행" and any tab opened with
+`kiditemExecuteActions=1`. The build Office ran before the v0.1.31 cutover
+(manifest 1.0.23 on `release/office`, from before #515) writes to Coupang even
+when the server refuses its report.
 
 Schema/data cutovers are never performed from a provisional hotfix ref. Promote
 and review them through `release/office` first.
+
+A cutover transcript line starting `Data migration <id> ran from source` means
+a migration that already succeeded on Office has been edited since it ran, which
+violates the release contract. The migration still does not run again and the
+cutover continues. Afterwards, record the id on the release issue and ship the
+fix as a new migration id. `npm run data:migrate -- status`, run from the
+deployed SHA against the Office database, lists the same rows under
+`database.sourceDrift`.
 
 The deployer never runs `docker system prune`. If disk capacity is the only
 blocker, the operator may opt into bounded BuildKit cleanup with

@@ -19,9 +19,14 @@ import {
   type OrderCollectionExtensionRun,
 } from '@/app/(orders)/order-collection/lib/order-collection-extension';
 import {
+  collectsViaCoupangDirectship,
   coupangDirectshipCollectionSource,
   type CoupangDirectshipHandoff,
 } from '@/app/(orders)/order-collection/lib/coupang-directship-collection-source';
+import {
+  createCoupangDirectshipCollector,
+  type CoupangDirectshipSelection,
+} from '@/app/(orders)/order-collection/lib/coupang-directship-collection';
 import {
   mallOrderCollectionSource,
   refusedAsNotConfigured,
@@ -31,13 +36,12 @@ import {
 } from '@/app/(orders)/order-collection/lib/mall-order-collection-source';
 import {
   startCollectionSource,
-  type CollectionSourceAdapter,
   type CollectionStartOutcome,
 } from '@/hooks/use-collection-source-control';
+import type { OrderCollectionSourceAdapter } from '@/app/(orders)/order-collection/lib/order-collection-source-adapter';
 import { useAuth } from '@/hooks/useAuth';
 import {
   classifyOrderCollectionFailure,
-  COUPANG_DIRECT_MALL_KEY,
   isBrowserCollectableMall,
   mallCollectionFailureMessage,
   orderCollectionBatchNotice,
@@ -47,7 +51,7 @@ import {
 import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
-} from '@/app/(orders)/order-collection/lib/order-mall-account-api';
+} from '@/lib/order-mall-account-api';
 import {
   collectSellpiaOrderSnapshot,
   reconcileCollectedOrdersWithSellpia,
@@ -55,17 +59,9 @@ import {
 } from '@/app/(orders)/order-collection/lib/sellpia-order-reconcile';
 import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
 import type { BrowserMallCollectionResult } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
-import type { CoupangDirectData } from '@/app/(orders)/order-collection/lib/coupang-directship-api';
 import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 
 const COLLECT_ALL_CONCURRENCY = 4;
-/**
- * How long a collection whose extension reply was lost may stay '수집 중' before
- * this page ends it. The extension may still finish in that window; after it,
- * an attempt nobody is running only blocks the card for its 30-minute lease.
- */
-const ORPHAN_SETTLE_MS = 30_000;
-const ORPHAN_POLL_MS = 3_000;
 const NOOP = () => undefined;
 const NOOP_ACTIVITY = (
   _kind: MarketplaceOrderCollectionActivityKind,
@@ -175,50 +171,33 @@ export function useAllMarketplaceOrderCollection({
   /** The collection each mall's hand-off left running, for a caller that waits on it. */
   const collectionsRef = useRef(new Map<string, Promise<BrowserMallCollectionResult>>());
   const collectBrowserMall = useMemo(
-    () => createBrowserMallCollector({
-      mallAccounts,
+    () => createBrowserMallCollector({ mallAccounts, addGeneratedFile, setPreviewId }),
+    [addGeneratedFile, mallAccounts, setPreviewId],
+  );
+  const collectDirectship = useMemo(
+    () => createCoupangDirectshipCollector({
       rocketChannelAccountId,
       addGeneratedFile,
       setPreviewId,
     }),
-    [addGeneratedFile, mallAccounts, rocketChannelAccountId, setPreviewId],
-  );
-
-  /**
-   * 확장이 답을 잃은 수집(워커 재시작 · 연결 끊김)을 끝까지 정리한다. 확장이 곧 끝낼 수도 있어
-   * 잠깐 지켜보되, 그래도 '수집 중'이면 여기서 끝낸다 — 두면 임대 30분 동안 카드가 '중단'으로
-   * 서 있고 전체 수집도 그 몰을 다시 시작하지 못한다(2026-09-18 카카오 · 올웨이즈).
-   */
-  const settleOrphanedRun = useCallback(
-    async (run: OrderCollectionExtensionRun, mallName: string) => {
-      for (let waited = 0; waited < ORPHAN_SETTLE_MS; waited += ORPHAN_POLL_MS) {
-        await new Promise((resolve) => setTimeout(resolve, ORPHAN_POLL_MS));
-        const current = await syncRun(run.attemptId).catch(() => null);
-        if (current && current.state !== 'RUNNING') return;
-      }
-      await failRun(
-        run,
-        'COLLECTION_FAILED',
-        `${mallName} 확장 응답이 끊겨 수집을 끝내지 못했습니다. 다시 수집해 주세요.`,
-      ).catch((finalizeError) => {
-        console.warn('[order-collection] failed to settle an orphaned attempt', finalizeError);
-      });
-    },
-    [failRun, syncRun],
+    [addGeneratedFile, rocketChannelAccountId, setPreviewId],
   );
 
   const collectAccount = useCallback(
     async (
       account: OrderCollectionMallAccount,
       run: OrderCollectionExtensionRun,
-      directship?: { eddDates: string[]; data?: CoupangDirectData },
+      directship?: CoupangDirectshipSelection,
     ) => {
       const activeRun = run;
       // 인증(본인확인 · OTP · 캡차)만 사람이 그 화면에서 끝낼 수 있다. 그 몰의 탭만 남기고
       // 나머지는 수집이 끝나는 대로 닫는다(사장님: "수집 끝났으면 창 닫아라").
       let keepTabsForOperator = false;
       try {
-        const collected = await collectBrowserMall(account, activeRun, { directship });
+        // 어느 절차가 도는지는 이 시도를 허락한 owner 가 정한다 — 몰 키를 보지 않는다(KID-255).
+        const collected = activeRun.sourceOwner === 'coupang_directship'
+          ? await collectDirectship(account, activeRun, directship)
+          : await collectBrowserMall(account, activeRun);
         if (collected.rowCount === 0) {
           // Empty provider results have no converter response to fence. Keep
           // the generic owner terminal instead of leaving a RUNNING attempt
@@ -308,10 +287,6 @@ export function useAllMarketplaceOrderCollection({
             );
           });
         }
-        if (activeRun && !stopped && ownerReconciliationRequired) {
-          // In the background: a lost reply must not hold a collect-all slot.
-          void settleOrphanedRun(activeRun, account.name);
-        }
         if (noNewOrders) {
           clearMallErrorActivity(account.name);
           logActivity('empty', account.name);
@@ -331,10 +306,10 @@ export function useAllMarketplaceOrderCollection({
     [
       clearMallErrorActivity,
       collectBrowserMall,
+      collectDirectship,
       failRun,
       logActivity,
       releaseRun,
-      settleOrphanedRun,
       syncRun,
     ],
   );
@@ -405,7 +380,7 @@ export function useAllMarketplaceOrderCollection({
   const mallCollectionAdapter = useCallback((
     account: OrderCollectionMallAccount,
     report = true,
-  ): CollectionSourceAdapter<MallOrderCollectionSourceList, MallOrderCollectionStartInput> => (
+  ): OrderCollectionSourceAdapter<MallOrderCollectionSourceList> => (
     mallOrderCollectionSource({
       organizationId,
       account,
@@ -421,7 +396,7 @@ export function useAllMarketplaceOrderCollection({
   const directshipCollectionAdapter = useCallback((
     account: OrderCollectionMallAccount,
     report = true,
-  ): CollectionSourceAdapter<OrderCollectionSourceStatus, MallOrderCollectionStartInput> => (
+  ): OrderCollectionSourceAdapter<OrderCollectionSourceStatus> => (
     coupangDirectshipCollectionSource({
       channelAccountId: rocketChannelAccountId,
       handOff: (handoff) => handOffDirectship(account, handoff, report),
@@ -442,7 +417,8 @@ export function useAllMarketplaceOrderCollection({
     collection: Promise<BrowserMallCollectionResult> | null;
   }>> => {
     collectionsRef.current.delete(account.key);
-    const outcome = await (account.key === COUPANG_DIRECT_MALL_KEY
+    // 어느 원천이 이 몰을 수집하는지는 그 원천이 답한다 — 화면도 루프도 키를 모른다(KID-255).
+    const outcome = await (collectsViaCoupangDirectship(account.key)
       ? startCollectionSource(queryClient, directshipCollectionAdapter(account, false), input)
       : startCollectionSource(queryClient, mallCollectionAdapter(account, false), input));
     return {

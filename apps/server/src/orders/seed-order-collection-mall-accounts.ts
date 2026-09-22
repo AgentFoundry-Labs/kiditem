@@ -18,43 +18,50 @@ import {
   findOrderCollectionMall,
   orderCollectionMallAccountIdentity,
 } from "./domain/order-collection-malls";
+import {
+  MALL_CHANNELS,
+  type MallChannelKey,
+} from "@kiditem/shared/channel-registry";
 
 const SEED_CONFIRMATION = "APPLY_ORDER_COLLECTION_MALL_ACCOUNTS";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export const ORDER_COLLECTION_MALL_ENV = [
-  { key: "one-polaris", prefix: "ONE_POLARIS" },
-  { key: "icecream-mall", prefix: "ICECREAM_MALL" },
-  { key: "kidkids", prefix: "KIDKIDS" },
-  { key: "kidsnote", prefix: "KIDSNOTE" },
-  { key: "haebub-mall", prefix: "HAEBUB_MALL" },
-  { key: "onch", prefix: "ONCH" },
-  { key: "kkomangse", prefix: "KKOMANGSE" },
-  { key: "art09", prefix: "ART09" },
-  { key: "tekville-edu", prefix: "TEKVILLE_EDU" },
-  { key: "benepia-mul", prefix: "BENEPIA_MUL" },
-  { key: "domeggook", prefix: "DOMEGGOOK" },
-  { key: "lotte-on", prefix: "LOTTE_ON" },
-  { key: "boribori", prefix: "BORIBORI" },
-  { key: "always", prefix: "ALWAYS" },
-  { key: "woongjin-class", prefix: "WOONGJIN_CLASS" },
-  { key: "kakao", prefix: "KAKAO" },
-  { key: "toss", prefix: "TOSS" },
-  { key: "teacher-mall", prefix: "TEACHER_MALL" },
-  { key: "gs-shop", prefix: "GS_SHOP" },
-  { key: "coupang-direct", prefix: "COUPANG_DIRECT" },
-  { key: "gmarket", prefix: "GMARKET" },
-  { key: "auction", prefix: "AUCTION" },
-  { key: "11st", prefix: "ELEVEN_ST" },
-  { key: "smartstore", prefix: "SMARTSTORE" },
-  { key: "ssg", prefix: "SSG" },
-  { key: "thirtymall", prefix: "THIRTYMALL" },
-  { key: "yoons", prefix: "YOONS" },
-] as const;
+/**
+ * 몰 키 → 자격증명 환경변수 접두사. 몰 목록 · 이름은 채널 레지스트리가 답하고, 시드는
+ * 그 몰의 아이디 · 비밀번호 · 주소를 어느 변수에서 읽는지만 안다.
+ */
+export const ORDER_COLLECTION_MALL_ENV_PREFIX: Record<MallChannelKey, string> = {
+  "one-polaris": "ONE_POLARIS",
+  "icecream-mall": "ICECREAM_MALL",
+  "kidkids": "KIDKIDS",
+  "kidsnote": "KIDSNOTE",
+  "haebub-mall": "HAEBUB_MALL",
+  "onch": "ONCH",
+  "kkomangse": "KKOMANGSE",
+  "art09": "ART09",
+  "tekville-edu": "TEKVILLE_EDU",
+  "benepia-mul": "BENEPIA_MUL",
+  "domeggook": "DOMEGGOOK",
+  "lotte-on": "LOTTE_ON",
+  "boribori": "BORIBORI",
+  "always": "ALWAYS",
+  "woongjin-class": "WOONGJIN_CLASS",
+  "kakao": "KAKAO",
+  "toss": "TOSS",
+  "teacher-mall": "TEACHER_MALL",
+  "gs-shop": "GS_SHOP",
+  "coupang-direct": "COUPANG_DIRECT",
+  "gmarket": "GMARKET",
+  "auction": "AUCTION",
+  "11st": "ELEVEN_ST",
+  "smartstore": "SMARTSTORE",
+  "ssg": "SSG",
+  "thirtymall": "THIRTYMALL",
+  "yoons": "YOONS",
+};
 
-type OrderCollectionMallSeedKey =
-  (typeof ORDER_COLLECTION_MALL_ENV)[number]["key"];
+type OrderCollectionMallSeedKey = MallChannelKey;
 
 export interface OrderCollectionMallSeedAccount {
   key: OrderCollectionMallSeedKey;
@@ -107,23 +114,24 @@ export function resolveOrderCollectionMallSeedConfig(
   }
 
   const accounts: OrderCollectionMallSeedAccount[] = [];
-  for (const mall of ORDER_COLLECTION_MALL_ENV) {
-    const loginId = read(`${mall.prefix}_ID`);
+  for (const mall of MALL_CHANNELS) {
+    const prefix = ORDER_COLLECTION_MALL_ENV_PREFIX[mall.key];
+    const loginId = read(`${prefix}_ID`);
     const supplierLoginId = mall.key === "art09"
-      ? read(`${mall.prefix}_SUPPLIER_ID`)
+      ? read(`${prefix}_SUPPLIER_ID`)
       : undefined;
-    const password = read(`${mall.prefix}_PW`);
-    const siteUrl = read(`${mall.prefix}_URL`);
+    const password = read(`${prefix}_PW`);
+    const siteUrl = read(`${prefix}_URL`);
     const credentialValues = [loginId, password, siteUrl];
     const presentCount = credentialValues.filter(Boolean).length;
 
     if (presentCount === 0 && !supplierLoginId) continue;
     if (presentCount !== credentialValues.length) {
       throw new Error(
-        `Incomplete ${mall.prefix} credential triple: ${mall.prefix}_ID, ${mall.prefix}_PW, and ${mall.prefix}_URL must be set together.`,
+        `Incomplete ${prefix} credential triple: ${prefix}_ID, ${prefix}_PW, and ${prefix}_URL must be set together.`,
       );
     }
-    assertHttpUrl(`${mall.prefix}_URL`, siteUrl!);
+    assertHttpUrl(`${prefix}_URL`, siteUrl!);
     accounts.push({
       key: mall.key,
       loginId: loginId!,

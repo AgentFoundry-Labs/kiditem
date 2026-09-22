@@ -3,15 +3,15 @@ Before working in this directory, always read this document first rather than re
 # sourcing
 
 `src/sourcing/` owns Chinese-product discovery, `SourcingCandidate`, source and
-evidence governance, launch decisions, and account-scoped registration
-preparation. Suppliers, offers, procurement intents, and purchase orders
+evidence governance and launch decisions. Candidate-originated registration
+uses the Channels preparation capability. Suppliers, offers, procurement intents, and purchase orders
 belong to Supply; supplier payments belong to Finance.
 
 ## Ownership
 
 - `SourcingCandidate` is the raw opportunity workspace. Its status is only
-  `sourced|rejected`; registration state is derived from preparations and
-  listings.
+  `sourced|rejected`; registration state is derived from the Channels execution
+  fence and listings.
 - `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` are the
   append-only collection/evidence ledger. Supplier-offer snapshots, launch
   candidates, decisions, and procurement intents retain immutable provenance.
@@ -20,10 +20,10 @@ belong to Supply; supplier payments belong to Finance.
 - `SourcingDecisionBatch` and its items freeze server-derived baseline
   decisions. Coverage confidence is not a calibrated probability and cannot
   make a test order execution-eligible.
-- `ProductPreparation` owns reviewed content and registration input for one
-  candidate/account attempt. `ChannelListing` registration is owned by
-  Channels and is reached through the narrow registration capability; sourcing
-  must not create or return a `MasterProduct`.
+- Channels owns `ProductPreparation` as a reusable registration target and its
+  execution history (ADR-0020). Sourcing supplies candidate eligibility and
+  content through its interfaces. Candidate screens use the Channels capability
+  to edit registration settings; Sourcing never creates a `MasterProduct`.
 - Cross-domain reads and mutations use named owner interfaces. Sourcing does
   not write Supply, Products, Channels, AI, or Finance models directly.
 
@@ -57,6 +57,11 @@ belong to Supply; supplier payments belong to Finance.
 
 ## Registration invariants
 
+- Reach registration settings and the submission fence through the Channels
+  registration execution interface and read candidate registration state back
+  through `channels/read/registration-execution.reader.ts`; never write
+  `ProductRegistrationExecution` rows
+  ([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
 - Registration freezes the reviewed payload, content/hash, idempotency key,
   actor, account, execution kind, provider outcome, reconciliation state, and
   terminal listing in its ledger.

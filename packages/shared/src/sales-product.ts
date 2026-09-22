@@ -1,3 +1,6 @@
+export * from './schemas/listing-availability-execution.js';
+export * from './schemas/registration-target-execution.js';
+export * from './schemas/registration-target.js';
 export * from './schemas/sales-product.js';
 
 /**

@@ -4,7 +4,7 @@ import { AlertTriangle, Check, FileSpreadsheet, MousePointerClick, Plug, ShieldA
 import type { MallPublishTarget } from '@kiditem/shared/mall-publishing';
 import { cn } from '@/lib/utils';
 import { MALL_READINESS_LABEL, MALL_READINESS_TONE, mallHazardBadges } from '../../_shared/mall-presentation';
-import { MALL_PUBLISH_ADAPTERS } from '../../_shared/adapters';
+import { MALL_REGISTRATION_ADAPTERS } from '../../_shared/adapters';
 import type { MallPublishAdapter } from '../../_shared/mall-publish-adapter';
 
 interface StepMallsProps {
@@ -43,7 +43,7 @@ function batchHint(adapter: MallPublishAdapter, productCount: number): string {
 export function StepMalls({ targets, selected, productCount, onToggle, autoSubmitMalls }: StepMallsProps) {
   const targetByKey = new Map(targets.map((target) => [target.manifest.key, target]));
   const withoutAdapter = targets.filter(
-    (target) => !MALL_PUBLISH_ADAPTERS.some((adapter) => adapter.mallKey === target.manifest.key),
+    (target) => !MALL_REGISTRATION_ADAPTERS.some((adapter) => adapter.mallKey === target.manifest.key),
   );
 
   return (
@@ -61,7 +61,7 @@ export function StepMalls({ targets, selected, productCount, onToggle, autoSubmi
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {MALL_PUBLISH_ADAPTERS.map((adapter) => (
+        {MALL_REGISTRATION_ADAPTERS.map((adapter) => (
           <MallAdapterCard
             key={adapter.mallKey}
             adapter={adapter}

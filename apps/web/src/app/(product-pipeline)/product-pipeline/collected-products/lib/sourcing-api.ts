@@ -14,7 +14,7 @@ import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 export type ProductStatus = SourcingCandidateStatus;
 
 export interface SellpiaInventorySearchItem {
-  sellpiaInventorySkuId: string;
+  masterProductId: string;
   code: string;
   name: string;
   optionName: string | null;
@@ -31,6 +31,53 @@ export interface ExternalWingSellpiaMatchPreview {
 export const isInProgress = (s: string | undefined | null): boolean =>
   s === 'pending' || s === 'processing';
 
+/**
+ * 수집후보 하나의 등록 상태. **울타리**(`ProductRegistrationExecution`)가 근거다.
+ *
+ * 초안 행(`ProductPreparation.status`)은 거울이라 울타리와 어긋날 수 있다 — 어긋난
+ * 거울을 믿으면 이미 마켓에 올라간 상품에 '등록 준비' 버튼이 다시 열린다(ADR-0014).
+ */
+export type CandidateRegistrationState =
+  | 'none'
+  | 'preparing'
+  | 'confirming'
+  | 'failed'
+  | 'registered';
+
+const CANDIDATE_REGISTRATION_STATES: readonly CandidateRegistrationState[] = [
+  'none',
+  'preparing',
+  'confirming',
+  'failed',
+  'registered',
+];
+
+/** 서버가 준 등록 상태. 구버전 응답에는 없어서 `null` 로 정규화한다. */
+export function normalizeRegistrationState(value: unknown): CandidateRegistrationState | null {
+  return CANDIDATE_REGISTRATION_STATES.find((state) => state === value) ?? null;
+}
+
+/**
+ * 울타리 값이 없는 응답에서만 쓰는 거울 환산.
+ *
+ * 초안(`draft`)과 취소(`cancelled`)는 아직 아무것도 보내지 않은 것이라 `none` 이다 —
+ * 초안이 있다는 사실 자체는 초안 행이 답한다.
+ */
+export function registrationStateFromPreparation(
+  status: ProductPreparationSelection['status'] | null,
+): CandidateRegistrationState {
+  switch (status) {
+    case 'submitting':
+      return 'confirming';
+    case 'registered':
+      return 'registered';
+    case 'failed':
+      return 'failed';
+    default:
+      return 'none';
+  }
+}
+
 export interface SourcedProduct {
   id: string;
   organizationId?: string;
@@ -45,6 +92,8 @@ export interface SourcedProduct {
   imageUrl?: string | null;
   images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   productPreparation?: ProductPreparationSelection | null;
+  /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
+  registrationState?: CandidateRegistrationState | null;
   /**
    * 저장된 대표 썸네일. 서버가 준비(ProductPreparation) → 후보 워크스페이스
    * 순으로 계산해 내려준다. 없으면 `null` 이고 카드는 수집 원본으로 떨어진다.
@@ -93,6 +142,8 @@ export interface ProductDetailResponse {
   images: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   basicInfo: ProductBasics;
   productPreparation: ProductPreparationSelection | null;
+  /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
+  registrationState: CandidateRegistrationState | null;
   /**
    * 후보가 이미 소유한 `ContentWorkspace.id`. 아직 없으면 `null`.
    *
@@ -112,7 +163,7 @@ export interface RegistrationImages {
 }
 
 /** 서버 `ProductBasics.salePriceSource` 와 같은 값 집합이다. */
-export type SalePriceSource = 'input' | 'sellpia' | 'none';
+export type SalePriceSource = 'input' | 'none';
 
 export interface ProductBasics {
   name: string;
@@ -136,8 +187,7 @@ export interface ProductBasics {
   /**
    * `salePrice` 출처. 서버 파생 값이라 읽기 전용이다(수정 API 로 보내지 않는다).
    *   - `input`:   수기 입력값
-   *   - `sellpia`: 이름이 정확히 일치한 셀피아 재고 SKU 판매가 폴백
-   *   - `none`:    매칭 실패. `salePrice` 는 0이다.
+   *   - `none`:    입력값 없음. `salePrice` 는 0이다.
    * 구버전 응답에는 없을 수 있다.
    */
   salePriceSource?: SalePriceSource;
@@ -427,7 +477,7 @@ function normalizeRegistrationImages(value: unknown): RegistrationImages {
   };
 }
 
-const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'sellpia', 'none'];
+const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'none'];
 
 /** 서버가 값을 안 줬거나 모르는 값이면 출처 미상 → `none`. 추측하지 않는다. */
 function normalizeSalePriceSource(value: unknown): SalePriceSource {
@@ -664,6 +714,7 @@ export const productsApi = {
         imageUrl: p.imageUrl ?? null,
         images: Array.isArray(p.images) ? p.images : [],
         productPreparation,
+        registrationState: normalizeRegistrationState(p.registrationState),
         selectedThumbnailUrl,
         thumbnailPreviewUrls,
         rejectedAt: p.rejectedAt ?? null,
@@ -721,6 +772,7 @@ export const productsApi = {
       images: Array.isArray(p.images) ? p.images : [],
       basicInfo,
       productPreparation,
+      registrationState: normalizeRegistrationState(p.registrationState),
       contentWorkspaceId:
         typeof p.contentWorkspaceId === 'string' && p.contentWorkspaceId
           ? p.contentWorkspaceId
@@ -816,78 +868,6 @@ export const candidatesApi = {
     }
     return { preparationId: result.preparationId, status: result.status };
   },
-  /**
-   * 이미 마켓에 등록된 상품을 등록상품으로 확정한다.
-   *
-   * 쿠팡 WING 등록은 확장이 화면을 조작해 수행하므로 서버의 provider create 경로를
-   * 탈 수 없다. 이 호출은 **이미 발급된 등록상품ID** 를 근거로 `ChannelListing` 만
-   * 만들어 등록상품 목록에 올린다. 서버는 새 상품을 생성하지 않고 선택된 계정의
-   * vendorId와 확장이 확인한 WING 계정을 대조한다. 이미 동기화된 리스팅은 준비 시
-   * frozen한 내부 결과로 확정한다.
-   */
-  confirmExternalRegistration: (
-    candidateId: string,
-    body: {
-      executionId: string;
-      externalListingId: string;
-      evidence?: Record<string, unknown>;
-    },
-  ) =>
-    apiClient.post<{ preparationId: string; status: string; listingId?: string }>(
-      `/api/sourcing/candidates/${candidateId}/registration/confirm-external`,
-      body,
-    ),
-  prepareExternalWingRegistration: (candidateId: string, body: {
-    channelAccountId: string;
-    displayName: string;
-    registrationInput: Record<string, unknown>;
-    idempotencyKey: string;
-    sellpiaInventorySkuId?: string;
-    sellpiaQuantity?: number;
-  }) => apiClient.post<{
-    executionId: string; preparationId: string; requestHash: string;
-    status: 'prepared'; expectedVendorId: string;
-    sellpiaMatch: {
-      sellpiaInventorySkuId: string;
-      code: string;
-      name: string;
-      optionName: string | null;
-      currentStock: number;
-      quantity: number;
-    };
-    existingListing: {
-      externalListingId: string;
-      displayName: string;
-      status: string | null;
-    } | null;
-  }>(`/api/sourcing/candidates/${candidateId}/registration/external-wing/prepare`, body),
-  previewExternalWingRegistrationMatch: (
-    candidateId: string,
-    body: { listingName: string; itemName?: string },
-  ) => apiClient.post<ExternalWingSellpiaMatchPreview>(
-    `/api/sourcing/candidates/${candidateId}/registration/external-wing/match-preview`,
-    body,
-  ),
-  startExternalWingRegistration: (candidateId: string, executionId: string) =>
-    apiClient.post<{ executionId: string; status: 'executing'; providerOutcome: 'uncertain' }>(
-      `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/start`, {},
-    ),
-  markExternalWingRegistrationUnresolved: (
-    candidateId: string, executionId: string, evidence: Record<string, unknown>,
-  ) => apiClient.post(
-    `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/unresolved`,
-    { evidence },
-  ),
-  /**
-   * 확장이 WING 폼을 채우다 실패해 제출 자체가 없었던 실행을 확정 실패로 닫는다.
-   * `unresolved` 로 두면 실행이 `reconciling` 에 갇혀 재시도도 취소도 막힌다.
-   */
-  markExternalWingRegistrationNotSubmitted: (
-    candidateId: string, executionId: string, evidence: Record<string, unknown>,
-  ) => apiClient.post(
-    `/api/sourcing/candidates/${candidateId}/registration/executions/${executionId}/not-submitted`,
-    { evidence },
-  ),
   quickProcess: (
     id: string,
     task: QuickProcessTask,

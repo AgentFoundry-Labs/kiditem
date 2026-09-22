@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { MARKETPLACE_CHANNELS } from '@kiditem/shared/channel-registry';
 import { MALL_PUBLISH_ADAPTERS } from '@/app/(channels)/_shared/adapters';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import {
@@ -48,10 +49,25 @@ describe('marketplaceSummaryCards', () => {
     }
   });
 
-  it('레지스트리가 먼저 오고 그 밖의 채널이 뒤에 붙는다', () => {
+  /**
+   * 마켓 판매자 시스템은 몰 등록 어댑터가 없다(KID-250). 그래도 우리가 파는 곳이라 몰 카드와
+   * 같은 규칙으로 늘 서고, 맨 앞에 선다 — 가장 큰 채널이 목록 끝으로 밀리면 이 대시보드가
+   * 답해야 할 질문을 답하지 못한다.
+   */
+  it('⭐ 마켓이 먼저 오고 그다음이 어댑터 몰이다', () => {
     const cards = marketplaceSummaryCards([count('rocket', 459)], []);
-    expect(cards.at(-1)).toMatchObject({ channel: 'rocket', label: '쿠팡 로켓', count: 459 });
-    expect(cards.length).toBe(MALL_PUBLISH_ADAPTERS.length + 1);
+    expect(cards.slice(0, 2).map((row) => row.channel)).toEqual(['coupang', 'rocket']);
+    expect(cards.find((row) => row.channel === 'rocket'))
+      .toMatchObject({ label: '쿠팡 로켓', count: 459, imported: true });
+    expect(cards.length).toBe(MALL_PUBLISH_ADAPTERS.length + MARKETPLACE_CHANNELS.length);
+  });
+
+  /** 몰 카드와 같은 규칙이다 — 모르는 자리에 0 을 찍지 않고 '미확인' 이라고 말한다. */
+  it('⭐ 숫자도 리스팅도 없는 마켓도 카드는 서고, 미확인으로 남는다', () => {
+    const cards = marketplaceSummaryCards([], []);
+    expect(cards.map((row) => row.channel).slice(0, 2)).toEqual(['coupang', 'rocket']);
+    expect(cards.find((row) => row.channel === 'rocket')).toMatchObject({ count: 0, imported: false });
+    expect(cards.length).toBe(MALL_PUBLISH_ADAPTERS.length + MARKETPLACE_CHANNELS.length);
   });
 
   it('같은 채널의 계정별 숫자를 합친다', () => {
@@ -122,6 +138,7 @@ describe('MarketplaceSummaryBar', () => {
   it('몰 요약이 없어도 그린다 — 그때는 전부 모름이다', () => {
     renderBar({ channels: [], counts: [] });
     expect(screen.getByText('합계 0개')).toBeInTheDocument();
-    expect(screen.getAllByText('미확인').length).toBe(MALL_PUBLISH_ADAPTERS.length);
+    expect(screen.getAllByText('미확인').length)
+      .toBe(MALL_PUBLISH_ADAPTERS.length + MARKETPLACE_CHANNELS.length);
   });
 });

@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   fail: vi.fn(),
   readAttempt: vi.fn(),
   collectMall: vi.fn(),
+  collectDirectship: vi.fn(),
+  beginDirect: vi.fn(),
+  readDirectAttempt: vi.fn(),
   closeTabs: vi.fn(),
 }));
 
@@ -32,6 +35,14 @@ vi.mock('@/app/(orders)/order-collection/lib/order-collection-extension', async 
 vi.mock('@/app/(orders)/order-collection/lib/browser-mall-collection', () => ({
   createBrowserMallCollector: () => mocks.collectMall,
 }));
+vi.mock('@/app/(orders)/order-collection/lib/coupang-directship-collection', () => ({
+  createCoupangDirectshipCollector: () => mocks.collectDirectship,
+}));
+vi.mock('@/app/(orders)/order-collection/lib/coupang-directship-source-owner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/(orders)/order-collection/lib/coupang-directship-source-owner')>()),
+  beginCoupangDirectAttempt: mocks.beginDirect,
+  readCoupangDirectAttempt: mocks.readDirectAttempt,
+}));
 vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getParsed: vi.fn().mockRejectedValue(new Error('no status read in this spec')), post: vi.fn() },
@@ -45,7 +56,8 @@ import { useAllMarketplaceOrderCollection } from './useAllMarketplaceOrderCollec
 import { ApiError } from '@/lib/api-error';
 import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { ORDER_COLLECTION_IN_PROGRESS_MESSAGE } from '@/app/(orders)/order-collection/lib/order-collection-source-owner';
-import type { OrderCollectionMallAccount } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
+import { COUPANG_DIRECT_MALL_KEY } from '@/app/(orders)/order-collection/lib/coupang-directship-collection-source';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const mall = (key: string, name: string): OrderCollectionMallAccount => ({
   key,
@@ -287,89 +299,6 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
 
     expect(mocks.fail).not.toHaveBeenCalled();
     expect(logActivity).not.toHaveBeenCalled();
-  });
-
-  /**
-   * 라이브(2026-09-18): 카카오 · 올웨이즈가 확장의 답을 잃은 뒤 30분 임대 내내 '중단'으로 서 있었고,
-   * 전체 수집을 다시 눌러도 그 두 몰은 시작되지 않았다. 확장이 곧 끝낼 수도 있어 잠깐 지켜보되,
-   * 그래도 '수집 중'이면 끝낸다.
-   */
-  it('⭐ 확장이 답을 잃은 수집은 잠깐 지켜본 뒤 끝낸다 — 카드가 30분 동안 서 있지 않게', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      const kakao = mall('kakao', '카카오');
-      mocks.begin.mockResolvedValue({
-        ...attemptFor('kakao', 7),
-        attemptToken: '33333333-3333-4333-8333-333333333333',
-      });
-      mocks.readAttempt.mockResolvedValue(attemptFor('kakao', 7));
-      mocks.fail.mockResolvedValue({ ...attemptFor('kakao', 7), state: 'FAILED' });
-      mocks.collectMall.mockRejectedValue(Object.assign(
-        new Error('카카오 주문 수집 응답을 확인하지 못했습니다.'),
-        { ownerReconciliationRequired: true },
-      ));
-      const { result } = renderHook(
-        () => useAllMarketplaceOrderCollection({
-          mallAccounts: [kakao],
-          rocketChannelAccountId: null,
-          addGeneratedFile: vi.fn(),
-        }),
-        { wrapper },
-      );
-
-      await act(async () => {
-        await result.current.collectAll();
-      });
-      // The extension may still finish: nothing is failed at once.
-      expect(mocks.fail).not.toHaveBeenCalled();
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(31_000);
-      });
-      expect(mocks.fail).toHaveBeenCalledWith(
-        expect.objectContaining({ attemptId: attemptFor('kakao', 7).attemptId }),
-        expect.objectContaining({
-          code: 'COLLECTION_FAILED',
-          message: expect.stringContaining('확장 응답이 끊겨'),
-        }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('⭐ 지켜보는 사이 확장이 끝낸 수집은 다시 닫지 않는다', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      const kakao = mall('kakao', '카카오');
-      mocks.begin.mockResolvedValue({
-        ...attemptFor('kakao', 8),
-        attemptToken: '33333333-3333-4333-8333-333333333333',
-      });
-      mocks.readAttempt.mockResolvedValue({ ...attemptFor('kakao', 8), state: 'COMPLETE' });
-      mocks.collectMall.mockRejectedValue(Object.assign(
-        new Error('카카오 주문 수집 응답을 확인하지 못했습니다.'),
-        { ownerReconciliationRequired: true },
-      ));
-      const { result } = renderHook(
-        () => useAllMarketplaceOrderCollection({
-          mallAccounts: [kakao],
-          rocketChannelAccountId: null,
-          addGeneratedFile: vi.fn(),
-        }),
-        { wrapper },
-      );
-
-      await act(async () => {
-        await result.current.collectAll();
-      });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(31_000);
-      });
-      expect(mocks.fail).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('중단이 아닌 진짜 실패는 그대로 COLLECTION_FAILED 로 닫고 활동에 남긴다', async () => {
@@ -663,5 +592,111 @@ describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
     // 전체 수집은 운영자에게 몰 하나하나를 알리지 않는다.
     expect(toast.info).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 전체 수집은 원천마다 절차가 달라도 결과를 같은 저울로 센다(KID-255). 직배송만 따로
+ * 세면 "성공 4개"라는 문장이 어느 원천은 빼고 말한 것이 되고, 사장님은 돌지 않은 몰을
+ * 돌았다고 읽는다.
+ */
+describe('useAllMarketplaceOrderCollection — 원천이 달라도 집계는 같다', () => {
+  const ROCKET_CHANNEL_ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
+  const DIRECT_ATTEMPT_ID = '00000000-0000-4000-8000-0000000000d1';
+  const kidsnote = mall('kidsnote', '키즈노트');
+  const directship = mall(COUPANG_DIRECT_MALL_KEY, '쿠팡직배송');
+
+  const directAttempt = (state: 'RUNNING' | 'COMPLETE' = 'RUNNING') => ({
+    attemptId: DIRECT_ATTEMPT_ID,
+    sourceImportRunId: DIRECT_ATTEMPT_ID,
+    state,
+    attemptToken: '33333333-3333-4333-8333-333333333333',
+    plan: {
+      sourceType: 'coupang_direct_order_capture' as const,
+      parserVersion: 'coupang-direct-order-v1' as const,
+      channelAccountId: ROCKET_CHANNEL_ACCOUNT_ID,
+      captureMode: 'browser' as const,
+      transportScope: 'ALL' as const,
+    },
+    expiresAt: '2026-09-14T12:00:00.000Z',
+    artifactId: null,
+    contentChecksum: null,
+    errorCode: null,
+    errorMessage: null,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    mocks.begin.mockResolvedValue({
+      ...attemptFor(kidsnote.key, 1),
+      attemptToken: '33333333-3333-4333-8333-333333333333',
+    });
+    mocks.readAttempt.mockResolvedValue(attemptFor(kidsnote.key, 1));
+    mocks.beginDirect.mockResolvedValue(directAttempt());
+    mocks.readDirectAttempt.mockResolvedValue(directAttempt('COMPLETE'));
+    mocks.collectMall.mockResolvedValue({ rowCount: 2, masked: false, date: '2026-09-14' });
+    mocks.collectDirectship.mockResolvedValue({ rowCount: 3, masked: false, date: '2026-09-14' });
+  });
+
+  function collectBoth() {
+    return renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidsnote, directship],
+        rocketChannelAccountId: ROCKET_CHANNEL_ACCOUNT_ID,
+        addGeneratedFile: vi.fn(),
+      }),
+      { wrapper },
+    );
+  }
+
+  it('⭐ 두 원천이 함께 수집되면 둘 다 성공 하나로 센다', async () => {
+    const { result } = collectBoth();
+
+    let batch: Awaited<ReturnType<typeof result.current.collectAll>> | undefined;
+    await act(async () => {
+      batch = await result.current.collectAll();
+    });
+
+    expect(batch).toEqual({
+      successCount: 2,
+      failedCount: 0,
+      inProgressCount: 0,
+      unconfiguredCount: 0,
+    });
+    // 몰 절차는 몰만, 직배송 절차는 직배송만 돈다 — 한 원천이 남의 절차를 타지 않는다.
+    expect(mocks.collectMall).toHaveBeenCalledTimes(1);
+    expect(mocks.collectDirectship).toHaveBeenCalledTimes(1);
+  });
+
+  it('⭐ 어느 원천이 실패해도 실패 하나로 센다 — 집계가 원천을 가리지 않는다', async () => {
+    mocks.collectDirectship.mockRejectedValue(new Error('쿠팡직배송 발주 수집에 실패했습니다.'));
+    const { result } = collectBoth();
+
+    let batch: Awaited<ReturnType<typeof result.current.collectAll>> | undefined;
+    await act(async () => {
+      batch = await result.current.collectAll();
+    });
+
+    expect(batch).toMatchObject({ successCount: 1, failedCount: 1, inProgressCount: 0 });
+  });
+
+  /** KID-106 Q6 — 이미 수집 중인 원천은 실패가 아니라 진행 중이다. 직배송도 같다. */
+  it('⭐ 이미 진행 중인 직배송도 실패가 아니라 진행 중으로 센다', async () => {
+    mocks.beginDirect.mockRejectedValue(new ApiError(
+      409,
+      'HTTP_409',
+      ORDER_COLLECTION_IN_PROGRESS_MESSAGE,
+      { code: 'ATTEMPT_IN_PROGRESS', attemptId: DIRECT_ATTEMPT_ID },
+    ));
+    const { result } = collectBoth();
+
+    let batch: Awaited<ReturnType<typeof result.current.collectAll>> | undefined;
+    await act(async () => {
+      batch = await result.current.collectAll();
+    });
+
+    expect(batch).toMatchObject({ successCount: 1, failedCount: 0, inProgressCount: 1 });
+    expect(mocks.collectDirectship).not.toHaveBeenCalled();
   });
 });

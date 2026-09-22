@@ -1,4 +1,4 @@
-import type { WarehouseRow } from '../../out/repository/warehouses.repository.port';
+import type { WarehouseRow } from '../../out/persistence/warehouses.repository.port';
 
 export const WAREHOUSES_PORT = Symbol('WarehousesPort');
 

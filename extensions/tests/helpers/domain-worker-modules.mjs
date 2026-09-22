@@ -12,6 +12,7 @@ import vm from 'node:vm';
 // 도메인 워커 디렉터리(background/<domain>/) 기준 상대 경로.
 const SHARED_MODULES = [
   '../domain-registry.js',
+  '../../shared/channel-registry.js',
   '../environment-context.js',
   '../collection-session.js',
   '../interactive-tabs.js',
@@ -43,6 +44,8 @@ export const ORDERS_WORKER_MODULES = [
   'sellpia-post-processing.js',
   'coupang-po-session.js',
   'mall-availability-send.js',
+  'mall-session-probe.js',
+  'mall-session.js',
   'rocket-po-collection.js',
   'rocket-po-source-owner.js',
   'coupang-directship-source-owner.js',

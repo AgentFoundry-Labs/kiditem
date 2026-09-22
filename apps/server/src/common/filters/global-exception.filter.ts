@@ -8,6 +8,12 @@ import {
 import { Request, Response } from 'express';
 import { ErrorCodes } from '@kiditem/shared/errors';
 import { AppException } from '@kiditem/shared/server-errors';
+import {
+  FactConflictError,
+  FactInputError,
+  FactNotFoundError,
+  FactReferenceError,
+} from '../errors/fact-errors';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -70,6 +76,28 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         error = ErrorCodes.COMMON.DB_ERROR;
         message = lastLine;
       }
+    } else if (exception instanceof FactNotFoundError) {
+      statusCode = 404;
+      error = 'Not Found';
+      message = exception.message;
+    } else if (exception instanceof FactConflictError) {
+      statusCode = 409;
+      error = exception.details?.code ?? 'Conflict';
+      message = exception.message;
+      if (exception.details) {
+        details.code = exception.details.code;
+        if (exception.details.attemptId && UUID.test(exception.details.attemptId)) {
+          details.attemptId = exception.details.attemptId;
+        }
+      }
+    } else if (exception instanceof FactReferenceError) {
+      statusCode = 422;
+      error = exception.code;
+      message = exception.message;
+    } else if (exception instanceof FactInputError) {
+      statusCode = 400;
+      error = 'Bad Request';
+      message = exception.message;
     } else if (exception instanceof Error) {
       message = exception.message;
     }

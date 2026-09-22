@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowRight, Bell, CheckCircle2, CircleAlert, Loader2, ShieldCheck, X } from 'lucide-react';
+import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import type { AlertItem } from '@kiditem/shared/alerts';
 import { useDismissAlert } from '@/lib/alerts-api';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
@@ -57,9 +58,15 @@ export function MallAlertPanel({
   /** 둘러싼 칸이 높이를 나눠 줄 때(쇼핑몰 홈 오른쪽 칸: AI 비용 아래 남은 높이). */
   className?: string;
 }) {
-  const inMall = (item: AlertItem) => !mall || mallKeyOfAlert(item) === mall.key;
+  const inMall = (item: AlertItem) => {
+    if (!mall) return true;
+    const key = mallKeyOfAlert(item);
+    return key !== null && channelOutcomeKey(key) === channelOutcomeKey(mall.key);
+  };
   const scopedAlerts = alerts.filter(inMall);
-  const scopedDerived = mall ? derived.filter((item) => item.mallKeys.includes(mall.key)) : derived;
+  const scopedDerived = mall
+    ? derived.filter((item) => item.mallKeys.some((key) => channelOutcomeKey(key) === channelOutcomeKey(mall.key)))
+    : derived;
   const counts: Record<MallAlertFilter, number> = {
     all: scopedDerived.length + scopedAlerts.length,
     attention: scopedDerived.length + scopedAlerts.filter(needsAttention).length,

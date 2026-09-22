@@ -37,15 +37,6 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         name: 'Rocket',
       },
     });
-    await prisma.sellpiaInventorySku.create({
-      data: {
-        id: SKU_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'SP-PA-1',
-        name: 'PA inventory',
-        currentStock: 10,
-      },
-    });
     await prisma.sellpiaInventoryState.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -285,7 +276,9 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         confirmationLineId: line.id,
-        sellpiaInventorySkuId: SKU_ID,
+        // This fixture represents an immutable pre-cutover allocation. Keep
+        // the historical source identifier; reconciliation never rewrites it.
+        legacySellpiaInventorySkuId: SKU_ID,
         unitsPerSale: 1,
         quantity,
       },

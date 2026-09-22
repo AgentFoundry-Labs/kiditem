@@ -10,6 +10,7 @@ import {
   withObjectParticle,
   sendMallAvailability,
   summarizeLiveAvailability,
+  translateMallAvailabilityWarning,
   type MallAvailabilitySendResult,
 } from './mall-availability-send';
 
@@ -34,6 +35,16 @@ const result = (overrides: Partial<MallAvailabilitySendResult> = {}): MallAvaila
  * 확인된 것만 성공이다(도매꾹은 보낸 뒤 목록을 다시 읽는다).
  */
 describe('품절 송신 결과', () => {
+  it('몰 구성 확인 코드는 운영자에게 읽을 수 있는 경고로 바꾼다', () => {
+    expect(translateMallAvailabilityWarning('composition_unconfirmed')).toBe(
+      '상품 구성을 확인하지 못했습니다. 몰에서 옵션 구성을 확인한 뒤 다시 시도하세요.',
+    );
+    expect(translateMallAvailabilityWarning('composition_unconfirmed: option mapping missing')).toBe(
+      '상품 구성을 확인하지 못했습니다. option mapping missing',
+    );
+    expect(translateMallAvailabilityWarning('다른 경고')).toBe('다른 경고');
+  });
+
   it('⭐ 몰을 다시 읽어 전부 확인됐을 때만 성공이다', () => {
     expect(availabilityOutcome(result({ confirmed: 3 }))).toEqual({ outcome: 'succeeded', reasonCode: 'mall_rechecked' });
     expect(availabilityOutcome(result({ confirmed: 2 }))).toEqual({ outcome: 'attention', reasonCode: 'awaiting_mall_recheck' });
@@ -72,7 +83,12 @@ describe('품절 송신 결과', () => {
   });
 });
 
-type ExtensionMessage = { codes: string[]; options?: Record<string, string[]>; resume: boolean };
+type ExtensionMessage = {
+  codes: string[];
+  options?: Record<string, string[]>;
+  resume: boolean;
+  executionContext?: { executionId: string; payloadHash: string; leaseToken: string };
+};
 
 const codes = (count: number) => Array.from({ length: count }, (_, index) => String(15000000000 + index));
 
@@ -169,6 +185,32 @@ describe('쿠팡 윙 품절 나눠 보내기', () => {
     );
     await sendMallAvailability('coupang', codes(2));
     expect((bridge.sendToExtension.mock.calls[1][1] as { show?: boolean }).show).toBeUndefined();
+  });
+
+  it('실행 울타리 lease를 품절 확장 요청에 선택적으로 싣는다', async () => {
+    await sendMallAvailability('coupang', ['16340985357'], {
+      optionCodes: { '16340985357': ['VENDOR-ITEM-1'] },
+      executionContext: {
+        executionId: '66666666-6666-4666-8666-666666666666',
+        payloadHash: 'frozen-hash',
+        leaseToken: '77777777-7777-4777-8777-777777777777',
+      },
+    });
+    expect(bridge.sendToExtension).toHaveBeenCalledWith(
+      'ext',
+      expect.objectContaining({
+        action: 'sendMallAvailability',
+        mallKey: 'coupang',
+        codes: ['16340985357'],
+        options: { '16340985357': ['VENDOR-ITEM-1'] },
+        executionContext: {
+          executionId: '66666666-6666-4666-8666-666666666666',
+          payloadHash: 'frozen-hash',
+          leaseToken: '77777777-7777-4777-8777-777777777777',
+        },
+      }),
+      180_000,
+    );
   });
 
   it('상품 하나를 띄워 보낸 결과에 상품목록에 보였는지가 실린다', async () => {

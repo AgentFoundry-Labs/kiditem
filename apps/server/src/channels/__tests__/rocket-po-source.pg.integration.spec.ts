@@ -20,15 +20,20 @@ import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog
 import { RocketPurchasePreviewService } from '../../supply/application/service/rocket-purchase-preview.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
-import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
-import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
-import { SellpiaInventoryFreshnessService } from '../../inventory/application/service/sellpia-inventory-freshness.service';
-import { SellpiaInventoryFreshnessRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
+import { ProductCollectionFreshnessRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-freshness.repository.adapter';
+import { ProductCollectionFreshnessUseCase } from '../../products/application/usecase/product-collection-freshness.usecase';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
 import { RocketWorkbookExportService } from '../../supply/application/service/rocket-purchase-confirmation.service';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
-import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
-import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/repository/rocket-workbook-progress.repository.adapter';
+import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
+import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository.adapter';
 import { configureAgentRuntimeBodyParsers } from '../../common/http/agent-runtime-body-parser';
+import { FactConflictError } from '../../common/errors/fact-errors';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const base = '/api/channels/rocket-po';
@@ -78,7 +83,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       providers: [{ provide: ROCKET_PO_CATALOG_PORT, useValue: catalog }],
     }).compile();
     app = module.createNestApplication({ logger: false, bodyParser: false });
-    configureAgentRuntimeBodyParsers(app);
+    configureAgentRuntimeBodyParsers(app as never);
     app.setGlobalPrefix('api');
     app.use(
       (
@@ -137,18 +142,29 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       .set('x-source-attempt-token', attempt.attemptToken)
       .send(submission(attempt.attemptId, rows));
   const previewService = () =>
-    new RocketPurchasePreviewService(
-      catalog,
-      new ChannelSkuAvailabilityService(
-        new ChannelProductMatchingRepositoryAdapter(prisma as never),
-        new InventoryAvailabilityService(
-          new InventoryAvailabilityRepositoryAdapter(prisma as never),
+    (() => {
+      const products = new ProductSourceReadRepositoryAdapter(prisma as never);
+      const productTransactions = new ProductTransactionalReadRepositoryAdapter();
+      const availability = new ProductAvailabilityUseCase(
+        new ProductAvailabilityRepositoryAdapter(prisma as never),
+      );
+      const recipes = new ChannelOptionRecipeUseCase(
+        new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions),
+      );
+      const matching = new ChannelProductMatchingRepositoryAdapter(
+        prisma as never,
+        productTransactions,
+        products,
+        recipes,
+      );
+      return new RocketPurchasePreviewService(
+        catalog,
+        new ChannelSkuAvailabilityService(matching, availability),
+        new ProductCollectionFreshnessUseCase(
+          new ProductCollectionFreshnessRepositoryAdapter(prisma as never),
         ),
-      ),
-      new SellpiaInventoryFreshnessService(
-        new SellpiaInventoryFreshnessRepositoryAdapter(prisma as never),
-      ),
-    );
+      );
+    })();
   it('freezes an authorized plan, replays the same begin, and rejects a distinct concurrent start', async () => {
     const key = randomUUID();
     const first = await start(key).expect(201);
@@ -277,6 +293,31 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     });
 
     expect(saved?.rows).toEqual([row('P1'), unconfirmed]);
+  });
+  it('fails a saved read closed with a typed conflict when stored evidence is incomplete', async () => {
+    const attempt = (await start()).body;
+    await finish(attempt, [row('P1')]).expect(200);
+    const exact = {
+      organizationId: ORG,
+      channelAccountId: ACCOUNT,
+      sourceImportRunId: attempt.attemptId,
+    };
+    await prisma.channelListingOption.updateMany({
+      where: { organizationId: ORG, externalOptionId: 'P1' },
+      data: { externalOptionId: 'P1-RENUMBERED' },
+    });
+
+    const complete = catalog.readComplete(exact);
+    await expect(complete).rejects.toBeInstanceOf(FactConflictError);
+    await expect(complete).rejects.toThrow('Rocket identity P1 was not persisted');
+
+    await prisma.rocketPoCatalogLine.updateMany({
+      where: { organizationId: ORG, snapshot: { sourceImportRunId: attempt.attemptId } },
+      data: { poStatus: null },
+    });
+    const saved = catalog.loadSavedCollection(exact);
+    await expect(saved).rejects.toBeInstanceOf(FactConflictError);
+    await expect(saved).rejects.toThrow('Saved Rocket PO confirmation is missing poStatus');
   });
   it('dates the COMPLETE cutoff by its KST business day across the 00:30 KST boundary', async () => {
     const attempt = (await start()).body;
@@ -458,14 +499,23 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     await finish(a).expect(200);
     const b = (await start()).body;
     await finish(b, [row('P2')]).expect(200);
+    const inventoryRun = await prisma.sourceImportRun.create({ data: {
+      organizationId: ORG, sourceType: 'sellpia_inventory', status: 'completed',
+      importedAt: new Date(), freshnessGeneration: 1n,
+    } });
+    await prisma.sellpiaInventoryState.create({ data: {
+      organizationId: ORG, lastCompletedImportRunId: inventoryRun.id,
+      sourceOrigin: 'https://kiditem.sellpia.com', sourceAccountKey: 'kiditem',
+      lastVerifiedAt: new Date(), requestedGeneration: 1n, verifiedGeneration: 1n,
+    } });
     const preview = previewService();
     const input = {
       organizationId: ORG,
       userId: USER,
-      inventoryRequirement: 'advisory' as const,
       request: {
         channelAccountId: ACCOUNT,
         sourceImportRunId: a.attemptId,
+        inventoryAttemptId: inventoryRun.id,
         editedQuantities: {},
         previewScope: 'confirmation_requested' as const,
       },
@@ -498,11 +548,15 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       where: { organizationId: ORG, externalOptionId: 'P1' },
     });
     const master = await prisma.masterProduct.create({
-      data: { organizationId: ORG, code: 'KI1', name: 'Confirmed product' },
-    });
-    await prisma.channelListing.update({
-      where: { id: option.listingId },
-      data: { masterProductId: master.id },
+      data: {
+        organizationId: ORG,
+        code: 'KI1',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'KI1',
+        sourceOptionCode: '',
+        name: 'Confirmed product',
+        currentStock: 5,
+      },
     });
     const inventoryImportedAt = new Date();
     const inventoryRun = await prisma.sourceImportRun.create({
@@ -520,21 +574,11 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         freshnessGeneration: 1n,
       },
     });
-    const sku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: ORG,
-        code: 'S1',
-        name: 'Component',
-        currentStock: 5,
-        isActive: true,
-        lastImportRunId: inventoryRun.id,
-      },
-    });
     await prisma.channelListingOptionInventoryComponent.create({
       data: {
         organizationId: ORG,
         channelListingOptionId: option.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: master.id,
         quantity: 1,
       },
     });
@@ -556,7 +600,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         new RocketWorkbookProgressService(
           new RocketWorkbookProgressRepositoryAdapter(),
         ),
-      ),
+       new ProductTransactionalReadRepositoryAdapter()),
       catalog,
     );
     const input = {
@@ -566,6 +610,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       request: {
         channelAccountId: ACCOUNT,
         sourceImportRunId: a.attemptId,
+        inventoryAttemptId: inventoryRun.id,
         idempotencyKey: randomUUID(),
         editedQuantities: { [row('P1').poLineId]: 4 },
         shortageReasons: {},
@@ -882,25 +927,21 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       where: { organizationId: ORG, externalOptionId: 'P1' },
     });
     const master = await prisma.masterProduct.create({
-      data: { organizationId: ORG, code: 'KEEP', name: 'Keep' },
-    });
-    const sku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: ORG,
         code: 'KEEP',
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'KEEP',
+        sourceOptionCode: '',
         name: 'Keep',
         currentStock: 7,
       },
-    });
-    await prisma.channelListing.update({
-      where: { id: option.listingId },
-      data: { masterProductId: master.id },
     });
     await prisma.channelListingOptionInventoryComponent.create({
       data: {
         organizationId: ORG,
         channelListingOptionId: option.id,
-        sellpiaInventorySkuId: sku.id,
+        masterProductId: master.id,
         quantity: 2,
       },
     });
@@ -910,22 +951,15 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     await finish(c).expect(200);
     expect(await prisma.masterProduct.count()).toBe(1);
     expect(
-      (
-        await prisma.channelListing.findUniqueOrThrow({
-          where: { id: option.listingId },
-        })
-      ).masterProductId,
-    ).toBe(master.id);
-    expect(
       await prisma.channelListingOptionInventoryComponent.findMany({
         where: { channelListingOptionId: option.id },
-        select: { sellpiaInventorySkuId: true, quantity: true },
+        select: { masterProductId: true, quantity: true },
       }),
-    ).toEqual([{ sellpiaInventorySkuId: sku.id, quantity: 2 }]);
+    ).toEqual([{ masterProductId: master.id, quantity: 2 }]);
     expect(
       (
-        await prisma.sellpiaInventorySku.findUniqueOrThrow({
-          where: { id: sku.id },
+        await prisma.masterProduct.findUniqueOrThrow({
+          where: { id: master.id },
         })
       ).currentStock,
     ).toBe(7);

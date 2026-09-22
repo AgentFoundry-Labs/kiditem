@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SalesProductCreateInputSchema, type SalesProductFromCandidatesRequest } from '@kiditem/shared/sales-product';
-import type { ProductDetailResponse } from './sourcing-api';
 import {
   candidatesToSalesProducts,
   salesProductInputFromCandidate,
   type CandidateSalesProductDeps,
 } from './candidate-sales-products';
+import type { ProductDetailResponse } from './sourcing-api';
 
 function detail(id: string, basics: Record<string, unknown> = {}): ProductDetailResponse {
   return {
@@ -51,8 +51,6 @@ describe('salesProductInputFromCandidate', () => {
     expect(SalesProductCreateInputSchema.safeParse(input).success).toBe(true);
     expect(input).toMatchObject({
       name: '과일바구니 딸깍이 키링',
-      salePrice: 7900,
-      tagPrice: 9900,
       originCountry: '중국',
       noticeCategory: '023',
       keywords: ['키링', '피젯'],
@@ -60,7 +58,22 @@ describe('salesProductInputFromCandidate', () => {
       imageUrls: ['http://localhost:9000/kiditem/rep.jpg', 'http://localhost:9000/kiditem/add-1.jpg'],
       detailHtml: '<center><img src="http://localhost:9000/kiditem/detail.jpg"></center>',
       optionAxes: [],
-      options: [{ values: [] }],
+      options: [{ values: [], salePrice: 7900, normalPrice: 9900 }],
+    });
+  });
+
+  it('uses a confirmed submission price while retaining candidate images and detail content', () => {
+    const input = salesProductInputFromCandidate(
+      detail('c1'),
+      'http://localhost:9000/kiditem/confirmed-detail.jpg',
+      { name: '확정 상품명', salePrice: 15900 },
+    );
+
+    expect(input).toMatchObject({
+      name: '확정 상품명',
+      imageUrls: ['http://localhost:9000/kiditem/rep.jpg', 'http://localhost:9000/kiditem/add-1.jpg'],
+      detailHtml: '<center><img src="http://localhost:9000/kiditem/confirmed-detail.jpg"></center>',
+      options: [{ values: [], salePrice: 15900, normalPrice: null }],
     });
   });
 });
@@ -111,17 +124,21 @@ describe('옵션 있는 수집상품', () => {
   it('종류를 단품으로 만든다 — 잔디인형 모양처럼 한 상품에 여러 종류', () => {
     const input = salesProductInputFromCandidate(detail('c-opt', { optionNames: ['곰', '토끼', '강아지'] }), null);
     expect(input.optionAxes).toEqual(['종류']);
-    expect(input.options).toEqual([{ values: ['곰'] }, { values: ['토끼'] }, { values: ['강아지'] }]);
+    expect(input.options).toEqual([
+      { values: ['곰'], salePrice: 7900, normalPrice: 9900 },
+      { values: ['토끼'], salePrice: 7900, normalPrice: 9900 },
+      { values: ['강아지'], salePrice: 7900, normalPrice: 9900 },
+    ]);
   });
 
   it('종류가 없으면 옵션 없는 상품이다', () => {
     const input = salesProductInputFromCandidate(detail('c-opt', { optionNames: [] }), null);
     expect(input.optionAxes).toEqual([]);
-    expect(input.options).toEqual([{ values: [] }]);
+    expect(input.options).toEqual([{ values: [], salePrice: 7900, normalPrice: 9900 }]);
   });
 
   it('같은 종류를 두 번 적어도 단품은 하나다', () => {
     const input = salesProductInputFromCandidate(detail('c-opt', { optionNames: ['곰', ' 곰 ', ''] }), null);
-    expect(input.options).toEqual([{ values: ['곰'] }]);
+    expect(input.options).toEqual([{ values: ['곰'], salePrice: 7900, normalPrice: 9900 }]);
   });
 });

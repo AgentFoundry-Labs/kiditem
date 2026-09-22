@@ -8,7 +8,10 @@ import {
   candidateToMallProductDraft,
   KIDITEM_MALL_DRAFT_DEFAULTS,
 } from '../../_shared/lib/mall-product-draft';
+import { candidateSalesProductGap } from '@/lib/candidate-sales-product-registration';
 import type { ProductDetailResponse } from './sourcing-api';
+
+export { candidateSalesProductGap } from '@/lib/candidate-sales-product-registration';
 
 /**
  * 수집상품 → 판매상품(수집상품 화면의 몰 대량등록). 몰 공통 등록 초안(`candidateToMallProductDraft`)을 판매상품 내용으로
@@ -29,6 +32,7 @@ const MAX_OPTION_VALUES = 50;
 export function salesProductInputFromCandidate(
   detail: ProductDetailResponse,
   detailImageUrl: string | null,
+  confirmed?: { name?: string; salePrice?: number },
 ): SalesProductCreateInput {
   const draft = candidateToMallProductDraft({ detail, defaults: KIDITEM_MALL_DRAFT_DEFAULTS, detailImageUrl });
   const variant = draft.variants[0];
@@ -39,7 +43,7 @@ export function salesProductInputFromCandidate(
   // 상품 등록 초안에서 받은 사방넷 칸이 있으면 그것이 이긴다(사람이 적은 값이다).
   const basics = detail.basicInfo;
   return {
-    name: draft.displayName.trim().slice(0, 255),
+    name: (confirmed?.name ?? draft.displayName).trim().slice(0, 255),
     ownCode: basics.ownCode?.trim() || null,
     modelName: basics.modelName?.trim() || null,
     brand: basics.brand?.trim() || draft.brand,
@@ -47,9 +51,6 @@ export function salesProductInputFromCandidate(
     originCountry: basics.originCountry?.trim() || (draft.notice.fields.제조국 ?? null),
     keywords: keywords.slice(0, MAX_KEYWORDS),
     taxType: basics.taxType === 'tax_free' ? 'tax_free' : 'taxable',
-    costPrice: basics.costPrice && basics.costPrice > 0 ? basics.costPrice : null,
-    salePrice,
-    tagPrice: listPrice > salePrice ? listPrice : null,
     imageUrls: [...new Set([draft.representativeImageUrl, ...draft.additionalImageUrls].filter(Boolean))].slice(0, MAX_IMAGES),
     detailHtml: draft.detailImageUrls.length > 0
       ? draft.detailImageUrls.map((url) => `<center><img src="${url}"></center>`).join('\n')
@@ -64,7 +65,11 @@ export function salesProductInputFromCandidate(
       : [],
     deliveryFee: basics.deliveryFee && basics.deliveryFee > 0 ? basics.deliveryFee : null,
     deliveryFeeType: deliveryFeeTypeOf(basics.deliveryFeeType),
-    ...optionsFromCandidate(basics.optionNames),
+    ...optionsFromCandidate(
+      basics.optionNames,
+      confirmed?.salePrice ?? salePrice,
+      listPrice > (confirmed?.salePrice ?? salePrice) ? listPrice : null,
+    ),
   };
 }
 
@@ -74,23 +79,23 @@ export function salesProductInputFromCandidate(
  * 종류가 없으면 옵션 없는 상품(값 없는 단품 하나)이다. 있으면 `종류` 한 단으로 두고 종류마다 단품을 만든다 —
  * 단품코드는 서버가 판매상품코드로 붙이고, 추가금액은 0으로 시작한다(몰마다 다른 값은 판매상품 편집에서 고친다).
  */
-function optionsFromCandidate(optionNames: readonly string[] | undefined): Pick<SalesProductCreateInput, 'optionAxes' | 'options'> {
+function optionsFromCandidate(
+  optionNames: readonly string[] | undefined,
+  salePrice: number,
+  normalPrice: number | null,
+): Pick<SalesProductCreateInput, 'optionAxes' | 'options'> {
   const values = [...new Set((optionNames ?? []).map((name) => name.trim()).filter(Boolean))].slice(0, MAX_OPTION_VALUES);
-  if (values.length === 0) return { optionAxes: [], options: [{ values: [] }] };
-  return { optionAxes: [CANDIDATE_OPTION_AXIS], options: values.map((value) => ({ values: [value] })) };
+  if (values.length === 0) return { optionAxes: [], options: [{ values: [], salePrice, normalPrice }] };
+  return {
+    optionAxes: [CANDIDATE_OPTION_AXIS],
+    options: values.map((value) => ({ values: [value], salePrice, normalPrice })),
+  };
 }
 
 function deliveryFeeTypeOf(value: string | undefined): SalesProductCreateInput['deliveryFeeType'] {
   const types = ['free', 'prepay', 'collect', 'collect_or_prepay'] as const;
   const found = types.find((type) => type === value?.trim());
   return found ?? null;
-}
-
-/** 판매상품으로 만들 수 없는 까닭. 만든 뒤에는 수집상품을 고쳐도 판매상품에 옮겨 가지 않으니 먼저 막는다. */
-export function candidateSalesProductGap(input: Pick<SalesProductCreateInput, 'name' | 'salePrice'>): string | null {
-  if (!input.name.trim()) return '상품명이 비어 있습니다.';
-  if (input.salePrice <= 0) return '판매가가 비어 있습니다(0원). 수집상품 상세에서 판매가를 넣어 주세요.';
-  return null;
 }
 
 export interface CandidateSalesProductDeps {

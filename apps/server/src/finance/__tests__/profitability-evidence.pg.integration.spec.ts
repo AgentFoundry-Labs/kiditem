@@ -10,8 +10,10 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { MasterProductProfitabilityReadService } from '../application/service/master-product-profitability-read.service';
-import { ProductOperationsDataStatusService } from '../../products/application/service/product-operations-data-status.service';
-import { ProductOperationsDataStatusRepositoryAdapter } from '../../products/adapter/out/repository/product-operations-data-status.repository.adapter';
+import { ProductDataStatusUseCase } from '../../products/application/usecase/product-data-status.usecase';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../../products/adapter/out/persistence/product-operations-data-status.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 
 describe('ProfitabilityEvidence (PostgreSQL)', () => {
@@ -33,7 +35,7 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
 
   it('shows the same missing compatible cutoff in Products as in ABC evidence after mapping changes', async () => {
     const alerts = new SourceFailureAlerts(prisma as never);
-    const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts);
+    const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts, new ProductTransactionalReadRepositoryAdapter());
     const advertising = new ProfitabilityAdImportRepositoryAdapter(prisma as never, alerts);
     await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
     const published = await publishSellpia(sellpia, TEST_ORGANIZATION_ID, 'OWN', 2_000);
@@ -43,9 +45,9 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       create: { organizationId: TEST_ORGANIZATION_ID, mappingGeneration: 1n },
       update: { mappingGeneration: 1n },
     });
-    const evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never);
-    const products = new ProductOperationsDataStatusService(
-      new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence),
+    const evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never, new ProductTransactionalReadRepositoryAdapter());
+    const products = new ProductDataStatusUseCase(
+      new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence, new ProductTransactionalReadRepositoryAdapter()),
     );
 
     const targetCutoff = published.plan.to;
@@ -67,7 +69,7 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
     const sellpia = new SellpiaProfitabilitySourceService(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
-    );
+      new ProductTransactionalReadRepositoryAdapter());
     const advertising = new ProfitabilityAdImportRepositoryAdapter(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
@@ -85,7 +87,7 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       sellpia,
       advertising,
       prisma as never,
-    );
+      new ProductTransactionalReadRepositoryAdapter());
     const targetCutoff = ownSellpia.plan.to;
     const formulaMonths = calendarMonthRange(targetCutoff, 12);
     const result = await service.load({
@@ -146,21 +148,12 @@ async function seedMappedProduct(
   organizationId: string,
   suffix: string,
 ): Promise<string> {
-  const product = await prisma.masterProduct.create({
-    data: {
-      organizationId,
-      code: `MASTER-${suffix}`,
-      name: `${suffix} product`,
-    },
-  });
-  await prisma.sellpiaInventorySku.create({
-    data: {
-      organizationId,
-      masterProductId: product.id,
-      code: `SKU-${suffix}`,
-      name: `${suffix} SKU`,
-      currentStock: 1,
-    },
+  const product = await seedSourceProduct(prisma, {
+    organizationId,
+    code: `SKU-${suffix}`,
+    name: `${suffix} product`,
+    currentStock: 1,
+    purchasePrice: 600,
   });
   const account = await prisma.channelAccount.create({
     data: {
@@ -178,7 +171,6 @@ async function seedMappedProduct(
     data: {
       organizationId,
       channelAccountId: account.id,
-      masterProductId: product.id,
       externalId: `listing-${suffix.toLowerCase()}`,
       status: 'active',
       rawJson: { source: 'wing_app_data', saleStartedAt: '2026-05-01' },
@@ -196,10 +188,7 @@ async function seedMappedProduct(
     data: {
       organizationId,
       channelListingOptionId: option.id,
-      sellpiaInventorySkuId: (await prisma.sellpiaInventorySku.findFirstOrThrow({
-        where: { organizationId, masterProductId: product.id },
-        select: { id: true },
-      })).id,
+      masterProductId: product.id,
       quantity: 1,
     },
   });

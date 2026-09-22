@@ -1,4 +1,7 @@
+import type { ProductPreparationRow } from '../../../../../channels/application/port/in/candidate-registration.port';
+export type { ProductPreparationRow } from '../../../../../channels/application/port/in/candidate-registration.port';
 import type { SourcingRepositoryTransaction } from '../transaction/repository-transaction';
+import type { CandidateRegistrationState } from '../../../../../channels/read/registration-execution.reader';
 
 export const SOURCING_CANDIDATE_REPOSITORY_PORT = Symbol('SOURCING_CANDIDATE_REPOSITORY_PORT');
 
@@ -51,24 +54,7 @@ export interface CandidateImageRow {
   isDeleted: boolean;
 }
 
-export interface ProductPreparationRow {
-  id: string;
-  sourceCandidateId: string;
-  channelAccountId: string;
-  sourceContentWorkspaceId: string;
-  channelListingId: string | null;
-  displayName: string;
-  status: string;
-  selectedThumbnailUrl: string | null;
-  selectedThumbnailGenerationId: string | null;
-  selectedThumbnailGenerationCandidateId: string | null;
-  selectedDetailPageArtifactId: string | null;
-  selectedDetailPageRevisionId: string | null;
-  selectedDetailPageGenerationId: string | null;
-  registrationInput: JsonValue;
-  createdAt: Date;
-  updatedAt: Date;
-}
+
 
 export interface UpsertCandidateInput {
   organizationId: string;
@@ -151,6 +137,7 @@ export interface SourcingCandidateRepositoryPort {
     images: CandidateImageRow[];
     productPreparation: ProductPreparationRow | null;
     productPreparations: ProductPreparationRow[];
+    registrationState: CandidateRegistrationState;
   }) | null>;
   listSourced(query: {
     organizationId: string;
@@ -164,6 +151,7 @@ export interface SourcingCandidateRepositoryPort {
       images: CandidateImageRow[];
       productPreparation: ProductPreparationRow | null;
       productPreparations: ProductPreparationRow[];
+      registrationState: CandidateRegistrationState;
     }>;
     total: number;
   }>;

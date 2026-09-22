@@ -598,7 +598,7 @@ test('지금 재고 읽기는 한 번에 50개까지 읽는다 — 등록현황 
  * PUT /api/tstore/products/grid/columns 에 [{name, salePrice, storeManagementCode, stockQuantity, productId, displayStatus}].
  * 지금 값을 목록 API 로 읽어 그대로 싣고 재고만 바꾼다. 옵션이 있는 상품은 이 칸으로 못 고친다.
  */
-function kakaoMall({ products = {}, tabUrl = 'https://shopping-seller.kakao.com/product/store-seller/list', openTabs = [], gridStatus = 200 } = {}) {
+function kakaoMall({ products = {}, tabUrl = 'https://shopping-seller.kakao.com/product/store-seller/list', openTabs = [], gridStatus = 200, omitTabGet = false } = {}) {
   const state = new Map(Object.entries(products).map(([id, product]) => [id, {
     id, name: `상품 ${id}`, salePrice: 2220, storeManagementCode: '', stockQuantity: 999,
     optionSetting: '미설정', displayStatusType: 'OPEN', ...product,
@@ -608,7 +608,7 @@ function kakaoMall({ products = {}, tabUrl = 'https://shopping-seller.kakao.com/
     tabs: {
       query: async () => openTabs,
       create: async ({ url, active }) => { log.tabs.push(url); log.active.push(active); return { id: 11 }; },
-      get: async () => ({ id: 11, url: tabUrl }),
+      ...(omitTabGet ? {} : { get: async () => ({ id: 11, url: tabUrl }) }),
       remove: async (id) => { log.removed.push(id); },
       onUpdated: { addListener: (listener) => setTimeout(() => listener(11, { status: 'complete' }, {}), 0), removeListener: () => {} },
     },
@@ -716,8 +716,8 @@ test('⭐ 카카오 가격은 [선택 수정]과 같은 모양으로 판매가�
   assert.equal(result.confirmed, 2);
   assert.equal(result.failed, 2, '옵션 상품 1 + 모양이 틀린 번호 1');
   assert.deepEqual(plain(result.results), [
-    { code: '779522307', before: 2220, after: 2500, confirmed: true },
-    { code: '700000001', before: 1500, after: 1500, confirmed: true },
+    { code: '779522307', before: 2220, after: 2500, confirmed: true, observedUrl: 'https://shopping-seller.kakao.com/product/store-seller/list' },
+    { code: '700000001', before: 1500, after: 1500, confirmed: true, observedUrl: 'https://shopping-seller.kakao.com/product/store-seller/list' },
   ]);
   assert.ok(result.warnings.some((warning) => warning.includes('옵션이 있는 상품 1개')), result.warnings.join(' / '));
   assert.deepEqual(log.removed, [11], '연 탭은 닫는다');
@@ -744,6 +744,48 @@ test('카카오 가격 — 화면이 본 몰 가격(ifPrice)과 지금 몰 가�
   assert.deepEqual(log.puts.map((edits) => edits.map((edit) => [edit.productId, edit.salePrice])), [[['2', 950]]]);
   assert.equal(result.failed, 1);
   assert.ok(result.warnings.some((warning) => warning.includes('990원으로 바뀌어')), result.warnings.join(' / '));
+});
+
+test('가격 재조회에 tabs.get이 없으면 외부 URL을 만들어 결과에 싣지 않는다', async () => {
+  const kakao = kakaoMall({ products: { 1: { salePrice: 990 } }, omitTabGet: true });
+  const kakaoResult = await kakao.api.sendPrice({ mallKey: 'kakao', items: [{ code: '1', price: 1000 }] });
+  assert.deepEqual(plain(kakaoResult.results), [{ code: '1', before: 990, after: 1000, confirmed: true }]);
+
+  const foreign = kakaoMall({
+    products: { 2: { salePrice: 990 } },
+    openTabs: [{ id: 5, status: 'complete', url: 'https://shopping-seller.kakao.com/product/store-seller/list' }],
+    tabUrl: 'https://example.test/foreign-price',
+  });
+  const foreignResult = await foreign.api.sendPrice({ mallKey: 'kakao', items: [{ code: '2', price: 1000 }] });
+  assert.deepEqual(plain(foreignResult.results), [{ code: '2', before: 990, after: 1000, confirmed: true }]);
+
+  const kidsnote = kidsnoteMall({ products: { 1: { stat: '정상', price: 990 } }, omitTabGet: true });
+  const kidsnoteResult = await kidsnote.api.sendPrice({ mallKey: 'kidsnote', items: [{ code: '1', price: 1000 }] });
+  assert.deepEqual(plain(kidsnoteResult.results), [{ code: '1', before: 990, after: 1000, confirmed: true }]);
+});
+
+test('가격 전송 시도 여부는 사전 조건 실패와 실제 요청 실패를 구분한다', async () => {
+  const kakaoPrecondition = kakaoMall({ products: { 1: { salePrice: 990 } } });
+  const kakaoSkipped = await kakaoPrecondition.api.sendPrice({
+    mallKey: 'kakao', items: [{ code: '1', price: 1000, ifPrice: 950 }],
+  });
+  assert.equal(kakaoSkipped.submissionAttempted, false);
+  assert.equal(kakaoPrecondition.log.puts.length, 0);
+
+  const kakaoFailure = kakaoMall({ products: { 1: { salePrice: 990 } }, gridStatus: 500 });
+  const kakaoRejected = await kakaoFailure.api.sendPrice({ mallKey: 'kakao', items: [{ code: '1', price: 1000 }] });
+  assert.equal(kakaoRejected.submissionAttempted, true);
+
+  const kidsnotePrecondition = kidsnoteMall({ products: { 1: { stat: '정상', price: 990 } } });
+  const kidsnoteSkipped = await kidsnotePrecondition.api.sendPrice({
+    mallKey: 'kidsnote', items: [{ code: '1', price: 1000, ifPrice: 950 }],
+  });
+  assert.equal(kidsnoteSkipped.submissionAttempted, false);
+  assert.equal(kidsnotePrecondition.log.saves.length, 0);
+
+  const kidsnoteFailure = kidsnoteMall({ products: { 1: { stat: '정상', price: 990 } }, saveStatus: 500 });
+  const kidsnoteRejected = await kidsnoteFailure.api.sendPrice({ mallKey: 'kidsnote', items: [{ code: '1', price: 1000 }] });
+  assert.equal(kidsnoteRejected.submissionAttempted, true);
 });
 
 test('가격을 보낼 수 있는 몰은 카카오 톡스토어 · 키즈노트다(지금)', () => {
@@ -1743,7 +1785,7 @@ function kidsnoteListHtml(rows, allPnos) {
     </form></body></html>`;
 }
 
-function kidsnoteMall({ products = {}, loggedOut = false, lagReads = 0, saveStatus = 200 } = {}) {
+function kidsnoteMall({ products = {}, loggedOut = false, lagReads = 0, saveStatus = 200, omitTabGet = false } = {}) {
   // 목록 순서 = 넣은 순서. 상태 글자는 화면 그대로(정상 · 품절 · 숨김).
   const state = new Map(Object.entries(products).map(([pno, value]) => [pno, typeof value === 'string'
     ? { stat: value, price: 1950, previous: null }
@@ -1797,7 +1839,7 @@ function kidsnoteMall({ products = {}, loggedOut = false, lagReads = 0, saveStat
     tabs: {
       query: async () => [],
       create: async ({ url, active }) => { log.tabs.push([url, active]); return { id: 71 }; },
-      get: async () => ({ id: 71, url: `${KIDSNOTE}/_manage/?body=2010` }),
+      ...(omitTabGet ? {} : { get: async () => ({ id: 71, url: `${KIDSNOTE}/_manage/?body=2010` }) }),
       remove: async (id) => { log.removed.push(id); },
       onUpdated: { addListener: (listener) => setTimeout(() => listener(71, { status: 'complete' }, {}), 0), removeListener: () => {} },
     },
@@ -2730,10 +2772,9 @@ test('⭐ 키즈노트 가격은 가격 일괄수정(균일가 · 선택한 상�
   assert.equal(result.confirmed, 2);
   assert.equal(result.failed, 2, '가격이 바뀐 1 + 목록에 없는 1');
   assert.deepEqual(plain(result.results), [
-    { code: '155982', before: 1950, after: 2000, confirmed: true },
-    { code: '187336', before: 700, after: 2000, confirmed: true },
+    { code: '155982', before: 1950, after: 2000, confirmed: true, observedUrl: 'https://shop.kidsnote.com/_manage/?body=2010' },
+    { code: '187336', before: 700, after: 2000, confirmed: true, observedUrl: 'https://shop.kidsnote.com/_manage/?body=2010' },
   ]);
   assert.ok(result.warnings[0].includes('본사 승인 전까지'), result.warnings.join(' / '));
   assert.ok(result.warnings.some((warning) => warning.includes('1,200원으로 바뀌어')), result.warnings.join(' / '));
 });
-

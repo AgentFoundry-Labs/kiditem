@@ -1,11 +1,16 @@
+import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
 // `AdAction` aggregate adapter: query + persistence + dedup + transaction-
 // wrapped lifecycle writes. The adapter owns `$transaction` for approve /
 // reject / execution reports so the application service stays Prisma-free.
 // Execution words are read from each action's latest ExecutionTask through
 // `read/ad-action-execution.ts`; this adapter writes them only to that task.
 
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, Optional, Inject } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
+import {
+  AD_ACTION_COMMAND_MAX_IDS,
+  AdKeywordPauseProposalSchema,
+} from '@kiditem/shared/advertising';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   readAdTargetRowEvidence,
@@ -22,13 +27,21 @@ import {
   type LatestExecutionTaskColumns,
 } from '../../../read/ad-action-execution';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
-import { readPublishedProductAbcGrades } from '../../../../products/read/product-abc-publication.reader';
+import { readPublishedProductAbcGrades } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
 import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber';
 import {
   EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
+  EXECUTION_REPORT_MANUAL_ACTION,
   isExpiredRunningExecutionTask,
+  isManualAdActionType,
   isOpenExecutionTask,
+  MANUAL_AD_ACTION_MESSAGE,
+  MANUAL_AD_ACTION_TYPES,
   resolveExecutionReport,
   type ExecutionReportDecision,
 } from '../../../domain/execution-task-lifecycle';
@@ -38,9 +51,10 @@ import type {
   AdActionQuery,
   AdActionRecord,
   AdActionRepositoryPort,
+  AdActionReviewOptions,
   AdActionReviewResult,
   ExistingAdActionDedupRow,
-  OpenKeywordRelevanceActionRow,
+  KeywordPauseProposalRow,
   HydratedAdAction,
   LatestTargetRow,
 } from '../../../application/port/out/repository/ad-action.repository.port';
@@ -52,6 +66,60 @@ const OPEN_ACTION_EXECUTE_STATUSES = ['queued', 'running'] as const;
 const OPEN_ACTION_APPROVAL_STATUS_VALUES = Prisma.join(
   OPEN_ACTION_APPROVAL_STATUSES.map((status) => Prisma.sql`${status}`),
 );
+const MANUAL_AD_ACTION_TYPE_VALUES = Prisma.join(
+  MANUAL_AD_ACTION_TYPES.map((actionType) => Prisma.sql`${actionType}`),
+);
+
+/**
+ * An `ad_actions action` row still open as work, which a new proposal for the
+ * same target must not duplicate: awaiting review, or approved with its latest
+ * attempt queued or running within its deadline. An approved manual action
+ * (`MANUAL_AD_ACTION_TYPES`, KID-138 decision A) is applied by hand in the ad
+ * center, so it also stays open while its attempt reads failed, until the
+ * operator closes it by rejecting it; a done attempt from before decision A,
+ * or a rejection, releases it. No failure message is compared, and a task
+ * status outside the lifecycle, which no read offers for review, keeps nothing
+ * open. Requires `LATEST_EXECUTION_TASK_JOIN`.
+ */
+function openActionCondition(now: Date): Prisma.Sql {
+  return Prisma.sql`(
+    action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
+    AND (
+      ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, now)}
+      OR (
+        action.action_type IN (${MANUAL_AD_ACTION_TYPE_VALUES})
+        AND ${derivedExecuteStatusIn(['failed'], now)}
+      )
+    )
+  )`;
+}
+
+/**
+ * Each keyword's newest `pause_keyword` proposal, whatever its review: one row
+ * per advertised option (`external_id`) and keyword text (`target_label`).
+ * The keyword read shows it and the pause dedupe tests it, so the proposal an
+ * operator sees is the only one that can block a new proposal for the keyword.
+ * Rejecting it is the last word on the keyword: an older proposal neither shows
+ * nor blocks. Use it as a CTE aliased `action`, with its own organization
+ * predicate at each use.
+ */
+function latestPauseKeywordProposals(organizationId: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT DISTINCT ON (proposal.external_id, proposal.target_label)
+      proposal.id,
+      proposal.organization_id,
+      proposal.action_type,
+      proposal.external_id,
+      proposal.target_label,
+      proposal.reason,
+      proposal.approval_status
+    FROM ad_actions proposal
+    WHERE proposal.organization_id = ${organizationId}::uuid
+      AND proposal.action_type = 'pause_keyword'
+      AND proposal.target_type = 'keyword'
+    ORDER BY proposal.external_id, proposal.target_label,
+      proposal.created_at DESC, proposal.id DESC`;
+}
 
 /** Every AdAction column except the execution words its latest task supplies. */
 const AD_ACTION_ROW_SELECT = {
@@ -92,13 +160,17 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     // The adapter depends on a sibling adapter here, which is allowed for
     // intra-domain composition; ports/services never see this.
     private readonly listingAdapter: AdListingRepositoryAdapter,
+    @Optional()
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products?: ProductTransactionalReadPort,
   ) {}
 
   async findAdActionsForReview(
     query: AdActionQuery,
     organizationId: string,
   ): Promise<AdActionReviewResult> {
-    const limit = Math.min(query.limit || 50, 200);
+    // A page holds at most as many actions as one approve or reject command names.
+    const limit = Math.min(query.limit || 50, AD_ACTION_COMMAND_MAX_IDS);
     // One instant for the execution deadline across the page, its filters and its counts.
     const now = new Date();
 
@@ -248,7 +320,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           Prisma.sql`
         WITH scoped_listings AS (
           -- Active listings of the organization's active Coupang accounts.
-          SELECT cl.id, cl.channel_account_id, cl.master_product_id, cl.display_name,
+          SELECT cl.id, cl.channel_account_id, cl.display_name,
             cl.channel_name, cl.external_id, account.channel AS account_channel
           FROM channel_listings cl
           JOIN channel_accounts account
@@ -287,14 +359,13 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.impressions,
           latest.clicks,
           latest.conversions,
-          mp.id                        AS "masterProductId",
+          NULL::uuid                  AS "masterProductId",
           cl.account_channel           AS "listingChannel",
           -- Keyword rows frequently have no listing match (7,432 of 9,266 in
           -- the live account), but the advertised item name is always stamped
           -- by ingest. Relevance cannot be judged without a product name, so
           -- fall back to it after the catalog-derived names.
           COALESCE(
-            mp.name,
             cl.display_name,
             cl.channel_name,
             cl.external_id,
@@ -310,19 +381,31 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
               AND clo.organization_id = ${organizationId}::uuid
               AND clo.listing_id = cl.id
               AND clo.is_active = true
-        LEFT JOIN master_products mp
-              ON mp.id = cl.master_product_id
-              AND mp.organization_id = ${organizationId}::uuid
-              AND mp.is_active = true
       `,
         );
+        const summaries = await readListingProductIds(tx, { organizationId, listingIds: targets.flatMap((target) => target.listingId ? [target.listingId] : []) });
+        for (const target of targets) target.masterProductId = target.listingId ? summaries.get(target.listingId) ?? null : null;
+        const masterProductIds = [...new Set(targets.flatMap((target) =>
+          target.masterProductId ? [target.masterProductId] : []))];
+        const identities = this.products
+          ? await this.products.readSourceIdentities(
+            { client: tx },
+            { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+          )
+          : [];
+        const identityById = new Map(identities.map((identity) => [
+          identity.masterProductId,
+          identity,
+        ]));
         const gradeByProductId = await readPublishedProductAbcGrades(tx, {
           organizationId,
-          masterProductIds: targets.flatMap((target) =>
-            target.masterProductId ? [target.masterProductId] : []),
+          masterProductIds,
         });
         return targets.map(({ masterProductId, ...target }) => ({
           ...target,
+          productName: masterProductId
+            ? identityById.get(masterProductId)?.name ?? target.productName
+            : target.productName,
           abcGrade: masterProductId
             ? gradeByProductId.get(masterProductId) ?? null
             : null,
@@ -347,27 +430,57 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       ${LATEST_EXECUTION_TASK_JOIN}
       WHERE action.organization_id = ${organizationId}::uuid
         AND action.created_at >= ${sinceCreatedAt}::timestamptz
-        AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, new Date())}
+        AND ${openActionCondition(new Date())}
     `);
   }
 
-  async findOpenKeywordRelevanceActions(
+  async findKeywordPauseProposals(
     organizationId: string,
-  ): Promise<OpenKeywordRelevanceActionRow[]> {
-    return this.prisma.$queryRaw<OpenKeywordRelevanceActionRow[]>(Prisma.sql`
+  ): Promise<KeywordPauseProposalRow[]> {
+    // One instant for the execution deadline across every proposal.
+    const now = new Date();
+    const rows = await this.prisma.$queryRaw<Array<{
+      actionId: string;
+      externalId: string | null;
+      targetLabel: string;
+      reason: string;
+      approvalStatus: string;
+    } & LatestExecutionTaskColumns>>(Prisma.sql`
+      WITH latest_proposal AS (${latestPauseKeywordProposals(organizationId)})
+      -- Attempts are joined only for the newest proposals still in review.
       SELECT
-        action.target_label AS "targetLabel",
+        action.id AS "actionId",
         action.external_id AS "externalId",
-        action.reason
-      FROM ad_actions action
+        action.target_label AS "targetLabel",
+        action.reason,
+        action.approval_status AS "approvalStatus",
+        ${LATEST_EXECUTION_TASK_COLUMNS}
+      FROM latest_proposal action
       ${LATEST_EXECUTION_TASK_JOIN}
       WHERE action.organization_id = ${organizationId}::uuid
-        AND action.action_type = 'pause_keyword'
         AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-        AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, new Date())}
-      ORDER BY action.created_at DESC, action.id DESC
     `);
+    return rows.flatMap((row) => {
+      const execution = deriveAdActionExecution(latestExecutionTaskOf(row), now);
+      const approvalStatus = AdKeywordPauseProposalSchema.shape.approvalStatus.safeParse(
+        row.approvalStatus,
+      );
+      const executeStatus = AdKeywordPauseProposalSchema.shape.executeStatus.safeParse(
+        execution.executeStatus,
+      );
+      // A task status outside the lifecycle reads as itself; such a proposal is
+      // not offered for review.
+      if (!approvalStatus.success || !executeStatus.success) return [];
+      return [{
+        actionId: row.actionId,
+        externalId: row.externalId,
+        targetLabel: row.targetLabel,
+        reason: row.reason,
+        approvalStatus: approvalStatus.data,
+        executeStatus: executeStatus.data,
+        errorMessage: execution.errorMessage,
+      }];
+    });
   }
 
   async createAdActionsFromCandidates(
@@ -384,6 +497,9 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       if (pauseKeywordCandidates.length > 0) {
         // Prevent two concurrent strategy runs from both seeing "no open action"
         // and inserting duplicate pause_keyword proposals for the same tenant.
+        // Only a keyword's newest proposal, the one the keyword read shows, can
+        // block it, and an approved pause stays open until the operator closes
+        // it (`openActionCondition`), so a confirmed keyword is not proposed again.
         await tx.$queryRaw(
           Prisma.sql`
             SELECT pg_advisory_xact_lock(
@@ -396,14 +512,12 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         const openActions = await tx.$queryRaw<
           Array<{ externalId: string | null; targetLabel: string }>
         >(Prisma.sql`
+          WITH latest_proposal AS (${latestPauseKeywordProposals(organizationId)})
           SELECT action.external_id AS "externalId", action.target_label AS "targetLabel"
-          FROM ad_actions action
+          FROM latest_proposal action
           ${LATEST_EXECUTION_TASK_JOIN}
           WHERE action.organization_id = ${organizationId}::uuid
-            AND action.action_type = 'pause_keyword'
-            AND action.target_type = 'keyword'
-            AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
-            AND ${derivedExecuteStatusIn(OPEN_ACTION_EXECUTE_STATUSES, now)}
+            AND ${openActionCondition(now)}
             AND (${Prisma.join(
               pauseKeywordCandidates.map((candidate) => Prisma.sql`(
                 action.external_id IS NOT DISTINCT FROM ${candidate.externalId}::text
@@ -457,31 +571,35 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   async approveAdActions(
     ids: string[],
     organizationId: string,
-  ): Promise<void> {
-    if (ids.length === 0) return;
-    await this.prisma.$transaction(async (tx) => {
-      // The row locks this update takes serialize concurrent approvals of the
-      // same actions, so each reads the attempt the other committed.
+    options: AdActionReviewOptions = {},
+  ): Promise<number> {
+    if (ids.length === 0) return 0;
+    return this.prisma.$transaction(async (tx) => {
+      const scopedActions = await lockReviewableActions(tx, {
+        ids,
+        organizationId,
+        expectedApprovalStatus: options.expectedApprovalStatus,
+      });
+      const scopedIds = scopedActions.map((a) => a.id);
+      if (scopedIds.length === 0) return 0;
       await tx.adAction.updateMany({
-        where: { id: { in: ids }, organizationId },
+        where: { id: { in: scopedIds }, organizationId },
         data: {
           approvalStatus: 'approved',
           approvedAt: new Date(),
         },
       });
 
-      const scopedActions = await tx.adAction.findMany({
-        where: { id: { in: ids }, organizationId },
-        select: { id: true },
-      });
-      const scopedIds = scopedActions.map((a) => a.id);
-      if (scopedIds.length === 0) return;
-
-      // Approval queues a new attempt unless the latest one is still open. A
-      // failed or done attempt stays as evidence and the new queued task
-      // becomes the latest, so a failed action reads queued again. A running
-      // attempt past its execution deadline is closed as failed first: its
-      // executor stopped, and the extension never writes to Coupang that late.
+      // Approval adds a new attempt unless the latest one is still open. A
+      // failed or done attempt stays as evidence and the new task becomes the
+      // latest. A running attempt past its execution deadline is closed as
+      // failed first: its executor stopped, and the extension never writes to
+      // Coupang that late.
+      // The new attempt is queued for the browser extension, so a failed
+      // action reads queued again, except for a manual action
+      // (KID-138 decision A): the operator applies it in the ad center, so its
+      // attempt is recorded failed with the message saying so and never enters
+      // the executor queue.
       const now = new Date();
       const latestTasks = await readLatestExecutionTasks(tx, {
         organizationId,
@@ -503,47 +621,93 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           data: expiredAttemptClosure(now),
         });
       }
-      const toCreate = scopedIds
-        .filter((id) => !isOpenExecutionTask(latestTasks.get(id) ?? null, now))
-        .map((id) => ({ actionId: id, status: 'queued' }));
+      const toCreate: Prisma.ExecutionTaskCreateManyInput[] = scopedActions
+        .filter(({ id }) => !isOpenExecutionTask(latestTasks.get(id) ?? null, now))
+        .map(({ id, actionType }) =>
+          isManualAdActionType(actionType)
+            ? { actionId: id, ...manualAttemptClosure(now) }
+            : { actionId: id, status: 'queued' },
+        );
 
       if (toCreate.length > 0) {
         await tx.executionTask.createMany({ data: toCreate });
       }
+      return scopedIds.length;
     });
   }
 
   async rejectAdActions(
     ids: string[],
     organizationId: string,
-  ): Promise<void> {
-    if (ids.length === 0) return;
-    await this.prisma.$transaction(async (tx) => {
+    options: AdActionReviewOptions = {},
+  ): Promise<number> {
+    if (ids.length === 0) return 0;
+    return this.prisma.$transaction(async (tx) => {
+      const scopedActions = await lockReviewableActions(tx, {
+        ids,
+        organizationId,
+        expectedApprovalStatus: options.expectedApprovalStatus,
+      });
+      const scopedIds = scopedActions.map((a) => a.id);
+      if (scopedIds.length === 0) return 0;
       await tx.adAction.updateMany({
-        where: { id: { in: ids }, organizationId },
+        where: { id: { in: scopedIds }, organizationId },
         data: { approvalStatus: 'rejected' },
       });
 
-      const scopedActions = await tx.adAction.findMany({
-        where: { id: { in: ids }, organizationId },
-        select: { id: true },
+      // An attempt running within its deadline may already be writing to
+      // Coupang, and a done attempt already changed it, so either refuses the
+      // rejection and this transaction rolls back. An attempt the extension has
+      // not started is cancelled; a failed or expired attempt stays as it is and
+      // only the approval changes.
+      const now = new Date();
+      const latestTasks = await readLatestExecutionTasks(tx, {
+        organizationId,
+        actionIds: scopedIds,
       });
-      const scopedIds = scopedActions.map((a) => a.id);
-      if (scopedIds.length === 0) return;
-
-      // An attempt the extension has not started is cancelled; one already
-      // running keeps reporting the outcome that happened on Coupang.
-      await tx.executionTask.updateMany({
-        where: {
-          actionId: { in: scopedIds },
-          status: 'queued',
-        },
-        data: {
-          status: 'cancelled',
-          finishedAt: new Date(),
-          errorMessage: '사용자 보류 처리',
-        },
-      });
+      const queuedAttemptIds: string[] = [];
+      const queuedActionIds: string[] = [];
+      for (const [actionId, latest] of latestTasks) {
+        const conflict = rejectionConflict(latest, now);
+        if (conflict) throw conflict;
+        if (latest?.status === 'queued') {
+          queuedAttemptIds.push(latest.id);
+          queuedActionIds.push(actionId);
+        }
+      }
+      if (queuedAttemptIds.length > 0) {
+        // Only an action's latest attempt can be queued. Compare-and-set on the
+        // queued status just read: an executor's report can move a queued
+        // attempt meanwhile, since reports take no lock on the action.
+        const cancelled = await tx.executionTask.updateMany({
+          where: {
+            id: { in: queuedAttemptIds },
+            actionId: { in: scopedIds },
+            status: 'queued',
+          },
+          data: {
+            status: 'cancelled',
+            finishedAt: now,
+            errorMessage: '사용자 보류 처리',
+          },
+        });
+        if (cancelled.count !== queuedAttemptIds.length) {
+          // Decide again on what those reports left: a claim that committed
+          // first leaves its attempt running, and a done report leaves it done,
+          // either of which refuses the rejection. An attempt closed as failed
+          // (a refused claim for a manual action, a failure report) needs
+          // nothing more, and only the approval changes.
+          const current = await readLatestExecutionTasks(tx, {
+            organizationId,
+            actionIds: queuedActionIds,
+          });
+          for (const latest of current.values()) {
+            const conflict = rejectionConflict(latest, now);
+            if (conflict) throw conflict;
+          }
+        }
+      }
+      return scopedIds.length;
     });
   }
 
@@ -561,6 +725,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       WHERE action.organization_id = ${organizationId}::uuid
         AND action.action_type = 'create_campaign'
         AND action.target_label = ${campaignName}
+        -- A rejected registration is not in progress (KID-138), whatever its cancelled task reads.
+        AND action.approval_status IN (${OPEN_ACTION_APPROVAL_STATUS_VALUES})
         AND ${derivedExecuteStatusIn(['queued', 'running', 'done'], now)}
       ORDER BY action.created_at DESC, action.id DESC
       LIMIT 1
@@ -607,7 +773,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       const now = new Date();
       const action = await tx.adAction.findFirst({
         where: { id, organizationId },
-        select: { id: true },
+        select: { id: true, actionType: true },
       });
       if (!action) throw new NotFoundException('AdAction not found');
 
@@ -619,7 +785,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       // A report moves only the attempt it names, and only while that attempt
       // is the action's latest: an older attempt's late report never moves a
       // retry queued or running after it.
-      const decision = resolveExecutionReport(latest, report, now);
+      const decision = resolveExecutionReport(action.actionType, latest, report, now);
       if (decision === 'replay') return null;
       if (decision === 'expired' && latest) {
         // The executor reports after its attempt's deadline. The attempt is
@@ -628,6 +794,21 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           where: { id: latest.id, actionId: action.id, status: 'running' },
           data: expiredAttemptClosure(now),
         });
+        return executionReportConflict(decision, latest, report);
+      }
+      if (decision === 'manual_action' && latest) {
+        // An executor may not start a manual action (KID-138 decision A). A
+        // queued attempt is closed here so it leaves the executor queue, and the
+        // report is refused once that commits. A database cut over before
+        // migration 015 (KID-230) existed still holds such attempts from
+        // approvals before decision A. Compare-and-set on queued: an attempt
+        // that already runs is left to its deadline.
+        if (latest.status === 'queued') {
+          await tx.executionTask.updateMany({
+            where: { id: latest.id, actionId: action.id, status: 'queued' },
+            data: manualAttemptClosure(now),
+          });
+        }
         return executionReportConflict(decision, latest, report);
       }
       if (decision !== 'apply' || !latest) {
@@ -723,10 +904,48 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
 
 // 409 codes of a refused execution report, so the executor and an operator can
 // tell a report for a replaced attempt, one for an attempt past its deadline,
-// and one the attempt cannot take apart.
+// one for an action applied by hand (`EXECUTION_REPORT_MANUAL_ACTION`, which
+// the lifecycle policy publishes for the extension), and one the attempt
+// cannot take apart.
 const EXECUTION_TASK_NOT_LATEST = 'EXECUTION_TASK_NOT_LATEST';
 const EXECUTION_TASK_EXPIRED = 'EXECUTION_TASK_EXPIRED';
 const EXECUTION_REPORT_INVALID_TRANSITION = 'EXECUTION_REPORT_INVALID_TRANSITION';
+// 409 codes of a refused rejection: an attempt running within its deadline may
+// already be changing Coupang, and a done attempt already changed it.
+const EXECUTION_TASK_RUNNING = 'EXECUTION_TASK_RUNNING';
+const EXECUTION_TASK_DONE = 'EXECUTION_TASK_DONE';
+
+/**
+ * Why an action's latest attempt refuses a rejection, if it does: one running
+ * within its execution deadline may already be changing Coupang, and a done one
+ * already changed it.
+ */
+function rejectionConflict(
+  latest: { status: string; startedAt: Date | null } | null,
+  now: Date,
+): ConflictException | null {
+  if (!latest) return null;
+  if (latest.status === 'running' && !isExpiredRunningExecutionTask(latest, now)) {
+    return rejectRunningConflict();
+  }
+  if (latest.status === 'done') return rejectDoneConflict();
+  return null;
+}
+
+function rejectRunningConflict(): ConflictException {
+  return new ConflictException({
+    code: EXECUTION_TASK_RUNNING,
+    message:
+      '실행 중인 광고 액션은 거절할 수 없습니다. 광고센터에 이미 반영 중일 수 있으니 실행이 끝난 뒤 다시 확인해 주세요.',
+  });
+}
+
+function rejectDoneConflict(): ConflictException {
+  return new ConflictException({
+    code: EXECUTION_TASK_DONE,
+    message: '이미 실행된 광고 액션은 거절할 수 없습니다. 광고센터에 이미 반영됐습니다.',
+  });
+}
 
 /** How a running attempt past its execution deadline is closed. */
 function expiredAttemptClosure(now: Date): Prisma.ExecutionTaskUpdateManyMutationInput {
@@ -735,6 +954,51 @@ function expiredAttemptClosure(now: Date): Prisma.ExecutionTaskUpdateManyMutatio
     finishedAt: now,
     errorMessage: EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
   };
+}
+
+/**
+ * How a manual action's attempt is recorded: the one an approval adds, and a
+ * queued one an executor tried to claim. It never started.
+ */
+function manualAttemptClosure(now: Date): {
+  status: 'failed';
+  finishedAt: Date;
+  errorMessage: string;
+} {
+  return {
+    status: 'failed',
+    finishedAt: now,
+    errorMessage: MANUAL_AD_ACTION_MESSAGE,
+  };
+}
+
+/**
+ * Row-locks the named actions of the organization, in id order, and returns
+ * the ones a review changes: every one of them, or with
+ * `expectedApprovalStatus` only those still in that review. The review is
+ * checked under the lock, so a review that waited for another one skips the
+ * actions that one changed. The locks serialize concurrent reviews of the same
+ * actions, so each reads the attempt the other committed.
+ */
+async function lockReviewableActions(
+  tx: Prisma.TransactionClient,
+  input: {
+    ids: readonly string[];
+    organizationId: string;
+    expectedApprovalStatus?: AdActionReviewOptions['expectedApprovalStatus'];
+  },
+): Promise<Array<{ id: string; actionType: string }>> {
+  return tx.$queryRaw<Array<{ id: string; actionType: string }>>(Prisma.sql`
+    SELECT action.id, action.action_type AS "actionType"
+    FROM ad_actions action
+    WHERE action.organization_id = ${input.organizationId}::uuid
+      AND action.id IN (${Prisma.join(input.ids.map((id) => Prisma.sql`${id}::uuid`))})
+      ${input.expectedApprovalStatus
+        ? Prisma.sql`AND action.approval_status = ${input.expectedApprovalStatus}`
+        : Prisma.empty}
+    ORDER BY action.id
+    FOR UPDATE
+  `);
 }
 
 function executionReportConflict(
@@ -752,6 +1016,12 @@ function executionReportConflict(
     return new ConflictException({
       code: EXECUTION_TASK_EXPIRED,
       message: '실행 보고를 반영할 수 없습니다. 실행 기한이 지나 이 실행 시도를 실패로 닫았습니다.',
+    });
+  }
+  if (decision === 'manual_action') {
+    return new ConflictException({
+      code: EXECUTION_REPORT_MANUAL_ACTION,
+      message: '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.',
     });
   }
   return new ConflictException({

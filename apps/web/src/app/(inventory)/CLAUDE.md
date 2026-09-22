@@ -4,14 +4,14 @@ Before working in this directory, always read this document first rather than re
 
 `app/(inventory)/` owns inventory-hub operations, the independent inventory
 screen, analysis under stock-ops, and Coupang shipment helpers. Displayed
-physical stock is the latest completed Sellpia snapshot.
+physical stock includes all current organization-scoped inventory rows.
 
 ## Route Contract
 
 - `/inventory-hub` is a tabless Sellpia inventory workspace that stacks the
   complete read-only physical snapshot and confirmed product/channel-option
   destinations with transfer/return records.
-- Search, stock, active, link, and page filters are URL-authoritative. Any
+- Search, stock, link, and page filters are URL-authoritative. Any
   legacy `tab` parameter is removed while all other query parameters survive.
 - Retired or moved stock-ops tab IDs stay in `MOVED_TABS` so saved links
   continue to land. Use `Object.hasOwn` for raw query-key lookup.
@@ -35,7 +35,7 @@ physical stock is the latest completed Sellpia snapshot.
 - Inventory actions request physical-snapshot scope. Product Management alone
   requests full scope with product-profit evidence and ABC recalculation.
 - Refresh acceptance is not completion; render terminal state from the source
-  attempt and freshness history. Do not add a global/shared freshness drawer.
+  attempt and collection history. Do not add a global/shared freshness drawer.
 - Prepared order transmissions remain an Orders retry concern and neither block
   nor appear in Inventory.
 

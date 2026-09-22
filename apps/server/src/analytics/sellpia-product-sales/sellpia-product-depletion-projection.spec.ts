@@ -18,13 +18,24 @@ function row(overrides: {
     monthsOfAvailableStockLeft: overrides.monthsLeft ?? null,
     inventoryResolution: {
       status: 'matched' as const,
-      sellpiaInventorySkuId: overrides.sku,
+      masterProductId: overrides.sku,
       destinations: overrides.destinations.map((masterProductId) => ({ masterProductId })),
     },
   };
 }
 
 describe('buildProductDepletionProjections', () => {
+  it('exposes the owner monthly average once for duplicated source rows', () => {
+    const row = {
+      needsReorder: true, monthsOfAvailableStockLeft: 0.4,
+      monthlyOutflow: 25, outflowMonthCount: 2,
+      inventoryResolution: { status: 'matched' as const, masterProductId: 'master-1',
+        destinations: [{ masterProductId: 'master-1' }] },
+    };
+    const result = buildProductDepletionProjections(['master-1'], [row, row]);
+    expect(result.get('master-1')).toMatchObject({ monthlyOutflow: 25, outflowMonthCount: 2 });
+  });
+
   it('projects distinct matched SKUs to every destination without choosing a representative', () => {
     const result = buildProductDepletionProjections(
       ['master-1', 'master-2', 'master-3'],

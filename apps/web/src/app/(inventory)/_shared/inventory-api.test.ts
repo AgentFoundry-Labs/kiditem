@@ -64,7 +64,7 @@ afterEach(() => {
 });
 
 describe('Sellpia inventory reads', () => {
-  it('sends every workspace filter to the snapshot endpoint', async () => {
+  it('sends every supported workspace filter to the snapshot endpoint', async () => {
     const response = snapshot([], 0, 2, 50);
     const getParsed = vi.spyOn(apiClient, 'getParsed').mockResolvedValueOnce(response as never);
 
@@ -73,12 +73,11 @@ describe('Sellpia inventory reads', () => {
       limit: 50,
       query: 'SP 10',
       stockStatus: 'out_of_stock',
-      activeStatus: 'inactive',
       linkStatus: 'unlinked',
     })).resolves.toMatchObject({ page: 2, limit: 50 });
 
     expect(getParsed.mock.calls[0]?.[0]).toBe(
-      '/api/inventory/sellpia-skus?page=2&limit=50&query=SP+10&stockStatus=out_of_stock&activeStatus=inactive&linkStatus=unlinked',
+      '/api/inventory/sellpia-skus?page=2&limit=50&query=SP+10&stockStatus=out_of_stock&linkStatus=unlinked',
     );
   });
 

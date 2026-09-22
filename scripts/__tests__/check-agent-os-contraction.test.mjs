@@ -41,6 +41,10 @@ const CAPABILITY_FILES = [
     [
       "channels.register_confirmed_listing",
       "channels.submit_wing_thumbnail",
+      "channels.prepare_target_execution",
+      "channels.get_target_execution",
+      "channels.start_target_execution",
+      "channels.report_target_execution",
     ],
   ],
   [

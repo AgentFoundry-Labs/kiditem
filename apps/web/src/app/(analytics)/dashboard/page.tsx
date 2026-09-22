@@ -1,7 +1,19 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { Calendar, Database, Zap } from 'lucide-react';
+import { useCallback, useState, type ReactNode } from 'react';
+import Link from 'next/link';
+import {
+  BarChart3,
+  Calendar,
+  Database,
+  Megaphone,
+  ShoppingCart,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  Zap,
+} from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DashboardSalesSummarySchema,
@@ -9,40 +21,65 @@ import {
   DashboardCollectionsSchema,
   DashboardFindingsSchema,
   DashboardInventorySummarySchema,
+  DashboardTrendItemSchema,
   type TrafficKpi,
+  periodBasisStatus,
 } from '@kiditem/shared/dashboard';
-import { MallListingMatrixResponseSchema } from '@kiditem/shared/mall-publishing';
 import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
-import { shiftBusinessDateKey } from '@kiditem/shared/common';
-import { MasterProductOperationsListResponseSchema } from '@kiditem/shared/product-operations';
+import { MallListingMatrixResponseSchema } from '@kiditem/shared/mall-publishing';
+import { z } from 'zod';
+import {
+  businessDateKey,
+  datesInclusive,
+  parseBusinessDate,
+  shiftBusinessDateKey,
+} from '@kiditem/shared/common';
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import ReadinessModal from '@/components/ReadinessModal';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatKRW, formatNumber, timeAgo } from '@/lib/utils';
+import { cn, formatKRW, formatNumber, formatDateTime, timeAgo } from '@/lib/utils';
+import ReadinessModal from '@/components/ReadinessModal';
 import {
   sellpiaPeriodRange,
   useSellpiaChannelSales,
   useSellpiaKnownThrough,
 } from '@/hooks/useSellpiaChannelSales';
-import { DashboardReadFailures, type DashboardReadFailure } from './components/DashboardReadFailures';
+import { DashboardChartPanel } from './components/DashboardChartPanel';
 import { DashboardHeadlineCards, type HeadlineMetric } from './components/DashboardHeadlineCards';
 import { DashboardRevenue } from './components/DashboardRevenue';
 import { DashboardAgentStatus } from './components/DashboardAgentStatus';
 import { DashboardAgentSummary, DashboardUrgentQueue } from './components/DashboardWorkQueue';
-import { DashboardTopProducts } from './components/DashboardTopProducts';
-import { DashboardGradeCards } from './components/DashboardGradeCards';
 import { DashboardAiSuggestion } from './components/DashboardAiSuggestion';
 import { buildAiSuggestions } from './lib/ai-suggestions';
 import { DashboardRecentProducts, RECENT_PRODUCT_SLOTS } from './components/DashboardRecentProducts';
+import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricCard';
+import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
+import { DashboardSidePanel, type DashboardReadFailure } from './components/DashboardSidePanel';
+import { DashboardTopProducts } from './components/DashboardTopProducts';
+import { DashboardAdPerformance } from './components/DashboardAdPerformance';
+import { DashboardTrafficFunnel } from './components/DashboardTrafficFunnel';
+import { DashboardWarningTable, buildWarningRows } from './components/DashboardWarningTable';
+import { DashboardGradeCards } from './components/DashboardGradeCards';
 import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
 import {
+  DashboardBasisDisclosure,
+  DashboardDataBasis,
   basisHasValues,
   readFirstMetricBasis,
   readMetricBasis,
+  type DashboardMetricBasis,
+  type MetricBasisCarrier,
 } from './components/DashboardDataBasis';
 
 type TrafficMetric = 'views' | 'cartAdds' | 'orders' | 'salesQty' | 'revenue';
+
+const trafficMetricLabels: ReadonlyArray<readonly [TrafficMetric, string]> = [
+  ['views', '조회'],
+  ['cartAdds', '장바구니'],
+  ['orders', '주문'],
+  ['salesQty', '판매량'],
+  ['revenue', '매출'],
+];
 
 function trafficReconciliation(kpi: TrafficKpi | undefined, metric: TrafficMetric) {
   const reconciled = kpi?.reconciliation?.[metric];
@@ -54,8 +91,48 @@ function trafficMetricValue(kpi: TrafficKpi | undefined, metric: TrafficMetric):
   return kpi[metric] ?? null;
 }
 
+function formatTrafficMetric(value: number | null, unit: string): string {
+  return value === null ? '—' : `${formatNumber(value)}${unit}`;
+}
+
 function nullableValue<T>(value: T | null | undefined, fallback: T | null | undefined): T | null {
   return value === undefined ? fallback ?? null : value;
+}
+
+/**
+ * A warning count is only a measured value when its own basis says so. Without
+ * a verified basis the card shows the unavailable marker instead of a number.
+ */
+function formatWarningCount(value: number | null | undefined, basis: DashboardMetricBasis | null): string {
+  if (!basisHasValues(basis) || value === null || value === undefined) return '—';
+  return formatNumber(value);
+}
+
+function formatNullableKRW(value: number | null): string {
+  return value === null ? '—' : `${formatKRW(value)}원`;
+}
+
+function formatNullablePercent(value: number | null, digits = 1): string {
+  return value === null ? '—' : `${value.toFixed(digits)}%`;
+}
+
+function percentage(value: number | null, base: number | null): number | null {
+  return value !== null && base !== null && base > 0 ? (value / base) * 100 : null;
+}
+
+
+
+function rangeMetricBasis(
+  value: MetricBasisCarrier,
+  range: 'month' | 'week' | 'day' | 'custom',
+  rangeKey: string,
+  monthKey: string | null = rangeKey,
+): DashboardMetricBasis | null {
+  if (range === 'month' && monthKey !== null) {
+    const monthlyBasis = readMetricBasis(value, `monthly.${monthKey}`);
+    if (monthlyBasis) return monthlyBasis;
+  }
+  return readMetricBasis(value, `rangeKpi.${rangeKey}`);
 }
 
 function DashboardSectionEmpty({ label }: { label: string }) {
@@ -80,37 +157,98 @@ function DashboardSectionUnavailable({ label, className }: { label: string; clas
   );
 }
 
-/** 상품 관리 첫 화면의 요약 읽기와 같은 인자 — 같은 캐시를 쓴다. */
-const PRODUCT_OVERVIEW_PARAMS = {
-  page: '1',
-  limit: '1',
-  periodDays: '30',
-  activeStatus: 'active',
-  adStatus: 'all',
-} as const satisfies Record<string, string>;
+/**
+ * A section header carries one ⓘ for every value below it. The affordance is
+ * section-level; the explanation behind it stays per value.
+ */
+/**
+ * A filter that sits above something it does not govern will be read as
+ * governing it — placement wins that argument against any label. So the period
+ * controls live in this header, and this header spans only the column whose
+ * values answer to them. The snapshot column carries its own header beside it,
+ * and the two rules underneath are the scope boundary.
+ */
+function DashboardSectionHeader({
+  title,
+  scope,
+  controls,
+}: {
+  title: string;
+  /** Only when it says something the controls beside it do not. */
+  scope?: ReactNode;
+  controls?: ReactNode;
+}) {
+  // A 2px slate-900 rule was a third border weight the design system does not
+  // have — its borders are slate-200 and slate-100 — and it made a column
+  // heading heavier than every panel under it. A section still reads as a
+  // section: it is the only heading with no card around it.
+  return (
+    <div className="flex min-h-[30px] items-center justify-between gap-3 border-b border-slate-200 pb-1.5">
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+        {scope && <span className="text-xs text-slate-500">{scope}</span>}
+      </div>
+      {controls}
+    </div>
+  );
+}
 
-/** 몰 등록 현황의 첫 줄들 — 셀피아 코드가 큰(나중에 등록된) 상품부터, 몰 등록 여부와 함께. */
 const RECENT_PRODUCTS_PARAMS = {
   filter: 'all',
   page: '1',
   limit: String(RECENT_PRODUCT_SLOTS),
 } as const satisfies Record<string, string>;
 
-/**
- * findings 는 셀피아 상품별 소진 전체를 읽는 무거운 읽기다(1~2초). 그 원천은 하루 몇 번
- * 모이므로 5분마다면 충분하다 — 탭 하나에 분당 0.2회씩 두 읽기가 더해진다.
- */
 const FINDINGS_REFRESH_MS = 5 * 60_000;
+
+type TrendEvidence = {
+  revenue: DashboardMetricBasis | null;
+  profit: DashboardMetricBasis | null;
+  adCost: DashboardMetricBasis | null;
+};
+
+function fillTrendDateGaps(rows: Array<{
+  date: string;
+  revenue: number | null;
+  profit: number | null;
+  adCost: number | null;
+  evidence: TrendEvidence;
+}>) {
+  if (rows.length < 2) return rows;
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  const sortedDates = rows.map((row) => row.date).sort();
+  const start = parseBusinessDate(sortedDates[0]!);
+  const end = parseBusinessDate(sortedDates[sortedDates.length - 1]!);
+  if (!start || !end || end <= start) return rows;
+  const filled: Array<{
+    date: string;
+    revenue: number | null;
+    profit: number | null;
+    adCost: number | null;
+    evidence: TrendEvidence;
+  }> = [];
+  for (const cursor of datesInclusive(start, end)) {
+    const date = businessDateKey(cursor);
+    filled.push(byDate.get(date) ?? {
+      date,
+      revenue: null,
+      profit: null,
+      adCost: null,
+      evidence: { revenue: null, profit: null, adCost: null },
+    });
+  }
+  return filled;
+}
 
 export default function Dashboard() {
   const queryClient = useQueryClient();
 
+  const [showProfitDetail, setShowProfitDetail] = useState(false);
   const [kpiRange, setKpiRange] = useState<'month' | 'week' | 'day' | 'custom'>('month');
-  // 데이터 수집 버튼이 여는 수집 점검 창(사장님 2026-09-19 복원 — 9/18 단순화에서 빠졌던 것).
-  const [showReadiness, setShowReadiness] = useState(false);
-  const requestReadinessOpen = useCallback(() => setShowReadiness(true), []);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [showReadiness, setShowReadiness] = useState(false);
+  const requestReadinessOpen = useCallback(() => setShowReadiness(true), []);
   const sellpiaKnownThrough = useSellpiaKnownThrough();
   const channelSales = useSellpiaChannelSales(
     sellpiaKnownThrough
@@ -155,6 +293,22 @@ export default function Dashboard() {
     refetchInterval: 60_000,
   });
 
+  const {
+    data: trendData = [],
+    isLoading: trendLoading,
+    isError: trendHasErr,
+    error: trendError,
+    refetch: refetchTrend,
+  } = useQuery({
+    queryKey: queryKeys.dashboard.trend(kpiRange, dateFrom, dateTo),
+    queryFn: () => {
+      const params = kpiRange === 'custom' && dateFrom && dateTo
+        ? `?range=custom&from=${dateFrom}&to=${dateTo}`
+        : `?range=${kpiRange}`;
+      return apiClient.getParsed(`/api/dashboard/trend${params}`, z.array(DashboardTrendItemSchema));
+    },
+    refetchInterval: 60_000,
+  });
 
   // Range-aware — enabled when not month; custom requires both dates
   const rangeEnabled = kpiRange === 'custom' ? (!!dateFrom && !!dateTo) : kpiRange !== 'month';
@@ -179,6 +333,7 @@ export default function Dashboard() {
 
   const {
     data: adRange,
+    isLoading: adRangeLoading,
     isError: adRangeHasErr,
     error: adRangeError,
     refetch: refetchAdRange,
@@ -194,10 +349,38 @@ export default function Dashboard() {
     refetchInterval: 60_000,
   });
 
+  const findingsQuery = useQuery({
+    queryKey: queryKeys.dashboard.findings(),
+    queryFn: () => apiClient.getParsed('/api/dashboard/findings', DashboardFindingsSchema),
+    staleTime: FINDINGS_REFRESH_MS,
+    refetchInterval: FINDINGS_REFRESH_MS,
+    refetchIntervalInBackground: false,
+  });
+
+  const collectionsQuery = useQuery({
+    queryKey: queryKeys.dashboard.collections(),
+    queryFn: () => apiClient.getParsed('/api/dashboard/collections', DashboardCollectionsSchema),
+    staleTime: FINDINGS_REFRESH_MS,
+    refetchInterval: FINDINGS_REFRESH_MS,
+    refetchIntervalInBackground: false,
+  });
+
+  const recentProductsQuery = useQuery({
+    queryKey: queryKeys.mallPublishing.listingMatrix(RECENT_PRODUCTS_PARAMS),
+    queryFn: () => apiClient.getParsed(
+      `/api/channels/mall-publishing/listing-matrix?${new URLSearchParams(RECENT_PRODUCTS_PARAMS).toString()}`,
+      MallListingMatrixResponseSchema,
+    ),
+    staleTime: FINDINGS_REFRESH_MS,
+    refetchInterval: FINDINGS_REFRESH_MS,
+    refetchIntervalInBackground: false,
+  });
+
   const applyCustomRange = useCallback(() => {
     if (!dateFrom || !dateTo) return;
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.salesRange('custom', dateFrom, dateTo) });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.adRange('custom', dateFrom, dateTo) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.trend('custom', dateFrom, dateTo) });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.sellpiaSalesAll() });
   }, [dateFrom, dateTo, queryClient]);
 
@@ -210,52 +393,15 @@ export default function Dashboard() {
 
   // Keep the dashboard shell visible while individual read models load or
   // fail. Only the all-three initial request state uses the page skeleton.
-  // 재고 칸은 상품 관리가 내는 요약을 그대로 읽는다 — 상품 관리 첫 화면과 같은 읽기라 캐시도,
-  // 숫자도 같다. 대시보드는 세지 않는다.
-  const productOverview = useQuery({
-    queryKey: queryKeys.products.operations.list(PRODUCT_OVERVIEW_PARAMS),
-    queryFn: () => apiClient.getParsed(
-      `/api/products/masters?${new URLSearchParams(PRODUCT_OVERVIEW_PARAMS).toString()}`,
-      MasterProductOperationsListResponseSchema,
-    ),
-    refetchInterval: 30_000,
-    refetchIntervalInBackground: false,
-  });
-
-  // AI가 발견한 문제 · AI 제안 — 서버가 원천의 판정을 골라 센 값. 대시보드는 세지 않는다.
-  const findingsQuery = useQuery({
-    queryKey: queryKeys.dashboard.findings(),
-    queryFn: () => apiClient.getParsed('/api/dashboard/findings', DashboardFindingsSchema),
-    staleTime: FINDINGS_REFRESH_MS,
-    refetchInterval: FINDINGS_REFRESH_MS,
-    refetchIntervalInBackground: false,
-  });
-
-  // 쇼핑몰 칸의 '마지막 수집' — 원천마다 마지막으로 끝난 시각. 대시보드는 세지 않는다.
-  const collectionsQuery = useQuery({
-    queryKey: queryKeys.dashboard.collections(),
-    queryFn: () => apiClient.getParsed('/api/dashboard/collections', DashboardCollectionsSchema),
-    staleTime: FINDINGS_REFRESH_MS,
-    refetchInterval: FINDINGS_REFRESH_MS,
-    refetchIntervalInBackground: false,
-  });
-
-  // 최근 등록된 상품 — Channels 의 몰 등록 현황 읽기를 그대로 쓴다.
-  const recentProductsQuery = useQuery({
-    queryKey: queryKeys.mallPublishing.listingMatrix(RECENT_PRODUCTS_PARAMS),
-    queryFn: () => apiClient.getParsed(
-      `/api/channels/mall-publishing/listing-matrix?${new URLSearchParams(RECENT_PRODUCTS_PARAMS).toString()}`,
-      MallListingMatrixResponseSchema,
-    ),
-    staleTime: FINDINGS_REFRESH_MS,
-    refetchInterval: FINDINGS_REFRESH_MS,
-    refetchIntervalInBackground: false,
-  });
-
   if (inventoryLoading && salesBaselineLoading && adBaselineLoading) {
     return <PageSkeleton variant="dashboard" />;
   }
 
+  const selectedRangeLoading = kpiRange === 'month'
+    ? false
+    : kpiRange === 'custom' && (!dateFrom || !dateTo)
+      ? false
+      : salesRangeLoading || adRangeLoading;
   const rangeLabelMap: Record<string, string> = { month: '월', week: '주', day: '일', custom: '기간' };
   // Range label derived from local state (not server)
   const rangeLabel = kpiRange !== 'month' ? (rangeLabelMap[kpiRange] ?? '월') : '월';
@@ -273,6 +419,15 @@ export default function Dashboard() {
   const kpiProfit = rk ? rk.profit : salesMonthly?.profit ?? null;
   const revenueChange = rk ? rk.revenueChange : salesMonthly?.revenueChange ?? null;
   const profitChange = rk ? rk.profitChange : salesMonthly?.profitChange ?? null;
+  const profitRate = rk && rk.profitRate !== undefined
+    ? rk.profitRate
+    : percentage(salesMonthly?.profit ?? null, salesMonthly?.revenue ?? null);
+  const prevProfitRate = rk && rk.prevProfitRate !== undefined
+    ? rk.prevProfitRate
+    : percentage(salesMonthly?.prevProfit ?? null, salesMonthly?.prevRevenue ?? null);
+  const profitRateChange = rk && rk.profitRateChange !== undefined
+    ? rk.profitRateChange
+    : profitRate !== null && prevProfitRate !== null ? profitRate - prevProfitRate : null;
   const adMonthly = effectiveAd?.monthly ?? (kpiRange === 'month' ? baselineAd?.monthly : undefined);
   const adKpi = effectiveAd?.adKpi;
   const rawAdConvRevenue = rkAd
@@ -284,6 +439,9 @@ export default function Dashboard() {
   const rawAdPrevRoas = rkAd
     ? rkAd.prevAdRoas ?? null
     : nullableValue(adKpi?.prevRoas, adMonthly?.prevRoas);
+  const adCoverage = rkAd
+    ? rkAd.coverage ?? null
+    : nullableValue(adKpi?.coverage, adMonthly?.coverage);
   // Partial evidence still supports the values that were actually measured.
   // Coverage is disclosed beside the metric; it must not turn non-null partial
   // values into an unavailable card.
@@ -293,7 +451,32 @@ export default function Dashboard() {
   // Impressions/clicks/conversions are published by the ad owner and simply
   // were never rendered. Nothing here is derived in the browser: a rate without
   // its own basis could not answer "where did this number come from?".
+  const adClicks = adKpi?.clicks ?? null;
+  const adImpressions = adKpi?.impressions ?? null;
   const adCtr = adKpi?.ctr ?? null;
+  const adConversions = adKpi?.conversions ?? null;
+  const adCvr = adKpi?.cvr ?? null;
+  const adPerformanceBasis = (key: string) => readMetricBasis(effectiveAd, `adKpi.${key}`);
+  const adPerformanceRows = [
+    { key: 'convRevenue', label: '광고전환매출', sublabel: '쿠팡', display: formatNullableKRW(adConvRevenue), basis: adPerformanceBasis('convRevenue') },
+    { key: 'impressions', label: '노출', display: adImpressions === null ? '—' : `${formatNumber(adImpressions)}회`, basis: adPerformanceBasis('impressions') },
+    {
+      key: 'clicks',
+      label: '클릭 · CTR',
+      display: adClicks === null
+        ? '—'
+        : `${formatNumber(adClicks)}회${adCtr === null ? '' : ` · ${adCtr.toFixed(2)}%`}`,
+      basis: adPerformanceBasis('ctr'),
+    },
+    {
+      key: 'conversions',
+      label: '광고주문 · CVR',
+      display: adConversions === null
+        ? '—'
+        : `${formatNumber(adConversions)}건${adCvr === null || adCvr === undefined ? '' : ` · ${adCvr.toFixed(2)}%`}`,
+      basis: adPerformanceBasis('cvr'),
+    },
+  ];
 
   const rawAdRate = rkAd ? rkAd.adRate ?? null : salesMonthly?.adRate ?? null;
   const rawAdPrevRate = rkAd ? rkAd.prevAdRate ?? null : salesMonthly?.prevAdRate ?? null;
@@ -305,13 +488,47 @@ export default function Dashboard() {
   const adRoasChange = rkAd && rkAd.adRoasChange !== undefined
       ? rkAd.adRoasChange
       : adRoas !== null && adPrevRoas !== null ? adRoas - adPrevRoas : null;
+  // Dashboard revenue is selected Order/Wing revenue. Channel splits come
+  // only from Sellpia daily facts when that coverage is ready.
+  const wingRevenue = nullableValue(salesMonthly?.wingRevenue, kpiRevenue);
+
+  // 트렌드 차트용 데이터
+  const dailyTrend = fillTrendDateGaps(trendData.map((d) => ({
+    ...d,
+    evidence: {
+      revenue: readMetricBasis(d, 'revenue'),
+      profit: readMetricBasis(d, 'profit'),
+      adCost: readMetricBasis(d, 'adCost'),
+    },
+  }))).map(d => ({
+    date: d.date,
+    revenue: d.revenue,
+    profit: d.profit,
+    adCost: d.adCost,
+    evidence: d.evidence,
+    profitRate: d.revenue !== null && d.profit !== null && d.revenue > 0
+      ? Math.round((d.profit / d.revenue) * 1000) / 10
+      : null,
+    adRate: d.revenue !== null && d.adCost !== null && d.revenue > 0
+      ? Math.round((d.adCost / d.revenue) * 1000) / 10
+      : null,
+  }));
+
   // 데이터 출처 라벨 — Drive replay / Wing / 쿠팡 광고 / 주문 기준 등을 한 곳에서 결정
   const effectivePeriod = effectiveSales?.effectivePeriod ?? (kpiRange === 'month' ? baselineSales?.effectivePeriod : undefined);
   const trafficKpi = effectiveSales?.trafficKpi;
+  const periodLabel = effectivePeriod
+    ? `${effectivePeriod.year}년 ${effectivePeriod.month}월`
+    : new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
   const periodShifted = effectivePeriod?.shifted ?? false;
   const latestDataDate = effectivePeriod?.latestDataDate ?? null;
   const revenueSource = effectivePeriod?.revenueSource
     ?? (trafficKpi?.source === 'wing' ? 'wing' : 'orders');
+  const revenueSourceLabel =
+    revenueSource === 'wing' ? 'Wing 매출 기준'
+    : revenueSource === 'mixed' ? '주문 + Wing'
+    : revenueSource === 'orders' ? '주문 기준'
+    : '미수집';
   const orderProfitInputs = effectiveSales?.profitInputs ?? null;
   // `revenueSource` describes the baseline month. It used to gate profit too,
   // so a July selection with settlement inputs went blank whenever September
@@ -322,9 +539,89 @@ export default function Dashboard() {
   // Wing/Drive 단독 데이터로는 신뢰할 수 없다. Wing의 netProfit null도 0으로
   // 추정하지 않고 그 카드는 "—" 로 표시한다.
   const profitMetricsAvailable = orderProfitInputsAvailable && kpiProfit !== null;
+  // 광고비/매출 비율은 명시적인 0도 유효하지만 null은 미수집이다.
+  const adRateAvailable = kpiAdRate !== null;
   const channelLinkedProducts = inventoryData?.channelLinkedProducts ?? null;
   const channelUnlinkedProducts = inventoryData?.channelUnlinkedProducts ?? null;
+  const trafficAvailable = trafficKpi?.trafficAvailable
+    ?? Boolean(
+      trafficKpi
+      && [
+        trafficKpi.visitors,
+        trafficKpi.views,
+        trafficKpi.orders,
+        trafficKpi.salesQty,
+        trafficKpi.revenue,
+        trafficKpi.cartAdds,
+      ].some((value) => value !== null && value !== undefined),
+    );
+  const trafficViews = trafficMetricValue(trafficKpi, 'views');
+  const trafficCartAdds = trafficMetricValue(trafficKpi, 'cartAdds');
+  const trafficCartRate = trafficKpi?.cartRate ?? null;
+  const trafficOrders = trafficMetricValue(trafficKpi, 'orders');
+  const trafficOrderCartRate = trafficKpi?.orderCartRate ?? null;
+  const trafficSalesQty = trafficMetricValue(trafficKpi, 'salesQty');
   const trafficRevenue = trafficMetricValue(trafficKpi, 'revenue');
+  const trafficDailyAverageVisitors = trafficKpi?.dailyAverageVisitors ?? null;
+  const trafficConversionRate = trafficReconciliation(trafficKpi, 'orders') === 'MISMATCH'
+    || trafficReconciliation(trafficKpi, 'views') === 'MISMATCH'
+    ? null
+    : trafficKpi?.conversionRate ?? null;
+  const trafficProviderConversionRate = trafficKpi?.providerConversionRate ?? null;
+  const trafficCoverage = trafficKpi?.coverage ?? null;
+  const trafficCoverageComplete = trafficCoverage !== null
+    && trafficCoverage.targetDays > 0
+    && trafficCoverage.completedDays === trafficCoverage.targetDays;
+  const trafficMismatchLabels = trafficMetricLabels
+    .filter(([metric]) => trafficReconciliation(trafficKpi, metric) === 'MISMATCH')
+    .map(([, label]) => label);
+  const trafficUnverifiedLabels = trafficMetricLabels
+    .filter(([metric]) => trafficReconciliation(trafficKpi, metric) === 'UNVERIFIED')
+    .map(([, label]) => label);
+  const trafficFilterScope = trafficKpi?.exactPeriodEvidence?.filterScope === 'ALL_NORMAL_RFM'
+    ? 'ALL_NORMAL_RFM'
+    : null;
+  const trafficObservedAt = trafficKpi?.trafficObservedAt ?? null;
+
+  // The server owns each rate because it can restrict both operands to the
+  // same owner-confirmed listing/date population. The screen only formats it.
+  const formatFunnelRate = (value: number | null): string | null =>
+    value === null ? null : `${value.toFixed(1)}%`;
+  const trafficFunnelSteps = [
+    // A daily average is rarely whole (2,424 visitors over 13 days is 186.46);
+    // show whole visitors, as the sales-analysis card does.
+    { key: 'visitors', label: '일평균 방문자', display: formatTrafficMetric(trafficDailyAverageVisitors === null ? null : Math.round(trafficDailyAverageVisitors), '명'), rate: null, basis: readMetricBasis(effectiveSales, 'trafficKpi.visitors'), rateBasis: null },
+    // No rate against visitors. The first step is a daily average of account
+    // unique visitors and every later step is a period sum, so the quotient is
+    // not a share of anything — with ten days collected it read 1256.1%. Wing
+    // publishes UV per day and a visitor returning on two days is one visitor
+    // on each, so there is no period UV to divide by either.
+    { key: 'views', label: '조회', display: formatTrafficMetric(trafficViews, '회'), rate: null, basis: readMetricBasis(effectiveSales, 'trafficKpi.views'), rateBasis: null },
+    { key: 'cartAdds', label: '장바구니', display: formatTrafficMetric(trafficCartAdds, '회'), rate: formatFunnelRate(trafficCartRate), basis: readMetricBasis(effectiveSales, 'trafficKpi.cartAdds'), rateBasis: readMetricBasis(effectiveSales, 'trafficKpi.cartRate') },
+    { key: 'orders', label: '주문', display: formatTrafficMetric(trafficOrders, '건'), rate: formatFunnelRate(trafficOrderCartRate), basis: readMetricBasis(effectiveSales, 'trafficKpi.orders'), rateBasis: readMetricBasis(effectiveSales, 'trafficKpi.orderCartRate') },
+    { key: 'salesQty', label: '판매량', display: formatTrafficMetric(trafficSalesQty, '개'), rate: null, basis: readMetricBasis(effectiveSales, 'trafficKpi.salesQty'), rateBasis: null },
+  ];
+  // "부분 N/M일" is the one phrase for partially collected, the same one the
+  // ad lane uses. Values carry their own date basis because Orders-owned steps
+  // use the exact Orders × Wing listing/date intersection.
+  const trafficCoverageLabel = trafficCoverage
+    ? trafficCoverageComplete
+      ? `${trafficCoverage.targetDays}/${trafficCoverage.targetDays}일`
+      : `부분 ${trafficCoverage.completedDays}/${trafficCoverage.targetDays}일`
+    : null;
+  const trafficSourceNote = [
+    trafficObservedAt ? formatDateTime(trafficObservedAt) : '미수집',
+    trafficCoverageLabel,
+    trafficKpi?.source === 'wing'
+      ? `${trafficFilterScope ? `계정 원본 · ${trafficFilterScope}` : 'Wing 계정 원본'} · 상품 매칭 합산 아님`
+      : trafficKpi?.source === 'mixed'
+        ? 'Wing 트래픽 + Orders 상품·날짜 교집합'
+      : null,
+    trafficProviderConversionRate !== null ? `Wing 제공 전환율 ${trafficProviderConversionRate.toFixed(1)}%` : null,
+    trafficObservedAt && (Date.now() - new Date(trafficObservedAt).getTime()) > 86400000
+      ? '24시간 이상 미동기화'
+      : null,
+  ].filter(Boolean).join(' · ');
 
   // 셀피아 판매현황(몰별 매출) 파생값 — 월 매출/순이익 카드가 이 소스로 표시된다.
   const sp = channelSales.summary;
@@ -334,6 +631,8 @@ export default function Dashboard() {
   // Sellpia publishes a compact basis map. Prefer the fixed group keys so
   // rocket/others cards inherit the same evidence without requiring a basis
   // entry per seller ID; row-local keys remain valid when a group diverges.
+  const sellpiaRocketBasis = readFirstMetricBasis(sp, ['rocket', 'rocket.revenue']);
+  const sellpiaOthersBasis = readFirstMetricBasis(sp, ['others', 'others.revenue']);
   const sellpiaHasData = sp?.hasData === true
     && spTotal !== null
     && (!sellpiaMetricBasis || basisHasValues(sellpiaMetricBasis));
@@ -342,10 +641,22 @@ export default function Dashboard() {
   // the value is available, but the client must not re-derive a possibly
   // rounded or policy-adjusted netProfit/profitRate.
   const spProfit = sellpiaProfitInputsAvailable ? sp?.netProfit ?? null : null;
+  const spProfitRate = sellpiaProfitInputsAvailable ? sp?.profitRate ?? null : null;
+  const profitRateAvailable = sellpiaHasData
+    ? sellpiaProfitInputsAvailable && spProfitRate !== null
+    : orderProfitInputsAvailable && profitRate !== null;
+  const displayProfitRate = sellpiaHasData && sellpiaProfitInputsAvailable
+    ? spProfitRate
+    : sellpiaHasData
+      ? null
+      : orderProfitInputsAvailable ? profitRate : null;
   // 카드 표시값: 셀피아 데이터가 있으면 셀피아 기준으로 통일(로켓/기타몰/합계가 서로 맞음).
   // A measured value never reads 미수집. When the baseline month has no source
   // but the selected range does, the range's own coverage is what to say.
   const revenueRangeBasis = readMetricBasis(effectiveSales, 'rangeKpi.revenue');
+  const revenueCoverageNote = revenueRangeBasis?.kind === 'period' && periodBasisStatus(revenueRangeBasis) === 'partial'
+    ? `부분 ${revenueRangeBasis.includedDates.length}/${revenueRangeBasis.targetDays}일`
+    : null;
 
   // `revenueSource` describes the baseline month. A selected range publishes
   // its own value and its own basis, and a baseline month with nothing in it
@@ -362,6 +673,11 @@ export default function Dashboard() {
       || revenueSource === 'mixed'
       || (revenueSource === 'wing' && trafficRevenue !== null)
     );
+  const revenueCellNote = sellpiaHasData
+    ? '셀피아 판매현황'
+    : primaryRevenueAvailable
+      ? (revenueCoverageNote ?? revenueSourceLabel)
+      : '미수집';
   const displayRevenue = primaryRevenueAvailable
     ? (sellpiaHasData ? spTotal : kpiRevenue)
     : null;
@@ -372,15 +688,24 @@ export default function Dashboard() {
         ? shiftBusinessDateKey(sellpiaKnownThrough, 1).slice(0, 7)
         : '');
   const salesAnalysisHref = `/sales-analysis?tab=overview&period=${encodeURIComponent(salesAnalysisPeriod)}`;
+  const revenueBasis = rangeMetricBasis(effectiveSales, kpiRange, 'revenue');
+  const todayBasis = readFirstMetricBasis(baselineSales, ['today.revenue', 'today.orders']);
   const today = baselineSales?.today ?? null;
+  const profitBasis = rangeMetricBasis(effectiveSales, kpiRange, 'profit');
   // Rates and their changes are range-owned metrics. Do not substitute a
   // monthly profit or ROAS period basis when the selected range lacks its
   // own rate evidence.
-  const inventoryHeaderBasis = readFirstMetricBasis(inventoryData, [
-    'totalProducts',
-    'channelLinkedProducts',
-    'channelUnlinkedProducts',
-  ]);
+  const profitRateBasis = rangeMetricBasis(effectiveSales, kpiRange, 'profitRate', null);
+  const adRateBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRate', null);
+  const adRoasBasis = rangeMetricBasis(effectiveAd, kpiRange, 'adRoas', null);
+  const trafficBasis = readMetricBasis(effectiveSales, 'trafficKpi.conversionRate');
+  const benchmark = effectiveAd?.industryBenchmark;
+  const benchmarkBases = {
+    adRate: readMetricBasis(effectiveAd?.industryBenchmark, 'myAdRate'),
+    roas: readMetricBasis(effectiveAd?.industryBenchmark, 'myRoas'),
+    ctr: readMetricBasis(effectiveAd?.industryBenchmark, 'myCtr'),
+    cvr: readMetricBasis(effectiveAd?.industryBenchmark, 'myCvr'),
+  };
   const inventoryBasis = readFirstMetricBasis(inventoryData, [
     'gradeCount.A',
     'abcStatusCount.READY',
@@ -391,8 +716,13 @@ export default function Dashboard() {
     'abcContributionProfit.amountByGrade.B',
     'abcContributionProfit.amountByGrade.C',
   ]);
-  const changesBasis = readFirstMetricBasis(inventoryData, ['gradeChanges.total']);
-  const newProductsBasis = readFirstMetricBasis(inventoryData, ['newProductCount']);
+  const unclassifiedBasis = readMetricBasis(inventoryData, 'unclassifiedProductCount');
+  const downgradedBasis = readMetricBasis(inventoryData, 'gradeChanges.downgraded');
+  const inventoryHeaderBasis = readFirstMetricBasis(inventoryData, [
+    'totalProducts',
+    'channelLinkedProducts',
+    'channelUnlinkedProducts',
+  ]);
   const topProductsBasis = readFirstMetricBasis(effectiveSales, [
     'topProducts.revenue',
     'topProducts.netProfit',
@@ -402,6 +732,7 @@ export default function Dashboard() {
   // Top Products reads whichever sales query the selected range uses; its
   // failure is already named and retried by the page-level notice.
   const topProductsHasErr = kpiRange === 'month' ? salesBaselineHasErr : salesRangeHasErr;
+  const warningBasis = (key: string): DashboardMetricBasis | null => readMetricBasis(inventoryData, key);
 
   // "관측 6분 전" answers the question the ISO timestamp was being asked: is
   // what I am looking at current? The exact instant stays on hover.
@@ -416,6 +747,7 @@ export default function Dashboard() {
 
   // The basis a card actually displays is decided once, so the section's
   // breakdown explains the number on screen rather than a parallel guess.
+  const revenueCardBasis = sellpiaHasData ? sellpiaMetricBasis : revenueBasis;
   const profitCardUsesSellpia = sellpiaHasData && sellpiaProfitInputsAvailable && spProfit !== null;
 
 
@@ -424,6 +756,187 @@ export default function Dashboard() {
   const displayProfit = profitCardUsesSellpia
     ? spProfit
     : (!sellpiaHasData && profitMetricsAvailable) ? kpiProfit : null;
+  // The source line names what the value would be built from, withheld or not
+  // — it is how the operator knows which collection to go fix.
+  const profitCellNote = sellpiaHasData
+    ? '셀피아 · 판매금액 − 매입가 − 쿠팡 광고비'
+    : profitMetricsAvailable ? '주문 기준' : '정산 데이터 없음';
+  // Why it is withheld reads under it, and only when it is.
+  const profitCellReason = displayProfit !== null
+    ? null
+    : sellpiaHasData
+      ? (sellpiaProfitInputsAvailable
+        ? '선택 기간의 순이익 데이터가 없어 순이익을 산출할 수 없습니다.'
+        : '판매금액과 비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.')
+      : revenueSource === 'wing'
+        ? 'Wing/Drive 데이터에는 매입가·수수료·배송비가 없어 순이익을 산출할 수 없습니다.'
+        : orderProfitInputs === null
+          ? '매출·비용의 공통 유효 날짜가 없어 순이익을 산출할 수 없습니다.'
+          : '선택 기간의 순이익 데이터가 없어 순이익을 산출할 수 없습니다.';
+  // The modal shows the inputs of whichever source the cell is reading — never
+  // the other one. Falling back across sources would put order inputs under a
+  // Sellpia card whose own value was withheld, which is the borrowing the card
+  // itself is careful not to do.
+  const profitDetailInputs = sellpiaHasData
+    ? sellpiaProfitInputs ?? null
+    : orderProfitInputs ?? null;
+  const profitCardBasis = profitCardUsesSellpia
+    ? sellpiaProfitInputs?.basis ?? null
+    : sellpiaHasData ? sellpiaMetricBasis : profitBasis;
+  const profitRateCardBasis = profitRateAvailable
+    ? (sellpiaHasData ? sellpiaProfitInputs?.basis ?? null : profitRateBasis)
+    : (sellpiaHasData ? sellpiaMetricBasis : profitRateBasis);
+
+  // Operational headline cards reuse values selected above. They do not derive
+  // a second profit or availability policy in the browser.
+  const headlineRevenueChange = !sellpiaHasData && displayRevenue !== null ? revenueChange : null;
+  const headlineProfitChange = !sellpiaHasData && displayProfit !== null ? profitChange : null;
+  const changeNote = (change: number | null) =>
+    change === null ? null : `${change > 0 ? '▲' : change < 0 ? '▼' : '−'} ${Math.abs(change).toFixed(1)}% 이전 대비`;
+  const trendOf = (change: number | null): 'up' | 'down' | null =>
+    change === null || change === 0 ? null : change > 0 ? 'up' : 'down';
+  const headlineAdSpend = rkAd ? rkAd.adSpend : adMonthly?.totalAdSpend ?? null;
+  const headlinePrevAdSpend = rkAd ? rkAd.prevAdSpend ?? null : adMonthly?.prevTotalAdSpend ?? null;
+  const headlineAdCtr = rkAd?.adCtr ?? adCtr;
+  const headlinePrevAdCtr = rkAd ? rkAd.prevAdCtr ?? null : adMonthly?.prevCtr ?? null;
+  const headlinePrevAdConvRevenue = rkAd ? rkAd.prevAdConvRevenue ?? null : adMonthly?.prevAdRevenue ?? null;
+  const prevNote = (previous: number | null, format: (value: number) => string) =>
+    previous === null ? null : `이전 ${format(previous)}`;
+  const adCoverageForHeadline = rkAd ? rkAd.coverage ?? null : adMonthly?.coverage ?? adKpi?.coverage ?? null;
+  const adCoverageNote = adCoverageForHeadline && adCoverageForHeadline.completedDays < adCoverageForHeadline.targetDays
+    ? `광고 수집 ${adCoverageForHeadline.completedDays}/${adCoverageForHeadline.targetDays}일`
+    : null;
+  const receiptReady = sellpiaHasData && sp !== undefined;
+  const headlineRevenue: HeadlineMetric[] = [
+    {
+      key: 'revenue',
+      label: `${rangeLabel} 매출`,
+      value: displayRevenue === null ? null : formatKRW(displayRevenue),
+      unit: '원',
+      note: changeNote(headlineRevenueChange),
+      trend: trendOf(headlineRevenueChange),
+    },
+    {
+      key: 'cost',
+      label: '매입 원가',
+      value: receiptReady ? formatKRW(sp.totalCost) : null,
+      unit: '원',
+      negative: true,
+    },
+    {
+      key: 'adCost',
+      label: '광고비',
+      value: receiptReady && sp.adCost !== null ? formatKRW(sp.adCost) : null,
+      unit: '원',
+      negative: true,
+      note: receiptReady && sp.adCost === null ? '광고비 수집 전' : null,
+    },
+    {
+      key: 'profit',
+      label: `${rangeLabel} 순이익`,
+      value: displayProfit === null ? null : formatKRW(displayProfit),
+      unit: '원',
+      suffix: receiptReady && sp.profitRate !== null ? `${sp.profitRate.toFixed(1)}%` : undefined,
+      note: displayProfit === null ? '필수 비용 근거 없음' : changeNote(headlineProfitChange),
+      trend: trendOf(headlineProfitChange),
+      emphasis: true,
+    },
+  ];
+  const headlineAds: HeadlineMetric[] = [
+    {
+      key: 'roas',
+      label: 'ROAS',
+      value: adRoas === null ? null : adRoas.toFixed(0),
+      unit: '%',
+      note: adRoas === null ? adCoverageNote : prevNote(adPrevRoas, (value) => `${value.toFixed(0)}%`),
+      trend: trendOf(adRoasChange),
+    },
+    {
+      key: 'ctr',
+      label: '클릭률 (CTR)',
+      value: headlineAdCtr === null ? null : headlineAdCtr.toFixed(2),
+      unit: '%',
+      note: prevNote(headlinePrevAdCtr, (value) => `${value.toFixed(2)}%`),
+    },
+    {
+      key: 'adConvRevenue',
+      label: '광고 전환매출',
+      value: adConvRevenue === null ? null : formatKRW(adConvRevenue),
+      unit: '원',
+      note: prevNote(headlinePrevAdConvRevenue, (value) => `${formatKRW(value)}원`),
+    },
+    {
+      key: 'adSpend',
+      label: '광고비',
+      value: headlineAdSpend === null ? null : formatKRW(headlineAdSpend),
+      unit: '원',
+      note: prevNote(headlinePrevAdSpend, (value) => `${formatKRW(value)}원`),
+      higherIsWorse: true,
+    },
+  ];
+  const lastCompleted = collectionsQuery.data?.lastCompleted ?? null;
+  const collectedAgo = (sourceType: string) => {
+    const iso = lastCompleted?.[sourceType];
+    return iso ? timeAgo(new Date(iso), new Date()) : null;
+  };
+  const orderCollectAgo = collectedAgo('order_collection_mall');
+  const trackingAgo = collectedAgo('sellpia_shipment_tracking');
+  const headlineMall: HeadlineMetric[] = [
+    {
+      key: 'mallOrders',
+      label: '오늘 주문',
+      value: today?.orders === null || today?.orders === undefined ? null : formatNumber(today.orders),
+      unit: '건',
+      note: today?.orders === null || today?.orders === undefined
+        ? (orderCollectAgo ? `오늘은 아직 — 마지막 수집 ${orderCollectAgo}` : '아직 수집 전')
+        : '몰에서 수집한 주문',
+      href: '/order-collection',
+    },
+    { key: 'mallOrderCollect', label: '주문 수집', value: orderCollectAgo, href: '/order-collection' },
+    { key: 'mallTracking', label: '송장 수집', value: trackingAgo, href: '/order-collection' },
+    { key: 'mallCancelReturn', label: '취소 · 반품', value: null },
+  ];
+  const measuredWarning = (key: keyof NonNullable<typeof inventoryData>['warnings']): number | null => {
+    const value = inventoryData?.warnings[key];
+    return basisHasValues(warningBasis(`warnings.${key}`)) && typeof value === 'number' ? value : null;
+  };
+  const reorderProductCount = basisHasValues(readMetricBasis(findingsQuery.data, 'reorderProductCount'))
+    ? findingsQuery.data?.reorderProductCount ?? null : null;
+  const outOfStockCount = measuredWarning('outOfStockSkus');
+  const mappingAttentionCount = measuredWarning('mappingAttentionSkus');
+  const negativeProfitCount = measuredWarning('minusProducts');
+  const count = (value: number | null) => value === null ? null : formatNumber(value);
+  const headlineInventory: HeadlineMetric[] = [
+    {
+      key: 'stockSoon', label: '발주 검토', value: count(reorderProductCount), unit: '개',
+      note: '기존 소진 분석 · 매출 연결 상품', alert: (reorderProductCount ?? 0) > 0,
+      href: '/product-hub?inventoryFocus=reorder',
+    },
+    {
+      key: 'stockOut', label: '품절 상품', value: count(outOfStockCount), unit: '개',
+      alert: (outOfStockCount ?? 0) > 0, href: '/product-hub?inventoryFocus=out_of_stock',
+    },
+    {
+      key: 'stockMatching', label: '매칭 확인 필요', value: count(mappingAttentionCount), unit: '개',
+      note: '쇼핑몰 옵션 연결 기준', href: '/mall-listings',
+    },
+    {
+      key: 'lossProducts', label: '적자 쇼핑몰 상품', value: count(negativeProfitCount), unit: '개',
+      note: '기존 상품×쇼핑몰 손익 기준', higherIsWorse: true, href: '/profit-loss',
+    },
+  ];
+  const aiSuggestions = buildAiSuggestions({
+    findings: findingsQuery.data,
+    stock: { outOfStockCount, reorderProductCount },
+    unlinkedProducts: channelUnlinkedProducts,
+  });
+
+  // `periodLabel` is the month the server built the baseline for; it does not
+  // follow a custom range, so beside July's day counts it read "2026년 9월".
+  // The section names the window that was actually selected.
+
+
+
 
   // Every failed read on the page, named once. React Query already owns this
   // state, so nothing here is a second copy of it.
@@ -438,7 +951,6 @@ export default function Dashboard() {
     if (failed) readFailures.push({ key, label, retry });
   };
   addReadFailure('sales-baseline', '주문 매출', salesBaselineHasErr, salesBaselineError, () => { void refetchSalesBaseline(); });
-  addReadFailure('products-overview', '재고 요약', productOverview.isError, productOverview.error, () => { void productOverview.refetch(); });
   addReadFailure('ad-baseline', '쿠팡 광고', adBaselineHasErr, adBaselineError, () => { void refetchAdBaseline(); });
   addReadFailure('sales-range', `선택 기간 매출(${rangeLabel})`, salesRangeHasErr, salesRangeError, () => { void refetchSalesRange(); });
   addReadFailure('ad-range', `선택 기간 광고(${rangeLabel})`, adRangeHasErr, adRangeError, () => { void refetchAdRange(); });
@@ -452,241 +964,13 @@ export default function Dashboard() {
     });
   }
   addReadFailure('inventory', '상품·재고', inventoryHasErr, inventoryError, () => { void refetchInventory(); });
+  addReadFailure('trend', '매출 추이', trendHasErr, trendError, () => { void refetchTrend(); });
   addReadFailure('findings', 'AI 발견 · 제안', findingsQuery.isError, findingsQuery.error, () => { void findingsQuery.refetch(); });
-  addReadFailure('recent-products', '최근 등록 상품', recentProductsQuery.isError, recentProductsQuery.error, () => { void recentProductsQuery.refetch(); });
-
-  // ── 맨 위 매출 · 광고 카드 ───────────────────────────────────────────────
-  // 처음 대시보드의 KPI 두 줄(매출 넷 · 광고 넷)을 카드 두 장으로 세운다. 값은 아래 기간
-  // 지표와 같은 변수에서 온다 — 여기서 다시 계산하면 두 자리가 어긋난다. 변화는 아래 칸과
-  // 같은 조건에서만 적는다(셀피아 기준 매출은 비교 기준이 달라 변화를 싣지 않는다).
-  // 출처 문구(셀피아 · 정산 없음 …)는 아래 칸이 이미 말하므로 되풀이하지 않는다.
-  const headlineRevenueChange = !sellpiaHasData && displayRevenue !== null ? revenueChange : null;
-  const headlineProfitChange = !sellpiaHasData && displayProfit !== null ? profitChange : null;
-  const changeNote = (change: number | null) =>
-    change === null ? null : `${change > 0 ? '▲' : change < 0 ? '▼' : '−'} ${Math.abs(change).toFixed(1)}% 이전 대비`;
-  const trendOf = (change: number | null) => (change === null || change === 0 ? null : change > 0 ? 'up' : 'down');
-  const headlineAdSpend = rkAd ? rkAd.adSpend : adMonthly?.totalAdSpend ?? null;
-  const headlinePrevAdSpend = rkAd ? rkAd.prevAdSpend ?? null : adMonthly?.prevTotalAdSpend ?? null;
-  const headlineAdCtr = rkAd?.adCtr ?? adCtr;
-  const headlinePrevAdCtr = rkAd ? rkAd.prevAdCtr ?? null : adMonthly?.prevCtr ?? null;
-  const headlinePrevAdConvRevenue = rkAd ? rkAd.prevAdConvRevenue ?? null : adMonthly?.prevAdRevenue ?? null;
-  const prevNote = (prev: number | null, format: (value: number) => string) =>
-    prev === null ? null : `이전 ${format(prev)}`;
-  // 빈 칸이 왜 비었는지 한 줄. 광고는 서버가 낸 수집 범위(완료한 날/기간 날)를 그대로 옮기고,
-  // 셀피아 순이익은 서버가 광고비를 모른다고 낸 경우(adCost null)만 그 까닭을 적는다.
-  const adCoverage = rkAd ? rkAd.coverage ?? null : adMonthly?.coverage ?? adKpi?.coverage ?? null;
-  const adCoverageNote = adCoverage && adCoverage.completedDays < adCoverage.targetDays
-    ? `광고 수집 ${adCoverage.completedDays}/${adCoverage.targetDays}일`
-    : null;
-  const profitUnknownNote = sellpiaHasData && sp?.adCost === null ? '광고비 수집 전' : null;
-  // 매출 카드는 영수증이다 — 매출에서 매입 원가와 광고비를 빼면 순이익(사장님 2026-09-20).
-  // 네 값 모두 셀피아 판매현황 읽기가 낸 것이다. 화면은 빼기도 하지 않는다.
-  const receiptReady = sellpiaHasData && sp !== undefined && sp !== null;
-  const headlineRevenue: HeadlineMetric[] = [
-    {
-      key: 'revenue', label: `${rangeLabel} 매출`,
-      value: displayRevenue === null ? null : formatKRW(displayRevenue), unit: '원',
-      note: changeNote(headlineRevenueChange), trend: trendOf(headlineRevenueChange),
-    },
-    {
-      key: 'cost', label: '매입 원가',
-      value: receiptReady ? formatKRW(sp.totalCost) : null, unit: '원',
-      negative: true,
-    },
-    {
-      key: 'adCost', label: '광고비',
-      value: receiptReady && sp.adCost !== null ? formatKRW(sp.adCost) : null, unit: '원',
-      negative: true,
-    },
-    {
-      key: 'profit', label: `${rangeLabel} 순이익`,
-      value: displayProfit === null ? null : formatKRW(displayProfit), unit: '원',
-      suffix: receiptReady && sp.profitRate !== null ? `${sp.profitRate.toFixed(1)}%` : undefined,
-      trend: trendOf(headlineProfitChange),
-      emphasis: true,
-    },
-  ];
-  const headlineAds: HeadlineMetric[] = [
-    {
-      key: 'roas', label: 'ROAS',
-      value: adRoas === null ? null : adRoas.toFixed(0), unit: '%',
-      note: adRoas === null ? adCoverageNote : prevNote(adPrevRoas, (value) => `${value.toFixed(0)}%`),
-      trend: trendOf(adRoasChange),
-    },
-    {
-      key: 'ctr', label: '클릭률 (CTR)',
-      value: headlineAdCtr === null ? null : headlineAdCtr.toFixed(2), unit: '%',
-      note: prevNote(headlinePrevAdCtr, (value) => `${value.toFixed(2)}%`),
-    },
-    {
-      key: 'adConvRevenue', label: '광고 전환매출',
-      value: adConvRevenue === null ? null : formatKRW(adConvRevenue), unit: '원',
-      note: prevNote(headlinePrevAdConvRevenue, (value) => `${formatKRW(value)}원`),
-    },
-    {
-      key: 'adSpend', label: '광고비',
-      value: headlineAdSpend === null ? null : formatKRW(headlineAdSpend), unit: '원',
-      note: prevNote(headlinePrevAdSpend, (value) => `${formatKRW(value)}원`),
-      higherIsWorse: true,
-    },
-  ];
-
-  const lastCompleted = collectionsQuery.data?.lastCompleted ?? null;
-  const collectedAgo = (sourceType: string) => {
-    const iso = lastCompleted?.[sourceType];
-    return iso ? timeAgo(new Date(iso), new Date()) : null;
-  };
-  const orderCollectAgo = collectedAgo('order_collection_mall');
-  const trackingAgo = collectedAgo('sellpia_shipment_tracking');
-  const headlineMall: HeadlineMetric[] = [
-    {
-      key: 'mallOrders', label: '오늘 주문',
-      value: today?.orders === null || today?.orders === undefined ? null : formatNumber(today.orders), unit: '건',
-      // 모르면 왜 모르는지 — 오늘 몫을 아직 안 걷었으면 그 말을 한다.
-      note: today?.orders === null || today?.orders === undefined
-        ? (orderCollectAgo ? `오늘은 아직 — 마지막 수집 ${orderCollectAgo}` : '아직 수집 전')
-        : '몰에서 수집해 들어온 주문',
-      href: '/order-collection',
-    },
-    {
-      key: 'mallOrderCollect', label: '주문 수집', value: orderCollectAgo, href: '/order-collection',
-    },
-    {
-      key: 'mallTracking', label: '송장 수집', value: trackingAgo, href: '/order-collection',
-    },
-    {
-      // 서버에 세는 곳이 없다 — 0 으로 찍지 않는다. 세려면 Orders 쪽에 읽기모델이 있어야 한다.
-      key: 'mallCancelReturn', label: '취소 · 반품', value: null,
-    },
-  ];
-
-  const stock = productOverview.data?.summary ?? null;
-  // AI 제안 — 이미 발표된 수만 줄로 바꾼다(`lib/ai-suggestions`).
-  const aiSuggestions = buildAiSuggestions({
-    findings: findingsQuery.data,
-    stock: stock
-      ? {
-        outOfStockCount: stock.inventoryStatusCounts?.out_of_stock ?? null,
-        reorderProductCount: stock.reorderProductCount ?? null,
-      }
-      : undefined,
-    unlinkedProducts: channelUnlinkedProducts,
-  });
-  const count = (value: number | undefined) => (stock && value !== undefined ? formatNumber(value) : null);
-  const headlineInventory: HeadlineMetric[] = [
-    {
-      key: 'stockSoon', label: '품절 임박',
-      value: count(stock?.reorderProductCount), unit: '개', note: '지금 발주해야 할 상품',
-      alert: (stock?.reorderProductCount ?? 0) > 0, href: '/product-hub?inventoryFocus=reorder',
-    },
-    {
-      key: 'stockOut', label: '품절 상품',
-      value: count(stock?.inventoryStatusCounts.out_of_stock), unit: '개',
-      alert: (stock?.inventoryStatusCounts.out_of_stock ?? 0) > 0, href: '/product-hub?inventoryFocus=out_of_stock',
-    },
-    {
-      // 상품 관리의 '재고 설정 확인'과 같은 두 무리(설정 필요 · 검토 필요)다.
-      key: 'stockMatching', label: '매칭 확인 필요',
-      value: stock ? formatNumber(stock.inventoryStatusCounts.configuration_required + stock.inventoryStatusCounts.review_required) : null,
-      unit: '개', href: '/product-hub?inventoryFocus=attention',
-    },
-    {
-      // 손익을 셀 근거(기여이익)가 없으면 적자 0 개가 아니라 모름이다.
-      key: 'lossProducts', label: '적자 상품',
-      value: stock?.contributionOverview ? count(stock.negativeProfitCount) : null, unit: '개',
-      note: stock && !stock.contributionOverview ? '손익 근거 없음' : null,
-      higherIsWorse: true, href: '/product-hub',
-    },
-  ];
-
-  const findings = findingsQuery.data;
-
-  // 기간 선택은 대시보드 전체(맨 위 두 장 · 매출)를 다스린다. 그래서 그 모두의 위, 헤더에 선다.
-  const periodControls = (
-    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-      {kpiRange === 'custom' && (
-        <div className="flex items-center gap-1.5">
-          <input
-            type="date"
-            value={dateFrom}
-            max={dateTo || undefined}
-            onChange={e => setDateFrom(e.target.value)}
-            aria-label="시작일"
-            className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
-          />
-          <span className="text-slate-400" aria-hidden="true">~</span>
-          <input
-            type="date"
-            value={dateTo}
-            min={dateFrom || undefined}
-            onChange={e => setDateTo(e.target.value)}
-            aria-label="종료일"
-            className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
-          />
-          <button
-            onClick={applyCustomRange}
-            disabled={!dateFrom || !dateTo}
-            className="h-7 rounded-md bg-violet-600 px-3 text-[13px] font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            조회
-          </button>
-        </div>
-      )}
-      <div className="flex overflow-hidden rounded-md border border-slate-200">
-        {([['month', '월'], ['week', '주'], ['day', '일']] as const).map(([val, label]) => (
-          <button
-            key={val}
-            onClick={() => setKpiRange(val)}
-            className={cn(
-              'border-l border-slate-200 px-3 py-1 text-[13px] font-semibold transition-colors first:border-l-0',
-              kpiRange === val ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
-            )}
-          >{label}</button>
-        ))}
-        <button
-          onClick={() => {
-            setKpiRange('custom');
-            // 기간 진입 시 비어 있으면 이번 달로 기본 채움(빈 입력 방지)
-            if (sellpiaKnownThrough) {
-              const def = sellpiaPeriodRange('month', '', '', sellpiaKnownThrough);
-              if (def && !dateFrom) setDateFrom(def.from);
-              if (def && !dateTo) setDateTo(def.to);
-            }
-          }}
-          className={cn(
-            'flex items-center gap-1 border-l border-slate-200 px-3 py-1 text-[13px] font-semibold transition-colors',
-            kpiRange === 'custom' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
-          )}
-        ><Calendar size={12} /> 기간</button>
-      </div>
-    </div>
-  );
-
-  // 수익성 ABC 는 오른쪽 칸, 방금 위에 선다(사장님 2026-09-18).
-  const abcPanel = inventoryHasErr ? (
-    <DashboardSectionUnavailable label="수익성 ABC" />
-  ) : !inventoryData ? (
-    <DashboardSectionEmpty label="수익성 ABC" />
-  ) : (
-    <DashboardGradeCards
-      gradeCount={inventoryData.gradeCount}
-      classifiedProductCount={inventoryData.classifiedProductCount}
-      abcStatusCount={inventoryData.abcStatusCount}
-      abcContributionProfit={inventoryData.abcContributionProfit}
-      abcFormula={inventoryData.abcFormula}
-      gradeChanges={inventoryData.gradeChanges}
-      changesMeasured={basisHasValues(changesBasis)}
-      newProductCount={basisHasValues(newProductsBasis) ? inventoryData.newProductCount ?? null : null}
-      basis={inventoryBasis}
-      contributionBasis={contributionBasis}
-      refetchReads={async () => { await refetchInventory(); }}
-    />
-  );
+  addReadFailure('collections', '몰 수집 기록', collectionsQuery.isError, collectionsQuery.error, () => { void collectionsQuery.refetch(); });
+  addReadFailure('recent-products', '상품별 쇼핑몰 연결 현황', recentProductsQuery.isError, recentProductsQuery.error, () => { void recentProductsQuery.refetch(); });
 
   return (
-    <div className="relative w-full space-y-4 pb-12">
-      {/* 화면 위쪽만 아주 옅은 보라 — 머리와 첫 줄 카드가 바탕에서 뜬다(사장님 2026-09-20). */}
-      <div className="pointer-events-none absolute inset-x-0 -top-6 -z-10 h-72 bg-gradient-to-b from-violet-100/50 via-violet-50/20 to-transparent" aria-hidden />
+    <div className="space-y-4 w-full pb-12">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -696,19 +980,19 @@ export default function Dashboard() {
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-              <span className="text-[13px] tabular-nums text-slate-500">운영 상품 {inventoryData ? formatNumber(inventoryData.totalProducts) : '—'}</span>
-              <span className="text-[13px] tabular-nums text-slate-400">·</span>
-              <span className="text-[13px] tabular-nums text-slate-500">
+              <span className="text-[13px] font-mono text-slate-500">운영 상품 {inventoryData ? formatNumber(inventoryData.totalProducts) : '—'}</span>
+              <span className="text-[13px] font-mono text-slate-400">·</span>
+              <span className="text-[13px] font-mono text-slate-500">
                 채널 연결 {channelLinkedProducts === null ? '—' : formatNumber(channelLinkedProducts)}
               </span>
               {channelUnlinkedProducts !== null && channelUnlinkedProducts > 0 && (
                 <>
-                  <span className="text-[13px] tabular-nums text-slate-400">·</span>
-                  <span className="text-[13px] tabular-nums text-amber-700">미연결 {formatNumber(channelUnlinkedProducts)}</span>
+                  <span className="text-[13px] font-mono text-slate-400">·</span>
+                  <span className="text-[13px] font-mono text-amber-700">미연결 {formatNumber(channelUnlinkedProducts)}</span>
                 </>
               )}
-              <span className="text-[13px] tabular-nums text-slate-400" aria-hidden="true">·</span>
-              <span className="text-[13px] tabular-nums text-slate-500" title={observedAtTitle}>관측 {observedAgo}</span>
+              <span className="text-[13px] font-mono text-slate-400" aria-hidden="true">·</span>
+              <span className="text-[13px] font-mono text-slate-500" title={observedAtTitle}>관측 {observedAgo}</span>
               {periodShifted && latestDataDate && (
                 <span
                   className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
@@ -728,23 +1012,31 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={requestReadinessOpen}
-            className="flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-[13px] font-semibold text-white transition-colors hover:bg-violet-700"
-            title="쿠팡 Wing/광고 데이터 수집 상태 확인 + 누락분 수집 트리거"
-          >
-            <Database size={13} /> 데이터 수집
-          </button>
-          {periodControls}
-        </div>
+        {/* Collecting is not scoped by the period, so it stays on the identity
+            row. The period controls moved down to the column they govern. */}
+        <button
+          onClick={requestReadinessOpen}
+          className="flex shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1 text-[13px] font-semibold text-white transition-colors hover:bg-violet-700"
+          title="쿠팡 Wing/광고 데이터 수집 상태 확인 + 누락분 수집 트리거"
+        >
+          <Database size={13} /> 데이터 수집
+        </button>
       </div>
 
-      <DashboardReadFailures failures={readFailures} />
 
-      {/* 다섯 칸 한 줄. 아래 줄은 매출 추이 세 칸과 AI 에이전트 두 칸이 나란히 선다
-          (사장님 2026-09-20). 바탕으로 묶지 않는다 — 카드만 있다. */}
+      {selectedRangeLoading && (
+        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-[13px] text-slate-500">
+          선택한 기간의 매출·광고 데이터를 불러오는 중입니다.
+        </div>
+      )}
+      {channelSales.isLoading && (
+        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-2 text-[13px] text-slate-500">
+          셀피아 판매현황을 불러오는 중입니다.
+        </div>
+      )}
+
+      {/* 다섯 칸 한 줄. 아래 줄은 매출 추이 세 칸과 AI 에이전트 두 칸이 나란히 선다.
+          이 요약은 서버가 발표한 값을 카드에 배치하고, 기존 운영 상세 영역은 아래에 남긴다. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 min-[1500px]:grid-cols-5">
         <DashboardAgentStatus>
           {({ agents }) => (
@@ -757,7 +1049,24 @@ export default function Dashboard() {
                 inventory={headlineInventory}
                 salesHref={salesAnalysisHref}
               />
-              {abcPanel}
+
+              {inventoryHasErr ? (
+                <DashboardSectionUnavailable label="수익성 ABC" />
+              ) : !inventoryData ? (
+                <DashboardSectionEmpty label="수익성 ABC" />
+              ) : (
+                <DashboardGradeCards
+                  gradeCount={inventoryData.gradeCount}
+                  classifiedProductCount={inventoryData.classifiedProductCount}
+                  unclassifiedProductCount={inventoryData.unclassifiedProductCount}
+                  unclassifiedBasis={unclassifiedBasis}
+                  abcContributionProfit={inventoryData.abcContributionProfit}
+                  abcFormula={inventoryData.abcFormula}
+                  basis={inventoryBasis}
+                  contributionBasis={contributionBasis}
+                  refetchReads={async () => { await refetchInventory(); }}
+                />
+              )}
 
               <DashboardRevenue
                 className="min-w-0 min-[1500px]:col-span-3"
@@ -767,31 +1076,35 @@ export default function Dashboard() {
                 salesHref={salesAnalysisHref}
               />
 
-              {/* AI 에이전트 — 무엇을 하고 있나, 내가 할 일, 그리고 제안 하나. */}
-              <section aria-label="AI 에이전트" className="flex min-w-0 flex-col gap-4 self-start rounded-2xl border border-violet-200 bg-violet-100/60 p-3 min-[1500px]:col-span-2">
-                <DashboardAgentSummary findings={findingsQuery.data} />
-                {/* 두 칸은 에이전트 일곱 줄 높이(헤더 40 + 7×40 = 320px)에 딱 맞는다. */}
+              <section
+                aria-label="AI 에이전트"
+                className="flex min-w-0 flex-col gap-4 self-start rounded-2xl border border-violet-200 bg-violet-100/60 p-3 min-[1500px]:col-span-2"
+              >
+                <DashboardAgentSummary findings={findingsQuery.data} findingsError={findingsQuery.isError} findingsLoading={findingsQuery.isLoading} />
                 <div className="grid min-w-0 grid-cols-1 gap-4 lg:h-[22.5rem] lg:grid-cols-2">
                   {agents}
-                  <DashboardUrgentQueue findings={findingsQuery.data} findingsLoading={findingsQuery.isLoading} />
+                  <DashboardUrgentQueue findings={findingsQuery.data} findingsLoading={findingsQuery.isLoading} findingsError={findingsQuery.isError} />
                 </div>
                 <DashboardAiSuggestion
                   className="min-w-0"
                   suggestions={aiSuggestions}
-                  basis={readMetricBasis(findings, 'reorderSuggestions')}
+                  basis={readMetricBasis(findingsQuery.data, 'reorderSuggestions')}
                   isLoading={findingsQuery.isLoading}
                   isError={findingsQuery.isError}
                 />
               </section>
 
-              {/* 맨 아래 — 매출 상위 상품, 최근 등록된 상품, 방금. */}
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 min-[1500px]:col-span-5 min-[1500px]:grid-cols-5">
                 {topProductsHasErr ? (
                   <DashboardSectionUnavailable label="Top Revenue Products" className="rounded-2xl border border-slate-200/80 bg-white min-[1500px]:col-span-3" />
                 ) : topProductsLoading ? (
-                  <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-8 text-center text-sm text-slate-500 min-[1500px]:col-span-3">상품 매출 데이터를 불러오는 중입니다.</div>
+                  <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white py-8 text-center text-sm text-slate-500 min-[1500px]:col-span-3">
+                    상품 매출 데이터를 불러오는 중입니다.
+                  </div>
                 ) : !effectiveSales ? (
-                  <div className="rounded-2xl border border-slate-200/80 bg-white min-[1500px]:col-span-3"><DashboardSectionEmpty label="Top Revenue Products" /></div>
+                  <div className="rounded-2xl border border-slate-200/80 bg-white min-[1500px]:col-span-3">
+                    <DashboardSectionEmpty label="Top Revenue Products" />
+                  </div>
                 ) : (
                   <DashboardTopProducts className="min-w-0 min-[1500px]:col-span-3" products={topProducts} basis={topProductsBasis} />
                 )}
@@ -807,6 +1120,329 @@ export default function Dashboard() {
         </DashboardAgentStatus>
       </div>
 
+      {/* 본문 — 왼쪽은 기간을 읽는 것, 오른쪽은 지금 손이 필요한 것.
+          한 화면에서 훑는 것이 이 페이지의 용도라 세로로 쌓지 않는다. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+        <div className="lg:col-span-2 space-y-3">
+          <DashboardSectionHeader
+            title="기간 지표"
+            controls={(
+              <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+                {/* One ⓘ for the seven cells, broken down per value: two cards in
+                    this row can report different windows and different sources,
+                    so the panel never states one shared basis. */}
+                <DashboardBasisDisclosure
+                  label="기간 지표 근거"
+                  meaning={(
+                    <p>
+                      위 선택한 기간의 합계입니다. 매출은 주문 품목 금액의 합이고, 순이익은
+                      원가·수수료·배송비 근거가 갖춰진 주문만 계산합니다. 광고비율은
+                      광고비÷매출, 광고수익률은 광고전환매출÷광고비이며, 분모가 없으면
+                      비율도 내지 않습니다. 일곱 칸의 원천과 기간이 서로 다를 수 있어
+                      아래에 값마다 따로 적습니다.
+                    </p>
+                  )}
+                  entries={[
+                    { label: `${rangeLabel} 매출`, basis: revenueCardBasis },
+                    { label: `${rangeLabel} 순이익`, basis: profitBasis },
+                    { label: '이익률', basis: profitRateBasis },
+                    { label: '광고비율', basis: adRateBasis },
+                    { label: '구매전환율', basis: trafficBasis },
+                    { label: '광고수익률', basis: adRoasBasis },
+                    { label: '오늘 주문', basis: todayBasis },
+                  ]}
+                />
+                {kpiRange === 'custom' && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      max={dateTo || undefined}
+                      onChange={e => setDateFrom(e.target.value)}
+                      aria-label="시작일"
+                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    />
+                    <span className="text-slate-400" aria-hidden="true">~</span>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={e => setDateTo(e.target.value)}
+                      aria-label="종료일"
+                      className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-violet-300"
+                    />
+                    <button
+                      onClick={applyCustomRange}
+                      disabled={!dateFrom || !dateTo}
+                      className="h-7 rounded-md bg-violet-600 px-3 text-[13px] font-semibold text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      조회
+                    </button>
+                  </div>
+                )}
+                <div className="flex overflow-hidden rounded-md border border-slate-200">
+                  {([['month', '월'], ['week', '주'], ['day', '일']] as const).map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => setKpiRange(val)}
+                      className={cn(
+                        'border-l border-slate-200 px-3 py-1 text-[13px] font-semibold transition-colors first:border-l-0',
+                        kpiRange === val ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
+                      )}
+                    >{label}</button>
+                  ))}
+                  <button
+                    onClick={() => {
+                      setKpiRange('custom');
+                      // 기간 진입 시 비어 있으면 이번 달로 기본 채움(빈 입력 방지)
+                      if (sellpiaKnownThrough) {
+                        const def = sellpiaPeriodRange('month', '', '', sellpiaKnownThrough);
+                        if (def && !dateFrom) setDateFrom(def.from);
+                        if (def && !dateTo) setDateTo(def.to);
+                      }
+                    }}
+                    className={cn(
+                      'flex items-center gap-1 border-l border-slate-200 px-3 py-1 text-[13px] font-semibold transition-colors',
+                      kpiRange === 'custom' ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-slate-50',
+                    )}
+                  ><Calendar size={12} /> 기간</button>
+                </div>
+              </div>
+            )}
+          />
+
+        {/* KPI 카드 — 기간 지표 여섯 개 + 오늘 주문 */}
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 lg:grid-cols-7" style={{ alignItems: 'stretch' }}>
+          {/* 기간 매출 — 채널 분해는 매출 분석 화면이 owner라 셀 전체가 그리로 간다. */}
+        <Link
+          href={salesAnalysisHref}
+          className="flex flex-col bg-white px-4 py-3 transition-colors hover:bg-slate-50"
+          data-testid="dashboard-primary-revenue"
+        >
+          <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{rangeLabel} 매출</p>
+          <p
+            className="whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900"
+            data-testid="dashboard-primary-revenue-value"
+          >
+            {displayRevenue === null ? '—' : <>{formatKRW(displayRevenue)}<span className="ml-0.5 text-[13px] font-semibold text-slate-500">원</span></>}
+          </p>
+          <p className="mt-0.5 text-xs leading-snug text-slate-500">
+            {revenueCellNote}
+            {/* A change against a period that published nothing is not a
+                change; the slot stays out of the way rather than showing a
+                dash beside a real number. */}
+            {!sellpiaHasData && displayRevenue !== null && revenueChange !== null && (
+              <span
+                className={cn('ml-1 font-medium', revenueChange >= 0 ? 'text-emerald-700' : 'text-red-600')}
+                data-testid="dashboard-primary-revenue-change"
+              >
+                {revenueChange > 0 ? '▲' : '▼'} {Math.abs(revenueChange).toFixed(1)}%
+              </span>
+            )}
+          </p>
+          {(trafficCoverageComplete && trafficUnverifiedLabels.length > 0) && (
+            <p className="mt-0.5 text-xs text-amber-700">일별 합산·기간 원본 미대사 · {trafficUnverifiedLabels.join(', ')}</p>
+          )}
+          {trafficMismatchLabels.length > 0 && (
+            <p className="mt-0.5 text-xs text-amber-700">기간 원본 불일치로 숨김 · {trafficMismatchLabels.join(', ')}</p>
+          )}
+        </Link>
+
+          {/* 기간 순이익 — 세 갈래였던 카드가 한 셀이다. 비용 구성과 판매수량은
+              어느 갈래든 상세 모달이 들고, 셀은 어느 상태에서든 그 모달을 연다. */}
+          <button
+            type="button"
+            onClick={() => setShowProfitDetail(true)}
+            className="flex flex-col items-start bg-white px-4 py-3 text-left transition-colors hover:bg-slate-50"
+            data-testid="dashboard-primary-profit"
+            title={profitCellReason ?? undefined}
+          >
+            <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">{rangeLabel} 순이익</p>
+            <p className={cn(
+              'whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums',
+              displayProfit === null ? 'text-slate-400' : displayProfit >= 0 ? 'text-slate-900' : 'text-red-600',
+            )}>
+              {displayProfit === null ? '—' : <>{formatKRW(displayProfit)}<span className="ml-0.5 text-[13px] font-semibold text-slate-500">원</span></>}
+            </p>
+            <p className="mt-0.5 text-xs leading-snug text-slate-500">
+              {profitCellNote}
+              {displayProfit !== null && !sellpiaHasData && profitChange !== null && (
+                <span className={cn('ml-1 font-medium', profitChange >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                  {profitChange > 0 ? '▲' : '▼'} {Math.abs(profitChange).toFixed(1)}%
+                </span>
+              )}
+            </p>
+
+          </button>
+
+          {/* 이익률 — 순이익을 못 구하면 정의가 없으니 placeholder 로 */}
+          {profitRateAvailable ? (
+            <MetricCard
+              label="이익률"
+              value={displayProfitRate === null ? '—' : displayProfitRate.toFixed(1)}
+              unit="%"
+              change={sellpiaHasData ? null : profitRateChange}
+              prevLabel={sellpiaHasData ? '셀피아 공통 유효 날짜 기준' : `이전 ${formatNullablePercent(prevProfitRate)}`}
+            />
+          ) : (
+            <UnavailableMetricCard
+              label="이익률"
+            />
+          )}
+
+          {/* 광고비율 */}
+          {adRateAvailable ? (
+            <MetricCard
+              label="광고비율"
+              value={kpiAdRate === null ? '—' : kpiAdRate.toFixed(1)}
+              unit="%"
+              change={adRateChange === null ? null : -adRateChange}
+              prevLabel={`이전 ${formatNullablePercent(kpiPrevAdRate)}`}
+              invertColor
+            />
+          ) : (
+            <UnavailableMetricCard
+              label="광고비율"
+            />
+          )}
+
+          {/* 구매전환율 */}
+          {trafficConversionRate !== null ? (
+            <MetricCard
+              label="구매전환율"
+              value={trafficConversionRate.toFixed(1)}
+              unit="%"
+              change={null}
+              prevLabel="비교 기준 없음"
+            />
+          ) : (
+            <UnavailableMetricCard
+              label="구매전환율"
+            />
+          )}
+
+          {/* 광고수익률(ROAS) */}
+          {adRoas !== null ? (
+            <MetricCard
+              label="광고수익률"
+              value={adRoas.toFixed(0)}
+              unit="%"
+              change={adRoasChange}
+              prevLabel={`이전 ${formatNullablePercent(adPrevRoas, 0)}`}
+            />
+          ) : (
+            <UnavailableMetricCard
+              label="광고수익률"
+            />
+          )}
+
+          <div className="flex flex-col bg-white px-4 py-3" data-testid="dashboard-today-orders">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-slate-500">오늘 주문</p>
+            {today?.orders !== null && today?.orders !== undefined
+              && today.revenue !== null ? (
+              <>
+                <p className="whitespace-nowrap text-xl font-bold leading-tight tracking-tight tabular-nums text-slate-900">
+                  {formatNumber(today.orders)}<span className="ml-0.5 text-[13px] font-semibold text-slate-500">건</span>
+                </p>
+                <p className="mt-0.5 text-xs leading-snug text-slate-500">
+                  {formatKRW(today.revenue)}원 · 주문 품목 합계
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-xl font-bold text-slate-400">—</p>
+                <p className="mt-0.5 text-xs text-slate-500">미측정</p>
+              </>
+            )}
+          </div>
+        </div>
+
+        <DashboardTrafficFunnel
+          steps={trafficFunnelSteps}
+          sourceNote={trafficSourceNote}
+          partial={trafficCoverage !== null && !trafficCoverageComplete}
+          collected={trafficAvailable}
+          onCollect={requestReadinessOpen}
+        />
+
+          {trendLoading ? (
+            <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-16 text-sm text-slate-500">트렌드 데이터를 불러오는 중입니다.</div>
+          ) : trendHasErr ? (
+            <DashboardSectionUnavailable label="매출 추이" className="rounded-xl border border-slate-200 bg-white" />
+          ) : (
+            <DashboardChartPanel
+              dailyTrend={dailyTrend}
+              industryBenchmark={benchmark}
+              benchmarkBases={benchmarkBases}
+              rangeLabel={kpiRange === 'custom' && dateFrom && dateTo
+                ? `${dateFrom} ~ ${dateTo}`
+                : kpiRange === 'month'
+                  ? '이번 달'
+                  : kpiRange === 'week'
+                    ? '최근 7일'
+                    : '오늘'}
+            />
+          )}
+
+        </div>
+
+        <div className="space-y-3">
+          {/* Its twin, so the two rules read as one boundary. */}
+          <DashboardSectionHeader
+            title="현재 상태"
+            scope="기간과 무관"
+          />
+
+          {inventoryHasErr ? (
+            <DashboardSectionUnavailable label="경고" />
+          ) : !inventoryData ? (
+            <DashboardSectionEmpty label="경고" />
+          ) : (
+            <DashboardWarningTable
+              rows={buildWarningRows(
+                inventoryData.warnings,
+                warningBasis,
+                inventoryData.unclassifiedProductCount,
+                unclassifiedBasis,
+                inventoryData.gradeChanges?.downgraded,
+                downgradedBasis,
+              )}
+            />
+          )}
+
+          <DashboardAdPerformance
+            rows={adPerformanceRows}
+            rangeLabel={kpiRange === 'custom' && dateFrom && dateTo
+              ? `${dateFrom} ~ ${dateTo}`
+              : kpiRange === 'month'
+                ? '이번 달'
+                : kpiRange === 'week'
+                  ? '최근 7일'
+                  : '어제'}
+            source={adKpi?.source ?? rkAd?.source ?? null}
+            knownThrough={adKpi?.coverage?.knownThrough ?? rkAd?.coverage?.knownThrough ?? null}
+            effectiveAdSource={effectiveAd?.effectivePeriod?.adSource ?? null}
+          />
+
+          {/* Always rendered. Replacing it on a failed read hid the one place a
+              failed read can be retried from — including its own. */}
+          <DashboardSidePanel
+            alerts={inventoryData?.alerts ?? []}
+            readFailures={readFailures}
+          />
+        </div>
+      </div>
+
+      {/* 순이익 상세 모달 */}
+      {showProfitDetail && effectiveSales && effectiveAd && (
+        <DashboardProfitDetailModal
+          salesBaseline={effectiveSales}
+          adBaseline={effectiveAd}
+          selectedRange={kpiRange}
+          inputs={profitDetailInputs}
+          onClose={() => setShowProfitDetail(false)}
+        />
+      )}
       <ReadinessModal
         open={showReadiness}
         onClose={() => setShowReadiness(false)}
@@ -823,4 +1459,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

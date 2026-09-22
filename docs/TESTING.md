@@ -259,7 +259,7 @@ Repository port 는 "외부 side effect 협력자"가 아니다. DB 판정이 �
 # 전체
 npx vitest run --workspace=apps/server
 # 특정
-npm exec --workspace=apps/server vitest -- run src/inventory/application/service/__tests__/inventory-availability.service.spec.ts
+npm exec --workspace=apps/server vitest -- run src/products/application/usecase/product-collection-freshness.usecase.spec.ts
 ```
 
 **한계**: race / lock / 트랜잭션 isolation 검증 불가. `updateMany({ count: 0 })` 반환을 강제할 순 있지만, 실제 두 트랜잭션 경쟁에서 count 가 어떻게 나오는지는 **mock 으로 재현 불가** (mock Prisma 는 synchronous).
@@ -392,18 +392,18 @@ machine.
   TRUNCATE 실수 방지.
 - `vitest.config.integration.ts` — `fileParallelism: false` + `isolate: false` 로 단일 fork serial 실행 (테스트 사이 reset 만 하면 충분).
 
-## Sellpia Inventory And Rocket Confirmation (`0.1.19`–`0.1.20`) Verification Contract
+## Sellpia Inventory And Rocket Verification Contract
 
-Sellpia 최신성은 한 종류의 테스트로 증명하지 않는다. 각 위험은 판정 권한이
+Sellpia 수집과 재고 반영은 한 종류의 테스트로 증명하지 않는다. 각 위험은 판정 권한이
 있는 가장 낮은 tier에서 고정한다.
 
 | 위험 | 필수 증거 |
 |---|---|
-| 10분 TTL, 2분 settle/5분 cap, 3분 same-hash confirmation, 90초 lease/20초 heartbeat | shared/domain unit boundary tests |
+| 성공·실패·취소·마지막 성공 상태, 빈 전체 결과와 불완전 결과 구분, 실행 lease/heartbeat | shared/domain 및 원천 계약 tests |
 | generation/fence/owner race, full-file rollback, duplicate/hash publication, Supply lock + attempt uniqueness | real PostgreSQL integration |
 | DTO/auth role/organization context, controller action-body contract | server unit/E2E + IDOR/tenant scanners |
 | Chrome extension login/HTML/workbook/timeout/focus behavior | Node extension contract tests; 실제 Chrome는 safe smoke만 |
-| automatic web claim/join/heartbeat/cancel, one-retry purchase recovery, active-route UI, and intentionally retired URL absence | React/Vitest active-route behavior tests; `apps/web/src/app/__tests__/retired-sidebar-routes.spec.ts` plus the production web build for retired URLs |
+| shared collection start/join/cancel, exact completion before purchase/Rocket calculation, failure without old-stock fallback, active-route UI, and intentionally retired URL absence | React/Vitest active-route behavior tests; `apps/web/src/app/__tests__/retired-sidebar-routes.spec.ts` plus the production web build for retired URLs |
 | `MasterProduct.currentStock` single writer | `sellpia-authoritative-inventory-contract.test.mjs` scanner |
 | Rocket confirmation is idempotent, generation/recipe-fenced, concurrency-safe, releasable, and has no provider/stock-write lane | Rocket confirmation PostgreSQL integration, server policy/service tests, workbook contract, and `rocket-purchase-decision-boundary.spec.ts` |
 | schema/data migration/generated docs | `db:push`, Prisma generate, data migration up twice/status, ERD sync gate |
@@ -443,7 +443,7 @@ PR 작성자는 `CLAUDE.md`의 변경 유형별 검증과 PR body guard를 로�
 | --- | --- | --- |
 | `PR Checks / PR hygiene` | `develop`, `main`, `release/office` 대상 PR | PR diff whitespace와 AGENTS hygiene 검증 |
 | `PR Checks / Gateway fast checks` | 동일 PR | lifecycle script 없는 install, Gateway가 소비하는 Shared 런타임 진입점과 Gateway build, Gateway unit tests |
-| `PR Checks / Script contract tests` | 동일 PR | lifecycle script 없는 install, Prisma client 생성, Shared JS 빌드(DTS 제외), ripgrep 설치 뒤 `npm run test:scripts`(scripts vitest와 `node --test`) 실행 |
+| `PR Checks / Script contract tests` | 동일 PR | lifecycle script 없는 install, Prisma client 생성, Shared JS 빌드(DTS 제외), `origin/release/office`를 depth 1로 fetch해 기존 행이 막을 스키마 변경마다 `scripts/cutover-blocker-coverage.json` 항목이 있는지 DB 없이 확인(`check-cutover-blocker-coverage.mjs`), ripgrep 설치 뒤 `npm run test:scripts`(scripts vitest와 `node --test`) 실행 |
 | `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build(heap 4096MB), web/extension tests, real PostgreSQL integration suite 실행 |
 
 `Develop Validation` 은 `develop` 누적 HEAD에 대해 필요할 때 수동으로 실행한다.

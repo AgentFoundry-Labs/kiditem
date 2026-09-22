@@ -3,34 +3,26 @@ import ProductInfoCards from './ProductInfoCards';
 import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
 describe('ProductInfoCards', () => {
-  it('hides a system-owned Sellpia product code without hiding its operating facts', () => {
+  it('shows the product code without retired source metadata controls', () => {
     render(<ProductInfoCards product={product()} onOpenAbcDetail={() => undefined} />);
-
-    expect(screen.getByText('카테고리')).toBeInTheDocument();
-    expect(screen.getByText('완구')).toBeInTheDocument();
-    expect(screen.getByText('브랜드')).toBeInTheDocument();
-    expect(screen.getByText('KidItem')).toBeInTheDocument();
-    expect(screen.queryByText('상품 코드')).not.toBeInTheDocument();
-    expect(screen.queryByText(/INV-SELLPIA-/)).not.toBeInTheDocument();
+    expect(screen.getByText('상품 코드')).toBeInTheDocument();
+    expect(screen.getByText('KID00000100')).toBeInTheDocument();
+    expect(screen.getByText('현재고는 이 MasterProduct에 저장된 최신 수량입니다.')).toBeInTheDocument();
+    for (const label of ['카테고리', '브랜드', '광고 설정', '광고 예산 한도', '손익 태그']) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+    }
   });
 
-  it('shows the ad budget setting without a manual profit tag', () => {
-    render(<ProductInfoCards product={product()} onOpenAbcDetail={() => undefined} />);
-
-    expect(screen.getByText('광고 설정')).toBeInTheDocument();
-    expect(screen.getByText('광고 예산 한도')).toBeInTheDocument();
-    expect(screen.queryByText('손익 태그')).not.toBeInTheDocument();
-  });
 });
 
 function product(): MasterProductOperationsDetail {
   return {
     id: '11111111-1111-4111-8111-111111111111',
-    code: 'INV-SELLPIA-100',
+    code: 'KID00000100',
     displayReference: {
       type: 'product_code',
       label: '상품 코드',
-      value: 'INV-SELLPIA-100',
+      value: 'KID00000100',
     },
     name: '상세 테스트 상품',
     description: null,
@@ -45,7 +37,7 @@ function product(): MasterProductOperationsDetail {
     isActive: true,
     createdAt: '2026-08-01T00:00:00.000Z',
     updatedAt: '2026-08-01T00:00:00.000Z',
-    inventory: { skuCount: 1, measuredSkuCount: 1, inactiveSkuCount: 0 },
+    inventory: { skuCount: 1, measuredSkuCount: 1 },
     inventoryUnits: 10,
     channelListings: [],
   };

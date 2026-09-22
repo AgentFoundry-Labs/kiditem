@@ -9,9 +9,8 @@ import {
   isCredentialFailureReason,
   mallRejectedCredentials,
 } from '@/lib/mall-login-block';
-import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { testMallLoginViaExtension } from '../../order-collection/lib/order-collection-extension';
-import { orderMallAccountApi } from '../../order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 
 export type MallLoginTestOutcome =
   /** 저장된 값을 입력하고 로그인 버튼을 눌렀고, 누른 뒤 로그인 화면이 사라졌다. */
@@ -35,6 +34,7 @@ const LOGIN_METHOD_LABEL: Record<string, string> = {
 
 const UNVERIFIED_DETAIL: Record<string, string> = {
   unsupported_mall: '이 몰은 폼 자동 로그인을 지원하지 않아 비밀번호를 확인하지 못했습니다.',
+  no_login_form: '이 몰은 확장이 채울 로그인 폼이 없어 확인하지 못했습니다.',
   already_signed_in: '브라우저가 이미 로그인된 상태라 저장된 비밀번호를 확인하지 못했습니다.',
   no_credentials: '저장된 아이디·비밀번호가 없습니다.',
 };
@@ -43,39 +43,6 @@ export interface MallLoginTestResult {
   outcome: MallLoginTestOutcome;
   detail: string | null;
   at: number;
-}
-
-/**
- * 관찰 기록의 이유 코드는 소문자 · 숫자 · 밑줄이다(`^[a-z][a-z0-9_]{0,63}$`). 확장이 준 코드를
- * 그 모양으로 맞춘다 — 맞지 않으면 서버가 거절해 기록이 통째로 사라진다.
- */
-export function toLoginTestReasonCode(code: string | null | undefined, fallback: string): string {
-  const normalized = (code ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^[^a-z]+/, '')
-    .slice(0, 64);
-  return normalized || fallback;
-}
-
-/**
- * 로그인 테스트 결과를 관찰 기록에 한 줄 남긴다. 아이디 · 비밀번호는 넣지 않는다.
- * `verified` 는 "폼을 제출했고 로그인 화면이 사라졌다"이지 "세션이 섰다"를 몰에서 확인한 것은
- * 아니라서 이유 코드로 그 차이를 적는다.
- */
-function remember(
-  mallKey: string,
-  outcome: 'succeeded' | 'attention' | 'failed',
-  reasonCode: string,
-  message: string | null = null,
-): void {
-  void recordMallOperationOutcome({
-    mallKey,
-    operation: 'login_test',
-    outcome,
-    reasonCode,
-    message,
-  });
 }
 
 /**
@@ -98,7 +65,6 @@ export function useMallLoginTest() {
       const { password } = await orderMallAccountApi.password(mallKey);
       if (!password) {
         record(mallKey, { outcome: 'no_credentials', detail: '저장된 비밀번호가 없습니다.', at: Date.now() });
-        remember(mallKey, 'attention', 'no_credentials');
         toast.warning(`${mallName} 비밀번호를 먼저 저장하세요.`);
         return;
       }
@@ -107,7 +73,6 @@ export function useMallLoginTest() {
         .then((accounts) => accounts.find((candidate) => candidate.key === mallKey) ?? null);
       if (!account?.loginId) {
         record(mallKey, { outcome: 'no_credentials', detail: '저장된 아이디가 없습니다.', at: Date.now() });
-        remember(mallKey, 'attention', 'no_credentials');
         toast.warning(`${mallName} 아이디를 먼저 저장하세요.`);
         return;
       }
@@ -128,7 +93,6 @@ export function useMallLoginTest() {
         if (mallRejectedCredentials(result.mallMessage)) {
           const detail = `${mallName}: ${result.mallMessage}`;
           record(mallKey, { outcome: 'failed', detail, at: Date.now() });
-          remember(mallKey, 'failed', 'credentials_rejected', detail);
           blockMallAutoLogin(mallKey, result.mallMessage ?? '몰이 아이디·비밀번호를 거부했습니다.');
           toast.error(`${mallName} 아이디·비밀번호가 맞지 않습니다`, {
             description: `${detail} — 저장된 값을 고친 뒤 다시 테스트해 주세요.`,
@@ -139,14 +103,12 @@ export function useMallLoginTest() {
           ? `${mallName}: ${result.mallMessage}`
           : '아이디·비밀번호를 넣고 눌렀지만 로그인 화면이 남아 있습니다. 열린 탭에서 확인해 주세요.';
         record(mallKey, { outcome: 'unverified', detail, at: Date.now() });
-        remember(mallKey, 'attention', 'login_form_remains', detail);
         toast.warning(`${mallName} 확인 못 함`, { description: detail });
         return;
       }
       if (result.success && result.submitted) {
         const method = result.method ? LOGIN_METHOD_LABEL[result.method] ?? result.method : null;
         record(mallKey, { outcome: 'verified', detail: method, at: Date.now() });
-        remember(mallKey, 'succeeded', 'form_submitted', '로그인 폼 제출 뒤 로그인 화면이 사라짐');
         // 사람이 직접 눌러 로그인이 됐다 — 막아 뒀던 자동 로그인을 다시 연다.
         clearMallAutoLoginBlock(mallKey);
         clearMallAutoLoginAttempt(mallKey);
@@ -160,12 +122,11 @@ export function useMallLoginTest() {
         const detail = UNVERIFIED_DETAIL[result.reason ?? '']
           ?? '로그인 폼을 만나지 못해 비밀번호를 확인하지 못했습니다.';
         record(mallKey, { outcome: 'unverified', detail, at: Date.now() });
-        remember(mallKey, 'attention', toLoginTestReasonCode(result.reason, 'form_not_found'), detail);
         toast.warning(`${mallName} 확인 못 함`, { description: detail });
         return;
       }
       // 확장에 닿지 못했다 — 비밀번호가 틀린 게 아니라 테스트를 못 한 것이다. 자동 로그인을 막지
-      // 않고, 몰에 대한 관찰도 아니므로 관찰 기록에도 남기지 않는다.
+      // 않는다.
       if (result.unavailable) {
         const detail = result.error ?? '확장에 닿지 못해 로그인 테스트를 하지 못했습니다.';
         record(mallKey, { outcome: 'failed', detail, at: Date.now() });
@@ -177,7 +138,6 @@ export function useMallLoginTest() {
         detail: result.error ?? '로그인하지 못했습니다.',
         at: Date.now(),
       });
-      remember(mallKey, 'failed', toLoginTestReasonCode(result.errorCode, 'login_failed'), result.error ?? null);
       // 실패한 몰은 더 시도하지 않는다 — 다시 두드리면 계정이 잠긴다. 본인확인 · OTP · 캡차는
       // 자격증명 문제가 아니라 사람이 인증만 하면 되는 상태라 따로 적는다.
       // 우리 쪽이 답하지 못한 실패(요청 한도 초과 등)는 자격증명 문제가 아니라 막지 않는다.
@@ -199,7 +159,6 @@ export function useMallLoginTest() {
     } catch (error) {
       const detail = error instanceof Error ? error.message : '로그인 테스트를 마치지 못했습니다.';
       record(mallKey, { outcome: 'failed', detail, at: Date.now() });
-      remember(mallKey, 'failed', 'test_error', detail);
       toast.error(`${mallName} 로그인 테스트 실패`, { description: detail });
     } finally {
       setTestingKey(null);

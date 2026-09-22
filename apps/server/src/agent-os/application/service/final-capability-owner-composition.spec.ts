@@ -78,6 +78,12 @@ function ownerCompositions() {
   const wing: ChannelsWingThumbnailCapabilityPort = {
     submitWingThumbnail: vi.fn(async () => ({ success: true, screenshotPath: null })),
   };
+  const executions = {
+    prepareTargetExecution: vi.fn(),
+    getTargetExecution: vi.fn(),
+    startTargetExecution: vi.fn(),
+    reportTargetExecution: vi.fn(),
+  };
   const products: ProductsListingGenerationCapabilityPort = {
     createListingGenerationPackage: vi.fn(async () => ({
       candidateId: identifiers.candidateId,
@@ -131,7 +137,7 @@ function ownerCompositions() {
     ports: { analytics, channels, wing, products, sourcing, supply },
     providers: [
       new AnalyticsCapabilityCompositionAdapter(analytics),
-      new ChannelsCapabilityCompositionAdapter(channels, wing),
+      new ChannelsCapabilityCompositionAdapter(channels, wing, executions as never),
       new ProductsCapabilityCompositionAdapter(products),
       new SourcingCapabilityCompositionAdapter(sourcing),
       new SupplyCapabilityCompositionAdapter(supply),
@@ -162,14 +168,14 @@ describe('owner capability composition', () => {
     }
   });
 
-  it('registers the exact 13 owner-local units and invokes their actual typed owner ports', async () => {
+  it('registers the exact 17 owner-local units and invokes their actual typed owner ports', async () => {
     const { ports, providers } = ownerCompositions();
     const registry = new AgentCapabilityRegistry();
 
     expect(providers.map((provider) => provider.compositions)).toHaveLength(5);
     expect(
       providers.flatMap((provider) => provider.compositions),
-    ).toHaveLength(13);
+    ).toHaveLength(17);
 
     registerFinalCapabilityCatalog(registry, providers);
     expect(registry.listDefinitions().map((definition) => definition.key)).toEqual(
@@ -198,14 +204,14 @@ describe('owner capability composition', () => {
       .resolveImplementation('supply.create_purchase_order_draft')!
       .invoke({
         context: mutationContext({
-          sellpiaInventorySkuId: identifiers.candidateId,
+          masterProductId: identifiers.candidateId,
           productName: 'Toy',
           supplierName: 'Supplier',
           unitPriceCny: 1,
           moq: 1,
         }),
         input: {
-          sellpiaInventorySkuId: identifiers.candidateId,
+          masterProductId: identifiers.candidateId,
           productName: 'Toy',
           supplierName: 'Supplier',
           unitPriceCny: 1,

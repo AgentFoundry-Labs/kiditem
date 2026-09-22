@@ -3,19 +3,16 @@
 import { useMemo, type ReactNode } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowRight, History, Radio } from 'lucide-react';
-// ⚠️ Agent Org 의 상태 모델을 그대로 읽는다. 대시보드가 에이전트 상태를 따로 계산하면 두
-// 화면이 같은 에이전트를 두고 다른 말을 한다. 두 번째 소비자가 생겼으므로 이 모델은
-// `src/lib` 으로 올리는 것이 맞다(app/CLAUDE.md) — 올리기 전까지는 여기서 직접 읽는다.
-import { useAgentOrg } from '@/app/agent-org/hooks/use-agent-org';
+import { useAgentOrg } from '@/hooks/use-agent-org';
 import {
   PIPE_AGENT_HEALTH,
-  buildPipeAgents,
+  buildAgentOrgStatuses,
+  type AgentOrgAgentId,
+  type AgentOrgAgentStatus,
   type PipeAgentHealth,
-  type PipeAgentSummary,
-} from '@/app/agent-org/lib/pipe-agents';
-import type { DiagramAgentId } from '@/app/agent-org/lib/pipe-diagram-layout';
-import type { PipeStageView } from '@/app/agent-org/lib/pipe-model';
-import { PIPE_STATE_LABEL, worstPipeState, type PipeState } from '@/app/agent-org/lib/pipe-states';
+} from '@/lib/agent-org/agent-status';
+import type { PipeStageView } from '@/lib/agent-org/pipe-model';
+import { PIPE_STATE_LABEL, worstPipeState, type PipeState } from '@/lib/agent-org/pipe-states';
 import { cn, timeAgo } from '@/lib/utils';
 import { DashboardCardHeader, DashboardHeaderLink } from './DashboardCardHeader';
 
@@ -25,10 +22,9 @@ import { DashboardCardHeader, DashboardHeaderLink } from './DashboardCardHeader'
  * 읽기 전용 요약이다. 여기서 아무것도 실행하지 않는다 — 줄을 누르면 그 일을 소유한 화면으로
  * 간다(대시보드 가이드: 대시보드 전용 실행 핸들러나 범용 운영 패널을 만들지 않는다).
  *
- * 폴링(탭 하나 기준 최악): `useAgentOrg` 가 관찰 기록 · 몰 계정 · 셀피아 신선도 · 매출 기준 ·
- * 광고 기준을 60초마다(분당 5회), 사장님 컨펌 상태를 20초마다(분당 3회) 읽는다. 매출 · 광고
- * 기준은 대시보드가 같은 키로 이미 읽고 있어 합쳐지고, 알림은 앱 전역 쿼리를 함께 쓴다. 새로
- * 더해지는 것은 분당 약 6회다.
+ * AgentOrg는 공통 키로 알림(10초), 수집·매출·광고(60초), 컨펌(20초)을 읽는다.
+ * 세 표시 영역의 observer를 중복으로 잡아도 36회/분이다. Dashboard findings·수집이력·
+ * 연결목록은 합계 0.6회/분을 추가한다. 전체 탭의 수집 제어까지 포함한 상한은 PR에 기록한다.
  */
 
 /**
@@ -58,7 +54,6 @@ function stateTone(state: PipeState): { dot: string; pulse: boolean } {
 }
 
 
-
 /** 급한 것부터. 실패 → 막힘 → 대기 → 오래됨, 같으면 최근 것. */
 const URGENCY: Readonly<Partial<Record<PipeState, number>>> = {
   failed: 0,
@@ -80,7 +75,7 @@ const RUNNING: ReadonlySet<PipeState> = new Set(['running', 'queued', 'retrying'
  * 컨펌은 에이전트가 아니라 관문이라 줄을 두지 않고, 그 일은 아래 긴급에 뜬다. 재무분석은 Agent
  * Org 에 아직 단계가 없어 셀 기록이 없다 — 없다고 적지 정상으로 칠하지 않는다.
  */
-const DASHBOARD_AGENTS: ReadonlyArray<{ id: string; label: string; groups: readonly DiagramAgentId[] }> = [
+const DASHBOARD_AGENTS: ReadonlyArray<{ id: string; label: string; groups: readonly AgentOrgAgentId[] }> = [
   { id: 'sourcing', label: '소싱', groups: ['analysis', 'sourcing'] },
   { id: 'product', label: '상품', groups: ['product'] },
   { id: 'mall', label: '쇼핑몰', groups: ['mall', 'order'] },
@@ -101,7 +96,7 @@ interface AgentLine {
 }
 
 /** 묶인 에이전트들을 한 줄로. 상태는 가장 급한 것, 이유는 그 상태를 낸 쪽의 것, 확인 수는 합. */
-function mergeAgents(label: string, id: string, parts: readonly PipeAgentSummary[]): AgentLine {
+function mergeAgents(label: string, id: string, parts: readonly AgentOrgAgentStatus[]): AgentLine {
   const state = worstPipeState(parts.map((part) => part.state)) ?? 'unknown';
   const reasonSource = parts.find((part) => part.state === state && part.reason) ?? null;
   return {
@@ -187,7 +182,7 @@ export type DashboardAgentStatusParts = { agents: ReactNode; recent: ReactNode }
 export function DashboardAgentStatus({ children }: { children: (parts: DashboardAgentStatusParts) => ReactNode }) {
   const { snapshot, now } = useAgentOrg();
   const agents = useMemo(() => {
-    const byGroup = new Map(buildPipeAgents(snapshot).map((agent) => [agent.group.id, agent]));
+    const byGroup = new Map(buildAgentOrgStatuses(snapshot).map((agent) => [agent.id, agent]));
     return DASHBOARD_AGENTS.map((agent) => mergeAgents(
       agent.label,
       agent.id,

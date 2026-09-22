@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "kiditem.cutover-blocker-coverage.v1",
+  "entries": [
+    {
+      "train": "0.1.31",
+      "table": "master_product_abc_evaluations",
+      "coveredBy": "v0.1.31:001_reset_absolute_product_abc",
+      "note": "001 deletes every evaluation before db push; the absolute formula computes them again."
+    },
+    {
+      "train": "0.1.31",
+      "table": "master_product_abc_grade_histories",
+      "coveredBy": "v0.1.31:001_reset_absolute_product_abc",
+      "note": "001 deletes every grade history before db push."
+    },
+    {
+      "train": "0.1.31",
+      "table": "naver_keyword_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "naver_popular_keyword_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "shorts_trend_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "live_commerce_broadcast_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "live_commerce_product_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "tiktok_creative_trend_daily_snapshots",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes the rows written without ingestion_run_id; the source collects again as attempts."
+    },
+    {
+      "train": "0.1.31",
+      "table": "alerts",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes every alert written before dedupe_key, after 005 and 008 have run."
+    },
+    {
+      "train": "0.1.31",
+      "table": "sourcing_evidence_ingestion_runs",
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 deletes every run written before is_current_complete, with the rows that depend on it."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "unique:source_import_runs_ad_keyword_running_key",
+        "unique:source_import_runs_ad_campaign_running_key",
+        "unique:source_import_runs_ads_daily_running_key",
+        "unique:source_import_runs_wing_itemwinner_running_key",
+        "unique:source_import_runs_sellpia_profitability_running_key",
+        "unique:source_import_runs_sellpia_sales_running_key",
+        "unique:source_import_runs_coupang_ad_profitability_running_key",
+        "unique:source_import_runs_shipment_summary_running_key",
+        "unique:source_import_runs_coupang_reviews_running_key",
+        "unique:source_import_runs_rocket_po_running_key"
+      ],
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 keeps the newest running run per key; an older one goes with its dependent rows, or is marked failed when an ADR-0010 kept row references it."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "unique:source_import_runs_ad_keyword_generation_key",
+        "unique:source_import_runs_ad_campaign_generation_key",
+        "unique:source_import_runs_ads_daily_generation_key",
+        "unique:source_import_runs_wing_itemwinner_generation_key",
+        "unique:source_import_runs_rocket_po_generation_key",
+        "unique:source_import_runs_shipment_summary_generation_key"
+      ],
+      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
+      "note": "014 keeps the newest run per shared freshness_generation; an older one goes with its dependent rows."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "not-null:channel_listing_option_inventory_components.master_product_id",
+        "not-null:master_products.source_account_key",
+        "not-null:master_products.source_option_code",
+        "not-null:master_products.source_product_code",
+        "type-change:master_products.code",
+        "unique:channel_listing_option_inventory_components_channel_listing_key",
+        "unique:master_products_code_key",
+        "unique:master_products_source_identity_key",
+        "unique:supplier_products_primary_master_product_key",
+        "unique:supplier_products_supplier_master_product_key"
+      ],
+      "coveredBy": "v0.1.31:016_master_product_inventory_cutover",
+      "note": "016 validates explicit source identity and organization-safe references, removes only approved unreferenced empty channel-origin products, migrates current references and allocates canonical KID codes before schema contraction; unresolved mappings abort the transaction."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "not-null:sellpia_manual_match_aliases.master_product_id",
+        "not-null:supplier_products.master_product_id",
+        "unique:sellpia_manual_match_aliases_org_alias_master_qty_key"
+      ],
+      "coveredBy": "v0.1.31:017_simplify_product_references",
+      "note": "After 016 maps legacy identifiers, 017 deletes only unresolvable matching hints, checks duplicate canonical keys and verifies supplier references; confirmed recipes and historical orders remain untouched."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "foreign-key:product_preparations_sales_product_id_organization_id_fkey",
+        "not-null:product_preparations.sales_product_id"
+      ],
+      "coveredBy": "v0.1.31:021_link_registration_targets",
+      "note": "021 links existing preparations to organization-scoped selling products using explicit saved prices/options, aborts ambiguity, migrates legacy overrides, and verifies target/product/account/selection membership without rewriting execution evidence."
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { readListingProductIds } from '../../../read/listing-product-summary.reader';
 import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
 
 const UPSERT_BATCH_SIZE = 500;
@@ -360,7 +361,6 @@ export async function upsertChannelCatalogBasics(
     select: {
       id: true,
       externalId: true,
-      masterProductId: true,
       options: {
         where: {
           organizationId: input.organizationId,
@@ -380,6 +380,10 @@ export async function upsertChannelCatalogBasics(
   ) {
     throw new ConflictException('Not every persisted basic identity could be reloaded');
   }
+  const summaryByListing = await readListingProductIds(tx, {
+    organizationId: input.organizationId,
+    listingIds: persistedIdentities.map((listing) => listing.id),
+  });
   return {
     mappingIdentityChanged,
     externalProductIds,
@@ -389,7 +393,7 @@ export async function upsertChannelCatalogBasics(
     persistedListings: persistedIdentities.map((listing) => ({
       id: listing.id,
       externalProductId: listing.externalId,
-      masterProductId: listing.masterProductId,
+      masterProductId: summaryByListing.get(listing.id) ?? null,
       options: listing.options,
     })),
     changes: {
@@ -613,7 +617,6 @@ export async function updateChannelCatalogDetails(
     select: {
       id: true,
       externalId: true,
-      masterProductId: true,
       options: {
         where: { organizationId: input.organizationId, isActive: true },
         select: { id: true, externalOptionId: true },
@@ -621,6 +624,10 @@ export async function updateChannelCatalogDetails(
       },
     },
     orderBy: { externalId: 'asc' },
+  });
+  const summaryByListing = await readListingProductIds(tx, {
+    organizationId: input.organizationId,
+    listingIds: persisted.map((listing) => listing.id),
   });
   return {
     mappingIdentityChanged: false,
@@ -637,7 +644,7 @@ export async function updateChannelCatalogDetails(
     persistedListings: persisted.map((listing) => ({
       id: listing.id,
       externalProductId: listing.externalId,
-      masterProductId: listing.masterProductId,
+      masterProductId: summaryByListing.get(listing.id) ?? null,
       options: listing.options,
     })),
   };
@@ -1259,7 +1266,6 @@ export async function upsertChannelCatalogIdentities(
     select: {
       id: true,
       externalId: true,
-      masterProductId: true,
       options: {
         where: {
           organizationId: input.organizationId,
@@ -1282,10 +1288,14 @@ export async function upsertChannelCatalogIdentities(
   ) {
     throw new ConflictException('Not every persisted channel identity could be reloaded');
   }
+  const summaryByListing = await readListingProductIds(tx, {
+    organizationId: input.organizationId,
+    listingIds: persistedIdentities.map((listing) => listing.id),
+  });
   const persistedIdentityOutput = persistedIdentities.map((listing) => ({
     id: listing.id,
     externalProductId: listing.externalId,
-    masterProductId: listing.masterProductId,
+    masterProductId: summaryByListing.get(listing.id) ?? null,
     options: listing.options,
   }));
 

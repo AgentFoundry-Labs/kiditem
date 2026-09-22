@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { orderMallAccountApi } from '@/app/(orders)/order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 import {
   getMallAgentLoopServerState,
   getMallAgentLoopState,
@@ -74,7 +74,6 @@ export function useMallAgentLoopRunner(): void {
   const tick = useCallback(async () => {
     if (busyRef.current) return;
     busyRef.current = true;
-    const startedAt = Date.now();
     try {
       await withSingleRunner(async () => {
         const parts: string[] = [];
@@ -127,7 +126,6 @@ export function useMallAgentLoopRunner(): void {
     } finally {
       busyRef.current = false;
     }
-    void startedAt;
   }, [intervalMin]);
 
   // 운영자가 시작해 러너가 붙은 순간 첫 바퀴를 돈다. 앱을 열었다고 붙지는 않는다.

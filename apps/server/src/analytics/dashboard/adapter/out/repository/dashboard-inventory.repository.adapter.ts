@@ -1,3 +1,5 @@
+import { withListingProductSummary } from '../../../../../channels/domain/listing-product-summary';
+import { readListingProductIds } from '../../../../../channels/read/listing-product-summary.reader';
 // Inventory-side read model for the dashboard. Encapsulates the Prisma
 // reads behind the inventory tile: grade counts, unread alerts, active
 // product counts, per-listing profit metrics (shared helper), inventory
@@ -22,10 +24,14 @@ import {
 import { PrismaService } from "../../../../../prisma/prisma.service";
 import { readLatestListingSaleStatusFacts } from "../../../../../channels/read/channel-listing-daily-facts";
 import {
-  readInventoryAvailability,
-  readInventorySkuIdentities,
-} from "../../../../../inventory/read/inventory-availability";
-import { readCurrentProductAbcGradeChanges } from "../../../../../products/read/product-abc-publication.reader";
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../../products/application/port/in/product-transactional-read.port';
+import {
+  PRODUCT_SOURCE_READ_PORT,
+  type ProductSourceReadPort,
+} from '../../../../../products/application/port/in/product-source-read.port';
+import { readCurrentProductAbcGradeChanges } from "../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
 import { readCurrentReviewListingStats } from "../../../../../orders/read/review-facts.reader";
 import {
   buildPerListingMetricsCoverage,
@@ -52,6 +58,10 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     @Inject(PRODUCT_ABC_READ_PORT)
     private readonly productAbc: ProductAbcReadPort,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+    @Inject(PRODUCT_SOURCE_READ_PORT)
+    private readonly productSource: ProductSourceReadPort,
   ) {}
 
   async readProductAbcFacts(
@@ -61,13 +71,10 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     // each of them carries is Products'. The dashboard names the population and
     // counts the published answer — it does not choose an evidence cutoff of
     // its own (ADR 0002).
-    const active = await this.prisma.masterProduct.findMany({
-      where: { organizationId, isActive: true },
-      select: { id: true },
-    });
+    const active = await this.productSource.listActiveForMatching(organizationId);
     const snapshot = await this.productAbc.readAbc({
       organizationId,
-      masterProductIds: active.map((row) => row.id),
+      masterProductIds: active.map((row) => row.masterProductId),
     });
     const gradeChanges = await this.prisma.$transaction(
       (tx) =>
@@ -184,9 +191,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
   }
 
   async countActiveProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({
-      where: { organizationId, isActive: true },
-    });
+    return (await this.productSource.listActiveForMatching(organizationId)).length;
   }
 
   async fetchPerListingMetrics(
@@ -214,6 +219,8 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           from,
           to,
           accountAdEvidence,
+          undefined,
+          this.inventoryTransactionalRead,
         );
         return {
           rows: metrics,
@@ -229,7 +236,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
   async readInventoryAvailabilityFacts(organizationId: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        const listings = await tx.channelListing.findMany({
+        const listingRows = await tx.channelListing.findMany({
           where: {
             organizationId,
             channelAccount: {
@@ -242,7 +249,6 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           },
           select: {
             id: true,
-            masterProductId: true,
             isActive: true,
             status: true,
             rawJson: true,
@@ -253,69 +259,49 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
                 inventoryComponents: {
                   where: { organizationId },
                   select: {
-                    sellpiaInventorySkuId: true,
+                    masterProductId: true,
                   },
                 },
               },
             },
           },
         });
-        const componentSkuIds = [
-          ...new Set(
-            listings.flatMap((listing) =>
-              listing.options.flatMap((option) =>
-                option.inventoryComponents.map(
-                  (component) => component.sellpiaInventorySkuId,
-                ),
-              ),
-            ),
-          ),
-        ];
-        const [statusFacts, identities, activeIdentities] = await Promise.all([
+        const listings = listingRows.map(withListingProductSummary);
+        const inventoryContext = { client: tx };
+        const [statusFacts, identities] = await Promise.all([
           readLatestListingSaleStatusFacts(tx, {
             organizationId,
             listingIds: listings.map((listing) => listing.id),
           }),
-          readInventorySkuIdentities(tx, {
+          this.inventoryTransactionalRead.readSourceIdentities(inventoryContext, {
             organizationId,
-            selector: { kind: "ids", values: componentSkuIds },
-          }),
-          readInventorySkuIdentities(tx, {
-            organizationId,
-            selector: { kind: "active" },
+            selector: { kind: "all" },
           }),
         ]);
-        const availability = await readInventoryAvailability(tx, {
+        const inventoryLock = await this.inventoryTransactionalRead.lock(
+          inventoryContext,
           organizationId,
-          sellpiaInventorySkuIds: activeIdentities.map(
-            (sku) => sku.sellpiaInventorySkuId,
+        );
+        const availability = await this.inventoryTransactionalRead.readAvailability(
+          inventoryContext,
+          inventoryLock,
+          {
+          organizationId,
+          masterProductIds: identities.map(
+            (product) => product.masterProductId,
           ),
-        });
-        const masterProductIds = [...new Set(
-          listings.flatMap((listing) =>
-            listing.masterProductId ? [listing.masterProductId] : []),
-        )];
-        const activeProducts = await tx.masterProduct.findMany({
-          where: {
-            organizationId,
-            id: { in: masterProductIds },
-            isActive: true,
           },
-          select: { id: true },
-        });
-        const activeProductIds = new Set(
-          activeProducts.map((product) => product.id),
         );
         const identityBySkuId = new Map(
-          identities.map((sku) => [sku.sellpiaInventorySkuId, sku]),
+          identities.map((product) => [product.masterProductId, product]),
         );
         const availabilityBySkuId = new Map(
-          availability.items.map((item) => [item.sellpiaInventorySkuId, item]),
+          availability.items.map((item) => [item.masterProductId, item]),
         );
         const stockMeasured =
           availability.snapshot.collected &&
-          activeIdentities.every((sku) =>
-            availabilityBySkuId.has(sku.sellpiaInventorySkuId),
+          identities.every((product) =>
+            availabilityBySkuId.has(product.masterProductId),
           );
         const saleStatusByListing = new Map(
           statusFacts.map((fact) => [fact.listingId, fact.saleStatus]),
@@ -339,8 +325,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
             } else if (
               option.inventoryComponents.some(
                 (component) =>
-                  identityBySkuId.get(component.sellpiaInventorySkuId)
-                    ?.isActive !== true,
+                  !identityBySkuId.has(component.masterProductId),
               )
             ) {
               needsReview += 1;
@@ -348,18 +333,15 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
               matched += 1;
             }
           }
-          if (
-            listing.masterProductId &&
-            activeProductIds.has(listing.masterProductId)
-          ) {
+          if (listing.masterProductId) {
             linkedMasterProductIds.add(listing.masterProductId);
           }
         }
         return {
           outOfStockSkus: stockMeasured
-            ? activeIdentities.filter(
-                (sku) =>
-                  availabilityBySkuId.get(sku.sellpiaInventorySkuId)
+            ? identities.filter(
+                (product) =>
+                  availabilityBySkuId.get(product.masterProductId)
                     ?.currentStock === 0,
               ).length
             : null,
@@ -397,22 +379,16 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     // MasterProduct.abcGrade cache is not publication authority.
     return this.prisma.$transaction(
       async (tx) => {
-        const products = await tx.masterProduct.findMany({
+        const listings = await tx.channelListing.findMany({
           where: {
             organizationId,
-            id: { in: [...masterProductIds] },
+            options: { some: { organizationId, inventoryComponents: { some: { organizationId, masterProductId: { in: [...masterProductIds] } } } } },
             isActive: true,
           },
-          select: {
-            channelListings: {
-              where: { organizationId, isActive: true },
-              select: { id: true },
-            },
-          },
+          select: { id: true },
         });
-        const listingIds = products.flatMap((product) =>
-          product.channelListings.map((listing) => listing.id),
-        );
+        const summaries = await readListingProductIds(tx, { organizationId, listingIds: listings.map((listing) => listing.id) });
+        const listingIds = listings.filter((listing) => masterProductIds.includes(summaries.get(listing.id) ?? "")).map((listing) => listing.id);
         const stats = await readCurrentReviewListingStats(
           tx,
           organizationId,
@@ -421,14 +397,18 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         const countByListingId = new Map(
           stats.map((row) => [row.listingId, row.totalReviews]),
         );
-        return products.map(
-          (product) =>
-            ({
-              reviewCount: product.channelListings.reduce(
-                (sum, listing) => sum + (countByListingId.get(listing.id) ?? 0),
-                0,
-              ),
-            }) satisfies AGradeReviewRow,
+        const countByProductId = new Map<string, number>();
+        for (const listing of listings) {
+          const masterProductId = summaries.get(listing.id);
+          if (!masterProductId || !masterProductIds.includes(masterProductId)) continue;
+          countByProductId.set(
+            masterProductId,
+            (countByProductId.get(masterProductId) ?? 0)
+              + (countByListingId.get(listing.id) ?? 0),
+          );
+        }
+        return masterProductIds.map((masterProductId) =>
+          ({ reviewCount: countByProductId.get(masterProductId) ?? 0 }) satisfies AGradeReviewRow,
         );
       },
       { isolationLevel: "RepeatableRead" },

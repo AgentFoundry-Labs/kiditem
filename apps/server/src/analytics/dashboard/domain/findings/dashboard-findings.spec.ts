@@ -17,9 +17,8 @@ type Matched = Extract<SellpiaProductSalesRow['inventoryResolution'], { status: 
 function matched(overrides: Partial<Matched> = {}): Matched {
   return {
     status: 'matched',
-    sellpiaInventorySkuId: '22222222-2222-4222-8222-222222222222',
+    masterProductId: MASTER_ID,
     currentStock: 40,
-    availableStock: 40,
     salesRowCount: 1,
     inventoryProduct: null,
     destinations: [],
@@ -38,8 +37,6 @@ function row(
     productName: `상품 ${code}`,
     optionName: null,
     providerName: null,
-    salePrice: 1_000,
-    buyPrice: 500,
     barcode: null,
     monthly: [...COMPLETE, '2026-09'].map((yearMonth, index) => ({
       yearMonth,
@@ -53,8 +50,6 @@ function row(
     deadStock: false,
     deadStockReason: null,
     seasonTag: null,
-    anomaly: false,
-    anomalyReason: null,
     inventoryResolution: { status: 'not_collected' },
     // 같은 SKU 로 해소된 판매행들이 나눠 갖는 SKU 비율. 따로 주지 않으면 그 행의
     // avg2m 과 같다고 본다.
@@ -91,7 +86,6 @@ function summary(
     },
     reorderCount: 0,
     deadStockCount: 0,
-    anomalyCount: 0,
     abcCounts: { A: 0, B: 0, C: 0 },
     abcStatusCounts: {
       READY: 0,
@@ -122,34 +116,34 @@ describe('findSalesDecline', () => {
     expect(result.items[0]).toMatchObject({ recentQty: 150, baselineQty: 300, changePercent: -50 });
   });
 
-  it('ranks key products by the revenue before the drop, not by units', () => {
+  it('limits key products by prior complete monthly quantity', () => {
     const cheapBulk = Array.from({ length: KEY_PRODUCT_LIMIT }, (_, index) =>
-      row(`big-${index}`, [1_000, 1_000, 1_000, 1_000], { salePrice: 100 }));
-    // 50 units a month at 10,000원 is 500,000원 — more than any 1,000 units at 100원.
-    const premium = row('premium', [50, 50, 50, 10], { salePrice: 10_000, trend: 'down' });
-    // 10 units at 100원 falls outside the key products however hard it fell.
-    const tail = row('tail', [10, 10, 10, 0], { salePrice: 100, trend: 'down' });
+      row(`big-${index}`, [1_000, 1_000, 1_000, 1_000], { trend: 'flat' }));
+    // This large decline is outside the key-product population because its
+    // baseline quantity is below each of the first thirty products.
+    const tail = row('tail', [100, 100, 100, 0], { trend: 'down' });
 
-    const result = findSalesDecline(summary([...cheapBulk, premium, tail]));
+    const result = findSalesDecline(summary([...cheapBulk, tail]));
 
-    expect(result.count).toBe(1);
-    expect(result.items.map((item) => item.productCode)).toEqual(['premium']);
+    expect(result.count).toBe(0);
+    expect(result.items).toEqual([]);
   });
 
-  it('treats an anomalous month the way the trend does — as no sales', () => {
+  it('uses the latest complete month when the range also includes a partial month', () => {
     const result = findSalesDecline(summary([
       row('A', [100, 100, 100, 30], {
         trend: 'down',
         monthly: [
           { yearMonth: '2026-05', orderQty: 100 },
           { yearMonth: '2026-06', orderQty: 100 },
-          { yearMonth: '2026-07', orderQty: 5_000, anomaly: true },
+          { yearMonth: '2026-07', orderQty: 100 },
           { yearMonth: '2026-08', orderQty: 30 },
+          { yearMonth: '2026-09', orderQty: 5_000 },
         ],
       }),
     ]));
 
-    expect(result.items[0]).toMatchObject({ baselineQty: 66.7, recentQty: 30 });
+    expect(result.items[0]).toMatchObject({ baselineQty: 100, recentQty: 30 });
   });
 
   it('is unknown, not zero, without two complete months or any collection', () => {
@@ -163,25 +157,19 @@ describe('findReorderSuggestions', () => {
   it('suggests reorder-needed SKUs that still have stock, this week before next', () => {
     const result = findReorderSuggestions(summary([
       row('slow-now', [], {
-        needsReorder: true, avg2m: 10, salePrice: 1_000, monthsOfAvailableStockLeft: 0.1, reorderPoint: 15,
-        inventoryResolution: matched({ sellpiaInventorySkuId: 'a0000000-0000-4000-8000-000000000001', availableStock: 1 }),
+        needsReorder: true, avg2m: 10, monthsOfAvailableStockLeft: 0.1, reorderPoint: 15,
+        inventoryResolution: matched({ masterProductId: 'a0000000-0000-4000-8000-000000000001', currentStock: 1 }),
       }),
       row('best-seller-now', [], {
-        needsReorder: true, avg2m: 900, salePrice: 5_000, monthsOfAvailableStockLeft: 0.2, reorderPoint: 1_350,
+        needsReorder: true, avg2m: 900, monthsOfAvailableStockLeft: 0.2, reorderPoint: 1_350,
         inventoryResolution: matched({
-          sellpiaInventorySkuId: 'a0000000-0000-4000-8000-000000000002',
-          availableStock: 180,
-          inventoryProduct: {
-            masterProductId: MASTER_ID,
-            masterProductCode: 'INV-1',
-            masterProductName: '베스트셀러',
-            abc: null as never,
-          },
+          masterProductId: 'a0000000-0000-4000-8000-000000000002',
+          currentStock: 180,
         }),
       }),
       row('next-month', [], {
-        needsReorder: true, avg2m: 5_000, salePrice: 9_000, monthsOfAvailableStockLeft: 1.2, reorderPoint: 7_500,
-        inventoryResolution: matched({ sellpiaInventorySkuId: 'a0000000-0000-4000-8000-000000000003', availableStock: 6_000 }),
+        needsReorder: true, avg2m: 5_000, monthsOfAvailableStockLeft: 1.2, reorderPoint: 7_500,
+        inventoryResolution: matched({ masterProductId: 'a0000000-0000-4000-8000-000000000003', currentStock: 6_000 }),
       }),
     ]));
 
@@ -190,7 +178,7 @@ describe('findReorderSuggestions', () => {
       daysLeft: 6,
       availableStock: 180,
       monthlyOutflow: 900,
-      masterProductId: MASTER_ID,
+      masterProductId: 'a0000000-0000-4000-8000-000000000002',
     });
   });
 
@@ -198,7 +186,7 @@ describe('findReorderSuggestions', () => {
     const result = findReorderSuggestions(summary([
       row('empty', [], {
         needsReorder: true, avg2m: 100, monthsOfAvailableStockLeft: 0,
-        inventoryResolution: matched({ availableStock: 0, currentStock: 0 }),
+        inventoryResolution: matched({ currentStock: 0 }),
       }),
     ]));
 
@@ -208,7 +196,7 @@ describe('findReorderSuggestions', () => {
   it('한 SKU 로 해소된 판매행들은 SKU 가 발표한 비율 하나로 센다', () => {
     // 행마다 반올림된 avg2m 을 더하면 Σ round(x/2) 가 되어, 같은 카드의 daysLeft 가 쓰는
     // round(Σx/2) 와 어긋난다. 그래서 소유자가 발표한 SKU 비율을 그대로 쓴다.
-    const shared = matched({ sellpiaInventorySkuId: 'b0000000-0000-4000-8000-000000000001', availableStock: 50, salesRowCount: 2 });
+    const shared = matched({ masterProductId: 'b0000000-0000-4000-8000-000000000001', currentStock: 50, salesRowCount: 2 });
     const result = findReorderSuggestions(summary([
       row('X', [], { optionCode: '1', needsReorder: true, avg2m: 60, monthlyOutflow: 100, monthsOfAvailableStockLeft: 0.5, inventoryResolution: shared }),
       row('X', [], { optionCode: '2', needsReorder: true, avg2m: 40, monthlyOutflow: 100, monthsOfAvailableStockLeft: 0.5, inventoryResolution: shared }),
@@ -221,7 +209,7 @@ describe('findReorderSuggestions', () => {
   it('행마다 반올림된 평균을 더하지 않는다 — 옆 칸 daysLeft 와 어긋난다', () => {
     // 2개월 수량이 각각 3인 판매행 둘. 행 평균은 round(1.5)=2 씩이라 더하면 4 가 되지만,
     // SKU 비율은 round(6/2)=3 이다.
-    const shared = matched({ sellpiaInventorySkuId: 'b0000000-0000-4000-8000-000000000002', availableStock: 9, salesRowCount: 2 });
+    const shared = matched({ masterProductId: 'b0000000-0000-4000-8000-000000000002', currentStock: 9, salesRowCount: 2 });
     const result = findReorderSuggestions(summary([
       row('Y', [], { optionCode: '1', needsReorder: true, avg2m: 2, monthlyOutflow: 3, monthsOfAvailableStockLeft: 3, inventoryResolution: shared }),
       row('Y', [], { optionCode: '2', needsReorder: true, avg2m: 2, monthlyOutflow: 3, monthsOfAvailableStockLeft: 3, inventoryResolution: shared }),

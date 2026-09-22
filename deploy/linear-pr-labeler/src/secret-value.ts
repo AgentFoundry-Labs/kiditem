@@ -1,0 +1,39 @@
+// Secrets entered through `wrangler secret put` arrive exactly as typed or
+// pasted. A terminal paste can add bracketed-paste markers, a copy can add
+// quotes, zero-width characters or a newline; none of those belong to a token.
+
+const BRACKETED_PASTE = /\u001b\[20[01]~/g;
+const INVISIBLE = /[\u0000-\u001f\u007f\u200b-\u200d\u2060\ufeff]/g;
+
+export function cleanSecret(value: string | undefined): string {
+  if (!value) return "";
+  const bare = value.replace(BRACKETED_PASTE, "").replace(INVISIBLE, "").trim();
+  const quoted = /^(["'`])([\s\S]*)\1$/.exec(bare);
+  return (quoted ? quoted[2] : bare).trim();
+}
+
+/**
+ * Describes a stored webhook secret without revealing it, for mismatch logs.
+ * For a Linear-shaped secret, `fingerprint` is the first 8 hex characters of
+ * its SHA-256, which an operator compares with the README's `read -rs` check.
+ * Other values get no fingerprint: a low-entropy value could be guessed from it.
+ */
+export async function webhookSecretShape(value: string | undefined): Promise<{
+  length: number;
+  linearPrefix: boolean;
+  cleaned: boolean;
+  fingerprint?: string;
+}> {
+  const cleaned = cleanSecret(value);
+  const shape = {
+    length: cleaned.length,
+    linearPrefix: cleaned.startsWith("lin_wh_"),
+    cleaned: cleaned !== (value ?? ""),
+  };
+  if (!shape.linearPrefix) return shape;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(cleaned));
+  const fingerprint = [...new Uint8Array(digest).slice(0, 4)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return { ...shape, fingerprint };
+}

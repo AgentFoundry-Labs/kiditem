@@ -2,10 +2,11 @@
 import 'dotenv/config';
 
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { assertLocalDevelopmentDatabase } from './_shared/local-development-database';
+import { ensureAbsoluteProductAbcFormulaForOrganization } from './data-migrations/ensure/absolute-product-abc-formula';
 
 export { assertLocalDevelopmentDatabase } from './_shared/local-development-database';
 
@@ -99,6 +100,10 @@ export function buildBootstrapPlan(
 export async function bootstrapAuthoritativeInventoryDevelopment(
   prisma: PrismaClient,
   plan: BootstrapAuthoritativeInventoryPlan,
+  initializeOrganization: (
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ) => Promise<unknown> = ensureAbsoluteProductAbcFormulaForOrganization,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.organization.upsert({
@@ -110,6 +115,7 @@ export async function bootstrapAuthoritativeInventoryDevelopment(
       },
       create: plan.organization,
     });
+    await initializeOrganization(tx, plan.organization.id);
 
     for (const account of plan.channelAccounts) {
       const where = account.id

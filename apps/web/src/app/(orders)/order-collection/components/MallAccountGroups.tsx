@@ -16,7 +16,7 @@ import {
   isBrowserCollectableMall,
 } from '../lib/order-collection-page-model';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import type { FailedMallReason } from '../hooks/use-order-activity-events';
 
 /** 한 몰 카드가 자기 수집 컨트롤에서 받아 쓰는 것. */
@@ -25,6 +25,11 @@ export interface MallCardCollection {
   control: ReactNode;
   /** owner가 알려 준 진행 중. 다른 탭이 시작한 수집도 여기서 보인다(KID-189). */
   running: boolean;
+  /**
+   * 이 카드의 원천이 카드 영역 클릭으로 무엇을 수집할지 먼저 고르는 화면을 여는가.
+   * 몰 키가 아니라 원천이 답한다(KID-255).
+   */
+  opensChooser: boolean;
 }
 
 interface MallAccountGroupsProps {
@@ -48,8 +53,11 @@ interface MallAccountGroupsProps {
     account: OrderCollectionMallAccount,
     renderCard: (collection: MallCardCollection) => ReactNode,
   ) => ReactNode;
-  /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
-  onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
+  /**
+   * 카드 영역 클릭으로 무엇을 수집할지 먼저 고르는 화면을 연다(직배송 입고예정일 달력).
+   * 그 화면을 여는지는 카드가 마운트한 원천이 답한다(KID-255).
+   */
+  onOpenChooser?: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
 }
 
@@ -66,7 +74,7 @@ export function MallAccountGroups({
   autoRunning,
   onOpenSettings,
   renderCollectionControl,
-  onOpenCalendar,
+  onOpenChooser,
   onUploadTracking,
 }: MallAccountGroupsProps) {
   return (
@@ -92,7 +100,7 @@ export function MallAccountGroups({
             autoRunning={autoRunning}
             onOpenSettings={onOpenSettings}
             renderCollectionControl={renderCollectionControl}
-            onOpenCalendar={onOpenCalendar}
+            onOpenChooser={onOpenChooser}
             onUploadTracking={onUploadTracking}
           />
         ))}
@@ -118,8 +126,11 @@ interface MallAccountCardProps {
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
   /** 이 몰의 공용 시작 컨트롤과 그 컨트롤이 읽은 owner 진행 중. */
   renderCollectionControl: MallAccountGroupsProps['renderCollectionControl'];
-  /** 카드 영역 클릭으로 여는 보조 화면(쿠팡직배송 입고예정일 달력). 없으면 카드 클릭 없음. */
-  onOpenCalendar?: (account: OrderCollectionMallAccount) => void;
+  /**
+   * 카드 영역 클릭으로 무엇을 수집할지 먼저 고르는 화면을 연다(직배송 입고예정일 달력).
+   * 그 화면을 여는지는 카드가 마운트한 원천이 답한다(KID-255).
+   */
+  onOpenChooser?: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
 }
 
@@ -138,7 +149,7 @@ function MallAccountCard({
   autoRunning,
   onOpenSettings,
   renderCollectionControl,
-  onOpenCalendar,
+  onOpenChooser,
   onUploadTracking,
 }: MallAccountCardProps) {
   const collectable = account.enabled && isBrowserCollectableMall(account);
@@ -164,10 +175,6 @@ function MallAccountCard({
       ? '수집 오류 · 재수집 필요'
       : '로그인 필요 · 재수집 필요';
 
-  // 쿠팡직배송은 카드 영역을 누르면 입고예정일 달력이 열린다.
-  // 수집 버튼은 달력 없이 곧바로 수집한다(둘을 섞지 않는다).
-  const cardOpensCalendar = collectable && Boolean(onOpenCalendar);
-
   // 카드 아무 데나 잡아 끌리면 수집·설정 클릭과 헷갈린다. 손잡이를 누른 동안만
   // draggable 을 켜서 손잡이로만 순서가 바뀌게 한다. 계정 행이 없는 몰은 순서를 저장하지
   // 않으므로 손잡이도 두지 않는다.
@@ -175,8 +182,16 @@ function MallAccountCard({
   const [dragArmed, setDragArmed] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
+  /**
+   * 카드 영역을 누르면 무엇을 수집할지 먼저 고르는 화면(직배송 입고예정일 달력)이 열리는가.
+   * 판정은 몰 키가 아니라 이 카드가 마운트한 원천이 답한다(KID-255) — 고르는 화면이 없는
+   * 원천의 카드는 손 모양 커서도 클릭도 없다. 수집 버튼은 고르는 화면 없이 곧바로 수집한다.
+   */
+  const opensChooserOnCard = (opensChooser: boolean): boolean =>
+    collectable && opensChooser && Boolean(onOpenChooser);
+
   // 진행 중 판정은 이 카드가 마운트한 공용 컨트롤이 owner에게서 읽어 준다(KID-189).
-  return renderCollectionControl(account, ({ control, running }) => (
+  return renderCollectionControl(account, ({ control, running, opensChooser }) => (
     <article
       aria-label={`${account.name} 계정 카드`}
       draggable={dragArmed}
@@ -204,16 +219,16 @@ function MallAccountCard({
             if (sourceKey && sourceKey !== account.key) onDropMall?.(sourceKey, account.key);
           }
         : undefined}
-      onClick={cardOpensCalendar && !running
+      onClick={opensChooserOnCard(opensChooser) && !running
         ? (event) => {
             // 설정·수집·송장업로드 같은 내부 버튼 클릭까지 삼키지 않는다.
             if ((event.target as HTMLElement).closest('button')) return;
-            onOpenCalendar?.(account);
+            onOpenChooser?.(account);
           }
         : undefined}
       className={cn(
         'flex flex-col rounded-xl border p-3.5 transition-colors',
-        cardOpensCalendar && 'cursor-pointer',
+        opensChooserOnCard(opensChooser) && 'cursor-pointer',
         failed
           ? 'border-red-200 bg-red-50'
           : collectable

@@ -14,9 +14,16 @@ import {
 } from 'lucide-react';
 import { MALL_SESSION_PROBE_CAPABILITY } from '@/lib/mall-session-probe';
 import { cn, formatNumber, formatTime, timeAgo } from '@/lib/utils';
-import { mallAccentClass, mallLogoPath, mallMonogram } from '../../_shared/mall-presentation';
+import { channelLogoPath } from '@kiditem/shared/channel-registry';
+import { mallAccentClass, mallMonogram } from '../../_shared/mall-presentation';
 import type { MallStatusTile, MallTileTone, TileLoginState } from '../lib/mall-alerts';
 import type { MallSessionView } from '../lib/mall-session';
+
+type MallSessionBoardView = MallSessionView & {
+  /** #554 session shape, when the login retry view is still available. */
+  checkedAtByMall?: Readonly<Record<string, number>>;
+  recheckFailed?: () => void;
+};
 
 const TONE: Record<MallTileTone, { text: string; Icon: typeof Minus }> = {
   failed: { text: 'text-red-600', Icon: XCircle },
@@ -97,11 +104,12 @@ export function MallStatusBoard({
   hasOverview: boolean;
   selectedMallKey: string | null;
   onSelect: (mallKey: string | null) => void;
-  session: MallSessionView;
+  session: MallSessionBoardView;
   /** 지금 로그인을 다시 시도하는 몰. 한 번에 한 몰만 한다. */
   loggingInKey: string | null;
   onRetryLogin: (tile: MallStatusTile) => void;
 }) {
+  const loginKey = loggingInKey ?? null;
   const troubled = tiles.filter((tile) => tile.tone === 'failed' || tile.tone === 'attention').length;
   return (
     <section id="mall-status" className="card scroll-mt-6 rounded-2xl">
@@ -134,11 +142,11 @@ export function MallStatusBoard({
               <MallTile
                 tile={tile}
                 selected={tile.mallKey === selectedMallKey}
-                checkedAt={session.checkedAtByMall[tile.mallKey] ?? null}
-                loggingIn={tile.mallKey === loggingInKey}
-                busy={loggingInKey !== null && needsLogin(tile)}
+                checkedAt={session.checkedAtByMall?.[tile.mallKey] ?? session.checkedAt}
+                loggingIn={tile.mallKey === loginKey}
+                busy={loginKey !== null && needsLogin(tile)}
                 onClick={() =>
-                  needsLogin(tile)
+                  needsLogin(tile) && onRetryLogin
                     ? onRetryLogin(tile)
                     : onSelect(tile.mallKey === selectedMallKey ? null : tile.mallKey)
                 }
@@ -159,8 +167,9 @@ export function MallStatusBoard({
  * 로그인 상태 한 줄 — 로그인됨 · 인증 필요 · 로그인 필요 몰 수와 확인한 때.
  * 확장이 없으면 없다고, 옛 버전이면 그 버전과 빠진 기능을 적는다 — 둘을 섞지 않는다.
  */
-function LoginSummary({ session }: { session: MallSessionView }) {
-  const { status, counts, checkedAt, extensionVersion, recheck, recheckFailed } = session;
+function LoginSummary({ session }: { session: MallSessionBoardView }) {
+  const { status, counts, checkedAt, extensionVersion, recheck } = session;
+  const recheckFailed = session.recheckFailed ?? recheck;
   const failed = counts.signedOut + counts.verification;
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -242,7 +251,7 @@ function MallTile({
   const login = loggingIn ? LOGGING_IN : tile.login ? LOGIN[tile.login] : null;
   const signedInAt = !loggingIn && tile.login === 'signed_in' && checkedAt !== null ? clock(checkedAt) : null;
   const LoginIcon = login?.Icon;
-  const logo = mallLogoPath(tile.mallKey);
+  const logo = channelLogoPath(tile.mallKey);
   // 문제 있는 몰(실패 · 확인 필요 · 로그인 풀림)은 타일 전체를 빨갛게 — 한눈에 골라 보이게.
   const problem = tile.tone === 'failed' || tile.tone === 'attention';
   return (

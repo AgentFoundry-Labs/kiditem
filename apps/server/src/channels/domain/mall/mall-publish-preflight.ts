@@ -34,6 +34,13 @@ export interface PreflightProduct {
   hasMallCategory: boolean;
   /** 이 상품에 이어진 수집상품의 KC 입력값. 이어진 수집상품이 없으면 null. */
   kc: PreflightKc | null;
+  /**
+   * 발행된 셀피아 스냅샷의 재고. 재고 연결이 없거나 스냅샷에 없으면 null 이다.
+   *
+   * ⚠️ `null` 은 0 이 아니라 **모른다**는 뜻이다. 모른다고 막으면 재고를 우리가 들지 않는
+   * 상품까지 어느 몰에도 못 보낸다.
+   */
+  stock: number | null;
 }
 
 /** 이 몰의 계정 행. 계정이 없으면 null 로 넘긴다. */
@@ -140,11 +147,27 @@ const CHECKS: Record<MallPreflightRule, RuleCheck> = {
     return `옵션이 ${product.optionNames.length}개인데 ${manifest.name} 상한은 ${limit}개입니다.`;
   },
 
+  /**
+   * 품절 게이트.
+   *
+   * 매트릭스는 품절 상품도 재고 0 으로 세운다 — 그 표가 답하는 것은 "어느 몰에 무엇이
+   * 있나"이기 때문이다. "지금 보내도 되나"는 여기가 답한다. 둘을 한 조건으로 합치면
+   * 품절되는 순간 상품이 화면에서 사라져 사장님이 몰에 뭐가 올라가 있는지 모르게 된다.
+   */
+  out_of_stock: ({ product }) =>
+    product.stock === 0 ? '품절이라 보내지 않습니다. 재고가 0 입니다.' : null,
+
+  /**
+   * 등록 기본값 게이트.
+   *
+   * 문서가 통째로 없는 것은 막지 않는다 — `config.listingProfile` 을 저장하는 화면이 아직
+   * 없어서(KID-235) 사람이 만들 길이 없다. 만들 수 없는 것을 게이트로 두면 어느 몰도 열리지
+   * 않고, 그 사실은 몰 카드의 `needs_profile` 이 이미 말한다. 문서가 있는데 필수 항목이 빈
+   * 것은 사람이 고칠 수 있으므로 계속 막는다.
+   */
   profile_selected: ({ account, manifest }) => {
     if (!account) return `${manifest.name} 계정이 없습니다. 쇼핑몰 계정 화면에서 먼저 연결하세요.`;
-    if (!account.listingProfileFields) {
-      return `${manifest.name} 계정에 등록 기본값(배송·반품·출고지)이 없습니다.`;
-    }
+    if (!account.listingProfileFields) return null;
     const filled = new Set(account.listingProfileFields);
     const missing = manifest.requiredProfileFields.filter((field) => !filled.has(field));
     return missing.length === 0

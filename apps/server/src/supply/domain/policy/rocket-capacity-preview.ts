@@ -56,9 +56,9 @@ export function previewRocketCapacity(input: {
   const remainingStock = new Map<string, number>();
   for (const component of input.rows.flatMap(({ components }) => components)) {
     if (component.currentStock === null) continue;
-    const current = remainingStock.get(component.sellpiaInventorySkuId);
+    const current = remainingStock.get(component.masterProductId);
     remainingStock.set(
-      component.sellpiaInventorySkuId,
+      component.masterProductId,
       current === undefined
         ? component.currentStock
         : Math.min(current, component.currentStock),
@@ -100,8 +100,7 @@ function allocateRow(
     );
     return result(row, editedQuantity, 0, 0, 'configuration_required');
   }
-  if (row.components.some(({ currentStock, isActive }) =>
-    currentStock === null || isActive === null)) {
+  if (row.components.some(({ currentStock }) => currentStock === null)) {
     return result(
       row,
       requestedEditedQuantity,
@@ -112,7 +111,6 @@ function allocateRow(
   }
   if (
     row.recipeStatus === 'review_required'
-    || row.components.some(({ isActive }) => !isActive)
   ) {
     const editedQuantity = resolveRocketPreviewEditedQuantity(
       row.poLineId,
@@ -126,7 +124,7 @@ function allocateRow(
   const maxQuantity = Math.min(
     row.orderQuantity,
     ...row.components.map((component) => Math.floor(
-      (remainingStock.get(component.sellpiaInventorySkuId) ?? 0)
+      (remainingStock.get(component.masterProductId) ?? 0)
         / component.quantity,
     )),
   );
@@ -139,8 +137,8 @@ function allocateRow(
   const recommendedQuantity = editedQuantity ?? Math.min(row.orderQuantity, maxQuantity);
   for (const component of row.components) {
     remainingStock.set(
-      component.sellpiaInventorySkuId,
-      (remainingStock.get(component.sellpiaInventorySkuId) ?? 0)
+      component.masterProductId,
+      (remainingStock.get(component.masterProductId) ?? 0)
         - (recommendedQuantity * component.quantity),
     );
   }

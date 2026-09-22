@@ -2,10 +2,10 @@
 
 import type { ReactNode } from 'react';
 import { ExternalLink, Settings } from 'lucide-react';
+import { channelLogoPath, channelSharingAccountRow } from '@kiditem/shared/channel-registry';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { cn, formatNumber } from '@/lib/utils';
-import { mallAccountKeyFor } from '../../_shared/mall-account-settings-link';
-import { mallAccentClass, mallLogoPath, mallMonogram } from '../../_shared/mall-presentation';
+import { mallAccentClass, mallMonogram } from '../../_shared/mall-presentation';
 import {
   CAPABILITY_KEYS,
   type CapabilityKey,
@@ -111,7 +111,7 @@ export function ChannelTable({
               key={row.channel.mallKey}
               row={row}
               account={accounts ? accountFor(accounts, row.channel.mallKey) : undefined}
-              onOpenSettings={() => onOpenSettings(mallAccountKeyFor(row.channel.mallKey))}
+              onOpenSettings={() => onOpenSettings(accountRowKey(row.channel.mallKey))}
               importControl={renderImport?.(row.channel.mallKey) ?? null}
             />
           ))}
@@ -129,7 +129,11 @@ function accountFor(
   accounts: ReadonlyMap<string, ChannelAccountInfo>,
   mallKey: string,
 ): ChannelAccountInfo | null {
-  return accounts.get(mallKey) ?? accounts.get(mallAccountKeyFor(mallKey)) ?? null;
+  return accounts.get(accountRowKey(mallKey)) ?? null;
+}
+
+function accountRowKey(mallKey: string): string {
+  return channelSharingAccountRow(mallKey)?.key ?? mallKey;
 }
 
 function ChannelRow({
@@ -217,7 +221,7 @@ function ChannelRow({
 
 /** 몰 로고(없으면 머리글자)와 이름. */
 function MallIdentity({ channel }: { channel: MallChannelSummary }) {
-  const logo = mallLogoPath(channel.mallKey);
+  const logo = channelLogoPath(channel.mallKey);
   return (
     <>
       {logo ? (

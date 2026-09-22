@@ -14,7 +14,8 @@ import {
   orderCollectionBatchNotice,
   todayYmd,
 } from './order-collection-page-model';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import { COUPANG_DIRECT_MALL_KEY } from './coupang-directship-collection-source';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
 function generatedFile(overrides: Partial<StoredOrderCollectionFile>): StoredOrderCollectionFile {
@@ -267,5 +268,49 @@ describe('collectionAttentionNotice', () => {
   it('그 밖의 실패는 원래 문장을 그대로 오류로 알린다', () => {
     expect(collectionAttentionNotice('셀피아', new Error('서버 오류'), '셀피아 대조에 실패했습니다.'))
       .toEqual({ tone: 'error', message: '셀피아 대조에 실패했습니다.' });
+  });
+});
+
+/**
+ * 수집 가능 판정은 채널 레지스트리 하나에서 나온다(KID-250).
+ *
+ * 화면이 몰 목록을 다시 적던 동안 서버와 갈라졌다 — 카카오는 여기만 켜져 있었고, 로켓은
+ * 서버만 켜져 있었다. 목록을 지운 뒤에도 같은 답이 나오는지 지킨다.
+ */
+describe('isBrowserCollectableMall — 채널 레지스트리 파생', () => {
+  const account = (key: string, extra: Partial<OrderCollectionMallAccount> = {}) => ({
+    key,
+    name: key,
+    configured: true,
+    enabled: true,
+    loginId: null,
+    siteUrl: null,
+    memo: null,
+    hasPassword: true,
+    passwordUpdatedAt: null,
+    updatedAt: null,
+    ...extra,
+  } as OrderCollectionMallAccount);
+
+  it('⭐ 확장에 수집기가 있는 몰은 켜진다 — 카카오도 그중 하나다', () => {
+    for (const key of ['kakao', 'onch', 'domeggook', COUPANG_DIRECT_MALL_KEY, 'art09']) {
+      expect([key, isBrowserCollectableMall(account(key))]).toEqual([key, true]);
+    }
+  });
+
+  it('⭐ 셀피아가 가져오거나 길이 없는 몰은 꺼진다', () => {
+    for (const key of ['11st', 'gmarket', 'toss', 'thirtymall', 'yoons']) {
+      expect([key, isBrowserCollectableMall(account(key))]).toEqual([key, false]);
+    }
+  });
+
+  it('아이스크림몰만 계정 설정·사용까지 갖춰야 켜진다 — 저장된 계정으로 로그인해 들어간다', () => {
+    expect(isBrowserCollectableMall(account('icecream-mall'))).toBe(true);
+    expect(isBrowserCollectableMall(account('icecream-mall', { configured: false }))).toBe(false);
+    expect(isBrowserCollectableMall(account('icecream-mall', { enabled: false }))).toBe(false);
+  });
+
+  it('레지스트리에 없는 키는 꺼진다', () => {
+    expect(isBrowserCollectableMall(account('order_collection'))).toBe(false);
   });
 });

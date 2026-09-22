@@ -1,12 +1,7 @@
 import type { AlertItem } from '@kiditem/shared/alerts';
-import type {
-  MallOperationKind,
-  MallOperationOutcomeItem,
-  MallOperationOutcomeSummaryRow,
-} from '@kiditem/shared/mall-operation-outcomes';
+import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { formatNumber } from '@/lib/utils';
-import { MALL_ACCOUNT_SETTINGS_HREF } from '../../_shared/mall-account-settings-link';
 
 /**
  * 쇼핑몰 알림 — 쇼핑몰 홈 오른쪽 알림판에 무엇이 서는가.
@@ -21,7 +16,7 @@ import { MALL_ACCOUNT_SETTINGS_HREF } from '../../_shared/mall-account-settings-
  *
  * 어느 몰 알림인지는 알림이 스스로 말할 때만 적는다. 쿠팡 원천은 원천 자체가 한 몰 것이고,
  * 몰 주문수집 원천은 알림이 몰을 말하지 않는다 — 제목 글자에서 몰 이름을 짐작하지 않는다.
- * 몰별 로그인 · 등록 폼 사정은 관찰 기록(MallOperationOutcome)이 말한다.
+ * 몰별 로그인 결과는 현재 브라우저 확인 상태가 말한다.
  */
 
 /**
@@ -29,6 +24,9 @@ import { MALL_ACCOUNT_SETTINGS_HREF } from '../../_shared/mall-account-settings-
  *
  * 광고(`coupang_ad_*`)는 마케팅 에이전트, 소싱은 소싱 에이전트 일이고, Sellpia 는 몰이 아니라
  * 재고 · 주문 허브라 여기 넣지 않는다.
+ *
+ * 값은 채널 키다 — 채널 레지스트리에 없는 키를 적으면 그 알림이 어느 타일에도 닿지 못하므로
+ * 명세(`mall-alerts.spec.ts`)가 레지스트리와 맞춰 본다.
  */
 const MALL_SOURCE_TYPES = new Map<string, string | null>([
   ['order_collection_mall', null],
@@ -149,7 +147,7 @@ export function derivedMallAlerts({
       id: 'derived:credentials',
       title: `로그인 정보가 비어 있는 몰 ${formatNumber(noLogin.length)}곳`,
       message: `${nameList(noLogin.map((channel) => channel.mallName))} — 아이디·비밀번호가 없으면 자동 로그인과 주문수집이 막힙니다.`,
-      href: MALL_ACCOUNT_SETTINGS_HREF,
+      href: '/mall-settings',
       hrefLabel: '계정 설정',
       mallKeys: noLogin.map((channel) => channel.mallKey),
       tileLabel: '로그인 정보 없음',
@@ -166,7 +164,7 @@ export function derivedMallAlerts({
       id: group.id,
       title: `직접 ${group.word}이 필요한 몰 ${formatNumber(malls.length)}곳`,
       message: `${nameList(malls.map((channel) => channel.mallName))} — 자동 ${group.word}을 더 시도하지 않습니다. 몰에서 직접 ${group.word}해 주세요.`,
-      href: MALL_ACCOUNT_SETTINGS_HREF,
+      href: '/mall-settings',
       hrefLabel: '쇼핑몰 계정',
       mallKeys: malls.map((channel) => channel.mallKey),
       tileLabel: `직접 ${group.word} 필요`,
@@ -178,7 +176,7 @@ export function derivedMallAlerts({
       id: 'derived:session-expired',
       title: `로그인이 풀린 몰 ${formatNumber(signedOut.length)}곳`,
       message: `${nameList(signedOut.map((channel) => channel.mallName))} — 이 브라우저에서 몰 관리자에 로그인해야 수집 · 등록이 됩니다.`,
-      href: MALL_ACCOUNT_SETTINGS_HREF,
+      href: '/mall-settings',
       hrefLabel: '로그인 테스트',
       mallKeys: signedOut.map((channel) => channel.mallKey),
       tileLabel: '로그인 필요',
@@ -219,9 +217,6 @@ export function derivedMallAlerts({
 /** 로그인 칩. 확인한 몰은 로그인됨 · 인증 필요 · 로그인 필요 중 하나다. */
 export type TileLoginState = 'checking' | 'signed_in' | 'signed_out' | 'verification';
 
-/** 인증을 기다리는 중이라고 말하는 이유 코드들. */
-const VERIFICATION_REASONS = new Set(['operator_action_required', 'verification_required']);
-
 /** 몰별 상태 타일 한 장. */
 export interface MallStatusTile {
   /** 로그인 상태. 확인하지 않았으면 `null`. */
@@ -229,12 +224,9 @@ export interface MallStatusTile {
   mallKey: string;
   mallName: string;
   tone: MallTileTone;
-  /** 한 줄 상태 — '주문 데이터 수집 실패', '로그인 정보 없음', '최근 기록 없음'. */
+  /** 한 줄 상태 — '주문 데이터 수집 실패', '로그인 정보 없음', '현재 기록 없음'. */
   label: string;
-  /**
-   * 그 상태의 이유 — 관찰 기록에 남은 메시지. 타일에 마우스를 올리면 보인다. 라벨만으로는
-   * "왜 실패했는지"를 알 수 없어 사람이 몰을 열어 보는 수밖에 없었다.
-   */
+  /** 그 상태의 이유 — 알림에 남은 메시지. 타일에 마우스를 올리면 보인다. */
   detail?: string | null;
   /** 상태가 나온 알림 시각. 지금 상태에서 나왔거나 기록이 없으면 `null`. */
   at: string | null;
@@ -248,163 +240,55 @@ function toneOf(item: AlertItem): MallTileTone {
   return item.status === 'OPEN' ? 'failed' : 'ok';
 }
 
-const OPERATION_LABEL: Record<MallOperationKind, string> = {
-  registration_fill: '상품등록',
-  availability_stage: '품절 지목',
-  login_test: '로그인 테스트',
-  login_check: '로그인 확인',
-};
-
-/** 사람이 이어서 할 일을 이유 코드에서 한 마디로. */
-const ATTENTION_WORD: Readonly<Record<string, string>> = {
-  login_required: '로그인 필요',
-  operator_action_required: '인증 필요',
-  manual_submit_required: '제출 필요',
-  manual_upload_required: '업로드 필요',
-  no_credentials: '로그인 정보 없음',
-  no_matching_orders: '맞는 주문 없음',
-  verification_required: '본인확인 필요',
-};
-
 /**
- * 실패라고 다 같은 실패가 아니다.
- * - 확장이 답을 안 준 것은 몰이 실패한 게 아니라 우리가 못 들은 것이다 — 다음에 다시 묻는다.
- * - 몰 화면을 못 따라간 것은 **우리 코드를 고쳐야 하는 일**이다. '실패'로 뭉개면 묻힌다.
- */
-const FAILURE_WORD: Readonly<Record<string, string>> = {
-  extension_timeout: '응답 없음',
-  extension_unavailable: '확장 없음',
-  provider_contract_changed: '수집 로직 점검 필요',
-};
-
-function outcomeWord(item: MallOperationOutcomeItem): string {
-  switch (item.outcome) {
-    case 'succeeded':
-      return item.itemCount && item.itemCount > 0 ? `성공 · ${formatNumber(item.itemCount)}건` : '성공';
-    case 'empty':
-      return '할 일 없음';
-    case 'attention':
-      return (item.reasonCode && ATTENTION_WORD[item.reasonCode]) || '확인 필요';
-    case 'failed':
-      return (item.reasonCode && FAILURE_WORD[item.reasonCode]) || '실패';
-    default:
-      return '취소';
-  }
-}
-
-/** 관찰 기록 한 줄을 사람 말로 — '로그인 확인 로그인 필요', '상품등록 제출 필요'. */
-export function outcomeLabel(item: MallOperationOutcomeItem): string {
-  return `${OPERATION_LABEL[item.operation]} ${outcomeWord(item)}`;
-}
-
-/** 답을 못 들은 것은 고장이 아니다 — 다음 바퀴가 다시 묻는다. 빨강 대신 '확인 필요'로 둔다. */
-const NO_ANSWER_REASONS = new Set(['extension_timeout', 'extension_unavailable']);
-
-function outcomeTone(item: MallOperationOutcomeItem): MallTileTone {
-  if (item.outcome === 'failed') {
-    return item.reasonCode && NO_ANSWER_REASONS.has(item.reasonCode) ? 'attention' : 'failed';
-  }
-  if (item.outcome === 'attention') return 'attention';
-  return item.outcome === 'cancelled' ? 'idle' : 'ok';
-}
-
-type TileState = Pick<MallStatusTile, 'tone' | 'label' | 'detail'> & {
-  at: string;
-  /**
-   * 사람이 이어서 할 일을 이름으로 부르는가('인증 필요', '로그인 필요'). 같은 일이 알림과
-   * 관찰 기록에 두 번 남는데, 알림 쪽은 '확인 필요'라고만 해서 무엇을 해야 하는지 말하지 못한다.
-   */
-  actionable: boolean;
-};
-
-/** 고르기에만 쓰는 `actionable` 은 타일에 싣지 않는다. */
-function asTile({ actionable: _actionable, ...rest }: TileState): Omit<TileState, 'actionable'> {
-  return rest;
-}
-
-/**
- * 연결된 몰마다 지금 어떤가. 몰 알림의 가장 최근 일과 관찰 기록(몰 · 작업마다 가장 최근 결과)을
- * 함께 본다. 그중 가장 최근의 실패 · 멈춤이 먼저고, 다음이 지금 상태 알림(로그인 정보 없음
- * 등), 그다음이 가장 최근 결과다. 기록이 없으면 '최근 기록 없음'. 문제 있는 몰부터 둔다.
+ * 연결된 몰마다 지금 어떤가. 몰 알림의 가장 최근 일과 현재 로그인 확인 상태를 함께 본다.
+ * 문제 있는 몰부터 둔다.
  */
 export function mallStatusTiles(
   channels: readonly ChannelFacts[],
   alerts: readonly AlertItem[],
   derived: readonly DerivedMallAlert[],
-  outcomes: readonly MallOperationOutcomeSummaryRow[] = [],
   sessions: Readonly<Record<string, TileLoginState>> = {},
 ): MallStatusTile[] {
   const byMall = new Map<string, AlertItem[]>();
   for (const alert of alerts) {
     const mallKey = mallKeyOfAlert(alert);
     if (!mallKey) continue;
-    byMall.set(mallKey, [...(byMall.get(mallKey) ?? []), alert]);
-  }
-  const rememberedByMall = new Map<string, MallOperationOutcomeSummaryRow[]>();
-  for (const row of outcomes) {
-    rememberedByMall.set(row.mallKey, [...(rememberedByMall.get(row.mallKey) ?? []), row]);
+    // 타일은 계정 행의 채널로 선다. 계정 행을 함께 쓰는 몰(쿠팡직배송)의 알림을 제 키로 모으면
+    // 그 키를 가진 타일이 없어 알림이 어느 타일에도 닿지 못한다 — 기록과 같은 키로 접는다.
+    const key = channelOutcomeKey(mallKey);
+    byMall.set(key, [...(byMall.get(key) ?? []), alert]);
   }
   return channels
     .map((channel): MallStatusTile => {
-      const own = [...(byMall.get(channel.mallKey) ?? [])].sort((a, b) =>
+      const own = [...(byMall.get(channelOutcomeKey(channel.mallKey)) ?? [])].sort((a, b) =>
         alertTime(b).localeCompare(alertTime(a)),
       );
       const current = derived.filter((alert) => alert.mallKeys.includes(channel.mallKey));
       const login = sessions[channel.mallKey] ?? null;
-      // 방금 확인한 로그인 상태가 있으면 지난 로그인 확인 기록은 접는다 — 칩과 알림이 지금을 말한다.
-      const fresh = login === 'signed_in' || login === 'signed_out' || login === 'verification';
-      const remembered = (rememberedByMall.get(channel.mallKey) ?? []).filter(
-        (row) => !(fresh && row.operation === 'login_check'),
-      );
       const alertAttention = own.filter(needsAttention).length;
-      const rememberedProblems = remembered.filter((row) => {
-        const tone = outcomeTone(row.latest);
-        return tone === 'failed' || tone === 'attention';
-      }).length;
-      // 세션은 살아 있어도 몰이 인증을 요구하면 '로그인됨'이 아니라 '인증 필요'라고 적는다.
-      const awaitingVerification = remembered.some(
-        (row) =>
-          row.latest.outcome === 'attention' &&
-          row.latest.reasonCode !== null &&
-          VERIFICATION_REASONS.has(row.latest.reasonCode),
-      );
       const base = {
         mallKey: channel.mallKey,
         mallName: channel.mallName,
-        attentionCount: alertAttention + current.length + rememberedProblems,
-        login: awaitingVerification && login !== 'checking' ? ('verification' as const) : login,
+        attentionCount: alertAttention + current.length,
+        login,
       };
       const latestAlert = own[0];
-      const states: TileState[] = [
-        ...remembered.map((row) => ({
-          tone: outcomeTone(row.latest),
-          label: outcomeLabel(row.latest),
-          // 왜 그렇게 됐는지 — 관찰 기록에 남은 짧은 사유. 타일 툴팁으로 보여 준다.
-          detail: row.latest.message,
-          at: row.latest.occurredAt,
-          actionable: Boolean(row.latest.reasonCode && ATTENTION_WORD[row.latest.reasonCode]),
-        })),
-        ...(latestAlert
-          ? [{
-              tone: toneOf(latestAlert),
-              label: `${latestAlert.title} ${statusWord(latestAlert)}`,
-              detail: latestAlert.message,
-              at: alertTime(latestAlert),
-              actionable: false,
-            }]
-          : []),
-      ].sort((a, b) => b.at.localeCompare(a.at));
-      // 문제가 여럿이면 **할 일을 이름으로 부르는 쪽**을 고른다. 같은 사건이 알림과 관찰 기록에
-      // 두 번 남는데, 몇 초 늦게 찍힌 알림이 '확인 필요'라고만 해서 이기면 사장님은 인증이
-      // 필요한지 로그인이 필요한지 알 수 없다.
-      const problems = states.filter((state) => state.tone === 'failed' || state.tone === 'attention');
-      const problem = problems.find((state) => state.actionable) ?? problems[0];
-      if (problem) return { ...base, ...asTile(problem) };
+      const latest = latestAlert
+        ? {
+            tone: toneOf(latestAlert),
+            label: `${latestAlert.title} ${statusWord(latestAlert)}`,
+            detail: latestAlert.message,
+            at: alertTime(latestAlert),
+          }
+        : null;
+      if (latest && (latest.tone === 'failed' || latest.tone === 'attention')) {
+        return { ...base, ...latest };
+      }
       const tileLabel = current.find((alert) => alert.tileLabel !== null)?.tileLabel;
       if (tileLabel) return { ...base, tone: 'attention', label: tileLabel, at: null };
-      const latest = states[0];
-      if (latest) return { ...base, ...asTile(latest) };
-      return { ...base, tone: 'idle', label: '최근 기록 없음', at: null };
+      if (latest) return { ...base, ...latest };
+      return { ...base, tone: 'idle', label: '현재 기록 없음', at: null };
     })
     .sort(
       (a, b) =>

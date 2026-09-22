@@ -83,7 +83,7 @@ export function SellpiaSkuPicker({
         ) : (
           <ul className="divide-y divide-slate-100">
             {(candidates.data ?? []).map((candidate) => (
-              <li key={candidate.sellpiaInventorySkuId}>
+              <li key={candidate.masterProductId}>
                 <button
                   type="button"
                   onClick={() => onPick(candidate)}

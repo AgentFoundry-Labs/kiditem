@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { isChannelSkuOutOfStock } from '@kiditem/shared/channel-sku-availability';
 import type {
   MallAdapterManifestView,
   MallChannelOverview,
@@ -15,6 +16,7 @@ import type {
   MallPublishReadiness,
   MallPublishTarget,
 } from '@kiditem/shared/mall-publishing';
+import { CHANNEL_REGISTRY, findChannel } from '@kiditem/shared/channel-registry';
 import {
   MALL_ADAPTER_MANIFESTS,
   getMallAdapterManifest,
@@ -44,7 +46,6 @@ import {
   CHANNEL_SKU_AVAILABILITY_PORT,
   type ChannelSkuAvailabilityPort,
 } from '../port/in/channel-sku-availability.port';
-import { isChannelSkuOutOfStock } from '@kiditem/shared/channel-sku-availability';
 
 /**
  * 도메인 매니페스트가 전송 규격과 어긋나면 여기서 컴파일이 깨진다.
@@ -85,8 +86,6 @@ function toColumnActions(manifest: MallAdapterManifest | null | undefined) {
     soldOut: manifest.supports.soldOut,
     resume: manifest.supports.resume,
     setStock: manifest.supports.setStock !== null,
-    // 완전품절이 삭제인 몰이어도 우리가 그 몰 관리자에 만든 품절 길은 판매중지다(지마켓 · 옥션 · 11번가) — 칸이 삭제로
-    // 경고하거나 품절 버튼을 막지 않게, 우리 길이 있는 몰에서는 이 위험을 켜지 않는다.
     soldOutDeletesListing: manifest.hazards.soldOutDeletesListing && manifest.soldOutRoute !== 'mall_admin',
     requiresOperatorApproval: manifest.hazards.requiresOperatorApproval,
     soldOutRoute: manifest.soldOutRoute,
@@ -97,7 +96,9 @@ function toColumnActions(manifest: MallAdapterManifest | null | undefined) {
  * 몰 한 곳의 등록 준비 상태. 무엇이 막고 있는지가 이 값 하나로 읽혀야 한다.
  *
  * 계정 행이 없거나 로그인이 저장돼 있지 않으면 `needs_account` 다 — 계정은 쇼핑몰 계정 화면이
- * 만든다. 등록 기본값 문서가 없으면 `needs_profile`.
+ * 만든다. 등록 기본값 문서가 없으면 `needs_profile` 인데, 이것은 막는 상태가 아니다 — 그
+ * 문서를 저장하는 화면이 아직 없어서(KID-235) 사람이 지금 할 수 있는 일이 없다. 송신 전
+ * 점검(`profile_selected`)도 문서가 통째로 없는 것으로는 막지 않는다.
  */
 function mallReadiness(
   manifest: MallAdapterManifest,
@@ -209,6 +210,7 @@ export class MallPublishingService {
             // 몰 카테고리를 직접 지정한 경우만 매핑된 것으로 센다.
             hasMallCategory: Boolean(account?.listingProfile?.categoryCode),
             kc: row.kc,
+            stock: row.stock,
           },
           account: toPreflightAccount(account),
         });
@@ -250,8 +252,8 @@ export class MallPublishingService {
       limit,
     });
 
-    // 우리 품절 송신은 **상품 단위**다 — 몰 관리자에서 상품 줄을 멈춘다(`mall-availability-send`).
-    // 옵션 일부만 품절인 상품을 보내면 재고 있는(또는 모르는) 옵션까지 멈춘다. 그런 상품은 보내지 않는다.
+    // 상품 단위 품절 경로는 다른 옵션이 살아 있으면 안전하게 막는다. 옵션 단위
+    // 경로(쿠팡 WING)는 해당 옵션만 전환하므로 그대로 보낸다.
     const listingIds = [...new Set(page.items.map((item) => item.product.id))];
     const liveOptions = new Map<string, number>();
     for (const option of await this.availability.findByListingIds(organizationId, listingIds)) {
@@ -261,10 +263,12 @@ export class MallPublishingService {
 
     const candidates = page.items.map<MallAvailabilityCandidate>((item) => {
       const manifest = getMallAdapterManifest(item.channelAccount.channel);
+      const channel = findChannel(item.channelAccount.channel);
       const base = {
         channelListingOptionId: item.sku.id,
+        channelAccountId: item.channelAccount.id,
         mallKey: item.channelAccount.channel,
-        mallName: manifest?.name ?? item.channelAccount.channel,
+        mallName: manifest?.name ?? channel?.name ?? item.channelAccount.channel,
         channelAccountName: item.channelAccount.name,
         productName: item.product.displayName
           ?? item.product.registeredName
@@ -276,7 +280,7 @@ export class MallPublishingService {
         sellableStock: item.sku.sellableStock,
         bottleneckCodes: item.components
           .filter((component) => component.isBottleneck)
-          .map((component) => component.code),
+          .flatMap((component) => component.code === null ? [] : [component.code]),
         desiredState: 'sold_out' as const,
       };
 
@@ -285,14 +289,15 @@ export class MallPublishingService {
           ...base,
           sendable: false,
           effectiveState: null,
-          blockedReason: `${item.channelAccount.channel} 매니페스트가 없습니다.`,
+          blockedReason: channel
+            ? `${channel.name}은(는) 몰 상품등록·품절 송신 대상이 아닙니다.`
+            : `${item.channelAccount.channel} 매니페스트가 없습니다.`,
         };
       }
       const resolved = resolveSoldOutCommand(manifest);
       if (!resolved.allowed) {
         return { ...base, sendable: false, effectiveState: null, blockedReason: resolved.reason };
       }
-      // 옵션 단위로 보내는 몰(쿠팡 윙 = 옵션 재고 0)은 품절 옵션만 바뀌어 막을 까닭이 없다.
       const live = soldOutSendsByOption(manifest.key) ? 0 : liveOptions.get(item.product.id) ?? 0;
       if (live > 0) {
         return {
@@ -304,7 +309,6 @@ export class MallPublishingService {
       }
       return { ...base, sendable: true, effectiveState: resolved.downgradedTo, blockedReason: null };
     });
-
     return {
       candidates,
       total: page.total,
@@ -319,8 +323,8 @@ export class MallPublishingService {
   /**
    * 상품 × 몰 등록 현황.
    *
-   * 열은 **우리가 리스팅을 가져온 계정**이다. 매니페스트에 몰이 29개 있어도
-   * 리스팅을 모르는 몰은 칸을 채울 수 없다 — 전부 '미등록'으로 칠하면 그 몰에
+   * 열은 **우리가 리스팅을 가져온 계정**이다. 레지스트리에 채널이 29개 있어도
+   * 리스팅을 모르는 채널은 칸을 채울 수 없다 — 전부 '미등록'으로 칠하면 그 몰에
    * 상품이 1,000개 올라가 있어도 하나도 없는 것처럼 보인다. 그래서 열마다
    * `imported` 를 실어 화면이 그 차이를 말할 수 있게 한다.
    *
@@ -376,7 +380,9 @@ export class MallPublishingService {
           state: resolved.state,
           rawStatus: listing?.status ?? null,
           externalId: listing?.externalId ?? null,
-          productUrl: listing ? mallProductUrl(column.mallKey, listing.externalId, listing.storefrontProductId) : null,
+          productUrl: listing
+            ? mallProductUrl(column.mallKey, listing.externalId, listing.storefrontProductId)
+            : null,
           warning: resolved.warning,
           updatedAt: listing?.updatedAt.toISOString() ?? null,
         } satisfies MallListingMatrixCell;
@@ -487,7 +493,7 @@ export class MallPublishingService {
       this.repository.listMallAccounts(organizationId),
       this.repository.listAccountsWithListings(organizationId),
       this.repository.countOrdersByAccount(organizationId),
-      this.repository.countActiveMasterProducts(organizationId),
+      this.repository.countVisibleMasterProducts(organizationId),
     ]);
 
     const mallAccountByKey = new Map(mallAccounts.map((row) => [row.mallKey, row]));
@@ -496,27 +502,30 @@ export class MallPublishingService {
       orderCounts.map((row) => [row.channelAccountId, row.orderCount]),
     );
 
-    const channels = MALL_ADAPTER_MANIFESTS.flatMap<MallChannelSummary>((manifest) => {
-      const mallAccount = mallAccountByKey.get(manifest.key) ?? null;
+    // 허브는 몰과 마켓을 함께 센다 — 쿠팡 로켓은 몰 등록 마법사에 서지 않지만 연결된
+    // 채널이고 주문이 들어온다. 목록은 채널 레지스트리, 등록 사정은 매니페스트다.
+    const channels = CHANNEL_REGISTRY.flatMap<MallChannelSummary>((entry) => {
+      const mallAccount = mallAccountByKey.get(entry.key) ?? null;
       const account = mallAccount
         ? listingAccountById.get(mallAccount.channelAccountId) ?? null
         : null;
       const listingCount = account?.listingCount ?? 0;
       const orderCount = mallAccount ? ordersByAccount.get(mallAccount.channelAccountId) ?? 0 : 0;
 
-      // 계정 행이 없는 몰은 허브에 걸지 않는다. 29개를 전부 그리면 실제로 쓰는 몰이
+      // 계정 행이 없는 채널은 허브에 걸지 않는다. 29개를 전부 그리면 실제로 쓰는 몰이
       // 안 보인다.
       if (!mallAccount) return [];
 
+      const manifest = getMallAdapterManifest(entry.key);
       return [{
-        mallKey: manifest.key,
-        mallName: manifest.name,
+        mallKey: entry.key,
+        mallName: entry.name,
         channelAccountId: mallAccount.channelAccountId,
-        canPublish: manifest.applicable && manifest.supports.createListing,
+        canPublish: manifest?.applicable === true && manifest.supports.createListing,
         hasCredentials: mallAccount.hasCredentials,
         imported: listingCount > 0,
-        // 몰 → 우리 방향. 상품등록과 반대라 매니페스트가 따로 들고 있다.
-        ...mallInboundSupports(manifest.key),
+        // 몰 → 우리 방향. 상품등록과 반대라 레지스트리가 따로 들고 있다.
+        ...mallInboundSupports(entry.key),
         listingCount,
         orderCount,
         productCount: account?.productCount ?? 0,
@@ -527,7 +536,7 @@ export class MallPublishingService {
         matchedOptionCount: account?.matchedOptionCount ?? 0,
         onSaleOptionCount: account?.onSaleOptionCount ?? 0,
         onSaleMatchedOptionCount: account?.onSaleMatchedOptionCount ?? 0,
-        readiness: mallReadiness(manifest, mallAccount),
+        readiness: manifest ? mallReadiness(manifest, mallAccount) : 'unsupported',
       } satisfies MallChannelSummary];
     });
 

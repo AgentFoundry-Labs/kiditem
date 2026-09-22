@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ProductAbcReadModule } from '../../../products/product-abc-read.module';
-import { InventoryModule } from '../../../inventory/inventory.module';
+import { ProductCollectionRuntimeModule } from '../../../products/product-collection-runtime.module';
 import { AiModule } from '../../../ai/ai.module';
 import { SellpiaProductSalesModule } from '../sellpia-product-sales.module';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
@@ -26,7 +26,7 @@ describe('SellpiaProductSalesModule wiring', () => {
           useExisting?: unknown;
         } | undefined;
 
-    expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(ProductCollectionRuntimeModule);
     expect(imports).toContain(ProductAbcReadModule);
     expect(imports).toContain(AiModule);
     expect(imports).toContain(SellpiaProfitabilitySourceModule);
@@ -76,6 +76,6 @@ describe('SellpiaProductSalesModule wiring', () => {
 
     expect(binding?.useExisting).toBe(SellpiaProfitabilitySourceService);
     expect(exports).toContain(SELLPIA_PROFITABILITY_SOURCE_READ_PORT);
-    expect(Reflect.getMetadata('imports', SellpiaProfitabilitySourceModule)).toEqual([AlertsModule]);
+    expect(Reflect.getMetadata('imports', SellpiaProfitabilitySourceModule)).toEqual([AlertsModule, ProductCollectionRuntimeModule]);
   });
 });

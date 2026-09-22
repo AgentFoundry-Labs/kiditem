@@ -110,8 +110,16 @@ function compareSemver(a, b) {
   return 0;
 }
 
-function isDevelopToMainPromotion({ baseRef, headRef }) {
-  return baseRef === 'main' && headRef === 'develop';
+// Branches that receive trains from develop. A migration whose release is at
+// or below the higher VERSION of the two is immutable. Office deploys from
+// `release/office`, which root CLAUDE.md keeps as the live operational anchor,
+// so a train on it may already be in the Office migration ledger while `main`
+// still carries an older train. `main` still receives develop -> main
+// promotions, so both branches count.
+const PROMOTED_BRANCHES = Object.freeze(['release/office', 'main']);
+
+export function isDevelopPromotion({ baseRef, headRef }) {
+  return headRef === 'develop' && PROMOTED_BRANCHES.includes(baseRef);
 }
 
 function readPrMetadata({ event }) {
@@ -140,10 +148,44 @@ function readPrMetadata({ event }) {
 function readVersionAtRef(ref) {
   if (!ref) return '';
   try {
-    return git(['show', `${ref}:VERSION`]);
+    return execFileSync('git', ['show', `${ref}:VERSION`], {
+      cwd: repoRoot(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
   } catch {
     return '';
   }
+}
+
+/**
+ * The immutable boundary: the highest VERSION readable from the promoted
+ * branches. A PR that targets one of those branches reads it from its own
+ * base; the other branch is read from `origin/<branch>`. `promotedRefs` lists
+ * every readable ref, because inactive lineage may be pinned to a commit that
+ * only a promoted branch contains.
+ */
+export function resolvePromotedBoundary({
+  baseRef = '',
+  base = '',
+  readVersionAtRef: readVersion = readVersionAtRef,
+} = {}) {
+  let promotedVersion = '';
+  const promotedRefs = [];
+  const unreadableRefs = [];
+  for (const branch of PROMOTED_BRANCHES) {
+    const ref = baseRef === branch && base ? base : `origin/${branch}`;
+    const version = String(readVersion(ref) ?? '').trim();
+    if (!isSemver(version)) {
+      unreadableRefs.push(ref);
+      continue;
+    }
+    promotedRefs.push(ref);
+    if (!promotedVersion || compareSemver(version, promotedVersion) > 0) {
+      promotedVersion = version;
+    }
+  }
+  return { promotedVersion, promotedRefs, unreadableRefs };
 }
 
 function readTextAtRef(ref, file) {
@@ -222,6 +264,9 @@ export function verifyAppliedMigrationBaseline({
   baselineCommit,
   expectedRelease,
   candidateBytes,
+  // Refs besides the checked head that may contain the baseline. Only inactive
+  // lineage passes promoted refs; a PR-body declaration stays head-only.
+  ancestorRefs = [],
 }) {
   const errors = [];
   const migration = migrationNameFromPath(migrationPath);
@@ -243,8 +288,14 @@ export function verifyAppliedMigrationBaseline({
     errors.push(`${migrationPath} baseline commit ${baselineCommit} does not exist as a commit.`);
     return { errors };
   }
-  if (!head || !gitSucceeds(['merge-base', '--is-ancestor', baselineCommit, head], root)) {
-    errors.push(`${migrationPath} baseline commit ${baselineCommit} is not an ancestor of checked head ${head || '<missing>'}.`);
+  const reachable = Boolean(head) && [head, ...ancestorRefs].some((ref) => (
+    Boolean(ref) && gitSucceeds(['merge-base', '--is-ancestor', baselineCommit, ref], root)
+  ));
+  if (!reachable) {
+    const promoted = ancestorRefs.length > 0
+      ? ` or of promoted refs ${ancestorRefs.join(', ')}`
+      : '';
+    errors.push(`${migrationPath} baseline commit ${baselineCommit} is not an ancestor of checked head ${head || '<missing>'}${promoted}.`);
     return { errors };
   }
 
@@ -313,12 +364,65 @@ function fileDeclaresMigrationId(bytes, migrationId) {
   return new RegExp(`\\bid\\s*:\\s*["']${escaped}["']`).test(bytes.toString('utf8'));
 }
 
+function lineageSourcePath(entry) {
+  return typeof entry.sourcePath === 'string' ? entry.sourcePath : '';
+}
+
+// An inactive lineage entry describes a migration that no longer runs.
+function candidateRegistrationErrors({ entry, migrationIndex }) {
+  const importPath = migrationImportPath(lineageSourcePath(entry));
+  if (importPath && hasExecutableMigrationRegistration(migrationIndex, importPath)) {
+    return [
+      `${entry.sourcePath} is still registered in the candidate executable migration index, so it cannot be inactive lineage.`,
+    ];
+  }
+  return [];
+}
+
+// Lineage added after the registration already left the base registry: the
+// migration must belong to a promoted train, and neither registry may run it.
+function lateLineageAdmissionErrors({
+  entry,
+  promotedVersion,
+  migrationIndex,
+  baseMigrationIndex,
+}) {
+  const label = lineageSourcePath(entry) || '<missing>';
+  if (!isSemver(promotedVersion)) {
+    return [
+      `${label} cannot gain late inactive lineage because no promoted VERSION (release/office or main) is readable.`,
+    ];
+  }
+  const release = typeof entry.releaseVersion === 'string' ? entry.releaseVersion : '';
+  if (!isSemver(release)) {
+    return [`${label} inactive lineage has an invalid releaseVersion.`];
+  }
+  if (compareSemver(release, promotedVersion) > 0) {
+    return [
+      `${label} inactive lineage release v${release} is above promoted VERSION ${promotedVersion}, so it cannot gain late inactive lineage.`,
+    ];
+  }
+  const importPath = migrationImportPath(label);
+  if (
+    importPath && (
+      hasExecutableMigrationRegistration(baseMigrationIndex, importPath) ||
+      hasExecutableMigrationRegistration(migrationIndex, importPath)
+    )
+  ) {
+    return [
+      `${label} is still registered in the base or candidate executable migration index, so it cannot gain late inactive lineage.`,
+    ];
+  }
+  return [];
+}
+
 function verifyRetiredMigrationLineage({
   entry,
   migrationIndex,
   candidateBytesByPath,
   root,
   head,
+  ancestorRefs = [],
 }) {
   const errors = [];
   const source = migrationNameFromPath(entry.sourcePath ?? '');
@@ -339,6 +443,7 @@ function verifyRetiredMigrationLineage({
     baselineCommit: entry.baselineCommit,
     expectedRelease: entry.releaseVersion,
     candidateBytes: sourceBytes,
+    ancestorRefs,
   });
   errors.push(...verification.errors);
   if (
@@ -430,6 +535,7 @@ export function analyzePrReleaseContract({
   migrationIndex,
   baseMigrationIndex = '',
   promotedVersion = '',
+  promotedRefs = [],
   retiredMigrations = [],
   baseRetiredMigrations = [],
   allowHistoricalMigrationVersions = false,
@@ -501,7 +607,7 @@ export function analyzePrReleaseContract({
     .filter((registeredPath) => !candidateRegisteredPaths.has(registeredPath));
   if (removedBasePaths.length > 0 && !isSemver(promotedVersion)) {
     errors.push(
-      'The release contract cannot verify promoted migration removals because main VERSION is unavailable.',
+      'The release contract cannot verify promoted migration removals because no promoted VERSION (release/office or main) is readable.',
     );
   }
   const removedPromotedPaths = removedBasePaths.filter((registeredPath) => {
@@ -518,14 +624,23 @@ export function analyzePrReleaseContract({
       );
     }
   }
+  // Every entry is re-verified on every run. An entry that is neither in the
+  // base catalog nor removed by this change is late lineage for a promoted
+  // migration whose registration already left without it.
   for (const entry of retiredMigrations) {
-    if (
+    const isLateLineage =
       !baseRetirementByPath.has(entry.sourcePath) &&
-      !removedPromotedPathSet.has(entry.sourcePath)
-    ) {
-      errors.push(
-        `${entry.sourcePath} inactive lineage does not correspond to a newly removed promoted migration.`,
-      );
+      !removedPromotedPathSet.has(entry.sourcePath);
+    const admissionErrors = isLateLineage
+      ? lateLineageAdmissionErrors({
+        entry,
+        promotedVersion,
+        migrationIndex,
+        baseMigrationIndex,
+      })
+      : candidateRegistrationErrors({ entry, migrationIndex });
+    if (admissionErrors.length > 0) {
+      errors.push(...admissionErrors);
       continue;
     }
     errors.push(...verifyRetiredMigrationLineage({
@@ -534,12 +649,25 @@ export function analyzePrReleaseContract({
       candidateBytesByPath,
       root,
       head,
+      ancestorRefs: promotedRefs,
     }));
   }
 
   for (const file of migrationFiles) {
     const migration = migrationNameFromPath(file);
     if (!migration) continue;
+    const declaration = declarationsByPath.get(file);
+    if (retirementByPath.has(file)) {
+      // An inactive source is unregistered on purpose, and a promotion diff can
+      // carry it. Its lineage entry above pins these bytes to the baseline on
+      // every run, so the registry and declaration rules do not apply.
+      if (declaration) {
+        errors.push(
+          `${file} has inactive lineage in retired.json, so it cannot also carry an Applied migration baseline declaration.`,
+        );
+      }
+      continue;
+    }
     const isCurrentRelease = migration.release === version;
     const isHistoricalPromotionRelease =
       allowHistoricalMigrationVersions &&
@@ -555,7 +683,6 @@ export function analyzePrReleaseContract({
     if (!isCurrentRelease && !isHistoricalPromotionRelease && !isHistoricalMigration) {
       errors.push(`${file} release v${migration.release} does not match root VERSION ${version}.`);
     }
-    const declaration = declarationsByPath.get(file);
     const expectedImportPath = `./v${migration.release}/${migration.basename}`;
     if (!migrationIndex.includes(expectedImportPath)) {
       errors.push(`${file} is not registered in scripts/data-migrations/index.ts.`);
@@ -613,13 +740,20 @@ function main() {
   const deletedFiles = deletedFilesFromGit(base, head);
   const prBody = readPrBody(args);
   const prMetadata = readPrMetadata({ event: args.event });
-  const allowHistoricalMigrationVersions = isDevelopToMainPromotion(prMetadata);
+  const allowHistoricalMigrationVersions = isDevelopPromotion(prMetadata);
   const migrationIndexPath = 'scripts/data-migrations/index.ts';
   const retirementCatalogPath = 'scripts/data-migrations/retired.json';
   const migrationIndex = readFileSync(path.join(root, migrationIndexPath), 'utf8');
   const baseMigrationIndex = readTextAtRef(base, migrationIndexPath) ?? '';
-  const promotedMainRef = prMetadata.baseRef === 'main' ? base : 'origin/main';
-  const promotedVersion = readVersionAtRef(promotedMainRef);
+  const { promotedVersion, promotedRefs, unreadableRefs } = resolvePromotedBoundary({
+    baseRef: prMetadata.baseRef,
+    base,
+  });
+  for (const ref of unreadableRefs) {
+    console.warn(
+      `check:pr-release-contract WARN — cannot read VERSION at ${ref}; run \`git fetch origin main develop release/office\` so the promoted boundary includes it.`,
+    );
+  }
   let retiredMigrations = [];
   let baseRetiredMigrations = [];
   let retirementCatalogError = '';
@@ -683,6 +817,7 @@ function main() {
     migrationIndex,
     baseMigrationIndex,
     promotedVersion,
+    promotedRefs,
     retiredMigrations,
     baseRetiredMigrations,
     allowHistoricalMigrationVersions,

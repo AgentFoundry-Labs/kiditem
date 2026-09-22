@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MALL_CHANNELS, findChannel } from '@kiditem/shared/channel-registry';
 import {
   MALL_ADAPTER_MANIFESTS,
   getMallAdapterManifest,
@@ -6,22 +7,26 @@ import {
   mallInboundSupports,
   requiresManualResume,
   resolveSoldOutCommand,
-  soldOutSendsByOption,
 } from './mall-adapter-manifest';
 
 describe('MALL_ADAPTER_MANIFESTS', () => {
-  it('declares every order-collection mall plus both Coupang channel identities', () => {
-    // 주문수집 27개 몰 + 마켓플레이스 쿠팡 + 사입 로켓.
-    expect(MALL_ADAPTER_MANIFESTS).toHaveLength(29);
-    expect(getMallAdapterManifest('coupang')?.applicable).toBe(true);
+  it('⭐ 몰 27개만 담고 레지스트리 순서를 그대로 쓴다', () => {
+    expect(MALL_ADAPTER_MANIFESTS.map((entry) => entry.key)).toEqual(
+      MALL_CHANNELS.map((entry) => entry.key),
+    );
+    expect(MALL_ADAPTER_MANIFESTS).toHaveLength(27);
     expect(getMallAdapterManifest('coupang-direct')?.applicable).toBe(false);
   });
 
-  it('covers the channel keys that actually own listings today', () => {
-    // ChannelAccount.channel 이 'coupang' / 'rocket' 이라 품절 화면이 이 두 키로
-    // 매니페스트를 찾는다. 빠지면 "매니페스트가 없습니다"로만 보인다.
+  /**
+   * 쿠팡 마켓플레이스와 쿠팡 로켓은 마켓 판매자 시스템이라 몰 등록 마법사에 서지 않는다
+   * (KID-250). 정체 · 이름 · 능력은 채널 레지스트리가 계속 답하므로, 그 채널의 리스팅과
+   * 품절 후보는 매니페스트 없이도 제 이름으로 보인다.
+   */
+  it('⭐ 마켓 판매자 시스템은 몰 매니페스트에 없고 레지스트리가 답한다', () => {
     for (const key of ['coupang', 'rocket']) {
-      expect(getMallAdapterManifest(key)).not.toBeNull();
+      expect(getMallAdapterManifest(key)).toBeNull();
+      expect(findChannel(key)?.kind).toBe('marketplace');
     }
   });
 
@@ -37,34 +42,7 @@ describe('MALL_ADAPTER_MANIFESTS', () => {
     }
   });
 
-  /**
-   * 지마켓 · 옥션 · 11번가 · 스마트스토어는 몰 API 는 확인 전이지만, 품절 · 재개만 그 몰 관리자 화면의 요청으로 열었다
-   * (사장님 2026-09-19). 등록 · 수정 · 재고는 여전히 닫혀 있다.
-   */
-  it('⭐ opens only the sold-out axis on the four marketplaces and 떠리몰', () => {
-    for (const key of ['gmarket', 'auction', '11st', 'smartstore', 'thirtymall']) {
-      const entry = getMallAdapterManifest(key)!;
-      expect(entry.unverified).toBe(true);
-      expect(entry.supports).toEqual({
-        createListing: false,
-        updateListing: false,
-        setStock: null,
-        setSaleStatus: 'listing',
-        soldOut: true,
-        resume: true,
-      });
-      expect(entry.soldOutRoute).toBe('mall_admin');
-      expect(entry.resumeRoute).toBe('mall_admin');
-      expect(soldOutSendsByOption(key)).toBe(false);
-      // 이 몰들의 품절 길은 판매중지다 — 화면이 "판매중지"로 말한다.
-      expect(resolveSoldOutCommand(entry)).toEqual({ allowed: true, downgradedTo: 'suspended' });
-    }
-    // 판매중지를 오래 두면 지운다 — 지마켓 13개월 · 옥션 90일.
-    expect(getMallAdapterManifest('gmarket')!.hazards.suspendAutoDeletesAfterDays).toBe(395);
-    expect(getMallAdapterManifest('auction')!.hazards.suspendAutoDeletesAfterDays).toBe(90);
-  });
-
-  it('closes every write path on unverified malls regardless of the seed — only our admin sold-out route opens its axis', () => {
+  it('closes registration writes on unverified malls while preserving verified admin stop routes', () => {
     for (const entry of MALL_ADAPTER_MANIFESTS.filter((candidate) => candidate.unverified)) {
       const adminRoute = entry.soldOutRoute === 'mall_admin';
       expect(entry.supports).toEqual({
@@ -112,101 +90,9 @@ describe('resolveSoldOutCommand', () => {
     expect(resolveSoldOutCommand(deletesOnSoldOut)).toEqual({ allowed: true, downgradedTo: 'suspended' });
   });
 
-  it('refuses an unverified mall', () => {
-    const ssg = getMallAdapterManifest('ssg')!;
-    expect(resolveSoldOutCommand(ssg).allowed).toBe(false);
-  });
-
-  /** 도매꾹 품절 = 목록 [수정저장] 의 진열안함(2026-09-18 실측). 확장 `mall-availability-send.js` 에 구현이 있다. */
-  it('sends sold_out to 도매꾹 through its own admin list', () => {
-    const domeggook = getMallAdapterManifest('domeggook')!;
-    expect(resolveSoldOutCommand(domeggook)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
-    expect(domeggook.soldOutRoute).toBe('mall_admin');
-    expect(domeggook.supports.resume).toBe(true);
-    expect(domeggook.supports.setStock).toBeNull();
-  });
-
-  /** 쿠팡 윙 품절 = 상품목록 일괄적용의 판매상태 변경(2026-09-18 실측). 확장 `mall-availability-send.js` 에 구현이 있다. */
-  it('sends sold_out to 쿠팡 as option stock 0 through the Wing product list', () => {
-    const coupang = getMallAdapterManifest('coupang')!;
-    expect(resolveSoldOutCommand(coupang)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
-    expect(coupang.soldOutRoute).toBe('mall_admin');
-    // 윙에서 품절 = 옵션 재고 0 이라 옵션 단위로 보낸다. 도매꾹(진열안함)은 상품 단위다.
-    expect(soldOutSendsByOption('coupang')).toBe(true);
-    expect(soldOutSendsByOption('domeggook')).toBe(false);
-  });
-
-  /** 카카오 톡스토어 품절 = 판매자센터 [선택 수정]의 재고 0 · 올웨이즈 품절 = [품절] 버튼(2026-09-19 실측). 상품 단위다. */
-  it('sends sold_out to 카카오 톡스토어 and 올웨이즈 through their seller centers', () => {
-    for (const key of ['kakao', 'always']) {
-      const mall = getMallAdapterManifest(key)!;
-      expect(resolveSoldOutCommand(mall)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
-      expect(mall.soldOutRoute).toBe('mall_admin');
-      expect(mall.supports.resume).toBe(true);
-      expect(soldOutSendsByOption(key)).toBe(false);
-    }
-  });
-
-  /** 아트공구 품절 = 카페24 상품목록의 [판매안함], 재개 = [판매함](2026-09-19 실측). 상품 단위다. */
-  it('sends sold_out to 아트공구 as 판매안함 through the Cafe24 product list', () => {
-    const art09 = getMallAdapterManifest('art09')!;
-    expect(art09.unverified).toBe(false);
-    expect(resolveSoldOutCommand(art09)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
-    expect(art09.soldOutRoute).toBe('mall_admin');
-    expect(art09.resumeRoute).toBe('mall_admin');
-    expect(art09.supports).toMatchObject({ setSaleStatus: 'listing', soldOut: true, resume: true, createListing: false });
-    expect(soldOutSendsByOption('art09')).toBe(false);
-  });
-
-  /** 롯데ON 품절 = 판매자센터 상품정보일괄수정의 판매상태 품절(SOUT), 재개 = 판매중(SALE)(2026-09-19 실측). 상품 단위다. */
-  it('sends sold_out to 롯데ON as sale status SOUT through the seller-center batch edit', () => {
-    const lotteon = getMallAdapterManifest('lotte-on')!;
-    expect(resolveSoldOutCommand(lotteon)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
-    expect(lotteon.soldOutRoute).toBe('mall_admin');
-    expect(lotteon.resumeRoute).toBe('mall_admin');
-    expect(soldOutSendsByOption('lotte-on')).toBe(false);
-  });
-
-  /**
-   * 쇼핑몰 현황은 품절관리 · 판매재개를 칸 둘로 가른다(사장님 2026-09-19). 해제 길은 품절 길이 있고 몰이
-   * 해제를 받을 때만 선다 — 우리 확장은 같은 화면 · 같은 요청의 반대 값으로 해제를 보낸다.
-   */
-  it('opens a resume route exactly where a sold-out route exists and the mall takes resume', () => {
-    for (const manifest of MALL_ADAPTER_MANIFESTS) {
-      expect(manifest.resumeRoute).toBe(
-        manifest.soldOutRoute === 'mall_admin' && manifest.supports.resume ? 'mall_admin' : null,
-      );
-    }
-    expect(getMallAdapterManifest('toss')!.resumeRoute).toBeNull();
-    expect(getMallAdapterManifest('rocket')!.resumeRoute).toBeNull();
-  });
-
-  /** 티쳐몰 품절 = [실물] 일괄 업데이트의 재고 0(2026-09-19 실측) — 정보수정은 승인이 풀려 쓰지 않는다. 상품 단위다. */
-  it('sends sold_out to 티쳐몰 as stock 0 through the batch update, not the approval-resetting edit', () => {
-    const teacher = getMallAdapterManifest('teacher-mall')!;
-    expect(resolveSoldOutCommand(teacher)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
-    expect(teacher.soldOutRoute).toBe('mall_admin');
-    expect(teacher.resumeRoute).toBe('mall_admin');
-    expect(teacher.hazards.updateResetsApproval).toBe(true);
-    expect(soldOutSendsByOption('teacher-mall')).toBe(false);
-  });
-
-  /** 아이스크림몰 품절 = 판매상태 일괄변경 창의 품절(20), 재개 = 판매중(10)(2026-09-19 실측). 상품 단위다. */
-  it('sends sold_out to 아이스크림몰 as sale status 20 through the sale-state batch window', () => {
-    const icecream = getMallAdapterManifest('icecream-mall')!;
-    expect(resolveSoldOutCommand(icecream)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
-    expect(icecream.soldOutRoute).toBe('mall_admin');
-    expect(icecream.resumeRoute).toBe('mall_admin');
-    expect(soldOutSendsByOption('icecream-mall')).toBe(false);
-  });
-
-  /** 키즈노트 품절 = 판매 상품 내역 [상태/노출일괄수정]의 품절(3), 재개 = 정상(2)(2026-09-19 실측). 상품 단위다. */
-  it('sends sold_out to 키즈노트 as status 품절 through the state batch edit', () => {
-    const kidsnote = getMallAdapterManifest('kidsnote')!;
-    expect(resolveSoldOutCommand(kidsnote)).toEqual({ allowed: true, downgradedTo: 'sold_out' });
-    expect(kidsnote.soldOutRoute).toBe('mall_admin');
-    expect(kidsnote.resumeRoute).toBe('mall_admin');
-    expect(soldOutSendsByOption('kidsnote')).toBe(false);
+  it('preserves the admin stop path when an unverified mall downgrades dangerous sold-out commands', () => {
+    const gmarket = getMallAdapterManifest('gmarket')!;
+    expect(resolveSoldOutCommand(gmarket)).toEqual({ allowed: true, downgradedTo: 'suspended' });
   });
 
   it('refuses malls with no sold-out path at all', () => {
@@ -235,7 +121,7 @@ describe('requiresManualResume', () => {
 
 /**
  * 쇼핑몰 현황의 주문수집 칸. 사장님 확인(2026-09-17): 아트공구는 우리 수집기로, 쿠팡 로켓은
- * 발주 수집으로 들어오고, 옥션 · 지마켓 · 11번가 · 신세계 · 스마트스토어 · 쿠팡(마켓플레이스)은
+ * 발주 수집으로 들어오고, 옥션 · 지마켓 · 11번가 · 신세계 · 스마트스토어 · 쿠팡 WING은
  * 셀피아가 가져온다.
  */
 describe('mallInboundSupports', () => {

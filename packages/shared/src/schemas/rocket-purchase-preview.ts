@@ -212,6 +212,7 @@ export type RocketPurchasePreviewScope = z.infer<
 export const RocketPurchasePreviewRequestSchema = z.object({
     channelAccountId: z.string().uuid(),
     sourceImportRunId: z.string().uuid(),
+    inventoryAttemptId: z.string().uuid(),
     editedQuantities: RocketPurchaseRequestBaseSchema.shape.editedQuantities,
     clampEditedQuantities: z.boolean().optional(),
     previewScope: RocketPurchasePreviewScopeSchema.optional(),
@@ -344,7 +345,7 @@ export type RocketWorkbookDecisionRequest = z.infer<typeof RocketWorkbookDecisio
 
 export const RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType()
   .omit({ collection: true, rows: true })
-  .extend({ sourceImportRunId: z.string().uuid() }).strict();
+  .extend({ sourceImportRunId: z.string().uuid(), inventoryAttemptId: z.string().uuid() }).strict();
 export type RocketWorkbookExportRequest = z.infer<typeof RocketWorkbookExportRequestSchema>;
 
 export const RocketPurchasePreviewReasonSchema = z.enum([
@@ -382,13 +383,12 @@ export type RocketPoCatalogPublication = z.infer<
 >;
 
 export const RocketPurchasePreviewComponentSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
-  code: requiredText(120),
-  name: requiredText(240),
+  masterProductId: z.string().uuid(),
+  code: requiredText(120).nullable(),
+  name: requiredText(240).nullable(),
   optionName: z.string().trim().min(1).max(240).nullable(),
   quantity: z.number().int().positive(),
   currentStock: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean().nullable(),
 }).strict();
 export type RocketPurchasePreviewComponent = z.infer<
   typeof RocketPurchasePreviewComponentSchema
@@ -432,24 +432,7 @@ export type RocketPurchasePreviewReadyResponse = z.infer<
   typeof RocketPurchasePreviewReadyResponseSchema
 >;
 
-export const RocketPurchasePreviewFreshnessPendingResponseSchema = z.object({
-  status: z.literal('freshness_pending'),
-  collectionRunId: z.string().uuid(),
-  catalog: RocketPoCatalogPublicationSchema,
-  requestedGeneration: z.string().regex(/^\d+$/),
-  rows: z.array(RocketPurchasePreviewRowSchema).max(ROCKET_PO_ROW_LIMIT),
-}).strict();
-export type RocketPurchasePreviewFreshnessPendingResponse = z.infer<
-  typeof RocketPurchasePreviewFreshnessPendingResponseSchema
->;
-
-export const RocketPurchasePreviewResponseSchema = z.discriminatedUnion(
-  'status',
-  [
-    RocketPurchasePreviewReadyResponseSchema,
-    RocketPurchasePreviewFreshnessPendingResponseSchema,
-  ],
-);
+export const RocketPurchasePreviewResponseSchema = RocketPurchasePreviewReadyResponseSchema;
 export type RocketPurchasePreviewResponse = z.infer<
   typeof RocketPurchasePreviewResponseSchema
 >;

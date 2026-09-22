@@ -36,7 +36,7 @@ vi.mock('./icecream-tracking-api', async (importOriginal) => {
 });
 
 import { runSellpiaPostProcess, uploadTrackingForMall } from './order-tracking-actions';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const trackingRow = {
   ordNo: 'ORDER-1',

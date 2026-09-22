@@ -14,34 +14,20 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { businessDateKey, datesInclusive, parseBusinessDate } from '@kiditem/shared/common';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
-import { cn, formatKRW } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { DashboardCardHeader } from './DashboardCardHeader';
 import type { SellpiaSalesDailyPoint, SellpiaSalesSummary } from '@kiditem/shared/dashboard';
 
 /**
- * 매출 추이 — 볼 그래프를 사장님이 고른다.
- *
- * 기본은 총 매출 · 쿠팡 · 쿠팡 외 몰 세 선이다. 쿠팡 외 몰 가운데 따로 보고 싶은 몰은 설정에서
- * 골라 선으로 더한다(사장님 2026-09-18: 다 보여주면 복잡하다, 고르게 해 달라). 선끼리 뜻이
- * 겹치므로(총 매출 = 쿠팡 + 쿠팡 외, 고른 몰은 쿠팡 외의 일부) 쌓지 않고 선으로 둔다 — 쌓으면
- * 같은 매출을 두 번 센다. 큰 선을 끄면 세로 눈금이 남은 선에 맞게 다시 잡혀 작은 몰도 읽힌다.
- *
- * 숫자는 전부 셀피아 판매현황 읽기모델이 낸 것이다. 총 매출 선(`total.daily`)도, 쿠팡과 쿠팡
- * 외(`coupang` · `nonCoupang`)도 서버가 판매처로 나눠 보낸다. 화면은 더하지도 빼지도 않는다.
- *
- * 색은 모든 쌍을 검증했다(선은 어디서든 겹친다). 쿠팡 · 쿠팡 외 두 색은 ΔE 15.5 로 통과하고,
- * 몰은 셋까지다 — 넷째 색부터 분홍과 주황이 정상 시력으로도 구분되지 않는다(ΔE 12.9). 셋 안에서도
- * 청록과 분홍이 색각 이상 기준 경계(6.1)라 몰 선마다 점선 무늬를 달리한다. 총 매출은 합계라
- * 색이 아닌 진한 잉크로 굵게 긋는다. 선택은 이 브라우저에만 기억한다.
- *
- * 보기 방식은 일별(그날의 매출)과 누적(기간 첫날부터 그날까지의 합) 둘이다. 누적은 서버가 낸
- * 일별 값을 이어 더한 것이라 마지막 점이 기간 합계와 같다 — 새 숫자를 만들지 않는다.
+ * Owner-published Rocket and other-mall revenue, including Wing in the latter.
+ * Selected malls overlap their parent series, so series are never stacked.
+ * Missing dates remain gaps; cumulative mode sums measured dates only.
  */
 
-const TOTAL = '#334155';
-const COUPANG = '#7c3aed';
-const NON_COUPANG = '#0ea5e9';
+const ROCKET = '#7c3aed';
+const OTHERS = '#0ea5e9';
 const MALL_SLOTS = [
   { color: '#eda100', dash: '6 3' },
   { color: '#1baf7a', dash: '2 3' },
@@ -50,7 +36,7 @@ const MALL_SLOTS = [
 const CHART_HEIGHT = 210;
 const VIEW_KEY = 'kiditem.dashboard.revenue-view.v1';
 
-type BaseKey = 'total' | 'coupang' | 'nonCoupang';
+type BaseKey = 'rocket' | 'others';
 /** 일별은 그날의 매출, 누적은 기간 첫날부터 그날까지의 합. */
 type RevenueMode = 'daily' | 'cumulative';
 /** 그래프 모양 — 사장님이 고른다(2026-09-20). 기본은 막대. */
@@ -67,7 +53,7 @@ interface RevenueView {
 const DEFAULT_VIEW: RevenueView = {
   mode: 'daily',
   shape: 'bar',
-  base: { total: true, coupang: true, nonCoupang: true },
+  base: { rocket: true, others: true },
   malls: [],
 };
 
@@ -87,7 +73,7 @@ function readView(): RevenueView {
     return {
       mode: parsed.mode === 'cumulative' ? 'cumulative' : 'daily',
       shape: parsed.shape === 'line' ? 'line' : 'bar',
-      base: { total: base.total !== false, coupang: base.coupang !== false, nonCoupang: base.nonCoupang !== false },
+      base: { rocket: base.rocket !== false, others: base.others !== false },
       malls: malls.slice(0, MALL_SLOTS.length),
     };
   } catch {
@@ -163,7 +149,7 @@ function DayTick({ x, y, payload }: { x?: number; y?: number; payload?: { value?
 
 function manwon(value: number): string {
   if (value === 0) return '0';
-  return `${Math.round(value / 10_000).toLocaleString('ko-KR')}만`;
+  return `${formatNumber(Math.round(value / 10_000))}만`;
 }
 
 export function DashboardRevenue({
@@ -189,44 +175,42 @@ export function DashboardRevenue({
     safeStorageSet('local', VIEW_KEY, JSON.stringify(next));
   };
 
-  const total = summary?.total;
-  const coupang = summary?.coupang;
-  const nonCoupang = summary?.nonCoupang;
-  const ready = Boolean(summary?.hasData && coupang && nonCoupang);
+  const rocket = summary?.rocket;
+  const others = summary?.others;
+  const ready = Boolean(summary?.hasData && rocket && others);
 
-  /** 쿠팡 외 몰 전부, 큰 몰부터. 설정의 고르기 목록이다. */
+  /** 로켓 외 쇼핑몰 전부, 큰 몰부터. 설정의 고르기 목록이다. */
   const mallChoices = useMemo(
-    () => [...(nonCoupang?.malls ?? [])].sort((a, b) => b.revenue - a.revenue),
-    [nonCoupang],
+    () => [...(others?.malls ?? [])].sort((a, b) => b.revenue - a.revenue),
+    [others],
   );
 
   const series = useMemo<Series[]>(() => {
-    if (!coupang || !nonCoupang) return [];
+    if (!rocket || !others) return [];
     const list: Series[] = [];
-    if (view.base.total && total) {
-      list.push({ key: 'total', label: '총 매출', color: TOTAL, dash: undefined, width: 2.5, total: total.revenue, share: null, daily: byDate(total.daily) });
+    if (view.base.rocket) {
+      list.push({ key: 'rocket', label: '쿠팡 로켓', color: ROCKET, dash: undefined, width: 2, total: rocket.revenue, share: rocket.revenueShare, daily: byDate(rocket.daily) });
     }
-    if (view.base.coupang) {
-      list.push({ key: 'coupang', label: '쿠팡', color: COUPANG, dash: undefined, width: 2, total: coupang.revenue, share: coupang.revenueShare, daily: byDate(coupang.daily) });
-    }
-    if (view.base.nonCoupang) {
-      list.push({ key: 'nonCoupang', label: '쿠팡 외 몰', color: NON_COUPANG, dash: undefined, width: 2, total: nonCoupang.revenue, share: nonCoupang.revenueShare, daily: byDate(nonCoupang.daily) });
+    if (view.base.others) {
+      list.push({ key: 'others', label: '로켓 외 쇼핑몰', color: OTHERS, dash: undefined, width: 2, total: others.revenue, share: others.revenueShare, daily: byDate(others.daily) });
     }
     for (const pick of view.malls) {
-      const mall = nonCoupang.malls.find((candidate) => candidate.sellerId === pick.id);
+      const mall = others.malls.find((candidate) => candidate.sellerId === pick.id);
       // 이 기간에 판 적이 없는 몰은 선을 그리지 않는다. 고른 것은 남겨 두어 기간을 바꾸면 돌아온다.
       if (!mall) continue;
       const slot = MALL_SLOTS[pick.slot]!;
       list.push({ key: `mall_${pick.slot}`, label: mall.sellerName, color: slot.color, dash: slot.dash, width: 2, total: mall.revenue, share: null, daily: byDate(mall.daily) });
     }
     return list;
-  }, [coupang, nonCoupang, total, view]);
+  }, [rocket, others, view]);
 
   const points = useMemo(() => {
-    if (!coupang || !nonCoupang) return [];
-    const dates = [...new Set([...coupang.daily, ...nonCoupang.daily].map((point) => point.date))].sort();
+    const from = summary?.range ? parseBusinessDate(summary.range.from) : null;
+    const to = summary?.range ? parseBusinessDate(summary.range.to) : null;
+    if (!from || !to) return [];
+    const dates = datesInclusive(from, to).map(businessDateKey);
     return revenuePoints(dates, series, view.mode);
-  }, [coupang, nonCoupang, series, view.mode]);
+  }, [summary?.range, series, view.mode]);
 
   const seriesByKey = useMemo(() => new Map(series.map((item) => [item.key, item])), [series]);
   const range = summary?.range;
@@ -273,7 +257,7 @@ export function DashboardRevenue({
         </button>
       </DashboardCardHeader>
 
-      {/* 설정 — 볼 선을 고른다. 쿠팡 외 몰은 셋까지 따로 볼 수 있다. */}
+      {/* 설정 — 볼 선을 고른다. 로켓 외 쇼핑몰은 셋까지 따로 볼 수 있다. */}
       {settingsOpen && typeof document !== 'undefined' ? createPortal((
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
@@ -351,9 +335,8 @@ export function DashboardRevenue({
             <legend className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">표시할 그래프</legend>
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1.5">
               {([
-                ['total', '총 매출', TOTAL],
-                ['coupang', '쿠팡', COUPANG],
-                ['nonCoupang', '쿠팡 외 몰', NON_COUPANG],
+                ['rocket', '쿠팡 로켓', ROCKET],
+                ['others', '로켓 외 쇼핑몰', OTHERS],
               ] as const).map(([key, label, color]) => (
                 <label key={key} className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-slate-700">
                   <input
@@ -370,7 +353,7 @@ export function DashboardRevenue({
           </fieldset>
           <fieldset className="mt-3">
             <legend className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              쿠팡 외 몰에서 따로 보기 <span className="font-normal normal-case tracking-normal">· 최대 {MALL_SLOTS.length}개 ({view.malls.length}/{MALL_SLOTS.length})</span>
+              로켓 외 쇼핑몰에서 따로 보기 <span className="font-normal normal-case tracking-normal">· 최대 {MALL_SLOTS.length}개 ({view.malls.length}/{MALL_SLOTS.length})</span>
             </legend>
             <ul className="mt-1.5 grid max-h-40 grid-cols-1 gap-x-4 gap-y-1 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-3">
               {mallChoices.map((mall) => {
@@ -447,11 +430,11 @@ export function DashboardRevenue({
             <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 800, height: CHART_HEIGHT }}>
               <ComposedChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="18%">
                 <defs>
-                  <linearGradient id="dashboardBarCoupang" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="dashboardBarRocket" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#7c3aed" />
                     <stop offset="100%" stopColor="#a78bfa" />
                   </linearGradient>
-                  <linearGradient id="dashboardBarNonCoupang" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="dashboardBarOthers" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#c4b5fd" />
                     <stop offset="100%" stopColor="#ddd6fe" />
                   </linearGradient>
@@ -508,19 +491,17 @@ export function DashboardRevenue({
                 {series.map((item, index) => {
                   const dimmed = focused !== null && focused !== item.key;
                   if (view.shape === 'bar') {
-                    // 총 매출은 쌓은 막대 자체가 말한다 — 따로 그리면 같은 돈을 두 번 세운다.
-                    if (item.key === 'total') return null;
-                    const stacked = item.key === 'coupang' || item.key === 'nonCoupang';
+                    const stacked = item.key === 'rocket' || item.key === 'others';
                     const top = stacked && index === series.length - 1;
                     return (
                       <Bar
                         key={item.key}
                         dataKey={item.key}
                         stackId={stacked ? 'revenue' : undefined}
-                        fill={item.key === 'coupang'
-                          ? 'url(#dashboardBarCoupang)'
-                          : item.key === 'nonCoupang'
-                            ? 'url(#dashboardBarNonCoupang)'
+                        fill={item.key === 'rocket'
+                          ? 'url(#dashboardBarRocket)'
+                          : item.key === 'others'
+                            ? 'url(#dashboardBarOthers)'
                             : 'url(#dashboardBarOther)'}
                         fillOpacity={dimmed ? 0.15 : 1}
                         radius={stacked && !top ? undefined : [6, 6, 0, 0]}

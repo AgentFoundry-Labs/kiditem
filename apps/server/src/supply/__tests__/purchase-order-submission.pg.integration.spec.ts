@@ -1,3 +1,4 @@
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -10,12 +11,14 @@ import {
   TEST_USER_ID,
   OTHER_USER_ID,
 } from '../../test-helpers/real-prisma';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { PurchaseOrderSubmissionTransactionAdapter } from '../adapter/out/transaction/purchase-order-submission.transaction.adapter';
 
 const ORDER_ID = '20000000-0000-4000-8000-000000000001';
 const SELLPIA_SKU_ID = '20000000-0000-4000-8000-000000000002';
 const FENCE = '20000000-0000-4000-8000-000000000003';
 let verifiedAt: Date;
+let inventoryAttemptId: string;
 
 describe('purchase-order submission transaction (PG integration)', () => {
   let prisma: PrismaClient;
@@ -26,6 +29,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
     await prisma.$connect();
     adapter = new PurchaseOrderSubmissionTransactionAdapter(
       prisma as unknown as PrismaService,
+      new ProductTransactionalReadRepositoryAdapter(),
     );
   });
 
@@ -52,16 +56,13 @@ describe('purchase-order submission transaction (PG integration)', () => {
         freshnessGeneration: 4n,
       },
     });
-    await prisma.sellpiaInventorySku.create({
-      data: {
-        id: SELLPIA_SKU_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'SP-SUBMIT-1',
-        name: 'Submission SKU',
-        currentStock: 10,
-        isActive: true,
-        lastImportRunId: inventoryRun.id,
-      },
+    inventoryAttemptId = inventoryRun.id;
+    await seedSourceProduct(prisma, {
+      id: SELLPIA_SKU_ID,
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'SP-SUBMIT-1',
+      name: 'Submission SKU',
+      currentStock: 10,
     });
     await prisma.purchaseOrder.create({
       data: {
@@ -76,7 +77,8 @@ describe('purchase-order submission transaction (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         orderId: ORDER_ID,
-        sellpiaInventorySkuId: SELLPIA_SKU_ID,
+        masterProductId: SELLPIA_SKU_ID,
+        legacySellpiaInventorySkuId: null,
         productName: 'Submission SKU',
         quantity: 1,
         unitPriceCny: 10,
@@ -281,13 +283,14 @@ function submissionInput(
   return {
     organizationId: TEST_ORGANIZATION_ID,
     purchaseOrderId: ORDER_ID,
-    sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
+    masterProductIds: [SELLPIA_SKU_ID],
+    inventoryAttemptId,
+    inventoryFence: FENCE,
+    inventoryGeneration: '4',
+    inventoryCompletedAt: verifiedAt.toISOString(),
     idempotencyKey,
     requestHash,
     userId: TEST_USER_ID,
-    freshnessFence: FENCE,
-    freshnessLastVerifiedAt: verifiedAt.toISOString(),
-    freshnessExpiresAt: new Date(verifiedAt.getTime() + 10 * 60_000).toISOString(),
     requiresProvider: true,
     externalOrder: {
       externalOrderPlatform: null,

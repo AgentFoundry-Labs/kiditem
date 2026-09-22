@@ -8,17 +8,28 @@ convenience history.
 
 ## Collection Contract
 
+- The mall list and which malls the extension collects live only in the channel
+  registry (`@kiditem/shared/channel-registry`); this route reads it instead of
+  repeating the list.
 - All extension IO goes through the shared extension bridge and route adapter.
   The order screen and dashboard share
   `useAllMarketplaceOrderCollection`; do not create a count-only collector.
+- The shared collection loop and the mall cards use only the source adapter
+  (`OrderCollectionSourceAdapter`: start, status, stop, `card`) and the owner
+  stamped on the run; they never compare a mall key. A source with its own
+  owner, login or start screen answers inside its own adapter file.
 - Order collection, Sellpia transfer, and tracking upload results are Orders
-  facts. Never record them as `MallOperationOutcome` rows or read card numbers
-  from that log.
+  facts. Read their owner state; never record them as `MallOperationOutcome`
+  rows or duplicate them in a mall observation log.
 - Collected files live in one browser store that several surfaces write to (this
   screen, the dashboard department button, the mall agent loop, another tab).
   Writers publish the change through `order-generated-file-store`, and screens
   re-read on that signal and on window focus. Do not keep a mount-only snapshot:
   file actions, previews, and `신규` read that list.
+- Reading today's and `신규` counts from that browser store is temporary. One
+  browser holds them, so another device or a cleared browser sees none. KID-234
+  moves the counts to the Orders reader; until it lands, do not add a new count
+  on this store.
 - A mall whose auto-login is blocked (`mall-login-block`) is off limits to every
   automatic driver — the agent loop and this screen's 자동감지 both skip it, and
   neither may re-enter it on its own. Only the operator resumes it: by logging

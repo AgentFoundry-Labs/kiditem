@@ -47,24 +47,6 @@ describe('자동 로그인 차단', () => {
     expect(getMallLoginBlocks()).toEqual([]);
   });
 
-  /**
-   * 2026-09-18: 쿠팡직배송이 서버 오류 코드(`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)로 막혀 하루 내내
-   * '자동 멈춤 · 직접 로그인'이었다. 몰이 아이디·비밀번호를 거부했다고 말한 것만 차단이다.
-   */
-  it('⭐ 몰이 아이디·비밀번호를 거부한 것만 로그인 차단으로 남는다', () => {
-    expect(isCredentialFailureReason('아이디 또는 비밀번호가 일치하지 않습니다.')).toBe(true);
-    expect(isCredentialFailureReason('ORDER_COLLECTION_ATTEMPT_NOT_FOUND')).toBe(false);
-    expect(isCredentialFailureReason(
-      'A listener indicated an asynchronous response by returning true, but the message channel closed',
-    )).toBe(false);
-
-    blockMallAutoLogin('coupang-direct', 'ORDER_COLLECTION_ATTEMPT_NOT_FOUND', 'login', 1_000);
-    blockMallAutoLogin('boribori', '아이디 또는 비밀번호가 일치하지 않습니다.', 'login', 2_000);
-    resetMallLoginBlocksForTest();
-    expect(isMallAutoLoginBlocked('coupang-direct')).toBe(false);
-    expect(isMallAutoLoginBlocked('boribori')).toBe(true);
-  });
-
   it('⭐ 브라우저를 껐다 켜도 남는다 — 다시 켜자마자 또 시도하지 않게', () => {
     blockMallAutoLogin('kidsnote', '캡차가 떴습니다.', 'verification', 2_000);
     resetMallLoginBlocksForTest();

@@ -129,7 +129,7 @@ export default function WingRegistrationConfirmDialog({
   };
   const selectSellpia = (sku: WingSellpiaSkuOption) => {
     setSellpiaSelection({
-      sellpiaInventorySkuId: sku.sellpiaInventorySkuId,
+      masterProductId: sku.masterProductId,
       code: sku.code,
       name: sku.name,
       optionName: sku.optionName,
@@ -303,7 +303,7 @@ export default function WingRegistrationConfirmDialog({
                   <div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto">
                     {sellpiaSearchResults.map((sku) => (
                       <button
-                        key={sku.sellpiaInventorySkuId}
+                        key={sku.masterProductId}
                         type="button"
                         aria-label={`${sku.code} ${sku.name} 선택`}
                         onClick={() => selectSellpia(sku)}

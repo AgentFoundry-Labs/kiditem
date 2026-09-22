@@ -1,11 +1,12 @@
+import { formatNumber } from '@/lib/utils';
 import type { DashboardFindings } from '@kiditem/shared/dashboard';
 
 /**
  * AI 제안 — 지금 하면 돈이 되는 일(사장님 2026-09-20).
  *
  * 발주만 있던 칸을 넓혔다. 다만 근거가 서버에 있는 것만 말한다 — "매출 10% 상승" 같은 수는
- * 아무도 재지 않았으므로 쓰지 않는다. 대신 이미 발표된 수로 기회를 말한다: 몰에 아직 안 올린
- * 상품이 몇 개인지, 품절이 몇 개인지, 어떤 상품이 며칠 뒤 떨어지는지.
+ * 아무도 재지 않았으므로 쓰지 않는다. 대신 이미 발표된 수로 기회를 말한다: 어느 몰에도 연결되지 않은
+ * 원천 상품이 몇 개인지, 품절이 몇 개인지, 어떤 상품이 며칠 뒤 떨어지는지.
  *
  * 이 파일은 세지 않는다. 받은 수를 줄로 바꾸고 순서만 정한다.
  */
@@ -28,7 +29,7 @@ export interface AiSuggestionInput {
   findings: DashboardFindings | undefined;
   /** 상품 관리 요약 — 품절 · 재고 매칭. 모르면 undefined. */
   stock: { outOfStockCount: number | null; reorderProductCount: number | null } | undefined;
-  /** 아직 몰에 연결되지 않은 판매상품 수. 모르면 null. */
+  /** 아직 어느 몰에도 연결되지 않은 원천 상품 수. 모르면 null. */
   unlinkedProducts: number | null;
 }
 
@@ -47,7 +48,7 @@ export function buildAiSuggestions(input: AiSuggestionInput): AiSuggestion[] {
       key: `reorder:${item.productCode}`,
       badge: '발주',
       headline: `${item.name}의 재고가 ${daysLabel(item.daysLeft)} 소진됩니다`,
-      evidence: `현재고 ${item.availableStock.toLocaleString()}개 · 월 평균 ${Math.round(item.monthlyOutflow).toLocaleString()}개 판매`,
+      evidence: `현재고 ${formatNumber(item.availableStock)}개 · 월 평균 ${formatNumber(Math.round(item.monthlyOutflow))}개 판매`,
       figure: daysLabel(item.daysLeft),
       figureNote: '재고 부족 예측',
       imageUrl: item.imageUrl ?? null,
@@ -55,17 +56,17 @@ export function buildAiSuggestions(input: AiSuggestionInput): AiSuggestion[] {
     });
   }
 
-  // 2) 기회 — 이미 가진 상품을 더 파는 길. 만들어 낸 수가 아니라 있는 수다.
+  // 2) 기회 — 이미 발표된 연결·재고 상태를 확인할 길. 만들어 낸 수가 아니라 있는 수다.
   if (input.unlinkedProducts !== null && input.unlinkedProducts > 0) {
     list.push({
       key: 'unlinked',
       badge: '기회',
-      headline: `판매상품 ${input.unlinkedProducts.toLocaleString()}개가 아직 어느 몰에도 없습니다`,
-      evidence: '몰에 올린 만큼만 팔립니다 — 올릴 상품부터 고르세요',
-      figure: `${input.unlinkedProducts.toLocaleString()}개`,
-      figureNote: '몰 미등록',
+      headline: `원천 상품 ${formatNumber(input.unlinkedProducts)}개가 아직 어느 몰에도 연결되지 않았습니다`,
+      evidence: '상품별 쇼핑몰 연결 현황에서 연결할 상품을 고르세요',
+      figure: `${formatNumber(input.unlinkedProducts)}개`,
+      figureNote: '몰 연결 없음',
       imageUrl: null,
-      action: { label: '몰 등록', href: '/mall-listings' },
+      action: { label: '몰 연결', href: '/mall-listings' },
     });
   }
 
@@ -73,12 +74,12 @@ export function buildAiSuggestions(input: AiSuggestionInput): AiSuggestion[] {
     list.push({
       key: 'outOfStock',
       badge: '기회',
-      headline: `품절로 내려둔 상품 ${input.stock.outOfStockCount.toLocaleString()}개가 있습니다`,
-      evidence: '재고가 들어온 것을 다시 열면 그날부터 팔립니다',
-      figure: `${input.stock.outOfStockCount.toLocaleString()}개`,
+      headline: `품절 상태 상품 ${formatNumber(input.stock.outOfStockCount)}개가 확인되었습니다`,
+      evidence: '상품 관리에서 재고와 판매 상태를 확인하세요',
+      figure: `${formatNumber(input.stock.outOfStockCount)}개`,
       figureNote: '품절 상품',
       imageUrl: null,
-      action: { label: '재개 검토', href: '/product-hub?inventoryFocus=out_of_stock' },
+      action: { label: '재고 확인', href: '/product-hub?inventoryFocus=out_of_stock' },
     });
   }
 
@@ -89,26 +90,26 @@ export function buildAiSuggestions(input: AiSuggestionInput): AiSuggestion[] {
     list.push({
       key: 'decline',
       badge: '매출',
-      headline: `주요 상품 ${decline.count}개가 지난달보다 덜 팔립니다`,
-      evidence: worst ? `가장 큰 것: ${worst.name} ${Math.round(worst.changePercent)}%` : null,
+      headline: `주요 상품 ${decline.count}개 판매량이 기준보다 낮습니다`,
+      evidence: worst ? `가장 큰 것: ${worst.name} 기준 대비 ${Math.round(worst.changePercent)}%` : null,
       figure: `${decline.count}개`,
-      figureNote: '매출 하락',
+      figureNote: '기준 대비 판매량',
       imageUrl: null,
       action: { label: '분석', href: '/stock-ops?tab=product-outflow' },
     });
   }
 
-  // 4) 몰이 거절한 등록 — 고치면 그만큼 다시 올라간다.
+  // 4) 등록 처리에서 실패한 항목 — 원인은 provider별로 다를 수 있으므로 단정하지 않는다.
   const failures = input.findings?.registrationFailures;
   if (failures && failures.count > 0) {
     const mall = failures.byChannel[0];
     list.push({
       key: 'registration',
       badge: '쇼핑몰',
-      headline: `몰이 거절한 등록 ${failures.count}건이 남아 있습니다`,
+      headline: `등록 실패 ${failures.count}건이 남아 있습니다`,
       evidence: mall ? `가장 많은 곳: ${mall.mallName} ${mall.count}건` : null,
       figure: `${failures.count}건`,
-      figureNote: '등록 반려',
+      figureNote: '등록 실패',
       imageUrl: null,
       action: { label: '확인', href: '/mall-listings' },
     });

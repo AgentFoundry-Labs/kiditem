@@ -41,7 +41,8 @@ export type PurchaseOrderSubmissionAttemptSummary = {
 export type PurchaseOrderItemCommand = {
   productName: string;
   productId?: string;
-  sellpiaInventorySkuId: string;
+  /** Canonical Products identity for new purchase-order rows. */
+  masterProductId: string;
   quantity: number;
   unitPriceCny: number;
 };
@@ -83,7 +84,8 @@ export type PurchaseOrderRecord = {
 
 export type PurchaseOrderCheckoutSnapshotItem = {
   productName: string;
-  sellpiaInventorySkuId: string;
+  masterProductId: string | null;
+  legacySellpiaInventorySkuId: string | null;
   quantity: number;
   unitPriceCny: string;
 };
@@ -110,8 +112,8 @@ export type CreateDraftPurchaseOrderResult =
   | { ok: false; reason: 'supplier_not_found' }
   | {
       ok: false;
-      reason: 'sellpia_inventory_sku_not_found';
-      missingSellpiaInventorySkuIds: string[];
+      reason: 'master_product_not_found';
+      missingMasterProductIds: string[];
     };
 
 export type PurchaseOrderStatusUpdate = {

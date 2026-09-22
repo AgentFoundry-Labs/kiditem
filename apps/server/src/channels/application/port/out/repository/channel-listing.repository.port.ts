@@ -1,3 +1,4 @@
+import type { PreparedRegistrationRecipe } from '../../../../domain/registration-item-code';
 export const CHANNEL_LISTING_REPOSITORY_PORT = Symbol(
   "CHANNEL_LISTING_REPOSITORY_PORT",
 );
@@ -206,6 +207,7 @@ export interface MarketplaceRegistrationRepositoryPort {
       sourceCandidateId: string;
       channelAccountId: string;
       submissionKey: string;
+  preparedRecipe?: PreparedRegistrationRecipe;
       externalListingId: string;
       displayName: string;
       masterProductId?: string;
@@ -229,6 +231,7 @@ export interface MarketplaceRegistrationRepositoryPort {
       sourceCandidateId: string;
       channelAccountId: string;
       submissionKey: string;
+  preparedRecipe?: PreparedRegistrationRecipe;
       externalListingId: string;
       displayName: string;
       masterProductId?: string;

@@ -11,13 +11,13 @@ import {
   mallProductDraftGaps,
   type MallProductDraft,
 } from './mall-product-draft';
+import type { ChannelKey } from '@kiditem/shared/channel-registry';
 
 /**
- * 몰 상품등록 폼 자동 채움 · [등록] 누르기 호출.
+ * 도매꾹·온채널 상품등록 폼 자동 채움 호출.
  *
- * 확장이 등록 화면을 열고 폼을 채운다. `submit` 을 부탁하면 그 몰의 [등록] 누르기를 확인한 몰에서만, 빠지거나
- * 확인할 칸이 없을 때 몰 [등록]까지 누른다(ADR-0015, 사장님 2026-09-20 "끝까지 자동 등록"). 누른 것은 몰에 올라간
- * 것이 아니다 — 몰 재조회로만 확인한다.
+ * 확장이 등록 화면을 열고 폼을 채운다. **제출은 하지 않는다** — 두 몰 다 승인이
+ * 붙는 등록이라 되돌리기 어렵다. 사람이 화면에서 확인하고 누른다.
  *
  * 키즈노트와 같은 계약을 쓰되 몰 키를 함께 보낸다. 확장이 그 키로 어느 주소를 열고
  * 어느 폼을 채울지 정한다 — 웹이 몰별 주소를 들고 있지 않게 하는 경계다.
@@ -26,57 +26,20 @@ import {
 /** 이미지 내려받기·화면 로딩·동적 고시 칸 생성까지 감안한다. */
 const MALL_FILL_TIMEOUT_MS = 120_000;
 
-export type MallFormRegisterMall =
-  | 'domeggook' | 'onch' | 'artgonggu' | 'alwayz' | 'teacherville' | '11st' | 'icecream'
-  | 'esmplus' | 'boribori' | 'kkomangse' | 'thirtymall' | 'kidkids' | 'ssg' | 'smartstore' | 'gsshop' | 'lotteon'
-  | 'kakao';
-
 /**
- * 확장 폼 스펙 이름 → 쇼핑몰 계정 키.
+ * 확장에 넘길 채널 키. 몰 키 하나로 통한다 — 확장 폼 스펙 키도, 저장된 계정 키도 같은 값이다.
  *
- * 둘이 다른 것이 정상이다. 스펙 이름은 확장 안에서 "어느 폼을 채우나" 이고, 계정 키는
- * 서버가 자격증명을 묶어 둔 이름이다. 섞으면 자동 로그인이 조용히 아무것도 안 한다.
+ * 예전에는 확장 스펙 이름(`gsshop`·`artgonggu`·`alwayz` …)과 계정 키가 달라 웹이 번역표를
+ * 들고 있었고, 그 표를 빠뜨린 몰은 자동 로그인이 조용히 아무것도 하지 않았다. 스펠링이
+ * 다를 수 있는 자리는 레지스트리의 `formSpec` 한 칸뿐이다(옥션 → 지마켓 ESM 폼).
  *
- * 11번가·올웨이즈는 채울 로그인 폼이 없다(JWT·토큰 방식). 자격증명을 넘겨도 확장이
- * 로그인하지 못하고 "직접 로그인하세요" 로 멈춘다 — 그게 맞는 동작이다.
+ * ⚠️ 이 타입은 채널 29개를 모두 받는다. 실제로 채울 폼이 있는 것은 확장 스펙이 있는
+ * 16개뿐이고, **레지스트리 행에서는 그 16개를 가려낼 수 없다** — `register` 는 몰이 등록을
+ * 어떻게 받는가이지 우리가 폼을 만들어 뒀는가가 아니다(도매꾹은 `none` 인데 스펙이 있고,
+ * 보리보리는 `api` 인데 스펙이 있다). 그래서 좁히는 대신, 어댑터가 부르는 키가 모두 확장
+ * 스펙에 있는지를 `adapters/index.spec.ts` 가 잠근다.
  */
-export const MALL_ACCOUNT_KEY: Record<MallFormRegisterMall, string> = {
-  domeggook: 'domeggook',
-  onch: 'onch',
-  artgonggu: 'art09',
-  alwayz: 'always',
-  teacherville: 'teacher-mall',
-  '11st': '11st',
-  icecream: 'icecream-mall',
-  // ESM Plus(G마켓·옥션)는 주문수집에 붙어 있지 않아 저장된 계정이 없다. 그래서 이 키로
-  // 찾으면 `null` 이 나오고, 확장은 예전처럼 지금 열려 있는 세션에 기댄다 — 맞는 동작이다.
-  // 사장님이 나중에 쇼핑몰 계정 설정에 넣으면 그때부터 자동 로그인이 붙는다.
-  esmplus: 'esmplus',
-  // 주문수집에 이미 붙어 있는 몰이라 저장된 계정이 있다 — 자동 로그인이 붙는다.
-  boribori: 'boribori',
-  // 주문수집에 이미 붙어 있다 — 저장된 계정으로 자동 로그인이 붙는다.
-  kkomangse: 'kkomangse',
-  // 쇼핑몰 계정 목록에 이미 있는 키다(주문수집은 아직). 샵바이 로그인 화면은 실측 전이라
-  // 자동 로그인이 못 붙으면 확장이 "직접 로그인하세요" 로 멈춘다 — 그게 맞는 동작이다.
-  thirtymall: 'thirtymall',
-  // 주문수집·송장 등록에 이미 붙어 있는 몰이라 저장된 계정으로 자동 로그인이 붙는다.
-  kidkids: 'kidkids',
-  // 쇼핑몰 계정 목록에 있는 키다. 파트너오피스 로그인 화면은 실측 전이라 자동 로그인이 못
-  // 붙으면 확장이 "직접 로그인하세요" 로 멈춘다.
-  ssg: 'ssg',
-  // 서버 매니페스트 키와 같다. 스마트스토어 로그인 화면은 실측 전이라 자동 로그인이 못 붙으면
-  // 확장이 "직접 로그인하세요" 로 멈춘다.
-  smartstore: 'smartstore',
-  // 주문수집에 이미 붙어 있는 몰 키다. 파트너스 로그인 화면은 실측 전이라 자동 로그인이 못 붙으면
-  // 확장이 "직접 로그인하세요" 로 멈춘다.
-  gsshop: 'gs-shop',
-  // 주문수집에 이미 붙어 있는 몰 키다. 롯데ON 로그인은 통합회원 화면이라 자동 로그인이 못 붙으면
-  // 확장이 "직접 로그인하세요" 로 멈춘다.
-  lotteon: 'lotte-on',
-  // 주문수집에 이미 붙어 있는 몰 키다. 카카오 계정 로그인은 자동 로그인이 못 붙으므로 로그아웃이면
-  // 확장이 "직접 로그인하세요" 로 멈춘다.
-  kakao: 'kakao',
-};
+export type MallFormRegisterMall = ChannelKey;
 
 export interface MallFormRegistrationResult {
   ok: boolean;
@@ -84,13 +47,13 @@ export interface MallFormRegistrationResult {
   tabId?: number;
   /** 확장이 몰 [등록]을 눌렀는가. 누른 것도 등록 확인은 아니다. */
   submitted: boolean;
-  /** 몰이 받았다고 답했나(true) · 거절했나(false) · 모르나(null). 누르지 않았으면 없다. */
+  /** 몰이 받았다고 답했나(true) · 거절했나(false) · 모르나(null). */
   accepted?: boolean | null;
   /** 몰이 준 새 상품번호(보이면). */
   productNo?: string | null;
   /** 몰이 띄운 말(알림 · 확인 창). */
   mallMessage?: string | null;
-  /** 부탁했는데 누르지 않은 까닭 — 확인 전 몰이거나 확인할 칸이 남았다. */
+  /** 부탁했는데 누르지 않은 까닭. */
   submitSkipped?: string | null;
   steps: string[];
   warnings: string[];
@@ -113,6 +76,18 @@ interface ExtensionResponse {
   error?: string;
 }
 
+/** Server-issued registration lease carried through the provider bridge. */
+export interface MallRegistrationExecutionContext {
+  executionId: string;
+  payloadHash: string;
+  leaseToken: string;
+}
+
+export interface MallFormRegistrationOptions {
+  submit?: boolean;
+  executionContext?: MallRegistrationExecutionContext;
+}
+
 /** 확장에 넘기는 폼 지시. 몰마다 모양이 달라 최소 계약만 요구한다. */
 export interface MallRegistrationFormPayload {
   url: string;
@@ -123,7 +98,7 @@ export async function fillMallRegistrationForm(
   mall: MallFormRegisterMall,
   draft: MallProductDraft,
   form: MallRegistrationFormPayload,
-  options: { submit?: boolean } = {},
+  options: MallFormRegistrationOptions = {},
 ): Promise<MallFormRegistrationResult> {
   // 초안이 비어 있으면 확장을 부르지 않는다. 반쯤 빈 폼이 열리면 사람이 그걸
   // 그대로 제출할 수 있고, 그건 우리가 만든 사고다.
@@ -141,11 +116,17 @@ export async function fillMallRegistrationForm(
   }
 
   // 로그인이 풀려 있으면 확장이 이 값으로 그 탭에서 로그인한 뒤 다시 채운다. 저장해 둔
-  // 계정이 없으면 `null` 이고, 그때는 예전처럼 지금 열려 있는 세션에 기댄다.
+  // 계정이 없으면 `null` 이고, 그때는 예전처럼 지금 열려 있는 세션에 기댄다. 11번가 ·
+  // 올웨이즈는 채울 로그인 폼이 없어(JWT · 토큰) 확장이 "직접 로그인하세요" 로 멈춘다 —
+  // 그게 맞는 동작이다.
+  //
+  // ESM Plus(`item.esmplus.com`)는 **지마켓 판매자 어드민**이다. 예전에는 확장 스펙 이름이
+  // `esmplus` 라 계정을 못 찾고 늘 열린 세션에 기댔지만, 이제 몰 키 `gmarket` 으로 부르므로
+  // 쇼핑몰 계정에 저장된 지마켓 아이디 · 비밀번호(`GMARKET_*`)로 자동 로그인이 붙는다.
+  // 옥션은 이 등록 한 번에 함께 올라가므로 따로 로그인하지 않는다.
   //
   // ⚠️ 비밀번호가 들어 있다. 로그·토스트·오류 메시지에 싣지 말 것.
-  const accountKey = MALL_ACCOUNT_KEY[mall];
-  const credentials = await loadMallLoginCredentials(accountKey);
+  const credentials = await loadMallLoginCredentials(mall);
 
   let response: ExtensionResponse;
   try {
@@ -153,11 +134,13 @@ export async function fillMallRegistrationForm(
       extensionId,
       {
         action: 'registerToMallForm',
+        // 몰 키 그대로 넘긴다. **어느 폼을 여는지는 확장이 정한다**(`specFor` 가 레지스트리의
+        // `formSpec` 을 거친다) — 양쪽에서 접으면 접는 규칙이 두 곳이 된다.
         mall,
         form,
-        // 옛 확장은 이 칸을 모르고 폼만 채운다 — 누르는 것은 확장이 확인한 몰뿐이다.
         ...(options.submit ? { submit: true } : {}),
-        accountKey,
+        ...(options.executionContext ? { executionContext: options.executionContext } : {}),
+        accountKey: mall,
         ...(credentials ? { credentials } : {}),
       },
       MALL_FILL_TIMEOUT_MS,
@@ -176,14 +159,21 @@ export async function fillMallRegistrationForm(
   }
 
   const ok = response?.ok === true || response?.success === true;
-  const submitted = response?.submitted === true;
+  // A fill-only caller must stay fill-only even if an older/newer extension reports
+  // a stray `submitted` field. Submission is a caller-owned intent and only the
+  // explicit #554 path may classify the extension's submit result.
+  const submitted = options.submit === true && response?.submitted === true;
   return {
     ok,
     mall,
     ...(typeof response?.tabId === 'number' ? { tabId: response.tabId } : {}),
     submitted,
     ...(submitted
-      ? { accepted: response?.accepted ?? null, productNo: response?.productNo ?? null, mallMessage: response?.mallMessage ?? null }
+      ? {
+        accepted: response?.accepted ?? null,
+        productNo: response?.productNo ?? null,
+        mallMessage: response?.mallMessage ?? null,
+      }
       : {}),
     ...(response?.submitSkipped ? { submitSkipped: response.submitSkipped } : {}),
     steps: response?.steps ?? [],
@@ -213,10 +203,7 @@ export async function prepareMallRegistration(
   return { draft, detailImageUrl };
 }
 
-/**
- * [등록]까지 누를 수 있는 몰(확장 폼 스펙 이름) — 확장 핑의 `mallFormSubmitMalls`. 확장이 없거나 옛 확장이면 빈 목록이다.
- * 화면이 "확장이 등록까지" · "폼 채움, 사람이 등록"을 가를 때 쓴다. 읽기만 한다.
- */
+/** [등록]까지 누를 수 있는 몰 목록. 확장 capability를 읽기만 한다. */
 export async function detectMallFormSubmitMalls(): Promise<string[]> {
   const extensionId = await detectOrderCollectionExtensionId().catch(() => null);
   if (!extensionId) return [];

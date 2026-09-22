@@ -1,11 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  CANDIDATE_REGISTRATION_PORT,
+  type CandidateRegistrationPort,
+  type ProductPreparationRow,
+} from '../../../../channels/application/port/in/candidate-registration.port';
 import { upsertSourcedCandidateIn, ensureSourcedCandidateImages } from './sourcing-candidate-upsert.transaction';
 import type {
   CandidateImageRow,
   CandidateRow,
-  ProductPreparationRow,
   SourcingCandidateRepositoryPort,
   SourcingCandidateStateRow,
   UpsertCandidateInput,
@@ -15,7 +19,11 @@ import type { SourcingRepositoryTransaction } from '../../../application/port/ou
 
 @Injectable()
 export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(CANDIDATE_REGISTRATION_PORT)
+    private readonly candidateRegistrations?: CandidateRegistrationPort,
+  ) {}
 
   runInTransaction<T>(
     operation: (tx: SourcingRepositoryTransaction) => Promise<T>,
@@ -60,7 +68,10 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         return await this.prisma.$transaction(async (tx) => {
           await advisoryLock(
             tx,
-            `sourcing-owner-receipt:${input.organizationId}:${input.capabilityKey}:${input.idempotencyKey}`,
+            input.organizationId,
+            'sourcing-owner-receipt',
+            input.capabilityKey,
+            input.idempotencyKey,
           );
           const receipt = await tx.sourcingOwnerIdempotencyReceipt.findFirst({
             where: {
@@ -77,7 +88,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
             return receiptCandidateResult(receipt.result);
           }
 
-          await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
+          await advisoryLock(tx, input.organizationId, 'sourcing-candidate', input.idempotencyKey);
           const candidate = await upsertSourcedCandidateIn(tx, input);
           const result = { candidateId: candidate.id };
           await tx.sourcingOwnerIdempotencyReceipt.create({
@@ -108,7 +119,10 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     return this.prisma.$transaction(async (tx) => {
       await advisoryLock(
         tx,
-        `sourcing-owner-receipt:${input.organizationId}:${capabilityKey}:${input.idempotencyKey}`,
+        input.organizationId,
+        'sourcing-owner-receipt',
+        capabilityKey,
+        input.idempotencyKey,
       );
       const receipt = await tx.sourcingOwnerIdempotencyReceipt.findFirst({
         where: {
@@ -232,14 +246,14 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       where: { id, organizationId, isDeleted: false },
       include: {
         images: { where: { isDeleted: false }, orderBy: { sortOrder: 'asc' } },
-        productPreparations: {
-          where: { organizationId, isDeleted: false },
-          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-        },
       },
     });
     if (!row) return null;
-    return hydrateCandidate(row);
+    const registrations = await this.readCandidateRegistrations(organizationId, [row.id]);
+    return {
+      ...hydrateCandidate(row, registrations.get(row.id)),
+      registrationState: registrations.get(row.id)?.registrationState ?? 'none',
+    };
   }
 
   async listSourced(query: {
@@ -276,14 +290,38 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         take: query.limit,
         include: {
           images: { where: { isDeleted: false }, orderBy: { sortOrder: 'asc' } },
-          productPreparations: {
-            where: { organizationId: query.organizationId, isDeleted: false },
-            orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-          },
         },
       }),
     ]);
-    return { total, items: rows.map(hydrateCandidate) };
+    // 페이지 전체의 등록 준비를 소유자 포트로 한 번에 읽는다.
+    const registrations = await this.readCandidateRegistrations(
+      query.organizationId,
+      rows.map((row) => row.id),
+    );
+    return {
+      total,
+      items: rows.map((row) => ({
+        ...hydrateCandidate(row, registrations.get(row.id)),
+        registrationState: registrations.get(row.id)?.registrationState ?? 'none',
+      })),
+    };
+  }
+
+  /**
+   * 후보마다 지금의 등록 상태. 초안 행이 아니라 울타리가 근거다(ADR-0014).
+   *
+   * 실행 장부는 Channels 것이라 등록된 리더로만 읽는다(ADR-0009). 초안의 제출 칸은
+   * 울타리가 함께 갱신하는 거울이라, 그 둘이 갈라지면 화면이 거짓말을 한다.
+   */
+  private async readCandidateRegistrations(
+    organizationId: string,
+    candidateIds: readonly string[],
+  ): Promise<Awaited<ReturnType<CandidateRegistrationPort['readForCandidates']>>> {
+    if (candidateIds.length === 0) return new Map();
+    if (!this.candidateRegistrations) {
+      throw new Error('candidate_registration_port_missing');
+    }
+    return this.candidateRegistrations.readForCandidates(organizationId, candidateIds);
   }
 
   async archiveSourcedWorkspace(
@@ -368,7 +406,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
   private upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {
     return this.prisma.$transaction(async (tx) => {
       if (input.idempotencyKey?.trim()) {
-        await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
+        await advisoryLock(tx, input.organizationId, 'sourcing-candidate', input.idempotencyKey);
       }
       return toRow(await upsertSourcedCandidateIn(tx, input));
     });
@@ -376,10 +414,16 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
 
 }
 
-async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
+async function advisoryLock(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  scope: string,
+  ...rest: string[]
+): Promise<void> {
+  const lockKey = [scope, organizationId, ...rest].join(':');
   await tx.$queryRaw(
-    // queryraw-tenancy-exempt: exact owner key contains the organization boundary; reads no tenant data.
-    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
+    // queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
+    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"`,
   );
 }
 
@@ -395,8 +439,11 @@ function receiptCandidateResult(value: Prisma.JsonValue): { candidateId: string 
   throw new Error('sourcing_owner_idempotency_receipt_invalid');
 }
 
-function hydrateCandidate(row: any) {
-  const productPreparations = row.productPreparations.map(toProductPreparationRow);
+function hydrateCandidate(
+  row: any,
+  registration: { preparations: ProductPreparationRow[] } | undefined,
+) {
+  const productPreparations = registration?.preparations ?? [];
   return {
     ...toRow(row),
     images: row.images.map(toImageRow),
@@ -447,27 +494,6 @@ function toImageRow(image: any): CandidateImageRow {
     source: image.source,
     isPrimary: image.isPrimary,
     isDeleted: image.isDeleted,
-  };
-}
-
-function toProductPreparationRow(preparation: any): ProductPreparationRow {
-  return {
-    id: preparation.id,
-    sourceCandidateId: preparation.sourceCandidateId,
-    channelAccountId: preparation.channelAccountId,
-    sourceContentWorkspaceId: preparation.sourceContentWorkspaceId,
-    channelListingId: preparation.channelListingId,
-    displayName: preparation.displayName,
-    status: preparation.status,
-    selectedThumbnailUrl: preparation.selectedThumbnailUrl,
-    selectedThumbnailGenerationId: preparation.selectedThumbnailGenerationId,
-    selectedThumbnailGenerationCandidateId: preparation.selectedThumbnailGenerationCandidateId,
-    selectedDetailPageArtifactId: preparation.selectedDetailPageArtifactId,
-    selectedDetailPageRevisionId: preparation.selectedDetailPageRevisionId,
-    selectedDetailPageGenerationId: preparation.selectedDetailPageGenerationId,
-    registrationInput: preparation.registrationInput,
-    createdAt: preparation.createdAt,
-    updatedAt: preparation.updatedAt,
   };
 }
 

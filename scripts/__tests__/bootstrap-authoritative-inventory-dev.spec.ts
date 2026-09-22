@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   assertLocalDevelopmentDatabase,
+  bootstrapAuthoritativeInventoryDevelopment,
   buildBootstrapPlan,
   parseBootstrapArgs,
 } from '../bootstrap-authoritative-inventory-dev';
+
+const { ensureFormula } = vi.hoisted(() => ({ ensureFormula: vi.fn() }));
+vi.mock('../data-migrations/ensure/absolute-product-abc-formula', () => ({
+  ensureAbsoluteProductAbcFormulaForOrganization: ensureFormula,
+}));
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const coupangVendorId = 'VENDOR-DEV-001';
@@ -68,6 +74,48 @@ describe('authoritative inventory development bootstrap', () => {
         },
       ],
     });
+  });
+
+  it('installs the ABC formula for the organization inside the bootstrap transaction', async () => {
+    const steps: string[] = [];
+    const tx = {
+      organization: { upsert: vi.fn(async () => { steps.push('organization'); }) },
+      channelAccount: {
+        upsert: vi.fn(async ({ create }: { create: { channel: string } }) => {
+          steps.push(`channel-account:${create.channel}`);
+        }),
+      },
+    };
+    let inTransaction = false;
+    const prisma = {
+      $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<void>) => {
+        inTransaction = true;
+        try {
+          return await callback(tx);
+        } finally {
+          inTransaction = false;
+        }
+      }),
+    };
+    ensureFormula.mockReset().mockImplementation(async (client: unknown, id: string) => {
+      steps.push(`formula:${id}:${client === tx && inTransaction}`);
+    });
+
+    await bootstrapAuthoritativeInventoryDevelopment(prisma as never, buildBootstrapPlan({
+      organizationId,
+      organizationName: 'KidItem Dev',
+      organizationSlug: 'kiditem-dev',
+      coupangVendorId,
+    }));
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(ensureFormula).toHaveBeenCalledTimes(1);
+    expect(steps).toEqual([
+      'organization',
+      `formula:${organizationId}:true`,
+      'channel-account:coupang',
+      'channel-account:rocket',
+    ]);
   });
 
   it('rejects development bootstrap without the real Coupang Vendor ID', () => {

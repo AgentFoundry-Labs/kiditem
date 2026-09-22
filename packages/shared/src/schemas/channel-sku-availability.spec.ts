@@ -39,7 +39,7 @@ describe('direct channel option availability contracts', () => {
     expect(parsed.sku.sellableStock).toBe(9);
   });
 
-  it('requires available stock to equal physical current stock', () => {
+  it('rejects the retired duplicate available stock field', () => {
     expect(() => ChannelSkuAvailabilityItemSchema.parse(item({
       masterProductId: productId,
       recipeStatus: 'matched',
@@ -49,16 +49,16 @@ describe('direct channel option availability contracts', () => {
     }))).toThrow();
   });
 
-  it('keeps inactive components in a bounded review state', () => {
+  it('keeps missing inventory in a bounded review state', () => {
     const parsed = ChannelSkuAvailabilityItemSchema.parse(item({
       masterProductId: productId,
       recipeStatus: 'review_required',
       mappingStatus: 'needs_review',
       sellableStock: null,
-      components: [{ ...component(), isActive: false }],
-      warnings: ['component_inactive'],
+      components: [{ ...component(), currentStock: null }],
+      warnings: ['inventory_unavailable'],
     }));
-    expect(parsed.warnings).toEqual(['component_inactive']);
+    expect(parsed.warnings).toEqual(['inventory_unavailable']);
   });
 
   it('parses query defaults and summary partitions', () => {
@@ -75,15 +75,13 @@ describe('direct channel option availability contracts', () => {
 
 function component() {
   return {
-    sellpiaInventorySkuId: inventorySkuId,
+    masterProductId: inventorySkuId,
     code: 'SP-100',
     name: '낱개 재고',
     optionName: null,
     barcode: null,
     currentStock: 90,
-    availableStock: 90,
     purchasePrice: 1_000,
-    isActive: true,
     quantity: 10,
     componentCapacity: 9,
     isBottleneck: true,
@@ -95,8 +93,8 @@ function item(overrides: {
   recipeStatus: 'unmatched' | 'configuration_required' | 'review_required' | 'matched';
   mappingStatus: 'unmatched' | 'needs_review' | 'matched';
   sellableStock: number | null;
-  components: ReturnType<typeof component>[];
-  warnings?: Array<'component_inactive' | 'configuration_required'>;
+  components: Array<Omit<ReturnType<typeof component>, 'currentStock'> & { currentStock: number | null }>;
+  warnings?: Array<'inventory_unavailable' | 'configuration_required'>;
 }) {
   return {
     channelAccount: { id: accountId, channel: 'coupang', name: '쿠팡 본계정' },

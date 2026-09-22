@@ -16,6 +16,8 @@
 importScripts(
   // 도메인 워커가 로드되면서 자신을 등록하므로 레지스트리가 가장 먼저다.
   "domain-registry.js",
+  // 몰·마켓 채널 목록. `packages/shared/src/channel-registry.ts` 에서 생성한 사본이다.
+  "../shared/channel-registry.js",
   // 공용 파운데이션 — 도메인마다 사본을 싣던 것을 정본 하나로 통일했다.
   "environment-context.js",
   "collection-session.js",
@@ -74,6 +76,7 @@ importScripts(
   "orders/mall-form-register.js",
   "orders/mall-availability-send.js",
   "orders/mall-session-probe.js",
+  "orders/mall-session.js",
   "orders/rocket-po-collection.js",
   "orders/rocket-po-source-owner.js",
   "orders/coupang-directship-source-owner.js",

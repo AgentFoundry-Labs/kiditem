@@ -1,15 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  readInventoryAvailability,
-  readInventorySkuIdentities,
-} from '../../../../inventory/read/inventory-availability';
+  PRODUCT_AVAILABILITY_PORT,
+  type ProductAvailabilityPort,
+} from '../../../../products/application/port/in/product-availability.port';
+import {
+  PRODUCT_SOURCE_READ_PORT,
+  type ProductSourceReadModel,
+  type ProductSourceReadPort,
+} from '../../../../products/application/port/in/product-source-read.port';
 import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { PUBLISHED_LISTING_STATUSES } from '../../../domain/mall/mall-listing-state';
-import { readMallListingProfile } from '../../../domain/mall/mall-listing-profile';
-import type { PreflightKc } from '../../../domain/mall/mall-publish-preflight';
 import { MALL_ACCOUNT_ROW_ORDER } from '../../../read/mall-account-rows';
+import { readMallListingProfile } from '../../../domain/mall/mall-listing-profile';
+import { PUBLISHED_LISTING_STATUSES } from '../../../domain/mall/mall-listing-state';
+import { withListingProductSummary } from '../../../domain/listing-product-summary';
+import type { PreflightKc } from '../../../domain/mall/mall-publish-preflight';
 import type {
   MallAccountRow,
   MallListingAccountRow,
@@ -33,25 +39,9 @@ const ORDER_COLLECTION_CONFIG_KEY = 'orderCollection';
 /** 여러 몰이 함께 쓰는 등록 칸 중 안전인증번호(`mallRegisterShared.certNumber`). */
 const SHARED_CERT_NUMBER_KEY = 'certNumber';
 
-
-/**
- * 셀피아 상품코드(`10468-1`)가 가진 상품번호. 번호가 클수록 나중에 만든 상품이다.
- * 숫자로 시작하지 않는 코드는 번호가 없다 — 짐작하지 않고 null 이다.
- */
-function sellpiaProductSequence(code: string): number | null {
-  const digits = /^\s*(\d{1,12})(?![\d])/u.exec(code)?.[1];
-  return digits ? Number(digits) : null;
-}
-
-/**
- * 상품 한 줄의 대표 이미지.
- *
- * 우리가 만든 콘텐츠 작업물이 먼저다 — 우리가 고른 사진이기 때문이다. 없으면 몰이 들고
- * 있는 사진(`imageUrl`)을 쓴다. 둘 다 없으면 null 이고 화면이 글자 타일을 그린다.
- */
+/** 리스팅에 붙은 콘텐츠에서 대표 이미지 하나. 없으면 null. */
 function firstListingImageUrl(
   listings: readonly {
-    imageUrl?: string | null;
     contentWorkspaces: readonly {
       contentGenerationGroups: readonly {
         originatingAssets: readonly { url: string }[];
@@ -66,9 +56,6 @@ function firstListingImageUrl(
         if (asset?.url) return asset.url;
       }
     }
-  }
-  for (const listing of listings) {
-    if (listing.imageUrl) return listing.imageUrl;
   }
   return null;
 }
@@ -109,7 +96,13 @@ function readManualKc(rawData: Prisma.JsonValue): PreflightKc {
 
 @Injectable()
 export class MallPublishingRepositoryAdapter implements MallPublishingRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_SOURCE_READ_PORT)
+    private readonly productSourceRead: ProductSourceReadPort,
+    @Inject(PRODUCT_AVAILABILITY_PORT)
+    private readonly productAvailability: ProductAvailabilityPort,
+  ) {}
 
   async listMallAccounts(organizationId: string): Promise<MallAccountRow[]> {
     const rows = await this.prisma.channelAccount.findMany({
@@ -138,52 +131,72 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     organizationId: string,
     query: PreflightProductQuery,
   ): Promise<{ rows: PreflightProductRow[]; total: number }> {
-    const where: Prisma.MasterProductWhereInput = {
-      organizationId,
-      isActive: true,
-      ...(query.masterProductIds?.length ? { id: { in: query.masterProductIds } } : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { name: { contains: query.search, mode: 'insensitive' } },
-              { code: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
-
-    const [records, total] = await Promise.all([
-      this.prisma.masterProduct.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        skip: query.offset,
-        take: query.limit,
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          imageUrls: true,
-          provenanceCandidate: { select: { isDeleted: true, rawData: true } },
-          channelListings: {
-            where: { isActive: true },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-            select: {
-              // 수집상품에서 등록한 리스팅은 그 수집상품을 기억한다. 정본 상품에 수집상품
-              // 연결이 없으면 먼저 등록한 리스팅의 수집상품을 본다.
-              sourceCandidate: { select: { isDeleted: true, rawData: true } },
-              options: {
-                where: { isActive: true },
-                select: { itemName: true, salePrice: true },
+    const identities = await this.listVisibleProductIdentities(organizationId);
+    const requestedIds = query.masterProductIds?.length
+      ? new Set(query.masterProductIds)
+      : null;
+    const search = query.search?.trim().toLocaleLowerCase();
+    const selected = identities.filter((identity) =>
+      (!requestedIds || requestedIds.has(identity.masterProductId))
+      && (!search
+        || identity.code.toLocaleLowerCase().includes(search)
+        || identity.name.toLocaleLowerCase().includes(search)),
+    );
+    const selectedIds = selected.map((identity) => identity.masterProductId);
+    const listingRows = selectedIds.length === 0
+      ? []
+      : (await this.prisma.channelListing.findMany({
+        where: {
+          organizationId,
+          isActive: true,
+          options: {
+            some: {
+              organizationId,
+              inventoryComponents: {
+                some: { organizationId, masterProductId: { in: selectedIds } },
               },
             },
           },
         },
-      }),
-      this.prisma.masterProduct.count({ where }),
-    ]);
-
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          updatedAt: true,
+          sourceCandidate: { select: { isDeleted: true, rawData: true } },
+          options: {
+            where: { organizationId },
+            select: {
+              isActive: true,
+              itemName: true,
+              salePrice: true,
+              inventoryComponents: {
+                where: { organizationId },
+                select: { masterProductId: true },
+              },
+            },
+          },
+        },
+      }))
+        .map((listing) => withListingProductSummary(listing))
+        .filter((listing) => listing.masterProductId !== null
+          && selectedIds.includes(listing.masterProductId));
+    const latestListingUpdatedAt = latestDatesByMasterProduct(listingRows);
+    selected.sort((left, right) =>
+      (latestListingUpdatedAt.get(right.masterProductId)?.getTime() ?? 0)
+        - (latestListingUpdatedAt.get(left.masterProductId)?.getTime() ?? 0)
+      || left.code.localeCompare(right.code)
+      || left.masterProductId.localeCompare(right.masterProductId));
+    const total = selected.length;
+    const records = selected.slice(query.offset, query.offset + query.limit);
+    const listingByMasterProductId = groupListingRowsByMasterProductId(listingRows);
+    const stockByMaster = await this.readMatrixStock(
+      organizationId,
+      records.map((record) => record.masterProductId),
+    );
     const rows = records.map<PreflightProductRow>((record) => {
-      const options = record.channelListings.flatMap((listing) => listing.options);
+      const productListings = listingByMasterProductId.get(record.masterProductId) ?? [];
+      const options = productListings.flatMap((listing) =>
+        listing.options.filter((option) => option.isActive));
       const optionNames = [
         ...new Set(options.map((option) => option.itemName?.trim()).filter(
           (name): name is string => Boolean(name),
@@ -192,12 +205,11 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       const prices = options
         .map((option) => option.salePrice)
         .filter((price): price is number => typeof price === 'number' && price > 0);
-      const candidate = [
-        record.provenanceCandidate,
-        ...record.channelListings.map((listing) => listing.sourceCandidate),
-      ].find((entry) => entry && !entry.isDeleted) ?? null;
+      const candidate = productListings
+        .map((listing) => listing.sourceCandidate)
+        .find((entry) => entry && !entry.isDeleted) ?? null;
       return {
-        masterProductId: record.id,
+        masterProductId: record.masterProductId,
         code: record.code,
         name: record.name,
         imageCount: record.imageUrls.length,
@@ -205,6 +217,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         salePrice: prices.length > 0 ? Math.min(...prices) : null,
         optionNames,
         kc: candidate ? readManualKc(candidate.rawData) : null,
+        // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
+        stock: stockByMaster.get(record.masterProductId) ?? null,
       };
     });
 
@@ -214,7 +228,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
   /**
    * 리스팅을 실제로 가진 계정.
    *
-   * 매트릭스 열은 여기서 시작한다. 매니페스트의 29개 몰이 아니라 **우리가 리스팅을
+   * 매트릭스 열은 여기서 시작한다. 레지스트리의 29개 채널이 아니라 **우리가 리스팅을
    * 가져온 계정**이 열이다. 매니페스트에 있다는 것과 그 몰의 상품을 우리가 안다는
    * 것은 다르고, 후자만 칸을 채울 수 있다.
    */
@@ -237,90 +251,78 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         where: { organizationId, isActive: true, status: onSaleStatus },
         _count: { _all: true },
       }),
-      /*
-        상품 수는 서로 다른 마스터로 센다. 판매중 상품은 그 몰에 판매중 리스팅이 하나라도 있는 마스터다 —
-        등록 상품 칸이 '판매중/전체'로 선다(사장님 2026-09-19).
-      */
-      Promise.all(
-        grouped.map(async (row) => {
-          const linked = {
+      Promise.all(grouped.map(async (row) => {
+        const listings = await this.prisma.channelListing.findMany({
+          where: {
             organizationId,
             channelAccountId: row.channelAccountId,
             isActive: true,
-            masterProductId: { not: null },
-          } satisfies Prisma.ChannelListingWhereInput;
-          const [products, onSaleProducts, onSaleLinkedListingCount] = await Promise.all([
-            this.prisma.channelListing.findMany({
-              where: linked,
-              distinct: ['masterProductId'],
-              select: { masterProductId: true },
-            }),
-            this.prisma.channelListing.findMany({
-              where: { ...linked, status: onSaleStatus },
-              distinct: ['masterProductId'],
-              select: { masterProductId: true },
-            }),
-            // 판매중 리스팅 가운데 활성 옵션이 모두 셀피아 재고에 이어진 것 — 리스팅 단위 매칭률의 분자.
-            this.prisma.channelListing.count({
-              where: {
-                organizationId,
-                channelAccountId: row.channelAccountId,
+          },
+          select: {
+            status: true,
+            options: {
+              select: {
                 isActive: true,
-                status: onSaleStatus,
-                options: {
-                  some: { isActive: true },
-                  every: { OR: [{ isActive: false }, { inventoryComponents: { some: {} } }] },
+                inventoryComponents: {
+                  where: { organizationId },
+                  select: { masterProductId: true },
                 },
               },
-            }),
-          ]);
-          return {
-            channelAccountId: row.channelAccountId,
-            productCount: products.length,
-            onSaleProductCount: onSaleProducts.length,
-            onSaleLinkedListingCount,
-          };
-        }),
-      ),
-      /*
-        매칭률 — 활성 옵션 가운데 셀피아 레시피가 붙은 것. 레시피가 매칭의 결과물이다.
-
-        판매중만 따로 센다. 판매종료 · 보류 리스팅은 셀피아에 그 상품이 이미 없어 영원히
-        이어지지 않는데, 섞어 세면 그게 전부를 끌어내린다 — 키드키즈는 전체 19% 인데
-        판매중만 보면 77% 다(라이브 2026-09-17). 지금 할 일을 말하는 숫자는 판매중 쪽이다.
-      */
-      Promise.all(
-        grouped.map(async (row) => {
-          const scope = {
-            organizationId,
-            isActive: true,
-            listing: {
-              organizationId,
-              channelAccountId: row.channelAccountId,
-              isActive: true,
             },
-          } satisfies Prisma.ChannelListingOptionWhereInput;
-          const onSale = {
-            ...scope,
-            listing: { ...scope.listing, status: onSaleStatus },
-          } satisfies Prisma.ChannelListingOptionWhereInput;
-          const matched = { inventoryComponents: { some: {} } };
-          const [optionCount, matchedOptionCount, onSaleOptionCount, onSaleMatchedOptionCount] =
-            await Promise.all([
-              this.prisma.channelListingOption.count({ where: scope }),
-              this.prisma.channelListingOption.count({ where: { ...scope, ...matched } }),
-              this.prisma.channelListingOption.count({ where: onSale }),
-              this.prisma.channelListingOption.count({ where: { ...onSale, ...matched } }),
-            ]);
-          return {
+          },
+        });
+        const summaries = listings.map((listing) => withListingProductSummary(listing));
+        const productIds = summaries
+          .map((listing) => listing.masterProductId)
+          .filter((id): id is string => id !== null);
+        const onSaleProductIds = summaries
+          .filter((listing) => PUBLISHED_LISTING_STATUSES.includes(listing.status ?? ''))
+          .map((listing) => listing.masterProductId)
+          .filter((id): id is string => id !== null);
+        const uniqueCount = (ids: readonly string[]) => new Set(ids).size;
+        const onSaleLinkedListingCount = listings.filter((listing) => {
+          if (!PUBLISHED_LISTING_STATUSES.includes(listing.status ?? '')) return false;
+          const activeOptions = listing.options.filter((option) => option.isActive);
+          return activeOptions.length > 0
+            && activeOptions.every((option) => option.inventoryComponents.length > 0);
+        }).length;
+        return {
+          channelAccountId: row.channelAccountId,
+          productCount: uniqueCount(productIds),
+          onSaleProductCount: uniqueCount(onSaleProductIds),
+          onSaleLinkedListingCount,
+        };
+      })),
+      Promise.all(grouped.map(async (row) => {
+        const scope = {
+          organizationId,
+          isActive: true,
+          listing: {
+            organizationId,
             channelAccountId: row.channelAccountId,
-            optionCount,
-            matchedOptionCount,
-            onSaleOptionCount,
-            onSaleMatchedOptionCount,
-          };
-        }),
-      ),
+            isActive: true,
+          },
+        } satisfies Prisma.ChannelListingOptionWhereInput;
+        const onSale = {
+          ...scope,
+          listing: { ...scope.listing, status: onSaleStatus },
+        } satisfies Prisma.ChannelListingOptionWhereInput;
+        const matched = { inventoryComponents: { some: {} } };
+        const [optionCount, matchedOptionCount, onSaleOptionCount, onSaleMatchedOptionCount] =
+          await Promise.all([
+            this.prisma.channelListingOption.count({ where: scope }),
+            this.prisma.channelListingOption.count({ where: { ...scope, ...matched } }),
+            this.prisma.channelListingOption.count({ where: onSale }),
+            this.prisma.channelListingOption.count({ where: { ...onSale, ...matched } }),
+          ]);
+        return {
+          channelAccountId: row.channelAccountId,
+          optionCount,
+          matchedOptionCount,
+          onSaleOptionCount,
+          onSaleMatchedOptionCount,
+        };
+      })),
     ]);
 
     const countByAccount = new Map(grouped.map((row) => [row.channelAccountId, row._count._all]));
@@ -328,9 +330,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       onSaleListings.map((row) => [row.channelAccountId, row._count._all]),
     );
     const productByAccount = new Map(productCounts.map((row) => [row.channelAccountId, row]));
-    const optionsByAccount = new Map(
-      optionCounts.map((row) => [row.channelAccountId, row]),
-    );
+    const optionsByAccount = new Map(optionCounts.map((row) => [row.channelAccountId, row]));
 
     return accounts.map((account) => ({
       channelAccountId: account.id,
@@ -347,7 +347,6 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       onSaleMatchedOptionCount: optionsByAccount.get(account.id)?.onSaleMatchedOptionCount ?? 0,
     }));
   }
-
   /**
    * 매트릭스 한 페이지.
    *
@@ -368,89 +367,91 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         : {}),
     };
 
-    const where: Prisma.MasterProductWhereInput = {
-      organizationId,
-      isActive: true,
-      ...(query.listed === true ? { channelListings: { some: listingScope } } : {}),
-      ...(query.listed === false ? { channelListings: { none: listingScope } } : {}),
-      ...(query.search
-        ? {
-            OR: [
-              { name: { contains: query.search, mode: 'insensitive' } },
-              { code: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
-
-    const page = await this.matrixPageIds(organizationId, where);
-    const records = await this.prisma.masterProduct.findMany({
-      where: { organizationId, id: { in: page.ids.slice(query.offset, query.offset + query.limit) } },
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          updatedAt: true,
-          channelListings: {
-            where: {
-              isActive: true,
-              ...(query.channelAccountIds?.length
-                ? { channelAccountId: { in: query.channelAccountIds } }
-                : {}),
+    const identities = await this.listVisibleProductIdentities(organizationId);
+    const search = query.search?.trim().toLocaleLowerCase();
+    const listingRows = (await this.prisma.channelListing.findMany({
+      where: {
+        ...listingScope,
+      },
+      select: {
+        id: true,
+        channelAccountId: true,
+        status: true,
+        externalId: true,
+        rawJson: true,
+        category: true,
+        updatedAt: true,
+        options: {
+          where: { organizationId },
+          select: {
+            inventoryComponents: {
+              where: { organizationId },
+              select: { masterProductId: true },
             },
-            select: {
-              channelAccountId: true,
-              status: true,
-              externalId: true,
-              category: true,
-              updatedAt: true,
-              imageUrl: true,
-              // 쿠팡 매장 상품번호(productId)는 윙 등록상품ID와 달라 가져올 때 받은 원문에만 있다.
-              rawJson: true,
-              // 상품 사진의 유일한 원천. 마스터의 `imageUrls` 는 비어 있고
-              // (라이브 실측 2026-09-09: 활성 2,951건 전부 빈 배열), 리스팅에
-              // 붙은 콘텐츠 워크스페이스만 대표 이미지를 들고 있다.
-              contentWorkspaces: {
-                where: { isDeleted: false },
-                take: 1,
-                select: {
-                  contentGenerationGroups: {
-                    take: 3,
-                    select: {
-                      originatingAssets: {
-                        where: {
-                          isDeleted: false,
-                          assetType: 'image',
-                          role: { in: ['primary', 'thumbnail'] },
-                        },
-                        take: 1,
-                        select: { url: true },
-                      },
-                    },
+          },
+        },
+        // 상품 사진의 유일한 원천. 마스터의 `imageUrls` 는 비어 있고
+        // 리스팅에 붙은 콘텐츠 워크스페이스만 대표 이미지를 들고 있다.
+        contentWorkspaces: {
+          where: { isDeleted: false },
+          take: 1,
+          select: {
+            contentGenerationGroups: {
+              take: 3,
+              select: {
+                originatingAssets: {
+                  where: {
+                    isDeleted: false,
+                    assetType: 'image',
+                    role: { in: ['primary', 'thumbnail'] },
                   },
+                  take: 1,
+                  select: { url: true },
                 },
               },
             },
           },
         },
+      },
+    }))
+      .map((listing) => withListingProductSummary(listing))
+      .filter((listing) => listing.masterProductId !== null);
+    const listingByMasterProductId = groupListingRowsByMasterProductId(listingRows);
+    const listedIds = new Set(listingByMasterProductId.keys());
+    const filtered = identities.filter((identity) => {
+      if (search
+        && !identity.code.toLocaleLowerCase().includes(search)
+        && !identity.name.toLocaleLowerCase().includes(search)) {
+        return false;
+      }
+      if (query.listed === true) return listedIds.has(identity.masterProductId);
+      if (query.listed === false) return !listedIds.has(identity.masterProductId);
+      return true;
     });
-    const rank = new Map(page.ids.map((id, order) => [id, order]));
-    records.sort((left, right) => (rank.get(left.id) ?? 0) - (rank.get(right.id) ?? 0));
-
+    const latestListingUpdatedAt = latestDatesByMasterProduct(listingRows);
+    filtered.sort((left, right) =>
+      (latestListingUpdatedAt.get(right.masterProductId)?.getTime() ?? 0)
+        - (latestListingUpdatedAt.get(left.masterProductId)?.getTime() ?? 0)
+      || left.code.localeCompare(right.code)
+      || left.masterProductId.localeCompare(right.masterProductId));
+    const total = filtered.length;
+    const records = filtered.slice(query.offset, query.offset + query.limit);
     const stockByMaster = await this.readMatrixStock(
       organizationId,
-      records.map((record) => record.id),
+      records.map((record) => record.masterProductId),
     );
     const rows = records.map<MallMatrixProductRow>((record) => ({
-      masterProductId: record.id,
+      masterProductId: record.masterProductId,
       code: record.code,
-      sellpiaCode: page.sellpiaCodeById.get(record.id) ?? null,
+      sellpiaCode: record.code,
       name: record.name,
-      imageUrl: firstListingImageUrl(record.channelListings),
+      imageUrl: firstListingImageUrl(
+        listingByMasterProductId.get(record.masterProductId) ?? [],
+      ),
       // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
-      stock: stockByMaster.get(record.id) ?? null,
-      updatedAt: record.updatedAt,
-      listings: record.channelListings.map((listing) => ({
+      stock: stockByMaster.get(record.masterProductId) ?? null,
+      updatedAt: latestListingUpdatedAt.get(record.masterProductId) ?? new Date(0),
+      listings: (listingByMasterProductId.get(record.masterProductId) ?? []).map((listing) => ({
         channelAccountId: listing.channelAccountId,
         status: listing.status,
         externalId: listing.externalId,
@@ -460,107 +461,75 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       })),
     }));
 
-    return { rows, total: page.ids.length };
+    return { rows, total };
   }
 
-  /**
-   * 등록 현황이 세울 순서 — 셀피아 상품번호가 큰 것부터, 곧 **최신 등록순**이다(사장님 2026-09-17).
-   *
-   * 마스터의 `createdAt` · `updatedAt` 으로는 최신을 말할 수 없다. 재고 수집이 마스터를
-   * 통째로 다시 쓰기 때문에 활성 마스터 982개가 전부 같은 시각이다(라이브 확인). 상품이
-   * 언제 생겼는지 아는 값은 셀피아가 매긴 상품번호(`10468-1` 의 `10468`)뿐이라 그걸로 센다.
-   * 번호가 없는 마스터는 뒤에 서고, 같은 번호는 id 로 갈라 늘 같은 자리에 선다.
-   *
-   * Prisma 로는 이어진 SKU 의 숫자 앞자리로 정렬할 수 없어 걸린 마스터의 번호만 먼저 읽는다.
-   * 이 화면의 모수는 조직의 활성 마스터(수천)라 한 번에 읽어도 된다.
-   */
-  private async matrixPageIds(
+  /** Products owns source identity visibility. A product remains visible when
+   * its published stock is zero because this read is identity-based. */
+  private async listVisibleProductIdentities(
     organizationId: string,
-    where: Prisma.MasterProductWhereInput,
-  ): Promise<{ ids: string[]; sellpiaCodeById: Map<string, string> }> {
-    const [candidates, bestCodeByMaster] = await Promise.all([
-      this.prisma.masterProduct.findMany({ where, select: { id: true } }),
-      this.readSellpiaCodeByMaster(organizationId),
-    ]);
-    const ranked = candidates.map((candidate) => {
-      const best = bestCodeByMaster.get(candidate.id);
-      return {
-        id: candidate.id,
-        sequence: best?.sequence ?? -1,
-        sellpiaCode: best?.code ?? null,
-      };
-    });
-    ranked.sort((left, right) => right.sequence - left.sequence || left.id.localeCompare(right.id));
-    return {
-      ids: ranked.map((candidate) => candidate.id),
-      sellpiaCodeById: new Map(ranked.flatMap((candidate) =>
-        candidate.sellpiaCode ? [[candidate.id, candidate.sellpiaCode] as const] : [])),
-    };
+  ): Promise<ProductSourceReadModel[]> {
+    return this.productSourceRead.listActiveForMatching(organizationId);
   }
 
   /**
-   * 마스터마다 번호가 가장 큰 셀피아 상품코드. 셀피아 재고 SKU 는 Inventory 리더로만 읽는다
-   * (ADR-0009) — 마스터의 관계로 직접 읽으면 원장 경계를 넘는다.
-   */
-  private async readSellpiaCodeByMaster(
-    organizationId: string,
-  ): Promise<Map<string, { code: string; sequence: number }>> {
-    const identities = await this.prisma.$transaction((tx) =>
-      readInventorySkuIdentities(tx, { organizationId, selector: { kind: 'all' } }));
-    const best = new Map<string, { code: string; sequence: number }>();
-    for (const identity of identities) {
-      if (!identity.masterProductId) continue;
-      const sequence = sellpiaProductSequence(identity.code);
-      if (sequence === null) continue;
-      const current = best.get(identity.masterProductId);
-      if (!current || sequence > current.sequence) {
-        best.set(identity.masterProductId, { code: identity.code, sequence });
-      }
-    }
-    return best;
-  }
-
-  /**
-   * 한 페이지 마스터의 재고. 재고 원장은 Inventory 리더로만 읽는다 — 끝나지 않은
-   * 수집의 줄은 재고로 보이지 않는다. 연결된 SKU 가 없거나 발행된 스냅샷에 없으면
-   * null 이다. 재고는 마스터당 최대 1 row 다(sellpia_inventory_skus_org_master_key).
+   * 한 페이지 마스터의 재고. Products 가 공개한 availability 읽기를 사용한다 — 연결된
+   * SKU 가 없으면 null 이고, SKU 정체성이 있으면 발행된 재고 0 도 그대로 보인다. 재고는
+   * 마스터당 최대 1 row 다(sellpia_inventory_skus_org_master_key).
    */
   private async readMatrixStock(
     organizationId: string,
     masterProductIds: readonly string[],
   ): Promise<Map<string, number>> {
     if (masterProductIds.length === 0) return new Map();
-    const wanted = new Set(masterProductIds);
-    return this.prisma.$transaction(async (tx) => {
-      const skus = (await readInventorySkuIdentities(tx, { organizationId, selector: { kind: 'all' } }))
-        .filter((sku) => sku.masterProductId !== null && wanted.has(sku.masterProductId));
-      if (skus.length === 0) return new Map<string, number>();
-      const availability = await readInventoryAvailability(tx, {
-        organizationId,
-        sellpiaInventorySkuIds: skus.map((sku) => sku.sellpiaInventorySkuId),
-      });
-      const stockBySku = new Map(
-        availability.items.map((item) => [item.sellpiaInventorySkuId, item.currentStock]),
-      );
-      const stock = new Map<string, number>();
-      for (const sku of skus) {
-        const current = stockBySku.get(sku.sellpiaInventorySkuId);
-        if (sku.masterProductId && current !== undefined) stock.set(sku.masterProductId, current);
-      }
-      return stock;
+    const availability = await this.productAvailability.findByMasterProductIds({
+      organizationId,
+      masterProductIds: [...masterProductIds],
     });
+    return new Map(availability.items.map((item) => [
+      item.masterProductId,
+      item.currentStock,
+    ]));
   }
 
   countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]> {
     return readOrderCountsByChannelAccount(this.prisma, organizationId);
   }
 
-  countActiveMasterProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({ where: { organizationId, isActive: true } });
+  async countActiveMasterProducts(organizationId: string): Promise<number> {
+    return (await this.listVisibleProductIdentities(organizationId)).length;
+  }
+
+  async countVisibleMasterProducts(organizationId: string): Promise<number> {
+    return (await this.listVisibleProductIdentities(organizationId)).length;
   }
 }
 
-/** 가져올 때 받은 원문에 몰 매장 상품번호(쿠팡 productId)가 있으면 그 값. */
+function latestDatesByMasterProduct(
+  rows: readonly { masterProductId: string | null; updatedAt: Date }[],
+): Map<string, Date> {
+  const latest = new Map<string, Date>();
+  for (const row of rows) {
+    if (!row.masterProductId) continue;
+    const previous = latest.get(row.masterProductId);
+    if (!previous || row.updatedAt > previous) latest.set(row.masterProductId, row.updatedAt);
+  }
+  return latest;
+}
+
+function groupListingRowsByMasterProductId<T extends { masterProductId: string | null }>(
+  rows: readonly T[],
+): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const row of rows) {
+    if (!row.masterProductId) continue;
+    const existing = grouped.get(row.masterProductId) ?? [];
+    existing.push(row);
+    grouped.set(row.masterProductId, existing);
+  }
+  return grouped;
+}
+
 function storefrontProductIdOf(raw: unknown): string | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const value = (raw as Record<string, unknown>).productId;

@@ -8,7 +8,7 @@
     "assets": [
       { "include": "orders/coupang-directship/*.xls", "watchAssets": true },
       { "include": "orders/coupang-directship/*.py", "watchAssets": true },
-      { "include": "products/adapter/out/storage/mall-bulk-templates/*", "watchAssets": true }
+      { "include": "channels/adapter/out/storage/mall-bulk-templates/*", "watchAssets": true }
     ]
   }
 }

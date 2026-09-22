@@ -12,6 +12,7 @@ import {
 const STATUS_META: Record<PublishTaskStatus, { label: string; tone: string; icon: typeof Check }> = {
   pending: { label: '대기', tone: 'text-slate-400', icon: CircleDashed },
   running: { label: '진행 중', tone: 'text-purple-600', icon: Loader2 },
+  reconciling: { label: '결과 확인 필요', tone: 'text-amber-700', icon: AlertTriangle },
   succeeded: { label: '끝남', tone: 'text-emerald-600', icon: Check },
   failed: { label: '실패', tone: 'text-red-600', icon: X },
   cancelled: { label: '중단', tone: 'text-slate-400', icon: MinusCircle },
@@ -72,6 +73,9 @@ export function StepDispatch({ tasks, running }: StepDispatchProps) {
                   {task.status === 'succeeded' ? (
                     <p className="mt-1 text-xs text-slate-500">{submitLine(task)}</p>
                   ) : null}
+                  {task.status === 'reconciling' ? (task.outcome?.manualSteps ?? []).map((step) => (
+                    <p key={step} className="mt-1 text-xs text-amber-700">{step}</p>
+                  )) : null}
                   {(task.outcome?.warnings ?? []).map((warning) => (
                     <p key={warning} className="mt-1 flex items-start gap-1 text-xs text-amber-600">
                       <AlertTriangle size={11} className="mt-0.5 flex-none" />

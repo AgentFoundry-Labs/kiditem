@@ -1,0 +1,56 @@
+import { z } from 'zod';
+
+const money = z.number().int().min(0).max(1_000_000_000);
+export const RegistrationTargetOptionInputSchema = z.object({
+  salesProductOptionId: z.string().uuid(),
+  salePrice: money.nullable().default(null),
+  normalPrice: money.nullable().default(null),
+  supplyPrice: money.nullable().default(null),
+}).strict();
+export type RegistrationTargetOptionInput = z.infer<typeof RegistrationTargetOptionInputSchema>;
+
+const editable = {
+  displayName: z.string().trim().min(1).max(255).nullable().default(null),
+  registrationInput: z.record(z.string(), z.unknown()).default({}),
+  selectedOptions: z.array(RegistrationTargetOptionInputSchema).max(200)
+    .refine(options => new Set(options.map(option => option.salesProductOptionId)).size === options.length,
+      '같은 옵션을 두 번 선택할 수 없습니다.'),
+};
+export const RegistrationTargetCreateInputSchema = z.object({
+  salesProductId: z.string().uuid(),
+  channelAccountId: z.string().uuid(),
+  ...editable,
+}).strict();
+export type RegistrationTargetCreateInput = z.infer<typeof RegistrationTargetCreateInputSchema>;
+
+/** Normal registration resolves its account settings without a separate setup step. */
+export const RegistrationTargetResolveInputSchema = z.object({
+  salesProductId: z.string().uuid(),
+  channelAccountId: z.string().uuid(),
+  targetId: z.string().uuid().optional(),
+}).strict();
+export type RegistrationTargetResolveInput = z.infer<typeof RegistrationTargetResolveInputSchema>;
+export const RegistrationTargetUpdateInputSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  ...editable,
+}).strict();
+export type RegistrationTargetUpdateInput = z.infer<typeof RegistrationTargetUpdateInputSchema>;
+export const RegistrationTargetSchema = z.object({
+  id: z.string().uuid(),
+  salesProductId: z.string().uuid(),
+  channelAccountId: z.string().uuid(),
+  version: z.number().int().positive(),
+  ...editable,
+  resolved: z.object({
+    name: z.string(),
+    options: z.array(z.object({
+      salesProductOptionId: z.string().uuid(),
+      code: z.string(),
+      values: z.array(z.string()),
+      salePrice: money,
+      normalPrice: money.nullable(),
+      supplyPrice: money.nullable(),
+    })),
+  }),
+});
+export type RegistrationTarget = z.infer<typeof RegistrationTargetSchema>;

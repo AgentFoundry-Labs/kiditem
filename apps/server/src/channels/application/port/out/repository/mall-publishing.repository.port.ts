@@ -28,6 +28,8 @@ export interface PreflightProductRow {
   optionNames: string[];
   /** 이 상품에 이어진 수집상품의 `rawData.manualBasics` KC 입력값. 이어진 수집상품이 없으면 null. */
   kc: PreflightKc | null;
+  /** 발행된 셀피아 스냅샷의 재고. 재고 연결이 없으면 null(0 이 아니라 모른다). */
+  stock: number | null;
 }
 
 export interface PreflightProductQuery {
@@ -46,31 +48,13 @@ export interface MallListingAccountRow {
   listingCount: number;
   /** 이 계정에 올라간 서로 다른 상품 수. */
   productCount: number;
-  /**
-   * 그 가운데 판매중 리스팅이 하나라도 있는 상품 수. 쇼핑몰 현황의 등록 상품 칸은 이 값/productCount 다
-   * (사장님 2026-09-19 "등록상품중 실제 판매중인 상품으로 해서 4/5 이런식으로").
-   */
+  /** Number of products with at least one published listing. */
   onSaleProductCount: number;
-  /** 활성 리스팅 가운데 판매중인 리스팅 수. 쇼핑몰 현황의 등록 상품 칸은 이 값/listingCount 다. */
   onSaleListingCount: number;
-  /**
-   * 판매중 리스팅 가운데 활성 옵션이 모두 셀피아 재고에 이어진 리스팅 수 — 매칭률의 분자다. 가져온 개수 · 등록 상품 ·
-   * 매칭률이 같은 단위(몰 상품)로 서야 숫자가 맞는다(사장님 2026-09-19 "데이터들이 다 안맞는거 같은데").
-   */
   onSaleLinkedListingCount: number;
-  /** 이 계정의 활성 옵션 수. 매칭률의 분모다. */
   optionCount: number;
-  /** 그 가운데 셀피아 재고 레시피가 있는 옵션 수. 매칭률의 분자다. */
   matchedOptionCount: number;
-  /**
-   * 판매중 리스팅의 활성 옵션 수. 화면이 보여 주는 매칭률의 분모다.
-   *
-   * 판매종료 · 보류 리스팅은 셀피아에 그 상품이 없어 영원히 이어지지 않는다. 섞어 세면
-   * 지금 손댈 수 있는 몫이 보이지 않는다(사장님 2026-09-17: "판매중인 상품 매칭률
-   * 높이는게 우선").
-   */
   onSaleOptionCount: number;
-  /** 그 가운데 레시피가 있는 옵션 수. */
   onSaleMatchedOptionCount: number;
 }
 
@@ -91,7 +75,7 @@ export interface MallMatrixListingRow {
   externalId: string;
   category: string | null;
   updatedAt: Date;
-  /** 몰 매장의 상품번호가 몰 상품코드와 다를 때(쿠팡 productId). 가져올 때 받은 값이 없으면 null. */
+  /** Storefront product number when it differs from the external listing id. */
   storefrontProductId: string | null;
 }
 
@@ -132,6 +116,8 @@ export interface MallPublishingRepositoryPort {
   ): Promise<{ rows: MallMatrixProductRow[]; total: number }>;
   /** 계정별 주문 건수. */
   countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]>;
-  /** 판매 가능한 상품 마스터 수. 허브 중앙 숫자다. */
+  /** Active MasterProduct count used by the hub. */
   countActiveMasterProducts(organizationId: string): Promise<number>;
+  /** Visible MasterProduct count used by the matrix total. */
+  countVisibleMasterProducts(organizationId: string): Promise<number>;
 }

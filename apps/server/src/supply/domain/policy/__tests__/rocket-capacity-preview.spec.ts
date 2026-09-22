@@ -13,13 +13,12 @@ const earlierRow = {
   masterProductId: 'master-1',
   recipeStatus: 'matched' as const,
   components: [{
-    sellpiaInventorySkuId: 'sellpia-sku-1',
+    masterProductId: 'master-component-1',
     code: 'SP-1',
     name: 'Component',
     optionName: null,
     quantity: 1,
     currentStock: 5,
-    isActive: true,
   }],
 };
 const laterRow = {
@@ -137,21 +136,21 @@ describe('previewRocketCapacity', () => {
     ]);
   });
 
-  it('returns mapping and inactive reasons without allocating capacity', () => {
+  it('returns mapping and missing-stock reasons without allocating capacity', () => {
     const rows = previewRocketCapacity({
       editedQuantities: {},
       rows: [
         { ...earlierRow, poLineId: 'unmapped', channelListingOptionId: null, components: [] },
         {
           ...laterRow,
-          poLineId: 'inactive',
-          components: [{ ...laterRow.components[0]!, isActive: false }],
+          poLineId: 'missing-stock',
+          components: [{ ...laterRow.components[0]!, currentStock: null }],
         },
       ],
     });
     expect(rows.map((row) => row.reason)).toEqual([
       'mapping_required',
-      'review_required',
+      'inventory_unavailable',
     ]);
   });
 
@@ -163,7 +162,6 @@ describe('previewRocketCapacity', () => {
         components: [{
           ...earlierRow.components[0]!,
           currentStock: null,
-          isActive: null,
         }],
       }],
     });
@@ -183,10 +181,10 @@ describe('previewRocketCapacity', () => {
       quantity: 1,
     },
     {
-      name: 'inactive',
+      name: 'review required',
       row: {
         ...earlierRow,
-        components: [{ ...earlierRow.components[0]!, isActive: false }],
+        recipeStatus: 'review_required' as const,
       },
       quantity: 1,
     },

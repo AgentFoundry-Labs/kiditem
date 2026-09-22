@@ -10,11 +10,9 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import type { ImportRocketSellpiaMatchingCsvInput } from '../../../application/port/in/rocket-sellpia-matching-csv-import.port';
 import type { RocketSellpiaMatchingCsvImportRepositoryPort } from '../../../application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
+import { ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE } from '../../../domain/catalog-source-identity';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
-import {
-  ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
-  rocketMatchingCsvRowsToCatalogProducts,
-} from './rocket-sellpia-matching-csv.catalog';
+import { rocketMatchingCsvRowsToCatalogProducts } from './rocket-sellpia-matching-csv.catalog';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
 

@@ -1,3 +1,5 @@
+import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
@@ -48,6 +50,7 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
 
     const m = await Test.createTestingModule({
       providers: [
+        { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         DashboardAdService,
         WingTrafficAggregationRepositoryAdapter,
         ProfitCalculationRepositoryAdapter,

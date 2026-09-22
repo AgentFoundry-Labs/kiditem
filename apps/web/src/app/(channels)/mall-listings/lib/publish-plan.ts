@@ -16,15 +16,21 @@ import {
  * 최대 3분이 걸린다. 동시에 두 탭을 몰면 둘 다 깨진다.
  */
 
-export type PublishTaskStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type PublishTaskStatus = 'pending' | 'running' | 'reconciling' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface PublishTask {
   id: string;
   mallKey: string;
   mallName: string;
+  /** Exact ChannelAccount used to freeze a target execution. Null means the mall has no configured account. */
+  channelAccountId: string | null;
   items: MallPublishItem[];
   /** 이 몰의 값 묶음. 실행기가 화면 상태를 다시 읽지 않도록 작업이 들고 간다. */
   values: Record<string, string>;
+  /** 실제로 편집한 값만 실행 target에 override로 보낸다. */
+  adapterValues: Record<string, string>;
+  /** Explicitly selected saved registration settings, keyed by the original item ID. */
+  registrationTargetIdsByItem?: Record<string, string>;
   status: PublishTaskStatus;
   outcome: MallSendOutcome | null;
   error: string | null;
@@ -51,6 +57,13 @@ export interface BuildPublishPlanInput {
   adapters: readonly MallPublishAdapter[];
   /** 몰키 → 그 몰의 값 묶음. */
   valuesByMall: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  editedValuesByMall?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** Exact account IDs returned with the selected mall targets. */
+  channelAccountIds?: Readonly<Record<string, string | null | undefined>>;
+  /** Items with multiple saved settings for a mall/account must choose one before dispatch. */
+  registrationTargetSelectionRequiredByMall?: Readonly<Record<string, readonly string[]>>;
+  /** Explicit target choices, keyed by mall then original item ID. */
+  registrationTargetIdsByMall?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
@@ -80,6 +93,12 @@ export function buildPublishPlan(input: BuildPublishPlanInput): PublishPlan {
     for (const item of input.items) {
       const sourceProblem = itemSourceProblem(adapter, item);
       const reasons = sourceProblem ? [sourceProblem] : adapter.validate(item, values);
+      const requiresTargetChoice = input.registrationTargetSelectionRequiredByMall?.[adapter.mallKey]
+        ?.includes(item.candidateId) ?? false;
+      const registrationTargetId = input.registrationTargetIdsByMall?.[adapter.mallKey]?.[item.candidateId];
+      if (requiresTargetChoice && !registrationTargetId) {
+        reasons.push('여러 등록 설정 중 사용할 설정을 선택하세요.');
+      }
       if (reasons.length > 0) {
         blocks.push({
           mallKey: adapter.mallKey,
@@ -99,8 +118,14 @@ export function buildPublishPlan(input: BuildPublishPlanInput): PublishPlan {
         id: `${adapter.mallKey}#${index}`,
         mallKey: adapter.mallKey,
         mallName: adapter.mallName,
+        channelAccountId: input.channelAccountIds?.[adapter.mallKey] ?? null,
         items: group,
         values: { ...values },
+        adapterValues: { ...(input.editedValuesByMall?.[adapter.mallKey] ?? {}) },
+        registrationTargetIdsByItem: Object.fromEntries(group.flatMap((item) => {
+          const targetId = input.registrationTargetIdsByMall?.[adapter.mallKey]?.[item.candidateId];
+          return targetId ? [[item.candidateId, targetId]] : [];
+        })),
         status: 'pending',
         outcome: null,
         error: null,
@@ -115,6 +140,7 @@ export interface PublishRunSummary {
   total: number;
   pending: number;
   running: number;
+  reconciling: number;
   succeeded: number;
   failed: number;
   cancelled: number;
@@ -132,6 +158,7 @@ export function summarizePublishRun(tasks: readonly PublishTask[]): PublishRunSu
     total: tasks.length,
     pending,
     running,
+    reconciling: count('reconciling'),
     succeeded: count('succeeded'),
     failed: count('failed'),
     cancelled: count('cancelled'),

@@ -1,5 +1,10 @@
 import { apiClient } from '@/lib/api-client';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
+import { salesProductApi } from '@/lib/sales-product-api';
+import {
+  ensureCandidateSalesProduct,
+  type CandidateSalesProductRegistrationDeps,
+} from '@/lib/candidate-sales-product-registration';
 import {
   detectWingFormExtensionId,
   isChromeExtensionRuntimeAvailable,
@@ -14,12 +19,16 @@ import {
   renderCandidateDetailImageOnServer,
 } from './detail-page-image-api';
 import {
+  registrationExecutionApi,
+  type WingSellpiaMatchPreview as ChannelsWingSellpiaMatchPreview,
+} from '../../../../(channels)/_shared/registration-execution-api';
+import {
   candidatesApi,
   productsApi,
-  type ExternalWingSellpiaMatchPreview,
   type ProductDetailResponse,
   type SellpiaInventorySearchItem,
 } from './sourcing-api';
+import { salesProductInputFromCandidate } from './candidate-sales-products';
 import { resolveWingCategories } from './wing-category-resolution';
 import {
   getWingCategoryDefinition,
@@ -54,6 +63,12 @@ const TEMPLATE_URL = '/coupang-wing-bulk-template-v4.6.xlsm';
  * 폼이 계속 채워지는 중인데 웹만 먼저 실패한다.
  */
 export const WING_FORM_FILL_TIMEOUT_MS = 180_000;
+
+const CANDIDATE_SALES_PRODUCT_DEPS: CandidateSalesProductRegistrationDeps = {
+  findByCandidate: salesProductApi.findByCandidate,
+  update: salesProductApi.update,
+  createFromCandidates: salesProductApi.createFromCandidates,
+};
 
 /**
  * 판매가는 `ProductPreparation.registrationInput.salePrice` 하나에서만 온다.
@@ -547,7 +562,7 @@ export type WingSellpiaSelection = SellpiaInventorySearchItem & {
   quantity: number;
 };
 
-export type WingSellpiaMatchPreview = ExternalWingSellpiaMatchPreview;
+export type WingSellpiaMatchPreview = ChannelsWingSellpiaMatchPreview;
 
 export type WingRegistrationPreparationResult =
   | { status: 'ready'; draft: WingRegistrationDraft }
@@ -740,7 +755,7 @@ export async function prepareWingRegistration(
   const product = candidateToWingProduct(detail, defaults, categoryCell, detailImageUrl);
   const [accountSelection, sellpiaMatchPreview] = await Promise.all([
     resolveWingChannelAccount(detail.productPreparation?.channelAccountId ?? null),
-    candidatesApi.previewExternalWingRegistrationMatch(candidateId, {
+    registrationExecutionApi.previewSellpiaMatch(candidateId, {
       listingName: product.sellerProductName ?? product.productName ?? detail.name,
       itemName: product.productName,
     }),
@@ -835,13 +850,13 @@ export async function submitWingRegistration(
   // 확장으로 나가는 마지막 지점이라 방어적으로 한 번 더 확인한다.
   requireSalePrice(product.variants[0]?.salePrice ?? 0, product.productName);
   let execution: Awaited<ReturnType<
-    typeof candidatesApi.prepareExternalWingRegistration
+    typeof registrationExecutionApi.prepare
   >> | null = null;
   try {
     const request = {
       channelAccountId,
       displayName: product.productName,
-      sellpiaInventorySkuId: sellpiaSelection.sellpiaInventorySkuId,
+      masterProductId: sellpiaSelection.masterProductId,
       sellpiaQuantity: sellpiaSelection.quantity,
       registrationInput: {
         ...draft.registrationInput,
@@ -855,7 +870,17 @@ export async function submitWingRegistration(
       draft.idempotencyKey = createSecureRandomUuid();
     }
     draft.idempotencyFingerprint = fingerprint;
-    execution = await candidatesApi.prepareExternalWingRegistration(draft.candidateId, {
+    await ensureCandidateSalesProduct(
+      draft.candidateId,
+      async (candidateId) => {
+        const detail = await productsApi.getDetail(candidateId);
+        return salesProductInputFromCandidate(detail, draft.detailImageUrl, {
+          salePrice: product.variants[0]?.salePrice,
+        });
+      },
+      CANDIDATE_SALES_PRODUCT_DEPS,
+    );
+    execution = await registrationExecutionApi.prepare(draft.candidateId, {
       ...request,
       idempotencyKey: draft.idempotencyKey,
     });
@@ -880,7 +905,7 @@ export async function submitWingRegistration(
     // 폼만 채우는 기본 경로는 아직 마켓 부작용이 없다. 사용자가 WING 에서
     // 실제 등록한 뒤 등록상품ID를 확인할 때 서버가 실행을 시작한다.
     if (autoSubmit === true) {
-      await candidatesApi.startExternalWingRegistration(draft.candidateId, execution.executionId);
+      await registrationExecutionApi.start(draft.candidateId, execution.executionId);
     }
   } catch (error) {
     throw error instanceof Error ? error : new Error('WING 등록 실행 준비에 실패했습니다.');
@@ -908,7 +933,7 @@ export async function submitWingRegistration(
     if (autoSubmit === true) {
       // 확장과의 통신 자체가 끊긴 경우다. 제출까지 갔는지 알 수 없으므로
       // 중복 등록을 막기 위해 미해결로 남긴다.
-      await candidatesApi.markExternalWingRegistrationUnresolved(
+      await registrationExecutionApi.markUnresolved(
         draft.candidateId, execution.executionId, { reason: 'extension_throw', message: String(error) },
       ).catch(() => undefined);
     }
@@ -921,7 +946,7 @@ export async function submitWingRegistration(
     // "An active registration preparation already exists." 로 영영 막힌다
     // (라이브 확인 2026-09-10: 옵션 생성 실패 한 번으로 상품이 잠겼다).
     if (autoSubmit !== true) {
-      await candidatesApi.markExternalWingRegistrationNotSubmitted(
+      await registrationExecutionApi.markNotSubmitted(
         draft.candidateId, execution.executionId,
         { reason: 'extension_error', error: res?.error ?? null, attempted: false },
       ).catch(() => undefined);
@@ -934,8 +959,8 @@ export async function submitWingRegistration(
       // `submission.attempted` 가 참이면 제출을 시도한 것이므로 그때만 미해결이다.
       const attempted = res?.submission?.attempted === true;
       const close = attempted
-        ? candidatesApi.markExternalWingRegistrationUnresolved
-        : candidatesApi.markExternalWingRegistrationNotSubmitted;
+        ? registrationExecutionApi.markUnresolved
+        : registrationExecutionApi.markNotSubmitted;
       await close(
         draft.candidateId, execution.executionId,
         { reason: 'extension_error', error: res?.error ?? null, attempted },
@@ -947,7 +972,7 @@ export async function submitWingRegistration(
     res.submission?.status === 'unknown'
     || res.submission?.attempted === true && !isConfirmedWingRegistration(res.submission)
   )) {
-    await candidatesApi.markExternalWingRegistrationUnresolved(
+    await registrationExecutionApi.markUnresolved(
       draft.candidateId, execution.executionId, { reason: 'unknown', extensionEvidence: res.evidence ?? null },
     ).catch(() => undefined);
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { isChannelKey } from '@kiditem/shared/channel-registry';
 import type { AlertItem } from '@kiditem/shared/alerts';
-import type { MallOperationOutcomeSummaryRow } from '@kiditem/shared/mall-operation-outcomes';
 import {
   derivedMallAlerts,
   isMallAlert,
@@ -109,7 +109,7 @@ describe('derivedMallAlerts', () => {
     expect(first?.title).toBe('로그인 정보가 비어 있는 몰 4곳');
     expect(first?.message).toContain('가몰, 나몰, 다몰 외 1곳');
     expect(first?.mallKeys).toEqual(['a', 'b', 'c', 'd']);
-    expect(first?.href).toBe('/mall-channels?account=all');
+    expect(first?.href).toBe('/mall-settings');
   });
 
   it('⭐ 확장이 확인한 결과 로그인이 풀린 몰을 한 알림으로 모은다', () => {
@@ -130,7 +130,7 @@ describe('derivedMallAlerts', () => {
       signedOut: [{ mallKey: 'onch', mallName: '온채널' }],
       soldOutTotal: null,
       coupangPendingAccept: null,
-    }), [], { onch: 'signed_out' });
+    }), { onch: 'signed_out' });
     expect(tiles[0]).toMatchObject({ tone: 'attention', label: '로그인 필요', login: 'signed_out', attentionCount: 1 });
   });
 
@@ -161,7 +161,7 @@ describe('mallStatusTiles', () => {
       ['쿠팡 로켓', 'failed', '쿠팡 쉽먼트 수집 실패 실패'],
       ['키즈노트', 'attention', '로그인 정보 없음'],
       ['쿠팡', 'ok', '윙 트래픽 수집 실패 해결'],
-      ['올웨이즈', 'idle', '최근 기록 없음'],
+      ['올웨이즈', 'idle', '현재 기록 없음'],
     ]);
     expect(tiles[0]?.attentionCount).toBe(1);
     expect(tiles[1]?.attentionCount).toBe(1);
@@ -177,70 +177,25 @@ describe('mallStatusTiles', () => {
     expect(rocket?.attentionCount).toBe(1);
   });
 
-  /** 관찰 기록만 있어도 타일이 선다 — 알림이 몰을 말하지 않는 몰도 채워진다. */
-  it('⭐ 관찰 기록에 남은 결과로 상태를 적는다', () => {
-    const tiles = mallStatusTiles(channels, [], [], [
-      remembered('rocket', 'login_test', { outcome: 'attention', reasonCode: 'login_required' }),
-      remembered('coupang', 'registration_fill', { outcome: 'succeeded', itemCount: 12 }),
-      remembered('always', 'registration_fill', { outcome: 'attention', reasonCode: 'manual_submit_required' }),
-    ]);
-    const byKey = new Map(tiles.map((tile) => [tile.mallKey, tile]));
-    expect(byKey.get('rocket')).toMatchObject({ tone: 'attention', label: '로그인 테스트 로그인 필요', attentionCount: 1 });
-    expect(byKey.get('coupang')).toMatchObject({ tone: 'ok', label: '상품등록 성공 · 12건' });
-    expect(byKey.get('always')).toMatchObject({ tone: 'attention', label: '상품등록 제출 필요' });
-  });
-
   /**
-   * 같은 사건이 알림과 관찰 기록에 두 번 남을 때, 알림이 몇 초 늦게 찍혔다고 이기면 사장님은 인증인지
-   * 로그인인지 알 수 없다.
+   * 쿠팡직배송 원천 알림(발주서 · 직배송 주문 수집)은 로켓 계정 행을 함께 쓰는 몰의 일이다.
+   * 타일은 계정 행의 채널로 서기 때문에 목록에 `coupang-direct` 줄이 없다 — 접지 않으면 이
+   * 알림은 어느 타일에도 닿지 못하고 로켓 타일은 '최근 기록 없음'으로 선다.
    */
-  it('⭐ 할 일을 이름으로 부르는 쪽이 이긴다 — 늦게 찍힌 막연한 실패에 지지 않는다', () => {
-    const vagueAlert = alert('session', { updatedAt: '2026-09-12T02:00:00.000Z' });
-    const verification = remembered('rocket', 'login_test', {
-      outcome: 'attention',
-      reasonCode: 'operator_action_required',
-      message: '본인 인증이 필요합니다.',
-      occurredAt: '2026-09-12T01:00:00.000Z',
+  it('⭐ 쿠팡직배송 원천 알림이 함께 쓰는 로켓 타일에 닿는다', () => {
+    const direct = alert('direct', {
+      sourceType: 'coupang_direct_order_capture',
+      title: '쿠팡 직배송 주문 수집 실패',
     });
-    const rocket = mallStatusTiles(channels, [vagueAlert], [], [verification], {
-      rocket: 'signed_in',
-    }).find((tile) => tile.mallKey === 'rocket');
-
-    expect(rocket?.label).toBe('로그인 테스트 인증 필요');
-    expect(rocket?.detail).toBe('본인 인증이 필요합니다.');
-    // 세션은 살아 있어도 몰이 인증을 요구하면 '로그인됨'이라고 적지 않는다.
-    expect(rocket?.login).toBe('verification');
-  });
-
-  it('로그인이 필요한 몰은 인증이 아니라 로그인 필요로 남는다', () => {
-    const rocket = mallStatusTiles(
-      channels,
-      [],
-      [],
-      [remembered('rocket', 'login_test', { outcome: 'attention', reasonCode: 'login_required' })],
-      { rocket: 'signed_out' },
-    ).find((tile) => tile.mallKey === 'rocket');
-    expect(rocket?.label).toBe('로그인 테스트 로그인 필요');
-    expect(rocket?.login).toBe('signed_out');
-  });
-
-  it('⭐ 방금 확인한 로그인 상태가 지난 로그인 확인 기록보다 앞선다', () => {
-    const lastCheck = remembered('rocket', 'login_check', { outcome: 'attention', reasonCode: 'login_required' });
-    const rocketOnly = [channel('rocket', '쿠팡 로켓')];
-    // 확인 전 — 지난 기록이 말한다.
-    expect(mallStatusTiles(rocketOnly, [], [], [lastCheck])[0]).toMatchObject({
-      tone: 'attention',
-      label: '로그인 확인 로그인 필요',
-      login: null,
-    });
-    // 방금 다시 로그인된 것을 확인했다 — 지난 '로그인 필요'로 조르지 않는다.
-    expect(mallStatusTiles(rocketOnly, [], [], [lastCheck], { rocket: 'signed_in' })[0]).toMatchObject({
-      tone: 'idle',
-      label: '최근 기록 없음',
-      login: 'signed_in',
-      attentionCount: 0,
+    const tile = mallStatusTiles([channel('rocket', '쿠팡 로켓')], [direct], [])[0];
+    expect(tile).toMatchObject({
+      mallKey: 'rocket',
+      tone: 'failed',
+      label: '쿠팡 직배송 주문 수집 실패 실패',
+      attentionCount: 1,
     });
   });
+
 });
 
 describe('mallAlertCounts', () => {
@@ -263,27 +218,30 @@ describe('mallAlertCounts', () => {
   });
 });
 
-function remembered(
-  mallKey: string,
-  operation: MallOperationOutcomeSummaryRow['operation'],
-  latest: Partial<MallOperationOutcomeSummaryRow['latest']>,
-): MallOperationOutcomeSummaryRow {
-  return {
-    mallKey,
-    operation,
-    latest: {
-      id: `${mallKey}-${operation}`,
-      mallKey,
-      operation,
-      outcome: 'succeeded',
-      reasonCode: null,
-      message: null,
-      itemCount: null,
-      failedCount: null,
-      warningCount: null,
-      occurredAt: '2026-09-12T01:00:00.000Z',
-      ...latest,
-    },
-    counts: { succeeded: 0, empty: 0, attention: 0, failed: 0, cancelled: 0 },
-  };
-}
+/**
+ * 알림이 가리키는 몰은 채널 레지스트리의 키여야 한다(KID-250). 레지스트리에 없는 키를 적으면
+ * 그 알림이 어느 타일에도 닿지 못하고, 사장님은 실패를 못 본다.
+ */
+describe('몰 원천 → 채널 키', () => {
+  const SOURCE_TYPES = [
+    'order_collection_mall',
+    'coupang_shipment_summary',
+    'coupang_rocket_po_catalog',
+    'coupang_rocket_final_order',
+    'coupang_direct_order_capture',
+    'coupang_wing_traffic',
+    'coupang_wing_itemwinner',
+  ];
+
+  it('⭐ 몰을 말하는 원천의 몰 키가 모두 레지스트리에 있다', () => {
+    for (const sourceType of SOURCE_TYPES) {
+      const key = mallKeyOfAlert(alert('a', { sourceType }));
+      expect([sourceType, key === null || isChannelKey(key)]).toEqual([sourceType, true]);
+    }
+  });
+
+  it('몰 원천이 아닌 알림은 몰 알림이 아니다', () => {
+    expect(isMallAlert(alert('a', { sourceType: 'coupang_ad_campaign' }))).toBe(false);
+    expect(isMallAlert(alert('a', { sourceType: null }))).toBe(false);
+  });
+});

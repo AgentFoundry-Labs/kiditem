@@ -11,8 +11,8 @@ orders, registration executions and collection attempts key on marketplace rows
 tied together and every consumer decided again which row "is" the mall. From now
 on one `ChannelAccount` row identifies one mall or marketplace seller system:
 `channel` is the registry mall key (`kidkids`, `toss`, `coupang`, `rocket`, …),
-and every mall-scoped record (login, listing profile, listings, orders, attempts,
-observed outcomes) hangs off that row, because a single identity is what the
+and every mall-scoped record (login, listing profile, listings, orders,
+attempts) hangs off that row, because a single identity is what the
 organization/channel-account contract already promises and the pseudo-channel
 was a seeding shortcut, not a model.
 
@@ -27,19 +27,27 @@ was a seeding shortcut, not a model.
 
 ## Consequences
 
-The mall registry (`ORDER_COLLECTION_MALLS` in the Orders domain, with the
-seed's `ORDER_COLLECTION_MALL_ENV`) stays the source of channel keys and names.
-A mall row also keeps the mall key in `externalAccountId`, so the
-`[organizationId, channel, externalAccountId]` unique key admits one row per
-mall. A mall that belongs to an existing marketplace seller system uses that
+The channel registry (`MALL_CHANNELS` in `@kiditem/shared/channel-registry`,
+with the seed's `ORDER_COLLECTION_MALL_ENV_PREFIX`) stays the source of channel
+keys and names. A mall row also keeps the mall key in `externalAccountId`, so
+the `[organizationId, channel, externalAccountId]` unique key admits one row
+per mall. A mall that belongs to an existing marketplace seller system uses that
 row instead of its own: Coupang direct shipping (`coupang-direct`) signs in on
 the `rocket` row, where its orders and attempts already live, and saving that
 login leaves the row's name and status to the marketplace connection. Login
 credentials stay in `config.orderCollection`; a mall's listing profile lives in
-`config.listingProfile` on the same row. Mall registration adds no product
-model: it creates `ChannelListing` rows under the mall's account that point at
-`MasterProduct`, the only canonical product. The seed, the mall account service
-and the collection source repository switch from `channel: 'order_collection'`
-to `channel: mallKey`. Office has not been deployed, so there is no data
-migration: QA databases are re-seeded and a local database may be corrected in
-place.
+`config.listingProfile` on the same row. Login checks and form fills expose the current browser result
+without a permanent observation ledger: historical observations cannot establish
+whether a browser is logged in now, while actual submission evidence belongs to
+`ProductRegistrationExecution`. This trades cross-device observation history for
+one execution authority. Mall registration creates `ChannelListing` rows under
+the mall's account; option recipes link those listings to source `MasterProduct`
+identities ([ADR-0017](0017-products-owns-source-products-channels-owns-recipes.md)).
+The seed, the mall account
+service and the collection source repository switch from
+`channel: 'order_collection'` to `channel: mallKey`. There is no data migration:
+after the v0.1.31 cutover the operator re-runs the mall account seed
+(`npm run seed:order-collection-malls`) so each mall gets its new-style row, and
+the old pseudo-channel rows stay in place, because `channel_accounts` is an
+ADR-0010 kept table and nothing reads them any more; QA databases are re-seeded
+the same way.

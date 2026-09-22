@@ -1,5 +1,5 @@
-import type { OrderCollectionMallAccount } from '../../order-collection/lib/order-mall-account-api';
-import { isBrowserCollectableMall } from '../../order-collection/lib/order-collection-page-model';
+import { channelCollectsViaExtension } from '@kiditem/shared/channel-registry';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { isTrackingSupportedMall } from '../../order-collection/lib/icecream-tracking-api';
 
 export interface MallCapabilities {
@@ -10,20 +10,17 @@ export interface MallCapabilities {
 }
 
 /**
- * "계정만 채우면 이 기능을 쓸 수 있는가" 를 본다.
+ * "계정만 채우면 이 기능을 쓸 수 있는가" 를 본다 — 쇼핑몰 계정 화면의 2칸 시야다.
+ * `/mall-channels` 의 9칸 시야(`(channels)/_shared/mall-capabilities.ts`)와 같은
+ * 레지스트리를 읽되, 여기서는 계정을 채우면 되는 두 가지만 남긴다.
  *
- * 수집 판정은 아이스크림몰만 설정·사용 여부까지 함께 보므로, 여기서는 그 두
- * 조건을 채운 가상 계정을 넣어 순수한 지원 여부만 남긴다. 지원 몰 목록을 이
- * 파일에 다시 적으면 실제 판정과 갈라지므로 그렇게 하지 않는다.
+ * `tracking` 은 레지스트리의 `uploadTracking`(확장이 몰에 직접 등록하는 셋)보다 넓다.
+ * 이 화면의 버튼은 셀피아 채번 송장을 몰 것으로 골라 CSV 로도 내려주므로, 판매처명
+ * 매핑이 있으면 할 일이 있다.
  */
 export function mallCapabilities(mallKey: string): MallCapabilities {
-  const configuredProbe = {
-    key: mallKey,
-    configured: true,
-    enabled: true,
-  } as OrderCollectionMallAccount;
   return {
-    collection: isBrowserCollectableMall(configuredProbe),
+    collection: channelCollectsViaExtension(mallKey),
     tracking: isTrackingSupportedMall(mallKey),
   };
 }

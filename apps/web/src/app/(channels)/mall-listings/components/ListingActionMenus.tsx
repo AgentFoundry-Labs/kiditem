@@ -15,32 +15,26 @@ import {
   ShieldAlert,
   Trash2,
 } from 'lucide-react';
-import type { MallListingMatrixColumn, MallListingState } from '@kiditem/shared/mall-publishing';
 import { cn } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
-import { recordMallOperationOutcome } from '@/lib/mall-operation-outcomes-api';
 import { listingStatePill } from '../../_shared/mall-presentation';
+import { ListingAvailabilityExecutionHistory } from '../../_shared/ListingAvailabilityExecutionHistory';
+import { executeListingAvailability } from '../../_shared/listing-availability-execution';
+import { listingAvailabilityExecutionKeys } from '../../_shared/listing-availability-execution-api';
 import {
-  availabilityOutcome,
-  mallReadLagsAfterSend,
   mallSoldOutNote,
-  mallSoldOutWord,
   canReadMallAvailability,
   canSendMallAvailability,
   sendMallAvailability,
-  withObjectParticle,
   type MallLiveSummary,
 } from '../../_shared/mall-availability-send';
-import type { MallLiveCell } from '../hooks/use-mall-live-availability';
 import { showAvailabilityWarnings } from '../../_shared/MallAvailabilitySend';
+import type { MallLiveCell } from '../hooks/use-mall-live-availability';
+import type { MallListingMatrixColumn, MallListingState } from '@kiditem/shared/mall-publishing';
 
 /**
- * 액션 메뉴.
- *
- * **아직 아무것도 실행하지 않는다.** 지금 여기서 답하는 질문은 "이 몰에서 무엇이
- * 가능한가" 하나다. 가능 여부는 서버 매니페스트가 정하고 화면은 그것만 읽는다 —
- * 되는 것처럼 보이는 버튼을 만들어 두면 언젠가 눌리고, 그게 몰에 나가는 순간
- * 되돌릴 수 없는 것도 있다.
+ * 액션 메뉴. 가능 여부는 목록의 채널 기능이 정하고, 품절·재개는 서버 실행 원장을
+ * 거쳐 기존 확장 전송 경로로 보낸다. 다른 액션은 각자의 연결 상태를 그대로 표시한다.
  */
 
 const NOT_WIRED = '아직 실행 경로가 연결되지 않았습니다.';
@@ -184,8 +178,6 @@ interface CellActionPopoverProps {
   live?: MallLiveCell | null;
   /** 이 칸을 몰에서 다시 읽는다. */
   onRefreshLive?: () => Promise<void>;
-  /** 확장이 몰에서 확인한 상태(품절이면 true)를 칸에 그대로 둔다. 조회가 늦게 따라오는 몰에서 쓴다. */
-  onSettleLive?: (soldOut: boolean) => void;
   /** 이 메뉴를 연 버튼. 스크롤해도 계속 그 버튼에 붙어 있게 한다. */
   anchor: HTMLElement;
   onClose: () => void;
@@ -248,7 +240,6 @@ export function CellActionPopover({
   productUrl = null,
   live = null,
   onRefreshLive,
-  onSettleLive,
   anchor,
   onClose,
 }: CellActionPopoverProps) {
@@ -275,6 +266,7 @@ export function CellActionPopover({
   const presentation = listingStatePill(state, rawStatus);
   const queryClient = useQueryClient();
   const [running, setRunning] = useState<string | null>(null);
+  const runLock = useRef(false);
 
   /**
    * 몰 지금 재고(쿠팡 윙). 가져온 판매상태(ON_SALE)는 품절이어도 판매중이라, 표가 페이지째 윙에서 읽어 둔 값을
@@ -298,59 +290,60 @@ export function CellActionPopover({
    * 어느 줄인지 짚을 수 없으므로 아예 누르지 못하게 둔다.
    */
   const run = async (spec: ActionSpec) => {
-    if (!spec.run || !externalId || !canSendMallAvailability(column.mallKey)) return;
+    if (runLock.current || !spec.run || !externalId || !canSendMallAvailability(column.mallKey)) return;
+    if (!column.channelAccountId) {
+      toast.error('몰 계정 식별자를 확인할 수 없어 품절·재개를 실행하지 않았습니다.');
+      return;
+    }
+    runLock.current = true;
     const resume = spec.run === 'resume';
     setRunning(spec.key);
     try {
-      // 상품 하나다 — 확장이 그 상품의 몰 화면(쿠팡 윙 상품목록)을 앞에 띄워 거기서 보내고 바뀐 재고를 보여 준다.
-      const result = await sendMallAvailability(column.mallKey, [externalId], { resume, show: true });
-      showAvailabilityWarnings(result.warnings);
-      if (result.sent === 0) throw new Error(`${column.mallName}이 이 상품을 받지 않았습니다.`);
-      // 보낸 것은 성공이 아니다 — 몰을 다시 읽어 바뀐 것이 확인된 것만 성공이다(도매꾹 · 쿠팡 윙).
-      const recorded = availabilityOutcome(result);
-      void recordMallOperationOutcome({
+      const run = await executeListingAvailability({
+        channelAccountId: column.channelAccountId,
+        externalListingId: externalId,
         mallKey: column.mallKey,
-        operation: 'availability_stage',
-        outcome: recorded.outcome,
-        reasonCode: recorded.reasonCode,
-        itemCount: result.sent,
-        failedCount: result.failed,
-        warningCount: result.warnings.length,
+        kind: resume ? 'resume' : 'sold_out',
+        send: (snapshot, executionContext) => {
+          if (!canSendMallAvailability(snapshot.mallKey)) {
+            throw new Error(`${column.mallName}의 품절·재개 전송 경로가 없습니다.`);
+          }
+          return sendMallAvailability(snapshot.mallKey, [snapshot.externalListingId], {
+            resume: snapshot.kind === 'resume',
+            show: true,
+            ...(snapshot.optionCodes.length > 0
+              ? { optionCodes: { [snapshot.externalListingId]: snapshot.optionCodes } }
+              : {}),
+            executionContext,
+          });
+        },
       });
-      // 쿠팡 윙은 그 상품의 상품목록을 앞에 띄워 보냈다. 상품목록은 늦게 따라오므로 보였는지도 말한다.
-      const listNote = result.listShown === true
-        ? ` 열린 ${column.mallName} 상품목록에도 ${resume ? '재고가' : '품절로'} 보입니다.`
-        : result.listShown === false
-          ? ` ${column.mallName} 상품목록 화면은 조금 늦게 바뀝니다 — 1분쯤 뒤 새로고침하면 보입니다.`
-          : '';
-      // 이 몰에서 품절이 실제로 하는 일(판매중지 · 품절)의 이름으로 말한다.
-      const word = mallSoldOutWord(column.mallKey);
-      toast.success(`${column.mallName} · ${withObjectParticle(resume ? '판매 재개' : word)} 보냈습니다.`, {
-        description: result.requestOnly
-          ? '온채널은 관리자 승인을 거칩니다 — 승인 전까지 반영이 아닙니다.'
-          : recorded.outcome === 'succeeded'
-            ? `${column.mallName}에서 다시 읽어 ${resume ? '다시 팔리는' : `${word}로 바뀐`} 것을 확인했습니다.${listNote}`
-            : '반영은 몰을 다시 가져와야 확인됩니다.',
-        duration: 10_000,
-      });
+      if (run.transportResult) showAvailabilityWarnings(run.transportResult.warnings);
+      if (!run.adapterCalled) {
+        toast.warning(`${column.mallName} 상품에 진행 중인 ${resume ? '재개' : '품절'} 실행이 있습니다. 다시 보내지 않았습니다.`, {
+          description: '아래 실행 이력에서 현재 상태를 확인하세요.',
+          duration: 10_000,
+        });
+      } else if (run.transportError) {
+        toast.warning(`${column.mallName} 전송 결과를 확인할 수 없습니다. 다시 보내지 않았습니다.`, {
+          description: run.transportError,
+          duration: 10_000,
+        });
+      } else if (run.transportResult?.requestOnly) {
+        toast.warning(`${column.mallName} 관리자 승인 요청을 보냈습니다. 승인과 실제 계정을 확인해야 합니다.`, { duration: 10_000 });
+      } else {
+        toast.warning(`${column.mallName} ${run.transportResult?.sent ?? 0}건을 전송 시도했습니다. 실제 몰 계정과 상태를 확인해 기록하세요.`, { duration: 10_000 });
+      }
       void queryClient.invalidateQueries({ queryKey: queryKeys.mallPublishing.all });
-      // 지금 재고를 읽을 수 있는 몰은 창을 닫지 않고 몰에서 다시 읽어 바뀐 상태를 그 자리에서 보여 준다. 조회가 늦게
-      // 따라오는 몰(롯데ON)은 확장이 이미 확인한 결과를 그대로 쓴다 — 바로 다시 읽으면 옛 값을 받는다.
-      if (liveReadable && recorded.outcome === 'succeeded' && mallReadLagsAfterSend(column.mallKey) && onSettleLive) {
-        onSettleLive(!resume);
-      } else if (liveReadable) readLive();
-      else onClose();
+      void queryClient.invalidateQueries({
+        queryKey: listingAvailabilityExecutionKeys.history(column.channelAccountId, externalId),
+      });
+      if (run.adapterCalled && liveReadable) readLive();
     } catch (error) {
       // 보내지 못한 것도 관찰 기록에 남긴다(일괄 화면과 같게).
-      void recordMallOperationOutcome({
-        mallKey: column.mallKey,
-        operation: 'availability_stage',
-        outcome: 'failed',
-        reasonCode: 'extension_unavailable',
-        itemCount: 1,
-      });
       toast.error(error instanceof Error ? error.message : '보내지 못했습니다.');
     } finally {
+      runLock.current = false;
       setRunning(null);
     }
   };
@@ -362,7 +355,7 @@ export function CellActionPopover({
         role="dialog"
         aria-label={`${column.mallName} 작업`}
         style={cellStyle}
-        className="z-40 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-lg"
+        className="z-40 max-h-[80vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-left shadow-lg"
       >
         <div className="border-b border-slate-100 pb-2">
           <div className="text-xs font-semibold text-slate-900">{column.mallName}</div>
@@ -385,7 +378,7 @@ export function CellActionPopover({
             // 몰이 지원하고(available) 우리에게 길이 있고(run) 이 몰에서 이 상품을
             // 부르는 코드까지 있어야(externalId) 누를 수 있다. 셋 중 하나라도 없으면
             // 왜 못 누르는지 title 이 말한다.
-            const runnable = Boolean(spec.run) && spec.available && Boolean(externalId);
+            const runnable = Boolean(spec.run) && spec.available && Boolean(externalId) && Boolean(column.channelAccountId);
             const busy = running === spec.key;
             return (
               <li key={spec.key}>
@@ -396,6 +389,7 @@ export function CellActionPopover({
                   title={
                     spec.reason
                     ?? (spec.run && !externalId ? '이 몰의 상품코드를 아직 모릅니다. 먼저 이 몰의 리스팅을 가져오세요.' : null)
+                    ?? (spec.run && !column.channelAccountId ? '이 몰 계정 식별자가 없어 실행 원장을 열 수 없습니다.' : null)
                     ?? (runnable ? spec.label : NOT_WIRED)
                   }
                   className={cn(
@@ -426,6 +420,13 @@ export function CellActionPopover({
             );
           })}
         </ul>
+
+        {externalId && (
+          <ListingAvailabilityExecutionHistory
+            channelAccountId={column.channelAccountId}
+            externalListingId={externalId}
+          />
+        )}
 
         {column.actions.soldOutDeletesListing ? (
           <p className="mt-2 flex items-start gap-1 rounded-md bg-red-50 px-2 py-1.5 text-[10px] leading-relaxed text-red-700">

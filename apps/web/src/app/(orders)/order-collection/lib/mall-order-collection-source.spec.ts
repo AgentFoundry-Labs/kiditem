@@ -15,7 +15,7 @@ import {
   readActiveOrderCollectionAttempt,
   rememberActiveOrderCollectionAttempt,
 } from './order-collection-source-owner';
-import type { OrderCollectionMallAccount } from './order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
@@ -488,5 +488,18 @@ describe('invalidateMallOrderCollectionSources', () => {
     await invalidateMallOrderCollectionSources(client, null);
 
     expect(client.getQueryState(mine)?.isInvalidated).toBe(false);
+  });
+});
+
+/** 몰 카드는 몰 키가 아니라 원천이 답한 것만 본다(KID-255). */
+describe('mallOrderCollectionSource — 카드가 이 원천을 세우는 법', () => {
+  it('몰 카드는 고르는 화면 없이 바로 수집하고, 이 원천만의 시작 불가 사유가 없다', () => {
+    const source = mallOrderCollectionSource({
+      organizationId: ORGANIZATION_ID,
+      account: ACCOUNT,
+      handOff: vi.fn(),
+    });
+
+    expect(source.card).toEqual({ opensChooser: false, startBlockedReason: null });
   });
 });

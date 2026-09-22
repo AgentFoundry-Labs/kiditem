@@ -47,6 +47,7 @@ model Organization {
   contentWorkspaces                   ContentWorkspace[]
   contentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[]
   productPreparations                 ProductPreparation[]
+  productPreparationOptions           ProductPreparationOption[]
   productRegistrationExecutions       ProductRegistrationExecution[]       @relation("ProductRegistrationExecutionOrganization")
   detailPageArtifacts                 DetailPageArtifact[]
   detailPageRevisions                 DetailPageRevision[]
@@ -109,7 +110,6 @@ model Organization {
   masterProductAbcFormulaState                MasterProductAbcFormulaState?
   masterProductAbcEvaluations                 MasterProductAbcEvaluation[]
   masterProductAbcGradeHistories              MasterProductAbcGradeHistory[]
-  sellpiaInventorySkus                        SellpiaInventorySku[]
   channelListings                             ChannelListing[]
   channelListingOptions                       ChannelListingOption[]
   channelListingOptionInventoryComponents     ChannelListingOptionInventoryComponent[]
@@ -119,10 +119,10 @@ model Organization {
   salesProductPublicImages                    SalesProductPublicImage[]
   salesProductOptions                         SalesProductOption[]
   salesProductOptionComponents                SalesProductOptionComponent[]
-  salesProductChannelOverrides                SalesProductChannelOverride[]
 
   // Channels — 몰별 상품등록·품절 송신 (Phase 0)
-  mallOperationOutcomes MallOperationOutcome[] @relation("MallOperationOutcomeOrganization")
+
+  // Channels — 몰별 상품등록·품절 송신 (Phase 0)
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
@@ -225,7 +225,6 @@ model User {
   createdDetailPageImageArtifacts            DetailPageImageArtifact[]                      @relation("DetailPageImageArtifactCreatedBy")
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")
   claimedDetailPageImageRenderIntents        DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentClaimedBy")
-  recordedMallOperationOutcomes              MallOperationOutcome[]                         @relation("MallOperationOutcomeActor")
   activeSellpiaInventoryStates               SellpiaInventoryState[]                        @relation("SellpiaInventoryStateActiveSyncOwner")
   createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]               @relation("SellpiaOrderTransmissionIntentCreator")
   reconciledSellpiaOrderTransmissionIntents  SellpiaOrderTransmissionIntentReconciliation[] @relation("SellpiaOrderTransmissionIntentReconciler")
@@ -329,7 +328,6 @@ model ChannelAccount {
   sourceImportRuns                    SourceImportRun[]
   productPreparations                 ProductPreparation[]
   productRegistrationExecutions       ProductRegistrationExecution[]       @relation("ChannelAccountProductRegistrationExecutions")
-  salesProductChannelOverrides        SalesProductChannelOverride[]
   channelListingDeletionOperations    ChannelListingDeletionOperation[]    @relation("ChannelAccountListingDeletionOperations")
   orders                              Order[]
   channelScrapeRuns                   ChannelScrapeRun[]
@@ -394,7 +392,6 @@ model SourceImportRun {
   channelAccount                          ChannelAccount?                          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   manualFreshExportConfirmer              User?                                    @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
   sellpiaProductMonthlySales              SellpiaProductMonthlySales[]             @relation("SellpiaProductMonthlySourceImport")
-  sellpiaInventorySkus                    SellpiaInventorySku[]                    @relation("SellpiaInventorySkuLastImport")
   channelProducts                         ChannelListing[]                         @relation("ChannelProductLastImport")
   channelSkus                             ChannelListingOption[]                   @relation("ChannelSkuLastImport")
   channelScrapeRuns                       ChannelScrapeRun[]
@@ -476,44 +473,34 @@ model CategoryMapping {
   @@map("category_mappings")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe Organization-owned canonical inventory product and sole official product ABC identity.
 model MasterProduct {
-  id                     String   @id @default(uuid()) @db.Uuid
-  organizationId         String   @map("organization_id") @db.Uuid
-  originChannelListingId String?  @map("origin_channel_listing_id") @db.Uuid
-  code                   String
-  name                   String
-  description            String?
-  category               String?
-  brand                  String?
-  tags                   String[] @default([])
-  imageUrls              String[] @default([]) @map("image_urls")
-  adBudgetLimit          Int?     @map("ad_budget_limit")
-  isActive               Boolean  @default(true) @map("is_active")
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  code              String   @unique(map: "master_products_code_key") @db.VarChar(11)
+  sourceAccountKey  String   @map("source_account_key")
+  sourceProductCode String   @map("source_product_code")
+  sourceOptionCode  String   @map("source_option_code")
+  name              String
+  optionName        String?  @map("option_name")
+  barcode           String?
+  currentStock      Int      @default(0) @map("current_stock")
+  purchasePrice     Int?     @map("purchase_price")
+  imageUrls         String[] @default([]) @map("image_urls")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  organization      Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  abcEvaluation     MasterProductAbcEvaluation?
+  abcGradeHistories MasterProductAbcGradeHistory[]
 
-  organization                 Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  provenanceCandidate          SourcingCandidate?                   @relation("SourcingCandidateProvenance")
-  channelListings              ChannelListing[]                     @relation("ChannelListingOperationalProduct")
-  originChannelListing         ChannelListing?                      @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  inventorySkus                SellpiaInventorySku[]                @relation("MasterProductInventorySkus")
-  frozenSellpiaProfitFacts     SellpiaProductMonthlySales[]         @relation("SellpiaProductMonthlyFrozenMaster")
-  frozenAdvertisingProfitFacts ChannelAdListingProductMonthlyFact[] @relation("AdFactMasterProduct")
-  abcEvaluation                MasterProductAbcEvaluation?
-  abcGradeHistories            MasterProductAbcGradeHistory[]
-
-  @@unique([organizationId, code])
-  @@unique([originChannelListingId, organizationId])
   @@unique([id, organizationId], map: "master_products_id_org_key")
-  @@index([organizationId])
-  @@index([organizationId, isActive])
+  @@unique([organizationId, sourceAccountKey, sourceProductCode, sourceOptionCode], map: "master_products_source_identity_key")
   @@map("master_products")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe Immutable organization-owned formula versions for absolute product ABC publication.
 model MasterProductAbcFormulaVersion {
   id              String   @id @default(uuid()) @db.Uuid
@@ -523,7 +510,6 @@ model MasterProductAbcFormulaVersion {
   formulaJson     Json     @map("formula_json") @db.JsonB
   formulaChecksum String   @map("formula_checksum")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization       Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   activeFormulaState MasterProductAbcFormulaState?  @relation("MasterProductAbcFormulaStateActiveFormula")
@@ -537,7 +523,7 @@ model MasterProductAbcFormulaVersion {
   @@map("master_product_abc_formula_versions")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe One organization-owned formula and official publication envelope.
 model MasterProductAbcFormulaState {
   organizationId                        String    @id @map("organization_id") @db.Uuid
@@ -564,7 +550,7 @@ model MasterProductAbcFormulaState {
   @@map("master_product_abc_formula_states")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe Current Products-owned normal absolute ABC evaluation for one MasterProduct.
 model MasterProductAbcEvaluation {
   id                           String    @id @default(uuid()) @db.Uuid
@@ -615,7 +601,7 @@ model MasterProductAbcEvaluation {
   @@map("master_product_abc_evaluations")
 }
 
-/// @namespace Core
+/// @namespace Products
 /// @describe Immutable absolute ABC grade transitions after the initial baseline.
 model MasterProductAbcGradeHistory {
   id                                   String   @id @default(uuid()) @db.Uuid
@@ -657,16 +643,15 @@ model MasterProductAbcGradeHistory {
   @@map("master_product_abc_grade_histories")
 }
 
-/// @namespace Core
+/// @namespace Channels
 /// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
 model ChannelListing {
-  id                String  @id @default(uuid()) @db.Uuid
-  organizationId    String  @map("organization_id") @db.Uuid
-  channelAccountId  String  @map("channel_account_id") @db.Uuid
-  sourceCandidateId String? @map("source_candidate_id") @db.Uuid
-  masterProductId   String? @map("master_product_id") @db.Uuid
-  /// 이 몰 상품이 어느 판매상품인가(ADR-0014). Products 링크 포트만 쓴다.
-  salesProductId    String? @map("sales_product_id") @db.Uuid
+  salesProductId    String?       @map("sales_product_id") @db.Uuid
+  salesProduct      SalesProduct? @relation("ChannelListingSalesProduct", fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  id                String        @id @default(uuid()) @db.Uuid
+  organizationId    String        @map("organization_id") @db.Uuid
+  channelAccountId  String        @map("channel_account_id") @db.Uuid
+  sourceCandidateId String?       @map("source_candidate_id") @db.Uuid
 
   externalId String @map("external_id")
 
@@ -696,13 +681,9 @@ model ChannelListing {
   organization                  Organization                      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelAccount                ChannelAccount                    @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sourceCandidate               SourcingCandidate?                @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  masterProduct                 MasterProduct?                    @relation("ChannelListingOperationalProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  salesProduct                  SalesProduct?                     @relation("ChannelListingSalesProduct", fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  originatedMasterProduct       MasterProduct?                    @relation("ChannelListingOriginProduct")
   lastImportRun                 SourceImportRun?                  @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   options                       ChannelListingOption[]
   contentWorkspaces             ContentWorkspace[]
-  productPreparations           ProductPreparation[]
   productRegistrationExecutions ProductRegistrationExecution[]    @relation("ChannelListingProductRegistrationExecutions")
   deletionOperations            ChannelListingDeletionOperation[] @relation("ChannelListingDeletionOperations")
 
@@ -724,12 +705,10 @@ model ChannelListing {
   @@unique([organizationId, sourceCandidateId, channelAccountId], map: "channel_listings_org_source_account_active_key", where: raw("source_candidate_id IS NOT NULL AND is_active = true"))
   @@unique([id, organizationId], map: "channel_listings_id_org_key")
   @@unique([id, organizationId, channelAccountId], map: "channel_listings_id_org_account_key")
+  @@index([organizationId, salesProductId])
   @@index([organizationId])
   @@index([channelAccountId])
   @@index([sourceCandidateId])
-  @@index([masterProductId])
-  @@index([organizationId, masterProductId])
-  @@index([organizationId, salesProductId])
   @@index([lastImportRunId])
   @@index([organizationId, channelAccountId, isActive])
   @@index([organizationId, updatedAt, id])
@@ -739,22 +718,22 @@ model ChannelListing {
 /// @namespace Core
 /// @describe One sellable SKU under a channel listing.
 model ChannelListingOption {
-  id             String @id @default(uuid()) @db.Uuid
-  listingId      String @map("listing_id") @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-
-  externalOptionId     String  @map("external_option_id") @db.VarChar(60)
-  itemName             String? @map("item_name")
-  salePrice            Int?    @map("sale_price")
-  sellerSku            String? @map("seller_sku")
-  barcode              String?
-  modelNumber          String? @map("model_number")
-  status               String?
-  attributesJson       Json?   @map("attributes_json")
-  rawJson              Json?   @map("raw_json")
-  lastImportRunId      String? @map("last_import_run_id") @db.Uuid
-  /// 이 몰 옵션이 어느 단품인가(ADR-0014). Products 링크 포트만 쓴다.
   salesProductOptionId String? @map("sales_product_option_id") @db.Uuid
+  id                   String  @id @default(uuid()) @db.Uuid
+  listingId            String  @map("listing_id") @db.Uuid
+  organizationId       String  @map("organization_id") @db.Uuid
+
+  externalOptionId String  @map("external_option_id") @db.VarChar(60)
+  kidItemCode      String? @map("kid_item_code") @db.VarChar(11)
+  itemName         String? @map("item_name")
+  salePrice        Int?    @map("sale_price")
+  sellerSku        String? @map("seller_sku")
+  barcode          String?
+  modelNumber      String? @map("model_number")
+  status           String?
+  attributesJson   Json?   @map("attributes_json")
+  rawJson          Json?   @map("raw_json")
+  lastImportRunId  String? @map("last_import_run_id") @db.Uuid
 
   isActive Boolean @default(true) @map("is_active")
 
@@ -779,6 +758,7 @@ model ChannelListingOption {
 
   @@unique([listingId, externalOptionId])
   @@unique([id, organizationId], map: "channel_listing_options_id_org_key")
+  @@index([kidItemCode], map: "channel_listing_options_kid_item_code_idx")
   @@index([organizationId, externalOptionId])
   @@index([externalOptionId])
   @@index([lastImportRunId])
@@ -786,206 +766,21 @@ model ChannelListingOption {
   @@map("channel_listing_options")
 }
 
-/// @namespace Core
-/// @describe Confirmed Sellpia inventory consumption for one channel sellable option.
+/// @namespace Channels
+/// @describe Confirmed source-product quantities for one channel sellable option.
 model ChannelListingOptionInventoryComponent {
   id                     String   @id @default(uuid()) @db.Uuid
   organizationId         String   @map("organization_id") @db.Uuid
   channelListingOptionId String   @map("channel_listing_option_id") @db.Uuid
-  sellpiaInventorySkuId  String   @map("sellpia_inventory_sku_id") @db.Uuid
+  masterProductId        String   @map("master_product_id") @db.Uuid
   quantity               Int
   createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelListingOption ChannelListingOption @relation(fields: [channelListingOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sellpiaInventorySku  SellpiaInventorySku  @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([channelListingOptionId, sellpiaInventorySkuId])
+  @@unique([channelListingOptionId, masterProductId])
   @@index([organizationId, channelListingOptionId], map: "channel_option_inventory_components_org_option_idx")
-  @@index([organizationId, sellpiaInventorySkuId], map: "channel_option_inventory_components_org_sku_idx")
+  @@index([organizationId, masterProductId], map: "channel_option_inventory_components_org_master_product_idx")
   @@map("channel_listing_option_inventory_components")
-}
-
-/// @namespace Core
-/// @describe Products-owned sellable product (판매상품, Sabangnet 품번) authored once and sent to many malls. A registration definition only — never an inventory, stock, or ABC identity (ADR-0014).
-model SalesProduct {
-  id                  String   @id @default(uuid()) @db.Uuid
-  organizationId      String   @map("organization_id") @db.Uuid
-  /// 판매상품코드. 사방넷에서 옮긴 상품은 사방넷 품번코드다.
-  code                String   @db.VarChar(60)
-  /// 자체상품코드(사방넷에서 중복 불가). 비어 있을 수 있다.
-  ownCode             String?  @map("own_code") @db.VarChar(100)
-  sabangnetGoodsNo    String?  @map("sabangnet_goods_no") @db.VarChar(30)
-  name                String   @db.VarChar(255)
-  shortName           String?  @map("short_name") @db.VarChar(255)
-  englishName         String?  @map("english_name") @db.VarChar(255)
-  printName           String?  @map("print_name") @db.VarChar(255)
-  modelName           String?  @map("model_name") @db.VarChar(60)
-  modelNo             String?  @map("model_no") @db.VarChar(60)
-  brand               String?  @db.VarChar(50)
-  manufacturer        String?  @db.VarChar(50)
-  originCountry       String?  @map("origin_country") @db.VarChar(50)
-  originRegion        String?  @map("origin_region") @db.VarChar(50)
-  keywords            String[] @default([])
-  standardCategory    String?  @map("standard_category") @db.VarChar(40)
-  /// draft | active | paused | sold_out | unused | archived
-  status              String   @default("active")
-  /// taxable | tax_free | zero_rated | unknown
-  taxType             String   @default("taxable") @map("tax_type")
-  /// free | collect | prepay | collect_or_prepay
-  deliveryFeeType     String?  @map("delivery_fee_type")
-  deliveryFee         Int?     @map("delivery_fee")
-  costPrice           Int?     @map("cost_price")
-  salePrice           Int      @map("sale_price")
-  tagPrice            Int?     @map("tag_price")
-  /// 옵션 단 제목(최대 3). 비어 있으면 옵션 없는 단일 상품이다.
-  optionAxes          String[] @default([]) @map("option_axes")
-  stockManaged        Boolean  @default(false) @map("stock_managed")
-  optionsLocked       Boolean  @default(false) @map("options_locked")
-  /// [0] 대표, 그다음 추가 사진 순서.
-  imageUrls           String[] @default([]) @map("image_urls")
-  detailHtml          String?  @map("detail_html")
-  extraDetailHtml     String[] @default([]) @map("extra_detail_html")
-  /// 사방넷 속성분류코드(상품정보고시)와 그 순서대로의 값.
-  noticeCategory      String?  @map("notice_category") @db.VarChar(10)
-  noticeValues        String[] @default([]) @map("notice_values")
-  /// 인증 문서 목록(번호 · 기관 · 분야 · 유효기간 · 발급일 · 인증일 · 이미지).
-  certifications      Json?
-  importDeclarationNo String?  @map("import_declaration_no") @db.VarChar(60)
-  adminMemo           String?  @map("admin_memo")
-  /// 가져온 원문 한 줄(사방넷 엑셀 칸 그대로). 화면은 읽지 않는다.
-  sourceRaw           Json?    @map("source_raw")
-  /// 수집상품에서 만든 판매상품이면 그 수집상품 id(Sourcing 소유, 외래키 없이 id 만). 같은 수집상품은 판매상품 하나다.
-  sourceCandidateId   String?  @map("source_candidate_id") @db.Uuid
-  version             Int      @default(1)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization     Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  options          SalesProductOption[]
-  channelOverrides SalesProductChannelOverride[]
-  channelListings  ChannelListing[]              @relation("ChannelListingSalesProduct")
-
-  @@unique([organizationId, code])
-  @@unique([organizationId, ownCode], map: "sales_products_org_own_code_key", where: raw("own_code IS NOT NULL"))
-  @@unique([organizationId, sabangnetGoodsNo], map: "sales_products_org_sabangnet_goods_key", where: raw("sabangnet_goods_no IS NOT NULL"))
-  @@unique([organizationId, sourceCandidateId], map: "sales_products_org_source_candidate_key", where: raw("source_candidate_id IS NOT NULL"))
-  @@unique([id, organizationId], map: "sales_products_id_org_key")
-  @@index([organizationId, status])
-  @@index([organizationId, updatedAt, id])
-  @@map("sales_products")
-}
-
-/// @namespace Core
-/// @describe One option (단품) of a sales product. Declares its Sellpia composition but never holds stock; the channel option recipe stays the only operating recipe (ADR-0014).
-model SalesProductOption {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  salesProductId String   @map("sales_product_id") @db.Uuid
-  /// 단품코드(사방넷 100001-0001 모양).
-  optionCode     String   @map("option_code") @db.VarChar(80)
-  /// SalesProduct.optionAxes 순서대로의 값.
-  values         String[] @default([])
-  /// values 를 ':' 로 이은 값. 옵션 없는 상품은 ''.
-  optionKey      String   @map("option_key") @db.VarChar(500)
-  alias          String?  @db.VarChar(100)
-  barcode        String?  @db.VarChar(60)
-  extraPrice     Int      @default(0) @map("extra_price")
-  /// selling | sold_out | unused
-  supplyStatus   String   @default("selling") @map("supply_status")
-  safetyStock    Int?     @map("safety_stock")
-  sortOrder      Int      @default(0) @map("sort_order")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization          Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  salesProduct          SalesProduct                  @relation(fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  components            SalesProductOptionComponent[]
-  channelListingOptions ChannelListingOption[]        @relation("ChannelListingOptionSalesProductOption")
-
-  @@unique([organizationId, optionCode])
-  @@unique([salesProductId, optionKey])
-  @@unique([id, organizationId], map: "sales_product_options_id_org_key")
-  @@index([salesProductId, organizationId])
-  @@index([organizationId, barcode])
-  @@map("sales_product_options")
-}
-
-/// @namespace Core
-/// @describe Declared Sellpia composition of one sales-product option. Copied only into an empty channel option recipe when that option is linked; never a capacity source (ADR-0014).
-model SalesProductOptionComponent {
-  id                    String   @id @default(uuid()) @db.Uuid
-  organizationId        String   @map("organization_id") @db.Uuid
-  salesProductOptionId  String   @map("sales_product_option_id") @db.Uuid
-  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
-  quantity              Int
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  salesProductOption  SalesProductOption  @relation(fields: [salesProductOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sellpiaInventorySku SellpiaInventorySku @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([salesProductOptionId, sellpiaInventorySkuId])
-  @@index([organizationId, salesProductOptionId], map: "sales_product_option_components_org_option_idx")
-  @@index([organizationId, sellpiaInventorySkuId], map: "sales_product_option_components_org_sku_idx")
-  @@map("sales_product_option_components")
-}
-
-/// @namespace Core
-/// @describe Per-mall values of one sales product (사방넷 쇼핑몰별 별도정보): price or price rate, name, detail, promo text, notice class, stock share, and adapter-declared form values, keyed by the mall's ChannelAccount row (ADR-0012, ADR-0014).
-model SalesProductChannelOverride {
-  id               String  @id @default(uuid()) @db.Uuid
-  organizationId   String  @map("organization_id") @db.Uuid
-  salesProductId   String  @map("sales_product_id") @db.Uuid
-  channelAccountId String  @map("channel_account_id") @db.Uuid
-  salePrice        Int?    @map("sale_price")
-  /// 판매가에 곱할 비율(만분율, 11000 = 110%). salePrice 가 있으면 salePrice 가 이긴다.
-  priceRateBp      Int?    @map("price_rate_bp")
-  costPrice        Int?    @map("cost_price")
-  name             String? @db.VarChar(255)
-  detailHtml       String? @map("detail_html")
-  promoText        String? @map("promo_text") @db.VarChar(255)
-  noticeCategory   String? @map("notice_category") @db.VarChar(10)
-  /// 이 몰에 보낼 재고 비율(%).
-  stockPercent     Int?    @map("stock_percent")
-  /// 등록 어댑터가 선언한 몰 전용 칸 값(예전 manualBasics.mallRegisterValues).
-  adapterValues    Json?   @map("adapter_values")
-  sourceRaw        Json?   @map("source_raw")
-  version          Int     @default(1)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  salesProduct   SalesProduct   @relation(fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  channelAccount ChannelAccount @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([salesProductId, channelAccountId])
-  @@unique([id, organizationId], map: "sales_product_channel_overrides_id_org_key")
-  @@index([salesProductId, organizationId])
-  @@index([channelAccountId, organizationId])
-  @@map("sales_product_channel_overrides")
-}
-
-/// @namespace Core
-/// @describe Public copy of a sales-product image or detail image that malls can download (우리 저장소는 사무실 밖에서 열리지 않는다). Keyed by our storage URL; the sales product keeps its own URL and mall bulk sheets use the copy (ADR-0014).
-model SalesProductPublicImage {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  /// 우리 저장소 주소(판매상품 사진 · 상세설명 속 사진).
-  sourceUrl      String   @map("source_url")
-  /// 몰이 가져갈 수 있는 공개 주소.
-  publicUrl      String   @map("public_url")
-  /// 올린 곳(`kidsnote` = 키즈노트 첨부 저장소).
-  host           String   @db.VarChar(40)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, sourceUrl])
-  @@map("sales_product_public_images")
 }

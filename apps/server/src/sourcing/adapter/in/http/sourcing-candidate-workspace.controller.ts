@@ -5,17 +5,13 @@ import { CurrentUser } from '../../../../auth/decorators/current-user.decorator'
 import { SourcingPromotionService } from '../../../application/service/sourcing-promotion.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import { SourcingWorkspaceArchiveService } from '../../../application/service/sourcing-workspace-archive.service';
-import { ProductRegistrationService } from '../../../application/service/product-registration.service';
+import { ProductPreparationService } from '../../../application/service/product-preparation.service';
 import {
-  ConfirmExternalRegistrationDto,
-  ExternalWingEvidenceDto,
   CreateProductPreparationDto,
   QuickProcessCandidateDto,
   RejectCandidateBodyDto,
   UpdateProductBasicsDto,
   UpdateProductPreparationDto,
-  PrepareExternalWingRegistrationDto,
-  PreviewExternalWingRegistrationMatchDto,
 } from './dto';
 import type { AuthUser } from '../../../../auth/auth.types';
 
@@ -25,7 +21,7 @@ export class SourcingCandidateWorkspaceController {
     private readonly sourcingService: SourcingService,
     private readonly promotionSvc: SourcingPromotionService,
     private readonly workspaceArchive: SourcingWorkspaceArchiveService,
-    private readonly productRegistration: ProductRegistrationService,
+    private readonly preparations: ProductPreparationService,
   ) {}
 
   @Get(':id')
@@ -43,7 +39,7 @@ export class SourcingCandidateWorkspaceController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.productRegistration.createDraft(organizationId, id, user.id ?? null, body);
+    return this.preparations.createDraft(organizationId, id, user.id ?? null, body);
   }
 
   @Patch('preparations/:id')
@@ -53,7 +49,7 @@ export class SourcingCandidateWorkspaceController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.productRegistration.updateDraft(organizationId, id, user.id ?? null, body);
+    return this.preparations.updateDraft(organizationId, id, user.id ?? null, body);
   }
 
   @Post('preparations/:id/submit')
@@ -62,109 +58,7 @@ export class SourcingCandidateWorkspaceController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.productRegistration.submit(organizationId, id, user.id ?? null);
-  }
-
-  /**
-   * 마켓에 이미 등록된 상품을 등록상품으로 확정한다.
-   *
-   * 쿠팡 WING 은 확장이 화면을 직접 조작해 등록하므로 서버가 provider create 를
-   * 부르는 `preparations/:id/submit` 을 탈 수 없다. 이 경로는 새 상품을 생성하지 않고,
-   * 이미 발급된 등록상품ID와 확장이 확인한 WING 계정을 대조한 뒤 확정한다.
-   * 준비 시 내부 동기화 리스팅을 찾은 경우에는 그 frozen 결과를 재사용한다.
-   */
-  @Post('candidates/:id/registration/confirm-external')
-  confirmExternalRegistration(
-    @Param('id') id: string,
-    @Body() body: ConfirmExternalRegistrationDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.productRegistration.confirmExternalRegistration(
-      organizationId,
-      id,
-      user.id ?? null,
-      body,
-    );
-  }
-
-  @Post('candidates/:id/registration/external-wing/prepare')
-  prepareExternalWingRegistration(
-    @Param('id') id: string,
-    @Body() body: PrepareExternalWingRegistrationDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.productRegistration.prepareExternalWingRegistration(
-      organizationId, id, user.id ?? null, body,
-    );
-  }
-
-  @Post('candidates/:id/registration/external-wing/match-preview')
-  previewExternalWingRegistrationMatch(
-    @Param('id') id: string,
-    @Body() body: PreviewExternalWingRegistrationMatchDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.productRegistration.previewExternalWingRegistrationMatch(
-      organizationId,
-      id,
-      body,
-    );
-  }
-
-  @Post('candidates/:id/registration/executions/:executionId/start')
-  startExternalWingRegistration(
-    @Param('id') id: string,
-    @Param('executionId') executionId: string,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.productRegistration.startExternalWingRegistration(
-      organizationId, id, user.id ?? null, executionId,
-    );
-  }
-
-  @Get('candidates/:id/registration/executions/:executionId')
-  externalWingRegistrationStatus(
-    @Param('id') id: string,
-    @Param('executionId') executionId: string,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.productRegistration.getExternalWingRegistration(
-      organizationId, id, user.id ?? null, executionId,
-    );
-  }
-
-  @Post('candidates/:id/registration/executions/:executionId/unresolved')
-  markExternalWingRegistrationUnresolved(
-    @Param('id') id: string,
-    @Param('executionId') executionId: string,
-    @Body() body: ExternalWingEvidenceDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.productRegistration.markExternalWingRegistrationUnresolved(
-      organizationId, id, user.id ?? null, executionId, body.evidence,
-    );
-  }
-
-  /**
-   * 확장이 WING 폼을 채우다 실패해 제출 자체가 없었던 실행을 닫는다.
-   * `unresolved` 로 두면 실행이 `reconciling` 에 갇혀 재시도·취소가 모두 막힌다.
-   */
-  @Post('candidates/:id/registration/executions/:executionId/not-submitted')
-  markExternalWingRegistrationNotSubmitted(
-    @Param('id') id: string,
-    @Param('executionId') executionId: string,
-    @Body() body: ExternalWingEvidenceDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.productRegistration.markExternalWingRegistrationNotSubmitted(
-      organizationId, id, user.id ?? null, executionId, body.evidence,
-    );
+    return this.preparations.submit(organizationId, id, user.id ?? null);
   }
 
   @Post('preparations/:id/cancel')
@@ -173,7 +67,7 @@ export class SourcingCandidateWorkspaceController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.productRegistration.cancel(organizationId, id, user.id ?? null);
+    return this.preparations.cancel(organizationId, id, user.id ?? null);
   }
 
   @Patch('candidates/:id/basic-info')

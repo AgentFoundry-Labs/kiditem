@@ -1,7 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
-import { ProductPreparationRepositoryAdapter } from '../product-preparation.repository.adapter';
+import { ProductPreparationRepositoryAdapter } from '../../../../../channels/adapter/out/persistence/candidate-registration.repository.adapter';
 
 const UPDATED_AT = new Date('2026-07-13T01:02:03.000Z');
 
@@ -9,12 +9,13 @@ function currentPreparation() {
   return {
     id: 'preparation-1',
     organizationId: 'organization-1',
+    salesProductId: 'sales-product-1',
     sourceCandidateId: 'candidate-1',
     channelAccountId: 'account-1',
     sourceContentWorkspaceId: 'workspace-1',
-    channelListingId: null,
+    closedAt: null,
     displayName: '기존 상품명',
-    status: 'draft',
+    reviewPayloadHash: null,
     registrationInput: {
       name: '기존 상품명',
       optionNames: ['단품', '2개 세트'],
@@ -33,15 +34,6 @@ function currentPreparation() {
     selectedDetailPageArtifactId: null,
     selectedDetailPageRevisionId: null,
     selectedDetailPageGenerationId: null,
-    providerOutcome: 'not_attempted',
-    providerSubmissionId: null,
-    registrationResult: null,
-    submissionKey: 'submission-key-1',
-    submissionPayloadJson: null,
-    submissionPayloadHash: null,
-    submissionLeaseToken: null,
-    submissionLeaseClaimedAt: null,
-    lastError: null,
     isDeleted: false,
     deletedAt: null,
     createdByUserId: 'user-1',
@@ -57,18 +49,39 @@ function setup(existingExecution: {
   resultJson: unknown;
 } | null = null) {
   const current = currentPreparation();
-  const updateMany = vi.fn().mockImplementation(async ({ data }) => {
+  const update = vi.fn().mockImplementation(async ({ data }) => {
     Object.assign(current, data);
-    return { count: 1 };
+    return current;
   });
+  const executionRows = existingExecution
+    ? [{
+      id: 'execution-1',
+      productPreparationId: current.id,
+      channelAccountId: current.channelAccountId,
+      channelListingId: null,
+      executionKind: 'external_wing',
+      createdAt: new Date('2026-07-13T00:30:00.000Z'),
+      providerOutcome: 'not_attempted',
+      submissionPayloadJson: { frozen: 'payload' },
+      submissionPayloadHash: 'b'.repeat(64),
+      ...existingExecution,
+    }]
+    : [];
   const findFirst = vi.fn()
     .mockResolvedValueOnce({ sourceCandidateId: current.sourceCandidateId })
     .mockResolvedValueOnce(current);
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([]),
-    productPreparation: { findFirst, updateMany },
+    productPreparation: { findFirst, update },
+    // 실행 장부는 Channels 리더로만 읽는다(ADR-0009). 리더가 실제로 부르는
+    // findMany 를 그대로 흉내 내야 경계가 바뀌면 이 테스트가 먼저 깨진다.
     productRegistrationExecution: {
-      findFirst: vi.fn().mockResolvedValue(existingExecution),
+      findMany: vi.fn().mockResolvedValue(executionRows),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+      delete: vi.fn(),
+      deleteMany: vi.fn(),
     },
     sourcingCandidate: {
       findFirst: vi.fn().mockResolvedValue({ id: current.sourceCandidateId }),
@@ -78,8 +91,13 @@ function setup(existingExecution: {
     $transaction: vi.fn(async (operation: (transaction: typeof tx) => Promise<unknown>) =>
       operation(tx)),
   };
+  const source = {
+    lock: vi.fn().mockResolvedValue(undefined),
+    requireActive: vi.fn().mockResolvedValue(undefined),
+  };
   const repository = new ProductPreparationRepositoryAdapter(
     prisma as unknown as PrismaService,
+    source,
   );
   const resolveSelections = vi.fn(async (_transaction, input) => ({
     selectedThumbnailUrl: input.selectedThumbnailUrl,
@@ -89,14 +107,14 @@ function setup(existingExecution: {
     selectedDetailPageRevisionId: input.selectedDetailPageRevisionId,
     selectedDetailPageGenerationId: input.selectedDetailPageGenerationId,
   }));
-  return { current, repository, resolveSelections, updateMany };
+  return { current, repository, resolveSelections, update, executionRows, tx };
 }
 
 describe('ProductPreparationRepositoryAdapter draft patches', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('preserves nested channel metadata while replacing patched arrays and scalar fields', async () => {
-    const { current, repository, resolveSelections, updateMany } = setup();
+    const { current, repository, resolveSelections, update } = setup();
 
     await repository.replaceDraftInput({
       organizationId: 'organization-1',
@@ -115,7 +133,7 @@ describe('ProductPreparationRepositoryAdapter draft patches', () => {
       },
     }, resolveSelections);
 
-    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ organizationId: 'organization-1' }),
       data: expect.objectContaining({
         registrationInput: {
@@ -138,7 +156,7 @@ describe('ProductPreparationRepositoryAdapter draft patches', () => {
   });
 
   it('leaves registration input untouched for a thumbnail-only patch', async () => {
-    const { current, repository, resolveSelections, updateMany } = setup();
+    const { current, repository, resolveSelections, update } = setup();
     const originalRegistrationInput = structuredClone(current.registrationInput);
 
     await repository.replaceDraftInput({
@@ -154,14 +172,44 @@ describe('ProductPreparationRepositoryAdapter draft patches', () => {
       },
     }, resolveSelections);
 
-    const update = updateMany.mock.calls[0]?.[0]?.data as Record<string, unknown>;
-    expect(update).not.toHaveProperty('registrationInput');
+    const persistedUpdate = update.mock.calls[0]?.[0]?.data as Record<string, unknown>;
+    expect(persistedUpdate).not.toHaveProperty('registrationInput');
     expect(current.registrationInput).toEqual(originalRegistrationInput);
   });
 
-  it('rejects a patch while an active registration execution owns the draft', async () => {
-    const { repository, resolveSelections, updateMany } = setup({
+  it('allows a draft patch while preserving an active execution snapshot', async () => {
+    const { current, repository, resolveSelections, update, executionRows, tx } = setup({
       status: 'prepared',
+      providerSubmissionId: null,
+      externalListingId: null,
+      resultJson: null,
+    });
+    const frozenExecution = structuredClone(executionRows);
+
+    await expect(repository.replaceDraftInput({
+      organizationId: 'organization-1',
+      preparationId: 'preparation-1',
+      userId: 'user-1',
+      command: {
+        kind: 'replace',
+        input: { displayName: 'Unsafe replacement' },
+      },
+    }, resolveSelections)).resolves.toEqual({ preparationId: 'preparation-1', status: 'draft' });
+
+    expect(current.displayName).toBe('Unsafe replacement');
+    expect(resolveSelections).toHaveBeenCalledOnce();
+    expect(update).toHaveBeenCalledOnce();
+    expect(tx.productRegistrationExecution.create).not.toHaveBeenCalled();
+    expect(tx.productRegistrationExecution.update).not.toHaveBeenCalled();
+    expect(tx.productRegistrationExecution.updateMany).not.toHaveBeenCalled();
+    expect(tx.productRegistrationExecution.delete).not.toHaveBeenCalled();
+    expect(tx.productRegistrationExecution.deleteMany).not.toHaveBeenCalled();
+    expect(executionRows).toEqual(frozenExecution);
+  });
+
+  it('still rejects cancellation while an execution outcome is unresolved', async () => {
+    const { repository, resolveSelections, update } = setup({
+      status: 'reconciling',
       providerSubmissionId: null,
       externalListingId: null,
       resultJson: null,
@@ -171,23 +219,17 @@ describe('ProductPreparationRepositoryAdapter draft patches', () => {
       organizationId: 'organization-1',
       preparationId: 'preparation-1',
       userId: 'user-1',
-      command: {
-        kind: 'replace',
-        input: {
-          basePreparationUpdatedAt: UPDATED_AT.toISOString(),
-          registrationInput: { name: '실행 중 수정' },
-        },
-      },
+      command: { kind: 'cancel' },
     }, resolveSelections)).rejects.toThrow(
-      'Preparation execution cannot be discarded or edited.',
+      'An active execution must be resolved before archiving its target.',
     );
 
     expect(resolveSelections).not.toHaveBeenCalled();
-    expect(updateMany).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('rejects a stale patch before resolving selections or mutating the draft', async () => {
-    const { repository, resolveSelections, updateMany } = setup();
+    const { repository, resolveSelections, update } = setup();
 
     await expect(repository.replaceDraftInput({
       organizationId: 'organization-1',
@@ -203,6 +245,6 @@ describe('ProductPreparationRepositoryAdapter draft patches', () => {
     }, resolveSelections)).rejects.toBeInstanceOf(ConflictException);
 
     expect(resolveSelections).not.toHaveBeenCalled();
-    expect(updateMany).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
   });
 });

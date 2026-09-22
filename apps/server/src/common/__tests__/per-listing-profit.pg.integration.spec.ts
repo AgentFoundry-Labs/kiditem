@@ -1,3 +1,4 @@
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
@@ -27,7 +28,7 @@ import {
   seedCompletedOrderCoverageRun,
 } from '../../test-helpers/finance-seeds';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
-import { seedActiveSellpiaInventorySku } from '../../test-helpers/inventory-seeds';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { kstMonthStart } from '../kst';
 
 /**
@@ -113,7 +114,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     });
 
     await coverOrders();
-    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
+    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'), new ProductTransactionalReadRepositoryAdapter());
 
     expect(result).toHaveLength(1);
     const m = result[0];
@@ -166,7 +167,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     });
 
     await coverOrders();
-    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
+    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'), new ProductTransactionalReadRepositoryAdapter());
 
     expect(result).toHaveLength(1);
     expect(result[0].revenue).toBe(10_000);             // 9000 + 1000
@@ -200,7 +201,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-04-22', spend: 12_000 });
 
     await coverOrders();
-    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'));
+    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'), new ProductTransactionalReadRepositoryAdapter());
 
     expect(result).toHaveLength(1);
     expect(result[0].adCost).toBe(20_000);
@@ -251,7 +252,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       new Date('2026-06-30T15:00:00.000Z'),
       new Date('2026-07-31T15:00:00.000Z'),
       accountEvidence('OBSERVED'),
-    );
+     new ProductTransactionalReadRepositoryAdapter());
 
     expect(result).toEqual([
       expect.objectContaining({
@@ -292,7 +293,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     }
 
     await coverOrders();
-    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
+    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'), new ProductTransactionalReadRepositoryAdapter());
     expect(result).toHaveLength(1);
     expect(result[0].revenue).toBe(1_000);                    // only the paid order
     expect(result[0].revenue).not.toBe(IDOR_SENTINEL);        // excluded statuses' totalPrice never appears
@@ -375,7 +376,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       FROM,
       TO,
       accountEvidence('NOT_APPLIED'),
-    );
+     new ProductTransactionalReadRepositoryAdapter());
 
     // Neither a cost override nor a mapped Sellpia component exists, so the
     // purchase cost was never measured: it is unavailable, not zero.
@@ -441,7 +442,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       const rows = await buildPerListingProfit(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO,
         accountAdEvidence,
-      );
+       new ProductTransactionalReadRepositoryAdapter());
       return rows.find((row) => row.listingId === listingId);
     };
 
@@ -509,12 +510,12 @@ describe('buildPerListingMetrics (PG integration)', () => {
       await coverOrders();
       const partial = await buildPerListingMetricsCoverage(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED', false),
-      );
+       undefined, new ProductTransactionalReadRepositoryAdapter());
       expect(partial).toEqual({ metrics: [], withheldListings: 2, orderWindowComplete: true });
 
       const measured = await buildPerListingMetrics(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'),
-      );
+       new ProductTransactionalReadRepositoryAdapter());
       expect(measured.map((row) => row.listingId).sort()).toEqual([first, second].sort());
     });
 
@@ -546,7 +547,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
           from,
           to,
           evidence,
-        );
+         new ProductTransactionalReadRepositoryAdapter());
 
         expect(evidence).toMatchObject({ publishedDates: 0, coversWindow: false });
         for (const listingId of [advertised, absent]) {
@@ -603,7 +604,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
           from,
           to,
           evidence,
-        );
+         new ProductTransactionalReadRepositoryAdapter());
 
         expect(evidence).toMatchObject({ publishedDates: 0, coversWindow: false });
         for (const listingId of [measured, unmeasured]) {
@@ -633,7 +634,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
         // account-wide miss must show up there rather than as a counted zero.
         await expect(buildPerListingMetricsCoverage(
           prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('MISSING'),
-        )).resolves.toEqual({ metrics: [], withheldListings: 1, orderWindowComplete: true });
+         undefined, new ProductTransactionalReadRepositoryAdapter())).resolves.toEqual({ metrics: [], withheldListings: 1, orderWindowComplete: true });
       });
 
       it('does not read an empty listing calendar as a measured zero once the source published', async () => {
@@ -690,14 +691,14 @@ describe('buildPerListingMetrics (PG integration)', () => {
     const rowFor = async (listingId: string, evidence = accountEvidence('NOT_APPLIED')) =>
       (await buildPerListingProfit(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, evidence,
-      )).find((row) => row.listingId === listingId);
+       new ProductTransactionalReadRepositoryAdapter())).find((row) => row.listingId === listingId);
 
     it('publishes no profit for a listing when one of its lines lacks a purchase price', async () => {
       const priced = await seedPricedListing('COST-PRICE');
       // Inventory publishes SKUs; the fixture goes through its test seed, with
       // no purchase price recorded.
       const unpricedSku = { id: randomUUID() };
-      await seedActiveSellpiaInventorySku(prisma, {
+      await seedSourceProduct(prisma, {
         id: unpricedSku.id,
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SKU-COST-PRICE-UNKNOWN',
@@ -715,7 +716,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: unpricedOption.id,
-          sellpiaInventorySkuId: unpricedSku.id,
+          masterProductId: unpricedSku.id,
           quantity: 1,
         },
       });
@@ -743,7 +744,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       });
       await expect(buildPerListingMetricsCoverage(
         prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'),
-      )).resolves.toEqual({ metrics: [], withheldListings: 1, orderWindowComplete: true });
+       undefined, new ProductTransactionalReadRepositoryAdapter())).resolves.toEqual({ metrics: [], withheldListings: 1, orderWindowComplete: true });
     });
 
     it('leaves the profit rate unavailable for a listing that earned no revenue', async () => {
@@ -878,7 +879,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID, code: 'M-RULE-UNPRICED', name: 'Master RULE-UNPRICED',
       });
       const sku = { id: randomUUID() };
-      await seedActiveSellpiaInventorySku(prisma, {
+      await seedSourceProduct(prisma, {
         id: sku.id,
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SKU-RULE-UNPRICED',
@@ -993,7 +994,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
 
     await coverOrders();
     await coverOrders(undefined, undefined, OTHER_ORGANIZATION_ID);
-    const testResult = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'));
+    const testResult = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_ORGANIZATION_ID, FROM, TO, accountEvidence('NOT_APPLIED'), new ProductTransactionalReadRepositoryAdapter());
     expect(testResult).toHaveLength(1);
     expect(testResult[0].revenue).toBe(1_000);
     expect(testResult[0].adCost).toBe(0);
@@ -1002,7 +1003,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
       expect(m.adCost).not.toBe(IDOR_SENTINEL);
     }
 
-    const otherResult = await buildPerListingMetrics(prisma as unknown as PrismaService, OTHER_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'));
+    const otherResult = await buildPerListingMetrics(prisma as unknown as PrismaService, OTHER_ORGANIZATION_ID, FROM, TO, accountEvidence('OBSERVED'), new ProductTransactionalReadRepositoryAdapter());
     expect(otherResult).toHaveLength(1);
     expect(otherResult[0].revenue).toBe(IDOR_SENTINEL);
     expect(otherResult[0].adCost).toBe(IDOR_SENTINEL);

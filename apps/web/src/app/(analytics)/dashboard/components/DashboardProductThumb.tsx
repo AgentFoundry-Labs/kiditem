@@ -40,7 +40,6 @@ export function DashboardProductThumb({
     </span>
   );
 }
-
 /** 가격 접두('3500') 같은 숫자를 건너 첫 글자 하나. */
 function monogram(name: string): string {
   const letters = name.replace(/^[\d\s,.]+/, '').trim();

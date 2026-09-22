@@ -9,7 +9,7 @@ import {
 } from '@/lib/mall-login-block';
 import { MallAccountGroups, type MallCardCollection } from './MallAccountGroups';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import type { FailedMallReason } from '../hooks/use-order-activity-events';
 
 function account(
@@ -37,6 +37,8 @@ function account(
 function collectButton(
   onCollect: (account: OrderCollectionMallAccount) => void,
   running = false,
+  /** 이 카드의 원천이 무엇을 수집할지 먼저 고르는 화면을 여는가(KID-255). */
+  opensChooser = false,
 ) {
   return (
     account: OrderCollectionMallAccount,
@@ -48,6 +50,7 @@ function collectButton(
       </button>
     ),
     running,
+    opensChooser,
   });
 }
 
@@ -101,7 +104,7 @@ describe('MallAccountGroups', () => {
     const user = userEvent.setup();
     const collectable = account('kakao', { name: '카카오', configured: false });
     const onCollectMall = vi.fn();
-    const onOpenCalendar = vi.fn();
+    const onOpenChooser = vi.fn();
 
     render(
       <MallAccountGroups
@@ -113,18 +116,18 @@ describe('MallAccountGroups', () => {
         autoNextRunAt={null}
         autoRunning={false}
         onOpenSettings={vi.fn()}
-        renderCollectionControl={collectButton(onCollectMall)}
-        onOpenCalendar={onOpenCalendar}
+        renderCollectionControl={collectButton(onCollectMall, false, true)}
+        onOpenChooser={onOpenChooser}
         onUploadTracking={vi.fn()}
       />,
     );
 
     await user.click(screen.getByRole('button', { name: '카카오 수집' }));
     expect(onCollectMall).toHaveBeenCalledWith(collectable);
-    expect(onOpenCalendar).not.toHaveBeenCalled();
+    expect(onOpenChooser).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('article', { name: '카카오 계정 카드' }));
-    expect(onOpenCalendar).toHaveBeenCalledWith(collectable);
+    expect(onOpenChooser).toHaveBeenCalledWith(collectable);
     expect(onCollectMall).toHaveBeenCalledTimes(1);
   });
 

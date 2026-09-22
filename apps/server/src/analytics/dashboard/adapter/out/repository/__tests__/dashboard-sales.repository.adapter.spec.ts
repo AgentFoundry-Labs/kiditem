@@ -4,13 +4,13 @@ import {
   type ProductAbcEvaluation,
 } from "@kiditem/shared/product-abc";
 import { DashboardSalesRepositoryAdapter } from "../dashboard-sales.repository.adapter";
-import { readProductAbcPublication } from "../../../../../../products/read/product-abc-publication.reader";
+import { readProductAbcPublication } from "../../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
 import { readOrderLineWindowFacts } from "../../../../../../orders/read/order-facts.reader";
 import { readCurrentSellpiaProductMonthlyFacts } from "../../../../../sellpia-product-sales/read/sellpia-product-monthly-facts";
 import { businessDatesInWindow } from "../../../../domain/period/dashboard-period";
 
 vi.mock(
-  "../../../../../../products/read/product-abc-publication.reader",
+  "../../../../../../products/adapter/out/persistence/read/product-abc-publication.reader",
   () => ({
     readProductAbcPublication: vi.fn(),
     readPublishedProductAbcGrades: vi.fn().mockResolvedValue(new Map()),
@@ -48,6 +48,31 @@ const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);
 const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
 const mockedReadSellpiaFacts = vi.mocked(readCurrentSellpiaProductMonthlyFacts);
 
+function inventoryTransactionalRead() {
+  return { readSourceIdentities: vi.fn().mockResolvedValue([]) } as never;
+}
+
+function productAbcRead() {
+  return {
+    readAbc: vi.fn().mockImplementation(async (input: {
+      organizationId: string;
+      masterProductIds: readonly string[];
+    }) => {
+      const publication = await mockedReadProductAbcPublication({} as never, input);
+      return {
+        products: publication.products.map((product) => ({
+          masterProductId: product.masterProductId,
+          contributionEligible: product.contributionEligible,
+          abc: {
+            abcGrade: product.evaluation?.abcGrade ?? null,
+            evaluation: product.evaluation,
+          },
+        })),
+      };
+    }),
+  } as never;
+}
+
 /**
  * The ranking settles profit through `buildPerListingProfit`, whose own
  * behavior is proved against PostgreSQL in its spec and in the dashboard sales
@@ -68,9 +93,6 @@ const prismaWith = (topProductRows: unknown[]) => {
               externalId: row.listingId,
               channelName: row.organization,
               displayName: row.name,
-              masterProduct: row.masterProductId
-                ? { id: row.masterProductId, name: row.name }
-                : null,
             },
           },
         ]
@@ -141,6 +163,10 @@ const prismaWith = (topProductRows: unknown[]) => {
     $transaction: vi.fn(),
     $queryRaw: vi.fn().mockResolvedValue([]),
     order: { findMany: vi.fn().mockResolvedValue([]) },
+    channelListing: { findMany: vi.fn().mockResolvedValue(rows.filter((row) => row.listingId).map((row) => ({
+      id: row.listingId,
+      options: [{ inventoryComponents: row.masterProductId ? [{ masterProductId: row.masterProductId }] : [] }],
+    }))) },
     channelListingOption: { findMany: vi.fn().mockResolvedValue(options) },
     channelAccount: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -200,6 +226,8 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]),
+      inventoryTransactionalRead(),
+      productAbcRead(),
     );
     mockedReadProductAbcPublication.mockResolvedValue({
       currentFormulaRevision: 1,
@@ -243,6 +271,8 @@ describe("DashboardSalesRepositoryAdapter", () => {
             quantity: 1,
           },
         ]),
+        inventoryTransactionalRead(),
+        productAbcRead(),
       );
 
       const result = await repository.fetchTopProducts(
@@ -285,6 +315,8 @@ describe("DashboardSalesRepositoryAdapter", () => {
             quantity: 12,
           },
         ]),
+        inventoryTransactionalRead(),
+        productAbcRead(),
       );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
@@ -307,7 +339,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma);
+      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead(), productAbcRead());
 
       await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 
@@ -332,7 +364,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma);
+      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead(), productAbcRead());
       const settled = vi
         .spyOn(
           repository as unknown as {
@@ -368,6 +400,8 @@ describe("DashboardSalesRepositoryAdapter", () => {
             quantity: 1,
           },
         ]),
+        inventoryTransactionalRead(),
+        productAbcRead(),
       );
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
@@ -431,7 +465,11 @@ describe("DashboardSalesRepositoryAdapter", () => {
       mappingGeneration: "5",
       calculatedAt: "2026-09-01T00:00:00.000Z",
     });
-    const repository = () => new DashboardSalesRepositoryAdapter(prismaWith([]));
+    const repository = () => new DashboardSalesRepositoryAdapter(
+      prismaWith([]),
+      inventoryTransactionalRead(),
+      productAbcRead(),
+    );
 
     beforeEach(() => mockedReadSellpiaFacts.mockReset());
 
@@ -472,20 +510,21 @@ describe("DashboardSalesRepositoryAdapter", () => {
       });
     });
 
-    it("publishes 매출총이익 from Sellpia's own cost, and says it is not settled profit", async () => {
-      // 사장님 2026-09-21: 셀피아가 매입 원가를 주므로 이익을 낼 수 있다. 다만 광고·수수료를
-      // 빼기 전이라 순이익이 아니며, `profitKind` 로 그 사실을 함께 발표한다.
-      // 원가는 판 물건의 원가다: 팔린 5개 × 매입단가 1,200원 = 6,000원.
+    it("does not borrow a current price to invent monthly Sellpia profit", async () => {
+      // #555 deliberately keeps the monthly source fact read to revenue and
+      // quantity. Its persisted rows do not carry a sale-time buyPrice, so a
+      // stale fixture value must not turn the monthly ranking into P&L.
       answer([fact({ productCode: "1", orderAmount: 10_000, orderQty: 5, buyPrice: 1_200, inAmount: 900_000 })]);
 
       const [row] = (await repository().fetchSellpiaTopProducts(ORGANIZATION_ID, "2026-09"))!.products;
 
-      expect(row).toMatchObject({ revenue: 10_000, netProfit: 4_000, profitRate: 40, profitKind: "gross" });
+      expect(row).toMatchObject({ revenue: 10_000, netProfit: null, profitRate: null });
+      expect(row.profitKind).toBeUndefined();
     });
 
-    it("한 옵션이라도 매입 단가를 못 읽으면 이익을 발표하지 않는다", async () => {
-      // 옵션 하나는 단가가 0 이다. 합계(1,000원)만 보면 아는 값처럼 보이지만, 그 옵션의
-      // 매출 49만원이 통째로 이익이 되어 이익률이 99.8% 로 찍힌다(2026-09-21 점검).
+    it("keeps monthly profit unavailable across options without source cost", async () => {
+      // Per-option buyPrice values are not part of the published monthly fact;
+      // they must not become a fallback for this source's missing sale-time cost.
       answer([
         fact({ productCode: "1", optionCode: "1", orderAmount: 490_000, orderQty: 50, buyPrice: 0 }),
         fact({ productCode: "1", optionCode: "2", orderAmount: 10_000, orderQty: 1, buyPrice: 1_000 }),

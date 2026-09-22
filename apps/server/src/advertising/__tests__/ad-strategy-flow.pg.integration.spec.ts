@@ -6,6 +6,7 @@ import { NotFoundException, ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { periodBounds } from '../domain/ad-metrics';
 import { AdvertisingModule } from '../advertising.module';
+import { AdActionService } from '../application/service/ad-action.service';
 import { AdStrategyService } from '../application/service/ad-strategy.service';
 import { deriveAdActionExecution, readLatestExecutionTasks } from '../read/ad-action-execution';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -23,11 +24,12 @@ import {
   seedCompletedOrderCoverageRun,
 } from '../../test-helpers/finance-seeds';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
 describe('AdStrategy flow (PG integration)', () => {
   let prisma: PrismaClient;
   let service: AdStrategyService;
-  let inventoryImportRunByOrganization = new Map<string, string>();
+  let adActionService: AdActionService;
 
   async function seedOrderWithLineItems(
     client: PrismaClient,
@@ -142,32 +144,21 @@ describe('AdStrategy flow (PG integration)', () => {
       },
     });
     const sellableStock = params.sellableStock ?? 100;
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: params.organizationId,
-        code: `M-${params.suffix}`,
-        name: `Master ${params.suffix}`,
-      },
+    const master = await seedSourceProduct(prisma, {
+      organizationId: params.organizationId,
+      code: `SP-${params.suffix}`,
+      name: `Master ${params.suffix}`,
+      currentStock: sellableStock,
+      purchasePrice: params.costPrice ?? 5000,
     });
     await seedPublishedProductAbcGrades(prisma, {
       organizationId: params.organizationId,
       grades: [{ masterProductId: master.id, abcGrade: params.abcGrade }],
     });
-    const inventorySku = await prisma.sellpiaInventorySku.create({
-      data: {
-        organizationId: params.organizationId,
-        code: `SP-${params.suffix}`,
-        name: `Sellpia ${params.suffix}`,
-        currentStock: sellableStock,
-        purchasePrice: params.costPrice ?? 5000,
-        lastImportRunId: inventoryImportRunByOrganization.get(params.organizationId),
-      },
-    });
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
         channelAccountId: channelAccount.id,
-        masterProductId: master.id,
         externalId: `EXT-${params.suffix}`,
         channelName: `Channel ${params.suffix}`,
         lastImportRunId: importRun.id,
@@ -187,7 +178,7 @@ describe('AdStrategy flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         channelListingOptionId: listingOption.id,
-        sellpiaInventorySkuId: inventorySku.id,
+        masterProductId: master.id,
         quantity: 1,
       },
     });
@@ -285,6 +276,7 @@ describe('AdStrategy flow (PG integration)', () => {
       .useValue(prisma)
       .compile();
     service = m.get(AdStrategyService);
+    adActionService = m.get(AdActionService);
   });
 
   afterAll(async () => {
@@ -296,7 +288,6 @@ describe('AdStrategy flow (PG integration)', () => {
     vi.setSystemTime(STRATEGY_NOW);
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    inventoryImportRunByOrganization = new Map();
     for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
       const verifiedAt = new Date();
       const inventoryRun = await prisma.sourceImportRun.create({
@@ -314,7 +305,6 @@ describe('AdStrategy flow (PG integration)', () => {
           freshnessGeneration: 1n,
         },
       });
-      inventoryImportRunByOrganization.set(organizationId, inventoryRun.id);
       await prisma.sellpiaInventoryState.create({
         data: {
           organizationId,
@@ -995,6 +985,33 @@ describe('AdStrategy flow (PG integration)', () => {
         service.registerCampaign(dto, TEST_ORGANIZATION_ID),
       ).rejects.toThrow(/등록 완료/);
     });
+
+    it('#11c a rejected registration does not keep the name taken (KID-138)', async () => {
+      const listing = await seedGradedListing({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'A',
+        suffix: 'REJECTED',
+      });
+      const dto: Parameters<AdStrategyService['registerCampaign']>[0] = {
+        campaignName: 'Rejected campaign',
+        adGroupName: 'ag',
+        grade: 'A',
+        dailyBudget: 10000,
+        operationMode: 'manual',
+        listings: [{ listingId: listing.listing.id }],
+      };
+
+      const first = await service.registerCampaign(dto, TEST_ORGANIZATION_ID);
+      await expect(adActionService.rejectActions([first.actionId], TEST_ORGANIZATION_ID))
+        .resolves.toEqual({ updated: 1 });
+
+      const second = await service.registerCampaign(dto, TEST_ORGANIZATION_ID);
+      expect(second.actionId).not.toBe(first.actionId);
+      // The new registration is queued, so it takes the name again.
+      await expect(
+        service.registerCampaign(dto, TEST_ORGANIZATION_ID),
+      ).rejects.toThrow(/등록 진행 중/);
+    });
   });
 
   describe('cross-tenant scope', () => {
@@ -1177,15 +1194,6 @@ describe('AdStrategy flow (PG integration)', () => {
         abcGrade: 'A',
         suffix: 'C4-MULTI',
       });
-      const earlierSku = await prisma.sellpiaInventorySku.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          code: 'SP-C4-MULTI-EARLY',
-          name: 'Sellpia C4 MULTI EARLY',
-          currentStock: 100,
-          purchasePrice: 5000,
-        },
-      });
       const earlierListingOption = await prisma.channelListingOption.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
@@ -1201,8 +1209,8 @@ describe('AdStrategy flow (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelListingOptionId: earlierListingOption.id,
-          sellpiaInventorySkuId: earlierSku.id,
-          quantity: 1,
+          masterProductId: a.master.id,
+          quantity: 2,
         },
       });
       // The ad fact lives in the target-day ledger; the listing-daily row is

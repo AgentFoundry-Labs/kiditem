@@ -37,11 +37,40 @@ export function mallPriceResendAllowed(mallKey: string): boolean {
 const SEND_TIMEOUT_MS = 180_000;
 
 export interface MallPriceSendResult {
+  /** Explicit extension evidence; absence means older transport / unknown. */
+  submissionAttempted?: boolean;
   sent: number;
   failed: number;
   confirmed: number;
-  results: { code: string; before: number | null; after: number | null; confirmed: boolean }[];
+  results: {
+    code: string;
+    before: number | null;
+    after: number | null;
+    confirmed: boolean;
+    /** The extension may report the actual provider tab URL; callers must never derive one. */
+    observedUrl?: string;
+  }[];
   warnings: string[];
+}
+
+export interface MallPriceSendExecutionContext {
+  executionId: string;
+  payloadHash: string;
+  leaseToken: string;
+}
+
+/** A bridge error is unknown only when the extension call was reached and no response arrived. */
+export class MallPriceSendError extends Error {
+  readonly dispatchAttempted: boolean;
+
+  constructor(
+    message: string,
+    options: { dispatchAttempted?: boolean } = {},
+  ) {
+    super(message);
+    this.name = 'MallPriceSendError';
+    this.dispatchAttempted = options.dispatchAttempted ?? false;
+  }
 }
 
 interface SendResponse extends Partial<MallPriceSendResult> {
@@ -56,15 +85,16 @@ interface SendResponse extends Partial<MallPriceSendResult> {
 export async function sendMallPrice(
   mallKey: string,
   items: readonly { code: string; price: number; ifPrice?: number | null }[],
+  executionContext?: MallPriceSendExecutionContext,
 ): Promise<MallPriceSendResult> {
-  if (!canSendMallPrice(mallKey)) throw new Error('이 몰은 아직 가격을 보낼 수 없습니다.');
+  if (!canSendMallPrice(mallKey)) throw new MallPriceSendError('이 몰은 아직 가격을 보낼 수 없습니다.');
   const extensionId = await detectOrderCollectionExtensionId();
   if (!extensionId) {
-    throw new Error('확장프로그램이 필요합니다. KidItem 확장을 켜고 그 몰 관리자에 로그인한 뒤 다시 보내세요.');
+    throw new MallPriceSendError('확장프로그램이 필요합니다. KidItem 확장을 켜고 그 몰 관리자에 로그인한 뒤 다시 보내세요.');
   }
   const runtime = await detectOrderCollectionExtensionRuntime(1200, [PRICE_CAPABILITY[mallKey] ?? 'mallPriceSendV1']);
   if (runtime.status !== 'ready') {
-    throw new Error(
+    throw new MallPriceSendError(
       `설치된 KidItem 확장${runtime.status === 'incompatible' ? `(${runtime.version})` : ''}이 가격 보내기를 모릅니다. `
       + 'chrome://extensions 에서 확장을 새로고침한 뒤 이 페이지도 새로고침(F5)하고 다시 보내세요.',
     );
@@ -77,18 +107,27 @@ export async function sendMallPrice(
         action: 'sendMallPrice',
         mallKey,
         items: items.map((item) => ({ code: item.code, price: item.price, ifPrice: item.ifPrice ?? null })),
+        ...(executionContext ? { executionContext } : {}),
       },
       SEND_TIMEOUT_MS,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (/message port closed/i.test(message)) {
-      throw new Error('설치된 확장이 아직 가격 보내기를 모릅니다. chrome://extensions 에서 KidItem 확장을 새로고침하세요.');
+      throw new MallPriceSendError(
+        '설치된 확장이 아직 가격 보내기를 모릅니다. chrome://extensions 에서 KidItem 확장을 새로고침하세요.',
+        { dispatchAttempted: true },
+      );
     }
-    throw error;
+    throw new MallPriceSendError(message, { dispatchAttempted: true });
   }
-  if (response?.success !== true) throw new Error(response?.error ?? '가격을 보내지 못했습니다.');
+  if (response?.success !== true) {
+    throw new MallPriceSendError(response?.error ?? '가격을 보내지 못했습니다.', {
+      dispatchAttempted: response?.submissionAttempted !== false || (response.sent ?? 0) > 0,
+    });
+  }
   return {
+    ...(typeof response.submissionAttempted === 'boolean' ? { submissionAttempted: response.submissionAttempted } : {}),
     sent: response.sent ?? 0,
     failed: response.failed ?? 0,
     confirmed: response.confirmed ?? 0,

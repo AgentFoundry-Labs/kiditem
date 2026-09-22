@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import {
   bulkNoteFor,
   capabilityTotals,
@@ -14,6 +13,7 @@ import {
   type MallBulkSheetFacts,
   type MallManifestFacts,
 } from './mall-capabilities';
+import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 
 const channel = (overrides: Partial<MallChannelSummary> = {}): MallChannelSummary => ({
   mallKey: 'x',
@@ -74,13 +74,15 @@ describe('mallCapabilities', () => {
   };
 
   it('대량등록은 몰 엑셀 목록에 있는 몰만 됨, 신규 등록 엑셀이 없는 몰은 불가, 목록을 못 받으면 아직이다', () => {
-    const bulk = (mallKey: string, facts: MallBulkSheetFacts | null = bulkSheets, facts2 = manifest()) =>
+    const bulk = (mallKey: string, facts: MallBulkSheetFacts | null = bulkSheets, facts2: MallManifestFacts | null = manifest()) =>
       mallCapabilities(channel({ mallKey }), { hasAdapter: true, manifest: facts2, bulkSheets: facts }).bulk;
     expect(bulk('auction')).toBe('ready');
     expect(bulk('lotte-on')).toBe('unavailable');
     expect(bulk('ssg')).toBe('pending');
     expect(bulk('auction', null)).toBe('pending');
-    expect(bulk('gmarket', bulkSheets, notApplicable)).toBe('unavailable');
+    // Canonical registry identifies Gmarket as a retail listing channel even with stale manifest data.
+    expect(bulk('gmarket', bulkSheets, notApplicable)).toBe('ready');
+    expect(bulk('rocket', bulkSheets, null)).toBe('unavailable');
   });
 
   it('대량등록 사연은 받는 곳과 한 파일에 함께 들어가는 몰, 또는 엑셀이 없는 까닭이다', () => {

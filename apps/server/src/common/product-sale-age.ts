@@ -4,7 +4,12 @@ import {
   productAbcSaleAgeDays,
 } from '@kiditem/shared/product-abc';
 import type { PrismaService } from '../prisma/prisma.service';
-import { readInventorySaleAgeMappings } from '../inventory/read/inventory-availability';
+import type { ProductTransactionalReadPort } from '../products/application/port/in/product-transactional-read.port';
+
+export type ProductSaleAgeReader = Pick<
+  ProductTransactionalReadPort,
+  'readSaleAgeMappings'
+>;
 
 
 type SaleAgeDb = PrismaService | Prisma.TransactionClient;
@@ -26,6 +31,7 @@ export async function readProductSaleAgeEvidence(
   organizationId: string,
   masterProductIds: readonly string[],
   cutoffDate: string | null,
+  inventory: ProductSaleAgeReader,
 ): Promise<readonly ProductSaleAgeEvidence[]> {
   const ids = [...new Set(masterProductIds)].sort();
   const evidence = new Map<string, ProductSaleAgeEvidence>(ids.map((masterProductId) => [
@@ -37,7 +43,11 @@ export async function readProductSaleAgeEvidence(
   // Transaction clients are single-connection clients. Keep these reads
   // sequential when called from the repeatable product snapshot; overlapping
   // them makes PrismaPg queue one query behind another on the same client.
-  const listings = await readInventorySaleAgeMappings(db, organizationId, ids);
+  const listings = await inventory.readSaleAgeMappings(
+    { client: db },
+    organizationId,
+    ids,
+  );
   const saleAgeRaw = await readSaleAgeRaw(
     db,
     organizationId,
@@ -55,9 +65,7 @@ export async function readProductSaleAgeEvidence(
       && listing.options.every((option) => option.components.length > 0
         && option.components.every((component) =>
           component.quantity > 0
-          && component.isActive
-          && component.masterProductId !== null
-          && component.masterProductActive));
+          && component.masterProductId !== null));
     if (!hasCompleteRecipe) continue;
     const saleStartDate = saleStartDateFromRaw(
       rawByListingId.get(listing.listingId) ?? null,
@@ -68,9 +76,7 @@ export async function readProductSaleAgeEvidence(
         const masterProductId = component.masterProductId;
         if (
           component.quantity <= 0
-          || !component.isActive
           || !masterProductId
-          || !component.masterProductActive
         ) continue;
         const current = evidence.get(masterProductId);
         if (!current) continue;

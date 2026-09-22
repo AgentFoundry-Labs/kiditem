@@ -22,7 +22,6 @@
 | DetailPageImageArtifact | `detail_page_image_artifacts` | Durable single-JPEG marketplace rendition for one immutable detail-page revision and renderer variant. |
 | DetailPageImageRenderIntent | `detail_page_image_render_intents` | Short-lived organization-scoped claim that binds a browser renderer to one exact detail-page revision and object key. |
 | DetailPageRevision | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
-| ProductPreparation | `product_preparations` | Product pipeline preparation state. Stores operator-confirmed registration inputs and selected generated assets before marketplace listing. |
 | Thumbnail | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | `thumbnail_generations` | 상태: status=pending/running/succeeded/failed/cancelled, phase=ready/applied. method=generate/creative/auto. |
@@ -249,40 +248,6 @@ erDiagram
     String createdByUserId FK
     DateTime createdAt
   }
-  ProductPreparation {
-    String id PK
-    String organizationId FK
-    String sourceCandidateId FK
-    String channelAccountId FK
-    String sourceContentWorkspaceId FK
-    String channelListingId FK
-    String displayName
-    String status
-    String selectedThumbnailUrl
-    String selectedThumbnailGenerationId FK
-    String selectedThumbnailGenerationCandidateId FK
-    String selectedDetailPageArtifactId FK
-    String selectedDetailPageRevisionId FK
-    String selectedDetailPageGenerationId FK
-    Json registrationInput
-    String submissionKey
-    String providerSubmissionId
-    String lastError
-    Json registrationResult
-    Json submissionPayloadJson
-    String submissionPayloadHash
-    String providerOutcome
-    String submissionLeaseToken
-    DateTime submissionLeaseClaimedAt
-    String reviewPayloadHash
-    DateTime approvedAt
-    String approvedByUserId FK
-    String createdByUserId FK
-    Boolean isDeleted
-    DateTime deletedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   Thumbnail {
     String id PK
     String organizationId FK
@@ -451,7 +416,6 @@ erDiagram
   ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
   ContentGeneration o|--o| DetailPageArtifact : "sourceContentGeneration"
   ContentGeneration o|--o{ DetailPageRevision : "contentGeneration"
-  ContentGeneration o|--o{ ProductPreparation : "selectedDetailPageGeneration"
   ContentGenerationGroup o|--o{ ContentAsset : "originGenerationGroup"
   ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
   ContentWorkspace ||--o{ ContentGeneration : "contentWorkspace"
@@ -459,7 +423,6 @@ erDiagram
   ContentWorkspace o|--o{ ContentWorkspace : "originWorkspace"
   ContentWorkspace ||--o{ ContentWorkspaceThumbnailSelection : "contentWorkspace"
   ContentWorkspace ||--o{ DetailPageArtifact : "contentWorkspace"
-  ContentWorkspace ||--o{ ProductPreparation : "sourceContentWorkspace"
   ContentWorkspace ||--o{ ThumbnailAnalysis : "contentWorkspace"
   ContentWorkspace ||--o{ ThumbnailGeneration : "contentWorkspace"
   ContentWorkspaceThumbnailSelection o|--o| ContentWorkspace : "currentThumbnailSelection"
@@ -467,22 +430,18 @@ erDiagram
   DetailPageArtifact o|--o{ ContentWorkspace : "currentDetailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageImageRenderIntent : "detailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
-  DetailPageArtifact o|--o{ ProductPreparation : "selectedDetailPageArtifact"
   DetailPageImageArtifact o|--o{ DetailPageImageRenderIntent : "completedArtifact"
   DetailPageRevision o|--o{ ContentWorkspace : "currentDetailPageRevision"
   DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
   DetailPageRevision ||--o{ DetailPageImageArtifact : "revision"
   DetailPageRevision ||--o{ DetailPageImageRenderIntent : "revision"
-  DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   ThumbnailGeneration o|--o{ ContentWorkspaceThumbnailSelection : "sourceGeneration"
-  ThumbnailGeneration o|--o{ ProductPreparation : "selectedThumbnailGeneration"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
   ThumbnailGenerationCandidate o|--o{ ContentWorkspaceThumbnailSelection : "sourceCandidate"
-  ThumbnailGenerationCandidate o|--o{ ProductPreparation : "selectedThumbnailGenerationCandidate"
   ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
 ```
@@ -502,7 +461,7 @@ erDiagram
 | ContentGenerationGroup | organization | references external | Core | Organization |
 | ContentGenerationSource | organization | references external | Core | Organization |
 | ContentGenerationSource | sourceCandidate | references external | Sourcing | SourcingCandidate |
-| ContentWorkspace | channelListing | references external | Core | ChannelListing |
+| ContentWorkspace | channelListing | references external | Channels | ChannelListing |
 | ContentWorkspace | createdByUser | references external | Core | User |
 | ContentWorkspace | organization | references external | Core | Organization |
 | ContentWorkspace | sourceCandidate | references external | Sourcing | SourcingCandidate |
@@ -518,14 +477,7 @@ erDiagram
 | DetailPageImageRenderIntent | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | DetailPageRevision | createdByUser | references external | Core | User |
 | DetailPageRevision | organization | references external | Core | Organization |
-| ProductPreparation | approvedByUser | references external | Core | User |
-| ProductPreparation | channelAccount | references external | Core | ChannelAccount |
-| ProductPreparation | channelListing | references external | Core | ChannelListing |
-| ProductPreparation | createdByUser | references external | Core | User |
-| ProductPreparation | organization | references external | Core | Organization |
-| ProductPreparation | productPreparation | referenced by external | Sourcing | ProductRegistrationExecution |
-| ProductPreparation | sourceCandidate | references external | Sourcing | SourcingCandidate |
-| Thumbnail | listing | references external | Core | ChannelListing |
+| Thumbnail | listing | references external | Channels | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | organization | references external | Core | Organization |
 | ThumbnailGeneration | organization | references external | Core | Organization |
@@ -537,6 +489,6 @@ erDiagram
 | ThumbnailGenerationInputImage | candidateImage | references external | Sourcing | CandidateImage |
 | ThumbnailGenerationInputImage | organization | references external | Core | Organization |
 | ThumbnailRegistrationAttempt | organization | references external | Core | Organization |
-| ThumbnailTracking | listing | references external | Core | ChannelListing |
+| ThumbnailTracking | listing | references external | Channels | ChannelListing |
 | ThumbnailTracking | organization | references external | Core | Organization |
 | ThumbnailTrackingDailySnapshot | organization | references external | Core | Organization |

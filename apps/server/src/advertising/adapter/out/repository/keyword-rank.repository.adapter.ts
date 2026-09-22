@@ -1,3 +1,4 @@
+import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
 // Coupang keyword rank tracking persistence adapter.
 //
 // Tracker mutations use `updateMany`/`deleteMany` with `(id, organizationId)`
@@ -7,7 +8,7 @@
 // idempotent on `(organizationId, keyword, businessDate)` with
 // latest-capture-wins overwrite semantics.
 
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from "@kiditem/shared/source-import";
 import { PrismaService } from "../../../../prisma/prisma.service";
@@ -19,7 +20,11 @@ import {
   readRecentSerpSnapshots,
   readWingSalesRankSnapshots,
 } from '../../../read/keyword-rank-facts';
-import { readPublishedProductAbcGrades } from "../../../../products/read/product-abc-publication.reader";
+import { readPublishedProductAbcGrades } from "../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from "../../../../products/application/port/in/product-transactional-read.port";
 import {
   adIngestRepositoryClient,
   withAdIngestRepositoryTransaction,
@@ -50,7 +55,12 @@ const sourceProvenanceSelect = {
 
 @Injectable()
 export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly products?: ProductTransactionalReadPort,
+  ) {}
 
   listTrackers(organizationId: string): Promise<KeywordTrackerRow[]> {
     return adIngestRepositoryClient(this.prisma).coupangKeywordTracker.findMany(
@@ -157,7 +167,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     tx: Prisma.TransactionClient,
     organizationId: string,
   ): Promise<OwnVendorItem[]> {
-    const rows = await tx.channelListingOption.findMany({
+    const optionRows = await tx.channelListingOption.findMany({
       where: {
         organizationId,
         isActive: true,
@@ -177,15 +187,28 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
             channelName: true,
             displayName: true,
             category: true,
-            masterProduct: { select: { id: true } },
+            id: true,
           },
         },
       },
     });
+    const summaries = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(optionRows.map((row) => row.listing.id))] });
+    const rows = optionRows.map((row) => ({ ...row, listing: { ...row.listing, masterProductId: summaries.get(row.listing.id) ?? null } }));
+    const masterProductIds = [...new Set(rows.flatMap((row) =>
+      row.listing.masterProductId ? [row.listing.masterProductId] : []))];
+    const identities = this.products
+      ? await this.products.readSourceIdentities(
+        { client: tx },
+        { organizationId, selector: { kind: 'ids', values: masterProductIds } },
+      )
+      : [];
+    const identityById = new Map(identities.map((identity) => [
+      identity.masterProductId,
+      identity,
+    ]));
     const gradeByProductId = await readPublishedProductAbcGrades(tx, {
       organizationId,
-      masterProductIds: rows.flatMap((row) =>
-        row.listing.masterProduct ? [row.listing.masterProduct.id] : []),
+      masterProductIds,
     });
     const byVendorItemId = new Map<string, OwnVendorItem>();
     for (const row of rows) {
@@ -202,8 +225,8 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
             row.listing.displayName ??
             row.listing.externalId,
           category: row.listing.category,
-          abcGrade: row.listing.masterProduct
-            ? gradeByProductId.get(row.listing.masterProduct.id) ?? null
+          abcGrade: row.listing.masterProductId && identityById.has(row.listing.masterProductId)
+            ? gradeByProductId.get(row.listing.masterProductId) ?? null
             : null,
         });
       } else if (!previous.category && row.listing.category) {

@@ -1,9 +1,13 @@
 import { Trophy } from 'lucide-react';
+import {
+  productAbcDisplayStatus,
+  PRODUCT_ABC_DISPLAY_STATUS_LABELS,
+  type ProductAbcGrade,
+} from '@kiditem/shared/product-abc';
 import { cn, formatKRW, formatPercent, getProfitAmountColor, getProfitColor } from '@/lib/utils';
 import { DashboardBasisDisclosure, type DashboardMetricBasis } from './DashboardDataBasis';
 import { DashboardCardHeader, DashboardHeaderLink } from './DashboardCardHeader';
 import type { DashboardSalesSummary } from '@kiditem/shared/dashboard';
-import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
 
 /**
  * The panel holds this many rows whether or not there is data for them.
@@ -17,15 +21,9 @@ import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
 const ROW_SLOTS = 6;
 
 /**
- * 등급이 없는 줄은 왜 없는지 적는다(사장님 2026-09-21). 매출이 큰 상품 옆이 그냥 비어 있으면
- * 고장으로 읽힌다. 판정은 서버가 내린다 — 이 표는 말만 고른다.
+ * 등급이 없는 줄은 Products 가 발행한 ABC 근거의 표시 상태를 읽는다. 화면은 등급 부재를
+ * 새로 판정하지 않는다.
  */
-const GRADE_ABSENCE: Record<string, { label: string; hint: string }> = {
-  out_of_stock: { label: '품절', hint: '재고가 없어 등급에서 뺐습니다 — 채우면 다음 계산에 들어갑니다' },
-  not_linked: { label: '미연결', hint: '쿠팡·로켓 옵션에 셀피아 레시피가 이어지지 않아 매길 수 없습니다' },
-  pending: { label: '대기', hint: '조건은 맞습니다 — 다음 등급 계산에서 매겨집니다' },
-};
-
 /** DESIGN.md's grade colours. The shared product-hub badge is a 36px coloured
  *  pill in emerald/amber/rose — a different scale and a different palette from
  *  this table, which is why it read as borrowed. */
@@ -34,6 +32,18 @@ const GRADE_CLASS: Record<ProductAbcGrade, string> = {
   B: 'text-slate-600',
   C: 'text-orange-600',
 };
+
+function gradeLabel(product: DashboardSalesSummary['topProducts'][number]): string {
+  if (product.grade) return product.grade;
+  const status = product.abc ? productAbcDisplayStatus(product.abc) : null;
+  return status ? PRODUCT_ABC_DISPLAY_STATUS_LABELS[status] : '—';
+}
+
+function gradeTitle(product: DashboardSalesSummary['topProducts'][number]): string {
+  if (product.grade) return `${product.grade}등급`;
+  const status = product.abc ? productAbcDisplayStatus(product.abc) : null;
+  return status ? PRODUCT_ABC_DISPLAY_STATUS_LABELS[status] : '미분류';
+}
 
 /** 1 · 2 · 3 위는 옅은 금빛 칸, 나머지는 회색 칸 — 순위가 먼저 읽힌다. */
 function RankBadge({ rank }: { rank: number }) {
@@ -69,10 +79,6 @@ export function DashboardTopProducts({
 }) {
   const rows = products.slice(0, ROW_SLOTS);
   const blanks = Math.max(0, ROW_SLOTS - rows.length);
-  // 한 달을 고르면 셀피아 원가로 낸 매출총이익이고, 그 밖의 기간은 정산 순이익이다. 칸 이름이
-  // 값의 성격을 그대로 말한다(사장님 2026-09-21).
-  const gross = rows.some((product) => product.profitKind === 'gross');
-
   return (
     <section
       aria-label="Top 상품 · 매출순"
@@ -85,10 +91,8 @@ export function DashboardTopProducts({
           entries={[{ label: '상품 매출', basis }]}
           meaning={(
             <p>
-              선택한 기간의 매출 상위 {ROW_SLOTS}개입니다. 한 달을 고르면 셀피아 상품별 매출로
-              셉니다 — 모든 채널이 들어가고, 옵션은 상품 하나로 합칩니다. 셀피아는 판매·매입 금액만
-              주고 정산 순이익은 주지 않아, 이때 순이익과 이익률은 <code>—</code>로 남습니다.
-              주·일·기간을 고르면 수집된 주문으로 세며, 정산 근거가 없는 행은 역시 <code>—</code>입니다.
+              선택한 기간의 매출 상위 {ROW_SLOTS}개입니다. 매출과 손익은 서버가 발행한 같은 기간의
+              읽기 결과를 그대로 보여 주며, 손익 근거가 없는 행은 <code>—</code>로 남습니다.
             </p>
           )}
         />
@@ -102,12 +106,12 @@ export function DashboardTopProducts({
               <th className="w-32 pl-2 pr-4 text-right text-[11px] text-slate-400 2xl:pr-2">매출</th>
               <th
                 className={cn('w-28 px-2 text-right text-[11px] text-slate-400', PROFIT_COLUMN)}
-                title={gross ? '매출 − 셀피아 매입 원가. 광고비 · 몰 수수료를 빼기 전 값입니다.' : '정산까지 끝난 순이익입니다.'}
+                title="정산 근거가 갖춰진 상품별 순이익입니다."
               >
-                {gross ? '매출총이익' : '순이익'}
+                순이익
               </th>
               <th className={cn('w-20 pr-4 pl-2 text-right text-[11px] text-slate-400', RATE_COLUMN)}>
-                {gross ? '총이익률' : '이익률'}
+                이익률
               </th>
             </tr>
           </thead>
@@ -121,8 +125,8 @@ export function DashboardTopProducts({
                   </span>
                 </td>
                 <td className={cn('px-2 text-center', product.grade ? cn('text-sm font-bold', GRADE_CLASS[product.grade]) : 'text-[11px] font-semibold text-slate-400')}
-                    title={product.grade ? `${product.grade}등급` : (GRADE_ABSENCE[product.gradeAbsence ?? 'pending']?.hint ?? '미분류')}>
-                  {product.grade ?? GRADE_ABSENCE[product.gradeAbsence ?? 'pending']?.label ?? '—'}
+                    title={gradeTitle(product)}>
+                  {gradeLabel(product)}
                 </td>
                 <td className="pl-2 pr-4 text-right text-sm font-semibold tabular-nums text-slate-900 2xl:pr-2">{formatKRW(product.revenue)}<span className="ml-0.5 font-normal text-slate-400">원</span></td>
                 {/* Revenue is always measured; profit is not. A row whose profit

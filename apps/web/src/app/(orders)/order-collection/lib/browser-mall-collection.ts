@@ -21,9 +21,8 @@ import {
 import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
-} from './order-mall-account-api';
+} from '@/lib/order-mall-account-api';
 import {
-  COUPANG_DIRECT_MALL_KEY,
   ICECREAM_MALL_KEY,
   isBrowserCollectableMall,
   isNoNewOrdersMessage,
@@ -36,11 +35,6 @@ import {
 } from './order-collection-api';
 import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
 import { addSeenOrderKeys, distinctOrderNumbers, rowKeysOf } from './order-detect';
-import type {
-  CoupangDirectData,
-  CoupangDirectPo,
-  CoupangTransport,
-} from './coupang-directship-api';
 
 /**
  * 수집할 신규 주문이 없을 때의 안내.
@@ -49,7 +43,7 @@ import type {
  * 어떤 몰은 "신규"를 붙였다). 주문이 없는 건 실패가 아니므로 항상 중립 토스트 하나로
  * 통일한다. 몰별로 덧붙일 안내가 있으면 `hint` 로만 보탠다.
  */
-function toastNoNewOrders(mallLabel: string, hint?: string): void {
+export function toastNoNewOrders(mallLabel: string, hint?: string): void {
   toast(`${mallLabel} 신규 주문이 없습니다.`, hint ? { description: hint } : undefined);
 }
 
@@ -87,7 +81,6 @@ type ServerOwnedCollectionResponse = {
 
 interface BrowserMallCollectorOptions {
   mallAccounts: OrderCollectionMallAccount[];
-  rocketChannelAccountId: string | null;
   addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
   setPreviewId: (id: string) => void;
 }
@@ -213,7 +206,6 @@ async function loadMallCredentialsForLogin(
 
 export function createBrowserMallCollector({
   mallAccounts,
-  rocketChannelAccountId,
   addGeneratedFile,
   setPreviewId,
 }: BrowserMallCollectorOptions) {
@@ -794,108 +786,6 @@ export function createBrowserMallCollector({
     return orderCount;
   };
 
-  const generateCoupangDirectSellpia = async (
-    run: OrderCollectionExtensionRun,
-    selection: { eddDates: string[] } | null,
-    capturedData?: CoupangDirectData,
-  ): Promise<number> => {
-    const {
-      COUPANG_TRANSPORT_LABEL,
-      collectCoupangDirectFromExtension,
-      convertCoupangDirectToSellpiaFile,
-    } = await import('./coupang-directship-api');
-    if (!rocketChannelAccountId) {
-      throw new Error('활성 쿠팡 로켓 채널 계정을 먼저 선택해 주세요.');
-    }
-    // 쿠팡 직배송도 다른 몰과 같다 — 발주 화면에 들어가기 전에 저장된 로켓 계정으로 로그인한다.
-    // 달력이 이미 받아 둔 자료로 만드는 경우에는 들어갈 일이 없으므로 그대로 둔다.
-    if (!capturedData) await ensureMallLogin(COUPANG_DIRECT_MALL_KEY, run);
-    const collectedData = capturedData ?? await collectCoupangDirectFromExtension(run);
-    // 달력에서 고른 입고예정일이 있으면 그 발주만 넘긴다. 서버 계약(pos 전량 전달)은
-    // 그대로 두고 목록만 좁히므로 변환·워크북 매칭 로직은 건드리지 않는다.
-    // 달력은 유형을 합쳐 보여주므로 선택한 날짜의 쉽먼트·밀크런을 모두 남긴다.
-    // 파일은 운송유형별로 나뉘어 생성된다(셀피아 양식이 그렇게 나뉜다).
-    const wanted = selection ? new Set(selection.eddDates) : null;
-    const data = wanted
-      ? {
-          ...collectedData,
-          pos: collectedData.pos.filter((po) =>
-            wanted.has(String(po.edd ?? '').slice(0, 10))),
-        }
-      : collectedData;
-    const transports: CoupangTransport[] = ['SHIPMENT', 'MILKRUN'];
-    let totalOrders = 0;
-    let lastId: string | null = null;
-    // 운송유형은 서로 독립이다. 서버는 해당 유형에 발주확정 건이 없으면 예외를 던지므로,
-    // 여기서 잡지 않으면 쉽먼트가 비어 있을 때 밀크런은 시도조차 못 하고 수집이 끝난다.
-    const emptyTransports: string[] = [];
-    for (const transport of transports) {
-      const matchingPos = data.pos.filter((po) => String(po.transport ?? '').toUpperCase() === transport);
-      const label = COUPANG_TRANSPORT_LABEL[transport];
-      let conversion: Awaited<ReturnType<typeof convertCoupangDirectToSellpiaFile>>;
-      try {
-        conversion = await convertCoupangDirectToSellpiaFile(data, transport, {
-          channelAccountId: rocketChannelAccountId,
-          download: false,
-          signal: run.signal,
-          run,
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        // 서버가 "해당 유형에 발주확정 건 없음"으로 거절한 것은 실패가 아니라 빈 결과다.
-        if (/주문이?\s*없/.test(message)) {
-          emptyTransports.push(label);
-          continue;
-        }
-        throw err;
-      }
-      if (!conversion.file) {
-        emptyTransports.push(label);
-        continue;
-      }
-      if (!conversion.transmissionIntentKey) {
-        throw new Error('쿠팡 로켓 수집 식별 정보가 없어 파일을 저장하지 않았습니다.');
-      }
-      const result = conversion.file;
-      // 수집한 발주는 전부 파일에 담긴다 — 표시 건수는 발주 기준(sourceRows)으로 맞춘다.
-      const itemRows = result.outputRows ?? 0;
-      const orderNumbers = coupangDirectOrderNumbers(matchingPos);
-      const poCount = result.sourceRows || orderNumbers.length || matchingPos.length;
-      totalOrders += poCount;
-      const convertedAt = Date.now();
-      const unmatchedLabel = conversion.workbookUnmatchedRows > 0
-        ? ` · 워크북 미매칭 ${formatNumber(conversion.workbookUnmatchedRows)}품목 포함`
-        : '';
-      const historyItem = {
-        ...result,
-        id: conversion.transmissionIntentKey,
-        sourceName: `쿠팡직배송 ${label} (${formatNumber(poCount)}건 · ${formatNumber(itemRows)}품목${unmatchedLabel})`,
-        convertedAt,
-        collectionDate: collectionDateOf(run),
-        collectionMode: 'browser' as const,
-        collectedRows: poCount,
-        mallKey: 'coupang-direct',
-        mallName: `쿠팡직배송 ${label}`,
-        orderNumbers,
-        rocketWorkbookExportId: conversion.rocketWorkbookExportId,
-        transmissionIntentKey: conversion.transmissionIntentKey,
-      };
-      addGeneratedFile(historyItem);
-      lastId = historyItem.id;
-    }
-    if (data.pos.length === 0) {
-      toastNoNewOrders('쿠팡직배송', '발주확정 상태 기준');
-    } else if (emptyTransports.length > 0) {
-      // 어떤 유형이 왜 안 나왔는지 알려준다. 조용히 건너뛰면 "밀크런은 왜 안 가져오냐"가 된다.
-      toastNoNewOrders(
-        `쿠팡직배송 ${emptyTransports.join('·')}`,
-        '발주확정 상태 기준',
-      );
-    }
-    if (lastId) setPreviewId(lastId);
-    return totalOrders;
-  };
-
   const generateOnchannelSellpia = async (
     run: OrderCollectionExtensionRun,
     collectionDate: string,
@@ -943,32 +833,26 @@ export function createBrowserMallCollector({
   return async function collectBrowserMall(
     account: OrderCollectionMallAccount,
     run?: OrderCollectionExtensionRun,
-    // 쿠팡직배송은 달력에서 고른 입고예정일만 처리한다. 없으면 종전대로 전량.
-    options?: { directship?: { eddDates: string[]; data?: CoupangDirectData } },
   ): Promise<BrowserMallCollectionResult> {
     // Dashboard execution refreshes the account list immediately before a
     // batch. Keep login preflight on that same fresh account snapshot instead
     // of the list captured when this collector was first rendered.
     currentMallAccountByKey.set(account.key, account);
-    const directshipCapture = account.key === 'coupang-direct'
-      ? options?.directship?.data
-      : undefined;
-    const extensionId = run?.extensionId
-      ?? (directshipCapture ? undefined : await detectOrderCollectionSessionExtension());
-    if (!extensionId && !directshipCapture) {
+    const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
+    if (!extensionId) {
       throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
     }
     const resolvedRun: OrderCollectionExtensionRun = {
       attemptId: run!.attemptId,
       attemptToken: run!.attemptToken,
-      ...(extensionId ? { extensionId } : {}),
+      extensionId,
       date: run?.date ?? (run?.serverOwned ? null : todayYmd()),
       signal: run?.signal,
       ...(run?.serverOwned ? { serverOwned: true } : {}),
       ...(run?.selectionMode ? { selectionMode: run.selectionMode } : {}),
       ...(run?.seenRowKeys ? { seenRowKeys: [...run.seenRowKeys] } : {}),
     };
-    if (resolvedRun.serverOwned && account.key !== 'coupang-direct') {
+    if (resolvedRun.serverOwned) {
       return generateServerOwnedSellpia(account, resolvedRun);
     }
     const today = collectionDateOf(resolvedRun);
@@ -982,16 +866,6 @@ export function createBrowserMallCollector({
     if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(resolvedRun), today);
     if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
-    if (account.key === 'coupang-direct') {
-      return resultFor(
-        await generateCoupangDirectSellpia(
-          resolvedRun,
-          options?.directship ?? null,
-          options?.directship?.data,
-        ),
-        today,
-      );
-    }
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'art09') return resultFor(await generateArt09Csv(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
@@ -1042,15 +916,6 @@ function resultFor(rowCount: number, date: string): BrowserMallCollectionResult 
 function collectionDateOf(run: OrderCollectionExtensionRun): string {
   if (!run.date) throw new Error('Order collection date is required');
   return run.date;
-}
-
-function coupangDirectOrderNumbers(pos: CoupangDirectPo[]): string[] {
-  const numbers = new Set<string>();
-  for (const po of pos) {
-    const seq = String(po.seq ?? '').trim();
-    if (seq) numbers.add(seq);
-  }
-  return [...numbers];
 }
 
 function distinctOrderNumbersFromArt09(rows: Array<{ orderId?: string }>): string[] {

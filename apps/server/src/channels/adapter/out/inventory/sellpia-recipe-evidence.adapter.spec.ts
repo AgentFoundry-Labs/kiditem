@@ -5,20 +5,20 @@ describe('SellpiaRecipeEvidenceAdapter', () => {
   it('delegates exact and active matching inventory reads', async () => {
     const inventory = {
       findByIds: vi.fn().mockResolvedValue([
-        { sellpiaInventorySkuId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890', isActive: true },
-        { sellpiaInventorySkuId: 'sku-2', code: 'SP-2', name: 'Inactive', optionName: null, barcode: null, isActive: false },
+        { masterProductId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890' },
+        { masterProductId: 'sku-2', code: 'SP-2', name: 'Inactive', optionName: null, barcode: null },
       ]),
-      findByCodes: vi.fn().mockResolvedValue([{ sellpiaInventorySkuId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890' }]),
-      findByNormalizedBarcodes: vi.fn().mockResolvedValue([{ sellpiaInventorySkuId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890' }]),
+      findByCodes: vi.fn().mockResolvedValue([{ masterProductId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890' }]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([{ masterProductId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890' }]),
       findByNormalizedNames: vi.fn().mockResolvedValue([]),
       listActiveForMatching: vi.fn().mockResolvedValue([]),
     };
     const availability = {
-      findBySkuIds: vi.fn().mockImplementation((input: { sellpiaInventorySkuIds: string[] }) =>
+      findByMasterProductIds: vi.fn().mockImplementation((input: { masterProductIds: string[] }) =>
         Promise.resolve({
           snapshot: { collected: true, generation: '1', verifiedAt: new Date().toISOString() },
-          items: input.sellpiaInventorySkuIds.flatMap((id) => id === 'sku-1'
-            ? [{ sellpiaInventorySkuId: id, currentStock: 3, availableStock: 3, isActive: true, generation: '1' }]
+          items: input.masterProductIds.flatMap((id) => id === 'sku-1'
+            ? [{ masterProductId: id, currentStock: 3, generation: '1' }]
             : []),
         })),
     };
@@ -26,11 +26,18 @@ describe('SellpiaRecipeEvidenceAdapter', () => {
       inventory as never,
       availability as never,
     );
-    await expect(adapter.findByIds('org-1', ['sku-1', 'sku-2'])).resolves.toEqual([{
-      sellpiaInventorySkuId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890', currentStock: 3,
-    }]);
+    await expect(adapter.findByIds('org-1', ['sku-1', 'sku-2'])).resolves.toEqual([
+      {
+        masterProductId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null,
+        barcode: '001234567890', currentStock: 3,
+      },
+      {
+        masterProductId: 'sku-2', code: 'SP-2', name: 'Inactive', optionName: null,
+        barcode: null, currentStock: null,
+      },
+    ]);
     await expect(adapter.findByCodes('org-1', ['SP-1'])).resolves.toEqual([{
-      sellpiaInventorySkuId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890', currentStock: 3,
+      masterProductId: 'sku-1', code: 'SP-1', name: 'Name', optionName: null, barcode: '001234567890', currentStock: 3,
     }]);
     await adapter.findByNormalizedBarcodes('org-1', ['001234567890']);
     await adapter.findByNormalizedNames('org-1', ['name']);
@@ -45,22 +52,21 @@ describe('SellpiaRecipeEvidenceAdapter', () => {
   it('keeps an active identity when its published stock fact is missing', async () => {
     const adapter = new SellpiaRecipeEvidenceAdapter({
       findByIds: vi.fn().mockResolvedValue([{
-        sellpiaInventorySkuId: 'sku-1',
+        masterProductId: 'sku-1',
         code: 'SP-1',
         name: 'Name',
         optionName: null,
         barcode: null,
-        isActive: true,
       }]),
     } as never, {
-      findBySkuIds: vi.fn().mockResolvedValue({
+      findByMasterProductIds: vi.fn().mockResolvedValue({
         snapshot: { collected: false, generation: null, verifiedAt: null },
         items: [],
       }),
     } as never);
 
     await expect(adapter.findByIds('org-1', ['sku-1'])).resolves.toEqual([{
-      sellpiaInventorySkuId: 'sku-1',
+      masterProductId: 'sku-1',
       code: 'SP-1',
       name: 'Name',
       optionName: null,

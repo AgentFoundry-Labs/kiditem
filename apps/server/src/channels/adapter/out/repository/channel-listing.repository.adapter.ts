@@ -24,7 +24,6 @@ const listingSelect = {
   brand: true,
   manufacturer: true,
   sourceCandidateId: true,
-  masterProductId: true,
   status: true,
   exposureStatus: true,
   channelAccountId: true,
@@ -38,7 +37,7 @@ const listingSelect = {
     select: {
       salePrice: true,
       inventoryComponents: {
-        select: { sellpiaInventorySku: { select: { isActive: true } } },
+        select: { masterProductId: true },
       },
     },
   },
@@ -110,7 +109,7 @@ const workspaceSelect = {
       attributesJson: true,
       rawJson: true,
       inventoryComponents: {
-        select: { sellpiaInventorySku: { select: { isActive: true } } },
+        select: { masterProductId: true },
       },
     },
   },
@@ -369,7 +368,7 @@ function toSummary(
     status: row.status,
     exposureStatus: row.exposureStatus,
     optionCount: row.options.length,
-    mappingStatus: aggregateMappingStatus(row.masterProductId, row.options),
+    mappingStatus: aggregateMappingStatus(row.options),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     ...(includeProviderDetail ? { providerDetail: buildProviderDetail(row as WorkspaceListingRow) } : {}),
@@ -511,19 +510,14 @@ function firstPrice(options: Array<{ salePrice: number | null }>): number | null
 }
 
 function aggregateMappingStatus(
-  _masterProductId: string | null,
   options: Array<{
-    inventoryComponents: Array<{ sellpiaInventorySku: { isActive: boolean } }>;
+    inventoryComponents: Array<{ masterProductId: string }>;
   }>,
 ): 'matched' | 'unmatched' | 'needs_review' {
   if (options.length === 0 || options.every((option) => option.inventoryComponents.length === 0)) {
     return 'unmatched';
   }
-  if (options.some((option) =>
-    option.inventoryComponents.length === 0
-    || option.inventoryComponents.some(
-      (component) => !component.sellpiaInventorySku.isActive,
-    ))) {
+  if (options.some((option) => option.inventoryComponents.length === 0)) {
     return 'needs_review';
   }
   return 'matched';

@@ -7,7 +7,7 @@ import { AlertCircle, Loader2, Settings, Share2 } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
-import { orderMallAccountApi } from '../../(orders)/order-collection/lib/order-mall-account-api';
+import { orderMallAccountApi } from '@/lib/order-mall-account-api';
 import { MallAccountSettingsDialog } from '../../(orders)/mall-settings/components/MallAccountSettingsDialog';
 import { MALL_ACCOUNT_SETTINGS_PARAM, mallAccountKeyFor } from '../_shared/mall-account-settings-link';
 import { SabangnetListingsImport } from '../_shared/SabangnetListingsImport';

@@ -90,21 +90,21 @@ const form = (overrides = {}) => ({
 
 test('껍데기가 아니라 폼 주소를 받는다 — 도메인이 다르다', () => {
   const { SPECS } = loadModule();
-  assert.equal(SPECS.esmplus.origin, 'https://item.esmplus.com');
-  assert.equal(SPECS.esmplus.pathPrefix, '/goods/new');
+  assert.equal(SPECS.gmarket.origin, 'https://item.esmplus.com');
+  assert.equal(SPECS.gmarket.pathPrefix, '/goods/new');
 });
 
 test('다른 몰 주소는 거절한다', async () => {
   const { api } = harness();
   await assert.rejects(
-    () => api.register({ mall: 'esmplus', form: form({ url: 'https://www.esmplus.com/Home/v2/goods-register' }) }),
+    () => api.register({ mall: 'gmarket', form: form({ url: 'https://www.esmplus.com/Home/v2/goods-register' }) }),
     /상품등록 주소가 아닙니다/,
   );
 });
 
 test('⭐ 섹션 제목으로 찾는 손잡이를 넘긴다 — 이 몰은 name 도 id 도 없다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'esmplus', form: form() });
+  await api.register({ mall: 'gmarket', form: form() });
   const [payload] = calls[0].args;
   assert.equal(payload.sectionLayout.itemSelector, 'div.box__filter-item');
   assert.equal(payload.sectionLayout.headSelector, '.box__filter-head');
@@ -115,13 +115,13 @@ test('⭐ 드롭다운은 li 가 아니라 button 을 누른다 — li 클릭은
   // 라이브 실측 2026-09-11: `li.list-item` 을 눌렀을 때 선택이 안 됐고,
   // 그 안의 `button.button__option` 을 누르니 됐다.
   const { SPECS } = loadModule();
-  assert.equal(SPECS.esmplus.sectionForm.optionSelector, 'button.button__option');
-  assert.equal(SPECS.esmplus.sectionForm.openerSelector, 'button.button__opener');
+  assert.equal(SPECS.gmarket.sectionForm.optionSelector, 'button.button__option');
+  assert.equal(SPECS.gmarket.sectionForm.openerSelector, 'button.button__opener');
 });
 
 test('섹션 칸·라디오·드롭다운 값을 그대로 실어 보낸다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'esmplus', form: form() });
+  await api.register({ mall: 'gmarket', form: form() });
   const [payload] = calls[0].args;
   assert.equal(payload.sectionFields.상품명, '할로윈 LED 거미줄 1p 불빛 장식');
   assert.equal(payload.sectionFields['반품/교환 배송비(편도)'], '3000');
@@ -131,7 +131,7 @@ test('섹션 칸·라디오·드롭다운 값을 그대로 실어 보낸다', as
 
 test('분류는 검색어와 전체 경로 둘 다 넘긴다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'esmplus', form: form() });
+  await api.register({ mall: 'gmarket', form: form() });
   const [payload] = calls[0].args;
   assert.equal(payload.sectionCategory.query, '기타이벤트');
   assert.equal(payload.sectionCategory.path, '이벤트/파티용품>기타이벤트/파티용품');
@@ -140,7 +140,7 @@ test('분류는 검색어와 전체 경로 둘 다 넘긴다', async () => {
 
 test('분류 경로가 없으면 분류를 건드리지 않는다 — 엉뚱한 곳에 넣지 않는다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'esmplus', form: form({ category: null }) });
+  await api.register({ mall: 'gmarket', form: form({ category: null }) });
   const [payload] = calls[0].args;
   assert.equal(payload.sectionCategory, null);
 });
@@ -153,7 +153,7 @@ test('분류 경로가 없으면 분류를 건드리지 않는다 — 엉뚱한 
 test('⭐ 이미지를 File 로 실어 보낸다 — 칸 하나에 여러 장이라 한 번에 간다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'esmplus',
+    mall: 'gmarket',
     form: form({
       images: [
         'https://cdn.example.com/rep.jpg',
@@ -172,19 +172,19 @@ test('⭐ 이미지를 File 로 실어 보낸다 — 칸 하나에 여러 장이
 
 test('이미지가 없으면 빈 채로 둔다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'esmplus', form: form() });
+  await api.register({ mall: 'gmarket', form: form() });
   const [payload] = calls[0].args;
   assert.equal(payload.imageGroups.esmplus, undefined);
 });
 
 test('⭐ 상세설명은 에디터가 아니라 HTML 작성 탭이다 — 에디터에 쓰면 저장할 때 덮인다', () => {
   const { SPECS } = loadModule();
-  const detail = SPECS.esmplus.sectionDetail;
+  const detail = SPECS.gmarket.sectionDetail;
   assert.equal(detail.tabLabel, 'HTML 작성');
   assert.equal(detail.textareaSelector, 'textarea.box__board-textarea');
   // SmartEditor 도 iframe 도 아니다. 다른 몰의 손잡이를 끌어오지 말 것.
-  assert.equal(SPECS.esmplus.detailSmartEditor, undefined);
-  assert.equal(SPECS.esmplus.detailRich, undefined);
+  assert.equal(SPECS.gmarket.detailSmartEditor, undefined);
+  assert.equal(SPECS.gmarket.detailRich, undefined);
 });
 
 /**
@@ -196,7 +196,7 @@ test('⭐ 상세설명은 에디터가 아니라 HTML 작성 탭이다 — 에�
  */
 test('⭐⭐ 상세설명을 ESM 에 직접 올린다 — 키즈노트에 기대지 않는다', async () => {
   const { SPECS } = loadModule();
-  const spec = SPECS.esmplus;
+  const spec = SPECS.gmarket;
   assert.equal(spec.detailHost, undefined, '남의 몰 호스팅에 기대면 안 된다');
   assert.ok(spec.detailSelfUpload, '상세 이미지를 File 로 받아 와야 한다');
   assert.equal(spec.sectionDetail.uploadTabLabel, '이미지 업로드');
@@ -206,7 +206,7 @@ test('⭐⭐ 상세설명을 ESM 에 직접 올린다 — 키즈노트에 기대
 
   const { api, calls } = harness();
   await api.register({
-    mall: 'esmplus',
+    mall: 'gmarket',
     form: form({ detailUploads: [{ url: 'https://cdn.example.com/detail.jpg' }] }),
   });
   const [payload] = calls[0].args;
@@ -215,14 +215,14 @@ test('⭐⭐ 상세설명을 ESM 에 직접 올린다 — 키즈노트에 기대
 
 test('업로드가 끝났는지 안내 문구로 확인한다 — 고정 시간으로 자르지 않는다', () => {
   const { SPECS } = loadModule();
-  assert.equal(SPECS.esmplus.sectionDetail.uploadDoneText, '등록된 이미지가 있습니다');
+  assert.equal(SPECS.gmarket.sectionDetail.uploadDoneText, '등록된 이미지가 있습니다');
   const source = readFileSync(modulePath, 'utf8');
   assert.ok(source.includes('text.includes(detailSpec.uploadDoneText)'), '올라간 것을 확인해야 한다');
 });
 
 test('배송 값은 실어 보내지 않는다 — 빈 폼이 계정 템플릿으로 차 있다', async () => {
   const { api, calls } = harness();
-  await api.register({ mall: 'esmplus', form: form() });
+  await api.register({ mall: 'gmarket', form: form() });
   const [payload] = calls[0].args;
   for (const key of ['택배사', '발송정책', '출고지', '배송비 선택', '반품 교환지']) {
     assert.equal(payload.sectionFields[key], undefined, `${key} 는 건드리지 않는다`);
@@ -232,7 +232,7 @@ test('배송 값은 실어 보내지 않는다 — 빈 폼이 계정 템플릿�
 
 test('⭐ 제출하지 않는다 — 한 번에 몰 둘이라 더더욱 사람이 봐야 한다', async () => {
   const { api } = harness();
-  const result = await api.register({ mall: 'esmplus', form: form() });
+  const result = await api.register({ mall: 'gmarket', form: form() });
   assert.equal(result.submitted, false);
   assert.equal(result.ok, true);
 });
@@ -300,7 +300,7 @@ test('⭐⭐ 분류를 인증 라디오보다 먼저 한다 — 반대로 하면
 test('⭐ 분류에 따라 없을 수 있는 칸은 경고하지 않는다 — 거짓 경보가 진짜를 묻는다', async () => {
   const { api, calls } = harness();
   await api.register({
-    mall: 'esmplus',
+    mall: 'gmarket',
     form: form({ optionalSections: ['어린이제품 인증', 'G마켓 영업허가증'] }),
   });
   const [payload] = calls[0].args;
@@ -325,7 +325,7 @@ test('⭐ 분류에 따라 없을 수 있는 칸은 경고하지 않는다 — �
  */
 test('안내 팝업 규칙을 SPEC 이 들고 있다', () => {
   const { SPECS } = loadModule();
-  const rule = SPECS.esmplus.dismissDialogs;
+  const rule = SPECS.gmarket.dismissDialogs;
   // ⚠️ vm 안에서 만들어진 배열이라 realm 이 달라 deepEqual 이 실패한다. 값으로 본다.
   assert.equal(rule.closeLabels.length, 2);
   assert.ok(rule.closeLabels.includes('확인'));
@@ -357,7 +357,7 @@ test('⭐ 본문 낱말로 거르지 않는다 — 이 안내창 본문에도 `�
   // "신규로 등록되는 상품은 … 제외됩니다". 본문에 '등록' 이 있다고 걸렀다면 못 닫는다.
   // 판단은 버튼 글자로만 한다.
   const { SPECS } = loadModule();
-  assert.equal(SPECS.esmplus.dismissDialogs.forbidden, undefined);
+  assert.equal(SPECS.gmarket.dismissDialogs.forbidden, undefined);
 });
 
 test('팝업 닫기를 폼 채우기 **앞**에서 한다 — 덮인 채로 누르면 그 창이 먹는다', async () => {
@@ -368,7 +368,7 @@ test('팝업 닫기를 폼 채우기 **앞**에서 한다 — 덮인 채로 누�
   assert.ok(dismiss < category, '팝업 닫기가 분류보다 먼저여야 한다');
 
   const { api, calls } = harness();
-  await api.register({ mall: 'esmplus', form: form() });
+  await api.register({ mall: 'gmarket', form: form() });
   const [payload] = calls[0].args;
   assert.ok(payload.dismissDialogs, '규칙이 페이지 안으로 전달돼야 한다');
 });
@@ -403,14 +403,14 @@ test('⭐ 팝업을 글자에서 거꾸로 찾는다 — 전체 훑기+스타일
  */
 test('⭐⭐ 느린 SPA 는 페이지 안에서 기다린다 — 고정 시간으로는 못 맞춘다', async () => {
   const { SPECS } = loadModule();
-  assert.ok(SPECS.esmplus.formWaitMs >= 20000, '넉넉히 기다려야 한다');
+  assert.ok(SPECS.gmarket.formWaitMs >= 20000, '넉넉히 기다려야 한다');
   // 껍데기만 보고 진행하면 칸이 하나도 없어 전부 실패한다.
-  assert.equal(SPECS.esmplus.readySelector, 'div.box__filter-item');
+  assert.equal(SPECS.gmarket.readySelector, 'div.box__filter-item');
 
   const { api, calls } = harness();
-  await api.register({ mall: 'esmplus', form: form() });
+  await api.register({ mall: 'gmarket', form: form() });
   const [payload] = calls[0].args;
-  assert.equal(payload.formWaitMs, SPECS.esmplus.formWaitMs);
+  assert.equal(payload.formWaitMs, SPECS.gmarket.formWaitMs);
   assert.equal(payload.readySelector, 'div.box__filter-item');
 
   const source = readFileSync(modulePath, 'utf8');

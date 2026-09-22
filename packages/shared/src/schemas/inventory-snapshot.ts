@@ -7,7 +7,7 @@ import {
 import {
   SellpiaInventoryGenerationSchema,
   SellpiaInventoryQualityReportSchema,
-  SellpiaInventoryRefreshReasonSchema,
+  SellpiaInventoryStoredCollectionTriggerSchema,
 } from './sellpia-inventory-freshness.js';
 
 export const InventorySkuStockStatusSchema = z.enum([
@@ -56,7 +56,7 @@ export type InventorySkuLinkedChannelOption = z.infer<
 >;
 
 export const InventorySkuSnapshotItemSchema = z.object({
-  sellpiaInventorySkuId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
   code: z.string().min(1),
   name: z.string().min(1),
   optionName: z.string().nullable(),
@@ -175,7 +175,7 @@ export const SellpiaImportRunSummarySchema = z.object({
   importedAt: zIsoDate.nullable(),
   lastVerifiedAt: zIsoDate.nullable(),
   verificationCount: z.number().int().nonnegative(),
-  lastTrigger: SellpiaInventoryRefreshReasonSchema.nullable(),
+  lastTrigger: SellpiaInventoryStoredCollectionTriggerSchema.nullable(),
   freshnessGeneration: SellpiaInventoryGenerationSchema.nullable(),
   manualFreshExportConfirmedAt: zIsoDate.nullable(),
   manualFreshExportConfirmedBy: z.string().uuid().nullable(),

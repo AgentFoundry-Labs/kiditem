@@ -5,7 +5,7 @@ import AgentFace from '@/components/AgentFace';
 import { cn, formatNumber } from '@/lib/utils';
 import type { PipeAgentSummary } from '../lib/pipe-agents';
 import type { DiagramAgentId } from '../lib/pipe-diagram-layout';
-import type { PipeFeedEntry, PipeInboxItem } from '../lib/pipe-model';
+import type { PipeFeedEntry, PipeInboxItem } from '@/lib/agent-org/pipe-model';
 import { AttentionInbox, PipeFeed } from './PipeRail';
 import { PipeStateChip } from './PipeStateChip';
 

@@ -1,4 +1,5 @@
 import type { MallProductDraft } from '../../(product-pipeline)/product-pipeline/_shared/lib/mall-product-draft';
+import type { TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 
 /**
  * 몰 등록 어댑터.
@@ -83,11 +84,39 @@ export interface MallPublishItem {
   source?: 'candidate' | 'sales_product';
   /** 판매상품의 쓰는 단품 수. 둘 이상이면 옵션을 채우는 몰에만 보낸다. */
   optionCount?: number;
+  /**
+   * Target execution context attached after the server has frozen the payload and
+   * granted the provider-I/O lease. Adapters must use this snapshot instead of
+   * re-reading the mutable sales product.
+   */
+  targetExecution?: {
+    executionId: string;
+    payloadHash: string;
+    leaseToken: string;
+    snapshot: TargetExecutionSnapshot;
+  };
 }
 
 export interface MallSendInput {
   items: readonly MallPublishItem[];
   values: Readonly<Record<string, string>>;
+}
+
+/** Keep the target lease alongside the explicit #554 submit intent. */
+export function mallFormExecutionOptions(item: MallPublishItem): {
+  submit: true;
+  executionContext?: { executionId: string; payloadHash: string; leaseToken: string };
+} {
+  return {
+    submit: true,
+    ...(item.targetExecution ? {
+      executionContext: {
+        executionId: item.targetExecution.executionId,
+        payloadHash: item.targetExecution.payloadHash,
+        leaseToken: item.targetExecution.leaseToken,
+      },
+    } : {}),
+  };
 }
 
 export interface MallSendOutcome {
@@ -118,7 +147,7 @@ export interface MallPublishAdapter {
    * `always`, `teacher-mall` …).
    *
    * 화면은 이 키로 계정을 찾아 불을 켜고 로고를 고른다. 확장에 넘기는 키
-   * (`fillMallRegistrationForm('artgonggu', …)`)와는 다른 이름일 수 있다 —
+   * (`fillMallRegistrationForm('art09', …)`)와는 다른 이름일 수 있다 —
    * 그건 확장 안의 폼 스펙 이름이다. 둘을 섞으면 계정이 있는데도 카드가
    * 빨강으로 남고, 등록현황 표에서 그 몰의 열이 통째로 비어 보인다.
    */
@@ -142,12 +171,9 @@ export interface MallPublishAdapter {
   batchSize: number;
   /** 마지막 제출을 사람이 눌러야 하는가. 승인제 몰은 항상 true. */
   requiresOperatorSubmit: boolean;
-  /**
-   * 옵션 여러 개(단품 둘 이상)를 몰 폼 · 파일에 채울 수 있는가. 아니면 옵션 상품은 이 몰로 보내지 않는다 —
-   * 옵션 한 줄로 줄여 보내면 몰에서 다른 옵션을 살 길이 없다.
-   */
+  /** 옵션 여러 개(단품 둘 이상)를 몰 폼 · 파일에 채울 수 있는가. */
   supportsOptions?: boolean;
-  /** 판매상품(ADR-0014)에서 보낼 수 있는가. 쿠팡 윙 엑셀은 아직 수집상품만 받는다. */
+  /** 판매상품(ADR-0014)에서 보낼 수 있는가. */
   acceptsSalesProducts?: boolean;
   /** 이 몰이 요구하는 값. 화면이 이 선언으로 입력칸을 그린다. */
   fields: readonly MallFieldSpec[];
@@ -167,6 +193,18 @@ export function defaultAdapterValues(
   return values;
 }
 
+/** 상품의 출처 · 옵션 수로 이 몰에 못 보내는 이유. */
+export function itemSourceProblem(adapter: MallPublishAdapter, item: MallPublishItem): string | null {
+  if (item.source !== 'sales_product') return null;
+  if (adapter.acceptsSalesProducts === false) {
+    return `${adapter.mallName}는 아직 판매상품에서 보낼 수 없습니다(수집상품만).`;
+  }
+  if ((item.optionCount ?? 1) > 1 && !adapter.supportsOptions) {
+    return `옵션 ${item.optionCount}개 상품입니다. ${adapter.mallName} 옵션 채우기가 아직 없어 보내지 않습니다.`;
+  }
+  return null;
+}
+
 /**
  * 목록 단계의 판매가 판정.
  *
@@ -177,18 +215,6 @@ export function defaultAdapterValues(
  * 진짜 0원은 초안을 만든 뒤 `mallProductDraftGaps` 가 잡는다 — 그때는 해석된 값이라
  * 판정이 정확하다.
  */
-/**
- * 상품의 출처 · 옵션 수로 이 몰에 못 보내는 이유. 어댑터마다 다시 적지 않고 계획이 한 번 본다.
- */
-export function itemSourceProblem(adapter: MallPublishAdapter, item: MallPublishItem): string | null {
-  if (item.source !== 'sales_product') return null;
-  if (adapter.acceptsSalesProducts === false) return `${adapter.mallName}는 아직 판매상품에서 보낼 수 없습니다(수집상품만).`;
-  if ((item.optionCount ?? 1) > 1 && !adapter.supportsOptions) {
-    return `옵션 ${item.optionCount}개 상품입니다. ${adapter.mallName} 옵션 채우기가 아직 없어 보내지 않습니다.`;
-  }
-  return null;
-}
-
 export function listPriceProblem(salePrice: number | null): string | null {
   if (salePrice === null) return null;
   if (salePrice > 0) return null;
@@ -207,10 +233,7 @@ export function missingRequiredFields(
 
 export type { MallProductDraft };
 
-/**
- * 폼 채움 · [등록] 누르기 결과 → 송신 결과(ADR-0015). 몰이 거절하면 실패로 몰의 말을 싣고, 누르지 않았으면 그 까닭을 사람이
- * 할 일 맨 앞에 둔다. 누른 것도 등록 확인(`confirmed`)은 아니다 — 몰 재조회만 확인이다.
- */
+/** 폼 채움 · [등록] 누르기 결과 → 송신 결과. 결과는 화면 작업 목록에만 남긴다. */
 export function registrationOutcome(result: {
   ok: boolean;
   submitted: boolean;

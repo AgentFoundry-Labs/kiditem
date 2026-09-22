@@ -23,20 +23,19 @@ describe('ProductRowCard', () => {
     expect(screen.getByText(/상품코드 MASTER-1/)).toBeInTheDocument();
   });
 
-  it('hides a system-owned Sellpia code while retaining product context', () => {
+  it('shows the canonical KID code while retaining product context', () => {
     render(<ProductRowCard product={{
       ...product(),
-      code: 'INV-SELLPIA-100',
+      code: 'KID00000100',
       displayReference: {
         type: 'product_code',
         label: '상품 코드',
-        value: 'INV-SELLPIA-100',
+        value: 'KID00000100',
       },
     }} />);
 
     expect(screen.getByText('테스트 상품')).toBeInTheDocument();
-    expect(screen.getByText('KidItem')).toBeInTheDocument();
-    expect(screen.queryByText(/INV-SELLPIA-/)).not.toBeInTheDocument();
+    expect(screen.getByText(/상품 코드 KID00000100/)).toBeInTheDocument();
   });
 
   it('opens the already-loaded ABC evidence through an accessible badge button', () => {
@@ -48,96 +47,73 @@ describe('ProductRowCard', () => {
     expect(onOpenAbcDetail).toHaveBeenCalledWith(expect.objectContaining({ id: '11111111-1111-4111-8111-111111111111' }));
   });
 
-  it('그달 장사를 한 줄에 세운다 — 재고 · 매출 · 판매 · 원가 · 이익 · 이익률', () => {
-    // 방문 · 조회 · 장바구니 같은 트래픽 칸은 걷었다(사장님 2026-09-21).
+  it('renders current KST month sales and marks unavailable cost and profit as uncomputable', () => {
+    render(<ProductRowCard product={product()} />);
+
+    expect(screen.getByText('35,000원')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByTitle('매출 · KST 2026-09 · 수집 범위 2026-09-01–2026-09-22')).toHaveTextContent('35,000원');
+    expect(screen.getByTitle('판매 · KST 2026-09 · 수집 범위 2026-09-01–2026-09-22')).toHaveTextContent('5');
+    expect(screen.getAllByText('계산 불가')).toHaveLength(3);
+  });
+
+  it('marks monthly sales and revenue as unmeasured when the monthly fact is absent', () => {
+    render(<ProductRowCard product={{ ...product(), monthly: null }} />);
+
+    expect(screen.getByTitle('매출 · 월별 수집 미측정')).toHaveTextContent('—');
+    expect(screen.getByTitle('판매 · 월별 수집 미측정')).toHaveTextContent('—');
+  });
+
+  it('renders measured monthly cost, gross profit, and margin when the API provides them', () => {
     render(<ProductRowCard product={{
       ...product(),
       monthly: {
-        yearMonth: '2026-09',
-        revenue: 35_000,
-        soldQuantity: 5,
+        ...product().monthly!,
         cost: 20_000,
         grossProfit: 15_000,
         grossMarginRate: 42.9,
       },
-    } as never} />);
+    }} />);
 
-    expect(screen.getByText('35,000원')).toBeInTheDocument();
     expect(screen.getByText('20,000원')).toBeInTheDocument();
     expect(screen.getByText('15,000원')).toBeInTheDocument();
     expect(screen.getByText('42.9%')).toBeInTheDocument();
-    expect(screen.queryByText('장바구니')).not.toBeInTheDocument();
   });
 
-  it('그달 장사가 없으면 숫자를 꾸미지 않는다', () => {
-    render(<ProductRowCard product={{ ...product(), monthly: null } as never} />);
-
-    // 매출 · 판매 · 원가 · 이익 · 이익률 다섯 칸이 비어 있다.
-    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(5);
-  });
-
-  it('월 평균 몇 개 나가는지를 재고 옆 칸에 쓴다', () => {
+  it('keeps real zero monthly sales as zero', () => {
     render(<ProductRowCard product={{
       ...product(),
-      depletion: { ...product().depletion, monthlyOutflow: 42, outflowMonthCount: 2 },
-    } as never} />);
-
-    const cell = screen.getByText('42');
-    expect(cell).toBeInTheDocument();
-    expect(cell).toHaveAttribute('title', '완결 2개월 평균');
-  });
-
-  it('완결된 달에 팔린 적이 없는데 이번 달 팔리면 0 이 아니라 신상품이라고 쓴다', () => {
-    render(<ProductRowCard product={{
-      ...product(),
-      depletion: { ...product().depletion, monthlyOutflow: 0, outflowMonthCount: 2 },
       monthly: {
-        yearMonth: '2026-09',
-        revenue: 9_828_000,
-        soldQuantity: 10_800,
-        cost: 6_264_000,
-        grossProfit: 3_564_000,
-        grossMarginRate: 36.3,
-      },
-    } as never} />);
-
-    expect(screen.getByText('신상품')).toBeInTheDocument();
-  });
-
-  it('완결된 달에 정말 안 팔린 상품은 0 그대로 쓴다', () => {
-    render(<ProductRowCard product={{
-      ...product(),
-      depletion: { ...product().depletion, monthlyOutflow: 0, outflowMonthCount: 2 },
-      monthly: {
-        yearMonth: '2026-09',
+        ...product().monthly!,
         revenue: 0,
         soldQuantity: 0,
         cost: 0,
         grossProfit: 0,
         grossMarginRate: null,
       },
-    } as never} />);
+    }} />);
 
-    expect(screen.queryByText('신상품')).not.toBeInTheDocument();
-    expect(screen.getByTitle('완결 2개월 평균')).toHaveTextContent('0');
+    expect(screen.getAllByText('0원')).toHaveLength(3);
+    expect(screen.getAllByText('0')).toHaveLength(2);
+    expect(screen.getByText('계산 불가')).toBeInTheDocument();
   });
 
-  it('월 평균을 잴 근거가 없으면 0 이 아니라 비운다', () => {
+  it('shows the monthly outflow basis', () => {
+    render(<ProductRowCard product={{
+      ...product(),
+      depletion: { ...product().depletion, monthlyOutflow: 42, outflowMonthCount: 2 },
+    }} />);
+
+    expect(screen.getByText('42')).toHaveAttribute('title', '완결 2개월 평균');
+  });
+
+  it('does not infer a new-product label from current-month sales', () => {
     render(<ProductRowCard product={{
       ...product(),
       depletion: { ...product().depletion, monthlyOutflow: null, outflowMonthCount: 0 },
-    } as never} />);
-
-    expect(screen.getByTitle('완결된 달의 판매 근거가 없어 월 평균을 재지 못했습니다'))
-      .toHaveTextContent('—');
-  });
-
-  it('한 가지 사실을 두 번 쓰지 않는다 — 이익은 이익 열에만', () => {
-    render(<ProductRowCard product={product()} />);
-
-    // 아래 띠에 있던 '기간 실제 이익' 은 걷었다(사장님 2026-09-21: 겹친다).
-    expect(screen.queryByText(/기간 실제 이익/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^이익 /)).not.toBeInTheDocument();
+    }} />);
+    expect(screen.queryByText('신상품')).not.toBeInTheDocument();
+    expect(screen.getByTitle('완결된 달의 판매 근거가 없어 월 평균을 재지 못했습니다')).toHaveTextContent('—');
   });
 
   it('hides opaque category references and stock-basis labels from the product list', () => {
@@ -155,7 +131,7 @@ describe('ProductRowCard', () => {
     expect(screen.queryByText('직접 판매 기준')).not.toBeInTheDocument();
   });
 
-  it('파는 몰은 이름을 늘어놓지 않고 몇 곳인지만 말한다', () => {
+  it('shows the sales channels that currently list the product', () => {
     render(<ProductRowCard product={{
       ...product(),
       activeChannels: [
@@ -172,9 +148,9 @@ describe('ProductRowCard', () => {
       ],
     }} />);
 
+    expect(screen.getByText(/몰 2곳/)).toBeInTheDocument();
     expect(screen.queryByText('Coupang Wing')).not.toBeInTheDocument();
     expect(screen.queryByText('Coupang Rocket')).not.toBeInTheDocument();
-    expect(screen.getByText(/몰 2곳/)).toBeInTheDocument();
   });
 
   it('uses selling eligibility instead of inventory activity for the sales badge', () => {
@@ -188,7 +164,7 @@ describe('ProductRowCard', () => {
     render(<ProductRowCard product={{
       ...product(),
       inventoryUnits: null,
-      inventory: { skuCount: 1, measuredSkuCount: 0, inactiveSkuCount: 0 },
+      inventory: { skuCount: 1, measuredSkuCount: 0 },
     }} />);
 
     expect(screen.getAllByText('미수집')).not.toHaveLength(0);
@@ -276,7 +252,7 @@ function product(): MasterProductOperationsListItem {
     },
     channelOptionSummary: { total: 1, active: 1, configured: 0, warning: 1 },
     inventoryUnits: 0,
-    inventory: { skuCount: 0, measuredSkuCount: 0, inactiveSkuCount: 0 },
+    inventory: { skuCount: 0, measuredSkuCount: 0 },
     channelCount: 1,
     channelStatus: 'listed',
     activeChannels: [{
@@ -293,6 +269,16 @@ function product(): MasterProductOperationsListItem {
     salesAmount: 35_000,
     adSpend: 3_500,
     adSpendRate: 10,
+    monthly: {
+      yearMonth: '2026-09',
+      revenue: 35_000,
+      soldQuantity: 5,
+      cost: null,
+      grossProfit: null,
+      grossMarginRate: null,
+      coverageStartDate: '2026-09-01',
+      coverageEndDate: '2026-09-22',
+    },
     metricsFreshness: {
       orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic: {

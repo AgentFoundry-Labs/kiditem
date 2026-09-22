@@ -22,6 +22,7 @@ import {
 } from '../sellpia-sales-source.service';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../domain/snapshot-coverage';
 import { readSellpiaSalesDailyFacts } from '../read/sellpia-sales-daily-facts';
+import { FactInputError } from '../../../common/errors/fact-errors';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import type { CoupangAdsDailyRow } from '../../dashboard/application/port/out/repository/wing-traffic-aggregation.repository.port';
@@ -339,6 +340,20 @@ describe('Sellpia sales source owner HTTP + disposable PostgreSQL', () => {
       .get(`${base}?from=${range.from}&to=${range.to}`)
       .expect(200);
     expect(response.body).toMatchObject({ totalRevenue: 0, hasData: false });
+  });
+
+  it('rejects a range that selects no business date with a typed input error', async () => {
+    for (const range of [
+      { from: '2026-07-16', to: '2026-07-15' },
+      { from: '2026-07-32', to: '2026-08-01' },
+    ]) {
+      const read = prisma.$transaction((tx) => readSellpiaSalesDailyFacts(tx, {
+        organizationId: ORG,
+        ...range,
+      }));
+      await expect(read).rejects.toBeInstanceOf(FactInputError);
+      await expect(read).rejects.toThrow('INVALID_DATE_RANGE');
+    }
   });
 
   it('uses the exact sales and Ads date intersection and preserves negative profit', async () => {

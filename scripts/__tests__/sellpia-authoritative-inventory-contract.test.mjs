@@ -56,7 +56,7 @@ const supply = readFileSync(
 );
 
 const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
-  "apps/server/src/inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter.ts",
+  "apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.ts",
   "apps/server/src/advertising/__tests__/ad-action-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/ad-strategy-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/profitability-ad-import.repository.pg.integration.spec.ts",
@@ -77,12 +77,15 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts",
   "apps/server/src/finance/__tests__/profitability-evidence.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-commitment.pg.integration.spec.ts",
+  "apps/server/src/inventory/__tests__/inventory-sale-age.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-snapshot-detail.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-snapshot-list.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-export.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-source.pg.integration.spec.ts",
+  "apps/server/src/inventory/__tests__/sellpia-inventory-sku-history.pg.integration.spec.ts",
+  "apps/server/src/inventory/__tests__/stock-transfers-reader.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/stock-transfers-tenant-boundary.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/master-product-abc-publication.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/master-product-abc-recipe-flow.pg.integration.spec.ts",
@@ -91,6 +94,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/products/__tests__/product-channel-option-recipe-mutation.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts",
   "apps/server/src/products/__tests__/selling-master-product-inventory-fence.pg.integration.spec.ts",
+  "apps/server/src/__tests__/master-product-inventory-cutover-migration.pg.integration.spec.ts",
   "apps/server/src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/sellpia-manual-match-source-owner.pg.integration.spec.ts",
   "apps/server/src/test-helpers/finance-seeds.ts",
@@ -169,7 +173,7 @@ describe("Sellpia authoritative final-schema contract", () => {
     );
   });
 
-  it("persists organization-scoped Sellpia freshness without a native enum", () => {
+  it("persists organization-scoped Sellpia collection control without a native enum", () => {
     const state = modelBlock(inventory, "SellpiaInventoryState");
     for (const field of [
       "organizationId",
@@ -177,9 +181,6 @@ describe("Sellpia authoritative final-schema contract", () => {
       "sourceAccountKey",
       "lastVerifiedAt",
       "lastCompletedImportRunId",
-      "refreshRequestedAt",
-      "refreshReason",
-      "syncNotBefore",
       "activeSyncToken",
       "activeSyncOwnerUserId",
       "activeSyncStartedAt",
@@ -385,30 +386,35 @@ describe("Sellpia authoritative final-schema contract", () => {
 
   it("defines MasterProduct as the organization-scoped operating product", () => {
     const master = modelBlock(core, "MasterProduct");
-    assert.match(master, /^\s*code\s+String\s*$/m);
+    assert.match(master, /^\s*code\s+String\b/m);
     assert.match(master, /^\s*name\s+String\s*$/m);
-    assert.match(master, /^\s*channelListings\s+ChannelListing\[\]/m);
     assert.doesNotMatch(core, /model ProductVariant\b/);
+    for (const field of [
+      "sourceAccountKey",
+      "sourceProductCode",
+      "sourceOptionCode",
+      "optionName",
+      "barcode",
+      "currentStock",
+      "purchasePrice",
+    ]) {
+      assert.match(master, new RegExp(`^\\s*${field}\\s+`, "m"));
+    }
+    assert.match(master, /code\s+String\b[^\n]*@unique\(map: "master_products_code_key"\)/);
+    assert.match(master, /@@unique\(\[id, organizationId\]/);
     assert.match(
       master,
-      /^\s*isActive\s+Boolean\s+@default\(true\)\s+@map\("is_active"\)/m,
-    );
-    assert.match(master, /@@unique\(\[organizationId, code\]\)/);
-    assert.match(master, /@@unique\(\[id, organizationId\]/);
-    assert.doesNotMatch(
-      master,
-      /^\s*(?:legacyCode|sellpiaProductCode|sellpiaName|sellpiaBarcode|barcode|currentStock|purchasePrice|salePrice|rawJson|lastImportRunId)\s+/m,
+      /@@unique\(\[organizationId, sourceAccountKey, sourceProductCode, sourceOptionCode\]/,
     );
   });
 
-  it("publishes Sellpia stock only through SellpiaInventorySku", () => {
-    const sku = modelBlock(inventory, "SellpiaInventorySku");
+  it("publishes Sellpia stock on the canonical MasterProduct", () => {
+    const master = modelBlock(core, "MasterProduct");
     assert.match(
-      sku,
+      master,
       /^\s*currentStock\s+Int\s+@default\(0\)\s+@map\("current_stock"\)/m,
     );
-    assert.match(sku, /@@unique\(\[organizationId, code\]\)/);
-    assert.match(sku, /@@map\("sellpia_inventory_skus"\)/);
+    assert.doesNotMatch(inventory, /model SellpiaInventorySku\s*\{/);
     assert.doesNotMatch(channels, /model ChannelSkuComponent\b/);
   });
 
@@ -422,21 +428,23 @@ describe("Sellpia authoritative final-schema contract", () => {
     assert.doesNotMatch(insert, /\bdeleted_at\b/);
   });
 
-  it("reads canonical Orders facts and the official Products ABC publication for dashboard ranking", () => {
+  it("reads canonical Orders facts and the public Products ABC view for dashboard ranking", () => {
     assert.match(
       dashboardSalesRepository,
       /readOrderLineWindowFacts\(tx/,
     );
     assert.match(
       dashboardSalesRepository,
-      /readProductAbcPublication\(tx/,
+      /this\.productAbc\.readAbc\(/,
     );
+    assert.match(dashboardSalesRepository, /@Inject\(PRODUCT_ABC_READ_PORT\)/);
+    assert.doesNotMatch(dashboardSalesRepository, /products\/adapter\/out/);
     assert.doesNotMatch(dashboardSalesRepository, /\$queryRaw/);
     assert.doesNotMatch(dashboardSalesRepository, /\bFROM\s+order_line_items\b/i);
     assert.doesNotMatch(dashboardSalesRepository, /channel_sku_components/);
     assert.doesNotMatch(dashboardSalesRepository, /LEFT JOIN LATERAL/);
     assert.doesNotMatch(dashboardSalesRepository, /master_product_abc_evaluations/);
-    assert.match(dashboardSalesRepository, /grade: abcEvaluation\?\.abcGrade \?\? null/);
+    assert.match(dashboardSalesRepository, /grade: abc\?\.abcGrade \?\? null/);
     assert.doesNotMatch(dashboardSalesRepository, /mp\.abc_grade AS grade/);
     // One group per listing: a bundle line counts once however many Sellpia
     // components its option consumes. A line that settles against no listing —

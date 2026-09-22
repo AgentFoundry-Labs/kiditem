@@ -103,8 +103,6 @@ function salesRow() {
     productName: '셀피아 상품',
     optionName: null,
     providerName: null,
-    salePrice: 10_000,
-    buyPrice: 5_000,
     barcode: '880000000001',
     monthly: [],
     qty1m: 10,
@@ -115,13 +113,10 @@ function salesRow() {
     deadStock: false,
     deadStockReason: null,
     seasonTag: null,
-    anomaly: false,
-    anomalyReason: null,
     inventoryResolution: {
       status: 'matched',
-      sellpiaInventorySkuId: INVENTORY_SKU_ID,
+      masterProductId: INVENTORY_SKU_ID,
       currentStock: 30,
-      availableStock: 30,
       salesRowCount: 1,
       inventoryProduct: {
         masterProductId: MASTER_PRODUCT_ID,
@@ -134,6 +129,8 @@ function salesRow() {
     monthlyOutflow: null,
     outflowMonthCount: 0,
     monthsOfAvailableStockLeft: 2.5,
+    monthlyOutflow: 12,
+    outflowMonthCount: 2,
     reorderPoint: 15,
     needsReorder: false,
   } as const;
@@ -147,7 +144,6 @@ describe('Sellpia product-sales inventory contracts', () => {
 
     for (const reason of [
       'not_found',
-      'inactive_candidate',
       'ambiguous_barcode',
     ] as const) {
       expect(SellpiaProductInventoryResolutionSchema.parse({
@@ -202,7 +198,7 @@ describe('Sellpia product-sales inventory contracts', () => {
     })).toThrow();
   });
 
-  it('rejects inconsistent matched availability', () => {
+  it('rejects the retired duplicate stock field', () => {
     expect(() => SellpiaProductInventoryResolutionSchema.parse({
       ...salesRow().inventoryResolution,
       availableStock: 29,
@@ -240,7 +236,6 @@ describe('Sellpia product-sales inventory contracts', () => {
       },
       reorderCount: 0,
       deadStockCount: 0,
-      anomalyCount: 0,
       abcCounts: { A: 1, B: 0, C: 0 },
       abcStatusCounts: {
         READY: 1,

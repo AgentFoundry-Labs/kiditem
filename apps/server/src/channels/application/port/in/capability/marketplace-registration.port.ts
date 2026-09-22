@@ -1,3 +1,4 @@
+import type { PreparedRegistrationRecipe } from '../../../../domain/registration-item-code';
 import type { ChannelListingRegistrationResult } from "@kiditem/shared/channel-listing";
 
 export interface ResolveProductRegistrationCapabilityInput {
@@ -5,6 +6,7 @@ export interface ResolveProductRegistrationCapabilityInput {
   sourceCandidateId: string;
   channelAccountId: string;
   submissionKey: string;
+  preparedRecipe?: PreparedRegistrationRecipe;
   externalListingId: string;
   displayName: string;
   masterProductId?: string;
@@ -24,6 +26,7 @@ export interface ResolveProductRegistrationWithOwnerReceiptInput {
   sourceCandidateId: string;
   channelAccountId: string;
   submissionKey: string;
+  preparedRecipe?: PreparedRegistrationRecipe;
   externalListingId: string;
   displayName: string;
   masterProductId?: string;

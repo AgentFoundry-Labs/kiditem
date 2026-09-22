@@ -27,18 +27,16 @@ describe('Sellpia inventory export', () => {
     vi.mocked(downloadBlob).mockReset();
   });
 
-  it('uses the visible search, stock, active, and link filters for every exported page', async () => {
+  it('uses the visible search, stock, and link filters for every exported page', async () => {
     await fetchAllInventoryForExport({
       query: 'SP-1001',
       stockStatus: 'all',
-      activeStatus: 'inactive',
       linkStatus: 'unlinked',
     });
 
     expect(fetchAllSellpiaInventorySkus).toHaveBeenCalledWith({
       query: 'SP-1001',
       stockStatus: 'all',
-      activeStatus: 'inactive',
       linkStatus: 'unlinked',
     });
   });
@@ -54,12 +52,11 @@ describe('Sellpia inventory export', () => {
     await downloadSellpiaInventoryExport({
       query: 'SP-1001',
       stockStatus: 'out_of_stock',
-      activeStatus: 'active',
       linkStatus: 'unlinked',
     });
 
     expect(apiClient.fetchRaw).toHaveBeenCalledWith(
-      '/api/inventory/sellpia-skus/export?query=SP-1001&stockStatus=out_of_stock&activeStatus=active&linkStatus=unlinked',
+      '/api/inventory/sellpia-skus/export?query=SP-1001&stockStatus=out_of_stock&linkStatus=unlinked',
     );
     expect(downloadBlob).toHaveBeenCalledTimes(1);
     expect(vi.mocked(downloadBlob).mock.calls[0]?.[1]).toBe('Sellpia_현재재고.xlsx');

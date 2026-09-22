@@ -39,6 +39,7 @@ export const MallPreflightRuleSchema = z.enum([
   'charset_korean_english_only',
   'option_count_within_limit',
   'profile_selected',
+  'out_of_stock',
 ]);
 export type MallPreflightRule = z.infer<typeof MallPreflightRuleSchema>;
 
@@ -333,6 +334,7 @@ export type MallChannelOverview = z.infer<typeof MallChannelOverviewSchema>;
 /** 품절 송신 후보 한 줄. Phase 0 에서는 dry-run 표시만 하고 보내지 않는다. */
 export const MallAvailabilityCandidateSchema = z.object({
   channelListingOptionId: z.string(),
+  channelAccountId: z.string().uuid(),
   mallKey: z.string(),
   mallName: z.string(),
   channelAccountName: z.string(),

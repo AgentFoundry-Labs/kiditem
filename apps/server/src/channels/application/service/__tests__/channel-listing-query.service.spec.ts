@@ -27,11 +27,11 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     options: [
       {
         salePrice: 12_900,
-        inventoryComponents: [{ sellpiaInventorySku: { isActive: true } }],
+        inventoryComponents: [{ sellpiaInventorySkuId: 'sku-1' }],
       },
       {
         salePrice: null,
-        inventoryComponents: [{ sellpiaInventorySku: { isActive: true } }],
+        inventoryComponents: [{ sellpiaInventorySkuId: 'sku-2' }],
       },
     ],
     contentWorkspaces: [{
@@ -178,7 +178,7 @@ describe('ChannelListingRepositoryAdapter', () => {
       id: 'mixed-listing-1',
       masterProductId: null,
       options: [{
-        inventoryComponents: [{ sellpiaInventorySku: { isActive: true } }],
+        inventoryComponents: [{ sellpiaInventorySkuId: 'sku-3' }],
         salePrice: 9_900,
       }],
     })]);

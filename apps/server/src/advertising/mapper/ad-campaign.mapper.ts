@@ -4,7 +4,6 @@ import { scopedListingToSummary } from './ad-listing.mapper';
 import { businessDateKey, datesInclusive } from '../../common/kst';
 import type {
   AdCampaignSnapshot,
-  AdKeywordRelevance,
   AdKeywordSnapshot,
   AdMeasuredMetrics,
   AdProductSnapshot,
@@ -14,6 +13,7 @@ import type {
 } from '@kiditem/shared/advertising';
 import type { AdPeriod } from '../domain/ad-metrics';
 import type { ScopedAdListingReadModel } from '../application/port/out/repository/ad-listing.repository.port';
+import type { KeywordPauseProposalRow } from '../application/port/out/repository/ad-action.repository.port';
 import type {
   AdTrendWindowDay,
   CampaignCurrentState,
@@ -129,13 +129,15 @@ export function toAdProductSnapshot(
   } satisfies AdProductSnapshot;
 }
 
+/**
+ * A keyword row with the keyword's latest pause proposal, absent when that
+ * proposal was rejected. That proposal is the agent's "irrelevant" verdict and
+ * carries its reason; a keyword without one has no verdict.
+ */
 export function toAdKeywordSnapshot(
   rollup: KeywordTargetRollup,
   listing: ScopedAdListingReadModel | null,
-  relevance: {
-    verdict: AdKeywordRelevance | null;
-    reason: string | null;
-  } = { verdict: null, reason: null },
+  pauseProposal: KeywordPauseProposalRow | null = null,
 ): AdKeywordSnapshot {
   return {
     channelAccountId: rollup.channelAccountId,
@@ -164,8 +166,16 @@ export function toAdKeywordSnapshot(
     // no count, so the flag says so and CVR is unavailable.
     conversionsAvailable: rollup.conversionsObserved,
     metrics: keywordMetrics(rollup, rollup.conversionsObserved),
-    relevance: relevance.verdict,
-    relevanceReason: relevance.reason,
+    relevance: pauseProposal ? 'irrelevant' : null,
+    relevanceReason: pauseProposal?.reason ?? null,
+    pauseProposal: pauseProposal
+      ? {
+          actionId: pauseProposal.actionId,
+          approvalStatus: pauseProposal.approvalStatus,
+          executeStatus: pauseProposal.executeStatus,
+          errorMessage: pauseProposal.errorMessage,
+        }
+      : null,
   } satisfies AdKeywordSnapshot;
 }
 

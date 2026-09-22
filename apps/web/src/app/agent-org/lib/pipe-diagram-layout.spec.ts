@@ -9,7 +9,7 @@ import {
   DIAGRAM_WIDTH,
   type DiagramRect,
 } from './pipe-diagram-layout';
-import { PIPE_STAGES } from './pipe-stages';
+import { PIPE_STAGES } from '@/lib/agent-org/pipe-stages';
 
 const withTab = (node: DiagramRect): DiagramRect => ({ ...node, y: node.y - DIAGRAM_TAB_HEIGHT, h: node.h + DIAGRAM_TAB_HEIGHT });
 const overlaps = (a: DiagramRect, b: DiagramRect) =>

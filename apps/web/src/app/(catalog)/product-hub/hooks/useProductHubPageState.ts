@@ -10,7 +10,6 @@ import {
   type ProductOperationsAdStatus,
   type ProductOperationsInventoryFocus,
   type ProductOperationsPeriodDays,
-  ProductOperationsSortSchema,
   type ProductOperationsSort,
 } from '@kiditem/shared/product-operations';
 import { apiClient } from '@/lib/api-client';
@@ -42,7 +41,10 @@ const AD_STATUSES: readonly ProductOperationsAdStatus[] = [
   'unconfigured',
 ];
 const PERIOD_DAYS: readonly ProductOperationsPeriodDays[] = [7, 14, 30];
-const SORTS: readonly ProductOperationsSort[] = ProductOperationsSortSchema.options;
+// Profit and margin are exposed by the shared API contract, but the current
+// monthly response has no cost basis, so the page cannot offer meaningful
+// client navigation for those URL values yet.
+const SORTS: readonly ProductOperationsSort[] = ['latest', 'revenue', 'sold', 'stock'];
 export function useProductHubPageState() {
   const pathname = usePathname();
   const router = useRouter();
@@ -55,7 +57,6 @@ export function useProductHubPageState() {
   const adStatusParam = searchParams.get('adStatus');
   const periodDaysParam = Number(searchParams.get('periodDays'));
   const sortParam = searchParams.get('sort');
-  // 기본은 최신 등록순(사장님 2026-09-21).
   const sort: ProductOperationsSort = SORTS.includes(sortParam as ProductOperationsSort)
     ? sortParam as ProductOperationsSort
     : 'latest';
@@ -81,7 +82,6 @@ export function useProductHubPageState() {
   const periodDays = PERIOD_DAYS.includes(periodDaysParam as ProductOperationsPeriodDays)
     ? periodDaysParam as ProductOperationsPeriodDays
     : 30;
-  const category = searchParams.get('category') ?? '';
   const abcGrade = searchParams.get('abcGrade') ?? '';
   const dataStatusOpen = searchParams.get('dataStatus') === 'abc';
   const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
@@ -112,10 +112,9 @@ export function useProductHubPageState() {
     if (inventoryFocus !== 'all') params.set('inventoryFocus', inventoryFocus);
     else if (inventoryStatus !== 'all') params.set('inventoryStatus', inventoryStatus);
     if (urlSearch.trim()) params.set('query', urlSearch.trim());
-    if (category.trim()) params.set('category', category.trim());
     if (abcGrade.trim()) params.set('abcGrade', abcGrade.trim());
     return params;
-  }, [abcGrade, activeStatus, adStatus, category, inventoryFocus, inventoryStatus, page, periodDays, sort, urlSearch]);
+  }, [abcGrade, activeStatus, adStatus, inventoryFocus, inventoryStatus, page, periodDays, sort, urlSearch]);
 
   const queryKeyParams = useMemo(
     () => Object.fromEntries(queryParams.entries()),
@@ -134,15 +133,11 @@ export function useProductHubPageState() {
     () => Object.fromEntries(overviewParams.entries()),
     [overviewParams],
   );
-  // 줄 세우기는 여기 들어가지 않는다. 요약은 거른 전체를 세는 값이라 순서가 바뀌어도
-  // 그대로다 — 넣어 두면 정렬을 누를 때마다 위 카드가 통째로 사라졌다 다시 붙고, 30초마다
-  // 같은 계산을 두 번 돌린다(2026-09-21 점검).
   const canReuseListSummary = activeStatus === 'active'
     && adStatus === 'all'
     && inventoryStatus === 'all'
     && inventoryFocus === 'all'
     && !urlSearch.trim()
-    && !category.trim()
     && !abcGrade.trim();
 
   const listQuery = useQuery({
@@ -188,7 +183,6 @@ export function useProductHubPageState() {
     abcGrade,
     activeStatus,
     adStatus,
-    category,
     data: listQuery.data,
     dataStatusOpen,
     errorMessage: listQuery.error
@@ -225,9 +219,6 @@ export function useProductHubPageState() {
     },
     setAdStatus: (value: ProductOperationsAdStatus) => {
       updateListParams({ adStatus: value === 'all' ? undefined : value, page: '1' });
-    },
-    setCategory: (value: string) => {
-      updateListParams({ category: value || undefined, page: '1' });
     },
     setInventoryStatus: (value: ProductInventoryStatusFilter) => {
       updateListParams({

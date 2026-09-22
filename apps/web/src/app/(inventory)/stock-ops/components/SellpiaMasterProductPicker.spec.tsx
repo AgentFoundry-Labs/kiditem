@@ -15,7 +15,7 @@ beforeEach(() => {
   listSellpiaInventorySkus.mockReset();
   listSellpiaInventorySkus.mockResolvedValue({
     items: [{
-      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
+      masterProductId: '00000000-0000-4000-8000-000000000001',
       code: 'SP-1',
       name: '말랑이',
       optionName: '파랑',
