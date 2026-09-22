@@ -6,7 +6,7 @@ import type {
   ThumbnailAnalysisSummary,
   ThumbnailScores,
 } from '@kiditem/shared/ai';
-import { isDisplayableThumbnailUrl } from '../domain/thumbnail-workspace-source';
+import { isDisplayableThumbnailUrl } from './thumbnail-workspace-source';
 import type {
   ThumbnailAnalysisRow,
   ThumbnailAnalysisSummaryRow,

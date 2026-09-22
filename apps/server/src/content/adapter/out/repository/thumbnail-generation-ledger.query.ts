@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
 import { readProductAbcPublication } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import type { PrismaService } from '../../../../prisma/prisma.service';
-import type { GenerationWorkspaceSummary, GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
+import type { GenerationWorkspaceSummary, GenerationRow } from '../../../domain/thumbnail-generation.mapper';
 import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-generation-subject';
 import type { ThumbnailAnalysisContext } from '../../../domain/thumbnail-generation-inputs';
 

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { ThumbnailAnalysisListResponse, ThumbnailAnalysisSummary } from '@kiditem/shared/ai';
-import { buildAnalysisListResponse, buildAnalysisSummary } from '../../mapper/thumbnail-analysis.mapper';
+import { buildAnalysisListResponse, buildAnalysisSummary } from '../../domain/thumbnail-analysis.mapper';
 import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   type ThumbnailAnalysisRepositoryPort,

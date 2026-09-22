@@ -21,7 +21,7 @@ import {
   toVerificationResult,
   type WingRegistrationResult,
   type WingVerificationResult,
-} from '../../mapper/thumbnail-wing.mapper';
+} from '../../domain/thumbnail-wing.mapper';
 
 @Injectable()
 export class ThumbnailWingService {

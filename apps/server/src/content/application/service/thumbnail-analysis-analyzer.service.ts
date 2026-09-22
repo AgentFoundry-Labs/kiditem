@@ -16,7 +16,7 @@ import type {
 import type { AnalysisScope } from './thumbnail-analysis-requests';
 import { ThumbnailVisionAiService, type ThumbnailAiItem } from './thumbnail-vision-ai.service';
 import { ThumbnailRecomposeService } from './thumbnail-recompose.service';
-import { toAnalysisResult } from '../../mapper/thumbnail-analysis.mapper';
+import { toAnalysisResult } from '../../domain/thumbnail-analysis.mapper';
 import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   type ThumbnailAnalysisComplianceFacet,

@@ -126,7 +126,7 @@ describe('ai architecture ratchet', () => {
     const hits = rg(
       `--type ts --files-with-matches '@google/genai|GoogleGenAI|Modality' ${aiRel(
         'application',
-      )} ${aiRel('domain')} ${aiRel('mapper')} --glob '!**/__tests__/**'`,
+      )} ${aiRel('domain')} --glob '!**/__tests__/**'`,
     );
 
     expect(

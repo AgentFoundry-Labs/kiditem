@@ -10,7 +10,7 @@ import {
   type ThumbnailAnalysisQualityFacet,
   type ThumbnailAnalysisRepositoryPort,
 } from '../port/out/repository/thumbnail-analysis.repository.port';
-import { toAnalysisResult } from '../../mapper/thumbnail-analysis.mapper';
+import { toAnalysisResult } from '../../domain/thumbnail-analysis.mapper';
 import { ThumbnailAnalysisAnalyzerService } from './thumbnail-analysis-analyzer.service';
 
 /**

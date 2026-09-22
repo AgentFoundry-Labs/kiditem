@@ -16,7 +16,7 @@ vi.mock('../../../domain/thumbnail-workspace-source', () => ({
   resolveWorkspaceThumbnailSource: mocks.resolveWorkspaceThumbnailSource,
 }));
 
-vi.mock('../../../mapper/thumbnail-generation.mapper', () => ({
+vi.mock('../../../domain/thumbnail-generation.mapper', () => ({
   toThumbnailGenerationItem: mocks.toThumbnailGenerationItem,
 }));
 

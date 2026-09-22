@@ -5,7 +5,7 @@ import { generationInclude } from './thumbnail-generation-ledger.query';
 import type { EditAnalysisResult } from '@kiditem/shared/ai';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../../domain/model/thumbnail-editor';
-import type { GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
+import type { GenerationRow } from '../../../domain/thumbnail-generation.mapper';
 
 /**
  * Tenant-scoped writers for `ThumbnailGeneration` and its candidate / input-

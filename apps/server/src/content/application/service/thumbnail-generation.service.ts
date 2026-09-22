@@ -8,7 +8,7 @@ import {
   toAnalysisContextJson,
   toEditAnalysis,
 } from '../../domain/thumbnail-generation-inputs';
-import { toThumbnailGenerationItem, type GenerationRow } from '../../mapper/thumbnail-generation.mapper';
+import { toThumbnailGenerationItem, type GenerationRow } from '../../domain/thumbnail-generation.mapper';
 import {
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   type SaveEditorResultInput,
