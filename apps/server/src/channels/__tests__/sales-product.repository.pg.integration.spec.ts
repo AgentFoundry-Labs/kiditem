@@ -530,10 +530,11 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       .toBeNull();
   });
 
-  it('does not bring a product back to the unregistered list when its mall listing was turned off, and keeps archived ones out', async () => {
+  it('비활성 몰 상품만 남은 판매상품은 미등록 목록으로 돌아오지 않는다 — 비활성화는 등록된 상태에서 내린 것이다', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    // 몰에서 내린 상품이 미등록 목록으로 돌아올지는 아직 정해지지 않았다(전체 몰 삭제 후 복귀).
-    // 정해지기 전에는 '한 번이라도 몰에 올라간 적 있음' 이 기준이다 — 탭 이름 그대로 '아직 몰에 없음'.
+    // 사장님 2026-09-23: "몰 상품이 비활성화된 것은 등록은 되어있는 상태에서 비활성화된 거니까
+    // 미등록 목록으로 되돌아오도록 하면 안 된다." 그래서 기준은 '한 번이라도 몰에 올라간 적 있음'
+    // 이고, 탭 이름 '아직 몰에 없음' 이 그대로 사실이 된다.
     const removed = await createProduct(prisma, TEST_ORGANIZATION_ID);
     await prisma.channelListing.create({
       data: {
