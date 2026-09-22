@@ -1410,6 +1410,7 @@ async function createFixture(
       colorVariantNames: [],
       boxSetQuantity: null,
       registrationDefaults: null,
+      kcStatus: 'unknown' as const,
       sourceCandidateId: null,
       name: '공통 상품',
       shortName: null,

@@ -139,7 +139,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
           id: true,
           updatedAt: true,
           // KC 는 판매상품의 인증 문서에서만 읽는다(KID-310) — 후보 3단 조인을 걷어냈다.
-          salesProduct: { select: { certifications: true } },
+          salesProduct: { select: { certifications: true, kcStatus: true } },
           options: {
             where: { organizationId },
             select: {
@@ -184,6 +184,11 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         .filter((price): price is number => typeof price === 'number' && price > 0);
       const certificationNumbers = [...new Set(productListings
         .flatMap((listing) => certificationNumbersOf(listing.salesProduct?.certifications)))];
+      // 여러 몰 상품이 한 판매상품을 가리키므로 'KC 해당 없음'은 그렇게 말한 상품이 하나라도
+      // 있으면 성립한다. 인증 번호를 모으는 방식과 같다.
+      const kcStatus = productListings.some((listing) => listing.salesProduct?.kcStatus === 'none')
+        ? 'none' as const
+        : certificationNumbers.length > 0 ? 'exists' as const : 'unknown' as const;
       return {
         masterProductId: record.masterProductId,
         code: record.code,
@@ -193,6 +198,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         salePrice: prices.length > 0 ? Math.min(...prices) : null,
         optionNames,
         certificationNumbers,
+        kcStatus,
         // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
         stock: stockByMaster.get(record.masterProductId) ?? null,
       };

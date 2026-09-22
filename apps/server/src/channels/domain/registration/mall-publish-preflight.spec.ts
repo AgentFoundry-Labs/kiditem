@@ -16,6 +16,7 @@ function product(overrides: Partial<PreflightProduct> = {}): PreflightProduct {
     optionNames: ['기본'],
     hasMallCategory: true,
     certificationNumbers: ['CB061R1234-1001'],
+    kcStatus: 'unknown',
     stock: 12,
     ...overrides,
   };
@@ -37,18 +38,22 @@ describe('evaluateMallPreflight', () => {
   });
 
   /**
-   * KC 는 판매상품의 인증 문서에서만 읽는다(KID-310). 후보 3단 조인을 걷어내면서 게이트가 아는
-   * KC 출처는 `SalesProduct.certifications` 하나가 됐다. '해당 없음'을 명시하는 자리는 아직 없다 —
-   * 고시 · KC 정본을 어디에 둘지는 KID-168 이 정한다.
+   * KC 는 판매상품에서만 읽는다(KID-310). 인증 문서에 번호가 있거나, KC 가 붙지 않는 상품이라고
+   * 사람이 `kcStatus='none'` 으로 말해 둔 경우에만 통과한다. 아직 확인하지 않은 `unknown` 은
+   * 막는다 — 모르는 것을 보내고 몰이 거절하면 그 사유가 실패 큐에서만 보인다.
    */
   it('⭐ blocks a product with no certification document on its selling product', () => {
     const result = evaluate({ certificationNumbers: [] });
     expect(result.ok).toBe(false);
     const violation = result.violations.find((entry) => entry.rule === 'kc_certification');
     expect(violation?.message).toContain('인증');
-    // 게이트가 아는 KC 출처는 인증 문서 하나다. 다른 칸을 채워도 이 규칙은 풀리지 않는다.
+    // 다른 칸을 채워도 이 규칙은 풀리지 않는다.
     expect(evaluate({ certificationNumbers: [], imageCount: 9, hasMallCategory: true, salePrice: 30_000 }).ok).toBe(false);
-    expect(isKcReady([])).toBe(false);
+    expect(isKcReady({ kcStatus: 'unknown', certificationNumbers: [] })).toBe(false);
+  });
+
+  it("⭐ KC 가 붙지 않는 상품이라고 말해 두면 인증 문서 없이도 보낸다", () => {
+    expect(evaluate({ certificationNumbers: [], kcStatus: 'none' })).toMatchObject({ ok: true });
   });
 
   it('blocks a certification document with a blank number', () => {
@@ -183,9 +188,16 @@ describe('evaluateMallPreflight', () => {
 
 describe('isKcReady', () => {
   it('accepts a certification document that carries a number', () => {
-    expect(isKcReady(['CB061R1234-1001'])).toBe(true);
-    expect(isKcReady(['', 'CB061R1234-1001'])).toBe(true);
-    expect(isKcReady([''])).toBe(false);
-    expect(isKcReady([])).toBe(false);
+    expect(isKcReady({ kcStatus: 'unknown', certificationNumbers: ['CB061R1234-1001'] })).toBe(true);
+    expect(isKcReady({ kcStatus: 'unknown', certificationNumbers: ['', 'CB061R1234-1001'] })).toBe(true);
+    expect(isKcReady({ kcStatus: 'unknown', certificationNumbers: [''] })).toBe(false);
+    expect(isKcReady({ kcStatus: 'unknown', certificationNumbers: [] })).toBe(false);
+  });
+
+  it("'해당 없음' 은 번호가 없어도 통과하고, 'exists' 는 번호를 요구한다", () => {
+    expect(isKcReady({ kcStatus: 'none', certificationNumbers: [] })).toBe(true);
+    // 있다고 말해 두고 번호를 안 적은 것은 아직 확인하지 않은 것과 같다.
+    expect(isKcReady({ kcStatus: 'exists', certificationNumbers: [] })).toBe(false);
+    expect(isKcReady({ kcStatus: 'exists', certificationNumbers: ['CB061R1234-1001'] })).toBe(true);
   });
 });

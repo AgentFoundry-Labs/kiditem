@@ -20,6 +20,18 @@ export const SALES_PRODUCT_TAX_TYPES = ['taxable', 'tax_free', 'zero_rated', 'un
 export const SalesProductTaxTypeSchema = z.enum(SALES_PRODUCT_TAX_TYPES);
 export type SalesProductTaxType = z.infer<typeof SalesProductTaxTypeSchema>;
 
+/**
+ * KC 인증이 이 상품에 어떻게 걸리는가.
+ *
+ * `unknown` 은 아직 아무도 확인하지 않았다는 뜻이고, `none` 은 KC 대상이 아니라고 사람이 말해
+ * 둔 것이다. `exists` 는 있다고 말했을 뿐이라 인증 문서의 번호가 따로 있어야 송신을 통과한다.
+ * 인증 문서(`certifications`)가 KC 사실의 정본이고 이 칸은 '없음'을 말하는 자리다 —
+ * 고시 · KC 를 어느 모델에 둘지는 KID-168 이 정하며, 이 칸은 그 결정을 대신하지 않는다.
+ */
+export const SALES_PRODUCT_KC_STATUSES = ['unknown', 'none', 'exists'] as const;
+export const SalesProductKcStatusSchema = z.enum(SALES_PRODUCT_KC_STATUSES);
+export type SalesProductKcStatus = z.infer<typeof SalesProductKcStatusSchema>;
+
 export const SALES_PRODUCT_DELIVERY_FEE_TYPES = ['free', 'collect', 'prepay', 'collect_or_prepay'] as const;
 export const SalesProductDeliveryFeeTypeSchema = z.enum(SALES_PRODUCT_DELIVERY_FEE_TYPES);
 export type SalesProductDeliveryFeeType = z.infer<typeof SalesProductDeliveryFeeTypeSchema>;
@@ -182,6 +194,8 @@ export const SalesProductBasicsInputSchema = z.object({
   noticeCategory: optionalText(10),
   noticeValues: z.array(z.string().max(1000)).max(40).default([]),
   certifications: z.array(SalesProductCertificationSchema).max(10).default([]),
+  /** KC 가 이 상품에 어떻게 걸리는가. '해당 없음'은 여기서만 말할 수 있다. */
+  kcStatus: SalesProductKcStatusSchema.default('unknown'),
   importDeclarationNo: optionalText(60),
   adminMemo: optionalText(2000),
 }).strict();
@@ -315,6 +329,7 @@ export const SalesProductSchema = z.object({
   noticeCategory: z.string().nullable(),
   noticeValues: z.array(z.string()),
   certifications: z.array(SalesProductCertificationSchema),
+  kcStatus: SalesProductKcStatusSchema,
   importDeclarationNo: z.string().nullable(),
   adminMemo: z.string().nullable(),
   version: z.number().int(),

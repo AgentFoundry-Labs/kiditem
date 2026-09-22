@@ -195,6 +195,7 @@ export class MallPublishingService implements MallPublishingPort {
             // 몰 카테고리를 직접 지정한 경우만 매핑된 것으로 센다.
             hasMallCategory: Boolean(account?.listingProfile?.categoryCode),
             certificationNumbers: row.certificationNumbers,
+            kcStatus: row.kcStatus,
             stock: row.stock,
           },
           account: toPreflightAccount(account),
@@ -207,7 +208,7 @@ export class MallPublishingService implements MallPublishingPort {
         salePrice: row.salePrice,
         imageCount: row.imageCount,
         optionNames: row.optionNames,
-        hasCertification: isKcReady(row.certificationNumbers),
+        hasCertification: isKcReady(row),
         results,
         eligibleMallCount: results.filter((result) => result.ok).length,
       } satisfies MallPreflightProduct;

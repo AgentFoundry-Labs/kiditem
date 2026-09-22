@@ -314,6 +314,7 @@ function basicsRecord(input: {
   noticeCategory?: string | null;
   noticeValues: string[];
   certifications: SalesProductBasicsRecord['certifications'];
+  kcStatus?: SalesProductBasicsRecord['kcStatus'];
   importDeclarationNo?: string | null;
   adminMemo?: string | null;
 }): SalesProductBasicsRecord {
@@ -349,6 +350,7 @@ function basicsRecord(input: {
     noticeCategory: input.noticeCategory ?? null,
     noticeValues: input.noticeValues,
     certifications: input.certifications,
+    kcStatus: input.kcStatus ?? 'unknown',
     importDeclarationNo: input.importDeclarationNo ?? null,
     adminMemo: input.adminMemo ?? null,
   };

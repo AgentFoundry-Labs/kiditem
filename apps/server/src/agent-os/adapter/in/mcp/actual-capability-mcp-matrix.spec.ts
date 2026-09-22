@@ -119,6 +119,7 @@ const targetExecutionResult = {
       noticeCategory: null,
       noticeValues: [],
       certifications: [],
+      kcStatus: 'unknown' as const,
       importDeclarationNo: null,
       adminMemo: null,
       version: 1,

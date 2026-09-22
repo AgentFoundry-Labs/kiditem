@@ -1562,6 +1562,7 @@ erDiagram
     String noticeCategory
     StringArray noticeValues
     Json certifications
+    String kcStatus
     String importDeclarationNo
     String adminMemo
     Json sourceRaw

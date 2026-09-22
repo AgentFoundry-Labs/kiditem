@@ -8,6 +8,7 @@ import {
   type SalesProduct,
   type SalesProductCertification,
   type SalesProductDeliveryFeeType,
+  type SalesProductKcStatus,
   type SalesProductListQuery,
   type SalesProductListResponse,
   type SalesProductOptionSupplyStatus,
@@ -1357,6 +1358,7 @@ function basicsData(record: Partial<SalesProductBasicsRecord>): Prisma.SalesProd
     'deliveryFee', 'stockManaged', 'imageUrls', 'detailHtml',
     'extraDetailHtml', 'noticeCategory', 'noticeValues', 'importDeclarationNo', 'adminMemo',
     'description', 'targetAudience', 'ageGroup', 'productSize', 'colorVariantNames', 'boxSetQuantity',
+    'kcStatus',
   ] as const).forEach(assign);
   if (record.registrationDefaults !== undefined) {
     data.registrationDefaults = record.registrationDefaults === null
@@ -1706,6 +1708,7 @@ function toSalesProduct(
     noticeCategory: row.noticeCategory,
     noticeValues: row.noticeValues,
     certifications: parseCertifications(row.certifications),
+    kcStatus: row.kcStatus as SalesProductKcStatus,
     importDeclarationNo: row.importDeclarationNo,
     adminMemo: row.adminMemo,
     version: row.version,

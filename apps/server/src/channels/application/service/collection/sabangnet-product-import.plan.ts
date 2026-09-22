@@ -177,6 +177,8 @@ export function buildSabangnetImportPlan(input: {
         noticeCategory: clamp(row.noticeCategory, 10),
         noticeValues: row.noticeValues.slice(0, 40),
         certifications: row.certification ? [row.certification satisfies SalesProductCertification] : [],
+        // 사방넷 엑셀은 'KC 해당 없음'을 말하지 않는다. 인증 문서가 오면 있다고 보고, 없으면 사람이 채운다.
+        kcStatus: row.certification ? 'exists' as const : 'unknown' as const,
         importDeclarationNo: clamp(row.importDeclarationNo, 60),
         adminMemo: row.adminMemo,
         optionAxes,

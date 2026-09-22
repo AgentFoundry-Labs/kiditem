@@ -588,6 +588,48 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       expect(rows[0]?.certificationNumbers).toEqual(['CB999']);
     });
 
+    it("⭐ 'KC 해당 없음'은 인증 문서 없이 그대로 읽힌다", async () => {
+      const product = await createProduct('KID-4');
+      const draft = await prisma.salesProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          name: 'KC 대상 아님',
+          kcStatus: 'none',
+        },
+      });
+      await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: COUPANG_ACCOUNT,
+          externalId: 'EXT-4',
+          salesProductId: draft.id,
+        },
+      });
+      const listing = await prisma.channelListing.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'EXT-4' },
+        select: { id: true },
+      });
+      const option = await prisma.channelListingOption.create({
+        data: {
+          listingId: listing.id,
+          organizationId: TEST_ORGANIZATION_ID,
+          externalOptionId: 'O-4',
+          itemName: '기본',
+        },
+      });
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: option.id,
+          masterProductId: product.id,
+          quantity: 1,
+        },
+      });
+
+      const { rows } = await repository.listPreflightProducts(TEST_ORGANIZATION_ID, { limit: 10, offset: 0 });
+      expect(rows[0]).toMatchObject({ certificationNumbers: [], kcStatus: 'none' });
+    });
+
     /**
      * 송신 전 점검의 후보도 표와 같은 기준으로 세운다. 품절이라 보내지 않는다는 판정은
      * 목록에서 지우는 것이 아니라 `evaluateMallPreflight` 가 이유와 함께 말할 일이다.
@@ -647,6 +689,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
           optionNames: row.optionNames,
           hasMallCategory: true,
           certificationNumbers: ['CB061R1234-1001'],
+          kcStatus: row.kcStatus,
           stock: row.stock,
         },
         account: { listingProfileFields: ['shipping', 'releaseAddress', 'returnAddress'] },

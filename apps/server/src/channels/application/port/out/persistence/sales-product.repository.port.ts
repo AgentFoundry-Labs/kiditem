@@ -3,6 +3,7 @@ import type {
   SalesProductCertification,
   SalesProductDeliveryFeeType,
   SalesProductListQuery,
+  SalesProductKcStatus,
   SalesProductListResponse,
   SalesProductStatus,
   SalesProductTaxType,
@@ -52,6 +53,8 @@ export interface SalesProductBasicsRecord {
   noticeCategory: string | null;
   noticeValues: string[];
   certifications: SalesProductCertification[];
+  /** KC 가 이 상품에 걸리는 방식. '해당 없음'을 말하는 자리다. */
+  kcStatus: SalesProductKcStatus;
   importDeclarationNo: string | null;
   adminMemo: string | null;
 }

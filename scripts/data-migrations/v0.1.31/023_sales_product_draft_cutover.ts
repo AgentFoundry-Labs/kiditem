@@ -118,6 +118,7 @@ type ProjectedDraft = {
   boxSetQuantity: number | null;
   noticeValues: string[];
   certifications: Json[] | null;
+  kcStatus: 'unknown' | 'none' | 'exists';
   registrationDefaults: Json | null;
   salePrice: number | null;
   optionNames: string[];
@@ -178,10 +179,23 @@ function projectDraft(candidate: CandidateRow, manual: Json, registrationInput: 
     boxSetQuantity: number('boxSetQuantity', 'boxQuantity'),
     noticeValues: list('noticeValues'),
     certifications: certificationsOf(registrationInput, manual),
+    kcStatus: kcStatusOf(registrationInput, manual),
     registrationDefaults: asRecordOrNull(registrationInput.mallRegisterShared ?? manual.mallRegisterShared),
     salePrice: number('salePrice'),
     optionNames: list('optionNames', 'options'),
   };
+}
+
+/**
+ * KC 가 걸리는 방식. 사람이 수기로 'none'(해당 없음) 이라고 말해 둔 것만 옮긴다 — 나머지는
+ * 인증 문서가 말하므로 `unknown` 으로 두고 게이트가 문서를 본다.
+ */
+function kcStatusOf(registrationInput: Json, manual: Json): 'unknown' | 'none' | 'exists' {
+  for (const source of [registrationInput, manual]) {
+    const value = source.kcCertificationStatus;
+    if (value === 'none' || value === 'exists') return value;
+  }
+  return 'unknown';
 }
 
 function certificationsOf(registrationInput: Json, manual: Json): Json[] | null {
@@ -236,6 +250,7 @@ async function expandDraftColumns(tx: Prisma.TransactionClient): Promise<void> {
     ['keywords', `text[] NOT NULL DEFAULT '{}'`],
     ['notice_values', `text[] NOT NULL DEFAULT '{}'`],
     ['certifications', 'jsonb'],
+    ['kc_status', `text NOT NULL DEFAULT 'unknown'`],
     ['brand', 'text'], ['manufacturer', 'text'], ['model_name', 'text'], ['model_no', 'text'],
     ['origin_country', 'text'], ['standard_category', 'text'], ['notice_category', 'text'],
     ['import_declaration_no', 'text'], ['admin_memo', 'text'],
@@ -375,7 +390,7 @@ async function createDraft(
     INSERT INTO sales_products (
       id, organization_id, code, name, description, target_audience, age_group, product_size,
       color_variant_names, box_set_quantity, registration_defaults, keywords, notice_values,
-      certifications, brand, manufacturer, model_name, model_no, origin_country, standard_category,
+      certifications, kc_status, brand, manufacturer, model_name, model_no, origin_country, standard_category,
       notice_category, import_declaration_no, admin_memo, status, tax_type, option_axes, image_urls,
       source_candidate_id, source_platform, source_url, version, created_at, updated_at
     ) VALUES (
@@ -386,6 +401,7 @@ async function createDraft(
       ${draft.registrationDefaults === null ? Prisma.sql`NULL` : Prisma.sql`${JSON.stringify(draft.registrationDefaults)}::jsonb`},
       ${draft.keywords}::text[], ${draft.noticeValues}::text[],
       ${draft.certifications === null ? Prisma.sql`NULL` : Prisma.sql`${JSON.stringify(draft.certifications)}::jsonb`},
+      ${draft.kcStatus},
       ${draft.columns.brand}, ${draft.columns.manufacturer}, ${draft.columns.model_name}, ${draft.columns.model_no},
       ${draft.columns.origin_country}, ${draft.columns.standard_category},
       ${draft.columns.notice_category}, ${draft.columns.import_declaration_no}, ${draft.columns.admin_memo},
@@ -431,6 +447,13 @@ async function fillEmptyColumns(
       UPDATE sales_products SET keywords = ${draft.keywords}::text[]
       WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
         AND cardinality(keywords) = 0
+    `;
+  }
+  if (draft.kcStatus !== 'unknown') {
+    written += await tx.$executeRaw`
+      UPDATE sales_products SET kc_status = ${draft.kcStatus}
+      WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
+        AND kc_status = 'unknown'
     `;
   }
   if (draft.registrationDefaults !== null) {

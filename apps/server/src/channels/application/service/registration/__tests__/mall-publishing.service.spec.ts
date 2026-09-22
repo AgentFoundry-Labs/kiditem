@@ -47,6 +47,7 @@ function productRow(overrides: Partial<PreflightProductRow> = {}): PreflightProd
     salePrice: 24900,
     optionNames: ['기본'],
     certificationNumbers: ['CB061R1234-1001'],
+    kcStatus: 'unknown',
     stock: 12,
     ...overrides,
   };

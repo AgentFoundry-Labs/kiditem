@@ -1,3 +1,4 @@
+import type { SalesProductKcStatus } from '@kiditem/shared/sales-product';
 import type {
   MallAdapterManifest,
   MallPreflightRule,
@@ -14,7 +15,8 @@ import type {
  * 순수 함수다. DB·시계·네트워크를 만지지 않는다.
  *
  * 상품정보고시 누락과 KC 유효기간 만료는 여기서 판정하지 않는다. 판정할 값을 저장하는 곳이
- * 아직 없다 — 고시·KC 를 상품 사실로 어디에 둘지는 KID-168 이 정한다.
+ * 아직 없다 — 고시·KC 정본을 어느 모델에 둘지는 KID-168 이 정한다. `kcStatus` 는 '해당 없음'을
+ * 말하는 칸일 뿐 그 결정을 대신하지 않는다.
  */
 
 export interface PreflightProduct {
@@ -27,6 +29,8 @@ export interface PreflightProduct {
   hasMallCategory: boolean;
   /** 판매상품이 들고 있는 인증 문서의 번호들. 비어 있으면 KC 를 아무도 확인하지 않았다는 뜻이다. */
   certificationNumbers: readonly string[];
+  /** KC 가 이 상품에 걸리는 방식. '해당 없음'을 말할 수 있는 유일한 자리다. */
+  kcStatus: SalesProductKcStatus;
   /**
    * 발행된 셀피아 스냅샷의 재고. 재고 연결이 없거나 스냅샷에 없으면 null 이다.
    *
@@ -66,18 +70,22 @@ const PROFILE_FIELD_LABEL: Record<MallProfileField, string> = {
 /**
  * KC 가 송신할 수 있는 상태인가.
  *
- * 판매상품의 인증 문서에 번호가 하나라도 있어야 통과다(KID-310). 수집상품 3단 조인을 걷어내면서
- * 게이트가 아는 KC 출처는 `SalesProduct.certifications` 하나가 됐다. '해당 없음'을 명시하는 자리는
- * 아직 없다 — 고시 · KC 를 상품 사실로 어디에 둘지는 KID-168 이 정한다.
+ * 인증 문서에 번호가 하나라도 있거나, KC 대상이 아니라고 사람이 `kcStatus='none'` 으로 말해 둔
+ * 상품이면 통과다. `unknown` 은 아직 아무도 확인하지 않았다는 뜻이라 막고, `exists` 는 있다고만
+ * 말한 것이라 번호를 요구한다 — 번호 없이 보내면 몰이 거절한 뒤 실패 큐에서야 사유가 보인다.
  */
-export function isKcReady(certificationNumbers: readonly string[]): boolean {
-  return certificationNumbers.some((number) => number.trim().length > 0);
+export function isKcReady(product: {
+  kcStatus: SalesProductKcStatus;
+  certificationNumbers: readonly string[];
+}): boolean {
+  return product.kcStatus === 'none'
+    || product.certificationNumbers.some((number) => number.trim().length > 0);
 }
 
-function kcViolation(certificationNumbers: readonly string[]): string | null {
-  return isKcReady(certificationNumbers)
+function kcViolation(product: PreflightProduct): string | null {
+  return isKcReady(product)
     ? null
-    : '판매상품에 KC 인증 문서가 없습니다. 상품 정보에서 인증번호를 입력하세요.';
+    : '판매상품에 KC 인증 문서가 없습니다. 상품 정보에서 인증번호를 입력하거나 KC 해당 없음으로 표시하세요.';
 }
 
 /**
@@ -106,7 +114,7 @@ const CHECKS: Record<MallPreflightRule, RuleCheck> = {
   mall_category_mapped: ({ product, manifest }) =>
     product.hasMallCategory ? null : `${manifest.name} 카테고리가 매핑되지 않았습니다.`,
 
-  kc_certification: ({ product }) => kcViolation(product.certificationNumbers),
+  kc_certification: ({ product }) => kcViolation(product),
 
   images_present: ({ product }) =>
     product.imageCount > 0 ? null : '등록 이미지가 없습니다.',

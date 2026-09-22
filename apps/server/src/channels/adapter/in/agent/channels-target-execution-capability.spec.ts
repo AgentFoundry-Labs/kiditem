@@ -24,7 +24,7 @@ const response: TargetExecutionResult = {
       status: 'active', taxType: 'taxable',
       deliveryFeeType: null, deliveryFee: null, optionAxes: [], stockManaged: false,
       imageUrls: [], detailHtml: null, extraDetailHtml: [], noticeCategory: null, noticeValues: [],
-      certifications: [], importDeclarationNo: null, adminMemo: null, version: 1,
+      certifications: [], kcStatus: 'unknown' as const, importDeclarationNo: null, adminMemo: null, version: 1,
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
       options: [], channelOverrides: [], channelListings: [],
     },

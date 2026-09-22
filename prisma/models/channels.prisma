@@ -445,6 +445,11 @@ model SalesProduct {
   noticeValues         String[] @default([]) @map("notice_values")
   /// 인증 문서 목록(번호 · 기관 · 분야 · 유효기간 · 발급일 · 인증일 · 이미지).
   certifications       Json?
+  /// KC 가 이 상품에 걸리는 방식: unknown(아직 확인 안 함) · none(해당 없음) · exists(있음).
+  /// 송신 게이트가 아는 '해당 없음'은 여기뿐이다 — 인증 문서가 KC 사실의 정본이고 이 칸은
+  /// 번호가 없을 이유를 말한다. 고시 · KC 정본을 어느 모델에 둘지는 KID-168 이 정하며,
+  /// 이 칸은 그 결정을 대신하지 않는다.
+  kcStatus             String   @default("unknown") @map("kc_status") @db.VarChar(20)
   importDeclarationNo  String?  @map("import_declaration_no") @db.VarChar(60)
   adminMemo            String?  @map("admin_memo")
   /// 가져온 원문 한 줄(사방넷 엑셀 칸 그대로). 화면은 읽지 않는다.

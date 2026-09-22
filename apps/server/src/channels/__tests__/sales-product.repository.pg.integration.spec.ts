@@ -502,6 +502,7 @@ function importWrite(channelAccountId: string, options: {
       colorVariantNames: [],
       boxSetQuantity: null,
       registrationDefaults: null,
+      kcStatus: 'unknown' as const,
       ownCode: null,
       shortName: null,
       englishName: null,
