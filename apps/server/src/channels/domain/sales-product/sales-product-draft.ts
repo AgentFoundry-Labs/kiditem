@@ -75,6 +75,42 @@ export function requireConfirmedPrice(product: {
   return confirmed.map((option) => ({ id: option.id, salePrice: option.salePrice }));
 }
 
+/**
+ * 판매상품 글 칸의 너비. `prisma/models/channels.prisma` 의 `@db.VarChar` 와 같은 수다.
+ *
+ * 원천(1688 상품 이름 · 이관하는 옛 편집값)은 이 너비를 지킨 적이 없다. 화면에서 사람이 쓴 값은
+ * 공유 스키마가 막지만, 원천에서 들어오는 값은 막을 수 없다 — 막으면 수집이 통째로 실패한다.
+ * 그래서 원천 값은 거절이 아니라 이 너비로 자른다. 이관과 수집이 같은 수를 본다.
+ */
+export const SALES_PRODUCT_TEXT_LIMITS = {
+  name: 255,
+  brand: 50,
+  manufacturer: 50,
+  originCountry: 50,
+  modelName: 60,
+  modelNo: 60,
+  importDeclarationNo: 60,
+  standardCategory: 40,
+  noticeCategory: 10,
+  targetAudience: 200,
+  ageGroup: 100,
+  productSize: 200,
+  sourcePlatform: 40,
+} as const;
+
+export type SalesProductTextField = keyof typeof SALES_PRODUCT_TEXT_LIMITS;
+
+/** 너비를 넘는 원문을 자른다. 잘랐는지도 함께 돌려준다 — 이관이 건수를 보고한다. */
+export function clampDraftText(
+  field: SalesProductTextField,
+  value: string | null | undefined,
+): { value: string | null; truncated: boolean } {
+  if (value === null || value === undefined) return { value: null, truncated: false };
+  const limit = SALES_PRODUCT_TEXT_LIMITS[field];
+  if (value.length <= limit) return { value, truncated: false };
+  return { value: value.slice(0, limit), truncated: true };
+}
+
 /** 초안 옵션 한 단의 이름. 원천이 옵션을 주지 않으면 옵션 없는 단품 하나다. */
 export const DRAFT_OPTION_AXIS = '옵션';
 

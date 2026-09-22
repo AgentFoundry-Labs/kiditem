@@ -182,6 +182,21 @@ describe('SalesProductUseCase.createFromSource', () => {
     const { service } = setup([], { raceOn: CANDIDATE });
     await expect(service.createFromSource(ORG, source)).resolves.toMatchObject({ id: 'raced' });
   });
+
+  /**
+   * 원천은 칸 너비를 지킨 적이 없다(1688 이름은 흔히 255 자를 넘는다). 거절하면 수집이 막히므로
+   * 이관과 같은 규칙으로 잘라서 받는다.
+   */
+  it('칸보다 긴 원천 이름 · 장터는 칸 너비로 잘라서 담는다', async () => {
+    const { rows, service } = setup();
+    await service.createFromSource(ORG, {
+      ...source,
+      name: '가'.repeat(300),
+      sourcePlatform: '1688'.repeat(20),
+    });
+    expect(rows[0]!.name).toBe('가'.repeat(255));
+    expect(rows[0]!.sourcePlatform).toBe('1688'.repeat(20).slice(0, 40));
+  });
 });
 
 describe('SalesProductUseCase.replaceOptions', () => {

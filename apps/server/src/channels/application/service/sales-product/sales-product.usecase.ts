@@ -21,6 +21,7 @@ import {
   type SalesProductOptionDraft,
 } from '../../../domain/sales-product/sales-product';
 import {
+  clampDraftText,
   planDraftOptions,
   resolveSalesProductStatus,
   type SalesProductPricedOption,
@@ -94,10 +95,15 @@ export class SalesProductUseCase implements SalesProductPort {
    *
    * 후보 하나에 초안 하나다 — 같은 후보를 다시 담아도, 두 요청이 동시에 들어와도 초안은 늘어나지
    * 않는다. 원천 값은 초안의 첫 내용일 뿐이라 사람이 고친 뒤에는 덮지 않는다.
+   *
+   * 화면 입력과 달리 원천 값은 칸 너비를 지킨 적이 없다 — 1688 이름은 흔히 255 자를 넘는다.
+   * 거절하면 그 상품을 담을 수 없으므로 이관(023)과 같은 규칙으로 자른다.
    */
   async createFromSource(organizationId: string, input: SalesProductDraftSource): Promise<SalesProduct> {
     const existing = await this.repository.findIdBySourceCandidate(organizationId, input.candidateId);
     if (existing) return this.get(organizationId, existing);
+    const name = clampDraftText('name', input.name).value ?? '';
+    const sourcePlatform = clampDraftText('sourcePlatform', input.sourcePlatform).value;
     const { optionAxes, optionValues } = planDraftOptions(input.optionNames);
     const plan = planOrBadRequest(() => planSalesProductOptionReplacement({
       productCode: '',
@@ -114,7 +120,7 @@ export class SalesProductUseCase implements SalesProductPort {
     try {
       const id = await this.repository.create(organizationId, {
         ...basicsRecord({
-          name: input.name,
+          name,
           description: input.description ?? '',
           keywords: [],
           status: 'draft',
@@ -132,7 +138,7 @@ export class SalesProductUseCase implements SalesProductPort {
         optionAxes,
         sourceRaw: sourceSnapshot(input),
         sourceCandidateId: input.candidateId,
-        sourcePlatform: input.sourcePlatform ?? null,
+        sourcePlatform,
         sourceUrl: input.sourceUrl ?? null,
       }, plan);
       return this.get(organizationId, id);

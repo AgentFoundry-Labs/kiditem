@@ -89,6 +89,49 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
       .toEqual([['빨강', null, null], ['파랑', null, null]]);
   }, 60_000);
 
+  it('cuts a source value that is wider than its column and reports how many it cut', async () => {
+    const result = await withPost022Schema(async (tx) => {
+      // 원천(1688)은 칸 너비를 지킨 적이 없다. 자르지 않으면 INSERT 가 터져 이관 전체가 멈춘다.
+      await seedCandidate(tx, {
+        id: CANDIDATE_ID,
+        name: '가'.repeat(300),
+        rawData: { manualBasics: { targetAudience: '나'.repeat(260), noticeCategory: '01234567890123' } },
+      });
+
+      const run = await salesProductDraftCutoverMigration.run(tx, { target: 'office' });
+      const [draft] = await tx.$queryRaw<Array<{ name: string; target_audience: string | null; notice_category: string | null }>>`
+        SELECT name, target_audience, notice_category FROM sales_products
+        WHERE source_candidate_id = ${CANDIDATE_ID}::uuid
+      `;
+      return { run, draft };
+    });
+
+    expect(result.run.details).toMatchObject({ createdDrafts: 1, truncatedValues: 3 });
+    expect(result.draft!.name).toBe('가'.repeat(255));
+    expect(result.draft!.target_audience).toBe('나'.repeat(200));
+    expect(result.draft!.notice_category).toBe('0123456789');
+  }, 60_000);
+
+  /** 023 이 만드는 칸은 Prisma 와 같은 너비여야 한다 — text 로 만들면 push 가 뒤늦게 터진다. */
+  it('adds the draft columns at the width Prisma will contract them to', async () => {
+    const widths = await withPost022Schema(async (tx) => {
+      await salesProductDraftCutoverMigration.run(tx, { target: 'office' });
+      return tx.$queryRaw<Array<{ column: string; width: number | null }>>`
+        SELECT attname AS "column", information_schema._pg_char_max_length(atttypid, atttypmod) AS width
+        FROM pg_attribute
+        WHERE attrelid = 'pg_temp.sales_products'::regclass
+          AND attname IN ('target_audience', 'age_group', 'product_size', 'notice_category',
+            'standard_category', 'brand', 'model_name', 'source_platform', 'kc_status')
+        ORDER BY attname ASC
+      `;
+    });
+
+    expect(Object.fromEntries(widths.map((row) => [row.column, row.width]))).toEqual({
+      age_group: 100, brand: 50, kc_status: 20, model_name: 60, notice_category: 10,
+      product_size: 200, source_platform: 40, standard_category: 40, target_audience: 200,
+    });
+  }, 60_000);
+
   it('fills only the empty columns of a draft a person already edited', async () => {
     const result = await withPost022Schema(async (tx) => {
       await seedCandidate(tx, {
