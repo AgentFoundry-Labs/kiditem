@@ -1023,12 +1023,18 @@ export function inspectOwnerImports({ root, files, exceptions = [] }) {
   const remaining = new Map(exceptions.map((entry) => [`${entry.from} -> ${entry.to}`, entry]));
   const configured = new Set(remaining.keys());
   const optionsByConfig = new Map();
+  const configByDirectory = new Map();
+  const resolutionCaches = new Map();
   const ownerOf = (file) => /^apps\/server\/src\/([^/]+)\//.exec(file)?.[1];
   const concrete = (file) => /\/(?:adapter\/out|application\/(?:services?|usecases?)|services|read)\//.test(file);
   for (const file of files) {
     if (isTestOrSeed(file) || path.extname(file) === '.sql') continue;
     const absolute = path.join(root, file);
-    const configFile = ts.findConfigFile(path.dirname(absolute), ts.sys.fileExists);
+    const directory = path.dirname(absolute);
+    if (!configByDirectory.has(directory)) {
+      configByDirectory.set(directory, ts.findConfigFile(directory, ts.sys.fileExists));
+    }
+    const configFile = configByDirectory.get(directory);
     let options = { allowJs: true, moduleResolution: ts.ModuleResolutionKind.Node10 };
     if (configFile) {
       if (!optionsByConfig.has(configFile)) {
@@ -1037,10 +1043,14 @@ export function inspectOwnerImports({ root, files, exceptions = [] }) {
       }
       options = optionsByConfig.get(configFile);
     }
+    const cacheKey = configFile ?? root;
+    if (!resolutionCaches.has(cacheKey)) {
+      resolutionCaches.set(cacheKey, ts.createModuleResolutionCache(root, (name) => name, options));
+    }
     const source = ts.createSourceFile(file, readFileSync(absolute, 'utf8'), ts.ScriptTarget.Latest, true);
     const check = (specifier, reexport = false) => {
       if (!specifier || !ts.isStringLiteralLike(specifier)) return;
-      const resolved = ts.resolveModuleName(specifier.text, absolute, options, ts.sys).resolvedModule?.resolvedFileName;
+      const resolved = ts.resolveModuleName(specifier.text, absolute, options, ts.sys, resolutionCaches.get(cacheKey)).resolvedModule?.resolvedFileName;
       if (!resolved) return;
       const target = slash(path.relative(root, resolved));
       const targetOwner = ownerOf(target);
