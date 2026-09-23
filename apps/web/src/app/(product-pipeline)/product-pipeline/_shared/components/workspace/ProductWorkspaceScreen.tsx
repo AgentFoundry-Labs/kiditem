@@ -408,17 +408,12 @@ export function ProductWorkspaceScreen({
     setEditData(nextEditData);
     setSelectedRegistrationThumbnailUrl(
       basicInfo?.selectedThumbnailUrl ??
-      fetchedData.product.registrationTarget?.selectedThumbnailUrl ??
       nextEditData.thumbnails[0] ??
       null,
     );
     // 배지용 값에는 `nextEditData.thumbnails[0]` 폴백을 **넣지 않는다**.
     // 저장된 대표가 없으면 null 이어야 배지가 안 붙는다.
-    setSavedRepresentativeThumbnailUrl(
-      basicInfo?.selectedThumbnailUrl ??
-      fetchedData.product.registrationTarget?.selectedThumbnailUrl ??
-      null,
-    );
+    setSavedRepresentativeThumbnailUrl(basicInfo?.selectedThumbnailUrl ?? null);
     setSelectedThumbnailGenerationId(
       basicInfo?.selectedThumbnailGenerationId
       ?? fetchedData.product.registrationTarget?.selectedThumbnailGenerationId
@@ -440,7 +435,6 @@ export function ProductWorkspaceScreen({
         ? savedThumbnailGallery
         : uniqueNonEmpty([
           basicInfo?.selectedThumbnailUrl,
-          fetchedData.product.registrationTarget?.selectedThumbnailUrl,
           fetchedData.product.thumbnail_url,
           nextEditData.thumbnails[0],
         ]),

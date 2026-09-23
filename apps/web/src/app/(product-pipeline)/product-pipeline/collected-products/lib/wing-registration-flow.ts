@@ -11,9 +11,7 @@ import type { DetailPageClientRenderPrepareResponse } from '@kiditem/shared/ai';
 import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
 import { contentWorkspaceHistoryToGenerationHistory } from '../../_shared/lib/detail-generation-history';
 import { buildGenerationHistoryHtml } from '../../_shared/lib/generated-detail-html';
-import {
-  renderCandidateDetailImageOnServer,
-} from './detail-page-image-api';
+import { renderRegistrationDetailImage } from './detail-page-image-api';
 import {
   registrationExecutionApi,
   type WingSellpiaMatchPreview as ChannelsWingSellpiaMatchPreview,
@@ -132,19 +130,18 @@ export function requireRenderedDetailImage(
 export async function prepareSavedCandidateDetailImage(
   detail: ProductDetailResponse,
 ): Promise<DetailPageClientRenderPrepareResponse> {
-  // 렌더 라우트는 A3(후속 pass)가 작업공간 라우트로 옮긴다 — 여기서는 원본 기록 id 를 그대로 넘긴다.
-  const candidateId = detail.sourceRecordId ?? '';
-  const firstRender = await renderCandidateDetailImageOnServer(candidateId);
+  const salesProductId = detail.salesProductId ?? '';
+  const firstRender = await renderRegistrationDetailImage({ salesProductId });
   if (
     firstRender.status === 'ready'
     || firstRender.status !== 'missing'
     || firstRender.reason !== 'no_saved_detail_page'
-    || !detail.salesProductId
+    || !salesProductId
   ) {
     return firstRender;
   }
 
-  const workspace = await contentWorkspacesApi.getForSalesProduct(detail.salesProductId);
+  const workspace = await contentWorkspacesApi.getForSalesProduct(salesProductId);
   if (!workspace || workspace.currentDetailPageRevisionId) return firstRender;
 
   const history = contentWorkspaceHistoryToGenerationHistory(workspace.history);
@@ -168,7 +165,7 @@ export async function prepareSavedCandidateDetailImage(
     `/api/ai/detail-page/${encodeURIComponent(generated.id)}/edited-html`,
     { html },
   );
-  return renderCandidateDetailImageOnServer(candidateId);
+  return renderRegistrationDetailImage({ salesProductId });
 }
 
 export type WingRegistrationPreparationPhase =

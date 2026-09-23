@@ -28,7 +28,7 @@ import {
 import { productsApi } from './sourcing-api';
 import { registrationExecutionApi } from '../../../../(channels)/_shared/registration-execution-api';
 import {
-  renderCandidateDetailImageOnServer,
+  renderRegistrationDetailImage,
 } from './detail-page-image-api';
 import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
 import type { WingProduct } from './wing-registration-excel';
@@ -47,7 +47,7 @@ vi.mock('@/lib/extension-bridge', () => ({
 }));
 
 vi.mock('./detail-page-image-api', () => ({
-  renderCandidateDetailImageOnServer: vi.fn(),
+  renderRegistrationDetailImage: vi.fn(),
 }));
 
 vi.mock('@/lib/sales-product-api', () => ({
@@ -138,7 +138,7 @@ beforeEach(() => {
       components: [],
     }],
   }));
-  vi.mocked(renderCandidateDetailImageOnServer).mockReset();
+  vi.mocked(renderRegistrationDetailImage).mockReset();
   vi.mocked(contentWorkspacesApi.getForSalesProduct).mockReset();
   vi.mocked(buildGenerationHistoryHtml).mockReset();
   vi.mocked(resolveWingCategories).mockResolvedValue(new Map());
@@ -245,7 +245,7 @@ describe('direct WING account selection', () => {
       registrationInput: {},
     } as ProductDetailResponse['registrationTarget'];
     vi.mocked(productsApi.getDetail).mockResolvedValue(prepared);
-    vi.mocked(renderCandidateDetailImageOnServer).mockResolvedValue(renderedDetail);
+    vi.mocked(renderRegistrationDetailImage).mockResolvedValue(renderedDetail);
     vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
       { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
       { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
@@ -263,7 +263,7 @@ describe('direct WING account selection', () => {
 
   it('requires an explicit choice when an unprepared product has multiple Coupang accounts', async () => {
     vi.mocked(productsApi.getDetail).mockResolvedValue(detail(basics()));
-    vi.mocked(renderCandidateDetailImageOnServer).mockResolvedValue(renderedDetail);
+    vi.mocked(renderRegistrationDetailImage).mockResolvedValue(renderedDetail);
     vi.spyOn(apiClient, 'get').mockResolvedValueOnce([
       { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
       { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
@@ -285,7 +285,7 @@ describe('direct WING account selection', () => {
     const product = detail(basics());
     const contentWorkspaceId = '44444444-4444-4444-8444-444444444444';
     vi.mocked(productsApi.getDetail).mockResolvedValue(product);
-    vi.mocked(renderCandidateDetailImageOnServer)
+    vi.mocked(renderRegistrationDetailImage)
       .mockResolvedValueOnce({
         status: 'missing',
         reason: 'no_saved_detail_page',
@@ -352,13 +352,13 @@ describe('direct WING account selection', () => {
       '/api/ai/detail-page/55555555-5555-4555-8555-555555555555/edited-html',
       { html: '<!DOCTYPE html><html><body><section>saved detail</section></body></html>' },
     );
-    expect(renderCandidateDetailImageOnServer).toHaveBeenCalledTimes(2);
+    expect(renderRegistrationDetailImage).toHaveBeenCalledTimes(2);
     expect(draft.detailImageUrl).toBe(renderedDetail.imageUrl);
   });
 
   it('surfaces a server renderer failure without loading channel accounts or opening Wing', async () => {
     vi.mocked(productsApi.getDetail).mockResolvedValue(detail(basics()));
-    vi.mocked(renderCandidateDetailImageOnServer).mockRejectedValue(
+    vi.mocked(renderRegistrationDetailImage).mockRejectedValue(
       new Error('상세페이지 서버 렌더링에 실패했습니다.'),
     );
     const get = vi.spyOn(apiClient, 'get');
@@ -371,7 +371,7 @@ describe('direct WING account selection', () => {
 
   it('uses the server-rendered artifact and builds exactly one detail image', async () => {
     vi.mocked(productsApi.getDetail).mockResolvedValue(detail(basics()));
-    vi.mocked(renderCandidateDetailImageOnServer).mockResolvedValue({
+    vi.mocked(renderRegistrationDetailImage).mockResolvedValue({
       ...renderedDetail,
       imageUrl: 'https://cdn.example.com/detail.jpg',
     });
