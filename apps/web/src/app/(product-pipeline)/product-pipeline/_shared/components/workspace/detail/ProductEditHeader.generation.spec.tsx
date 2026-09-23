@@ -2,12 +2,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryKeys } from '@/lib/query-keys';
+import { salesProductKeys } from '@/lib/sales-product-api';
 import ProductEditHeader from './ProductEditHeader';
 
 // 네트워크(apiClient)만 막는다 — 생성 훅은 진짜 것이 요청을 만든다.
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }));
+vi.mock('sonner', () => ({ toast }));
 
 let queryClient: QueryClient;
 
@@ -61,6 +63,25 @@ describe('ProductEditHeader 반려', () => {
       '/api/sourcing/candidates/candidate-1/reject',
       { reason: '중복' },
     ));
+  });
+
+  it('says whether the draft was retired with the rejection and refreshes the sales-product list', async () => {
+    api.post.mockResolvedValue({
+      status: 'rejected',
+      draftRetired: false,
+      draftWarning: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    });
+    renderHeader({ contentWorkspaceId: null, sourceCandidateId: 'candidate-1' });
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    fireEvent.click(screen.getByRole('button', { name: '반려' }));
+    fireEvent.click(screen.getByRole('button', { name: '확인' }));
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith('판매상품 초안은 내리지 못했습니다.', {
+      description: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    }));
+    expect(toast.success).toHaveBeenCalledWith('소싱 후보를 반려했습니다.', { description: undefined });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: salesProductKeys.all });
   });
 
   it('keeps reject disabled with a visible reason for a draft without a source record (M4)', () => {

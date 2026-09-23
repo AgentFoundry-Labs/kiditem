@@ -17,6 +17,7 @@ import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { salesProductKeys } from '@/lib/sales-product-api';
 import { registrationTargetApi, registrationTargetKeys } from '@/lib/registration-target-api';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
@@ -148,11 +149,18 @@ export default function ProductEditHeader({
       if (!sourceCandidateId) throw new Error(NO_SOURCE_REJECT_REASON);
       return candidatesApi.reject(sourceCandidateId, reason && reason.trim() ? reason.trim() : undefined);
     },
-    onSuccess: () => {
-      toast.success('소싱 후보를 반려했습니다.');
+    onSuccess: (result) => {
+      // 초안을 함께 내릴지는 서버가 정한다 — 응답을 그대로 알린다.
+      toast.success('소싱 후보를 반려했습니다.', {
+        description: result.draftRetired ? '판매상품 초안도 함께 내렸습니다.' : undefined,
+      });
+      if (result.draftWarning) {
+        toast.warning('판매상품 초안은 내리지 못했습니다.', { description: result.draftWarning });
+      }
       setRejectInputOpen(false);
       setRejectReason('');
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
+      queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(productId) });
     },
     onError: (err) => {

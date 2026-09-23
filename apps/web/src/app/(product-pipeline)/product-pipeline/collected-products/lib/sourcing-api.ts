@@ -837,7 +837,11 @@ export const sourcingApi = {
 };
 
 export interface RejectCandidateResponse {
-  ok: true;
+  status: 'rejected';
+  /** 반려와 함께 그 판매상품 초안을 내렸는가. */
+  draftRetired?: boolean;
+  /** 초안을 내리지 못한 이유(몰에 올라가 있다 등). 반려 자체는 막지 않는다. */
+  draftWarning?: string;
 }
 
 export interface QuickProcessCandidateResponse {
