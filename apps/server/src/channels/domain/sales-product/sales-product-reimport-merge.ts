@@ -5,8 +5,9 @@ import type { SalesProductBasicsRecord } from './sales-product-basics';
  *
  * 칸마다 기준값은 지난 가져오기가 만든 값이다(저장된 `sourceRaw` 를 같은 매핑으로 다시 읽는다).
  * 지금 값이 기준값과 다르면 사람이 고친 것이라 지금 값을 지키고, 같으면 파일 값을 받는다. 기준값이
- * 없으면(원문이 없는 상품) 모든 칸을 지킨다. 상세 HTML 은 원문에 본문 대신 디지스트만 있어서
- * 디지스트로 비교하고, 디지스트가 없으면(디지스트를 남기기 전에 가져온 줄) 상세를 지킨다.
+ * 없으면(원문이 없는 상품) 모든 칸을 지킨다. 상세 HTML 은 판매 상품 칸이 아니다 — Content 의
+ * 상세 revision 이 정본이고, 다시 가져오기는 `imported` revision 을 쌓을 뿐 사람이 고친 revision 을 덮지
+ * 않는다(KID-313 W2, `detail-page-import-rule`). 원문의 상세 디지스트가 그 revision 의 digest 다.
  *
  * 자체상품코드(`ownCode`)는 상품을 찾는 열쇠라 병합하지 않는다 — 지금 값이 있으면 그대로 두고, 비어 있을
  * 때만 파일 값으로 채운다.
@@ -15,14 +16,12 @@ import type { SalesProductBasicsRecord } from './sales-product-basics';
 /** 병합하는 판매상품 기본 칸 — 저장소가 쓰는 기본 칸 그 자체다. */
 export type SabangnetReimportBasics = SalesProductBasicsRecord;
 
-type DetailField = 'detailHtml' | 'extraDetailHtml';
-
 /** 병합하는 칸과 그 순서(미리보기 `preserved` · `updated` 가 이 순서를 따른다). */
 export const SABANGNET_REIMPORT_MERGED_FIELDS = [
   'name', 'shortName', 'englishName', 'printName', 'modelName', 'modelNo', 'brand', 'manufacturer',
   'originCountry', 'originRegion', 'keywords', 'standardCategory', 'description', 'targetAudience', 'ageGroup',
   'productSize', 'colorVariantNames', 'boxSetQuantity', 'registrationDefaults', 'status', 'taxType',
-  'deliveryFeeType', 'deliveryFee', 'stockManaged', 'imageUrls', 'detailHtml', 'extraDetailHtml',
+  'deliveryFeeType', 'deliveryFee', 'stockManaged', 'imageUrls',
   'noticeCategory', 'noticeValues', 'certifications', 'kcStatus', 'importDeclarationNo', 'adminMemo',
 ] as const satisfies readonly Exclude<keyof SabangnetReimportBasics, 'ownCode'>[];
 
@@ -54,9 +53,7 @@ export interface SabangnetDetailDigests {
 }
 
 export interface SabangnetReimportBaseline {
-  basics: Omit<SabangnetReimportBasics, DetailField>;
-  /** 없으면 상세 기준값을 모른다 — 상세는 지금 값을 지킨다. */
-  detailDigests: SabangnetDetailDigests | null;
+  basics: SabangnetReimportBasics;
 }
 
 export function sabangnetDetailDigests(
@@ -81,23 +78,17 @@ export function mergeSabangnetReimport<T extends SabangnetReimportBasics>(input:
   current: SabangnetReimportBasics;
   incoming: T;
   baseline: SabangnetReimportBaseline | null;
-  sha256: (value: string) => string;
 }): SabangnetReimportMerge<T> {
   const { current, incoming, baseline } = input;
   const merged = { ...incoming, ownCode: current.ownCode ?? incoming.ownCode } as T;
   const preserved: SabangnetReimportField[] = [];
   const updated: SabangnetReimportField[] = [];
-  const currentDigests = sabangnetDetailDigests(current, input.sha256);
   for (const field of SABANGNET_REIMPORT_MERGED_FIELDS) {
     if (UNCARRIED.has(field) || sameImportValue(current[field], incoming[field])) {
       (merged as Record<string, unknown>)[field] = current[field];
       continue;
     }
-    const edited = !baseline
-      ? true
-      : field === 'detailHtml' || field === 'extraDetailHtml'
-        ? !baseline.detailDigests || baseline.detailDigests[field] !== currentDigests[field]
-        : !sameImportValue(current[field], baseline.basics[field]);
+    const edited = !baseline || !sameImportValue(current[field], baseline.basics[field]);
     if (edited) {
       (merged as Record<string, unknown>)[field] = current[field];
       preserved.push(field);

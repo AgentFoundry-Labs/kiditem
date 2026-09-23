@@ -155,7 +155,7 @@ function compositionKey(components: readonly { masterProductId: string; quantity
 export const SALES_PRODUCT_FINGERPRINT_FIELDS = [
   'name', 'ownCode', 'shortName', 'englishName', 'printName', 'modelName', 'modelNo', 'brand', 'manufacturer',
   'originCountry', 'originRegion', 'keywords', 'standardCategory', 'status', 'taxType', 'deliveryFeeType',
-  'deliveryFee', 'stockManaged', 'imageUrls', 'detailHtml', 'extraDetailHtml',
+  'deliveryFee', 'stockManaged', 'imageUrls',
   'noticeCategory', 'noticeValues', 'certifications', 'importDeclarationNo', 'adminMemo',
 ] as const;
 

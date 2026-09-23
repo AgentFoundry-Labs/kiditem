@@ -34,8 +34,6 @@ export interface SalesProductBasicsRecord {
   deliveryFee: number | null;
   stockManaged: boolean;
   imageUrls: string[];
-  detailHtml: string | null;
-  extraDetailHtml: string[];
   noticeCategory: string | null;
   noticeValues: string[];
   certifications: SalesProductCertification[];

@@ -39,6 +39,7 @@ import {
 } from './sabangnet-product-import.plan';
 import {
   mergeSabangnetReimport,
+  sabangnetDetailDigests,
   sameImportValue,
   type SabangnetReimportBaseline,
 } from '../../../domain/sales-product/sales-product-reimport-merge';
@@ -195,7 +196,6 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
           current: current.basics,
           incoming,
           baseline: this.reimportBaseline(current.sourceRaw, preferMirrored),
-          sha256: (value) => this.integrity.sha256(value),
         })
         : null;
       const product = { ...planned, create: merge?.merged ?? incoming };
@@ -273,6 +273,7 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         create,
         plan: optionPlan,
         overrides: product.overrides.map(({ channelAccountId, data }) => ({ channelAccountId, data })),
+        detail: this.importedDetail(product.detail),
       });
     }
 
@@ -333,11 +334,24 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
   ): SabangnetReimportBaseline | null {
     const source = this.documents.readSabangnetProductSource(sourceRaw);
     if (!source) return null;
-    const { detailHtml: _detailHtml, extraDetailHtml: _extraDetailHtml, ...basics } = sabangnetProductBasics(source.row);
-    return {
-      basics: { ...basics, imageUrls: preferMirrored(basics.imageUrls) },
-      detailDigests: source.detailDigests,
-    };
+    const basics = sabangnetProductBasics(source.row);
+    return { basics: { ...basics, imageUrls: preferMirrored(basics.imageUrls) } };
+  }
+
+  /**
+   * 상세는 Content 의 `imported` revision 으로 간다(KID-313 W2). digest 는 원문에 남기는 KID-304 디지스트
+   * 두 칸(`#digest:상품상세설명` · `#digest:추가상품상세설명`)과 같은 값이다 — 같은 내용을 다시 가져오면
+   * revision 이 생기지 않는다.
+   */
+  private importedDetail(
+    detail: { html: string; extraHtml: string[] } | null,
+  ): SabangnetImportProductWrite['detail'] {
+    if (!detail) return null;
+    const digests = sabangnetDetailDigests(
+      { detailHtml: detail.html || null, extraDetailHtml: detail.extraHtml },
+      (value) => this.integrity.sha256(value),
+    );
+    return { ...detail, digest: `${digests.detailHtml}|${digests.extraDetailHtml}` };
   }
 }
 

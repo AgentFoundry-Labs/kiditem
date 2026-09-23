@@ -9,21 +9,19 @@ const OPTION = '10000000-0000-4000-8000-000000000003';
 const FIRST = '10000000-0000-4000-8000-000000000004';
 const ACCOUNT = '10000000-0000-4000-8000-000000000006';
 
-function target(
-  id: string,
-  price: number | null,
-  supplyPrice: number | null = 1500,
-): MallSheetSourceProduct['overrides'][number] {
-  return { targetId: id, mallKey: 'teacher-mall', name: '기본 등록',
-    salePrice: null, priceRateBp: null, detailHtml: null, promoText: null,
-    selectedOptionIds: [OPTION], optionPrices: [{ salesProductOptionId: OPTION, salePrice: price, normalPrice: null, supplyPrice }],
-    adapterValues: { categoryCode: '0001' } };
+function target(id: string, supplyPrice: string | null = '1500'): MallSheetSourceProduct['overrides'][number] {
+  return { targetId: id, mallKey: 'teacher-mall', selectedOptionIds: [OPTION],
+    adapterValues: { categoryCode: '0001', ...(supplyPrice === null ? {} : { supplyPrice }) } };
 }
-function setup(overrides = [target(FIRST, 3000)], product: Partial<MallSheetSourceProduct> = {}) {
-  const source: MallSheetSourceProduct = { id: PRODUCT, code: 'KID00000001', ownCode: null,
+function setup(
+  overrides = [target(FIRST)],
+  product: Partial<Omit<MallSheetSourceProduct, 'detailHtml'>> = {},
+  detailHtml: string | null = '<p>상품 설명</p>',
+) {
+  const source: Omit<MallSheetSourceProduct, 'detailHtml'> = { id: PRODUCT, code: 'KID00000001', ownCode: null,
     name: '테스트 상품', brand: null, manufacturer: null, modelName: null, modelNo: null,
     originCountry: null, keywords: [], status: 'active', taxType: 'taxable', salePrice: 2000, tagPrice: null,
-    imageUrls: ['https://example.com/product.jpg'], detailHtml: '<p>상품 설명</p>', noticeCategory: null,
+    imageUrls: ['https://example.com/product.jpg'], noticeCategory: null,
     certificationNumbers: [], optionAxes: [], sabangnetImageUrls: [],
     options: [{ id: OPTION, code: 'KID00000002', values: [], salePrice: 2000, barcode: null, supplyStatus: 'selling' }],
     overrides, ...product };
@@ -37,7 +35,20 @@ function setup(overrides = [target(FIRST, 3000)], product: Partial<MallSheetSour
   const files = { categoryTables: vi.fn().mockResolvedValue({ paths: {}, esmBySite: {}, coupang: {},
     icecream: { byCode: {}, ambiguous: {}, notices: {}, brands: {} } }), write: vi.fn().mockResolvedValue(Buffer.from('sheet')) };
   const activity = { log: vi.fn(), warn: vi.fn() };
-  return { service: new SalesProductMallSheetService(repository as unknown as SalesProductRepositoryPort, files, activity), files, repository };
+  // 상세는 Content revision 에서 온다 — 경계 밖이라 읽은 값만 정해 준다.
+  const detailPages = {
+    read: vi.fn(),
+    importFromSource: vi.fn(),
+    readMany: vi.fn().mockResolvedValue(new Map(detailHtml === null
+      ? []
+      : [[PRODUCT, { revisionId: 'revision-1', html: detailHtml, extraHtml: [], imageUrls: [] }]])),
+  };
+  return {
+    service: new SalesProductMallSheetService(repository as unknown as SalesProductRepositoryPort, files, activity, detailPages),
+    files,
+    repository,
+    detailPages,
+  };
 }
 
 /**
@@ -54,7 +65,22 @@ describe('mall sheets use the single registration setting of each product and ma
     expect(check.ready).toBe(1);
     expect(check.products[0]!.rows).toBe(1);
     await service.file(ORG, 'teacherville', request);
-    expect(files.write.mock.calls[0]![1]).toEqual([expect.objectContaining({ '할인가(판매가)': 3000 })]);
+    expect(files.write.mock.calls[0]![1]).toEqual([expect.objectContaining({
+      '할인가(판매가)': 2000,
+      '상품설명(PC/태블릿)': '<p>상품 설명</p>',
+    })]);
+  });
+
+  it('reads the detail from the product\'s content once per product and blocks a product without one', async () => {
+    const { service, detailPages } = setup([target(FIRST)], {}, null);
+
+    const check = await service.check(ORG, 'teacherville', { salesProductIds: [PRODUCT] });
+
+    expect(detailPages.readMany).toHaveBeenCalledWith({
+      organizationId: ORG,
+      products: [{ salesProductId: PRODUCT, selectedDetailPageRevisionId: null }],
+    });
+    expect(check.products[0]!.problems).toContain('상세설명이 비어 있습니다.');
   });
 
   it('keeps the common-value flow when the product has no setting for the mall', async () => {
@@ -66,31 +92,20 @@ describe('mall sheets use the single registration setting of each product and ma
     expect(check.products[0]!.categories).toHaveLength(1);
   });
 
-  it('tells a 0 won setting apart from a setting that names no price', async () => {
-    // 0원은 "이 설정은 0원이다"라는 말이고, null 은 "이 설정은 값을 정하지 않았다"는 말이다.
-    const zero = setup([target(FIRST, 0, 0)]);
-    const checked = await zero.service.check(ORG, 'teacherville', { salesProductIds: [PRODUCT] });
-    expect(checked.products[0]!.problems).toContain('판매가가 0원입니다.');
-    await expect(zero.service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT] })).rejects.toThrow('0원');
+  it('takes the mall supply price from the mall field and falls back to the mall rate without one', async () => {
+    const zero = setup([target(FIRST, '0')]);
+    await zero.service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT] });
+    expect(zero.files.write.mock.calls[0]![1]).toEqual([expect.objectContaining({ 공급가: 0 })]);
 
-    const named = setup([target(FIRST, null, null)]);
-    await named.service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT] });
-    // null 은 정본 단품 가격으로 물러서고, 공급가는 몰 고정값 비율(80%)로 계산한다.
-    expect(named.files.write.mock.calls[0]![1]).toEqual([expect.objectContaining({
-      '할인가(판매가)': 2000,
-      공급가: 1600,
-    })]);
-  });
-
-  it('keeps an explicit 0 won supply price instead of recomputing it from the mall rate', async () => {
-    const { service, files } = setup([target(FIRST, 3000, 0)]);
-    await service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT] });
-    expect(files.write.mock.calls[0]![1]).toEqual([expect.objectContaining({ 공급가: 0 })]);
+    const none = setup([target(FIRST, null)]);
+    await none.service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT] });
+    // 공급가 칸이 없으면 몰 고정값 비율(80%)로 계산한다.
+    expect(none.files.write.mock.calls[0]![1]).toEqual([expect.objectContaining({ '할인가(판매가)': 2000, 공급가: 1600 })]);
   });
 
   /** 등록 동결 · 품절 송신과 같은 게이트다 — 판매가를 정하지 않은 초안은 파일에 들어가지 않는다. */
   it('⭐ refuses a draft whose selling price is still empty', async () => {
-    const { service, files } = setup([target(FIRST, 3000)], {
+    const { service, files } = setup([target(FIRST)], {
       status: 'draft',
       salePrice: null,
       options: [{ id: OPTION, code: null, values: [], salePrice: null, barcode: null, supplyStatus: 'selling' }],

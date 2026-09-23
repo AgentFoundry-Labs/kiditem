@@ -6,7 +6,7 @@ import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
 import { productTransactionalRead } from './product-transactional-read.fake';
 import { realDraftDeletionPorts } from '../../test-helpers/sales-product-draft-port';
-import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
+import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 
 /**
@@ -26,6 +26,7 @@ describe('sales product creation issues its KID in the same transaction (Postgre
       productTransactionalRead(),
       new RegistrationTargetRepositoryAdapter(service, productTransactionalRead(), realRegistrationContentWorkspace(prisma)),
       realRegistrationContentWorkspace(prisma),
+      realRegistrableDetailPages(prisma),
     ), ...realDraftDeletionPorts(prisma));
   });
   afterAll(async () => { await prisma?.$disconnect(); });

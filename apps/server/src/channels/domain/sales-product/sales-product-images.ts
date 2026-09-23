@@ -18,11 +18,13 @@ export interface PendingMirrorImage {
   reason?: string;
 }
 
+/**
+ * 옮길 사진을 찾는 판매 상품 한 건. 상세 HTML 은 Content revision 이 정본이라 여기 없다(KID-313 W2) —
+ * 상세 사진 옮기기는 Content 가 revision 을 새로 쌓는 길이 생길 때 그쪽에서 한다.
+ */
 export interface SalesProductImageSnapshot {
   code: string | null;
   imageUrls: readonly string[];
-  detailHtml?: string | null;
-  extraDetailHtml?: readonly (string | null)[];
 }
 
 function normalizeImageUrl(url: string): string | null {
@@ -96,11 +98,7 @@ function srcsetUrls(value: string): string[] {
 }
 
 export function imageReferenceUrls(product: SalesProductImageSnapshot): readonly string[] {
-  return [
-    ...product.imageUrls,
-    ...detailImageUrls(product.detailHtml ?? null),
-    ...(product.extraDetailHtml ?? []).flatMap((html) => detailImageUrls(html)),
-  ];
+  return product.imageUrls;
 }
 
 export function normalizeImageReferenceUrl(url: string): string | null {
@@ -176,33 +174,4 @@ export function rewriteImageUrls(
   replacements: ReadonlyMap<string, string>,
 ): string[] {
   return urls.map((url) => replacementFor(url, replacements) ?? url);
-}
-
-function rewriteSrcset(value: string, replacements: ReadonlyMap<string, string>): string {
-  return value.split(',').map((candidate) => {
-    const match = /^(\s*)(\S+)([\s\S]*)$/.exec(candidate);
-    if (!match) return candidate;
-    const replacement = replacementFor(match[2]!, replacements);
-    return replacement ? `${match[1]}${replacement}${match[3]}` : candidate;
-  }).join(',');
-}
-
-/** 상세 HTML의 src·srcset에서 성공한 참조만 바꾼다. 태그·공백·따옴표는 보존한다. */
-export function rewriteImageHtml(
-  html: string | null,
-  replacements: ReadonlyMap<string, string>,
-): string | null {
-  if (html === null) return null;
-  return html.replace(/<(?:img|source)\b[^>]*>/gi, (tag) => tag.replace(
-    /((?:^|\s))(src|srcset)(\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-    (full, prefix: string, name: string, equals: string, doubleQuoted?: string, singleQuoted?: string, unquoted?: string) => {
-      const value = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
-      const rewritten = name.toLowerCase() === 'srcset'
-        ? rewriteSrcset(value, replacements)
-        : replacementFor(value, replacements) ?? value;
-      if (rewritten === value) return full;
-      const quote = doubleQuoted !== undefined ? '"' : singleQuoted !== undefined ? "'" : '';
-      return `${prefix}${name}${equals}${quote}${rewritten}${quote}`;
-    },
-  ));
 }

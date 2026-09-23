@@ -105,55 +105,28 @@ describe('Sabangnet workbook import', () => {
     expect(overrides[0]).toMatchObject({ shopCode: 'shop0387', salePrice: 3100, name: '투명우산 (보리보리)' });
   });
 
-  it('resolves legacy mall rates once per source option and keeps explicit zero prices', () => {
-    const elevenStreet = overrides.find((override) => override.shopCode === 'shop0464')!;
-    const ratio = buildSabangnetImportPlan({
-      products,
-      options,
-      overrides: [{ ...elevenStreet, salePrice: null, priceRateBp: 11_000 }],
-      skus: [],
-      accounts: [{ id: 'acc-11st', channel: '11st' }],
-    });
-    expect(ratio.products[1]!.overrides[0]!.data).toMatchObject({
-      salePrice: null,
-      priceRateBp: 11_000,
-      optionPrices: [
-        { sabangnetOptionCode: '100300-0001', salePrice: 6_490 },
-        { sabangnetOptionCode: '100300-0002', salePrice: 6_990 },
-        { sabangnetOptionCode: '100300-0003', salePrice: 6_490 },
-      ],
-    });
-
-    const explicit = buildSabangnetImportPlan({
-      products,
-      options: options.map((option) => option.optionCode === '100300-0001'
-        ? { ...option, extraPrice: -2_000 }
-        : option),
-      overrides: [{ ...elevenStreet, salePrice: 0, priceRateBp: 20_000 }],
-      skus: [],
-      accounts: [{ id: 'acc-11st', channel: '11st' }],
-    });
-    expect(explicit.products[1]!.overrides[0]!.data.optionPrices).toEqual([
-      { sabangnetOptionCode: '100300-0001', salePrice: 0 },
-      { sabangnetOptionCode: '100300-0002', salePrice: 500 },
-      { sabangnetOptionCode: '100300-0003', salePrice: 0 },
-    ]);
-  });
-
-  it('uses zero extra for generated options when importing a rate-only mall row', () => {
+  it('keeps only mall-only values from a mall row and reports a per-mall detail it no longer takes', () => {
     const elevenStreet = overrides.find((override) => override.shopCode === 'shop0464')!;
     const plan = buildSabangnetImportPlan({
       products,
-      options: [],
-      overrides: [{ ...elevenStreet, salePrice: null, priceRateBp: 11_000 }],
+      options,
+      overrides: [{ ...elevenStreet, detailHtml: '<p>몰 상세</p>', stockPercent: 150 }],
       skus: [],
       accounts: [{ id: 'acc-11st', channel: '11st' }],
     });
-    expect(plan.products[1]!.overrides[0]!.data.optionPrices).toEqual([
-      { sabangnetOptionCode: '100300-0001', salePrice: 6_490 },
-      { sabangnetOptionCode: '100300-0002', salePrice: 6_490 },
-      { sabangnetOptionCode: '100300-0003', salePrice: 6_490 },
-    ]);
+    // 등록 대상은 이름 · 가격 · 상세를 갖지 않는다(KID-313 W2). 재고분할퍼센트만 몰 칸으로 남는다.
+    expect(plan.products[1]!.overrides[0]!.data).toEqual({ stockPercent: 100, sourceRaw: elevenStreet.raw });
+    expect(plan.issues).toContainEqual(expect.objectContaining({
+      kind: 'channel_overrides',
+      code: elevenStreet.goodsNo,
+      message: expect.stringContaining('몰별 상세 override 는 더 이상 받지 않음'),
+    }));
+  });
+
+  it('carries the product detail to the content revision instead of the product', () => {
+    const plan = buildSabangnetImportPlan({ products, options, overrides: [], skus: [], accounts: [] });
+    expect(plan.products[0]!.create).not.toHaveProperty('detailHtml');
+    expect(plan.products[0]!.detail).toEqual({ html: products[0]!.detailHtml, extraHtml: products[0]!.extraDetailHtml });
   });
 
   it('reads the Sabangnet percentage rate into basis points', () => {
@@ -270,11 +243,11 @@ describe('Sabangnet workbook import', () => {
         ['100300-0003', ['핑크'], 'selling', 5900, 9000, []],
       ]);
     expect(umbrella!.overrides).toEqual([
-      expect.objectContaining({ channelAccountId: 'acc-boribori', data: expect.objectContaining({ salePrice: 3100, name: '투명우산 (보리보리)' }) }),
+      expect.objectContaining({ channelAccountId: 'acc-boribori', shopCode: 'shop0387' }),
     ]);
     // 11번가 신(shop0464)과 구(shop0003)가 같은 몰 계정이면 신이 이긴다.
     expect(pad!.overrides).toEqual([
-      expect.objectContaining({ channelAccountId: 'acc-11st', shopCode: 'shop0464', data: expect.objectContaining({ salePrice: 6200 }) }),
+      expect.objectContaining({ channelAccountId: 'acc-11st', shopCode: 'shop0464' }),
     ]);
     expect(plan.skippedByShop).toEqual({ shop0004: 1 });
   });

@@ -175,7 +175,6 @@ export class SalesProductUseCase implements SalesProductPort {
         deliveryFee: basics.deliveryFee ?? null,
         stockManaged: false,
         imageUrls: [...(input.imageUrls ?? [])].slice(0, 30),
-        extraDetailHtml: [],
         noticeValues: [],
         certifications: (basics.certifications ?? []).slice(0, 10).map((certification) => ({
           number: certification.number.slice(0, 100),
@@ -347,8 +346,6 @@ function basicsRecord(input: {
   deliveryFee?: number | null;
   stockManaged: boolean;
   imageUrls: string[];
-  detailHtml?: string | null;
-  extraDetailHtml: string[];
   noticeCategory?: string | null;
   noticeValues: string[];
   certifications: SalesProductBasicsRecord['certifications'];
@@ -383,8 +380,6 @@ function basicsRecord(input: {
     deliveryFee: input.deliveryFee ?? null,
     stockManaged: input.stockManaged,
     imageUrls: input.imageUrls,
-    detailHtml: input.detailHtml ?? null,
-    extraDetailHtml: input.extraDetailHtml,
     noticeCategory: input.noticeCategory ?? null,
     noticeValues: input.noticeValues,
     certifications: input.certifications,

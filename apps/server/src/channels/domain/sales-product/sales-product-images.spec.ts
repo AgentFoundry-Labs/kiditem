@@ -7,7 +7,6 @@ import {
   normalizeImageReferenceUrl,
   pendingMirrorImages,
   preferMirroredImageUrls,
-  rewriteImageHtml,
   rewriteImageUrls,
 } from './sales-product-images';
 
@@ -40,7 +39,7 @@ describe('sales product image mirroring', () => {
     expect(pending.map((image) => image.url)).toEqual([SABANGNET, 'https://pic.sabangnet.co.kr/b.png']);
   });
 
-  it('finds img src and srcset references and rewrites only successful copies', () => {
+  it('finds img src and srcset references and rewrites only successful image list copies', () => {
     const html = '<picture><source srcset="https://pic.sabangnet.co.kr/a.jpg 1x, https://pic.sabangnet.co.kr/b.jpg 2x"><img alt="x" src="https://pic.sabangnet.co.kr/a.jpg" srcset=\'https://pic.sabangnet.co.kr/c.jpg 400w, https://kiditem.diskn.com/d.jpg 800w\'></picture>';
     expect(detailImageUrls(html)).toEqual([
       'https://pic.sabangnet.co.kr/a.jpg',
@@ -57,15 +56,16 @@ describe('sales product image mirroring', () => {
       'https://pic.sabangnet.co.kr/a.jpg',
       'https://pic.sabangnet.co.kr/b.jpg',
     ], replacements)).toEqual([a, 'https://pic.sabangnet.co.kr/b.jpg']);
-    expect(rewriteImageHtml(html, replacements)).toBe('<picture><source srcset="https://storage.example/a 1x, https://pic.sabangnet.co.kr/b.jpg 2x"><img alt="x" src="https://storage.example/a" srcset=\'https://storage.example/c 400w, https://kiditem.diskn.com/d.jpg 800w\'></picture>');
   });
 
   it('keeps unsupported external URLs pending instead of declaring completion', () => {
     const pending = pendingMirrorImages(ORG, [{
       code: '100001',
-      imageUrls: ['https://images.example.com/product.jpg'],
-      detailHtml: '<img src="https://pic.sabangnet.co.kr/no-extension">',
-      extraDetailHtml: ['<img src="https://pic.sabangnet.co.kr/ok.jpg">'],
+      imageUrls: [
+        'https://images.example.com/product.jpg',
+        'https://pic.sabangnet.co.kr/no-extension',
+        'https://pic.sabangnet.co.kr/ok.jpg',
+      ],
     }], channelIntegrity.sha256);
     expect(pending).toEqual([
       { url: 'https://images.example.com/product.jpg', key: null, reason: '지원하지 않는 외부 이미지 주소' },

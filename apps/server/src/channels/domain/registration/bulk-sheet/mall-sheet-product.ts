@@ -28,6 +28,7 @@ export interface MallSheetSourceProduct {
   salePrice: number | null;
   tagPrice: number | null;
   imageUrls: string[];
+  /** 콘텐츠의 현재(또는 등록 대상이 고른) 상세 revision HTML. 상세가 없으면 null(KID-313 W2). */
   detailHtml: string | null;
   noticeCategory: string | null;
   certificationNumbers: string[];
@@ -45,22 +46,17 @@ export interface MallSheetSourceProduct {
     barcode: string | null;
     supplyStatus: string;
   }[];
-  /** 몰별 값(몰 키 · 몰 계정마다). */
+  /**
+   * 몰별 등록 설정(몰 키 · 몰 계정마다). 선택 옵션과 몰 전용 값만 있다 — 이름 · 가격 · 상세는 판매 상품
+   * 한 곳에서 온다(KID-313 W2).
+   */
   overrides: {
     mallKey: string;
     targetId?: string;
     selectedOptionIds?: string[];
-    salePrice: number | null;
-    priceRateBp: number | null;
-    name: string | null;
-    detailHtml: string | null;
-    promoText: string | null;
-    optionPrices?: {
-      salesProductOptionId: string;
-      salePrice: number | null;
-      normalPrice: number | null;
-      supplyPrice: number | null;
-    }[];
+    /** 사람이 고른 이 몰의 카테고리 경로(`registrationInput.mallCategory`). */
+    categoryPath?: string | null;
+    /** 몰 전용 칸(`registrationInput.mallFields` 의 글자 값). */
     adapterValues: Record<string, string>;
   }[];
   /** 사방넷에서 옮기기 전 사진 주소(대표 · 부가 순서). */
@@ -79,7 +75,7 @@ export function mallTargets(source: MallSheetSourceProduct, mallKey: string): Ma
 /** 이 몰의 등록 설정 경로 — 사람이 정한 값, 없으면 사방넷에서 옮긴 경로. */
 export function mallTargetCategoryPath(override: MallOverride): string | null {
   const values = override.adapterValues;
-  return values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
+  return override.categoryPath?.trim() || values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
 }
 
 /**
@@ -158,14 +154,13 @@ export function withPublicDetailImages(html: string | null, publicCopies: Readon
       : tag);
 }
 
-type ImageSource = Pick<MallSheetSourceProduct, 'imageUrls' | 'detailHtml' | 'overrides'>;
+type ImageSource = Pick<MallSheetSourceProduct, 'imageUrls' | 'detailHtml'>;
 
-/** 판매상품 사진 · 상세설명 사진(몰별 상세 포함) 중 몰이 못 읽는(우리 저장소) 주소. */
+/** 판매상품 사진 · 상세설명 사진 중 몰이 못 읽는(우리 저장소) 주소. */
 export function privateImageUrls(source: ImageSource): string[] {
   const urls = [
     ...source.imageUrls,
     ...detailImageUrls(source.detailHtml),
-    ...source.overrides.flatMap((override) => detailImageUrls(override.detailHtml)),
   ];
   return [...new Set(urls)].filter((url) => !isPublicImageUrl(url));
 }
@@ -219,44 +214,33 @@ export function toMallSheetProduct(
     const override = pickMallOverride(source, mallKey);
     const selectedIds = override?.selectedOptionIds ? new Set(override.selectedOptionIds) : null;
     const selected = selling.filter((option) => !selectedIds || !option.id || selectedIds.has(option.id));
-    const resolved = selected.map((option) => ({
-      ...option,
-      salePrice: resolvedSalePrice(option, override),
-      normalPrice: resolvedNormalPrice(option, override),
-    }));
-    const hasExplicitTargetPrice = override?.optionPrices?.some((item) => item.salePrice !== null && item.salePrice !== undefined)
-      || (override?.optionPrices === undefined && override?.salePrice !== null && override?.salePrice !== undefined);
-    const basePrice = hasExplicitTargetPrice && resolved.length > 0
-      ? Math.min(...resolved.map((option) => option.salePrice))
-      : canonicalBasePrice;
-    const optionPrices = Object.fromEntries(resolved.map((option) => [option.code, option.salePrice]));
-    const optionNormalPrices = Object.fromEntries(resolved.map((option) => [option.code, option.normalPrice]));
-    const optionSupplyPrices = Object.fromEntries(resolved.map((option) => [
-      option.code,
-      override?.optionPrices?.find((item) => item.salesProductOptionId === option.id)?.supplyPrice ?? null,
-    ]));
+    // 가격은 판매 상품 옵션 한 곳에만 있다 — 몰별 가격 override 는 없다(KID-313 W2).
+    const optionPrices = Object.fromEntries(selected.map((option) => [option.code, option.salePrice]));
+    const optionNormalPrices = Object.fromEntries(selected.map((option) => [option.code, option.normalPrice ?? null]));
     const values = override?.adapterValues ?? {};
-    const ownPath = values.categoryPath?.trim() || values[KEYS.categoryPath]?.trim() || null;
+    // 몰 공급가는 몰 전용 칸 `supplyPrice` 하나다(온채널과 같은 칸). 판매가에서 역산하지 않는다.
+    const supplyPrice = mallSupplyPrice(values);
+    const optionSupplyPrices = supplyPrice === null
+      ? undefined
+      : Object.fromEntries(selected.map((option) => [option.code, supplyPrice]));
+    const ownPath = override ? mallTargetCategoryPath(override) : null;
     // 분류 체계가 같은 몰에서 빌려 온다(온채널 ← 스마트스토어). 이 몰 표에서 번호가 나올 때만 쓴다.
     const borrowed = ownPath ? null : borrowCategoryPath(source, spec, mallKey, categories);
     const categoryPath = ownPath ?? borrowed;
     const explicitCode = values.categoryCode?.trim() || null;
     malls[mallKey] = {
-      salePrice: basePrice,
+      salePrice: canonicalBasePrice,
       optionPrices,
       optionNormalPrices,
-      optionSupplyPrices,
+      ...(optionSupplyPrices ? { optionSupplyPrices } : {}),
       // 파일을 만드는 경로는 KID 를 먼저 발급한다(`ensureSalesProductCodes`). 확인만 하는 화면에서는
       // 아직 번호가 없을 수 있어 빈 칸으로 보인다.
       selectedOptionCodes: selected.map((option) => option.code ?? ''),
-      name: override?.name?.trim()
-        || joinText([values[KEYS.namePrefix], mallDisplayName(source.name), values[KEYS.nameSuffix]], ' '),
-      nameIsMallSpecific: Boolean(override?.name?.trim()),
-      promoText: override?.promoText?.trim() || null,
+      name: joinText([values[KEYS.namePrefix], mallDisplayName(source.name), values[KEYS.nameSuffix]], ' '),
+      nameIsMallSpecific: false,
+      promoText: null,
       detailHtml: withPublicDetailImages(
-        override?.detailHtml?.trim()
-          || joinText([values[KEYS.detailTop], source.detailHtml, values[KEYS.detailBottom]], '\n')
-          || null,
+        joinText([values[KEYS.detailTop], source.detailHtml, values[KEYS.detailBottom]], '\n') || null,
         publicCopies,
       ),
       categoryPath,
@@ -296,26 +280,11 @@ export function toMallSheetProduct(
   };
 }
 
-function resolvedSalePrice(
-  option: MallSheetSourceProduct['options'][number],
-  override: MallSheetSourceProduct['overrides'][number] | null,
-): number {
-  const explicit = override?.optionPrices?.find((item) => item.salesProductOptionId === option.id)?.salePrice;
-  if (explicit !== undefined && explicit !== null) return explicit;
-  // Compatibility projection for a legacy scalar target: apply that final
-  // value to each transport option; never reconstruct a base by subtraction.
-  if (override?.optionPrices === undefined && override?.salePrice !== null && override?.salePrice !== undefined) {
-    return override.salePrice;
-  }
-  return option.salePrice ?? 0;
-}
-
-function resolvedNormalPrice(
-  option: MallSheetSourceProduct['options'][number],
-  override: MallSheetSourceProduct['overrides'][number] | null,
-): number | null {
-  const explicit = override?.optionPrices?.find((item) => item.salesProductOptionId === option.id)?.normalPrice;
-  return explicit === undefined || explicit === null ? option.normalPrice ?? null : explicit;
+function mallSupplyPrice(values: Readonly<Record<string, string>>): number | null {
+  const text = values.supplyPrice?.replace(/[,\s]/g, '') ?? '';
+  if (!/^\d+$/.test(text)) return null;
+  const value = Number(text);
+  return Number.isSafeInteger(value) ? value : null;
 }
 
 function commonPrice(values: readonly (number | null | undefined)[]): number | null {

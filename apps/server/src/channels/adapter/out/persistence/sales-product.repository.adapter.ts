@@ -15,6 +15,7 @@ import {
   type SalesProductKcStatus,
   type SalesProductListQuery,
   type SalesProductListResponse,
+  type RegistrationMallInput,
   type SalesProductOptionSupplyStatus,
   type SalesProductStatus,
   type SalesProductTaxType,
@@ -47,9 +48,15 @@ import {
   type RegistrationContentWorkspacePort,
 } from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
 import {
+  CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT,
+  type ChannelRegistrableDetailPagePort,
+} from '../../../application/port/out/content/registrable-detail-page.port';
+import {
   REGISTRATION_TARGET_REPOSITORY_PORT,
+  type RegistrationTargetRecord,
   type RegistrationTargetRepositoryPort,
 } from '../../../application/port/out/persistence/registration-target.repository.port';
+import { emptyRegistrationMallInput } from '../../../domain/registration/registration-mall-input';
 import type {
   SabangnetImportProductWrite,
   SalesProductBasicsRecord,
@@ -102,18 +109,12 @@ const DETAIL_INCLUDE = {
       id: true,
       channelAccountId: true,
       version: true,
-      displayName: true,
       registrationInput: true,
       updatedAt: true,
       channelAccount: { select: { channel: true, name: true } },
       selectedOptions: {
         orderBy: { sortOrder: 'asc' as const },
-        select: {
-          salesProductOptionId: true,
-          salePrice: true,
-          normalPrice: true,
-          supplyPrice: true,
-        },
+        select: { salesProductOptionId: true },
       },
     },
   },
@@ -149,6 +150,9 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     /** 판매 상품마다 활성 콘텐츠 작업공간은 하나이고 상품과 같은 트랜잭션에서 생긴다(KID-313 W2). */
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly contentWorkspaces: RegistrationContentWorkspacePort,
+    /** 사방넷 상세는 상품과 같은 트랜잭션에서 Content 의 `imported` revision 으로 넘긴다(KID-313 W2). */
+    @Inject(CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT)
+    private readonly detailPages: ChannelRegistrableDetailPagePort,
   ) {}
 
   async allocateCode(_organizationId: string): Promise<string> {
@@ -919,10 +923,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         const merged = { ...kept, ...write.values };
         if (sameStringRecord(current, merged)) continue;
         await this.registrationTargets.update(organizationId, target.id, {
-          expectedVersion: target.version,
-          displayName: target.displayName,
-          registrationInput: mergeTargetMallValues(target.registrationInput, merged),
-          selectedOptions: target.selectedOptions,
+          ...editableTarget(target),
+          registrationInput: withMallFields(target.registrationInput, merged),
         });
         written += 1;
       }
@@ -974,9 +976,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     code: string | null;
     version: number;
     imageUrls: string[];
-    detailHtml: string | null;
-    extraDetailHtml: string[];
-    sourceRaw: unknown;
   }[]> {
     return this.prisma.salesProduct.findMany({
       where: { organizationId },
@@ -985,9 +984,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         code: true,
         version: true,
         imageUrls: true,
-        detailHtml: true,
-        extraDetailHtml: true,
-        sourceRaw: true,
       },
       orderBy: { code: 'asc' },
     });
@@ -998,17 +994,11 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     salesProductId: string;
     expectedVersion: number;
     imageUrls: string[];
-    detailHtml?: string | null;
-    extraDetailHtml?: string[];
-    sourceRaw?: Record<string, unknown>;
   }): Promise<boolean> {
     const result = await this.prisma.salesProduct.updateMany({
       where: { id: input.salesProductId, organizationId: input.organizationId, version: input.expectedVersion },
       data: {
         imageUrls: input.imageUrls,
-        ...(input.detailHtml !== undefined ? { detailHtml: input.detailHtml } : {}),
-        ...(input.extraDetailHtml !== undefined ? { extraDetailHtml: input.extraDetailHtml } : {}),
-        ...(input.sourceRaw !== undefined ? { sourceRaw: input.sourceRaw as Prisma.InputJsonValue } : {}),
         version: { increment: 1 },
       },
     });
@@ -1071,7 +1061,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   async readMallSheetProducts(
     organizationId: string,
     salesProductIds: readonly string[],
-  ): Promise<MallSheetSourceProduct[]> {
+  ): Promise<Omit<MallSheetSourceProduct, 'detailHtml'>[]> {
     if (salesProductIds.length === 0) return [];
     const rows = await this.prisma.salesProduct.findMany({
       where: { organizationId, id: { in: [...salesProductIds] } },
@@ -1090,7 +1080,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         keywords: true,
         taxType: true,
         imageUrls: true,
-        detailHtml: true,
         noticeCategory: true,
         certifications: true,
         optionAxes: true,
@@ -1105,11 +1094,10 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           select: {
             id: true,
             channelAccountId: true,
-            displayName: true,
             registrationInput: true,
             selectedOptions: {
               orderBy: { sortOrder: 'asc' },
-              select: { salesProductOptionId: true, salePrice: true, normalPrice: true, supplyPrice: true },
+              select: { salesProductOptionId: true },
             },
             channelAccount: { select: { channel: true } },
           },
@@ -1132,7 +1120,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       salePrice: minimumOptionPrice(row.options),
       tagPrice: commonPrice(row.options.map((option) => option.normalPrice)),
       imageUrls: row.imageUrls,
-      detailHtml: row.detailHtml,
       noticeCategory: row.noticeCategory,
       certificationNumbers: parseCertifications(row.certifications).map((item) => item.number),
       optionAxes: row.optionAxes,
@@ -1197,7 +1184,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     });
     return rows.flatMap((row) => {
       const values = targetMallValues(row.registrationInput);
-      const path = values.categoryPath?.trim() || values.sabangnetCategoryPath?.trim() || '';
+      const path = targetMallCategory(row.registrationInput)?.trim() || values.sabangnetCategoryPath?.trim() || '';
       return path
         ? [{ salesProductId: row.salesProductId, mallKey: row.channelAccount.channel, path, name: row.salesProduct.name }]
         : [];
@@ -1219,12 +1206,9 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         });
         const target = await this.registrationTargets.get(organizationId, targetId);
         if (!target) throw new NotFoundException('등록 설정을 찾을 수 없습니다.');
-        const values = { ...targetMallValues(target.registrationInput), categoryPath: write.path };
         await this.registrationTargets.update(organizationId, target.id, {
-          expectedVersion: target.version,
-          displayName: target.displayName,
-          registrationInput: mergeTargetMallValues(target.registrationInput, values),
-          selectedOptions: target.selectedOptions,
+          ...editableTarget(target),
+          registrationInput: { ...target.registrationInput, mallCategory: { key: write.path, label: null } },
         });
         written += 1;
       }
@@ -1398,6 +1382,25 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
               productId = product.id;
               result.created += 1;
             }
+            // 판매 상품마다 활성 작업공간은 하나다 — 옮긴 상품도 같은 트랜잭션에서 만든다(KID-313 W2).
+            await this.contentWorkspaces.ensureSalesProductWorkspace(ownerTransaction(tx), {
+              organizationId,
+              salesProductId: productId,
+              displayName: write.create.name,
+              createdByUserId: null,
+            });
+            // 상세는 새로 만들거나 사람이 고른 상품에만 쌓는다. 사람이 고친 revision 은 덮지 않는다.
+            if (write.mode === 'upsert' && write.detail) {
+              await this.detailPages.importFromSource(ownerTransaction(tx), {
+                organizationId,
+                salesProductId: productId,
+                source: 'sabangnet',
+                html: write.detail.html,
+                extraHtml: write.detail.extraHtml,
+                digest: write.detail.digest,
+                createdByUserId: null,
+              });
+            }
             for (const override of write.overrides) {
               const targetCount = await tx.registrationTarget.count({
                 where: {
@@ -1439,8 +1442,7 @@ function basicsData(record: Partial<SalesProductBasicsRecord>): Prisma.SalesProd
   ([
     'name', 'ownCode', 'shortName', 'englishName', 'printName', 'modelName', 'modelNo', 'brand', 'manufacturer',
     'originCountry', 'originRegion', 'keywords', 'standardCategory', 'status', 'taxType', 'deliveryFeeType',
-    'deliveryFee', 'stockManaged', 'imageUrls', 'detailHtml',
-    'extraDetailHtml', 'noticeCategory', 'noticeValues', 'importDeclarationNo', 'adminMemo',
+    'deliveryFee', 'stockManaged', 'imageUrls', 'noticeCategory', 'noticeValues', 'importDeclarationNo', 'adminMemo',
     'description', 'targetAudience', 'ageGroup', 'productSize', 'colorVariantNames', 'boxSetQuantity',
     'kcStatus',
   ] as const).forEach(assign);
@@ -1509,113 +1511,42 @@ async function writeOptions(
   }
 }
 
-/** 사방넷 override DTO를 새 등록 대상의 옵션별 최종가로 한 번만 물질화한다. */
+/**
+ * 사방넷 몰별 값 줄로 이 몰 계정의 첫 등록 대상을 한 번만 만든다. 몰 전용 값만 두고, 파는 단품을 모두
+ * 고른다 — 이름 · 가격 · 상세는 판매 상품에서 읽는다(KID-313 W2).
+ */
 async function materializeImportedTarget(
   tx: Tx,
   organizationId: string,
   salesProductId: string,
   channelAccountId: string,
-  data: Partial<SalesProductChannelOverrideRecord>,
+  data: SalesProductChannelOverrideRecord,
 ): Promise<void> {
   const account = await tx.channelAccount.count({ where: { id: channelAccountId, organizationId, status: 'active' } });
   if (account !== 1) throw new NotFoundException('몰 계정을 찾지 못했습니다.');
   const options = await tx.salesProductOption.findMany({
     where: { organizationId, salesProductId, supplyStatus: { not: 'unused' } },
     orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
-    select: { id: true, sabangnetOptionCode: true },
+    select: { id: true },
   });
-  const salePricesByOptionId = resolveImportedOptionPrices(options, data);
+  const mallInput = emptyRegistrationMallInput();
   await tx.registrationTarget.create({
     data: {
       organizationId,
       salesProductId,
       channelAccountId,
-      displayName: data.name ?? null,
-      registrationInput: importedRegistrationInput(data) as Prisma.InputJsonValue,
+      registrationInput: {
+        ...mallInput,
+        mallFields: {
+          ...(data.stockPercent !== null ? { stockPercent: data.stockPercent } : {}),
+          ...(isStringRecord(data.adapterValues) ? data.adapterValues : {}),
+        },
+      } as Prisma.InputJsonValue,
       selectedOptions: options.length === 0
         ? undefined
-        : {
-          createMany: {
-            data: options.map((option, sortOrder) => ({
-              salesProductOptionId: option.id,
-              sortOrder,
-              // Import writes already contain the resolved source price for
-              // each exact bootstrap option. Never flatten a scalar price
-              // across options or silently inherit a canonical price.
-              salePrice: salePricesByOptionId.get(option.id) ?? null,
-              normalPrice: null,
-              supplyPrice: null,
-            })),
-          },
-        },
+        : { createMany: { data: options.map((option, sortOrder) => ({ salesProductOptionId: option.id, sortOrder })) } },
     },
   });
-}
-
-function resolveImportedOptionPrices(
-  options: readonly { id: string; sabangnetOptionCode: string | null }[],
-  data: Partial<SalesProductChannelOverrideRecord>,
-): Map<string, number> {
-  const pricesByOptionId = new Map<string, number>();
-  const optionPrices = data.optionPrices;
-  const hasScalarPrice = data.salePrice !== undefined && data.salePrice !== null;
-  const hasRate = data.priceRateBp !== undefined && data.priceRateBp !== null;
-  if (optionPrices === undefined) {
-    if (hasScalarPrice || hasRate) {
-      throw new ConflictException('가격 비율만으로는 단품별 최종 판매가를 물질화할 수 없습니다. 최종 판매가를 다시 보내 주세요.');
-    }
-    return pricesByOptionId;
-  }
-  if (!Array.isArray(optionPrices)) {
-    throw new ConflictException('단품별 최종 판매가 형식이 올바르지 않습니다.');
-  }
-
-  const optionBySourceCode = new Map<string, { id: string }>();
-  for (const option of options) {
-    if (!option.sabangnetOptionCode) continue;
-    if (optionBySourceCode.has(option.sabangnetOptionCode)) {
-      throw new ConflictException(`사방넷 단품코드가 판매상품 안에서 겹칩니다: ${option.sabangnetOptionCode}`);
-    }
-    optionBySourceCode.set(option.sabangnetOptionCode, { id: option.id });
-  }
-  const seenSourceCodes = new Set<string>();
-  for (const entry of optionPrices) {
-    if (!entry || typeof entry.sabangnetOptionCode !== 'string' || entry.sabangnetOptionCode.trim() !== entry.sabangnetOptionCode) {
-      throw new ConflictException('단품별 최종 판매가에 사방넷 단품코드가 없습니다.');
-    }
-    const sourceCode = entry.sabangnetOptionCode;
-    if (!sourceCode || seenSourceCodes.has(sourceCode)) {
-      throw new ConflictException(`단품별 최종 판매가에 사방넷 단품코드가 겹칩니다: ${sourceCode || '(빈 값)'}`);
-    }
-    seenSourceCodes.add(sourceCode);
-    const option = optionBySourceCode.get(sourceCode);
-    if (!option) {
-      throw new ConflictException(`가져온 단품코드를 현재 판매상품에서 찾을 수 없습니다: ${sourceCode}`);
-    }
-    if (typeof entry.salePrice !== 'number'
-      || !Number.isSafeInteger(entry.salePrice)
-      || entry.salePrice < 0
-      || entry.salePrice > MAX_MONEY) {
-      throw new ConflictException(`단품 최종 판매가가 올바르지 않습니다: ${sourceCode}`);
-    }
-    pricesByOptionId.set(option.id, entry.salePrice);
-  }
-  for (const option of options) {
-    if (!option.sabangnetOptionCode || !seenSourceCodes.has(option.sabangnetOptionCode)) {
-      throw new ConflictException(`가져온 단품별 최종 판매가에 현재 단품이 빠졌습니다: ${option.sabangnetOptionCode ?? option.id}`);
-    }
-  }
-  return pricesByOptionId;
-}
-
-function importedRegistrationInput(data: Partial<SalesProductChannelOverrideRecord>): Record<string, unknown> {
-  const input: Record<string, unknown> = {};
-  if (data.detailHtml !== undefined) input.detailHtml = data.detailHtml;
-  if (data.promoText !== undefined) input.promoText = data.promoText;
-  if (data.noticeCategory !== undefined) input.noticeCategory = data.noticeCategory;
-  if (data.stockPercent !== undefined) input.stockPercent = data.stockPercent;
-  if (isStringRecord(data.adapterValues)) input.mallRegisterValues = data.adapterValues;
-  return input;
 }
 
 /**
@@ -1806,8 +1737,6 @@ function toSalesProduct(
     optionAxes: row.optionAxes,
     stockManaged: row.stockManaged,
     imageUrls: row.imageUrls,
-    detailHtml: row.detailHtml,
-    extraDetailHtml: row.extraDetailHtml,
     noticeCategory: row.noticeCategory,
     noticeValues: row.noticeValues,
     certifications: parseCertifications(row.certifications),
@@ -1851,7 +1780,7 @@ function toSalesProduct(
     })),
     // Legacy readers receive only an unambiguous derived projection. There is
     // no channel-overrides persistence layer anymore.
-    channelOverrides: projectCompatibilityOverrides(row.registrationTargets),
+    channelOverrides: projectCompatibilityOverrides(row.registrationTargets, row.options),
     channelListings: row.channelListings.map((listing) => ({
       id: listing.id,
       channelAccountId: listing.channelAccountId,
@@ -1894,8 +1823,6 @@ function importBasics(row: Prisma.SalesProductGetPayload<Record<string, never>>)
     deliveryFee: row.deliveryFee,
     stockManaged: row.stockManaged,
     imageUrls: row.imageUrls,
-    detailHtml: row.detailHtml,
-    extraDetailHtml: row.extraDetailHtml,
     noticeCategory: row.noticeCategory,
     noticeValues: row.noticeValues,
     certifications: parseCertifications(row.certifications),
@@ -1922,15 +1849,33 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return isJsonRecord(value) && Object.values(value).every((item) => typeof item === 'string');
 }
 
+/** 등록 대상의 몰 전용 칸 중 글자 값 — 몰 시트 · 사방넷 몰 값이 읽는 모양이다. */
 function targetMallValues(value: unknown): Record<string, string> {
-  const input = asJsonRecord(value);
-  const nested = isStringRecord(input.mallRegisterValues) ? input.mallRegisterValues : null;
-  if (nested) return nested;
-  return isStringRecord(input.adapterValues) ? input.adapterValues : {};
+  const fields = asJsonRecord(asJsonRecord(value).mallFields);
+  return Object.fromEntries(Object.entries(fields).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
 }
 
-function mergeTargetMallValues(current: unknown, values: Record<string, string>): Record<string, unknown> {
-  return { ...asJsonRecord(current), mallRegisterValues: values };
+/** 사람이 고른 이 몰의 카테고리 경로(`mallCategory.key`). */
+function targetMallCategory(value: unknown): string | null {
+  const category = asJsonRecord(asJsonRecord(value).mallCategory);
+  return typeof category.key === 'string' ? category.key : null;
+}
+
+/** 글자 칸을 통째로 바꾸고 숫자 · 참거짓 칸은 그대로 둔다. */
+function withMallFields(input: RegistrationMallInput, values: Record<string, string>): RegistrationMallInput {
+  const kept = Object.fromEntries(Object.entries(input.mallFields).filter(([, value]) => typeof value !== 'string'));
+  return { ...input, mallFields: { ...kept, ...values } };
+}
+
+/** update 가 받는 편집 값 그대로 — 바꿀 칸만 덮어 쓴다. */
+function editableTarget(target: RegistrationTargetRecord) {
+  return {
+    expectedVersion: target.version,
+    registrationInput: target.registrationInput,
+    selectedThumbnailAssetId: target.selectedThumbnailAssetId,
+    selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
+    selectedOptions: target.selectedOptions,
+  };
 }
 
 function commonPrice(values: readonly (number | null)[]): number | null {
@@ -1939,34 +1884,38 @@ function commonPrice(values: readonly (number | null)[]): number | null {
   return new Set(known).size === 1 ? known[0]! : null;
 }
 
+/**
+ * 옛 화면이 읽는 몰별 값 요약. 등록 대상은 이름 · 가격 · 홍보문 · 고시를 갖지 않으므로(KID-313 W2) 판매가는
+ * 고른 단품의 판매 상품 가격이 하나로 모일 때 그 값이고, 나머지는 비어 있다.
+ */
 function projectCompatibilityOverrides(
   targets: readonly {
     id: string;
     channelAccountId: string;
     version: number;
-    displayName: string | null;
     registrationInput: unknown;
     updatedAt: Date;
     channelAccount: { channel: string; name: string };
-    selectedOptions: readonly { salePrice: number | null }[];
+    selectedOptions: readonly { salesProductOptionId: string }[];
   }[],
+  options: readonly { id: string; salePrice: number | null }[],
 ): SalesProduct['channelOverrides'] {
+  const priceById = new Map(options.map((option) => [option.id, option.salePrice]));
   const countByAccount = new Map<string, number>();
   for (const target of targets) countByAccount.set(target.channelAccountId, (countByAccount.get(target.channelAccountId) ?? 0) + 1);
   return targets.filter((target) => countByAccount.get(target.channelAccountId) === 1).map((target) => {
-    const input = asJsonRecord(target.registrationInput);
     const values = targetMallValues(target.registrationInput);
+    const stockPercent = asJsonRecord(asJsonRecord(target.registrationInput).mallFields).stockPercent;
     return {
       id: target.id,
       channelAccountId: target.channelAccountId,
       mallKey: target.channelAccount.channel,
       mallName: target.channelAccount.name,
-      salePrice: commonPrice(target.selectedOptions.map((option) => option.salePrice)),
-      name: target.displayName,
-      detailHtml: typeof input.detailHtml === 'string' ? input.detailHtml : null,
-      promoText: typeof input.promoText === 'string' ? input.promoText : null,
-      noticeCategory: typeof input.noticeCategory === 'string' ? input.noticeCategory : null,
-      stockPercent: typeof input.stockPercent === 'number' ? input.stockPercent : null,
+      salePrice: commonPrice(target.selectedOptions.map((option) => priceById.get(option.salesProductOptionId) ?? null)),
+      name: null,
+      promoText: null,
+      noticeCategory: null,
+      stockPercent: typeof stockPercent === 'number' ? stockPercent : null,
       adapterValues: Object.keys(values).length > 0 ? values : null,
       version: target.version,
       updatedAt: target.updatedAt,
@@ -1977,15 +1926,8 @@ function projectCompatibilityOverrides(
 function projectMallSheetOverrides(
   targets: readonly {
     id: string;
-    channelAccountId: string;
-    displayName: string | null;
     registrationInput: unknown;
-    selectedOptions: readonly {
-      salesProductOptionId: string;
-      salePrice: number | null;
-      normalPrice: number | null;
-      supplyPrice: number | null;
-    }[];
+    selectedOptions: readonly { salesProductOptionId: string }[];
     channelAccount: { channel: string };
   }[],
 ): MallSheetSourceProduct['overrides'] {
@@ -1993,24 +1935,9 @@ function projectMallSheetOverrides(
     mallKey: target.channelAccount.channel,
     targetId: target.id,
     selectedOptionIds: target.selectedOptions.map((option) => option.salesProductOptionId),
-    salePrice: commonPrice(target.selectedOptions.map((option) => option.salePrice)),
-    priceRateBp: null,
-    name: target.displayName,
-    detailHtml: textValue(target.registrationInput, 'detailHtml'),
-    promoText: textValue(target.registrationInput, 'promoText'),
-    optionPrices: target.selectedOptions.map((option) => ({
-      salesProductOptionId: option.salesProductOptionId,
-      salePrice: option.salePrice,
-      normalPrice: option.normalPrice,
-      supplyPrice: option.supplyPrice,
-    })),
+    categoryPath: targetMallCategory(target.registrationInput),
     adapterValues: targetMallValues(target.registrationInput),
   }));
-}
-
-function textValue(value: unknown, key: string): string | null {
-  const item = asJsonRecord(value)[key];
-  return typeof item === 'string' ? item : null;
 }
 
 function groupIds<T>(items: readonly T[], key: (item: T) => string, value: (item: T) => string): Map<string, string[]> {

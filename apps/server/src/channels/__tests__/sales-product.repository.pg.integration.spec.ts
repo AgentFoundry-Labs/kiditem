@@ -1,4 +1,4 @@
-import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
+import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -9,7 +9,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { MallPriceAdoptionWrite } from '../domain/sales-product/sales-product-mall-prices';
 import type { SabangnetImportProductWrite } from '../application/port/out/persistence/sales-product.repository.port';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
-import type { SalesProductListQuery } from '@kiditem/shared/sales-product';
+import type { RegistrationMallInput, SalesProductListQuery } from '@kiditem/shared/sales-product';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -23,9 +23,13 @@ import * as XLSX from 'xlsx';
 import { SabangnetProductImportService } from '../application/service/collection/sabangnet-product-import.service';
 import { SalesProductLinkService } from '../application/service/sales-product/sales-product-link.service';
 import { SalesProductImageService } from '../application/service/sales-product/sales-product-image.service';
+import { SalesProductMallSheetService } from '../application/service/sales-product/sales-product-mall-sheet.service';
 import { ChannelsDocumentsAdapter } from '../adapter/out/documents/channel-documents.adapter';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { mirroredImageKey } from '../domain/sales-product/sales-product-images';
+import type { ChannelRegistrableDetailPagePort } from '../application/port/out/content/registrable-detail-page.port';
+import { DetailPageQueryRepositoryAdapter } from '../../content/adapter/out/repository/detail-page-query.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from '../../content/adapter/out/repository/content-asset-library.repository.adapter';
 import type { SalesProductImageMirrorPort } from '../application/port/out/storage/sales-product-image-mirror.port';
 import type { ProductSourceReadPort } from '../../products/application/port/in/product-source-read.port';
 import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
@@ -46,7 +50,8 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
       undefined as never,
       targets,
     realRegistrationContentWorkspace(prisma),
-  );
+      realRegistrableDetailPages(prisma),
+    );
   });
 
   afterAll(async () => {
@@ -64,8 +69,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     const targetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: accountId,
-      displayName: null,
-      registrationInput: {},
+      registrationInput: mallInput(),
       selectedOptions: [selected(options[0]!.id, { salePrice: 1_500 }), selected(options[1]!.id, { salePrice: 2_500 })],
     });
 
@@ -93,8 +97,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     const targetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: accountId,
-      displayName: null,
-      registrationInput: {},
+      registrationInput: mallInput(),
       selectedOptions: [selected(options[0]!.id)],
     });
 
@@ -118,8 +121,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     const targetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: accountId,
-      displayName: null,
-      registrationInput: {},
+      registrationInput: mallInput(),
       selectedOptions: [selected(options[0]!.id)],
     });
     const baseWrite = write({
@@ -161,8 +163,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     const firstTargetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: accountId,
-      displayName: '첫 대상',
-      registrationInput: {},
+      registrationInput: mallInput(),
       selectedOptions: [selected(options[0]!.id)],
     });
 
@@ -180,8 +181,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     const otherTargetId = await targets.create(OTHER_ORGANIZATION_ID, {
       salesProductId: otherProduct.productId,
       channelAccountId: otherAccountId,
-      displayName: null,
-      registrationInput: {},
+      registrationInput: mallInput(),
       selectedOptions: [selected(otherProduct.options[0]!.id)],
     });
     await expect(repository.setChannelOverrideSalePrices(TEST_ORGANIZATION_ID, [write({
@@ -201,32 +201,26 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     const firstTargetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: accountId,
-      displayName: '기본 등록',
-      registrationInput: { mallRegisterValues: { categoryPath: '완구>블록' } },
-      selectedOptions: [selected(options[0]!.id, { salePrice: 3_300, supplyPrice: 2_000 })],
+      registrationInput: mallInput({ mallCategory: { key: '완구>블록', label: null }, mallFields: { supplyPrice: '2000', stockPercent: 30 } }),
+      selectedOptions: [selected(options[0]!.id)],
     });
     const secondTargetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: secondAccountId,
-      displayName: '별도 몰 등록',
-      registrationInput: {},
-      selectedOptions: [
-        selected(options[0]!.id, { salePrice: 7_700 }),
-        selected(options[1]!.id, { salePrice: 8_800 }),
-      ],
+      registrationInput: mallInput(),
+      selectedOptions: [selected(options[0]!.id), selected(options[1]!.id)],
     });
     const channel = (await prisma.channelAccount.findUniqueOrThrow({ where: { id: accountId } })).channel;
     const secondChannel = (await prisma.channelAccount.findUniqueOrThrow({ where: { id: secondAccountId } })).channel;
 
     const [product] = await repository.readMallSheetProducts(TEST_ORGANIZATION_ID, [productId]);
-    expect(product!.overrides.map((item) => [item.targetId, item.mallKey, item.name, item.selectedOptionIds?.length]))
+    expect(product!.overrides.map((item) => [item.targetId, item.mallKey, item.selectedOptionIds?.length]))
       .toEqual([
-        [firstTargetId, channel, '기본 등록', 1],
-        [secondTargetId, secondChannel, '별도 몰 등록', 2],
+        [firstTargetId, channel, 1],
+        [secondTargetId, secondChannel, 2],
       ]);
-    expect(product!.overrides[0]!.optionPrices)
-      .toEqual([{ salesProductOptionId: options[0]!.id, salePrice: 3_300, normalPrice: null, supplyPrice: 2_000 }]);
-    expect(product!.overrides[0]!.adapterValues).toEqual({ categoryPath: '완구>블록' });
+    // 몰 시트는 고른 카테고리와 글자 칸만 받는다 — 이름 · 가격은 판매 상품에서 온다(KID-313 W2).
+    expect(product!.overrides[0]).toMatchObject({ categoryPath: '완구>블록', adapterValues: { supplyPrice: '2000' } });
 
     await expect(repository.readMallSheetProducts(OTHER_ORGANIZATION_ID, [productId])).resolves.toEqual([]);
   });
@@ -242,15 +236,13 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     const targetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: accountId,
-      displayName: '기본 등록',
-      registrationInput: {},
+      registrationInput: mallInput(),
       selectedOptions: [selected(options[0]!.id)],
     });
     const otherMallTargetId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: otherAccountId,
-      displayName: '다른 몰 등록',
-      registrationInput: {},
+      registrationInput: mallInput(),
       selectedOptions: [selected(options[1]!.id)],
     });
 
@@ -259,7 +251,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     ])).resolves.toBe(1);
     await expect(targets.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
       version: 2,
-      registrationInput: { mallRegisterValues: { categoryPath: '완구>블록' } },
+      registrationInput: { mallCategory: { key: '완구>블록', label: null } },
     });
     await expect(targets.get(TEST_ORGANIZATION_ID, otherMallTargetId)).resolves.toMatchObject({ version: 1 });
   });
@@ -272,8 +264,7 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     const strangerId = await targets.create(TEST_ORGANIZATION_ID, {
       salesProductId: otherProduct.productId,
       channelAccountId: otherAccountId,
-      displayName: null,
-      registrationInput: {},
+      registrationInput: mallInput(),
       selectedOptions: [selected(otherProduct.options[0]!.id)],
     });
 
@@ -296,32 +287,12 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     const made = await prisma.registrationTarget.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, channelAccountId: accountId },
     });
-    expect(made.registrationInput).toEqual({ mallRegisterValues: { categoryPath: '완구>블록' } });
+    expect(made.registrationInput).toEqual({ mallCategory: { key: '완구>블록', label: null }, mallFields: {}, adapter: {} });
   });
 
-  it('does not silently ignore a legacy rate-only import', async () => {
+  it('makes the first setting of an imported mall with its mall-only values, selecting every option and no price', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    const input = importWrite(accountId);
-
-    await expect(repository.importSabangnet(TEST_ORGANIZATION_ID, [input]))
-      .rejects.toThrow('가격 비율만으로는 단품별 최종 판매가를 물질화할 수 없습니다.');
-    await expect(prisma.salesProduct.findFirst({
-      where: { organizationId: TEST_ORGANIZATION_ID, code: input.create.code },
-    })).resolves.toBeNull();
-  });
-
-  it('materializes typed source option prices by exact bootstrap code', async () => {
-    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    const input = importWrite(accountId, {
-      sourceOptionCodes: ['SOURCE-B', 'SOURCE-A'],
-      optionPrices: [
-        { sabangnetOptionCode: 'SOURCE-A', salePrice: 111 },
-        { sabangnetOptionCode: 'SOURCE-B', salePrice: 222 },
-      ],
-      // A legacy scalar must not flatten the per-option values.
-      salePrice: 9_999,
-      priceRateBp: null,
-    });
+    const input = importWrite(accountId, { sourceOptionCodes: ['SOURCE-B', 'SOURCE-A'], stockPercent: 40 });
 
     await expect(repository.importSabangnet(TEST_ORGANIZATION_ID, [input])).resolves.toMatchObject({
       created: 1,
@@ -329,87 +300,39 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     });
     const product = await prisma.salesProduct.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, code: input.create.code },
-      select: { id: true },
+      select: { id: true, options: { orderBy: { sortOrder: 'asc' }, select: { id: true } } },
     });
     await expect(prisma.registrationTarget.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id, channelAccountId: accountId },
       include: { selectedOptions: { orderBy: { sortOrder: 'asc' } } },
     })).resolves.toMatchObject({
-      selectedOptions: [
-        { salePrice: 222 },
-        { salePrice: 111 },
-      ],
+      registrationInput: { mallCategory: null, mallFields: { stockPercent: 40 }, adapter: {} },
+      selectedOptions: product.options.map((option) => ({ salesProductOptionId: option.id })),
     });
   });
 
-  it('rejects missing or duplicate exact source option mappings', async () => {
+  it('leaves an existing registration target alone during reimport', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    const missing = importWrite(accountId, {
-      sourceOptionCodes: ['SOURCE-A', 'SOURCE-B'],
-      optionPrices: [{ sabangnetOptionCode: 'SOURCE-A', salePrice: 111 }],
-      priceRateBp: null,
-    });
-    await expect(repository.importSabangnet(TEST_ORGANIZATION_ID, [missing]))
-      .rejects.toThrow(/가져온 단품별 최종 판매가에 현재 단품이 빠졌습니다/);
-    await expect(prisma.salesProduct.findFirst({
-      where: { organizationId: TEST_ORGANIZATION_ID, code: missing.create.code },
-    })).resolves.toBeNull();
-
-    const duplicate = importWrite(accountId, {
-      sourceOptionCodes: ['SOURCE-C'],
-      optionPrices: [
-        { sabangnetOptionCode: 'SOURCE-C', salePrice: 111 },
-        { sabangnetOptionCode: 'SOURCE-C', salePrice: 222 },
-      ],
-      priceRateBp: null,
-    });
-    await expect(repository.importSabangnet(TEST_ORGANIZATION_ID, [duplicate]))
-      .rejects.toThrow(/단품별 최종 판매가에 사방넷 단품코드가 겹칩니다/);
-  });
-
-  it('preserves an edited registration target during reimport', async () => {
-    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    const first = importWrite(accountId, {
-      optionPrices: [{ sabangnetOptionCode: 'SOURCE-EDIT', salePrice: 111 }],
-      priceRateBp: null,
-    });
+    const first = importWrite(accountId, { stockPercent: 40 });
     await repository.importSabangnet(TEST_ORGANIZATION_ID, [first]);
     const product = await prisma.salesProduct.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, code: first.create.code },
       select: { id: true },
     });
-    const targetBefore = await prisma.registrationTarget.findFirstOrThrow({
+    const target = await prisma.registrationTarget.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id, channelAccountId: accountId },
       select: { id: true },
     });
-    await prisma.registrationTargetOption.updateMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: targetBefore.id },
-      data: { salePrice: 777 },
-    });
+    const edited = { mallCategory: { key: '사람이 고른 분류', label: null }, mallFields: { stockPercent: 70 }, adapter: {} };
+    await prisma.registrationTarget.update({ where: { id: target.id }, data: { registrationInput: edited } });
 
-    // 상품 × 몰 계정당 설정 하나이므로, 손으로 만든 편집값은 다른 몰 계정의 설정이다.
-    const otherAccountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    const secondTarget = await prisma.registrationTarget.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id,
-        channelAccountId: otherAccountId, displayName: '기획전 편집값' },
-    });
-    const second = importWrite(accountId, {
-      code: first.create.code!,
-      optionPrices: [{ sabangnetOptionCode: 'SOURCE-EDIT', salePrice: 999 }],
-      priceRateBp: null,
-    });
-    await expect(repository.importSabangnet(TEST_ORGANIZATION_ID, [second])).resolves.toMatchObject({
-      unchanged: 1,
-      overridesSaved: 0,
-    });
-    await expect(prisma.registrationTargetOption.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: targetBefore.id },
-      select: { salePrice: true },
-    })).resolves.toEqual({ salePrice: 777 });
-    await expect(prisma.registrationTarget.findFirstOrThrow({
-      where: { id: secondTarget.id, organizationId: TEST_ORGANIZATION_ID },
-      select: { displayName: true },
-    })).resolves.toEqual({ displayName: '기획전 편집값' });
+    await expect(repository.importSabangnet(TEST_ORGANIZATION_ID, [
+      importWrite(accountId, { code: first.create.code!, stockPercent: 10 }),
+    ])).resolves.toMatchObject({ overridesSaved: 0 });
+    await expect(prisma.registrationTarget.findUniqueOrThrow({
+      where: { id: target.id },
+      select: { registrationInput: true },
+    })).resolves.toEqual({ registrationInput: edited });
   });
 });
 
@@ -418,6 +341,10 @@ function write(input: Omit<MallPriceAdoptionWrite, 'salePrice'> & Partial<Pick<M
     ...input,
     salePrice: input.salePrice ?? input.optionPrices[0]!.salePrice,
   };
+}
+
+function mallInput(overrides: Partial<RegistrationMallInput> = {}): RegistrationMallInput {
+  return { mallCategory: null, mallFields: {}, adapter: {}, ...overrides };
 }
 
 function selected(
@@ -474,7 +401,7 @@ function emptyBasics(name: string) {
     brand: null, manufacturer: null, originCountry: null, originRegion: null, keywords: [], standardCategory: null,
     description: '', targetAudience: null, ageGroup: null, productSize: null, colorVariantNames: [],
     boxSetQuantity: null, registrationDefaults: null, taxType: 'taxable' as const, deliveryFeeType: null,
-    deliveryFee: null, stockManaged: false, imageUrls: [], detailHtml: null, extraDetailHtml: [], noticeCategory: null,
+    deliveryFee: null, stockManaged: false, imageUrls: [], noticeCategory: null,
     noticeValues: [], certifications: [], kcStatus: 'unknown' as const, importDeclarationNo: null, adminMemo: null,
   };
 }
@@ -525,56 +452,17 @@ function importWrite(channelAccountId: string, options: {
   code?: string;
   mode?: SabangnetImportProductWrite['mode'];
   sourceOptionCodes?: readonly string[];
-  optionPrices?: readonly { sabangnetOptionCode: string; salePrice: number }[];
-  salePrice?: number | null;
-  priceRateBp?: number | null;
+  stockPercent?: number | null;
 } = {}): SabangnetImportProductWrite {
   const code = options.code ?? `IMPORT-${randomUUID().slice(0, 8)}`;
-  const sourceOptionCodes = options.sourceOptionCodes
-    ?? options.optionPrices?.map((option) => option.sabangnetOptionCode)
-    ?? [`${code}-0001`];
-  const priceRateBp = Object.prototype.hasOwnProperty.call(options, 'priceRateBp')
-    ? options.priceRateBp ?? null
-    : options.optionPrices ? null : 10_000;
+  const sourceOptionCodes = options.sourceOptionCodes ?? [`${code}-0001`];
   return {
     mode: options.mode ?? 'upsert',
     create: {
       code,
       sabangnetGoodsNo: code,
-      name: '가져오기 상품',
-      description: '',
-      targetAudience: null,
-      ageGroup: null,
-      productSize: null,
-      colorVariantNames: [],
-      boxSetQuantity: null,
-      registrationDefaults: null,
-      kcStatus: 'unknown' as const,
-      ownCode: null,
-      shortName: null,
-      englishName: null,
-      printName: null,
-      modelName: null,
-      modelNo: null,
-      brand: null,
-      manufacturer: null,
-      originCountry: null,
-      originRegion: null,
-      keywords: [],
-      standardCategory: null,
+      ...emptyBasics('가져오기 상품'),
       status: 'active',
-      taxType: 'taxable',
-      deliveryFeeType: null,
-      deliveryFee: null,
-      stockManaged: false,
-      imageUrls: [],
-      detailHtml: null,
-      extraDetailHtml: [],
-      noticeCategory: null,
-      noticeValues: [],
-      certifications: [],
-      importDeclarationNo: null,
-      adminMemo: null,
       optionAxes: ['색상'],
       sourceRaw: null,
     },
@@ -597,20 +485,8 @@ function importWrite(channelAccountId: string, options: {
       retireIds: [],
       deleteIds: [],
     },
-    overrides: [{
-      channelAccountId,
-      data: {
-        optionPrices: options.optionPrices,
-        salePrice: options.salePrice ?? null,
-        priceRateBp,
-        costPrice: null,
-        name: null,
-        detailHtml: null,
-        promoText: null,
-        noticeCategory: null,
-        stockPercent: null,
-      },
-    }],
+    overrides: [{ channelAccountId, data: { stockPercent: options.stockPercent ?? null } }],
+    detail: null,
   };
 }
 
@@ -638,7 +514,8 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       productsRead,
       new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead(), realRegistrationContentWorkspace(prisma)),
     realRegistrationContentWorkspace(prisma),
-  );
+      realRegistrableDetailPages(prisma),
+    );
     service = new SalesProductUseCase(repository, ...realDraftDeletionPorts(prisma));
   });
 
@@ -775,8 +652,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       .create(TEST_ORGANIZATION_ID, {
         salesProductId: created.id,
         channelAccountId: accountId,
-        displayName: null,
-        registrationInput: {},
+        registrationInput: mallInput(),
         selectedOptions: [selected(before!.options[0]!.id)],
       });
 
@@ -876,6 +752,22 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
   let service: SabangnetProductImportService;
   let imageMirror: SalesProductImageService;
   let mirroredUrl: (url: string) => string;
+  let detailPages: ChannelRegistrableDetailPagePort;
+  let editor: DetailPageQueryRepositoryAdapter;
+
+  async function detail() {
+    const { id } = await product();
+    return detailPages.read({ organizationId: TEST_ORGANIZATION_ID, salesProductId: id, selectedDetailPageRevisionId: null });
+  }
+
+  async function revisions() {
+    const { id } = await product();
+    return prisma.detailPageRevision.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, artifact: { contentWorkspace: { salesProductId: id } } },
+      orderBy: { createdAt: 'asc' },
+      select: { revisionType: true, html: true },
+    });
+  }
 
   type Row = Partial<Record<(typeof HEADERS)[number], string | number>>;
   function file(row: Row) {
@@ -917,7 +809,8 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
       productTransactionalRead(),
       new RegistrationTargetRepositoryAdapter(prismaService, productTransactionalRead(), realRegistrationContentWorkspace(prismaService)),
     realRegistrationContentWorkspace(prismaService),
-  );
+      realRegistrableDetailPages(prismaService),
+    );
     const logger = { log() {}, warn() {} };
     // 사진 저장소는 바깥 경계다 — 옮긴 주소만 정해 준다.
     const images: SalesProductImageMirrorPort = {
@@ -937,7 +830,9 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
       logger,
       integrity,
     );
-    imageMirror = new SalesProductImageService(repository, images, logger, integrity, new ChannelsDocumentsAdapter());
+    imageMirror = new SalesProductImageService(repository, images, logger, integrity);
+    detailPages = realRegistrableDetailPages(prismaService);
+    editor = new DetailPageQueryRepositoryAdapter(prismaService, new ContentAssetLibraryRepositoryAdapter(prismaService));
   });
 
   afterAll(async () => {
@@ -972,7 +867,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
       changed: true,
       baselineOnly: false,
       preserved: ['imageUrls', 'noticeValues', 'certifications', 'kcStatus', 'adminMemo'],
-      updated: ['name', 'brand', 'detailHtml'],
+      updated: ['name', 'brand'],
     })]);
     const after = await product();
     expect(after).toMatchObject({
@@ -981,7 +876,6 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
       ownCode: OWN_CODE,
       name: '투명우산 그리기 세트',
       brand: '새 브랜드',
-      detailHtml: '<p>상세 2</p>',
       noticeValues: ['면', '한국'],
       kcStatus: 'none',
       certifications: null,
@@ -1028,30 +922,43 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     });
   });
 
-  it('takes a new file detail after the mirror job rewrote the imported detail images', async () => {
-    const imported = `<p><img src="${IMAGE_A}"></p>`;
-    await service.import(TEST_ORGANIZATION_ID, file({ 상품상세설명: imported }), false);
-    await imageMirror.mirror(TEST_ORGANIZATION_ID);
-    await expect(product()).resolves.toMatchObject({ detailHtml: `<p><img src="${mirroredUrl(IMAGE_A)}"></p>` });
+  it('puts the file detail in the product\'s content as its first revision, and a same-detail reimport adds none', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({ 상품상세설명: '<p>상세 1</p>' }), false);
 
-    const { preview } = await reimport({ 상품상세설명: '<p>상세 2</p>' });
+    await expect(prisma.contentWorkspace.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: (await product()).id, status: 'active', isDeleted: false },
+    })).resolves.toBe(1);
+    await expect(detail()).resolves.toMatchObject({ html: '<p>상세 1</p>' });
 
-    expect(preview.existingChanges[0]!.preserved).not.toContain('detailHtml');
-    await expect(product()).resolves.toMatchObject({ detailHtml: '<p>상세 2</p>' });
+    await reimport({ 상품상세설명: '<p>상세 1</p>', 관리자메모: '사방넷 메모 2' });
+    await expect(revisions()).resolves.toEqual([{ revisionType: 'imported', html: '<p>상세 1</p>' }]);
+
+    await reimport({ 상품상세설명: '<p>상세 2</p>' });
+    await expect(detail()).resolves.toMatchObject({ html: '<p>상세 2</p>' });
   });
 
-  it('keeps an operator-edited detail across a mirror and a reimport', async () => {
+  it('keeps an operator-edited detail current across a reimport — the new file detail only joins the history', async () => {
     await service.import(TEST_ORGANIZATION_ID, file({}), false);
-    const imported = await product();
-    const edited = `<p>운영자 상세 <img src="${IMAGE_A}"></p>`;
-    await prisma.salesProduct.update({ where: { id: imported.id }, data: { detailHtml: edited } });
-    await imageMirror.mirror(TEST_ORGANIZATION_ID);
+    const generation = await prisma.contentGeneration.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, contentType: 'detail_page' },
+    });
+    await editor.saveEditedHtmlRevision({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentGenerationId: generation.id,
+      html: '<p>운영자 상세</p>',
+      assetUrlMap: {},
+      imageUrls: [],
+      savedAt: new Date(),
+    });
 
     await reimport({ 상품상세설명: '<p>상세 2</p>' });
 
-    await expect(product()).resolves.toMatchObject({
-      detailHtml: `<p>운영자 상세 <img src="${mirroredUrl(IMAGE_A)}"></p>`,
-    });
+    await expect(detail()).resolves.toMatchObject({ html: '<p>운영자 상세</p>' });
+    await expect(revisions()).resolves.toEqual([
+      { revisionType: 'imported', html: '<p>상세 1</p>' },
+      { revisionType: 'manual_edit', html: '<p>운영자 상세</p>' },
+      { revisionType: 'imported', html: '<p>상세 2</p>' },
+    ]);
   });
 
   it('never matches a draft by own code — the row becomes an issue naming the draft and the rest of the file still lands', async () => {
@@ -1129,6 +1036,46 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
   });
 });
 
+describe('mall sheets read the detail from the product\'s content revision (PostgreSQL)', () => {
+  let prisma: PrismaClient;
+  let repository: SalesProductRepositoryAdapter;
+  let sheets: SalesProductMallSheetService;
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    const prismaService = prisma as unknown as PrismaService;
+    repository = new SalesProductRepositoryAdapter(
+      prismaService,
+      productTransactionalRead(),
+      new RegistrationTargetRepositoryAdapter(prismaService, productTransactionalRead(), realRegistrationContentWorkspace(prismaService)),
+      realRegistrationContentWorkspace(prismaService),
+      realRegistrableDetailPages(prismaService),
+    );
+    // 몰 양식 파일 · 카테고리표는 저장소 경계 밖이다 — 빈 표면 된다.
+    const files = {
+      categoryTables: async () => ({ paths: {}, esmBySite: {}, coupang: {}, icecream: { byCode: {}, ambiguous: {}, notices: {}, brands: {} } }),
+      write: async () => Buffer.from('sheet'),
+    } as unknown as ConstructorParameters<typeof SalesProductMallSheetService>[1];
+    sheets = new SalesProductMallSheetService(repository, files, { log() {}, warn() {} }, realRegistrableDetailPages(prismaService));
+  });
+  afterAll(async () => { await prisma?.$disconnect(); });
+  beforeEach(async () => { await resetDb(prisma); await seedBaseFixture(prisma); });
+
+  it('puts the current revision into the mall sheet and blocks a product whose content has none', async () => {
+    const withDetail = importWrite(await createAccount(prisma, TEST_ORGANIZATION_ID));
+    withDetail.detail = { html: '<p>콘텐츠 상세</p>', extraHtml: [], digest: 'digest-1' };
+    const withoutDetail = importWrite(await createAccount(prisma, TEST_ORGANIZATION_ID));
+    await repository.importSabangnet(TEST_ORGANIZATION_ID, [withDetail, withoutDetail]);
+    const ids = await repository.readProductIdsByCodes(TEST_ORGANIZATION_ID, [withDetail.create.code!, withoutDetail.create.code!]);
+
+    const check = await sheets.check(TEST_ORGANIZATION_ID, 'teacherville', { salesProductIds: [...ids.values()] });
+    const problems = Object.fromEntries(check.products.map((item) => [item.salesProductId, item.problems]));
+    expect(problems[ids.get(withDetail.create.code!)!]).not.toContain('상세설명이 비어 있습니다.');
+    expect(problems[ids.get(withoutDetail.create.code!)!]).toContain('상세설명이 비어 있습니다.');
+  });
+});
+
 describe('sales product reference cost (PostgreSQL)', () => {
   let prisma: PrismaClient;
   let repository: SalesProductRepositoryAdapter;
@@ -1142,7 +1089,8 @@ describe('sales product reference cost (PostgreSQL)', () => {
       new ProductTransactionalReadRepositoryAdapter() as unknown as ConstructorParameters<typeof SalesProductRepositoryAdapter>[1],
       new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead(), realRegistrationContentWorkspace(prisma)),
     realRegistrationContentWorkspace(prisma),
-  );
+      realRegistrableDetailPages(prisma),
+    );
   });
 
   afterAll(async () => {

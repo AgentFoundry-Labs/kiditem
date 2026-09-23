@@ -1,7 +1,6 @@
 import type { SalesProductImagePort } from "../../port/in/sales-product/sales-product-image.port";
 import type { ChannelIntegrityPort } from '../../port/out/integrity/channel-integrity.port';
 import type { ChannelActivityPort } from '../../port/out/alerts/channel-activity.port';
-import type { ChannelDocumentsPort } from '../../port/out/documents/channel-documents.port';
 
 import type {
   SalesProductExternalImages,
@@ -11,10 +10,8 @@ import {
   imageReferenceUrls,
   normalizeImageReferenceUrl,
   pendingMirrorImages,
-  rewriteImageHtml,
   rewriteImageUrls,
   type PendingMirrorImage,
-  type SalesProductImageSnapshot,
 } from '../../../domain/sales-product/sales-product-images';
 import {
   SALES_PRODUCT_REPOSITORY_PORT,
@@ -30,16 +27,9 @@ const DEFAULT_BATCH = 60;
 const MAX_BATCH = 200;
 const CONCURRENCY = 6;
 
-type ProductImageRow = SalesProductImageSnapshot & {
-  id: string;
-  version: number;
-  detailHtml: string | null;
-  extraDetailHtml: string[];
-  sourceRaw: unknown;
-};
 
 /**
- * 사방넷 서버의 판매상품 사진을 우리 저장소로 옮긴다(ADR-0014). 한 번에 한 묶음씩 옮기고, 판매상품은 버전이 그대로일
+ * 사방넷 서버의 판매상품 대표 · 추가 사진을 우리 저장소로 옮긴다(ADR-0014). 한 번에 한 묶음씩 옮기고, 판매상품은 버전이 그대로일
  * 때만 고친다 — 그사이 사람이 고쳤으면 그 상품은 다음 묶음에서 다시 옮긴다.
  */
 
@@ -53,7 +43,6 @@ export class SalesProductImageService implements SalesProductImagePort {
     private readonly images: SalesProductImageMirrorPort,
     private readonly logger: ChannelActivityPort,
     private readonly integrity: ChannelIntegrityPort,
-    private readonly documents: ChannelDocumentsPort,
   ) {}
 
   async external(organizationId: string): Promise<SalesProductExternalImages> {
@@ -94,26 +83,13 @@ export class SalesProductImageService implements SalesProductImagePort {
     let productsSkipped = 0;
     for (const product of products) {
       const imageUrls = rewriteImageUrls(product.imageUrls, replacements);
-      const detailHtml = rewriteImageHtml(product.detailHtml, replacements);
-      const extraDetailHtml = product.extraDetailHtml.map((html) => rewriteImageHtml(html, replacements) ?? html);
-      const imagesChanged = imageUrls.some((url, index) => url !== product.imageUrls[index]);
-      const detailChanged = detailHtml !== product.detailHtml;
-      const extraDetailChanged = extraDetailHtml.some((html, index) => html !== product.extraDetailHtml[index]);
-      if (!imagesChanged && !detailChanged && !extraDetailChanged) continue;
-      // 사진 옮기기는 시스템이 고쳐 쓴 것이다 — 기준값(원문 디지스트)도 함께 옮겨, 다음 사방넷 가져오기가
-      // 이것을 사람이 고친 상세로 보지 않게 한다.
-      const sourceRaw = detailChanged || extraDetailChanged
-        ? this.documents.restampSabangnetDetailDigests(product.sourceRaw, product, { detailHtml, extraDetailHtml })
-        : null;
-
+      if (!imageUrls.some((url, index) => url !== product.imageUrls[index])) continue;
+      // 상세 HTML 은 Content revision 이 정본이다(KID-313 W2) — 여기서는 대표 · 추가 사진만 바꾼다.
       const written = await this.repository.replaceImageUrls({
         organizationId,
         salesProductId: product.id,
         expectedVersion: product.version,
         imageUrls,
-        ...(detailChanged ? { detailHtml } : {}),
-        ...(extraDetailChanged ? { extraDetailHtml } : {}),
-        ...(sourceRaw ? { sourceRaw } : {}),
       });
       if (written) productsUpdated += 1;
       else productsSkipped += 1;

@@ -327,30 +327,6 @@ function parseProducts(table: SheetTable): { rows: SabangnetProductRow[]; issues
 }
 
 /**
- * 시스템이 상세 HTML 을 고쳐 쓸 때(사진 옮기기) 기준값도 함께 옮긴다. 원문의 디지스트가 고치기 전 상세와
- * 같았던 칸만 고친 뒤 상세의 디지스트로 바꾼다 — 사람이 고친 상세(이미 기준값과 다르다)는 그대로 둔다.
- * 바꿀 칸이 없으면 null 이다.
- */
-export function restampSabangnetDetailDigests(
-  sourceRaw: unknown,
-  before: { detailHtml: string | null; extraDetailHtml: readonly string[] },
-  after: { detailHtml: string | null; extraDetailHtml: readonly string[] },
-): Record<string, unknown> | null {
-  if (!sourceRaw || typeof sourceRaw !== 'object' || Array.isArray(sourceRaw)) return null;
-  const raw = { ...(sourceRaw as Record<string, unknown>) };
-  const was = sabangnetDetailDigests(before, integrity.sha256);
-  const now = sabangnetDetailDigests(after, integrity.sha256);
-  let changed = false;
-  for (const field of ['detailHtml', 'extraDetailHtml'] as const) {
-    const key = SABANGNET_DETAIL_DIGEST_KEYS[field];
-    if (raw[key] !== was[field] || was[field] === now[field]) continue;
-    raw[key] = now[field];
-    changed = true;
-  }
-  return changed ? raw : null;
-}
-
-/**
  * 저장된 상품 원문(`SalesProduct.sourceRaw`)을 그 줄을 읽었던 매핑 그대로 다시 읽는다. 원문 키는 머리
  * 이름이고(같은 머리가 둘이면 뒤 것은 `머리#열번호`), 빈 칸은 없다. 상세는 원문에 없고 디지스트만 있다.
  * 디지스트를 남기기 전에 가져온 원문이면 `detailDigests` 는 null 이다.

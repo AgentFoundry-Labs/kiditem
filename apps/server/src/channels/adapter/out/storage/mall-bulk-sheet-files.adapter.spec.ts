@@ -22,51 +22,26 @@ function sample(): MallSheetSourceProduct {
     ['icecream-mall', '아이스크림몰 > 유치원 > 브랜드마켓 > 장난감/완구'],
   ].map(([mallKey, path]) => ({
     mallKey: mallKey!,
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { sabangnetCategoryPath: path! },
   }));
   // 아트공구(카페24)는 분류표가 없어 몰별 값의 분류 번호를 그대로 쓴다.
   overrides.push({
     mallKey: 'art09',
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { categoryCode: '29' },
   });
   // 온채널은 공급가를 사람이 정한다(판매가에서 역산하지 않는다).
   overrides.push({
     mallKey: 'onch',
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { sabangnetCategoryPath: '출산/육아 > 완구/인형 > 감각발달완구 > 비눗방울', supplyPrice: '3200' },
   });
   // 스마트스토어는 분류표가 없어 몰별 값의 카테고리 번호를 그대로 쓴다.
   overrides.push({
     mallKey: 'smartstore',
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { categoryCode: '50003307' },
   });
   // 티쳐몰은 이름표가 없어 몰별 값의 분류 번호를 그대로 쓴다.
   overrides.push({
     mallKey: 'teacher-mall',
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { sabangnetCategoryPath: '티처몰 > 학급운영 > 놀이활동 > 교육완구' },
   });
   return {

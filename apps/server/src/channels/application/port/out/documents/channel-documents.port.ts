@@ -19,15 +19,6 @@ export interface ChannelDocumentsPort {
    * 디지스트로만 있고, 디지스트를 남기기 전 원문이면 `detailDigests` 가 null 이다. 읽을 수 없으면 null.
    */
   readSabangnetProductSource(sourceRaw: unknown): { row: SabangnetProductRow; detailDigests: SabangnetDetailDigests | null } | null;
-  /**
-   * 시스템이 상세를 고쳐 쓸 때 원문의 상세 디지스트를 함께 옮긴다. 고치기 전 상세가 기준값과 같았던 칸만
-   * 옮기고, 사람이 고친 상세는 그대로 둔다. 바꿀 것이 없으면 null.
-   */
-  restampSabangnetDetailDigests(
-    sourceRaw: unknown,
-    before: { detailHtml: string | null; extraDetailHtml: readonly string[] },
-    after: { detailHtml: string | null; extraDetailHtml: readonly string[] },
-  ): Record<string, unknown> | null;
   exportWingRegistration(template: Uint8Array, products: unknown, fileName?: string): GeneratedChannelFile & { productCount: number };
   exportWingInventory(products: unknown, now: Date, fileName?: string): GeneratedChannelFile & { columns: string[] };
 }

@@ -1,4 +1,4 @@
-import { realRegistrationContentWorkspace } from './registration-content-workspace';
+import { realRegistrableDetailPages, realRegistrationContentWorkspace } from './registration-content-workspace';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { SalesProductRepositoryAdapter } from '../channels/adapter/out/persistence/sales-product.repository.adapter';
@@ -50,7 +50,8 @@ export function realSalesProductDraftPort(prisma: PrismaClient): SalesProductDra
     productTransactionalRead(),
     targets,
     realRegistrationContentWorkspace(prisma),
-  );
+      realRegistrableDetailPages(prisma),
+    );
   return new SalesProductDraftAdapter(new SalesProductUseCase(repository, ...realDraftDeletionPorts(prisma)));
 }
 

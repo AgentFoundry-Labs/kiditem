@@ -63,6 +63,11 @@ export interface PlannedSabangnetProduct {
   create: SalesProductCreateRecord;
   options: SalesProductOptionDraft[];
   overrides: { channelAccountId: string; shopCode: string; data: SalesProductChannelOverrideRecord }[];
+  /**
+   * 상품 상세설명 · 추가상품상세설명. 판매 상품 칸이 아니라 Content 의 `imported` revision 으로 들어간다
+   * (KID-313 W2). 둘 다 비었으면 null.
+   */
+  detail: { html: string; extraHtml: string[] } | null;
 }
 
 export interface SabangnetImportPlan {
@@ -135,13 +140,6 @@ export function buildSabangnetImportPlan(input: {
     const { optionAxes, options } = planOptions(row, code, sourceOptionRows, issues);
     const linkedOptions = options.map((option) =>
       linkOption(option, optionAxes.length === 0, row, { skuByCode, skusByPrefix, skusByBarcode }));
-    const extraPriceBySourceCode = new Map((sourceOptionRows ?? []).map((option) => [option.optionCode, option.extraPrice]));
-    const optionPriceInputs = linkedOptions.flatMap((option) => {
-      const sabangnetOptionCode = option.sabangnetOptionCode;
-      return sabangnetOptionCode
-        ? [{ sabangnetOptionCode, extraPrice: extraPriceBySourceCode.get(sabangnetOptionCode) ?? 0 }]
-        : [];
-    });
     products.push({
       create: {
         code,
@@ -152,11 +150,9 @@ export function buildSabangnetImportPlan(input: {
       },
       options: linkedOptions,
       overrides: row.goodsNo
-        ? planOverrides(overridesByGoods.get(row.goodsNo) ?? [], accountByChannel, skippedByShop, {
-          sourceBasePrice: row.salePrice ?? 0,
-          options: optionPriceInputs,
-        })
+        ? planOverrides(overridesByGoods.get(row.goodsNo) ?? [], accountByChannel, skippedByShop, issues)
         : [],
+      detail: sabangnetDetail(row),
     });
   }
   return { products, issues, overrideRows: input.overrides.length, skippedByShop };
@@ -195,8 +191,6 @@ export function sabangnetProductBasics(row: SabangnetProductRow): SalesProductBa
     deliveryFee: row.deliveryFee,
     stockManaged: row.stockManaged,
     imageUrls: row.imageUrls.slice(0, 30),
-    detailHtml: row.detailHtml,
-    extraDetailHtml: row.extraDetailHtml.slice(0, 3),
     noticeCategory: clamp(row.noticeCategory, 10),
     noticeValues: row.noticeValues.slice(0, 40),
     certifications: row.certification ? [row.certification satisfies SalesProductCertification] : [],
@@ -339,18 +333,34 @@ function linkOption(
   };
 }
 
+/** 상품 줄의 상세. 판매 상품이 아니라 Content revision 으로 간다. */
+function sabangnetDetail(row: SabangnetProductRow): PlannedSabangnetProduct['detail'] {
+  const extraHtml = row.extraDetailHtml.slice(0, 3);
+  if (!row.detailHtml && extraHtml.length === 0) return null;
+  return { html: row.detailHtml ?? '', extraHtml };
+}
+
+/**
+ * 몰별 값 줄 → 등록 대상에 둘 몰 전용 값. 등록 대상은 상품 사실(이름 · 가격 · 상세 · 홍보문 · 고시)을
+ * 갖지 않으므로(KID-313 W2) 그 칸은 옮기지 않고, 몰별 상세는 받지 않는다고 줄마다 알린다.
+ */
 function planOverrides(
   rows: readonly SabangnetChannelOverrideRow[],
   accountByChannel: Map<string, string>,
   skippedByShop: Record<string, number>,
-  source: {
-    sourceBasePrice: number;
-    options: readonly { sabangnetOptionCode: string; extraPrice: number }[];
-  },
+  issues: SabangnetImportIssue[],
 ): PlannedSabangnetProduct['overrides'] {
   const byAccount = new Map<string, { shopCode: string; data: SalesProductChannelOverrideRecord }>();
   const sorted = [...rows].sort((left, right) => shopPriority(left.shopCode) - shopPriority(right.shopCode));
   for (const row of sorted) {
+    if (row.detailHtml) {
+      issues.push({
+        kind: 'channel_overrides',
+        row: row.row,
+        code: row.goodsNo,
+        message: '몰별 상세 override 는 더 이상 받지 않음 — 상세는 상품 상세 페이지 하나에서 고칩니다.',
+      });
+    }
     const mallKey = sabangnetShopMallKey(row.shopCode);
     const accountId = mallKey ? accountByChannel.get(mallKey) : undefined;
     if (!accountId) {
@@ -358,33 +368,12 @@ function planOverrides(
       continue;
     }
     if (byAccount.has(accountId)) continue;
-    const hasValue = [row.salePrice, row.priceRateBp, row.name, row.detailHtml, row.promoText, row.noticeCategory, row.costPrice, row.stockPercent]
+    const hasValue = [row.salePrice, row.priceRateBp, row.name, row.promoText, row.noticeCategory, row.costPrice, row.stockPercent]
       .some((value) => value !== null && value !== undefined);
     if (!hasValue) continue;
-    const baseMallPrice = row.salePrice !== null
-      ? row.salePrice
-      : row.priceRateBp !== null
-        ? Math.round((source.sourceBasePrice * row.priceRateBp) / 10_000)
-        : null;
-    const optionPrices = baseMallPrice === null
-      ? undefined
-      : source.options.map(({ sabangnetOptionCode, extraPrice }) => ({
-        sabangnetOptionCode,
-        // This is the one-time legacy import calculation. The source mall
-        // price is resolved first, then each source option's extra is applied.
-        salePrice: Math.max(0, baseMallPrice + extraPrice),
-      }));
     byAccount.set(accountId, {
       shopCode: row.shopCode,
       data: {
-        optionPrices,
-        salePrice: row.salePrice,
-        priceRateBp: row.priceRateBp,
-        costPrice: row.costPrice,
-        name: clamp(row.name, 255),
-        detailHtml: row.detailHtml,
-        promoText: clamp(row.promoText, 255),
-        noticeCategory: clamp(row.noticeCategory, 10),
         stockPercent: row.stockPercent !== null ? Math.max(0, Math.min(100, row.stockPercent)) : null,
         sourceRaw: row.raw,
       },
