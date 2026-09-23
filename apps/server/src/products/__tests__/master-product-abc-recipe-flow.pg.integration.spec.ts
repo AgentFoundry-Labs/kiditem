@@ -189,11 +189,13 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     await expect(recipes.replaceRecipe({
       organizationId: TEST_ORGANIZATION_ID,
       channelListingOptionId: fixture.normal.optionId,
+      expectedComponents: await loadedRecipe(fixture.normal.optionId),
       ...replacement,
     })).resolves.toEqual({ masterProductId: fixture.normal.productId });
     await expect(recipes.replaceRecipe({
       organizationId: TEST_ORGANIZATION_ID,
       channelListingOptionId: fixture.normal.optionId,
+      expectedComponents: await loadedRecipe(fixture.normal.optionId),
       ...replacement,
     })).resolves.toEqual({ masterProductId: fixture.normal.productId });
 
@@ -402,6 +404,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     repository.listCurrentAbcTargetIds = async (organizationId) => {
       const targets = await listTargets(organizationId);
       await recipes.replaceRecipe({ organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: fixture.normal.optionId,
+        expectedComponents: await loadedRecipe(fixture.normal.optionId),
         components: [{ masterProductId: fixture.normal.skuId, quantity: 2 }],
       });
       await completeProfitabilitySources(fixture, null, 'current');
@@ -445,6 +448,13 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         officialCutoff: EXPECTED_CUTOFF,
       });
   });
+
+  function loadedRecipe(channelListingOptionId: string) {
+    return prisma.channelListingOptionInventoryComponent.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId },
+      select: { masterProductId: true, quantity: true },
+    });
+  }
 
   function listProducts(filter: Record<string, unknown> = {}) {
     return products.listProducts(TEST_ORGANIZATION_ID, {

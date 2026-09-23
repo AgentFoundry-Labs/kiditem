@@ -2091,14 +2091,20 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     return seedSourceProduct(prisma, { organizationId, ...input });
   }
 
-  function replaceRecipe(
+  /** Replaces a recipe the way a screen does: from the recipe it just loaded. */
+  async function replaceRecipe(
     organizationId: string,
     channelListingOptionId: string,
     components: readonly { masterProductId: string; quantity: number }[],
   ) {
+    const expectedComponents = await prisma.channelListingOptionInventoryComponent.findMany({
+      where: { organizationId, channelListingOptionId },
+      select: { masterProductId: true, quantity: true },
+    });
     return recipes.replaceRecipe({
       organizationId,
       channelListingOptionId,
+      expectedComponents,
       components,
     });
   }

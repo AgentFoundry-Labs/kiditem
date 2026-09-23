@@ -27,10 +27,12 @@ import type {
 import type {
   ChannelOptionRecipeMutation,
   ChannelRecipeComponentInput,
+  ConfirmedCompositionTransition,
 } from '../../../application/port/in/channel-option-recipe.port';
 import { readPreparedRegistrationRecipes } from '../repository/registration-execution.reader';
 import { preparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
 import { hashRegistrationSubmissionPayload } from '../../../domain/registration/registration-submission-payload';
+import { ListingException } from '../../../application/exception/listing.exception';
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -87,50 +89,59 @@ implements ChannelOptionRecipeRepositoryPort {
     });
   }
 
-  async replaceConfirmedCompositionInTransaction(transaction: OwnerTransaction, input: {
-    organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
-    kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
+  async replaceConfirmedCompositionsInTransaction(transaction: OwnerTransaction, input: {
+    organizationId: string; transitions: readonly ConfirmedCompositionTransition[];
   }): Promise<void> {
+    if (input.transitions.length === 0) return;
     const tx = ownerTransactionClient(transaction);
     await lockProductMapping(tx, input.organizationId);
-    const commonOption = await tx.salesProductOption.findFirst({
-      where: { id: input.salesProductOptionId, organizationId: input.organizationId, optionCode: input.kidItemCode },
-      select: { id: true, components: { select: { masterProductId: true, quantity: true } } },
-    });
-    if (!commonOption || !sameRecipe(commonOption.components, input.components)) {
-      throw new BadRequestException('Confirmed composition does not match its frozen common option identity');
+    let mappingChanged = false;
+    for (const transition of input.transitions) {
+      const commonOption = await tx.salesProductOption.findFirst({
+        where: { id: transition.salesProductOptionId, organizationId: input.organizationId, optionCode: transition.kidItemCode },
+        select: { id: true, components: { select: { masterProductId: true, quantity: true } } },
+      });
+      if (!commonOption || !sameRecipe(commonOption.components, transition.components)) {
+        throw new BadRequestException('Confirmed composition does not match its frozen common option identity');
+      }
+      await validateRecipeTargetsInTransaction(
+        tx, { organizationId: input.organizationId, components: transition.components }, this.productTransactionalRead,
+      );
+      const option = await tx.channelListingOption.findFirst({
+        where: { id: transition.channelListingOptionId, organizationId: input.organizationId },
+        select: { id: true, salesProductOptionId: true, kidItemCode: true,
+          inventoryComponents: { where: { organizationId: input.organizationId }, select: { masterProductId: true, quantity: true } } },
+      });
+      if (!option) throw new NotFoundException('Channel listing option was not found');
+      if (!sameRecipe(option.inventoryComponents, transition.components)) {
+        await tx.channelListingOptionInventoryComponent.deleteMany({
+          where: { organizationId: input.organizationId, channelListingOptionId: option.id },
+        });
+        if (transition.components.length > 0) await tx.channelListingOptionInventoryComponent.createMany({
+          data: transition.components.map(component => ({ ...component, organizationId: input.organizationId, channelListingOptionId: option.id })),
+        });
+        mappingChanged = true;
+      }
+      if (option.salesProductOptionId !== transition.salesProductOptionId || option.kidItemCode !== transition.kidItemCode) {
+        await tx.channelListingOption.update({
+          where: { id: option.id, organizationId: input.organizationId },
+          data: { salesProductOptionId: transition.salesProductOptionId, kidItemCode: transition.kidItemCode },
+        });
+        mappingChanged = true;
+      }
     }
-    await validateRecipeTargetsInTransaction(tx, input, this.productTransactionalRead);
-    const option = await tx.channelListingOption.findFirst({
-      where: { id: input.channelListingOptionId, organizationId: input.organizationId },
-      select: { id: true },
-    });
-    if (!option) throw new NotFoundException('Channel listing option was not found');
-    await tx.channelListingOptionInventoryComponent.deleteMany({
-      where: { organizationId: input.organizationId, channelListingOptionId: input.channelListingOptionId },
-    });
-    if (input.components.length > 0) await tx.channelListingOptionInventoryComponent.createMany({
-      data: input.components.map(component => ({ ...component, organizationId: input.organizationId, channelListingOptionId: input.channelListingOptionId })),
-    });
-    await tx.channelListingOption.update({
-      where: { id: input.channelListingOptionId, organizationId: input.organizationId },
-      data: { salesProductOptionId: input.salesProductOptionId, kidItemCode: input.kidItemCode },
-    });
-    await this.productMapping.advance(tx, input.organizationId);
+    if (mappingChanged) await this.productMapping.advance(tx, input.organizationId);
   }
 
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;
+    /** The recipe the caller loaded; a different current recipe is a conflict. */
+    expectedComponents: readonly ChannelRecipeComponentInput[];
     components: readonly ChannelRecipeComponentInput[];
   }) {
     return this.prisma.$transaction(async (tx) => {
       await lockProductMapping(tx, input.organizationId);
-      await validateRecipeTargetsInTransaction(
-        tx,
-        input,
-        this.productTransactionalRead,
-      );
       const option = await tx.channelListingOption.findFirst({
         where: {
           id: input.channelListingOptionId,
@@ -147,6 +158,11 @@ implements ChannelOptionRecipeRepositoryPort {
         },
       });
       if (!option) throw new NotFoundException('Channel listing option was not found');
+      if (!sameRecipe(option.inventoryComponents, input.expectedComponents)) {
+        throw new ListingException('conflict', 'The option recipe changed after it was loaded');
+      }
+      // A stale request is a conflict first, even when it names a since-deleted product.
+      await validateRecipeTargetsInTransaction(tx, input, this.productTransactionalRead);
       const recipeChanged = !sameRecipe(option.inventoryComponents, input.components);
       if (recipeChanged) {
         await tx.channelListingOptionInventoryComponent.deleteMany({

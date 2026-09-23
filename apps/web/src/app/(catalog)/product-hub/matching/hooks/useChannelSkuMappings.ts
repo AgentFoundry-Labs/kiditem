@@ -106,7 +106,8 @@ export function useSaveProductInventoryMatching() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: saveProductInventoryMatching,
-    onSuccess: () => Promise.all([
+    // Options save one by one, so a failure can follow saved options: refresh either way.
+    onSettled: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),

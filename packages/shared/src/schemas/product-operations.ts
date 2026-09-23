@@ -396,7 +396,12 @@ export type ChannelOptionInventoryComponentInput = z.infer<
   typeof ChannelOptionInventoryComponentInputSchema
 >;
 
+/**
+ * `expectedComponents` is the recipe the screen loaded. The owner compares it under its lock and
+ * answers 409 when another writer changed the recipe since; an empty array means "loaded none".
+ */
 export const ReplaceChannelOptionInventoryInputSchema = z.object({
+  expectedComponents: z.array(ChannelOptionInventoryComponentInputSchema).max(50),
   components: z.array(ChannelOptionInventoryComponentInputSchema).max(50),
 }).strict().superRefine(rejectDuplicateRecipeComponents);
 export type ReplaceChannelOptionInventoryInput = z.infer<

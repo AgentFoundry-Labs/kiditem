@@ -472,6 +472,10 @@ export class RegistrationExecutionRepositoryAdapter
         // snapshot even when the target/product has since been edited.
         const frozen = freezeTargetExecutionSnapshot(input.snapshot);
         assertTargetRequestMatchesSnapshot(input.request, frozen.payload);
+        // Refuse before any provider call: a confirmation could not record an option without its KID.
+        if (frozen.payload.product.options.some((option) => option.optionCode === null)) {
+          throw new ConflictException('A KID must be issued before registration for every selected sales product option.');
+        }
 
         await tx.$queryRaw(Prisma.sql`
           SELECT id
@@ -2967,8 +2971,7 @@ async function resolveTargetConfirmationListing(
         listingId,
         externalOptionId: evidence.externalOptionId,
         salesProductOptionId: commonOption.id,
-        // 등록 확정 경로는 KID 발급 뒤에만 도달한다.
-        kidItemCode: commonOption.optionCode ?? '',
+        kidItemCode: issuedKidItemCode(commonOption),
         ...(evidence.sellerSku !== undefined ? { sellerSku: evidence.sellerSku } : {}),
       },
       select: { id: true, externalOptionId: true, salesProductOptionId: true },
@@ -2999,19 +3002,18 @@ async function applyTargetConfirmationRecipes(
   if (!recipes) throw new ConflictException('Channel option recipe capability is unavailable.');
 
   if (compositionChange) {
-    for (const { localOption, commonOption } of resolved.options) {
-      await recipes.replaceConfirmedCompositionInTransaction(tx, {
-        organizationId,
+    await recipes.replaceConfirmedCompositionsInTransaction(tx, {
+      organizationId,
+      transitions: resolved.options.map(({ localOption, commonOption }) => ({
         channelListingOptionId: localOption.id,
         salesProductOptionId: commonOption.id,
-        // 등록 확정 경로는 KID 발급 뒤에만 도달한다.
-        kidItemCode: commonOption.optionCode ?? '',
+        kidItemCode: issuedKidItemCode(commonOption),
         components: commonOption.components.map((component) => ({
           masterProductId: component.masterProductId,
           quantity: component.quantity,
         })),
-      });
-    }
+      })),
+    });
   }
 
   if (applyTemplate && !compositionChange) {
@@ -3019,8 +3021,7 @@ async function applyTargetConfirmationRecipes(
       .filter(({ localOption }) => localOption.inventoryComponents.length === 0)
       .map(({ localOption, commonOption }) => ({
         channelListingOptionId: localOption.id,
-        // 등록 확정 경로는 KID 발급 뒤에만 도달한다.
-        preparedKidItemCode: commonOption.optionCode ?? '',
+        preparedKidItemCode: issuedKidItemCode(commonOption),
         components: commonOption.components.map((component) => ({
           masterProductId: component.masterProductId,
           quantity: component.quantity,
@@ -3036,6 +3037,14 @@ async function applyTargetConfirmationRecipes(
       });
     }
   }
+}
+
+/** A confirmed recipe carries the common option's issued KID; an empty code is never sent. */
+function issuedKidItemCode(option: TargetProductOption): string {
+  if (option.optionCode === null) {
+    throw new ConflictException('A KID must be issued for every sales product option before confirmation.');
+  }
+  return option.optionCode;
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

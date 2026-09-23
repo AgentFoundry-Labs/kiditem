@@ -5,6 +5,7 @@ import {
   type ChannelOptionRecipeMutation,
   type ChannelOptionRecipePort,
   type ChannelRecipeComponentInput,
+  type ConfirmedCompositionTransition,
 } from '../../port/in/channel-option-recipe.port';
 import {
   type ChannelOptionRecipeRepositoryPort,
@@ -28,20 +29,29 @@ implements ChannelOptionRecipePort {
     return this.repository.findListingsBySourceProducts(transaction, input);
   }
 
-  replaceConfirmedCompositionInTransaction(transaction: OwnerTransaction, input: {
-    organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
-    kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
+  replaceConfirmedCompositionsInTransaction(transaction: OwnerTransaction, input: {
+    organizationId: string; transitions: readonly ConfirmedCompositionTransition[];
   }) {
-    validateComponents(input.components);
-    if (!/^KID[0-9]{8}$/.test(input.kidItemCode)) throw new ListingException('invalid', 'Invalid KID item code');
-    return this.repository.replaceConfirmedCompositionInTransaction(transaction, input);
+    const optionIds = new Set<string>();
+    for (const transition of input.transitions) {
+      if (optionIds.has(transition.channelListingOptionId)) {
+        throw new ListingException('invalid', 'Each channel listing option may appear only once');
+      }
+      optionIds.add(transition.channelListingOptionId);
+      validateComponents(transition.components);
+      if (!/^KID[0-9]{8}$/.test(transition.kidItemCode)) throw new ListingException('invalid', 'Invalid KID item code');
+    }
+    return this.repository.replaceConfirmedCompositionsInTransaction(transaction, input);
   }
 
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;
+    /** The recipe the caller loaded; a different current recipe is a conflict. */
+    expectedComponents: readonly ChannelRecipeComponentInput[];
     components: readonly ChannelRecipeComponentInput[];
   }) {
+    validateComponents(input.expectedComponents);
     validateComponents(input.components);
     return this.repository.replaceRecipe(input);
   }

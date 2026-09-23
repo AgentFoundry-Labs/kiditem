@@ -654,19 +654,24 @@ describe('product operations contracts', () => {
 
   it('accepts bounded direct channel option recipes with positive integer quantities', () => {
     expect(ReplaceChannelOptionInventoryInputSchema.parse({
+      expectedComponents: [],
       components: [{ masterProductId: skuId, quantity: 2 }],
     }).components).toHaveLength(1);
-    expect(ReplaceChannelOptionInventoryInputSchema.parse({ components: [] }).components).toEqual([]);
+    expect(ReplaceChannelOptionInventoryInputSchema.parse({ expectedComponents: [], components: [] }).components).toEqual([]);
+    expect(() => ReplaceChannelOptionInventoryInputSchema.parse({ components: [] })).toThrow();
     expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
+      expectedComponents: [],
       components: [{ masterProductId: skuId, quantity: 0 }],
     })).toThrow();
     expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
+      expectedComponents: [],
       components: Array.from({ length: 51 }, (_, index) => ({
         masterProductId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
         quantity: 1,
       })),
     })).toThrow();
     expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
+      expectedComponents: [],
       components: [
         { masterProductId: skuId, quantity: 1 },
         { masterProductId: skuId, quantity: 2 },

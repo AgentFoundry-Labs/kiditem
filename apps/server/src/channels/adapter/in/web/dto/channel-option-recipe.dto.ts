@@ -29,6 +29,13 @@ export class ReplaceChannelOptionRecipeDto {
   @ValidateNested({ each: true })
   @Type(() => ChannelOptionRecipeComponentDto)
   components!: ChannelOptionRecipeComponentDto[];
+
+  /** The recipe the screen loaded; the server answers 409 when the option no longer has it. */
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ChannelOptionRecipeComponentDto)
+  expectedComponents!: ChannelOptionRecipeComponentDto[];
 }
 
 export class ChannelOptionRecipeCandidateQueryDto {

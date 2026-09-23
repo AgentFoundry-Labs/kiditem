@@ -7,12 +7,14 @@ import {
   importCoupangRocketMatchingCsv,
   importCoupangWingCatalog,
   listChannelProductMappings,
+  saveProductInventoryMatching,
 } from '../lib/channel-sku-matching-api';
 import { collectSellpiaManualMatchSnapshot } from '../lib/sellpia-manual-match-collection';
 import {
   useChannelProductMappings,
   useImportChannelCatalog,
   useRunChannelProductMatching,
+  useSaveProductInventoryMatching,
 } from './useChannelSkuMappings';
 
 vi.mock('../lib/channel-sku-matching-api', () => ({
@@ -21,6 +23,7 @@ vi.mock('../lib/channel-sku-matching-api', () => ({
   importCoupangWingCatalog: vi.fn(),
   listChannelAccounts: vi.fn(),
   listChannelProductMappings: vi.fn(),
+  saveProductInventoryMatching: vi.fn(),
 }));
 vi.mock('../lib/sellpia-manual-match-collection', () => ({
   collectSellpiaManualMatchSnapshot: vi.fn(),
@@ -53,6 +56,22 @@ describe('channel product matching hooks', () => {
     );
     await waitFor(() => expect(loaded.result.current.isSuccess).toBe(true));
     expect(listChannelProductMappings).toHaveBeenCalledWith({ channelAccountId: undefined, search: '우산' });
+  });
+
+  it('refreshes the matching reads even when a multi-option save fails after saving some options', async () => {
+    vi.mocked(saveProductInventoryMatching).mockRejectedValue(new Error('second option failed'));
+    const client = createClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const hook = renderHook(() => useSaveProductInventoryMatching(), { wrapper: wrapper(client) });
+
+    await act(async () => {
+      await expect(hook.result.current.mutateAsync({ channelListingId: 'listing-1', options: [] }))
+        .rejects.toThrow('second option failed');
+    });
+
+    for (const queryKey of [['channelProductMappings'], ['channelSkuAvailability'], ['products', 'operations'], ['inventory']]) {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey });
+    }
   });
 
   it('collects Sellpia evidence once and auto-matches every selected account', async () => {

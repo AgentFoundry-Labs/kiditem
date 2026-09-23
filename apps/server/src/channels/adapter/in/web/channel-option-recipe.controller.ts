@@ -37,6 +37,7 @@ export class ChannelOptionRecipeController {
       organizationId,
       channelListingOptionId,
       components: body.components,
+      expectedComponents: body.expectedComponents,
     });
   }
 
