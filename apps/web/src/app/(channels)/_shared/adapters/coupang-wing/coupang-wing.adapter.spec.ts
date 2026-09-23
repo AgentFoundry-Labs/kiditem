@@ -5,6 +5,7 @@ import { detectWingFormExtensionId, sendToExtensionViaPort } from '@/lib/extensi
 import { salesProductApi } from '@/lib/sales-product-api';
 import { renderRegistrationDetailImage } from '../../../../(product-pipeline)/product-pipeline/collected-products/lib/detail-page-image-api';
 import type { MallPublishItem } from '../../mall-publish-adapter';
+import { executeTargetRegistration } from '../../target-registration-execution';
 
 vi.mock('@/lib/extension-bridge', () => ({
   KIDITEM_WING_FORM_PORT_NAME: 'kiditem-wing-form-v1',
@@ -165,8 +166,8 @@ describe('coupangWingAdapter', () => {
     });
 
     expect(sendToExtensionViaPort).not.toHaveBeenCalled();
-    expect(outcome.submitted).toBeUndefined();
-    expect(outcome.error).toContain('900001');
+    expect(outcome).toMatchObject({ ok: false, submitted: false });
+    expect(outcome.error).toBe('이 계정에 같은 상품이 이미 있습니다(몰 상품 id 900001) — 확인 창에서 그 id로 확인하세요');
   });
 
   it('reports not submitted, without opening WING, when the detail image cannot be rendered', async () => {
@@ -227,5 +228,50 @@ describe('coupangWingAdapter', () => {
       },
     });
     expect(JSON.stringify(stored)).not.toMatch(/salePrice|imageUrl/i);
+  });
+});
+
+describe('a registration run over an account that already lists the product', () => {
+  it('reports not_submitted with the existing listing id instead of an uncertain submission', async () => {
+    const frozen = snapshot({ ...FROZEN, existingChannelListing: { externalListingId: '900001', displayName: '기존', status: null } });
+    frozen.product = { ...frozen.product, channelOverrides: [] } as unknown as TargetExecutionSnapshot['product'];
+    frozen.adapterValues = {
+      wingCategoryKey: '64687', productName: '이름', sellerProductName: '관리명', colorValue: '단일', quantityValue: '1', stock: '10',
+    };
+    const base = {
+      executionId: CONTEXT.executionId,
+      targetId: frozen.targetId,
+      channelAccountId: frozen.channelAccountId,
+      payloadHash: CONTEXT.payloadHash,
+      payload: frozen,
+      externalListingId: null,
+      result: null,
+    };
+    const client = {
+      prepare: vi.fn(),
+      start: vi.fn().mockResolvedValue({
+        ...base, status: 'executing', providerOutcome: 'uncertain', leaseToken: CONTEXT.leaseToken, maySubmit: true,
+      }),
+      report: vi.fn().mockResolvedValue({ ...base, status: 'failed', providerOutcome: 'not_submitted', leaseToken: null, maySubmit: false }),
+    };
+
+    await executeTargetRegistration({
+      targetId: frozen.targetId,
+      expectedVersion: 1,
+      channelAccountId: frozen.channelAccountId,
+      mallKey: 'coupang',
+      adapter: coupangWingAdapter,
+      existingExecution: { ...base, status: 'prepared', providerOutcome: 'not_attempted', leaseToken: null, maySubmit: false } as never,
+      client: client as never,
+    });
+
+    expect(sendToExtensionViaPort).not.toHaveBeenCalled();
+    expect(client.report).toHaveBeenCalledWith(CONTEXT.executionId, expect.objectContaining({
+      outcome: 'not_submitted',
+      evidence: expect.objectContaining({
+        observedStatus: 'not_submitted',
+        message: '이 계정에 같은 상품이 이미 있습니다(몰 상품 id 900001) — 확인 창에서 그 id로 확인하세요',
+      }),
+    }));
   });
 });

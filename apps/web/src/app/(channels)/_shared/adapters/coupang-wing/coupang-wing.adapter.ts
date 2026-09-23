@@ -164,17 +164,13 @@ async function send({ items, values, channelAccount }: MallSendInput): Promise<M
   if (!item) return notSubmitted('보낼 상품이 없습니다.');
   const execution = item.targetExecution;
 
-  // 같은 셀피아 코드의 상품이 이 계정에 이미 있으면 WING 을 열지 않는다 — 한 번 더 올리면 중복 리스팅이다.
-  // 그 상품으로 확인하려면 등록 확인에서 등록상품ID 와 판매자 ID 를 넣는다(증거 없는 확인은 없다, ADR-0014).
+  // 이 계정에 같은 상품이 이미 있으면 몰 폼을 열지 않는다 — 한 번 더 올리면 중복 리스팅이다. 보낸 것이 없으니
+  // `not_submitted` 이고, 그 상품으로 확인하려면 확인 창에서 그 id 와 판매자 ID 를 넣는다(증거 없는 확인은 없다, ADR-0014).
   const existing = existingListing(item);
   if (existing) {
-    return {
-      ok: false,
-      confirmed: false,
-      manualSteps: [`등록 확인에서 등록상품ID ${existing.externalListingId} 와 판매자 ID 로 이 실행을 확인하세요.`],
-      warnings: [],
-      error: `이 계정에 같은 셀피아 코드로 올라간 상품(등록상품ID ${existing.externalListingId})이 이미 있어 WING 폼을 열지 않았습니다.`,
-    };
+    return notSubmitted(
+      `이 계정에 같은 상품이 이미 있습니다(몰 상품 id ${existing.externalListingId}) — 확인 창에서 그 id로 확인하세요`,
+    );
   }
 
   let product;
