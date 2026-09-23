@@ -350,18 +350,11 @@ async function createWorkspaceAsset(
   url: string,
   options: { current?: boolean } = {},
 ): Promise<string> {
-  const group = await prisma.contentGenerationGroup.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      contentWorkspaceId: workspaceId,
-      groupType: 'workspace_assets',
-      title: 'Workspace managed assets',
-    },
-  });
   const asset = await prisma.contentAsset.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
-      originGenerationGroupId: group.id,
+      contentWorkspaceId: workspaceId,
+      source: 'upload',
       assetKey: `test:${randomUUID()}`,
       url,
       assetType: 'image',
@@ -369,12 +362,9 @@ async function createWorkspaceAsset(
     },
   });
   if (options.current) {
-    const selection = await prisma.contentWorkspaceThumbnailSelection.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspaceId, contentAssetId: asset.id },
-    });
     await prisma.contentWorkspace.update({
       where: { id: workspaceId },
-      data: { currentThumbnailSelectionId: selection.id },
+      data: { currentThumbnailAssetId: asset.id },
     });
   }
   return asset.id;
