@@ -67,7 +67,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
   }): Promise<{ mode: 'created'; executionId: string } | { mode: 'replay'; execution: ThumbnailExecutionRow } | { mode: 'live_conflict' }> {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`thumbnail_update:${input.organizationId}:${input.payload.generationId}`}, 0))::text AS "lock"`;
+        await lockGeneration(tx, input.organizationId, input.payload.generationId);
         const replay = await this.findReplay(tx, input);
         if (replay) return replay;
         const live = await tx.productRegistrationExecution.findFirst({
@@ -163,7 +163,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
 
   async dismissLatestFailed(input: { organizationId: string; generationId: string }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`thumbnail_update:${input.organizationId}:${input.generationId}`}, 0))::text AS "lock"`;
+      await lockGeneration(tx, input.organizationId, input.generationId);
       const failed = await tx.productRegistrationExecution.findMany({
         where: {
           organizationId: input.organizationId,
@@ -202,6 +202,15 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     }
     return { mode: 'replay', execution: toRow(existing) };
   }
+}
+
+/** 같은 생성의 살아 있는 실행 검사 · 실패 치우기를 한 줄로 세운다(조직 + 생성 키). */
+async function lockGeneration(tx: Prisma.TransactionClient, organizationId: string, generationId: string): Promise<void> {
+  const lockKey = `thumbnail_update:${organizationId}:${generationId}`;
+  await tx.$queryRaw`
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock keyed by organization and generation.
+    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+  `;
 }
 
 function resultObject(value: Prisma.JsonValue | null): Record<string, Prisma.JsonValue> {

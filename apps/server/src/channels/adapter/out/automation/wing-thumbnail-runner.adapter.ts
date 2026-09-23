@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
-import { spawnPlaywriter } from '../../../../content/adapter/out/wing/playwriter-cli';
+import { spawnPlaywriter } from './playwriter-process';
 import type { WingThumbnailRunnerPort } from '../../../application/port/out/automation/wing-thumbnail-runner.port';
 
 const WING_BASE =

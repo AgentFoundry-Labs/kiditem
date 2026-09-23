@@ -12,7 +12,7 @@ const { spawned, FakeProcess } = vi.hoisted(() => {
 });
 
 // Playwriter 는 외부 프로세스라 spawn 만 바꾼다.
-vi.mock('../../../../content/adapter/out/wing/playwriter-cli', () => ({
+vi.mock('./playwriter-process', () => ({
   spawnPlaywriter: (args: string[]) => {
     const proc = new FakeProcess();
     spawned.push({ args, proc });

@@ -20,7 +20,7 @@ describe('toThumbnailGenerationItem', () => {
       errorMessage: null,
       attemptCount: 1,
       triggeredByUserId: null,
-      candidates: [{ id: 'c1', url: 'http://storage.local/a.png', storageKey: null, filename: null, sortOrder: 0 }],
+      candidates: [{ id: 'c1', url: 'http://storage.local/a.png', storageKey: null, filename: null, sortOrder: 0, mimeType: null, width: null, height: null, fileSize: null }],
       contentWorkspace: { id: 'workspace-1', name: '상품', imageUrl: null, category: null },
     });
 
