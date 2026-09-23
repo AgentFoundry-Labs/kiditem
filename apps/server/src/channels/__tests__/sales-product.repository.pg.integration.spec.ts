@@ -18,6 +18,8 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { productTransactionalRead } from './product-transactional-read.fake';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
 describe('sales product repository mall price adoption (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -865,5 +867,73 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       options: [{ values: ['빨강'], salePrice: 4_000 }, { values: ['파랑'], salePrice: 4_500 }],
     });
     expect(kept.status).toBe('paused');
+  });
+});
+
+describe('sales product reference cost (PostgreSQL)', () => {
+  let prisma: PrismaClient;
+  let repository: SalesProductRepositoryAdapter;
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    // 원천 매입가는 Products 의 실제 reader 로 읽는다.
+    repository = new SalesProductRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new ProductTransactionalReadRepositoryAdapter() as unknown as ConstructorParameters<typeof SalesProductRepositoryAdapter>[1],
+      new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead()),
+    );
+  });
+
+  afterAll(async () => {
+    await prisma?.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+  });
+
+  it('prices each option from its sources and says 계산 불가 when a price or the recipe is missing', async () => {
+    const priced = await seedSourceProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'SRC-PRICED', name: '매입가 있는 원천', purchasePrice: 1_200,
+    });
+    const unpriced = await seedSourceProduct(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'SRC-UNPRICED', name: '매입가 없는 원천', purchasePrice: null,
+    });
+    const product = await prisma.salesProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: null, name: '참고 원가 상품' },
+    });
+    const option = async (optionKey: string, sortOrder: number, components: { masterProductId: string; quantity: number }[]) => {
+      const created = await prisma.salesProductOption.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          salesProductId: product.id,
+          values: [optionKey],
+          optionKey,
+          sortOrder,
+          salePrice: null,
+        },
+      });
+      if (components.length > 0) await prisma.salesProductOptionComponent.createMany({
+        data: components.map((component) => ({
+          ...component, organizationId: TEST_ORGANIZATION_ID, salesProductOptionId: created.id,
+        })),
+      });
+    };
+    await option('두 개 묶음', 0, [{ masterProductId: priced.id, quantity: 2 }]);
+    await option('섞인 구성', 1, [
+      { masterProductId: priced.id, quantity: 1 },
+      { masterProductId: unpriced.id, quantity: 1 },
+    ]);
+    await option('구성 없음', 2, []);
+
+    const read = await repository.get(TEST_ORGANIZATION_ID, product.id);
+
+    expect(read?.options.map((row) => [row.optionKey, row.referenceCost])).toEqual([
+      ['두 개 묶음', 2_400],
+      ['섞인 구성', null],
+      ['구성 없음', null],
+    ]);
   });
 });

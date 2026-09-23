@@ -1,4 +1,5 @@
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import { resolveUnitCost } from '../../../../products/domain/option-pricing-resolver';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { readSalesProductOptionExecutionCounts } from '../repository/registration-execution.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
@@ -1690,7 +1691,7 @@ function parseCertifications(value: Prisma.JsonValue | null): SalesProductCertif
 
 function toSalesProduct(
   row: SalesProductDetailRow,
-  identityById: Map<string, { code: string; name: string; optionName: string | null }>,
+  identityById: Map<string, { code: string; name: string; optionName: string | null; purchasePrice: number | null }>,
   stockById: Map<string, number>,
 ): SalesProduct {
   return {
@@ -1760,6 +1761,13 @@ function toSalesProduct(
           quantity: component.quantity,
           currentStock: stockById.get(component.masterProductId) ?? null,
         };
+      }),
+      // Products 가 정한 원가 규칙을 그대로 쓴다 — 원천 매입가가 하나라도 없으면 계산 불가다.
+      referenceCost: resolveUnitCost({
+        inventoryComponents: option.components.map((component) => ({
+          quantity: component.quantity,
+          purchasePrice: identityById.get(component.masterProductId)?.purchasePrice ?? null,
+        })),
       }),
       linkedChannelOptionCount: option._count.channelListingOptions,
     })),

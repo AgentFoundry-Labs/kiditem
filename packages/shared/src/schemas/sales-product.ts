@@ -245,6 +245,12 @@ export const SalesProductOptionSchema = z.object({
   safetyStock: z.number().int().nullable(),
   sortOrder: z.number().int(),
   components: z.array(SalesProductOptionComponentSchema),
+  /**
+   * 참고 원가(원). 구성 원천 상품의 지금 매입가 × 수량의 합이다. 구성이 없거나 매입가가 빠진
+   * 원천이 하나라도 있으면 null(계산 불가). 읽기 전용 표시이며 손익 · ABC 계산과 무관하다.
+   */
+  // 이 칸이 생기기 전에 동결한 실행 payload 도 읽히도록 비어 있으면 null 이다.
+  referenceCost: z.number().int().nullable().default(null),
   /** 이 단품에 연결된 몰 옵션 수. 연결된 단품은 지우지 않는다. */
   linkedChannelOptionCount: z.number().int().min(0),
 });

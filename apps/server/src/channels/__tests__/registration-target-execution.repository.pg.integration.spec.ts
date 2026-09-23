@@ -1456,6 +1456,7 @@ async function createFixture(
         supplyStatus: 'selling',
         safetyStock: null,
         sortOrder: 0,
+        referenceCost: null,
         components: input.component ? [{
           masterProductId,
           sellpiaCode: 'SELLPIA-1',
@@ -1531,7 +1532,8 @@ async function addSecondSelectedOption(
     optionKey: '초록',
     values: ['초록'],
     components: [],
-    linkedChannelOptionCount: 0,
+    referenceCost: null,
+        linkedChannelOptionCount: 0,
   };
   return {
     ...fixture,
