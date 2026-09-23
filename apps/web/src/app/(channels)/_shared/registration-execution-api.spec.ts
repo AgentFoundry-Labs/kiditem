@@ -9,9 +9,9 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: { post: vi.fn().mockResolvedValue({}), getParsed: vi.fn() },
 }));
 
-const CANDIDATE = 'candidate-1';
+const SALES_PRODUCT = 'sales-product-1';
 const EXECUTION = '33333333-3333-4333-8333-333333333333';
-const BASE = `/api/channels/candidates/${CANDIDATE}/registration-executions`;
+const BASE = `/api/products/sales-products/${SALES_PRODUCT}/registration/executions`;
 const TARGET = '44444444-4444-4444-8444-444444444444';
 const TARGET_ACCOUNT = '55555555-5555-4555-8555-555555555555';
 
@@ -35,6 +35,8 @@ const TARGET_RESULT = {
       ownCode: null,
       sabangnetGoodsNo: null,
       sourceCandidateId: null,
+      sourcePlatform: null,
+      sourceUrl: null,
       name: '상품',
       shortName: null,
       englishName: null,
@@ -47,6 +49,13 @@ const TARGET_RESULT = {
       originRegion: null,
       keywords: [],
       standardCategory: null,
+      description: '',
+      targetAudience: null,
+      ageGroup: null,
+      productSize: null,
+      colorVariantNames: [],
+      boxSetQuantity: null,
+      registrationDefaults: null,
       status: 'active',
       taxType: 'taxable',
       deliveryFeeType: null,
@@ -59,6 +68,7 @@ const TARGET_RESULT = {
       noticeCategory: null,
       noticeValues: [],
       certifications: [],
+      kcStatus: 'unknown',
       importDeclarationNo: null,
       adminMemo: null,
       version: 1,
@@ -143,8 +153,8 @@ describe('registration execution client', () => {
     );
   });
 
-  it('opens the fence on the Channels route, not on a sourcing route', async () => {
-    await registrationExecutionApi.prepare(CANDIDATE, {
+  it('opens the fence on the sales-product registration route, not a candidate route', async () => {
+    await registrationExecutionApi.prepare(SALES_PRODUCT, {
       channelAccountId: 'account-1',
       displayName: 'Kids rain boots',
       registrationInput: {},
@@ -157,16 +167,16 @@ describe('registration execution client', () => {
   });
 
   it.each([
-    ['start', () => registrationExecutionApi.start(CANDIDATE, EXECUTION), `${BASE}/${EXECUTION}/start`],
-    ['unresolved', () => registrationExecutionApi.markUnresolved(CANDIDATE, EXECUTION, { reason: 'x' }), `${BASE}/${EXECUTION}/unresolved`],
-    ['not-submitted', () => registrationExecutionApi.markNotSubmitted(CANDIDATE, EXECUTION, { reason: 'x' }), `${BASE}/${EXECUTION}/not-submitted`],
+    ['start', () => registrationExecutionApi.start(SALES_PRODUCT, EXECUTION), `${BASE}/${EXECUTION}/start`],
+    ['unresolved', () => registrationExecutionApi.markUnresolved(SALES_PRODUCT, EXECUTION, { reason: 'x' }), `${BASE}/${EXECUTION}/unresolved`],
+    ['not-submitted', () => registrationExecutionApi.markNotSubmitted(SALES_PRODUCT, EXECUTION, { reason: 'x' }), `${BASE}/${EXECUTION}/not-submitted`],
   ])('addresses one execution by id for %s', async (_name, call, expected) => {
     await call();
     expect(apiClient.post).toHaveBeenCalledWith(expected, expect.anything());
   });
 
   it('confirms a registration on the same execution-scoped route', async () => {
-    await registrationExecutionApi.confirm(CANDIDATE, {
+    await registrationExecutionApi.confirm(SALES_PRODUCT, {
       executionId: EXECUTION,
       externalListingId: '427011919',
     });
@@ -175,10 +185,10 @@ describe('registration execution client', () => {
     }));
   });
 
-  it('escapes a candidate or execution id so a path segment cannot be forged', async () => {
+  it('escapes a sales-product or execution id so a path segment cannot be forged', async () => {
     await registrationExecutionApi.start('a/../b', '1/2');
     expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/channels/candidates/a%2F..%2Fb/registration-executions/1%2F2/start',
+      '/api/products/sales-products/a%2F..%2Fb/registration/executions/1%2F2/start',
       {},
     );
   });
@@ -192,7 +202,7 @@ describe('registration execution client', () => {
     const hits = execFileSync('rg', [
       '--files-with-matches',
       '--glob', '!**/*.spec.*',
-      'registration-executions',
+      'registration/executions',
       webSrc,
     ], { encoding: 'utf8' })
       .split('\n')

@@ -19,8 +19,8 @@ import { apiClient } from '@/lib/api-client';
  * 자리는 여기 하나뿐이어야 한다.
  */
 
-const base = (candidateId: string) =>
-  `/api/channels/candidates/${encodeURIComponent(candidateId)}/registration-executions`;
+const base = (salesProductId: string) =>
+  `/api/products/sales-products/${encodeURIComponent(salesProductId)}/registration/executions`;
 
 const targetBase = (targetId: string) =>
   `/api/channels/registration-targets/${encodeURIComponent(targetId)}/executions`;
@@ -120,13 +120,13 @@ export const registrationExecutionApi = {
   reportTargetExecution: targetRegistrationExecutionApi.report,
 
   /** 제출본을 동결하고 실행 장부를 연다. 아직 마켓에 아무것도 보내지 않는다. */
-  prepare: (candidateId: string, body: PrepareRegistrationExecutionBody) =>
-    apiClient.post<PreparedRegistrationExecution>(`${base(candidateId)}/prepare`, body),
+  prepare: (salesProductId: string, body: PrepareRegistrationExecutionBody) =>
+    apiClient.post<PreparedRegistrationExecution>(`${base(salesProductId)}/prepare`, body),
 
   previewSellpiaMatch: (
-    candidateId: string,
+    salesProductId: string,
     body: { listingName: string; itemName?: string },
-  ) => apiClient.post<WingSellpiaMatchPreview>(`${base(candidateId)}/match-preview`, body),
+  ) => apiClient.post<WingSellpiaMatchPreview>(`${base(salesProductId)}/match-preview`, body),
 
   /**
    * 이미 마켓에 등록된 상품을 등록상품으로 확정한다.
@@ -138,28 +138,28 @@ export const registrationExecutionApi = {
    * frozen 한 내부 결과로 확정한다.
    */
   confirm: (
-    candidateId: string,
+    salesProductId: string,
     body: {
       executionId: string;
       externalListingId: string;
       evidence?: Record<string, unknown>;
     },
   ) => apiClient.post<{ preparationId: string; status: string; listingId?: string }>(
-    `${base(candidateId)}/confirm`,
+    `${base(salesProductId)}/confirm`,
     body,
   ),
 
   /** 리스를 잡는다. 여기서부터 중복 제출이 막힌다. */
-  start: (candidateId: string, executionId: string) =>
+  start: (salesProductId: string, executionId: string) =>
     apiClient.post<{ executionId: string; status: 'executing'; providerOutcome: 'uncertain' }>(
-      `${base(candidateId)}/${encodeURIComponent(executionId)}/start`, {},
+      `${base(salesProductId)}/${encodeURIComponent(executionId)}/start`, {},
     ),
 
   /** 제출 여부를 모르는 실패. 중복 등록을 막으려고 열어 둔다. */
   markUnresolved: (
-    candidateId: string, executionId: string, evidence: Record<string, unknown>,
+    salesProductId: string, executionId: string, evidence: Record<string, unknown>,
   ) => apiClient.post(
-    `${base(candidateId)}/${encodeURIComponent(executionId)}/unresolved`,
+    `${base(salesProductId)}/${encodeURIComponent(executionId)}/unresolved`,
     { evidence },
   ),
 
@@ -168,9 +168,9 @@ export const registrationExecutionApi = {
    * `unresolved` 로 두면 실행이 `reconciling` 에 갇혀 재시도도 취소도 막힌다.
    */
   markNotSubmitted: (
-    candidateId: string, executionId: string, evidence: Record<string, unknown>,
+    salesProductId: string, executionId: string, evidence: Record<string, unknown>,
   ) => apiClient.post(
-    `${base(candidateId)}/${encodeURIComponent(executionId)}/not-submitted`,
+    `${base(salesProductId)}/${encodeURIComponent(executionId)}/not-submitted`,
     { evidence },
   ),
 };
