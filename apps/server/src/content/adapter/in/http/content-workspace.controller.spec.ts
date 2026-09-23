@@ -15,6 +15,7 @@ describe('ContentWorkspaceController current thumbnail', () => {
       workspaces as never,
       thumbnails as never,
       {} as never,
+      {} as never,
     );
 
     await expect(controller.selectCurrentThumbnail(
@@ -43,6 +44,7 @@ describe('ContentWorkspaceController thumbnail gallery', () => {
       {} as never,
       {} as never,
       contentAssets as never,
+      {} as never,
     );
 
     await expect(controller.replaceThumbnailGallery(
@@ -65,7 +67,7 @@ describe('ContentWorkspaceController draft lookups', () => {
     const workspaces = { getForSalesProduct: vi.fn().mockResolvedValue({ workspace: null }) };
     const media = { registrationImages: { primary: [], thumbnail: ['https://cdn.example.com/t.png'], detail: [] }, currentThumbnail: null };
     const contentAssets = { loadRegistrationMedia: vi.fn().mockResolvedValue(media) };
-    const controller = new ContentWorkspaceController(workspaces as never, {} as never, contentAssets as never);
+    const controller = new ContentWorkspaceController(workspaces as never, {} as never, contentAssets as never, {} as never);
 
     await expect(controller.getForSalesProduct('org-1', 'product-1')).resolves.toEqual({ workspace: null });
     expect(workspaces.getForSalesProduct).toHaveBeenCalledWith('org-1', 'product-1');
