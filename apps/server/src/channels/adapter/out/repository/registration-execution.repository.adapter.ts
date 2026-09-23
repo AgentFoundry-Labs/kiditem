@@ -725,7 +725,7 @@ export class RegistrationExecutionRepositoryAdapter
         select: { version: true, status: true },
       });
       if (!product || product.version !== snapshot.product.version || product.status !== snapshot.product.status
-        || (snapshot.kind === 'register' && ['archived', 'unused'].includes(product.status))) {
+        || (snapshot.kind === 'register' && !canStartRegistration(product.status as SalesProductStatus))) {
         throw new ConflictException('Sales product changed after execution preparation.');
       }
       const snapshotOptionIds = snapshot.product.options.map(option => option.id);
