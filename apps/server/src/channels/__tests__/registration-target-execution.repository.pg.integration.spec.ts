@@ -59,7 +59,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       prisma as unknown as PrismaService,
       // 등록 확인이 판매 상품의 콘텐츠 작업공간을 몰 상품에 붙인다 — 실제 Content 어댑터로 엮는다.
       new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
-      channelAdapters({ registration: realRegistrationPreflight(prisma, recipes) }),
+      channelAdapters({ registration: realRegistrationPreflight(prisma) }),
       recipes,
     );
   });
@@ -1575,7 +1575,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
 
     it('replays a Wing register by idempotency key without running the Sellpia preflight again', async () => {
       const { fixture, request, snapshot } = await wingFixture();
-      const real = realRegistrationPreflight(prisma, recipes);
+      const real = realRegistrationPreflight(prisma);
       const preflight = vi.fn(real.preflightExternalProductRegistration.bind(real));
       const counted = new RegistrationExecutionRepositoryAdapter(
         prisma as unknown as PrismaService,

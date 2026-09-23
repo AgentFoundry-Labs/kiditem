@@ -1,46 +1,3 @@
-import type { OwnerTransaction } from '../../../../../common/owner-transaction';
-import type { PreparedRegistrationRecipe } from '../../../../domain/registration/registration-item-code';
-import type { ChannelListingRegistrationResult } from '@kiditem/shared/channel-listing';
-
-export interface ResolveProductRegistrationCapabilityInput {
-  organizationId: string;
-  /** 등록 설정의 주인(판매상품 초안). 원천 후보가 아니라 이 상품이 몰 상품의 주인이 된다. */
-  salesProductId: string;
-  channelAccountId: string;
-  submissionKey: string;
-  preparedRecipe?: PreparedRegistrationRecipe;
-  externalListingId: string;
-  displayName: string;
-  masterProductId?: string;
-  optionLinks?: Array<{
-    externalOptionId: string;
-    sellpiaInventorySkuId: string;
-    quantity: number;
-  }>;
-}
-
-/**
- * Channels-owned local listing resolution. Provider payload/state is never
- * carried through this receipt boundary.
- */
-export interface ResolveProductRegistrationWithOwnerReceiptInput {
-  organizationId: string;
-  salesProductId: string;
-  channelAccountId: string;
-  submissionKey: string;
-  preparedRecipe?: PreparedRegistrationRecipe;
-  externalListingId: string;
-  displayName: string;
-  masterProductId?: string;
-  optionLinks?: Array<{
-    externalOptionId: string;
-    sellpiaInventorySkuId: string;
-    quantity: number;
-  }>;
-  ownerCapabilityKey: 'channels.report_target_execution';
-  ownerIdempotencyKey: string;
-  ownerRequestHash: string;
-}
 
 export interface ExternalProductRegistrationPreflightInput {
   organizationId: string;
@@ -78,14 +35,4 @@ export interface ChannelRegistrationPort {
   preflightExternalProductRegistration(
     input: ExternalProductRegistrationPreflightInput,
   ): Promise<ExternalProductRegistrationPreflightResult>;
-
-  resolveProductRegistration(
-    transaction: OwnerTransaction,
-    input: ResolveProductRegistrationCapabilityInput,
-  ): Promise<ChannelListingRegistrationResult>;
-
-  resolveProductRegistrationWithOwnerReceipt(
-    transaction: OwnerTransaction,
-    input: ResolveProductRegistrationWithOwnerReceiptInput,
-  ): Promise<ChannelListingRegistrationResult>;
 }

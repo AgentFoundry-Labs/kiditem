@@ -3,14 +3,11 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
-import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 import { SellpiaRecipeEvidenceAdapter } from '../adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
 import { ListingRegistrationPersistenceAdapter } from '../adapter/out/persistence/listing-registration.persistence.adapter';
-import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
 import { ChannelRecipeSuggestionService } from '../application/service/listing/channel-recipe-suggestion.service';
 import { ChannelRegistrationService } from '../application/service/registration/channel-registration.service';
-import type { ChannelOptionRecipePort } from '../application/port/in/channel-option-recipe.port';
 import { ChannelAdapterRegistryAdapter } from '../adapter/out/channel/channel-adapter-registry.adapter';
 import { CoupangChannelAdapter } from '../adapter/out/channel/coupang/coupang-channel.adapter';
 import type { ChannelRegistrationPort } from '../application/port/in/registration/channel-registration.port';
@@ -42,7 +39,6 @@ export function channelAdapters(input: {
  */
 export function realRegistrationPreflight(
   prisma: PrismaClient | PrismaService,
-  recipes?: ChannelOptionRecipePort,
 ): Pick<ChannelRegistrationPort, 'preflightExternalProductRegistration'> {
   const db = prisma as unknown as PrismaService;
   const products = new ProductSourceReadRepositoryAdapter(db);
@@ -52,11 +48,7 @@ export function realRegistrationPreflight(
     new SellpiaRecipeEvidenceAdapter(products, availability),
   );
   return new ChannelRegistrationService(
-    new ListingRegistrationPersistenceAdapter(
-      db,
-      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
-      recipes,
-    ),
+    new ListingRegistrationPersistenceAdapter(db),
     suggestions,
   );
 }

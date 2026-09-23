@@ -1,10 +1,7 @@
-import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import type { ChannelListingRegistrationResult } from '@kiditem/shared/channel-listing';
 import type { ChannelRecipeSuggestionResponse } from '@kiditem/shared/channel-product-matching';
 import type {
   ChannelRegistrationPort, ExternalProductRegistrationPreflightInput,
-  ExternalProductRegistrationPreflightResult, ResolveProductRegistrationCapabilityInput,
-  ResolveProductRegistrationWithOwnerReceiptInput,
+  ExternalProductRegistrationPreflightResult,
 } from '../../port/in/registration/channel-registration.port';
 import type { ListingRegistrationPersistencePort } from '../../port/out/persistence/listing-registration.persistence.port';
 import { RegistrationTargetException } from '../../exception/registration-target.exception';
@@ -97,23 +94,6 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
       channelAccountId: input.channelAccountId,
       sellerSku: externalVendorSku,
     });
-  }
-
-  resolveProductRegistration(
-    transaction: OwnerTransaction,
-    input: ResolveProductRegistrationCapabilityInput,
-  ): Promise<ChannelListingRegistrationResult> {
-    return this.repository.resolveProductRegistration(transaction, input);
-  }
-
-  resolveProductRegistrationWithOwnerReceipt(
-    transaction: OwnerTransaction,
-    input: ResolveProductRegistrationWithOwnerReceiptInput,
-  ): Promise<ChannelListingRegistrationResult> {
-    return this.repository.resolveProductRegistrationWithOwnerReceipt(
-      transaction,
-      input,
-    );
   }
 }
 
