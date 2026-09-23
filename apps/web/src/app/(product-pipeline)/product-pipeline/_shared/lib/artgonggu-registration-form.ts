@@ -220,7 +220,7 @@ export function artgongguFormFromDraft(
   manualSteps.push(
     '판매가는 셀피아 판매가를 그대로 넣었습니다. 이 몰 등록물은 소비자가의 약 63% 였습니다 — 다르면 바꾸세요.',
   );
-  manualSteps.push('값이 맞는지 확인한 뒤 화면에서 직접 등록하세요. 자동 제출하지 않습니다.');
+  manualSteps.push('값이 맞는지 확인하세요. 폼만 채웠고 [등록]은 누르지 않았습니다.');
 
   return {
     url: ARTGONGGU_REGISTER_URL,

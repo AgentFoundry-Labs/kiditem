@@ -19,7 +19,8 @@ import { isApiError } from '@/lib/api-error';
  *  2. **막힌 몰에서 멈추지 않는다.** 한 몰이 실패해도 나머지를 계속 채운다. 하나
  *     때문에 전부 못 하면 '한번에 등록하기' 는 쓸모가 없다.
  *
- * 제출은 하지 않는다. 폼을 채운 것은 등록이 아니다.
+ * 제출은 하지 않는다(`mallFormExecutionOptions` → `submit: false`, KID-322). 폼을 채운 것은 등록이 아니고,
+ * 결과도 등록됐다고 말하지 않는다. [등록]은 등록 실행(`useMallPublishRun`) 안에서만 누른다.
  */
 
 export type MallRunStatus = 'filled' | 'blocked' | 'failed';
@@ -112,7 +113,7 @@ export async function runOneMallRegistration(
     return {
       ...base,
       status: 'filled',
-      message: '폼을 채웠습니다. 열린 탭에서 확인하고 직접 등록하세요.',
+      message: '폼을 채웠습니다. [등록]은 누르지 않았습니다 — 열린 탭에서 값을 확인하세요.',
       manualSteps: [...outcome.warnings, ...outcome.manualSteps],
     };
   } catch (error) {
@@ -187,6 +188,6 @@ export function summarizeMallRun(outcomes: readonly MallRunOutcome[]): {
       : `${filled.length}개 몰은 채우고 ${failed.length}개는 못 채웠어요`;
   const description = failed.length > 0
     ? failed.map((outcome) => `${outcome.mallName}: ${outcome.message}`).join(' / ')
-    : '열린 탭에서 확인하고 직접 등록하세요. 제출은 하지 않았습니다.';
+    : '폼만 채웠고 [등록]은 누르지 않았습니다. 등록은 확인 창의 등록 실행이나 몰 등록 마법사에서 합니다.';
   return { filled: filled.length, failed, title, description };
 }

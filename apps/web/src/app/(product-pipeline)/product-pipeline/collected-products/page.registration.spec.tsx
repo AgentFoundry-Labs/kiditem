@@ -95,7 +95,7 @@ vi.mock('./components/list/ProductList', () => ({
 function openCoupangConfirmation() {
   render(<SourcingPage />);
   fireEvent.click(screen.getByRole('button', { name: 'AI 작업 선택' }));
-  fireEvent.click(screen.getByRole('button', { name: '쿠팡 WING만 등록' }));
+  fireEvent.click(screen.getByRole('button', { name: '쿠팡 WING 확인 창 열기' }));
 }
 
 /**
@@ -175,7 +175,7 @@ describe('SourcingPage 몰 등록', () => {
   it('fills the other selected malls first, then opens the confirmation dialog', async () => {
     render(<SourcingPage />);
     fireEvent.click(screen.getByRole('button', { name: 'AI 작업 선택' }));
-    fireEvent.click(screen.getByRole('button', { name: /선택한 2개 몰에 등록/ }));
+    fireEvent.click(screen.getByRole('button', { name: /선택한 2개 몰 폼 채우기/ }));
 
     await waitFor(() => expect(runMallsMock).toHaveBeenCalledWith(['kidsnote']));
     expect(await screen.findByRole('dialog', { name: 'coupang 확인 창' })).toBeInTheDocument();

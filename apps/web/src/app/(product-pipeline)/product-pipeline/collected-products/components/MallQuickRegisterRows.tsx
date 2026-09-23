@@ -221,13 +221,15 @@ export function MallQuickRegisterRows({
                       여기서 목소리를 키우면 예전처럼 같은 버튼 여덟 개가 된다. */}
                   <button
                     type="button"
-                    aria-label={`${row.mallName}만 등록`}
-                    title={`${row.mallName}만 등록합니다`}
+                    aria-label={needsConfirmation ? `${row.mallName} 확인 창 열기` : `${row.mallName} 폼 채우기`}
+                    title={needsConfirmation
+                      ? `${row.mallName} 확인 창에서 폼 채우기와 등록 실행 중 고릅니다`
+                      : `${row.mallName} 폼만 채웁니다`}
                     onClick={() => onRunOne(row.mallKey)}
                     disabled={disabled || running || !row.ready}
                     className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    {status === 'filled' || status === 'failed' ? '다시' : '등록'}
+                    {status === 'filled' || status === 'failed' ? '다시' : needsConfirmation ? '확인 창' : '폼 채우기'}
                   </button>
                 </div>
                 {status === 'blocked' ? (
@@ -270,11 +272,11 @@ export function MallQuickRegisterRows({
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? <Loader2 size={15} className="animate-spin" /> : <Rocket size={15} />}
-          {running ? '몰을 열어 채우는 중' : `선택한 ${selected.length}개 몰에 등록`}
+          {running ? '몰을 열어 채우는 중' : `선택한 ${selected.length}개 몰 폼 채우기`}
         </button>
 
         <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
-          폼만 채웁니다 · 한 몰이 막혀도 나머지는 계속합니다
+          폼만 채웁니다 · [등록]은 누르지 않습니다 · 한 몰이 막혀도 나머지는 계속합니다
           {confirmKeys.size > 0 ? ' · 확인 창이 필요한 몰은 맨 마지막에 확인 창이 뜹니다' : ''}
           {targetCount > 1 ? ` · 고른 ${targetCount}개 중 첫 상품만 엽니다` : ''}
         </p>

@@ -41,11 +41,11 @@ const ok = (): MallSendOutcome => ({
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('몰 하나 실행', () => {
-  it('폼을 채우면 채웠다고만 말한다 — 등록은 사람이 한다', async () => {
+  it('폼을 채우면 채웠다고만 말한다 — 등록은 등록 실행이 한다', async () => {
     const send = vi.spyOn(kidsnoteAdapter, 'send').mockResolvedValue(ok());
     const outcome = await runOneMallRegistration('kidsnote', item, filled());
     expect(outcome.status).toBe('filled');
-    expect(outcome.message).toContain('직접 등록');
+    expect(outcome.message).toBe('폼을 채웠습니다. [등록]은 누르지 않았습니다 — 열린 탭에서 값을 확인하세요.');
     expect(outcome.manualSteps).toContain('열린 탭에서 확인하세요.');
     expect(send).toHaveBeenCalledOnce();
   });
@@ -186,10 +186,11 @@ describe('결과 요약', () => {
   const outcome = (mallName: string, status: 'filled' | 'failed', message = '') =>
     ({ mallKey: mallName, mallName, status, message, manualSteps: [] });
 
-  it('전부 성공하면 제출하지 않았다고 말한다', () => {
+  it('전부 성공하면 [등록]은 누르지 않았다고 말한다 — 등록됐다고 하지 않는다', () => {
     const summary = summarizeMallRun([outcome('키즈노트', 'filled'), outcome('도매꾹', 'filled')]);
     expect(summary).toMatchObject({ filled: 2, title: '2개 몰 폼을 채웠어요' });
-    expect(summary.description).toContain('제출은 하지 않았습니다');
+    expect(summary.description).toContain('[등록]은 누르지 않았습니다');
+    expect(summary.description).not.toMatch(/직접 등록하세요|등록했|등록됨/);
   });
 
   it('일부 실패하면 어느 몰이 왜 실패했는지 남긴다', () => {

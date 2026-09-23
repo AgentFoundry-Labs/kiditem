@@ -142,7 +142,7 @@ export function elevenstFormFromDraft(
   }
   manualSteps.push('상품명 클린체크를 눌러 통과시켜야 등록됩니다. 이건 사람이 눌러야 합니다.');
   manualSteps.push('광고(포커스클릭·리스팅광고)는 건드리지 않습니다. 켜면 셀러캐시에서 돈이 나갑니다.');
-  manualSteps.push('값이 맞는지 확인한 뒤 화면에서 직접 등록하세요. 자동 등록하지 않습니다.');
+  manualSteps.push('값이 맞는지 확인하세요. 폼만 채웠고 [등록]은 누르지 않았습니다.');
 
   return {
     url: ELEVENST_REGISTER_URL,
