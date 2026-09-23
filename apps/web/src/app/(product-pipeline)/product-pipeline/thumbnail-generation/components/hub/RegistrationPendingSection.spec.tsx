@@ -37,6 +37,26 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('RegistrationPendingSection checking actions', () => {
+  it('shows a failed sibling and a checking sibling of one product side by side', async () => {
+    const G2 = '00000000-0000-4000-8000-000000000002';
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.startsWith('/api/thumbnail-analysis/generations')) {
+        return { items: [generation, { ...generation, id: G2, createdAt: '2026-09-22T00:00:00.000Z' }], total: 2 };
+      }
+      return {
+        items: [
+          { generationId: G1, executionId: EXECUTION, status: 'reconciling', providerOutcome: 'uncertain', checkedAt: null, error: null, screenshotPath: null },
+          { generationId: G2, executionId: '00000000-0000-4000-8000-0000000000e2', status: 'failed', providerOutcome: 'definitive_failure', checkedAt: null, error: '로그인 필요', screenshotPath: null },
+        ],
+      };
+    });
+    renderSection();
+
+    expect(await screen.findByText('등록 실패')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '반영됨으로 표시' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '다시 보내기' })).toBeTruthy();
+  });
+
   it('offers resend and not-applied but no confirmation while the upload itself is still running', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
       if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };

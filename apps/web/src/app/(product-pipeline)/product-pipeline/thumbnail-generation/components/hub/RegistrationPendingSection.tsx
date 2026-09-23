@@ -331,8 +331,8 @@ function RegistrationPendingCard({
   const preview = previewUrl(item);
   const resolved = preview ? resolveImageUrl(preview) : null;
   const anyFailed = group.items.some((i) => i.registrationStatus === 'failed');
-  const checking = group.items.find((i) => i.registrationStatus === 'checking' && i.registrationExecutionId);
-  const anyChecking = Boolean(checking);
+  // 실패한 생성과 확인할 생성은 따로 보인다 — 한 생성의 실패가 다른 생성의 출구를 가리지 않는다.
+  const checkingItems = group.items.filter((i) => i.registrationStatus === 'checking' && i.registrationExecutionId);
   const firstError = group.items.find((i) => i.registrationStatus === 'failed')?.registrationError ?? null;
   const fullSelected = selectedCount === group.items.length;
   const partialSelected = selectedCount > 0 && !fullSelected;
@@ -379,50 +379,18 @@ function RegistrationPendingCard({
       </div>
       <div className="px-1 py-1 bg-white">
         <p className="text-[11px] font-bold text-gray-900 truncate">{productName}</p>
-        {!anyFailed && anyChecking && checking?.registrationExecutionId && (
-          <div className="mt-0.5">
-            <p className="text-[10px] font-bold text-amber-600 truncate" title={checking.registrationError ?? '몰에 반영됐는지 아직 모릅니다'}>
-              Wing 저장 확인 필요
-            </p>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {checking.registrationExecutionStatus === 'reconciling' && (
-                <button
-                  type="button"
-                  disabled={checkingBusy}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onConfirmApplied(checking.registrationExecutionId!);
-                  }}
-                  className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
-                >
-                  반영됨으로 표시
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={checkingBusy}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onResend(checking.registrationExecutionId!);
-                }}
-                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
-              >
-                다시 보내기
-              </button>
-              <button
-                type="button"
-                disabled={checkingBusy}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMarkNotApplied(checking.registrationExecutionId!);
-                }}
-                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
-              >
-                반영 안 됨으로 표시
-              </button>
-            </div>
-          </div>
-        )}
+        {checkingItems.map((checking) => (
+          <CheckingActions
+            key={checking.id}
+            executionId={checking.registrationExecutionId!}
+            executionStatus={checking.registrationExecutionStatus}
+            title={checking.registrationError}
+            busy={checkingBusy}
+            onConfirmApplied={onConfirmApplied}
+            onResend={onResend}
+            onMarkNotApplied={onMarkNotApplied}
+          />
+        ))}
         {anyFailed && (
           <div className="flex items-start gap-1 mt-0.5">
             <p className="text-[10px] font-bold text-rose-600 truncate flex-1" title={firstError ?? undefined}>
@@ -445,6 +413,65 @@ function RegistrationPendingCard({
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** 살아 있는 실행 하나의 출구. 확인은 올린 뒤 기다리는(`reconciling`) 실행에서만 받는다. */
+function CheckingActions({
+  executionId,
+  executionStatus,
+  title,
+  busy,
+  onConfirmApplied,
+  onResend,
+  onMarkNotApplied,
+}: {
+  executionId: string;
+  executionStatus: ThumbnailGenerationListItem['registrationExecutionStatus'];
+  title: string | null;
+  busy: boolean;
+  onConfirmApplied: (executionId: string) => void;
+  onResend: (executionId: string) => void;
+  onMarkNotApplied: (executionId: string) => void;
+}) {
+  const act = (run: (executionId: string) => void) => (event: React.MouseEvent) => {
+    event.stopPropagation();
+    run(executionId);
+  };
+  return (
+    <div className="mt-0.5">
+      <p className="text-[10px] font-bold text-amber-600 truncate" title={title ?? '몰에 반영됐는지 아직 모릅니다'}>
+        Wing 저장 확인 필요
+      </p>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {executionStatus === 'reconciling' && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={act(onConfirmApplied)}
+            className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+          >
+            반영됨으로 표시
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={act(onResend)}
+          className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
+        >
+          다시 보내기
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={act(onMarkNotApplied)}
+          className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
+        >
+          반영 안 됨으로 표시
+        </button>
       </div>
     </div>
   );
