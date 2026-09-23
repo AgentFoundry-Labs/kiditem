@@ -59,18 +59,16 @@ export function useGenerationList(
       return data.some(isActive) ? 3000 : false;
     },
   });
-  // 몰 반영 상태는 적용된 생성에만 의미가 있다. 목록 하나에 조회 한 번(200개씩)이다.
-  const appliedIds = useMemo(
-    () => (generations.data ?? []).filter((generation) => generation.phase === 'applied').map((generation) => generation.id),
-    [generations.data],
-  );
-  const executions = useThumbnailExecutionStatuses(appliedIds);
+  // 몰 반영 상태는 목록의 모든 생성에 대해 읽는다 — Content 단계와 관계없이(Agent 가 올린 생성도)
+  // 살아 있는 실행은 화면에 출구가 있어야 한다. 목록 하나에 조회 한 번(100 개씩)이다.
+  const listedIds = useMemo(() => (generations.data ?? []).map((generation) => generation.id), [generations.data]);
+  const executions = useThumbnailExecutionStatuses(listedIds);
   const data = useMemo(
     () => (generations.data ? mergeThumbnailRegistration(generations.data, executions.data ?? []) : undefined),
     [generations.data, executions.data],
   );
-  // 적용된 생성의 몰 반영 상태가 오기 전에는 "등록 안 됨" 처럼 보이지 않게 로딩으로 본다.
-  const statusLoading = appliedIds.length > 0 && executions.isLoading;
+  // 몰 반영 상태가 오기 전에는 "등록 안 됨" 처럼 보이지 않게 로딩으로 본다.
+  const statusLoading = listedIds.length > 0 && executions.isLoading;
   const refetch = useCallback(async () => {
     const result = await generations.refetch();
     await executions.refetch();
@@ -420,6 +418,24 @@ export function useBatchWingRegister() {
         }
       }
       return { results };
+    },
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
+  });
+}
+
+/**
+ * 편집 화면의 Wing 올리기. Wing 수정 화면에 닿으면 생성을 적용해(썸네일 분석의 openCoupangEdit 와
+ * 같이) 등록 대기에서 그 실행과 출구가 보이게 한다.
+ */
+export function useWingUploadAndApply() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (generationId: string) => {
+      const result = await registerWingThumbnailViaExtension(generationId);
+      if (wingUploadReached(result)) {
+        await apiClient.put(`/api/thumbnail-analysis/generations/${generationId}/apply`, {});
+      }
+      return result;
     },
     onSettled: () => invalidateThumbnailRegistration(queryClient),
   });

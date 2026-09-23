@@ -13,7 +13,7 @@ import {
   useCreateEditJobs,
   useGenerationList,
   useSelectCandidate,
-  useWingRegister,
+  useWingUploadAndApply,
   useDeleteCandidate,
 } from '../../../_shared/hooks/useThumbnailGenerations';
 import {
@@ -290,7 +290,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
 
   const generateMutation = useGenerateThumbnail();
   const selectCandidateMutation = useSelectCandidate();
-  const wingRegisterMutation = useWingRegister();
+  const wingRegisterMutation = useWingUploadAndApply();
   const deleteCandidateMutation = useDeleteCandidate();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 

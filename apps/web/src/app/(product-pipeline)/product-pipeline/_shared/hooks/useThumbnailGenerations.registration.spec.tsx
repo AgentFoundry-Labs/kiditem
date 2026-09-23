@@ -59,7 +59,7 @@ describe('generation list with Channels mall registration status', () => {
     expect(Object.keys(hook.result.current.list).sort()).toEqual(['data', 'error', 'isError', 'isLoading', 'refetch']);
   });
 
-  it('reads the latest execution for applied generations once and merges it by generation id', async () => {
+  it('reads the latest execution for every listed generation once and merges it by generation id', async () => {
     const hook = mount();
     await waitFor(() => expect(hook.result.current.list.data?.[0]?.registrationStatus).toBe('checking'));
     expect(hook.result.current.list.data).toMatchObject([
@@ -67,7 +67,8 @@ describe('generation list with Channels mall registration status', () => {
       { id: G2, registrationStatus: null, registrationError: null },
     ]);
     const statusReads = vi.mocked(apiClient.get).mock.calls.map(([href]) => href).filter((href) => href.startsWith('/api/channels/'));
-    expect(statusReads).toEqual([`/api/channels/thumbnail-executions?generationIds=${G1}`]);
+    // 적용 여부와 관계없이 목록의 모든 생성을 한 번에 읽는다(Agent 가 올린 생성도 출구가 있어야 한다).
+    expect(statusReads).toEqual([`/api/channels/thumbnail-executions?generationIds=${G1},${G2}`]);
   });
 
   it('clears a failure through the Channels delete and reads the status again', async () => {

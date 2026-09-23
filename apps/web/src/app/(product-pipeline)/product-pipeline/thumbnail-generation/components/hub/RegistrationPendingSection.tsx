@@ -23,8 +23,12 @@ import { cn } from '@/lib/utils';
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 import { WingListingPicker } from './WingListingPicker';
 
-/** 적용했지만 아직 몰에 반영되지 않은 생성. 결과를 모르는 실행(`checking`)도 여기 남겨 보이게 한다. */
+/**
+ * 등록 대기: 적용했지만 아직 몰에 반영되지 않은 생성, 그리고 Content 단계와 관계없이 살아 있는
+ * 실행(`checking`)이 있는 생성(Agent 가 올린 것 포함). 살아 있는 실행은 늘 여기서 출구를 가진다.
+ */
 function isPendingRegistration(g: ThumbnailGenerationListItem): boolean {
+  if (g.registrationStatus === 'checking') return true;
   if (g.phase !== 'applied') return false;
   return g.registrationStatus !== 'registered';
 }
