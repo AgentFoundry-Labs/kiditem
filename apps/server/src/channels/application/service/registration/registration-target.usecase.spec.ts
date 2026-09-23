@@ -7,6 +7,8 @@ const product = { name: '공통 상품명', options: [
   { id: 'option-a', code: 'KID00000002', values: ['파랑'], salePrice: 3000, normalPrice: 5000 },
   { id: 'option-b', code: 'KID00000003', values: ['노랑'], salePrice: 4000, normalPrice: null },
 ] };
+const emptyMallInput = { mallCategory: null, mallFields: {}, adapter: {} };
+
 function setup() {
   const rows = new Map<string, RegistrationTargetRecord>();
   const defaults = structuredClone(product);
@@ -24,49 +26,36 @@ function setup() {
         salesProductId: input.salesProductId,
         channelAccountId: input.channelAccountId,
         version: 1,
-        displayName: null,
-        registrationInput: {},
-        selectedOptions: defaults.options.map(option => ({
-          salesProductOptionId: option.id,
-          salePrice: null,
-          normalPrice: null,
-          supplyPrice: null,
-        })),
+        registrationInput: emptyMallInput,
+        selectedThumbnailAssetId: null,
+        selectedDetailPageRevisionId: null,
+        selectedOptions: defaults.options.map(option => ({ salesProductOptionId: option.id })),
         product: defaults,
       });
       return id;
     },
     archive: async (_org, id) => { rows.delete(id); },
-    create: async (_org, input) => {
-      const id = `target-${rows.size + 1}`;
-      rows.set(id, { ...input, id, version: 1, product: defaults });
-      return id;
-    },
+    create: async () => { throw new Error('the public port never creates a target directly'); },
     update: async (_org, id, input) => {
       const row = rows.get(id)!;
-      rows.set(id, { ...row, ...input, version: row.version + 1 });
+      const { expectedVersion: _version, ...values } = input;
+      rows.set(id, { ...row, ...values, version: row.version + 1 });
     },
   };
   return { service: new RegistrationTargetUseCase(repository), defaults };
 }
-const input = {
-  salesProductId: 'product', channelAccountId: 'account', displayName: null, registrationInput: {},
-  selectedOptions: [{ salesProductOptionId: 'option-a', salePrice: null, normalPrice: null, supplyPrice: null }],
-};
 
 describe('registration target public port', () => {
-  it('resolves a default target when no account settings exist', async () => {
+  it('resolves a default target that selects every option and stores no product facts', async () => {
     const { service } = setup();
     const target = await service.resolve(org, { salesProductId: 'product', channelAccountId: 'account' });
     expect(target).toMatchObject({
       salesProductId: 'product',
       channelAccountId: 'account',
-      displayName: null,
-      registrationInput: {},
-      selectedOptions: [
-        { salesProductOptionId: 'option-a', salePrice: null, normalPrice: null, supplyPrice: null },
-        { salesProductOptionId: 'option-b', salePrice: null, normalPrice: null, supplyPrice: null },
-      ],
+      registrationInput: emptyMallInput,
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      selectedOptions: [{ salesProductOptionId: 'option-a' }, { salesProductOptionId: 'option-b' }],
       resolved: {
         name: '공통 상품명',
         options: [
@@ -75,36 +64,34 @@ describe('registration target public port', () => {
         ],
       },
     });
+    expect(target).not.toHaveProperty('displayName');
   });
 
-  it('applies edited common defaults only where no explicit target value exists', async () => {
+  it('reads the name and prices from the selling product at use time, so a product edit shows everywhere', async () => {
     const { service, defaults } = setup();
     const resolved = await service.resolve(org, { salesProductId: 'product', channelAccountId: 'account' });
-    const target = await service.update(org, resolved.id, {
-      expectedVersion: resolved.version, displayName: '고정 상품명', registrationInput: {}, selectedOptions: [
-        { ...input.selectedOptions[0], salePrice: 0 },
-        { salesProductOptionId: 'option-b', salePrice: null, normalPrice: null, supplyPrice: null },
-      ],
-    });
     defaults.name = '새 기본 이름';
-    defaults.options[0].salePrice = 6000;
-    defaults.options[1].salePrice = 7000;
-    const read = await service.get(org, target.id);
-    expect(read.resolved.name).toBe('고정 상품명');
-    expect(read.resolved.options.map(option => option.salePrice)).toEqual([0, 7000]);
-    expect(read.selectedOptions[1].salePrice).toBeNull();
+    defaults.options[0]!.salePrice = 6000;
+    defaults.options[1]!.salePrice = 7000;
+
+    const read = await service.get(org, resolved.id);
+    expect(read.resolved.name).toBe('새 기본 이름');
+    expect(read.resolved.options.map(option => option.salePrice)).toEqual([6000, 7000]);
   });
 
   it('returns only selected options and rejects a dangling option reference', async () => {
     const { service } = setup();
     const resolved = await service.resolve(org, { salesProductId: 'product', channelAccountId: 'account' });
     const target = await service.update(org, resolved.id, {
-      expectedVersion: resolved.version, displayName: null, registrationInput: {}, selectedOptions: input.selectedOptions,
+      expectedVersion: resolved.version, registrationInput: emptyMallInput,
+      selectedThumbnailAssetId: null, selectedDetailPageRevisionId: null,
+      selectedOptions: [{ salesProductOptionId: 'option-a' }],
     });
     expect(target.resolved.options.map(option => option.salesProductOptionId)).toEqual(['option-a']);
     await expect(service.update(org, resolved.id, {
-      expectedVersion: target.version, displayName: null, registrationInput: {},
-      selectedOptions: [{ ...input.selectedOptions[0], salesProductOptionId: 'other-product-option' }],
+      expectedVersion: target.version, registrationInput: emptyMallInput,
+      selectedThumbnailAssetId: null, selectedDetailPageRevisionId: null,
+      selectedOptions: [{ salesProductOptionId: 'other-product-option' }],
     })).rejects.toThrow('선택한 옵션이 해당 판매상품에 없습니다.');
   });
 });

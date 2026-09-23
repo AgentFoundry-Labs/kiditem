@@ -8,9 +8,20 @@ import {
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 import type {
+  RegistrationMallInput,
   RegistrationTargetResolveInput,
   RegistrationTargetUpdateInput,
 } from '@kiditem/shared/sales-product';
+import {
+  RegistrationMallInputError,
+  emptyRegistrationMallInput,
+  normalizeRegistrationMallInput,
+} from '../../../domain/registration/registration-mall-input';
+import {
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+  type RegistrationContentWorkspacePort,
+} from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import type {
   RegistrationTargetCreateRecord,
   RegistrationTargetRecord,
@@ -22,12 +33,7 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const TARGET_INCLUDE = {
   selectedOptions: {
     orderBy: { sortOrder: 'asc' as const },
-    select: {
-      salesProductOptionId: true,
-      salePrice: true,
-      normalPrice: true,
-      supplyPrice: true,
-    },
+    select: { salesProductOptionId: true },
   },
   salesProduct: {
     select: {
@@ -55,6 +61,9 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly productTransactionalRead: ProductTransactionalReadPort,
+    /** 고른 대표이미지 자산 · 상세 revision 이 이 상품 작업공간의 것인지 Content 가 본다. */
+    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
+    private readonly contentWorkspaces: RegistrationContentWorkspacePort,
   ) {}
 
   /** 셀피아 단품 id → 코드. KID 발급이 단품 하나짜리 구성의 원천 코드를 다시 쓸 때만 읽는다. */
@@ -104,8 +113,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
-          displayName: null,
-          registrationInput: {},
+          registrationInput: emptyRegistrationMallInput() as Prisma.InputJsonValue,
           selectedOptions: options.length === 0 ? undefined : {
             createMany: { data: options.map((option, sortOrder) => ({
               salesProductOptionId: option.id,
@@ -163,6 +171,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
   }
 
   private async createTarget(organizationId: string, input: RegistrationTargetCreateRecord): Promise<string> {
+    const registrationInput = mallInputOrInvalid(input.registrationInput);
     return this.prisma.$transaction(async (tx) => {
       await validateReferences(tx, organizationId, input.salesProductId, input.channelAccountId);
       await validateSelectedOptions(tx, {
@@ -176,8 +185,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
-          displayName: input.displayName,
-          registrationInput: input.registrationInput as Prisma.InputJsonValue,
+          registrationInput: registrationInput as Prisma.InputJsonValue,
           selectedOptions: input.selectedOptions.length === 0
             ? undefined
             : {
@@ -185,9 +193,6 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
                 data: input.selectedOptions.map((option, sortOrder) => ({
                   salesProductOptionId: option.salesProductOptionId,
                   sortOrder,
-                  salePrice: option.salePrice,
-                  normalPrice: option.normalPrice,
-                  supplyPrice: option.supplyPrice,
                 })),
               },
             },
@@ -241,6 +246,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
     targetId: string,
     input: RegistrationTargetUpdateInput,
   ): Promise<void> {
+    const registrationInput = mallInputOrInvalid(input.registrationInput);
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw(Prisma.sql`
         SELECT id FROM registration_targets
@@ -270,9 +276,24 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         throw new RegistrationTargetException('conflict', '등록 설정이 다른 곳에서 변경되었습니다.');
       }
 
-      await validateReferences(tx, organizationId, current.salesProductId, current.channelAccountId, {
+      const product = await validateReferences(tx, organizationId, current.salesProductId, current.channelAccountId, {
         allowArchivedProduct: true,
       });
+      if (input.selectedThumbnailAssetId || input.selectedDetailPageRevisionId) {
+        const handle = ownerTransaction(tx);
+        const { workspaceId } = await this.contentWorkspaces.ensureSalesProductWorkspace(handle, {
+          organizationId,
+          salesProductId: current.salesProductId,
+          displayName: product.name,
+          createdByUserId: null,
+        });
+        await this.contentWorkspaces.validateSourceSelections(handle, {
+          organizationId,
+          sourceWorkspaceId: workspaceId,
+          selectedThumbnailAssetId: input.selectedThumbnailAssetId,
+          selectedDetailPageRevisionId: input.selectedDetailPageRevisionId,
+        });
+      }
       const existingOptionIds = new Set(
         current.selectedOptions.map((option) => option.salesProductOptionId),
       );
@@ -291,8 +312,9 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
           version: input.expectedVersion,
         },
         data: {
-          displayName: input.displayName,
-          registrationInput: input.registrationInput as Prisma.InputJsonValue,
+          registrationInput: registrationInput as Prisma.InputJsonValue,
+          selectedThumbnailAssetId: input.selectedThumbnailAssetId,
+          selectedDetailPageRevisionId: input.selectedDetailPageRevisionId,
           version: { increment: 1 },
         },
       });
@@ -313,9 +335,6 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
             registrationTargetId: current.id,
             salesProductOptionId: option.salesProductOptionId,
             sortOrder,
-            salePrice: option.salePrice,
-            normalPrice: option.normalPrice,
-            supplyPrice: option.supplyPrice,
           })),
         });
       }
@@ -329,7 +348,7 @@ async function validateReferences(
   salesProductId: string,
   channelAccountId: string,
   options: { allowArchivedProduct?: boolean } = {},
-): Promise<{ status: string; sourceRecordId: string | null }> {
+): Promise<{ name: string; status: string; sourceRecordId: string | null }> {
   // Serialize new references with option archive/delete/composition planning.
   await tx.$queryRaw(Prisma.sql`
     SELECT id FROM sales_products
@@ -346,7 +365,7 @@ async function validateReferences(
 
   const product = await tx.salesProduct.findFirst({
     where: { id: salesProductId, organizationId },
-    select: { id: true, status: true, sourceRecordId: true },
+    select: { id: true, name: true, status: true, sourceRecordId: true },
   });
   if (!product) {
     throw new RegistrationTargetException('invalid', '판매상품이 이 조직에 속하지 않습니다.');
@@ -362,7 +381,7 @@ async function validateReferences(
   if (!account) {
     throw new RegistrationTargetException('invalid', '활성 채널 계정이 이 조직에 속하지 않습니다.');
   }
-  return { status: product.status, sourceRecordId: product.sourceRecordId };
+  return { name: product.name, status: product.status, sourceRecordId: product.sourceRecordId };
 }
 
 async function validateSelectedOptions(
@@ -404,14 +423,10 @@ function toRecord(row: TargetRow): RegistrationTargetRecord {
     salesProductId: row.salesProductId,
     channelAccountId: row.channelAccountId,
     version: row.version,
-    displayName: row.displayName,
-    registrationInput: asRecord(row.registrationInput),
-    selectedOptions: row.selectedOptions.map((option) => ({
-      salesProductOptionId: option.salesProductOptionId,
-      salePrice: option.salePrice,
-      normalPrice: option.normalPrice,
-      supplyPrice: option.supplyPrice,
-    })),
+    registrationInput: normalizeRegistrationMallInput(row.registrationInput),
+    selectedThumbnailAssetId: row.selectedThumbnailAssetId,
+    selectedDetailPageRevisionId: row.selectedDetailPageRevisionId,
+    selectedOptions: row.selectedOptions.map((option) => ({ salesProductOptionId: option.salesProductOptionId })),
     product: {
       name: row.salesProduct.name,
       options: row.salesProduct.options.map((option) => ({
@@ -425,9 +440,12 @@ function toRecord(row: TargetRow): RegistrationTargetRecord {
   };
 }
 
-function asRecord(value: Prisma.JsonValue): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
+/** 몰 값 규칙을 등록 설정의 400 으로 바꾼다. 거절한 키 이름이 메시지에 있다. */
+function mallInputOrInvalid(raw: unknown): RegistrationMallInput {
+  try {
+    return normalizeRegistrationMallInput(raw);
+  } catch (error) {
+    if (error instanceof RegistrationMallInputError) throw new RegistrationTargetException('invalid', error.message);
+    throw error;
   }
-  return {};
 }

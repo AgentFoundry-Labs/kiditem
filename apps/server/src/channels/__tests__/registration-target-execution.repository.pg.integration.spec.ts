@@ -1,3 +1,4 @@
+import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -41,7 +42,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead());
+    targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead(), realRegistrationContentWorkspace(prisma));
     recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
