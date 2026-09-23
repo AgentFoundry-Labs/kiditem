@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../../test-helpers/registration-state';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -28,6 +29,7 @@ function createReviewsService(prisma: PrismaClient) {
   const listings = new ChannelListingQueryService(
     new ChannelListingQueryPersistenceAdapter(prisma as never),
     { findForListings: async () => [] },
+    realRegistrationStates(prisma),
   );
   return new ReviewsService(
     prisma as never,

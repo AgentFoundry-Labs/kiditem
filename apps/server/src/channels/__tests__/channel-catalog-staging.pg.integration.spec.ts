@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { ListingContentQueryRepositoryAdapter } from '../../content/adapter/out/repository/listing-content-query.repository.adapter';
@@ -65,7 +66,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
       new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
       publisher, channelIntegrity,
     );
-    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never));
+    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never), realRegistrationStates(prisma as never));
   });
   afterAll(async () => {
     await prisma?.$disconnect();

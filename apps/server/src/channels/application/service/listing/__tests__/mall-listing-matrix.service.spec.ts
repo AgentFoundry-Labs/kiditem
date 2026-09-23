@@ -99,7 +99,7 @@ function build(overrides: {
     findByListingIds: async () => [],
   } as unknown as ChannelSkuAvailabilityPort;
 
-  return new MallPublishingService(repository, availability);
+  return new MallPublishingService(repository, availability, { readForSalesProducts: async () => new Map() });
 }
 
 describe('listingMatrix — 열', () => {
@@ -221,6 +221,7 @@ describe('listingMatrix — 칸', () => {
       matrixProducts: [product({
         listings: [{
           storefrontProductId: null,
+          salesProductId: null,
           channelAccountId: 'acc-coupang',
           status: '승인완료',
           externalId: '16290876620',
@@ -247,6 +248,7 @@ describe('listingMatrix — 칸', () => {
       matrixProducts: [product({
         listings: [{
           storefrontProductId: null,
+          salesProductId: null,
           channelAccountId: 'acc-coupang', status: '승인완료',
           externalId: 'x', category: null, updatedAt: new Date(),
         }],
@@ -266,6 +268,7 @@ describe('listingMatrix — 칸', () => {
       matrixProducts: [product({
         listings: [{
           storefrontProductId: null,
+          salesProductId: null,
           channelAccountId: 'acc-coupang', status: '활성',
           externalId: 'x', category: '문구/사무용품', updatedAt: new Date(),
         }],

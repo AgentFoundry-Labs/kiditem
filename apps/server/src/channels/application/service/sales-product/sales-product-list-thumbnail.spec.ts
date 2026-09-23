@@ -19,9 +19,15 @@ describe('SalesProductUseCase.list representative image', () => {
       listGeneratedThumbnailUrls: vi.fn(),
       findRepresentativeThumbnailUrls: vi.fn().mockResolvedValue(new Map([['a', 'https://cdn.example.com/a-chosen.png']])),
     };
-    const useCase = new SalesProductUseCase(repository as never, ...untouchedDraftDeletionPorts, thumbnails);
+    const registered = { channelAccountId: '22222222-2222-4222-8222-222222222222', state: 'registered' };
+    const registrationStates = { readForSalesProducts: vi.fn().mockResolvedValue(new Map([['a', { accounts: [registered] }], ['b', { accounts: [] }]])) };
+    const useCase = new SalesProductUseCase(repository as never, ...untouchedDraftDeletionPorts, registrationStates as never, thumbnails);
 
     const result = await useCase.list(ORG, {});
+
+    // 계정별 등록 상태도 한 쪽을 한 번에 읽는다.
+    expect(result.items.map((item) => item.registrationAccounts)).toEqual([[registered], []]);
+    expect(registrationStates.readForSalesProducts).toHaveBeenCalledWith(ORG, ['a', 'b']);
 
     expect(result.items.map((item) => item.imageUrl)).toEqual([
       'https://cdn.example.com/a-chosen.png',
@@ -35,7 +41,9 @@ describe('SalesProductUseCase.list representative image', () => {
   it('does not ask for thumbnails on an empty page', async () => {
     const repository = { list: vi.fn().mockResolvedValue(page([])) };
     const thumbnails = { listGeneratedThumbnailUrls: vi.fn(), findRepresentativeThumbnailUrls: vi.fn() };
-    await new SalesProductUseCase(repository as never, ...untouchedDraftDeletionPorts, thumbnails).list(ORG, {});
+    const registrationStates = { readForSalesProducts: vi.fn() };
+    await new SalesProductUseCase(repository as never, ...untouchedDraftDeletionPorts, registrationStates as never, thumbnails).list(ORG, {});
     expect(thumbnails.findRepresentativeThumbnailUrls).not.toHaveBeenCalled();
+    expect(registrationStates.readForSalesProducts).not.toHaveBeenCalled();
   });
 });

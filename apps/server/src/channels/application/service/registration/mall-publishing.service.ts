@@ -37,7 +37,9 @@ import {
 import {
   countPublished,
   resolveMallListingState,
+  type MallListingState,
 } from '../../../domain/listing/mall-listing-state';
+import type { RegistrationStatePort, SalesProductRegistrationView } from '../../port/in/registration-state.port';
 import {
   MALL_PUBLISHING_REPOSITORY_PORT,
   type MallAccountRow,
@@ -128,6 +130,8 @@ export class MallPublishingService implements MallPublishingPort {
     private readonly repository: MallPublishingRepositoryPort,
 
     private readonly availability: ChannelSkuAvailabilityPort,
+    /** 판매 상품이 있는 칸의 등록 상태(KID-320). 쪽마다 한 번 읽는다. */
+    private readonly registrationStates: RegistrationStatePort,
   ) {}
 
   listManifests(): MallAdapterManifestView[] {
@@ -347,6 +351,12 @@ export class MallPublishingService implements MallPublishingPort {
       ),
     );
 
+    const salesProductIds = [...new Set(rows.flatMap((row) =>
+      row.listings.flatMap((listing) => listing.salesProductId ? [listing.salesProductId] : [])))];
+    const registrations = salesProductIds.length > 0
+      ? await this.registrationStates.readForSalesProducts(organizationId, salesProductIds)
+      : new Map<string, SalesProductRegistrationView>();
+
     const matrixRows = rows.map<MallListingMatrixRow>((row) => {
       const listingByMall = new Map(
         row.listings.flatMap((listing) => {
@@ -355,15 +365,22 @@ export class MallPublishingService implements MallPublishingPort {
         }),
       );
 
+      const resolvedStates: MallListingState[] = [];
       const cells = columns.map<MallListingMatrixCell>((column) => {
         const listing = listingByMall.get(column.mallKey) ?? null;
         const resolved = resolveMallListingState({
           hasListing: listing !== null,
           listingStatus: listing?.status ?? null,
         });
+        resolvedStates.push(resolved.state);
+        const registration = listing?.salesProductId
+          ? registrations.get(listing.salesProductId)?.accounts
+            .find((account) => account.channelAccountId === listing.channelAccountId) ?? null
+          : null;
         return {
           mallKey: column.mallKey,
           state: resolved.state,
+          registration,
           rawStatus: listing?.status ?? null,
           externalId: listing?.externalId ?? null,
           productUrl: listing
@@ -383,7 +400,7 @@ export class MallPublishingService implements MallPublishingPort {
         // 카테고리는 마스터에 저장돼 있지 않다. 리스팅이 들고 있는 값을 회수한다.
         category: row.listings.find((listing) => listing.category)?.category ?? null,
         stock: row.stock,
-        publishedCount: countPublished(cells.map((cell) => cell.state)),
+        publishedCount: countPublished(resolvedStates),
         cells,
         updatedAt: row.updatedAt.toISOString(),
       } satisfies MallListingMatrixRow;

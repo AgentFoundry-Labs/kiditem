@@ -2,15 +2,17 @@ import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { RegistrationStateRepositoryAdapter } from '../adapter/out/persistence/registration-state.repository.adapter';
-import { RegistrationStateService } from '../application/service/registration/registration-state.service';
-import { RegistrableThumbnailAdapter } from '../adapter/out/content/registrable-thumbnail.adapter';
+import { realRegistrationStates } from '../../test-helpers/registration-state';
+import type { RegistrationStatePort } from '../application/port/in/registration-state.port';
 import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository.adapter';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
-import { RegistrableThumbnailRepositoryAdapter } from '../../content/adapter/out/repository/registrable-thumbnail.repository.adapter';
-import { RegistrableThumbnailService } from '../../content/application/service/registrable-thumbnail.service';
-import { fakeStorageImageFetch } from '../../content/__tests__/helpers/fake-storage-image-fetch';
 import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { productTransactionalRead } from './product-transactional-read.fake';
+import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
+import { ChannelListingQueryService } from '../application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ListingContentQueryRepositoryAdapter } from '../../content/adapter/out/repository/listing-content-query.repository.adapter';
+import { realDraftDeletionPorts } from '../../test-helpers/sales-product-draft-port';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -252,16 +254,12 @@ describe('registration state facts (PostgreSQL)', () => {
   });
 
   describe('the one registration-state reader', () => {
-    let reader: RegistrationStateService;
+    let reader: RegistrationStatePort;
     let salesProducts: SalesProductRepositoryAdapter;
 
     beforeAll(() => {
       const db = prisma as unknown as PrismaService;
-      reader = new RegistrationStateService(
-        new RegistrationStateRepositoryAdapter(db),
-        realRegistrableDetailPages(prisma),
-        new RegistrableThumbnailAdapter(new RegistrableThumbnailService(new RegistrableThumbnailRepositoryAdapter(db), fakeStorageImageFetch(new Map()))),
-      );
+      reader = realRegistrationStates(prisma);
       salesProducts = new SalesProductRepositoryAdapter(
         db,
         productTransactionalRead(),
@@ -369,6 +367,30 @@ describe('registration state facts (PostgreSQL)', () => {
       const thirdListing = await listing(third.id, mall);
       await execution({ registrationTargetId: thirdTarget.id, channelAccountId: mall, channelListingId: thirdListing.id, kind: 'update', status: 'succeeded', payload: { targetVersion: 1, product: { version: 1 }, detailPage: null, adapterPayload: {} } });
       expect((await states(third.id))[0]).toMatchObject({ state: 'registered', changedSinceRegistration: false });
+    });
+
+    it('carries the per-account state on sales product list items and on listing summaries', async () => {
+      const mall = await account('몰');
+      const item = await product();
+      const itemTarget = await target(item.id, mall);
+      const itemListing = await listing(item.id, mall);
+      const unlinked = await listing(null, mall);
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, kind: 'register', status: 'succeeded' });
+
+      const list = await new SalesProductUseCase(salesProducts, ...realDraftDeletionPorts(prisma), reader).list(ORG, {});
+      expect(list.items.find((row) => row.id === item.id)?.registrationAccounts).toEqual([
+        expect.objectContaining({ channelAccountId: mall, registrationTargetId: itemTarget.id, channelListingId: itemListing.id, state: 'registered' }),
+      ]);
+
+      const db = prisma as unknown as PrismaService;
+      const listings = await new ChannelListingQueryService(
+        new ChannelListingQueryPersistenceAdapter(db),
+        new ListingContentQueryRepositoryAdapter(db),
+        reader,
+      ).list(ORG, {});
+      const byId = new Map(listings.items.map((row) => [row.id, row]));
+      expect(byId.get(itemListing.id)?.registration).toMatchObject({ channelAccountId: mall, state: 'registered' });
+      expect(byId.get(unlinked.id)?.registration).toBeNull();
     });
   });
 });

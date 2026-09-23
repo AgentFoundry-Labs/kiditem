@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { ChannelAccountService } from '../application/service/account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../adapter/out/persistence/channel-account.persistence.adapter';
 import { CatalogIdentityService } from '../application/service/collection/catalog-identity.service';
@@ -88,7 +89,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       alerts,
       accounts,
       new CatalogIdentityService(new CatalogIdentityPersistenceAdapter()),
-      new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), { findForListings: async () => [] }),
+      new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), { findForListings: async () => [] }, realRegistrationStates(prisma as never)),
     );
     catalog = new RocketPoCatalogService(repository);
     const module = await Test.createTestingModule({

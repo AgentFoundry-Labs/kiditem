@@ -106,9 +106,11 @@ import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/ch
 import { ChannelAdapterRegistryAdapter } from './adapter/out/channel/channel-adapter-registry.adapter';
 import { CoupangChannelAdapter } from './adapter/out/channel/coupang/coupang-channel.adapter';
 import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/content/registrable-thumbnail.port';
+import { ChannelsRegistrationStateModule } from './channels-registration-state.module';
+import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
 
 @Module({
-  imports: [AiListingContentQueryModule, ChannelCatalogModule, SalesProductModule,
+  imports: [AiListingContentQueryModule, ChannelCatalogModule, SalesProductModule, ChannelsRegistrationStateModule,
     AiModule,
     InventoryModule,
     ProductCollectionRuntimeModule,
@@ -265,7 +267,7 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
       useExisting: MallAdminListingsRepositoryAdapter,
     },
     { provide: MALL_ADMIN_LISTINGS_PORT, useExisting: MallAdminListingsService },
-    { provide: MallPublishingService, useFactory: (...dependencies: ConstructorParameters<typeof MallPublishingService>) => new MallPublishingService(...dependencies), inject: [MALL_PUBLISHING_REPOSITORY_PORT, CHANNEL_SKU_AVAILABILITY_PORT] },
+    { provide: MallPublishingService, useFactory: (...dependencies: ConstructorParameters<typeof MallPublishingService>) => new MallPublishingService(...dependencies), inject: [MALL_PUBLISHING_REPOSITORY_PORT, CHANNEL_SKU_AVAILABILITY_PORT, REGISTRATION_STATE_PORT] },
     MallPublishingRepositoryAdapter,
     {
       provide: MALL_PUBLISHING_REPOSITORY_PORT,

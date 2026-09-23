@@ -18,7 +18,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { productTransactionalRead } from './product-transactional-read.fake';
-import { realDraftDeletionPorts } from '../../test-helpers/sales-product-draft-port';
+import { realDraftDeletionPorts, untouchedRegistrationStates } from '../../test-helpers/sales-product-draft-port';
 import * as XLSX from 'xlsx';
 import { SabangnetProductImportService } from '../application/service/collection/sabangnet-product-import.service';
 import { SalesProductLinkService } from '../application/service/sales-product/sales-product-link.service';
@@ -457,7 +457,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     realRegistrationContentWorkspace(prisma),
       realRegistrableDetailPages(prisma),
     );
-    service = new SalesProductUseCase(repository, ...realDraftDeletionPorts(prisma));
+    service = new SalesProductUseCase(repository, ...realDraftDeletionPorts(prisma), untouchedRegistrationStates);
   });
 
   afterAll(async () => {

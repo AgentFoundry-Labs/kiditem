@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { json } from 'express';
@@ -44,6 +45,7 @@ function channelListingQueries(prisma: PrismaClient) {
   return new ChannelListingQueryService(
     new ChannelListingQueryPersistenceAdapter(prisma as never),
     { findForListings: async () => [] },
+    realRegistrationStates(prisma),
   );
 }
 

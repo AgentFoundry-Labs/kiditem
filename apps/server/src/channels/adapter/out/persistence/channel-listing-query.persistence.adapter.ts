@@ -330,6 +330,8 @@ function toSummary(
     thumbnailUrl: null,
     imageUrl: row.imageUrl,
     detailPageRevisionId: null,
+    // 등록 상태는 서비스가 등록 상태 reader 로 채운다(KID-320).
+    registration: null,
     channel: row.channelAccount.channel,
     channelAccountId: row.channelAccountId,
     channelAccountName: row.channelAccount.name,

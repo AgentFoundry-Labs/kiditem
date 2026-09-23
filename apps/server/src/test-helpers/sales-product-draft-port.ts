@@ -15,6 +15,7 @@ import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../content/adapte
 import { SourceRecordRepositoryAdapter } from '../sourcing/adapter/out/repository/source-record.repository.adapter';
 import type { SalesProductWorkspaceArchivePort } from '../channels/application/port/out/ai/sales-product-workspace-archive.port';
 import type { ChannelSourceRecordPort } from '../channels/application/port/out/sourcing/source-record.port';
+import type { RegistrationStatePort } from '../channels/application/port/in/registration-state.port';
 
 /**
  * 초안 삭제가 함께 부르는 두 owner 계약(콘텐츠 작업공간 보관 · 원본 기록 삭제)을 실제 어댑터로 엮는다.
@@ -30,6 +31,11 @@ export function realDraftDeletionPorts(prisma: PrismaClient): [SalesProductWorks
     new SourceRecordAdapter(new SourceRecordRepositoryAdapter(prisma as unknown as PrismaService)),
   ];
 }
+
+/** 목록을 읽지 않는 시험의 등록 상태 reader. 불리면 시험이 실패한다. */
+export const untouchedRegistrationStates: RegistrationStatePort = {
+  readForSalesProducts: async () => { throw new Error('this test never lists sales products'); },
+};
 
 /** 초안을 지우지 않는 단위 시험의 두 계약. 불리면 시험이 실패한다. */
 export const untouchedDraftDeletionPorts: [SalesProductWorkspaceArchivePort, ChannelSourceRecordPort] = [
@@ -55,7 +61,7 @@ export function realSalesProductDraftPort(prisma: PrismaClient): SalesProductDra
     realRegistrationContentWorkspace(prisma),
       realRegistrableDetailPages(prisma),
     );
-  return new SalesProductDraftAdapter(new SalesProductUseCase(repository, ...realDraftDeletionPorts(prisma)));
+  return new SalesProductDraftAdapter(new SalesProductUseCase(repository, ...realDraftDeletionPorts(prisma), untouchedRegistrationStates));
 }
 
 /**

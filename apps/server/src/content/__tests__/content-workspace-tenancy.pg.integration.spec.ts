@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
@@ -71,8 +72,7 @@ describe('AI content ownership constraints (PG integration)', () => {
       prisma as unknown as PrismaService,
       new ChannelListingQueryService(
         new ChannelListingQueryPersistenceAdapter(prisma as never),
-        { findForListings: async () => [] },
-      ),
+        { findForListings: async () => [] }, realRegistrationStates(prisma as never),),
       salesProductOwners(),
     );
 
@@ -95,8 +95,7 @@ describe('AI content ownership constraints (PG integration)', () => {
       prisma as unknown as PrismaService,
       new ChannelListingQueryService(
         new ChannelListingQueryPersistenceAdapter(prisma as never),
-        { findForListings: async () => [] },
-      ),
+        { findForListings: async () => [] }, realRegistrationStates(prisma as never),),
       salesProductOwners(),
     );
   }

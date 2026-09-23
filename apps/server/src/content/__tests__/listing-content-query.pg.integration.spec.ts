@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { CatalogDisplayMediaRepositoryAdapter } from '../adapter/out/repository/catalog-display-media.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
@@ -214,7 +215,7 @@ describe('AI listing content owner query (PG integration)', () => {
     const ws = await workspace(listing.id);
     await representative(ws.id, 'representative');
     const persistence = new ChannelListingQueryPersistenceAdapter(prisma as PrismaService);
-    const service = new ChannelListingQueryService(persistence, content);
+    const service = new ChannelListingQueryService(persistence, content, realRegistrationStates(prisma as PrismaService));
     const facts = await persistence.getWorkspace(ORG, listing.id);
     const merged = await service.getWorkspace(ORG, listing.id);
     expect(facts).toMatchObject({ contentWorkspaceId: null, thumbnailUrl: null, providerDetail: { media: [] } });

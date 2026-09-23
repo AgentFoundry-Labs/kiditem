@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { ListingContentQueryRepositoryAdapter } from '../../content/adapter/out/repository/listing-content-query.repository.adapter';
@@ -83,7 +84,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     }) as unknown as PrismaClient;
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never));
+    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never), realRegistrationStates(prisma as never));
     const productTransactions = new ProductTransactionalReadRepositoryAdapter();
     recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),

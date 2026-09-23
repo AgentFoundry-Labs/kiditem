@@ -20,6 +20,8 @@ export function channelFactTestPorts(prisma: PrismaService) {
   return {
     listings: new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma), {
       findForListings: async () => { throw new Error("Content projections are not part of fact reads"); },
+    }, {
+      readForSalesProducts: async () => { throw new Error('Registration state is not part of fact reads'); },
     }),
     recipes: new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(prisma, new ProductTransactionalReadRepositoryAdapter(), productMapping)),
     accounts: new ChannelAccountService(new ChannelAccountPersistenceAdapter(prisma, productMapping), {

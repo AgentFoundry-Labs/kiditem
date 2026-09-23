@@ -5,7 +5,6 @@ import { AiModule } from "../content/ai.module";
 import { AiAgentRuntimeModule } from "../content/ai-agent-runtime.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
 import { ChannelsModule } from "../channels/channels.module";
-import { ChannelsRegistrationExecutionModule } from "../channels/channels-registration-execution.module";
 import { SalesProductModule } from "../channels/sales-product.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentGatewayAdapter } from "./adapter/out/agent/sourcing-agent.gateway.adapter";
@@ -175,7 +174,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     AiModule,
     AdvertisingModule,
     ChannelsModule,
-    ChannelsRegistrationExecutionModule,
     SupplyModule,
   ],
   controllers: [

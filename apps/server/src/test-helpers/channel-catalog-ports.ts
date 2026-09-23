@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { ChannelListingQueryService } from '../channels/application/service/listing/channel-listing-query.service';
+import { realRegistrationStates } from './registration-state';
 import { ChannelListingQueryPersistenceAdapter } from '../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ListingContentQueryRepositoryAdapter } from '../content/adapter/out/repository/listing-content-query.repository.adapter';
 import { ChannelOptionRecipeService } from '../channels/application/service/listing/channel-option-recipe.service';
@@ -10,7 +11,11 @@ import { ChannelsProductMappingGenerationAdapter } from '../channels/adapter/out
 import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 
 export function makeChannelListingQuery(prisma: PrismaClient) {
-  return new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as PrismaService), new ListingContentQueryRepositoryAdapter(prisma as PrismaService));
+  return new ChannelListingQueryService(
+    new ChannelListingQueryPersistenceAdapter(prisma as PrismaService),
+    new ListingContentQueryRepositoryAdapter(prisma as PrismaService),
+    realRegistrationStates(prisma),
+  );
 }
 export function makeChannelRecipes(prisma: PrismaClient) {
   return new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(

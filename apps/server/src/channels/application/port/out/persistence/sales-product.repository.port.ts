@@ -5,10 +5,15 @@ import type {
   SalesProductDeliveryFeeType,
   SalesProductListQuery,
   SalesProductKcStatus,
+  SalesProductListItem,
   SalesProductListResponse,
   SalesProductStatus,
   SalesProductTaxType,
 } from '@kiditem/shared/sales-product';
+export type SalesProductListPage = Omit<SalesProductListResponse, 'items'> & {
+  items: Omit<SalesProductListItem, 'registrationAccounts'>[];
+};
+
 import type { ExistingSalesProductOption, SalesProductOptionReplacementPlan } from '../../../../domain/sales-product/sales-product';
 import type { LinkCandidateListing, LinkCandidateProduct, SalesProductLinkPlan } from '../../../../domain/sales-product/sales-product-links';
 import type {
@@ -118,7 +123,8 @@ export interface SalesProductRepositoryPort {
   /** 배치판. 몰 엑셀 한 파일이 상품마다 트랜잭션을 여는 것을 막는다 — 한 번에 한 트랜잭션이다. */
   ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number>;
   readMasterProductCodes(organizationId: string, ids: readonly string[]): Promise<Map<string, string>>;
-  list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse>;
+  /** 목록 한 쪽. 계정별 등록 상태는 없다 — 유스케이스가 등록 상태 reader 로 한 번에 채운다(KID-320). */
+  list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListPage>;
   get(organizationId: string, salesProductId: string, transaction?: OwnerTransaction): Promise<SalesProduct | null>;
   /** 이 조직에서 쓴 판매상품코드 중 `K` 다음 번호를 고를 때 쓴다. */
   listCodesWithPrefix(organizationId: string, prefix: string): Promise<string[]>;

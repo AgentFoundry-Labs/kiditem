@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -33,8 +34,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     await prisma.$connect();
     catalog = new ChannelListingQueryService(
       new ChannelListingQueryPersistenceAdapter(prisma as never),
-      new ListingContentQueryRepositoryAdapter(prisma as never),
-    );
+      new ListingContentQueryRepositoryAdapter(prisma as never), realRegistrationStates(prisma as never),);
     publisher = new AiCatalogMediaPublicationRepositoryAdapter(catalog);
     library = new ContentAssetLibraryRepositoryAdapter(prisma as never);
   });

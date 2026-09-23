@@ -19,6 +19,8 @@ import { RegistrationTargetController } from './adapter/in/web/registration-targ
 import { RegistrationTargetRepositoryAdapter } from './adapter/out/persistence/registration-target.repository.adapter';
 import { SALES_PRODUCT_PORT } from './application/port/in/sales-product.port';
 import { forwardRef, Module } from '@nestjs/common';
+import { ChannelsRegistrationStateModule } from './channels-registration-state.module';
+import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { ChannelCatalogModule } from './channel-catalog.module';
 import { SalesProductLinkService } from './application/service/sales-product/sales-product-link.service';
@@ -56,7 +58,7 @@ import { CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT } from './application/port/out/con
   // AI 는 판매상품 초안을 읽고(작업공간 소유자 확인) Channels 는 초안을 내릴 때 AI 작업공간을
   // 보관한다 — 두 owner 가 서로의 공개 계약만 부르는 양방향 의존이라 forwardRef 로 푼다.
   // 초안을 지우면 그 원본 기록도 함께 지운다(KID-313) — 원본 기록 owner 는 Prisma 만 가져오는 작은 모듈이다.
-  imports: [ProductCollectionRuntimeModule, ChannelCatalogModule, forwardRef(() => AiModule), SourcingSourceRecordModule],
+  imports: [ProductCollectionRuntimeModule, ChannelCatalogModule, forwardRef(() => AiModule), SourcingSourceRecordModule, ChannelsRegistrationStateModule],
   controllers: [SalesProductController, RegistrationTargetController],
   providers: [
     { provide: SALES_PRODUCT_COUPANG_CATALOG_PORT, useExisting: SalesProductCoupangCatalogService },
@@ -81,7 +83,7 @@ import { CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT } from './application/port/out/con
     SourceRecordAdapter,
     { provide: CHANNEL_SOURCE_RECORD_PORT, useExisting: SourceRecordAdapter },
     { provide: SALES_PRODUCT_THUMBNAIL_SOURCE_PORT, useExisting: SalesProductThumbnailSourceAdapter },
-    { provide: SalesProductUseCase, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductUseCase>) => new SalesProductUseCase(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT, CHANNEL_SOURCE_RECORD_PORT, SALES_PRODUCT_THUMBNAIL_SOURCE_PORT] },
+    { provide: SalesProductUseCase, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductUseCase>) => new SalesProductUseCase(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT, CHANNEL_SOURCE_RECORD_PORT, REGISTRATION_STATE_PORT, SALES_PRODUCT_THUMBNAIL_SOURCE_PORT] },
     { provide: SALES_PRODUCT_PORT, useExisting: SalesProductUseCase },
     { provide: SabangnetProductImportService, useFactory: (...dependencies: ConstructorParameters<typeof SabangnetProductImportService>) => new SabangnetProductImportService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, PRODUCT_SOURCE_READ_PORT, SALES_PRODUCT_LINK_PORT, SALES_PRODUCT_IMAGE_MIRROR_PORT, CHANNEL_DOCUMENTS_PORT, CHANNEL_ACTIVITY_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: SalesProductLinkService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductLinkService>) => new SalesProductLinkService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, CHANNEL_OPTION_RECIPE_PORT, CHANNEL_ACTIVITY_PORT] },

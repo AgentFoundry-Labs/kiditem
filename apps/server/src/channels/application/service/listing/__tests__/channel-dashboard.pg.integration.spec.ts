@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../../../../test-helpers/registration-state';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { ChannelDashboardService } from '../channel-dashboard.service';
@@ -55,8 +56,7 @@ describe('Channel dashboard (PG integration)', () => {
     await prisma.$connect();
     channelListingQueries = new ChannelListingQueryService(
       new ChannelListingQueryPersistenceAdapter(prisma as unknown as PrismaService),
-      { findForListings: async () => [] } as never,
-    );
+      { findForListings: async () => [] } as never, realRegistrationStates(prisma as unknown as PrismaService),);
 
     const m = await Test.createTestingModule({
       providers: [

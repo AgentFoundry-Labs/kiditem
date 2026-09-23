@@ -24,6 +24,8 @@ import {
   TEST_USER_ID,
 } from '../../../../../test-helpers/real-prisma';
 import { MallPublishingRepositoryAdapter } from '../mall-publishing.repository.adapter';
+import { MallPublishingService } from '../../../../application/service/registration/mall-publishing.service';
+import { realRegistrationStates } from '../../../../../test-helpers/registration-state';
 
 const KIDSNOTE_ACCOUNT = '30000000-0000-4000-8000-000000000001';
 const COUPANG_ACCOUNT = '30000000-0000-4000-8000-000000000002';
@@ -694,6 +696,58 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
 
       expect(result.ok).toBe(false);
       expect(result.violations.map((violation) => violation.rule)).toContain('out_of_stock');
+    });
+  });
+
+  describe('listingMatrix registration', () => {
+    /** 판매 상품이 있는 리스팅 칸은 그 상품 × 계정의 등록 상태를 싣는다(KID-320). 판매 상품 없는 칸은 null. */
+    it('carries the registration state on a cell whose listing has a sales product', async () => {
+      await seedSellpiaSourceState();
+      await publishSellpiaSnapshot([
+        'SP-601,원목 블록,5,8800000000601,100,200',
+        'SP-602,나무 기차,5,8800000000602,100,200',
+      ]);
+      const linkedMaster = await sellpiaSku('SP-601');
+      const unlinkedMaster = await sellpiaSku('SP-602');
+      const salesProduct = await prisma.salesProduct.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, code: 'KID-601', status: 'active', name: '원목 블록' },
+      });
+      const target = await prisma.registrationTarget.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, salesProductId: salesProduct.id, channelAccountId: COUPANG_ACCOUNT },
+      });
+      await prisma.productRegistrationExecution.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID, registrationTargetId: target.id, channelAccountId: COUPANG_ACCOUNT,
+          executionKind: 'register', idempotencyKey: randomUUID(), requestHash: 'a'.repeat(64),
+          status: 'succeeded', providerOutcome: 'succeeded',
+        },
+      });
+      for (const [externalId, master, salesProductId] of [
+        ['EXT-601', linkedMaster, salesProduct.id],
+        ['EXT-602', unlinkedMaster, null],
+      ] as const) {
+        const listing = await prisma.channelListing.create({
+          data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: COUPANG_ACCOUNT, externalId, status: '승인완료', salesProductId },
+        });
+        const option = await prisma.channelListingOption.create({
+          data: { listingId: listing.id, organizationId: TEST_ORGANIZATION_ID, externalOptionId: `${externalId}-O`, itemName: '기본' },
+        });
+        await prisma.channelListingOptionInventoryComponent.create({
+          data: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, masterProductId: master.id, quantity: 1 },
+        });
+      }
+      const service = new MallPublishingService(repository, {} as never, realRegistrationStates(prisma));
+
+      const matrix = await service.listingMatrix(TEST_ORGANIZATION_ID, { page: 1, limit: 10 });
+
+      const cell = (masterProductId: string) => matrix.rows
+        .find((row) => row.masterProductId === masterProductId)?.cells
+        .find((entry) => entry.mallKey === 'coupang');
+      expect(cell(linkedMaster.id)).toMatchObject({
+        state: 'published',
+        registration: { channelAccountId: COUPANG_ACCOUNT, registrationTargetId: target.id, state: 'registered' },
+      });
+      expect(cell(unlinkedMaster.id)).toMatchObject({ state: 'published', registration: null });
     });
   });
 });

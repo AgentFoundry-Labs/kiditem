@@ -1,3 +1,4 @@
+import { untouchedRegistrationStates } from '../../test-helpers/sales-product-draft-port';
 import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -119,6 +120,7 @@ describe('sales product draft deletion (PostgreSQL)', () => {
         )),
       ),
       new SourceRecordAdapter(records),
+      untouchedRegistrationStates,
     );
   });
   afterAll(async () => { await prisma?.$disconnect(); });

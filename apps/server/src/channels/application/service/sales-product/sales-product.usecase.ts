@@ -32,6 +32,7 @@ import {
   type DraftDeletionBlock,
 } from '../../../domain/sales-product/sales-product-status';
 import type { ChannelSourceRecordPort } from '../../port/out/sourcing/source-record.port';
+import type { RegistrationStatePort } from '../../port/in/registration-state.port';
 import { issueSalesProductOptionCodes } from './sales-product-code';
 import type { SalesProductWorkspaceArchivePort } from '../../port/out/ai/sales-product-workspace-archive.port';
 import {
@@ -61,20 +62,31 @@ export class SalesProductUseCase implements SalesProductPort {
     /** 초안 삭제가 콘텐츠 작업공간 보관과 원본 기록 삭제를 한 커밋에 묶는다 — 빠지면 삭제가 반쪽이 된다. */
     private readonly workspaceArchive: SalesProductWorkspaceArchivePort,
     private readonly sourceRecords: ChannelSourceRecordPort,
+    /** 목록 줄의 계정별 등록 상태 — 하나뿐인 등록 상태 reader 로 한 쪽을 한 번에 읽는다(KID-320). */
+    private readonly registrationStates: RegistrationStatePort,
     private readonly thumbnails?: SalesProductThumbnailSourcePort,
   ) {}
 
-  /** 목록 줄의 사진은 운영자가 저장한 대표 썸네일이 있으면 그것, 없으면 초안의 첫 사진이다. */
+  /**
+   * 목록 줄의 사진은 운영자가 저장한 대표 썸네일이 있으면 그것, 없으면 초안의 첫 사진이다. 계정별 등록 상태는
+   * 등록 상태 reader 가 쪽 전체를 한 번에 읽는다 — 목록 질의가 실행 표를 조합하지 않는다.
+   */
   async list(organizationId: string, rawQuery: unknown): Promise<SalesProductListResponse> {
     const query = parseOrBadRequest(SalesProductListQuerySchema, rawQuery, '목록 조건이 올바르지 않습니다.');
     const page = await this.repository.list(organizationId, query);
-    if (!this.thumbnails || page.items.length === 0) return page;
-    const representatives = await this.thumbnails.findRepresentativeThumbnailUrls(
-      organizationId, page.items.map((item) => item.id),
-    );
+    if (page.items.length === 0) return { ...page, items: [] };
+    const ids = page.items.map((item) => item.id);
+    const [states, representatives] = await Promise.all([
+      this.registrationStates.readForSalesProducts(organizationId, ids),
+      this.thumbnails ? this.thumbnails.findRepresentativeThumbnailUrls(organizationId, ids) : new Map<string, string>(),
+    ]);
     return {
       ...page,
-      items: page.items.map((item) => ({ ...item, imageUrl: representatives.get(item.id) ?? item.imageUrl })),
+      items: page.items.map((item) => ({
+        ...item,
+        imageUrl: representatives.get(item.id) ?? item.imageUrl,
+        registrationAccounts: states.get(item.id)?.accounts ?? [],
+      })),
     };
   }
 

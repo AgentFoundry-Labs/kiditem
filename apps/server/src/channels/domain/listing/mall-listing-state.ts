@@ -4,9 +4,9 @@ import { SABANGNET_STATUS_PREFIX } from '../collection/sabangnet-mall-listings';
 /**
  * 상품 하나가 몰 하나에서 어떤 상태인가.
  *
- * 매트릭스 화면의 칸 하나가 이 값이다. 판정 근거는 두 개뿐이다 —
- * 실제 리스팅(`ChannelListing`)과 등록 시도 기록(`RegistrationTarget`).
- * 둘 다 없으면 미등록이고, 그건 추측이 아니라 사실이다.
+ * 매트릭스 화면의 칸 하나가 이 값이다. 판정 근거는 실제 리스팅(`ChannelListing`) 하나다 —
+ * 없으면 미등록이고, 그건 추측이 아니라 사실이다. 등록 시도(실행)가 말하는 상태는 판매 상품 ×
+ * 계정의 등록 상태 reader(`registration-state.service`)가 따로 싣는다(KID-320).
  *
  * 상태 문자열은 두 갈래로 들어온다.
  *  1. 몰이 준 원문 그대로(라이브 실측 2026-09-09):
@@ -34,7 +34,6 @@ import { SABANGNET_STATUS_PREFIX } from '../collection/sabangnet-mall-listings';
 export const MALL_LISTING_STATES = [
   'published',
   'reviewing',
-  'preparing',
   'error',
   'paused',
   'discontinued',
@@ -97,29 +96,18 @@ const UNKNOWN_REASON: Record<string, string> = {
 const SABANGNET_STATUS_NOTE =
   '사방넷 송신 기록 기준입니다. 몰 화면에서 바꾼 상태는 반영되지 않습니다.';
 
-const PREPARATION_STATUS_MAP: Record<string, MallListingState> = {
-  draft: 'preparing',
-  submitting: 'reviewing',
-  registered: 'published',
-  failed: 'error',
-  // 취소는 등록을 시도했다가 접은 것이다. 남은 상태는 미등록과 같다.
-  cancelled: 'unregistered',
-};
-
 export interface MallListingStateInput {
   /** 활성 리스팅이 있으면 그 원문 상태. 없으면 null. */
   listingStatus?: string | null;
   /** 리스팅이 존재하는가. 상태가 비어 있어도 존재 자체가 사실이다. */
   hasListing: boolean;
-  /** 가장 최근 등록 시도 상태. 없으면 null. */
-  preparationStatus?: string | null;
 }
 
 export interface MallListingStateResult {
   state: MallListingState;
   /** 판정이 무엇에 근거했는지. 화면이 툴팁으로 쓴다. */
-  basis: 'listing' | 'preparation' | 'none';
-  /** 리스팅은 살아 있는데 최근 재등록이 실패한 경우처럼, 칸에 덧붙일 사실. */
+  basis: 'listing' | 'none';
+  /** 상태를 모르는 이유나 사방넷 기준이라는 사실처럼, 칸에 덧붙일 사실. */
   warning: string | null;
 }
 
@@ -139,46 +127,19 @@ function mapListingStatus(status: string | null | undefined): MallListingState |
   return LISTING_STATUS_MAP[key] ?? null;
 }
 
-function mapPreparationStatus(status: string | null | undefined): MallListingState | null {
-  const key = normalize(status);
-  if (!key) return null;
-  return PREPARATION_STATUS_MAP[key] ?? null;
-}
-
 /**
- * 판정 순서.
- *
- * 1. 지금 보내는 중이면 그게 가장 최신 사실이다. 리스팅보다 먼저다.
- * 2. 리스팅이 있으면 리스팅이 기준이다. 몰이 실제로 들고 있는 것이기 때문이다.
- * 3. 리스팅이 없으면 시도 기록이 기준이다.
- * 4. 둘 다 없으면 미등록이다.
- *
- * 리스팅이 살아 있는데 최근 시도가 실패한 경우는 상태를 뒤집지 않는다. 상품은
- * 여전히 팔리고 있고, 실패한 것은 수정 재전송이다. 그 사실은 `warning` 으로 남긴다.
+ * 리스팅이 있으면 몰이 준 상태를 접고, 없으면 미등록이다. 리스팅은 몰이 실제로 들고 있는 것이다.
  */
 export function resolveMallListingState(input: MallListingStateInput): MallListingStateResult {
-  const prepared = mapPreparationStatus(input.preparationStatus);
-
-  if (prepared === 'reviewing') {
-    return { state: 'reviewing', basis: 'preparation', warning: null };
-  }
-
   if (input.hasListing) {
     const fromListing = mapListingStatus(input.listingStatus) ?? 'unknown';
-    const warning = prepared === 'error'
-      ? '최근 수정 전송이 실패했습니다.'
-      : fromListing === 'unknown'
-        ? unknownReason(input.listingStatus)
-        : (input.listingStatus ?? '').trim().startsWith(SABANGNET_STATUS_PREFIX)
-          ? SABANGNET_STATUS_NOTE
-          : null;
+    const warning = fromListing === 'unknown'
+      ? unknownReason(input.listingStatus)
+      : (input.listingStatus ?? '').trim().startsWith(SABANGNET_STATUS_PREFIX)
+        ? SABANGNET_STATUS_NOTE
+        : null;
     return { state: fromListing, basis: 'listing', warning };
   }
-
-  if (prepared && prepared !== 'unregistered') {
-    return { state: prepared, basis: 'preparation', warning: null };
-  }
-
   return { state: 'unregistered', basis: 'none', warning: null };
 }
 

@@ -18,8 +18,7 @@ import { RegistrationExecutionRepositoryAdapter } from './adapter/out/repository
 import { RegistrationExecutionService } from './application/service/registration/registration-execution.service';
 import { REGISTRATION_EXECUTION_PORT } from './application/port/in/capability/registration-execution.port';
 import { REGISTRATION_EXECUTION_REPOSITORY_PORT } from './application/port/out/repository/registration-execution.repository.port';
-import { RegistrationStateRepositoryAdapter } from './adapter/out/persistence/registration-state.repository.adapter';
-import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
+import { ChannelsRegistrationStateModule } from './channels-registration-state.module';
 import { CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT } from './application/port/out/content/registrable-detail-page.port';
 import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/content/registrable-thumbnail.port';
 import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/channel-adapter.port';
@@ -34,7 +33,7 @@ import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/ch
  * 합쳤다 — 등록 실행 서비스가 이미 그 모듈을 가져왔었다.
  */
 @Module({
-  imports: [ProductCollectionRuntimeModule, PrismaModule, ChannelsModule, AiModule, SalesProductModule, ChannelCatalogModule],
+  imports: [ProductCollectionRuntimeModule, PrismaModule, ChannelsModule, AiModule, SalesProductModule, ChannelCatalogModule, ChannelsRegistrationStateModule],
   controllers: [StockoutCheckController, ChannelRegistrationExecutionController, RegistrationTargetExecutionController],
   providers: [
     StockoutCheckPersistenceAdapter,
@@ -48,10 +47,7 @@ import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/ch
       useExisting: RegistrationExecutionRepositoryAdapter,
     },
     { provide: REGISTRATION_EXECUTION_PORT, useExisting: RegistrationExecutionService },
-    // 예전 channels-registration-preparation.module.ts.
-    RegistrationStateRepositoryAdapter,
-    { provide: REGISTRATION_STATE_PORT, useExisting: RegistrationStateRepositoryAdapter },
   ],
-  exports: [STOCKOUT_CHECK_PORT, REGISTRATION_EXECUTION_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT, REGISTRATION_STATE_PORT],
+  exports: [STOCKOUT_CHECK_PORT, REGISTRATION_EXECUTION_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT],
 })
 export class ChannelsRegistrationExecutionModule {}

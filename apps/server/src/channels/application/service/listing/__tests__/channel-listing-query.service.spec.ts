@@ -3,6 +3,7 @@ import type { ChannelListingQueryPersistencePort } from '../../../port/out/persi
 import type { ChannelListingSummary } from '../../../port/in/listing/channel-listing-query.port';
 import type { ChannelListingContentPort } from '../../../port/out/content/listing-content.port';
 import { ChannelListingQueryService } from '../channel-listing-query.service';
+import type { RegistrationStatePort } from '../../../port/in/registration-state.port';
 
 const activeListing: ChannelListingSummary = {
   id: 'active-listing',
@@ -10,6 +11,7 @@ const activeListing: ChannelListingSummary = {
   thumbnailUrl: null,
   imageUrl: null,
   detailPageRevisionId: null,
+  registration: null,
   channel: 'coupang',
   channelAccountId: 'account-1',
   channelAccountName: 'Wing',
@@ -56,9 +58,13 @@ function makeContent(): ChannelListingContentPort {
   return { findForListings: vi.fn().mockResolvedValue([]) };
 }
 
+function makeStates(accounts: unknown[] = []): RegistrationStatePort {
+  return { readForSalesProducts: vi.fn().mockResolvedValue(new Map([['sales-product-1', { accounts }]])) } as unknown as RegistrationStatePort;
+}
+
 describe('ChannelListingQueryService', () => {
   it('returns paged deleted listings using the deleted tab and existing page cap', async () => {
-    const service = new ChannelListingQueryService(makePersistence(), makeContent());
+    const service = new ChannelListingQueryService(makePersistence(), makeContent(), makeStates());
 
     const result = await service.list('org-1', {
       page: 2,
@@ -76,7 +82,7 @@ describe('ChannelListingQueryService', () => {
   });
 
   it('returns active listings when an explicit active override accompanies the deleted tab', async () => {
-    const service = new ChannelListingQueryService(makePersistence(), makeContent());
+    const service = new ChannelListingQueryService(makePersistence(), makeContent(), makeStates());
 
     const result = await service.list('org-1', {
       page: 0,
@@ -92,6 +98,19 @@ describe('ChannelListingQueryService', () => {
       limit: 20,
       marketCounts: [],
     });
+  });
+
+  it('carries the registration state of the listing\'s own account, read once for the page', async () => {
+    const own = { channelAccountId: 'account-1', state: 'registered' };
+    const other = { channelAccountId: 'account-2', state: 'failed' };
+    const states = makeStates([other, own]);
+    const service = new ChannelListingQueryService(makePersistence(), makeContent(), states);
+
+    const result = await service.list('org-1', {});
+
+    expect(result.items[0]?.registration).toEqual(own);
+    expect(states.readForSalesProducts).toHaveBeenCalledTimes(1);
+    expect(states.readForSalesProducts).toHaveBeenCalledWith('org-1', ['sales-product-1']);
   });
 
   it('adds workspace and media projections from the AI content owner', async () => {
@@ -122,7 +141,7 @@ describe('ChannelListingQueryService', () => {
         }],
       }]),
     };
-    const service = new ChannelListingQueryService(persistence, content);
+    const service = new ChannelListingQueryService(persistence, content, makeStates());
 
     const result = await service.getWorkspace('org-1', activeListing.id);
 

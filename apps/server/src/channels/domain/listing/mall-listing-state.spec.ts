@@ -102,41 +102,8 @@ describe('resolveMallListingState', () => {
     expect(result.basis).toBe('listing');
   });
 
-  it('보내는 중이면 리스팅보다 먼저다 — 가장 최신 사실이다', () => {
-    const result = resolveMallListingState({
-      hasListing: true,
-      listingStatus: '승인완료',
-      preparationStatus: 'submitting',
-    });
-    expect(result.state).toBe('reviewing');
-    expect(result.basis).toBe('preparation');
-  });
-
-  it('리스팅이 살아 있으면 최근 실패가 상태를 뒤집지 않고 경고로 남는다', () => {
-    // 상품은 여전히 팔리고 있다. 실패한 것은 수정 재전송이다.
-    const result = resolveMallListingState({
-      hasListing: true,
-      listingStatus: '승인완료',
-      preparationStatus: 'failed',
-    });
-    expect(result.state).toBe('published');
-    expect(result.warning).toBe('최근 수정 전송이 실패했습니다.');
-  });
-
-  it('리스팅이 없고 시도가 실패했으면 오류다', () => {
-    const result = resolveMallListingState({ hasListing: false, preparationStatus: 'failed' });
-    expect(result).toEqual({ state: 'error', basis: 'preparation', warning: null });
-  });
-
-  it('초안만 있으면 준비중이다', () => {
-    expect(resolveMallListingState({ hasListing: false, preparationStatus: 'draft' }).state)
-      .toBe('preparing');
-  });
-
-  it('취소된 시도는 미등록과 같다', () => {
-    const result = resolveMallListingState({ hasListing: false, preparationStatus: 'cancelled' });
-    expect(result.state).toBe('unregistered');
-    expect(result.basis).toBe('none');
+  it('리스팅이 없으면 미등록이다 — 등록 시도는 등록 상태 reader 가 말한다', () => {
+    expect(resolveMallListingState({ hasListing: false })).toEqual({ state: 'unregistered', basis: 'none', warning: null });
   });
 
   it('대소문자와 공백을 무시한다', () => {

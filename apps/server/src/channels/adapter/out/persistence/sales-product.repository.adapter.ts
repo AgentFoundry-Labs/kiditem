@@ -14,7 +14,6 @@ import {
   type SalesProductDeliveryFeeType,
   type SalesProductKcStatus,
   type SalesProductListQuery,
-  type SalesProductListResponse,
   type RegistrationMallInput,
   type SalesProductOptionSupplyStatus,
   type SalesProductStatus,
@@ -65,6 +64,7 @@ import type {
   SalesProductDraftDeletionFacts,
   SalesProductImportCurrent,
   SalesProductImportResult,
+  SalesProductListPage,
   SalesProductOptionState,
   SalesProductRepositoryPort,
 } from '../../../application/port/out/persistence/sales-product.repository.port';
@@ -188,7 +188,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     );
   }
 
-  async list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse> {
+  async list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListPage> {
     const base: Prisma.SalesProductWhereInput = {
       organizationId,
       status: query.status ?? { not: 'archived' },

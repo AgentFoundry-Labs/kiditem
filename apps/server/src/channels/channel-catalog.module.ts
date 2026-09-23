@@ -6,6 +6,8 @@ import { CatalogIdentityPersistenceAdapter } from './adapter/out/persistence/cat
 import { CHANNEL_CATALOG_IDENTITY_PORT } from './application/port/in/collection/catalog-identity.port';
 import { CHANNEL_CATALOG_IDENTITY_PERSISTENCE_PORT, type ChannelCatalogIdentityPersistencePort } from './application/port/out/persistence/catalog-identity.persistence.port';
 import { Module } from '@nestjs/common';
+import { ChannelsRegistrationStateModule } from './channels-registration-state.module';
+import { REGISTRATION_STATE_PORT, type RegistrationStatePort } from './application/port/in/registration-state.port';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { CHANNEL_ACCOUNT_PORT } from './application/port/in/account/channel-account.port';
@@ -33,7 +35,8 @@ import { CHANNELS_PRODUCT_MAPPING_GENERATION_PORT } from './application/port/out
  * 이미 이 모듈을 함께 가져오는 소비자가 여럿이었다.
  */
 @Module({
-  imports: [AiListingContentQueryModule, PrismaModule, ProductCollectionRuntimeModule],
+  // 리스팅 요약의 등록 상태는 등록 상태 reader 가 준다(KID-320). 그 reader 는 AI 실행 없이 Content 읽기 포트만 쓴다.
+  imports: [AiListingContentQueryModule, PrismaModule, ProductCollectionRuntimeModule, ChannelsRegistrationStateModule],
   providers: [
     ListingContentAdapter,
     { provide: CHANNEL_LISTING_CONTENT_PORT, useExisting: ListingContentAdapter },
@@ -49,7 +52,7 @@ import { CHANNELS_PRODUCT_MAPPING_GENERATION_PORT } from './application/port/out
     { provide: CHANNEL_ACCOUNT_PORT, useExisting: ChannelAccountService },
     ChannelListingQueryPersistenceAdapter,
     { provide: CHANNEL_LISTING_QUERY_PERSISTENCE_PORT, useExisting: ChannelListingQueryPersistenceAdapter },
-    { provide: ChannelListingQueryService, useFactory: (persistence: ChannelListingQueryPersistencePort, content: ChannelListingContentPort) => new ChannelListingQueryService(persistence, content), inject: [CHANNEL_LISTING_QUERY_PERSISTENCE_PORT, CHANNEL_LISTING_CONTENT_PORT] },
+    { provide: ChannelListingQueryService, useFactory: (persistence: ChannelListingQueryPersistencePort, content: ChannelListingContentPort, registrationStates: RegistrationStatePort) => new ChannelListingQueryService(persistence, content, registrationStates), inject: [CHANNEL_LISTING_QUERY_PERSISTENCE_PORT, CHANNEL_LISTING_CONTENT_PORT, REGISTRATION_STATE_PORT] },
     { provide: CHANNEL_LISTING_QUERY_PORT, useExisting: ChannelListingQueryService },
     { provide: CHANNEL_LISTING_REPORT_READ_PORT, useExisting: ChannelListingQueryService },
     // 예전 channel-option-recipe.module.ts. Consumers import this module without

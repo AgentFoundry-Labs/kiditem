@@ -82,7 +82,7 @@ function buildService(overrides: {
     findByChannelSkuIds: async () => [],
     findByListingIds: async () => [],
   } as unknown as ChannelSkuAvailabilityPort;
-  return new MallPublishingService(repository, availability);
+  return new MallPublishingService(repository, availability, { readForSalesProducts: async () => new Map() });
 }
 
 describe('MallPublishingService.listTargets', () => {

@@ -73,6 +73,8 @@ export interface MallMatrixQuery {
 /** 매트릭스 한 칸의 원재료. 판정은 도메인이 한다. */
 export interface MallMatrixListingRow {
   channelAccountId: string;
+  /** 리스팅의 판매 상품. 칸의 등록 상태를 읽는 열쇠다(KID-320). 없으면 null. */
+  salesProductId: string | null;
   status: string | null;
   externalId: string;
   category: string | null;
