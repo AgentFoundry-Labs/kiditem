@@ -13,9 +13,8 @@ describe('ChannelRegistrationExecutionController.registrationState', () => {
       registrationState: 'confirming',
       preparations: [{
         id: TARGET, salesProductId: PRODUCT, sourceRecordId: null, channelAccountId: ACCOUNT,
-        channelListingId: null, displayName: null, status: 'submitting',
-        selectedThumbnailUrl: null, selectedThumbnailGenerationId: null, selectedThumbnailGenerationCandidateId: null,
-        selectedDetailPageArtifactId: null, selectedDetailPageRevisionId: null, selectedDetailPageGenerationId: null,
+        channelListingId: null, status: 'submitting',
+        selectedThumbnailAssetId: null, selectedDetailPageRevisionId: null,
         registrationInput: {}, createdAt: new Date('2026-09-23T00:00:00Z'), updatedAt: new Date('2026-09-23T01:00:00Z'),
       }],
     }]]));

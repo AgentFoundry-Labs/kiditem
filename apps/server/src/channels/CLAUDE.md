@@ -59,8 +59,10 @@ sync, registration, matching, and capacity behavior is executable in
   selling product. `channels/registration-targets` (resolve, update, archive) is
   the only way to make or change one; `resolve` is the only way one comes to exist
   (it finds or creates it and issues the product's KID),
-  and a target with a live execution cannot be archived. The target display name
-  is an override, not identity — an empty one reads as the product name.
+  and a target with a live execution cannot be archived. A target stores only its
+  selected options, mall-only values (`RegistrationMallInputSchema`) and the
+  chosen Content asset and revision ids; name, prices and detail HTML are read
+  from the selling product and its content at use time (KID-313).
 - Selected accounts must exist and be active. `ChannelAccount` stores the Wing
   vendor identity used to fence browser evidence; Open API credentials are not
   accepted or resolved.

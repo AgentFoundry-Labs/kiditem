@@ -19,6 +19,7 @@ import {
   type RegistrationDraftPort,
 } from '../../port/out/persistence/registration-draft.port';
 import type { PrepareTargetExecutionInput, ReportTargetExecutionInput, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
+import type { ChannelRegistrableDetailPagePort } from '../../port/out/content/registrable-detail-page.port';
 import type { ChannelsRepositoryTransaction } from '../../port/out/transaction/repository-transaction';
 import type {
   ConfirmRegistrationExecutionInput,
@@ -46,6 +47,8 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
      private readonly salesProducts: SalesProductPort,
      private readonly targets: RegistrationTargetPort,
      private readonly stockout: StockoutCheckPort,
+    /** 몰에 보낼 상세는 Content revision 에서 읽어 실행 payload 에 동결한다(KID-313 W2). */
+    private readonly detailPages: ChannelRegistrableDetailPagePort,
   ) {}
 
   prepareListingAvailability(organizationId: string, userId: string | null, input: PrepareListingAvailabilityInput) {
@@ -96,11 +99,17 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
       if (!listing || !selection || !option) {
         throw new RegistrationTargetException('invalid', '가격 수정은 등록 대상에 선택된 단일 옵션의 몰 상품만 지원합니다.');
       }
-      const price = selection.salePrice ?? option.salePrice;
+      // 가격은 판매 상품 옵션 한 곳에만 있다(KID-313 W2).
+      const price = option.salePrice;
       if (price === null || !['kakao', 'kidsnote'].includes(listing.mallKey) || price < 10 || price > 10_000_000) {
         throw new RegistrationTargetException('invalid', '이 몰 또는 판매가는 현재 가격 전송 범위에 포함되지 않습니다.');
       }
     }
+    const detail = await this.detailPages.read({
+      organizationId,
+      salesProductId: target.salesProductId,
+      selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
+    });
     const snapshot: TargetExecutionSnapshot = {
       targetId, targetVersion: target.version, channelAccountId: target.channelAccountId,
       kind: input.kind, channelListingId: input.channelListingId ?? null,
@@ -110,18 +119,18 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
       applyCompositionTemplate: input.applyCompositionTemplate,
       optionTransitions: transitions,
       product: {
-        ...product, name: target.displayName ?? product.name,
-        // Target-specific values are already resolved below and in registrationInput.
-        // The account summary must never override a frozen option price a second time.
+        // 이름 · 가격은 판매 상품 그대로다 — 등록 대상은 사본을 갖지 않는다(KID-313 W2).
+        ...product,
         channelOverrides: [],
         options: target.selectedOptions.map(selection => {
           const option = options.get(selection.salesProductOptionId);
           if (!option) throw new RegistrationTargetException('invalid', '선택한 옵션이 해당 판매상품에 없습니다.');
-          return { ...option, salePrice: selection.salePrice ?? option.salePrice, normalPrice: selection.normalPrice ?? option.normalPrice };
+          return option;
         }),
       },
+      detailPage: detail ? { revisionId: detail.revisionId, html: detail.html, extraHtml: [...detail.extraHtml] } : null,
       registrationInput: target.registrationInput,
-      supplyPrices: target.selectedOptions.map(selection => ({ salesProductOptionId: selection.salesProductOptionId, supplyPrice: selection.supplyPrice })),
+      supplyPrices: target.selectedOptions.map(selection => ({ salesProductOptionId: selection.salesProductOptionId, supplyPrice: null })),
     };
     return this.executions.prepareTarget({ organizationId, requestedByUserId: userId, request: input, snapshot });
   }
@@ -421,13 +430,6 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
             listingId: listing.listingId,
             displayName: submission.displayName,
             createdByUserId: userId,
-            selectedThumbnailUrl: submission.selectedThumbnailUrl,
-            selectedThumbnailGenerationId: submission.selectedThumbnailGenerationId,
-            selectedThumbnailGenerationCandidateId:
-              submission.selectedThumbnailGenerationCandidateId,
-            selectedDetailPageArtifactId: submission.selectedDetailPageArtifactId,
-            selectedDetailPageRevisionId: submission.selectedDetailPageRevisionId,
-            selectedDetailPageGenerationId: submission.selectedDetailPageGenerationId,
           });
           return { listingId: listing.listingId };
         },

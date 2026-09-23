@@ -38,7 +38,18 @@ export const TargetExecutionSnapshotSchema = z.object({
   applyCompositionTemplate: z.boolean(),
   optionTransitions: z.array(OptionTransitionSchema).optional(),
   product: SalesProductSchema,
+  /**
+   * 이 실행이 몰에 보낼 상세 — 준비 순간 Content 의 revision 을 읽어 동결한다(KID-313 W2). 등록 대상이 고른
+   * revision, 없으면 워크스페이스의 현재 revision. 상세가 없으면 null.
+   */
+  detailPage: z.object({
+    revisionId: z.string().uuid(),
+    html: z.string(),
+    extraHtml: z.array(z.string()),
+  }).strict().nullable(),
+  /** 등록 대상의 몰 전용 값(`RegistrationMallInputSchema`). */
   registrationInput: z.record(z.string(), z.unknown()),
+  /** 옵션 identity 목록. 공급가는 판매 상품에 없어 null 이다(KID-313 W2) — 몰 공급가는 mallFields 가 말한다. */
   supplyPrices: z.array(z.object({ salesProductOptionId: z.string().uuid(), supplyPrice: z.number().int().min(0).max(1_000_000_000).nullable() })),
 });
 export type TargetExecutionSnapshot = z.infer<typeof TargetExecutionSnapshotSchema>;

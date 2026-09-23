@@ -13,7 +13,7 @@ const response: TargetExecutionResult = {
   externalListingId: null, result: null,
   payload: {
     targetId: id(5), targetVersion: 1, channelAccountId: id(6), kind: 'register',
-    channelListingId: null, applyCompositionTemplate: false, registrationInput: {}, supplyPrices: [],
+    channelListingId: null, applyCompositionTemplate: false, registrationInput: {}, supplyPrices: [], detailPage: null,
     product: {
       id: id(7), code: 'KID00000001', ownCode: null, sabangnetGoodsNo: null, sourceRecordId: null,
       sourcePlatform: null, sourceUrl: null,
@@ -23,7 +23,7 @@ const response: TargetExecutionResult = {
       productSize: null, colorVariantNames: [], boxSetQuantity: null, registrationDefaults: null,
       status: 'active', taxType: 'taxable',
       deliveryFeeType: null, deliveryFee: null, optionAxes: [], stockManaged: false,
-      imageUrls: [], detailHtml: null, extraDetailHtml: [], noticeCategory: null, noticeValues: [],
+      imageUrls: [], noticeCategory: null, noticeValues: [],
       certifications: [], kcStatus: 'unknown' as const, importDeclarationNo: null, adminMemo: null, version: 1,
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
       options: [], channelOverrides: [], channelListings: [],

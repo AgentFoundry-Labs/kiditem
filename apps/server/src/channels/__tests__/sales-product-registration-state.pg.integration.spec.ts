@@ -32,6 +32,10 @@ describe('sales product registration state (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
+  // 고른 콘텐츠 id 는 Content 소유의 scalar id 다 — 상태 리더는 그대로 비추기만 한다.
+  const ASSET_ID = '12121212-1212-4121-8121-121212121212';
+  const REVISION_ID = '34343434-3434-4343-8343-343434343434';
+
   async function account(organizationId: string) {
     const id = randomUUID();
     await prisma.channelAccount.create({
@@ -48,7 +52,7 @@ describe('sales product registration state (PostgreSQL)', () => {
     });
     const target = await prisma.registrationTarget.create({
       data: { organizationId: TEST_ORGANIZATION_ID, salesProductId: direct.id, channelAccountId: accountId,
-        selectedThumbnailUrl: 'https://cdn.example.com/t.png' },
+        selectedThumbnailAssetId: ASSET_ID, selectedDetailPageRevisionId: REVISION_ID },
     });
 
     const views = await registrations.readForSalesProducts(TEST_ORGANIZATION_ID, [direct.id]);
@@ -61,7 +65,8 @@ describe('sales product registration state (PostgreSQL)', () => {
         sourceRecordId: null,
         channelAccountId: accountId,
         status: 'draft',
-        selectedThumbnailUrl: 'https://cdn.example.com/t.png',
+        selectedThumbnailAssetId: ASSET_ID,
+        selectedDetailPageRevisionId: REVISION_ID,
       }],
     });
   });

@@ -44,12 +44,6 @@ function frozenSubmission(
     providerOutcome: 'not_attempted',
     submissionLeaseToken: LEASE,
     isRetry: false,
-    selectedThumbnailUrl: null,
-    selectedThumbnailGenerationId: null,
-    selectedThumbnailGenerationCandidateId: null,
-    selectedDetailPageArtifactId: null,
-    selectedDetailPageRevisionId: null,
-    selectedDetailPageGenerationId: null,
     ...overrides,
   };
 }
@@ -131,7 +125,7 @@ function setup(overrides: {
       archive: vi.fn(),
     }, {
       preview: vi.fn(), prepare: vi.fn(), assertEligible: vi.fn(),
-    }),
+    }, { read: vi.fn(), readMany: vi.fn(), importFromSource: vi.fn() }),
     executions,
     registration,
     drafts,

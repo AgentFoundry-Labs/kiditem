@@ -2144,27 +2144,6 @@ function toFrozenSubmission(
     providerOutcome: execution.providerOutcome as RegistrationExecutionProviderOutcome,
     submissionLeaseToken: execution.leaseToken,
     isRetry: execution.lastErrorMessage !== null || execution.providerOutcome !== 'not_attempted',
-    selectedThumbnailUrl: frozenNullableString(payload, 'selectedThumbnailUrl'),
-    selectedThumbnailGenerationId: frozenNullableString(
-      payload,
-      'selectedThumbnailGenerationId',
-    ),
-    selectedThumbnailGenerationCandidateId: frozenNullableString(
-      payload,
-      'selectedThumbnailGenerationCandidateId',
-    ),
-    selectedDetailPageArtifactId: frozenNullableString(
-      payload,
-      'selectedDetailPageArtifactId',
-    ),
-    selectedDetailPageRevisionId: frozenNullableString(
-      payload,
-      'selectedDetailPageRevisionId',
-    ),
-    selectedDetailPageGenerationId: frozenNullableString(
-      payload,
-      'selectedDetailPageGenerationId',
-    ),
   };
 }
 
@@ -2175,18 +2154,6 @@ function frozenRequiredString(
   const value = (payload as Record<string, RegistrationSubmissionJson>)[key];
   if (typeof value !== 'string' || !value.trim()) {
     throw new ConflictException(`Frozen preparation payload is missing '${key}'.`);
-  }
-  return value;
-}
-
-function frozenNullableString(
-  payload: RegistrationSubmissionJson,
-  key: string,
-): string | null {
-  const value = (payload as Record<string, RegistrationSubmissionJson>)[key];
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'string') {
-    throw new ConflictException(`Frozen preparation payload field '${key}' is invalid.`);
   }
   return value;
 }

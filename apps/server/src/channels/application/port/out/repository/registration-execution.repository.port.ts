@@ -42,12 +42,6 @@ export interface FrozenRegistrationSubmission {
   providerOutcome: RegistrationExecutionProviderOutcome;
   submissionLeaseToken: string | null;
   isRetry: boolean;
-  selectedThumbnailUrl: string | null;
-  selectedThumbnailGenerationId: string | null;
-  selectedThumbnailGenerationCandidateId: string | null;
-  selectedDetailPageArtifactId: string | null;
-  selectedDetailPageRevisionId: string | null;
-  selectedDetailPageGenerationId: string | null;
 }
 
 export interface PrepareRegistrationExecutionInput {

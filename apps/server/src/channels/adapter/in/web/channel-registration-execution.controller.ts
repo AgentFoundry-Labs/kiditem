@@ -54,12 +54,8 @@ export class ChannelRegistrationExecutionController {
         channelAccountId: row.channelAccountId,
         channelListingId: row.channelListingId,
         status: row.status as SalesProductRegistrationState['targets'][number]['status'],
-        selectedThumbnailUrl: row.selectedThumbnailUrl,
-        selectedThumbnailGenerationId: row.selectedThumbnailGenerationId,
-        selectedThumbnailGenerationCandidateId: row.selectedThumbnailGenerationCandidateId,
-        selectedDetailPageArtifactId: row.selectedDetailPageArtifactId,
+        selectedThumbnailAssetId: row.selectedThumbnailAssetId,
         selectedDetailPageRevisionId: row.selectedDetailPageRevisionId,
-        selectedDetailPageGenerationId: row.selectedDetailPageGenerationId,
         updatedAt: row.updatedAt.toISOString(),
       })),
     };

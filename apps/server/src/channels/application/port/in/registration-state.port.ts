@@ -31,14 +31,10 @@ export interface ProductPreparationRow {
   sourceRecordId: string | null;
   channelAccountId: string;
   channelListingId: string | null;
-  displayName: string | null;
   status: string;
-  selectedThumbnailUrl: string | null;
-  selectedThumbnailGenerationId: string | null;
-  selectedThumbnailGenerationCandidateId: string | null;
-  selectedDetailPageArtifactId: string | null;
+  /** 고른 대표이미지 자산 · 상세 revision(Content id). 비면 워크스페이스의 현재 값(KID-313 W2). */
+  selectedThumbnailAssetId: string | null;
   selectedDetailPageRevisionId: string | null;
-  selectedDetailPageGenerationId: string | null;
   registrationInput: JsonValue;
   createdAt: Date;
   updatedAt: Date;

@@ -638,7 +638,7 @@ Notable route subtrees:
   authored ones have none — KID-313), draft detail route entries, draft-scoped
   generated content links, and the fixed WING category
   registry used at registration confirmation. WING category selection uses the
-  saved `RegistrationTarget.registrationInput.wingCategoryKey` or an exact
+  saved `RegistrationTarget.registrationInput.adapter.coupang.wingCategoryKey` or an exact
   source-category alias; it does not read registered `ChannelListing` rows or
   call a runtime category-suggestion API. Its mall bulk-sheet action creates
   sales products through the Products API and opens the shared

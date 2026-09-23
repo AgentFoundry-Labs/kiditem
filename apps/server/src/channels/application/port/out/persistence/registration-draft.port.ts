@@ -19,6 +19,7 @@ export interface RegistrationDraftRow {
   channelAccountId: string;
   /** AI 콘텐츠 작업공간. 등록 설정 줄에 저장하지 않고 필요할 때 AI 계약에 묻는다. */
   sourceContentWorkspaceId: string | null;
+  /** 판매 상품 이름. 등록 설정은 이름을 갖지 않는다(KID-313 W2). */
   displayName: string;
   status: string;
   closedAt: Date | null;
@@ -31,12 +32,12 @@ export interface RegistrationDraftRow {
 /** 실행이 동결한 제출본을 되읽을 때 필요한 초안 내용. */
 export interface FrozenRegistrationDraft extends RegistrationDraftRow {
   updatedAt: Date;
-  selectedThumbnailUrl: string | null;
-  selectedThumbnailGenerationId: string | null;
-  selectedThumbnailGenerationCandidateId: string | null;
-  selectedDetailPageArtifactId: string | null;
+  /**
+   * 고른 대표이미지 자산 · 상세 revision. 설정에 저장된 값이고, 제출 동결은 비어 있는 선택을 워크스페이스의
+   * 현재 값으로 채워 돌려준다 — 설정에는 다시 쓰지 않는다(비어 있으면 늘 현재를 뜻한다).
+   */
+  selectedThumbnailAssetId: string | null;
   selectedDetailPageRevisionId: string | null;
-  selectedDetailPageGenerationId: string | null;
 }
 
 /** `freezeForSubmission` 이 만들거나 갱신할 제출 동결본. */
@@ -45,6 +46,10 @@ export interface FreezeRegistrationDraftInput {
   salesProductId: string;
   channelAccountId: string;
   displayName: string;
+  /**
+   * 이 실행이 동결하는 제출 값. 실행 시점 사실(셀피아 연결 · 몰 상품 · KID)은 실행 payload 에만 남고,
+   * 설정에는 쿠팡 어댑터 값(`wingCategoryKey` · `wingProduct`)만 `registrationInput.adapter.coupang` 으로 남긴다.
+   */
   registrationInput: Record<string, unknown>;
   frozenHash: string;
   requestedByUserId: string | null;
@@ -135,12 +140,6 @@ export interface RegistrationDraftPort {
       listingId: string;
       displayName: string;
       createdByUserId: string | null;
-      selectedThumbnailUrl: string | null;
-      selectedThumbnailGenerationId: string | null;
-      selectedThumbnailGenerationCandidateId: string | null;
-      selectedDetailPageArtifactId: string | null;
-      selectedDetailPageRevisionId: string | null;
-      selectedDetailPageGenerationId: string | null;
     },
   ): Promise<{ workspaceId: string }>;
 }

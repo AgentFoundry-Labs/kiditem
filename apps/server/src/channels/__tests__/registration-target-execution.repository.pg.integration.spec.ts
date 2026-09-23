@@ -18,6 +18,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type {
+  RegistrationMallInput,
   PrepareListingAvailabilityInput,
   PrepareTargetExecutionInput,
   ReportTargetExecutionInput,
@@ -220,6 +221,30 @@ describe('registration target execution repository (PostgreSQL)', () => {
     })).resolves.toMatchObject({ payload: fixture.snapshot, maySubmit: false });
   });
 
+  it('freezes the detail revision html and id in the execution payload, unchanged by later content edits', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const detailPage = { revisionId: randomUUID(), html: '<p>동결한 상세</p>', extraHtml: ['<p>추가</p>'] };
+    const request = requestFor('target-detail-freeze-1');
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request,
+      snapshot: { ...fixture.snapshot, detailPage },
+    });
+
+    expect(prepared.payload.detailPage).toEqual(detailPage);
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: { submissionPayloadJson: true },
+    })).resolves.toMatchObject({ submissionPayloadJson: { detailPage } });
+    await expect(repository.findTargetReplay({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      targetId: fixture.targetId,
+      request,
+    })).resolves.toMatchObject({ payload: { detailPage } });
+  });
+
   it('replays an old intent after target and product edits while rejecting idempotency reuse', async () => {
     const fixture = await createFixture(prisma, targets);
     const request = requestFor('target-replay-1');
@@ -231,14 +256,10 @@ describe('registration target execution repository (PostgreSQL)', () => {
     });
     await targets.update(TEST_ORGANIZATION_ID, fixture.targetId, {
       expectedVersion: 1,
-      displayName: '수정된 실행 대상',
-      registrationInput: { changed: true },
-      selectedOptions: [{
-        salesProductOptionId: fixture.optionId,
-        salePrice: null,
-        normalPrice: null,
-        supplyPrice: 123,
-      }],
+      registrationInput: { mallCategory: null, mallFields: { changed: true }, adapter: {} },
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      selectedOptions: [{ salesProductOptionId: fixture.optionId }],
     });
     await prisma.salesProduct.update({
       where: { id: fixture.productId },
@@ -287,14 +308,10 @@ describe('registration target execution repository (PostgreSQL)', () => {
 
     await targets.update(TEST_ORGANIZATION_ID, fixture.targetId, {
       expectedVersion: 1,
-      displayName: '수정된 실행 대상',
-      registrationInput: { changed: true },
-      selectedOptions: [{
-        salesProductOptionId: fixture.optionId,
-        salePrice: null,
-        normalPrice: null,
-        supplyPrice: 123,
-      }],
+      registrationInput: { mallCategory: null, mallFields: { changed: true }, adapter: {} },
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      selectedOptions: [{ salesProductOptionId: fixture.optionId }],
     });
     await prisma.salesProduct.update({
       where: { id: fixture.productId },
@@ -348,7 +365,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
 
     expect(prepared.payload.adapterValues).toEqual(adapterValues);
     await expect(targets.get(TEST_ORGANIZATION_ID, fixture.targetId)).resolves.toMatchObject({
-      registrationInput: { categoryId: 'category-1' },
+      registrationInput: { mallCategory: { key: 'category-1', label: null }, mallFields: {}, adapter: {} },
     });
     await expect(repository.prepareTarget({
       organizationId: TEST_ORGANIZATION_ID,
@@ -357,7 +374,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       snapshot: { ...snapshot, adapterValues: { ...adapterValues, deliveryType: '다른 실행 값' } },
     })).rejects.toBeInstanceOf(ConflictException);
     await expect(targets.get(TEST_ORGANIZATION_ID, fixture.targetId)).resolves.toMatchObject({
-      registrationInput: { categoryId: 'category-1' },
+      registrationInput: { mallCategory: { key: 'category-1', label: null }, mallFields: {}, adapter: {} },
     });
   });
 
@@ -1554,14 +1571,8 @@ async function createFixture(
   const target = await targets.create(TEST_ORGANIZATION_ID, {
     salesProductId: productId,
     channelAccountId: accountId,
-    displayName: null,
-    registrationInput: { categoryId: 'category-1' },
-    selectedOptions: [{
-      salesProductOptionId: optionId,
-      salePrice: null,
-      normalPrice: null,
-      supplyPrice: null,
-    }],
+    registrationInput: { mallCategory: { key: 'category-1', label: null }, mallFields: {}, adapter: {} },
+    selectedOptions: [{ salesProductOptionId: optionId }],
   });
   const timestamp = new Date().toISOString();
   const snapshot: TargetExecutionSnapshot = {
@@ -1606,8 +1617,6 @@ async function createFixture(
       optionAxes: ['색상'],
       stockManaged: false,
       imageUrls: [],
-      detailHtml: null,
-      extraDetailHtml: [],
       noticeCategory: null,
       noticeValues: [],
       certifications: [],
@@ -1642,7 +1651,8 @@ async function createFixture(
       channelOverrides: [],
       channelListings: [],
     },
-    registrationInput: { categoryId: 'category-1' },
+    detailPage: null,
+    registrationInput: { mallCategory: { key: 'category-1', label: null }, mallFields: {}, adapter: {} },
     supplyPrices: [{ salesProductOptionId: optionId, supplyPrice: null }],
   };
   return {
@@ -1679,22 +1689,10 @@ async function addSecondSelectedOption(
   });
   await targets.update(TEST_ORGANIZATION_ID, fixture.targetId, {
     expectedVersion: 1,
-    displayName: null,
-    registrationInput: fixture.snapshot.registrationInput,
-    selectedOptions: [
-      {
-        salesProductOptionId: fixture.optionId,
-        salePrice: null,
-        normalPrice: null,
-        supplyPrice: null,
-      },
-      {
-        salesProductOptionId: secondOptionId,
-        salePrice: null,
-        normalPrice: null,
-        supplyPrice: null,
-      },
-    ],
+    registrationInput: fixture.snapshot.registrationInput as RegistrationMallInput,
+    selectedThumbnailAssetId: null,
+    selectedDetailPageRevisionId: null,
+    selectedOptions: [{ salesProductOptionId: fixture.optionId }, { salesProductOptionId: secondOptionId }],
   });
   const firstOption = fixture.snapshot.product.options[0];
   const secondOption = {
@@ -1793,11 +1791,10 @@ async function prepareTwoOptionCompositionChange(
   }
   await targets.update(TEST_ORGANIZATION_ID, fixture.targetId, {
     expectedVersion: 1,
-    displayName: null,
-    registrationInput: fixture.snapshot.registrationInput,
-    selectedOptions: newIds.map(salesProductOptionId => ({
-      salesProductOptionId, salePrice: null, normalPrice: null, supplyPrice: null,
-    })),
+    registrationInput: fixture.snapshot.registrationInput as RegistrationMallInput,
+    selectedThumbnailAssetId: null,
+    selectedDetailPageRevisionId: null,
+    selectedOptions: newIds.map(salesProductOptionId => ({ salesProductOptionId })),
   });
   const template = fixture.snapshot.product.options[0];
   const optionTransitions = [
