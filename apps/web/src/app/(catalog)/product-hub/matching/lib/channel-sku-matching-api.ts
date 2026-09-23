@@ -110,12 +110,7 @@ export function listRecipeComponentCandidates(input: {
 
 export type ProductInventoryMatchingSaveInput = {
   channelListingId: string;
-  options: Array<{
-    channelListingOptionId: string;
-    /** The recipe the screen loaded; the server answers 409 when it changed since. */
-    expectedComponents: ReplaceChannelOptionInventoryInput['components'];
-    components: ReplaceChannelOptionInventoryInput['components'];
-  }>;
+  options: Array<{ channelListingOptionId: string } & ReplaceChannelOptionInventoryInput>;
 };
 
 /** Shown when another screen changed the recipe after this one loaded it (409). */
