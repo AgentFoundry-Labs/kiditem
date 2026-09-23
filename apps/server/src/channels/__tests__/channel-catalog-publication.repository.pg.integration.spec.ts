@@ -140,9 +140,9 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     expect(await prisma.masterProduct.count()).toBe(0);
     const contentWorkspace = await prisma.contentWorkspace.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, channelListingId: listing.id, ownerType: 'channel_listing', isDeleted: false },
-      include: { currentThumbnailSelection: { include: { contentAsset: true } } },
+      include: { currentThumbnailAsset: true },
     });
-    expect(contentWorkspace.currentThumbnailSelection?.contentAsset).toMatchObject({
+    expect(contentWorkspace.currentThumbnailAsset).toMatchObject({
       url: 'https://example.com/P-1.jpg',
     });
   });

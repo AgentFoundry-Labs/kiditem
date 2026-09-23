@@ -94,7 +94,6 @@ function workspaceImageUrl(workspace: WorkspaceContextRow): string | null {
   return (
     currentThumbnailUrl(workspace) ??
     workspaceAssets(workspace)[0]?.url ??
-    workspace.channelListing?.thumbnails[0]?.imageUrl ??
     null
   );
 }

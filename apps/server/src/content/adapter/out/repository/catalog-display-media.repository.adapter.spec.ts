@@ -6,8 +6,7 @@ describe('CatalogDisplayMediaRepositoryAdapter', () => {
     const findMany = vi.fn(async () => [{
       channelListingId: 'listing-1',
       channelListing: { channelAccount: { channel: 'coupang' } },
-      contentGenerationGroups: [{
-        originatingAssets: [
+      assets: [
           asset('provider-option', 'https://cdn.example/option.jpg', 'option', {
             sourceType: 'coupang_catalog', externalOptionId: 'option-1', active: true,
           }),
@@ -18,18 +17,15 @@ describe('CatalogDisplayMediaRepositoryAdapter', () => {
             sourceType: 'coupang_catalog', active: false,
           }),
           asset('custom', 'https://cdn.example/custom.jpg', 'primary', { sourceType: 'custom' }),
-        ],
-      }],
+      ],
     }, {
       channelListingId: 'listing-2',
       channelListing: { channelAccount: { channel: 'naver' } },
-      contentGenerationGroups: [{
-        originatingAssets: [
+      assets: [
           asset('naver-primary', 'https://cdn.example/naver.jpg', 'primary', {
             sourceType: 'channel_catalog', channel: 'naver', active: true,
           }),
-        ],
-      }],
+      ],
     }]);
     const tx = { contentWorkspace: { findMany } };
     const prisma = { ...tx, $transaction: async (read: (value: unknown) => unknown) => read(tx) };
@@ -69,14 +65,12 @@ describe('CatalogDisplayMediaRepositoryAdapter', () => {
     const findMany = vi.fn(async () => [{
       channelListingId: 'listing-1',
       channelListing: { channelAccount: { channel: 'coupang' } },
-      contentGenerationGroups: [{
-        originatingAssets: [asset('shared', 'https://cdn.example/shared.jpg', 'option', {
+      assets: [asset('shared', 'https://cdn.example/shared.jpg', 'option', {
           sourceType: 'channel_catalog',
           channel: 'coupang',
           externalOptionIds: [...optionIds].reverse(),
           active: true,
-        })],
-      }],
+      })],
     }]);
     const adapter = new CatalogDisplayMediaRepositoryAdapter({
       $transaction: async (read: (value: unknown) => unknown) => read({ contentWorkspace: { findMany } }),

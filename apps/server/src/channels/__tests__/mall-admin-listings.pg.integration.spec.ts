@@ -304,6 +304,18 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     })).resolves.toBe(1);
   });
 
+  it('refreshes the listing image on every import so a changed mall image reaches the listing (KID-313 W3a)', async () => {
+    await complete([row({ imageUrl: 'https://mall.example.com/first.jpg' })]);
+    await complete([row({ imageUrl: 'https://mall.example.com/second.jpg' })]);
+    await expect(prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, externalId: '1098464' }, select: { imageUrl: true } }))
+      .resolves.toEqual({ imageUrl: 'https://mall.example.com/second.jpg' });
+
+    // 사진을 주지 않는 목록은 남긴 사진을 지우지 않는다.
+    await complete([row()]);
+    await expect(prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, externalId: '1098464' }, select: { imageUrl: true } }))
+      .resolves.toEqual({ imageUrl: 'https://mall.example.com/second.jpg' });
+  });
+
   it('keeps a product whose detail name could not be read, and counts it', async () => {
     const { response } = await complete([
       row({

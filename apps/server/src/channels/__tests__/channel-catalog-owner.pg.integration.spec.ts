@@ -505,17 +505,13 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
         status: 'active',
         isDeleted: false,
       },
-      select: {
-        contentGenerationGroups: {
-          where: { groupType: 'workspace_assets' },
-          select: { id: true },
-        },
-      },
+      select: { id: true },
     });
     return prisma.contentAsset.findMany({
       where: {
         organizationId: ORG,
-        originGenerationGroupId: { in: workspace.contentGenerationGroups.map((group) => group.id) },
+        contentWorkspaceId: workspace.id,
+        source: 'catalog',
       },
       orderBy: { url: 'asc' },
       select: { id: true, url: true, role: true, sortOrder: true, metadata: true, isDeleted: true },

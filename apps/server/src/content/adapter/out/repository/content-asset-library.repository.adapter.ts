@@ -248,6 +248,14 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
         where: { id: input.contentWorkspaceId, organizationId: input.organizationId, isDeleted: false },
         data: { currentThumbnailAssetId: input.assetId },
       });
+      // 운영자가 고른 대표이미지는 카탈로그 몫이 아니다 — 다음 몰 카탈로그 publication 이 덮지 않게 표시를 지운다.
+      await tx.$executeRaw`
+        UPDATE content_assets
+        SET metadata = metadata - 'catalogRepresentative'
+        WHERE id = ${input.assetId}::uuid
+          AND organization_id = ${input.organizationId}::uuid
+          AND metadata ? 'catalogRepresentative'
+      `;
       const row = await tx.contentAsset.findFirstOrThrow({
         where: { id: input.assetId, organizationId: input.organizationId },
         select: assetRowSelect,

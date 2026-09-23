@@ -910,8 +910,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'channel_listing',
         channelListingId: productBefore.id,
-        displayName: '등록상품 콘텐츠',
-        normalizedTitle: 'registered-content',
         createdByUserId: TEST_USER_ID,
       },
     });

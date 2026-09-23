@@ -34,27 +34,21 @@ export class CatalogDisplayMediaRepositoryAdapter
       },
       select: {
         channelListingId: true,
-        contentGenerationGroups: {
+        // 카탈로그 사진은 워크스페이스 소유 자산이다(KID-313 W3a, source=catalog).
+        assets: {
           where: {
             organizationId: input.organizationId,
-            groupType: 'workspace_assets',
+            source: 'catalog',
+            assetType: 'image',
+            role: { in: ['primary', 'option'] },
+            isDeleted: false,
           },
           select: {
-            originatingAssets: {
-              where: {
-                organizationId: input.organizationId,
-                assetType: 'image',
-                role: { in: ['primary', 'option'] },
-                isDeleted: false,
-              },
-              select: {
-                id: true,
-                url: true,
-                role: true,
-                sortOrder: true,
-                metadata: true,
-              },
-            },
+            id: true,
+            url: true,
+            role: true,
+            sortOrder: true,
+            metadata: true,
           },
         },
       },
@@ -65,32 +59,30 @@ export class CatalogDisplayMediaRepositoryAdapter
       if (!channelListingId) return [];
       const channel = channelByListing.get(channelListingId);
       if (!channel) return [];
-      return workspace.contentGenerationGroups.flatMap((group) =>
-        group.originatingAssets.flatMap((asset): CatalogDisplayMediaCandidate[] => {
-          const metadata = record(asset.metadata);
-          if (
-            !isChannelCatalogMetadata(metadata, channel)
-            || metadata?.active === false
-            || !asset.url.trim()
-            || (asset.role !== 'primary' && asset.role !== 'option')
-          ) return [];
-          const role: 'primary' | 'option' = asset.role === 'primary' ? 'primary' : 'option';
-          const optionIds = role === 'option'
-            ? optionIdsFromMetadata(metadata)
-            : [];
-          const candidate = {
-            id: asset.id,
-            channel,
-            channelListingId,
-            url: asset.url,
-            role,
-            sortOrder: asset.sortOrder,
-            externalOptionId: optionIds.length === 1 ? optionIds[0]! : null,
-            ...(role === 'option' ? { externalOptionIds: optionIds } : {}),
-          };
-          return [candidate];
-        }),
-      );
+      return workspace.assets.flatMap((asset): CatalogDisplayMediaCandidate[] => {
+        const metadata = record(asset.metadata);
+        if (
+          !isChannelCatalogMetadata(metadata, channel)
+          || metadata?.active === false
+          || !asset.url.trim()
+          || (asset.role !== 'primary' && asset.role !== 'option')
+        ) return [];
+        const role: 'primary' | 'option' = asset.role === 'primary' ? 'primary' : 'option';
+        const optionIds = role === 'option'
+          ? optionIdsFromMetadata(metadata)
+          : [];
+        const candidate = {
+          id: asset.id,
+          channel,
+          channelListingId,
+          url: asset.url,
+          role,
+          sortOrder: asset.sortOrder,
+          externalOptionId: optionIds.length === 1 ? optionIds[0]! : null,
+          ...(role === 'option' ? { externalOptionIds: optionIds } : {}),
+        };
+        return [candidate];
+      });
     });
     });
   }
