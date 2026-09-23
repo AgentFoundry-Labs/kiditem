@@ -64,8 +64,6 @@ describe('channel listing list (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'channel_listing',
         channelListingId: prepared.id,
-        displayName: '작업공간이 있는 상품',
-        normalizedTitle: 'prepared',
         createdByUserId: TEST_USER_ID,
       },
     });

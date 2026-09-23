@@ -76,8 +76,8 @@ describe('sales product creation issues its KID in the same transaction (Postgre
     for (const salesProductId of [direct.id, collected]) {
       await expect(prisma.contentWorkspace.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID, salesProductId, status: 'active', isDeleted: false },
-        select: { ownerType: true, displayName: true },
-      })).resolves.toEqual([expect.objectContaining({ ownerType: 'sales_product' })]);
+        select: { ownerType: true, channelListingId: true, normalizedTitle: true },
+      })).resolves.toEqual([{ ownerType: 'sales_product', channelListingId: null, normalizedTitle: null }]);
     }
   });
 });

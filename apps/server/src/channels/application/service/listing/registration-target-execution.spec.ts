@@ -27,6 +27,8 @@ function setup() {
     read: vi.fn().mockResolvedValue({ revisionId: 'revision-chosen', html: '<p>상세</p>', imageUrls: [] }),
     readMany: vi.fn(),
     importFromSource: vi.fn(),
+    readImportedImageUrls: vi.fn(),
+    rewriteImportedImageUrls: vi.fn(),
   };
   const service = new RegistrationExecutionService(executions as unknown as RegistrationExecutionRepositoryPort,
     products as unknown as SalesProductPort, targets as unknown as RegistrationTargetPort,
