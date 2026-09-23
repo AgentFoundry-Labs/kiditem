@@ -119,6 +119,38 @@ describe('thumbnail AI page', () => {
     }));
   });
 
+  it('evaluates a page of listings one by one and reads the current evaluations once afterwards', async () => {
+    const base = vi.mocked(apiClient.post).getMockImplementation()!;
+    vi.mocked(apiClient.post).mockImplementation(async (href: string, body?: unknown) => (
+      href === '/api/ai/listing-thumbnails/current'
+        ? { evaluations: [], summary: { evaluated: 0, unevaluated: 2, byGrade: { S: 0, A: 0, B: 0, C: 0, D: 0, F: 0 } } }
+        : base(href, body)
+    ));
+    renderPage();
+    const currentPosts = () => vi.mocked(apiClient.post).mock.calls.filter(([href]) => href === '/api/ai/listing-thumbnails/current').length;
+    await waitFor(() => expect(currentPosts()).toBe(1));
+
+    fireEvent.change(screen.getByRole('combobox', { name: '평가 모델' }), { target: { value: 'gemini-3.1-flash-lite' } });
+    fireEvent.click(await screen.findByRole('button', { name: /미평가 2개 평가/ }));
+
+    await waitFor(() => expect(vi.mocked(apiClient.post).mock.calls.filter(([href]) => String(href).endsWith('/evaluate'))).toHaveLength(2));
+    await waitFor(() => expect(currentPosts()).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(currentPosts()).toBe(2);
+  });
+
+  it('waits for the operator to stop typing before searching listings', async () => {
+    renderPage();
+    await screen.findByTestId(`listing-evaluation-${L1}`);
+    const searched = () => vi.mocked(apiClient.get).mock.calls.filter(([href]) => String(href).includes('search=%EC%BB%B5')).length;
+
+    fireEvent.change(screen.getByRole('textbox', { name: '리스팅 검색' }), { target: { value: '컵' } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(searched()).toBe(0);
+
+    await waitFor(() => expect(searched()).toBe(1));
+  });
+
   it('adopts an AI candidate as the workspace representative image from the AI edit tab', async () => {
     searchParams.value = new URLSearchParams('tab=ai-edit');
     vi.mocked(apiClient.patch).mockResolvedValue({ id: A1, isCurrentThumbnail: true });

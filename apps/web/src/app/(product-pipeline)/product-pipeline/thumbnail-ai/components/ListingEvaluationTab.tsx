@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ImageIcon, Loader2, Search, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,9 +13,15 @@ import { cn } from '@/lib/utils';
 import { channelListingsApi, type RegisteredChannelListing } from '../../registered-products/lib/channel-listings-api';
 import { useCreateThumbnailEditJobs } from '../../_shared/hooks/useThumbnailJobs';
 import { LISTING_THUMBNAIL_GRADE_BG, LISTING_THUMBNAIL_GRADES } from '../../_shared/lib/thumbnail-grade';
-import { useCurrentListingEvaluations, useEvaluateListingThumbnail } from '../hooks/useListingThumbnailEvaluations';
+import {
+  useCurrentListingEvaluations,
+  useEvaluateListingThumbnail,
+  useRefreshListingEvaluations,
+} from '../hooks/useListingThumbnailEvaluations';
 
 const PAGE_SIZE = 50;
+/** 검색은 입력이 멈춘 뒤에 보낸다. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * 평가 모델 목록. 평가는 모델을 명시해야 하므로(모델 선택 필수) 기본값을 두지 않는다 — 운영자가 고른 모델만
@@ -33,12 +39,18 @@ const EVALUATION_MODELS = [
 export function ListingEvaluationTab({ onEditStarted }: { onEditStarted?: () => void }) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [modelId, setModelId] = useState('');
   const [evaluatingIds, setEvaluatingIds] = useState<Set<string>>(new Set());
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const listings = useQuery({
-    queryKey: queryKeys.channelListings.list({ page: String(page), limit: String(PAGE_SIZE), search, view: 'thumbnail-evaluation' }),
-    queryFn: () => channelListingsApi.list({ page, limit: PAGE_SIZE, search }),
+    queryKey: queryKeys.channelListings.list({ page: String(page), limit: String(PAGE_SIZE), search: debouncedSearch, view: 'thumbnail-evaluation' }),
+    queryFn: () => channelListingsApi.list({ page, limit: PAGE_SIZE, search: debouncedSearch }),
   });
   const items = useMemo(() => listings.data?.items ?? [], [listings.data]);
   const listingImages = useMemo(
@@ -51,6 +63,7 @@ export function ListingEvaluationTab({ onEditStarted }: { onEditStarted?: () => 
     [current.data],
   );
   const evaluate = useEvaluateListingThumbnail();
+  const refreshEvaluations = useRefreshListingEvaluations();
   const editJobs = useCreateThumbnailEditJobs();
 
   const runEvaluation = async (targets: RegisteredChannelListing[]) => {
@@ -75,6 +88,7 @@ export function ListingEvaluationTab({ onEditStarted }: { onEditStarted?: () => 
         });
       }
     }
+    await refreshEvaluations();
     if (withImage.length > 1) {
       if (failed === 0) toast.success(`${withImage.length}개 평가 완료`);
       else toast.warning(`${withImage.length - failed}개 평가, ${failed}개 실패`);

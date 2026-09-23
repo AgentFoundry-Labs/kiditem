@@ -10,6 +10,7 @@ import {
   salesProductDraft,
   sourcingCandidateResponse,
 } from '@/test/fixtures/sales-product-draft';
+import { queryKeys } from '@/lib/query-keys';
 import { ProductWorkspaceScreen } from './ProductWorkspaceScreen';
 import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
 import type { ContentWorkspaceSummary } from '../../lib/content-workspaces-api';
@@ -431,6 +432,20 @@ describe('ProductWorkspaceScreen — 수집상품(판매상품 초안) 화면', 
       `/api/ai/content-workspaces/${WORKSPACE_ID}/current-thumbnail`,
       { assetId: 'gallery-asset-1' },
     ));
+  });
+
+  it('re-reads the collected product after saving its thumbnails', async () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+    api.put.mockResolvedValue({ thumbnailUrls: ['https://cdn.example.com/generated.jpg'] });
+    api.patch.mockResolvedValue(workspaceSummary());
+    serveCollectedDraft({ workspace: workspaceSummary() });
+    renderCollected();
+
+    await waitFor(() => expect(screen.getByTestId('product-tab-content')).toHaveAttribute('data-can-save-thumbnail', 'true'));
+    fireEvent.click(screen.getByRole('button', { name: 'mock-save-thumbnail' }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.collectedProducts.workspace(DRAFT_ID) }));
+    invalidate.mockRestore();
   });
 
   it('saves basics to the sales-product draft, keeping its identity across saves', async () => {

@@ -3,6 +3,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import {
   useAdoptThumbnail,
   useClearRegistrationError,
@@ -43,6 +44,19 @@ describe('representative image of a content workspace', () => {
     await act(async () => { await result.current.mutateAsync({ contentWorkspaceId: W1, assetId: A1 }); });
 
     expect(apiClient.patch).toHaveBeenCalledWith(`/api/ai/content-workspaces/${W1}/current-thumbnail`, { assetId: A1 });
+  });
+
+  it('refreshes the channel listings after an adoption so screens reading listing images do not stay stale', async () => {
+    vi.mocked(apiClient.patch).mockResolvedValue({ id: A1, isCurrentThumbnail: true });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => useAdoptThumbnail(), {
+      wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+    });
+
+    await act(async () => { await result.current.mutateAsync({ contentWorkspaceId: W1, assetId: A1 }); });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.channelListings.all });
   });
 });
 

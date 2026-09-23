@@ -33,15 +33,21 @@ export function useCurrentListingEvaluations(listings: readonly ListingImage[]) 
   });
 }
 
-/** 평가는 모델을 명시해야 한다 — 서버는 모델 없는 요청을 400 으로 거절한다. */
+/**
+ * 평가는 모델을 명시해야 한다 — 서버는 모델 없는 요청을 400 으로 거절한다. 현재 평가는 다시 읽지 않는다 — 여러 장을
+ * 차례로 평가하는 호출자가 끝에 한 번 `useRefreshListingEvaluations` 로 읽는다.
+ */
 export function useEvaluateListingThumbnail() {
-  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { channelListingId: string; imageUrl: string; modelId: string }) =>
       apiClient.post<{ evaluation: ListingThumbnailEvaluation; imageSpec: ImageSpec | null }>(
         `/api/ai/listing-thumbnails/${encodeURIComponent(input.channelListingId)}/evaluate`,
         { imageUrl: input.imageUrl, modelId: input.modelId },
       ),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.listingThumbnailEvaluations.all }),
   });
+}
+
+export function useRefreshListingEvaluations() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: queryKeys.listingThumbnailEvaluations.all });
 }

@@ -38,6 +38,8 @@ function invalidateRepresentativeImage(queryClient: QueryClient) {
     queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailJobs.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailExecutions.all }),
+    // 리스팅 목록이 작업공간 대표이미지(thumbnailUrl)를 싣는다 — 채택 뒤 옛 사진을 보이지 않게 한다.
+    queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all }),
   ]);
 }
 

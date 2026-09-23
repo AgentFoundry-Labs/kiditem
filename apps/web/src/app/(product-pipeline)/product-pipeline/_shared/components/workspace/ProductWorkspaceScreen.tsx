@@ -332,7 +332,11 @@ export function ProductWorkspaceScreen({
           queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all }),
           // 저장한 갤러리는 초안의 등록용 사진(`registrationImages.thumbnail`)으로 다시 읽힌다.
           ...(salesProductId
-            ? [queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.registrationMedia(salesProductId) })]
+            ? [
+              queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.registrationMedia(salesProductId) }),
+              // 수집상품 화면의 초안 읽기도 대표이미지를 싣는다.
+              queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(salesProductId) }),
+            ]
             : []),
         ]);
       } else {
