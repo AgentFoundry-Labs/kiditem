@@ -38,7 +38,7 @@ export class WingThumbnailRunnerAdapter implements WingThumbnailRunnerPort {
     await fs.promises.writeFile(imagePath, Buffer.from(parsed[2]!, 'base64'));
 
     this.logger.log(`Wing 자동화 시작: ${input.productName}`);
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const code = this.buildScript(input.productName, imagePath, screenshotPath);
       const proc = spawnPlaywriter(['-s', '1', '--timeout', String(PLAYWRITER_RUN_TIMEOUT_MS), '-e', code], {
         timeout: PLAYWRITER_TIMEOUT_MS,
@@ -57,14 +57,20 @@ export class WingThumbnailRunnerAdapter implements WingThumbnailRunnerPort {
         this.logger.log(`playwriter stdout: ${stdout.trim()}`);
         if (stdout.includes('SUCCESS')) {
           resolve({ outcome: 'uploaded_pending_save', screenshotPath });
-        } else {
-          const message = stdout.match(/ERROR:(.+)/)?.[1]?.trim() || stderr.trim() || 'Unknown error';
-          resolve({ outcome: 'definitive_failure', error: message });
+          return;
         }
+        // 스크립트가 스스로 말한 실패(`ERROR:`)만 아무것도 올라가지 않았다는 증거다. 죽음 · 신호 ·
+        // setInputFiles 뒤의 시간 초과는 사진이 이미 칸에 들어갔을 수 있으니 결과를 모른다.
+        const explicit = stdout.match(/ERROR:(.+)/)?.[1]?.trim();
+        if (explicit) {
+          resolve({ outcome: 'definitive_failure', error: explicit });
+          return;
+        }
+        reject(new Error(stderr.trim() || stdout.trim() || 'Playwriter exited without a result'));
       });
 
       proc.on('error', (err: Error) => {
-        resolve({ outcome: 'definitive_failure', error: err.message });
+        reject(err);
       });
     });
   }

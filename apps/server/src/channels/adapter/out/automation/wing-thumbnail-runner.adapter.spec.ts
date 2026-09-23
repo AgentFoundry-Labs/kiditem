@@ -57,4 +57,21 @@ describe('WingThumbnailRunnerAdapter', () => {
     spawned[0]!.proc.emit('close', 1);
     await expect(pending).resolves.toEqual({ outcome: 'definitive_failure', error: '상품을 찾을 수 없습니다' });
   });
+
+  it('throws when Playwriter exits with no ERROR line, because the image may already sit in the dropzone', async () => {
+    process.env.NODE_ENV = 'development';
+    const pending = new WingThumbnailRunnerAdapter().upload({ productName: '쿠팡 상품', image });
+    await vi.waitFor(() => expect(spawned).toHaveLength(1));
+    spawned[0]!.proc.stderr.emit('data', Buffer.from('Timeout 90000ms exceeded\n'));
+    spawned[0]!.proc.emit('close', null, 'SIGTERM');
+    await expect(pending).rejects.toThrow('Timeout 90000ms exceeded');
+  });
+
+  it('throws when the Playwriter process fails, since the outcome is unknown', async () => {
+    process.env.NODE_ENV = 'development';
+    const pending = new WingThumbnailRunnerAdapter().upload({ productName: '쿠팡 상품', image });
+    await vi.waitFor(() => expect(spawned).toHaveLength(1));
+    spawned[0]!.proc.emit('error', new Error('spawn playwriter EPIPE'));
+    await expect(pending).rejects.toThrow('spawn playwriter EPIPE');
+  });
 });
