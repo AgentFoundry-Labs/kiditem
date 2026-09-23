@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { spawnPlaywriter } from './playwriter-process';
-import type { RepresentativeImageRunnerPort } from '../../../application/port/out/automation/representative-image-runner.port';
+import type { RepresentativeImageRunnerPort } from '../../../../application/port/out/automation/representative-image-runner.port';
 
 const WING_BASE =
   'https://wing.coupang.com/vendor-inventory/list?salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1';
@@ -16,8 +16,8 @@ const DATA_URL_PATTERN = /^data:([^;]+);base64,(.+)$/;
  * Wing 상품 수정 화면의 대표 dropzone 에 넣는다.
  */
 @Injectable()
-export class WingThumbnailRunnerAdapter implements RepresentativeImageRunnerPort {
-  private readonly logger = new Logger(WingThumbnailRunnerAdapter.name);
+export class CoupangRepresentativeImageRunnerAdapter implements RepresentativeImageRunnerPort {
+  private readonly logger = new Logger(CoupangRepresentativeImageRunnerAdapter.name);
 
   isBlocked(): boolean {
     return process.env.NODE_ENV === 'production';

@@ -8,6 +8,7 @@ import type {
 } from '@kiditem/shared/thumbnail-execution';
 import type { ChannelsThumbnailExecutionPort } from '../../port/in/thumbnail-execution.port';
 import type { RepresentativeImageRunnerPort } from '../../port/out/automation/representative-image-runner.port';
+import type { ChannelAdapterRegistryPort } from '../../port/out/channel/channel-adapter.port';
 import type {
   ChannelRegistrableThumbnailPort,
   RegistrableThumbnail,
@@ -57,7 +58,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
   constructor(
     private readonly content: ChannelRegistrableThumbnailPort,
     private readonly persistence: ThumbnailExecutionPersistencePort,
-    private readonly runner: RepresentativeImageRunnerPort,
+    private readonly adapters: ChannelAdapterRegistryPort,
     private readonly integrity: ChannelIntegrityPort,
   ) {}
 
@@ -142,8 +143,10 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       }));
       if (recorded) return replayReceipt(recorded);
     }
-    if (this.runner.isBlocked()) throw new ChannelUnavailableError(SERVER_AUTOMATION_BLOCKED_MESSAGE);
     const intent = await this.freezeIntent(input.organizationId, input.generationId, null);
+    // runner 는 그 계정 채널의 어댑터가 들고 있다. 없거나 운영에서 막혔으면 실행을 만들지 않는다.
+    const runner = this.adapters.get(intent.channel).representativeImage;
+    if (!runner || runner.isBlocked()) throw new ChannelUnavailableError(SERVER_AUTOMATION_BLOCKED_MESSAGE);
     const created = await owned(() => this.persistence.createExecuting({
       organizationId: input.organizationId,
       requestedByUserId: input.requestedByUserId,
@@ -164,7 +167,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
 
     let outcome: Awaited<ReturnType<RepresentativeImageRunnerPort['upload']>>;
     try {
-      outcome = await this.runner.upload({
+      outcome = await runner.upload({
         listing: { externalListingId: intent.listingExternalId, productName: intent.payload.productName },
         image: { dataUrl: intent.image.dataUrl, filename: intent.image.filename },
       });
@@ -249,6 +252,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
 
   private async freezeIntent(organizationId: string, generationId: string, requestedListingId: string | null): Promise<{
     channelAccountId: string;
+    channel: string;
     listingExternalId: string | null;
     payload: ThumbnailUpdatePayload;
     payloadHash: string;
@@ -277,6 +281,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     } satisfies ThumbnailUpdatePayload as unknown as RegistrationSubmissionJson, (value) => this.integrity.sha256(value));
     return {
       channelAccountId: account.channelAccountId,
+      channel: evidence.channelByAccountId[account.channelAccountId]!,
       listingExternalId: evidence.listingExternalId,
       payload: frozen.payload as unknown as ThumbnailUpdatePayload,
       payloadHash: frozen.hash,

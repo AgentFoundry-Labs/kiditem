@@ -14,7 +14,7 @@ import {
   CATALOG_PARSER,
   CATALOG_SOURCE,
 } from '../../../domain/collection/catalog-source-identity';
-import { resolveCoupangVendorId } from '../../../domain/account/coupang-account-identity';
+import { resolveCoupangVendorId } from '../channel/coupang/coupang-account-identity';
 
 export const CATALOG_STAGING_SOURCE = 'coupang_wing_catalog_browser';
 export const CATALOG_RATE_LIMIT_CODE = 'WING_PROVIDER_RATE_LIMITED';

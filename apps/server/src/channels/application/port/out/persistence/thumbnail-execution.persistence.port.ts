@@ -45,6 +45,8 @@ export interface ThumbnailExecutionPersistencePort {
     productListingCount: number;
     /** 대표이미지 반영을 지원하는 채널의 활성 계정 id 들. */
     activeAccountIds: string[];
+    /** 위 listing 계정과 활성 계정들의 채널 키. 실행이 그 채널 어댑터의 runner 를 고른다. */
+    channelByAccountId: Record<string, string>;
   }>;
   /** 새 실행을 `executing` 으로 만든다. owner 키가 이미 있으면 그 실행을 `replay` 로 돌려준다. */
   createExecuting(input: {

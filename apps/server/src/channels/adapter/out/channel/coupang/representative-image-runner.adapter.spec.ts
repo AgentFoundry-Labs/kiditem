@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { WingThumbnailRunnerAdapter } from './wing-thumbnail-runner.adapter';
+import { CoupangRepresentativeImageRunnerAdapter } from './representative-image-runner.adapter';
 
 const { spawned, FakeProcess } = vi.hoisted(() => {
   const { EventEmitter: Emitter } = require('node:events') as typeof import('node:events');
@@ -23,14 +23,14 @@ vi.mock('./playwriter-process', () => ({
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
 const image = { dataUrl: `data:image/png;base64,${PNG.toString('base64')}`, filename: 'gen-1.png' };
 
-describe('WingThumbnailRunnerAdapter', () => {
+describe('CoupangRepresentativeImageRunnerAdapter', () => {
   const env = process.env.NODE_ENV;
   beforeEach(() => { spawned.length = 0; });
   afterEach(() => { process.env.NODE_ENV = env; });
 
   it('is blocked in production and never spawns Playwriter there', async () => {
     process.env.NODE_ENV = 'production';
-    const runner = new WingThumbnailRunnerAdapter();
+    const runner = new CoupangRepresentativeImageRunnerAdapter();
     expect(runner.isBlocked()).toBe(true);
     await expect(runner.upload({ listing: { externalListingId: null, productName: '상품' }, image })).resolves.toMatchObject({ outcome: 'definitive_failure' });
     expect(spawned).toHaveLength(0);
@@ -38,7 +38,7 @@ describe('WingThumbnailRunnerAdapter', () => {
 
   it('writes the image to a file, runs the Wing script and reads SUCCESS as an upload', async () => {
     process.env.NODE_ENV = 'development';
-    const runner = new WingThumbnailRunnerAdapter();
+    const runner = new CoupangRepresentativeImageRunnerAdapter();
     expect(runner.isBlocked()).toBe(false);
     const pending = runner.upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
     await vi.waitFor(() => expect(spawned).toHaveLength(1));
@@ -51,7 +51,7 @@ describe('WingThumbnailRunnerAdapter', () => {
 
   it('reads an ERROR line as a definitive failure', async () => {
     process.env.NODE_ENV = 'development';
-    const pending = new WingThumbnailRunnerAdapter().upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
+    const pending = new CoupangRepresentativeImageRunnerAdapter().upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
     await vi.waitFor(() => expect(spawned).toHaveLength(1));
     spawned[0]!.proc.stdout.emit('data', Buffer.from('ERROR:상품을 찾을 수 없습니다\n'));
     spawned[0]!.proc.emit('close', 1);
@@ -60,7 +60,7 @@ describe('WingThumbnailRunnerAdapter', () => {
 
   it('throws when Playwriter exits with no ERROR line, because the image may already sit in the dropzone', async () => {
     process.env.NODE_ENV = 'development';
-    const pending = new WingThumbnailRunnerAdapter().upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
+    const pending = new CoupangRepresentativeImageRunnerAdapter().upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
     await vi.waitFor(() => expect(spawned).toHaveLength(1));
     spawned[0]!.proc.stderr.emit('data', Buffer.from('Timeout 90000ms exceeded\n'));
     spawned[0]!.proc.emit('close', null, 'SIGTERM');
@@ -69,7 +69,7 @@ describe('WingThumbnailRunnerAdapter', () => {
 
   it('throws when the Playwriter process fails, since the outcome is unknown', async () => {
     process.env.NODE_ENV = 'development';
-    const pending = new WingThumbnailRunnerAdapter().upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
+    const pending = new CoupangRepresentativeImageRunnerAdapter().upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
     await vi.waitFor(() => expect(spawned).toHaveLength(1));
     spawned[0]!.proc.emit('error', new Error('spawn playwriter EPIPE'));
     await expect(pending).rejects.toThrow('spawn playwriter EPIPE');

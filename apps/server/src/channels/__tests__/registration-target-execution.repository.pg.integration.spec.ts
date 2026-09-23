@@ -26,6 +26,7 @@ import type {
 } from '@kiditem/shared/sales-product';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { productTransactionalRead } from './product-transactional-read.fake';
+import { channelAdapters } from './channel-adapters';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import {
   freezeProductRegistrationPayload,
@@ -54,6 +55,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
       {} as never,
+      channelAdapters(),
       recipes,
     );
   });

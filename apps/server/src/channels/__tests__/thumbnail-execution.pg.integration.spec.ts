@@ -18,6 +18,9 @@ import { RegistrableThumbnailAdapter } from '../adapter/out/content/registrable-
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { ThumbnailExecutionPersistenceAdapter } from '../adapter/out/persistence/thumbnail-execution.persistence.adapter';
 import { ThumbnailExecutionService } from '../application/service/registration/thumbnail-execution.service';
+import { ChannelAdapterRegistryAdapter } from '../adapter/out/channel/channel-adapter-registry.adapter';
+import { channelAdapters } from './channel-adapters';
+import { CoupangChannelAdapter } from '../adapter/out/channel/coupang/coupang-channel.adapter';
 import type { RepresentativeImageRunnerPort } from '../application/port/out/automation/representative-image-runner.port';
 import { ChannelBusinessError } from '../domain/exception/channel-business-error';
 import { THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE as AWAITING } from '../domain/registration/thumbnail-update';
@@ -71,7 +74,8 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     service = new ThumbnailExecutionService(
       new RegistrableThumbnailAdapter(content),
       new ThumbnailExecutionPersistenceAdapter(db),
-      runner,
+      // 대표이미지 runner 는 그 채널 어댑터가 들고 있다(KID-321). Sellpia 사전검사는 이 경로에서 부르지 않는다.
+      new ChannelAdapterRegistryAdapter(new CoupangChannelAdapter({ preflightExternalProductRegistration: () => Promise.reject(new Error('unused')) }, runner)),
       new ChannelIntegrityAdapter(),
     );
   });
@@ -338,7 +342,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     const db = prisma as PrismaService;
     const [subject] = await new StockoutCheckPersistenceAdapter(db, new ProductTransactionalReadRepositoryAdapter()).readSubjects(ORG, [listing.id]);
     expect(subject?.activeExecutions).toEqual([]);
-    await expect(new RegistrationExecutionRepositoryAdapter(db, {} as never).prepareListingAvailability({
+    await expect(new RegistrationExecutionRepositoryAdapter(db, {} as never, channelAdapters()).prepareListingAvailability({
       organizationId: ORG, requestedByUserId: USER,
       request: { channelAccountId: account.id, externalListingId: listing.externalId, kind: 'sold_out', optionCodes: ['option-1'], idempotencyKey: randomUUID() },
     })).resolves.toMatchObject({ status: 'prepared' });

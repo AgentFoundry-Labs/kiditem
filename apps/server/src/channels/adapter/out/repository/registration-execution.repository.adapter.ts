@@ -54,6 +54,11 @@ import {
   type ChannelOptionRecipePort,
 } from '../../../application/port/in/channel-option-recipe.port';
 import type { ChannelsRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
+import {
+  CHANNEL_ADAPTER_REGISTRY_PORT,
+  type ChannelAdapter,
+  type ChannelAdapterRegistryPort,
+} from '../../../application/port/out/channel/channel-adapter.port';
 import type {
   ClosedRegistrationExecutionResult,
   FrozenRegistrationSubmission,
@@ -97,6 +102,9 @@ export class RegistrationExecutionRepositoryAdapter
     private readonly prisma: PrismaService,
     @Inject(REGISTRATION_DRAFT_PORT)
     private readonly drafts: RegistrationDraftPort,
+    /** 몰마다 다른 것(계정 식별자 · 확인 증거 · 준비 때 얼릴 몰 사실 · 옵션 규칙)은 채널 어댑터가 답한다(KID-321). */
+    @Inject(CHANNEL_ADAPTER_REGISTRY_PORT)
+    private readonly adapters: ChannelAdapterRegistryPort,
     @Optional()
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly recipes?: ChannelOptionRecipePort,
@@ -162,9 +170,10 @@ export class RegistrationExecutionRepositoryAdapter
           select: { id: true, channel: true, vendorId: true, externalAccountId: true },
         });
         if (!account) throw new ConflictException('Listing availability requires an active channel account.');
-        assertListingAvailabilitySupported(account.channel, request.kind);
-        if (account.channel === 'coupang' && !(account.vendorId?.trim() || account.externalAccountId?.trim())) {
-          throw new ConflictException('Wing availability requires a verified provider account identity.');
+        const byOption = assertListingAvailabilitySupported(account.channel, request.kind) === 'option';
+        const adapter = this.adapters.get(account.channel);
+        if (byOption && !adapter.providerAccountId(account)) {
+          throw new ConflictException('Option-level availability requires a verified provider account identity.');
         }
 
         const lockedListing = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -211,8 +220,9 @@ export class RegistrationExecutionRepositoryAdapter
           throw new ConflictException('One or more availability option codes do not belong to the active listing.');
         }
 
-        assertAvailabilityOptionSupport(account.channel, options);
-        const frozenOptionCodes = account.channel === 'coupang'
+        // 옵션 단위 몰은 살아 있는 옵션 전부를 얼리고, 몰이 판매자 재고를 받지 않는 옵션은 거절한다.
+        if (byOption) assertAvailabilityOptionSupport(adapter, options);
+        const frozenOptionCodes = byOption
           ? options.map((option) => option.externalOptionId).sort()
           : optionCodes;
         const frozen = freezeListingAvailabilitySnapshot({
@@ -319,7 +329,7 @@ export class RegistrationExecutionRepositoryAdapter
         && execution.resultJson === null;
       if (!fresh) return listingAvailabilityResult(execution, false);
       assertListingAvailabilityAccount(execution, snapshot, scope.account);
-      await assertFrozenAvailabilityOptions(tx, input.organizationId, snapshot);
+      await assertFrozenAvailabilityOptions(tx, input.organizationId, snapshot, this.adapters.get(snapshot.mallKey));
       if (snapshot.stockoutPolicy) {
         if (!input.assertInventoryStockout) {
           throw new ConflictException('Inventory stockout requires a transactional eligibility check.');
@@ -387,9 +397,11 @@ export class RegistrationExecutionRepositoryAdapter
       }
       assertListingAvailabilityAccount(execution, snapshot, scope.account);
       await assertTargetProviderEvidence(tx, execution, input.report);
-      if (input.report.outcome === 'confirmed' && snapshot.mallKey === 'coupang') {
-        await assertFrozenAvailabilityOptions(tx, input.organizationId, snapshot);
-        assertWingAvailabilityConfirmation(snapshot, input.report);
+      const adapter = this.adapters.get(snapshot.mallKey);
+      const byOption = isOptionLevelAvailability(snapshot);
+      if (input.report.outcome === 'confirmed' && byOption) {
+        await assertFrozenAvailabilityOptions(tx, input.organizationId, snapshot, adapter);
+        assertOptionAvailabilityConfirmation(snapshot, input.report, adapter);
       }
 
       const data: Prisma.ProductRegistrationExecutionUpdateInput = {
@@ -415,7 +427,7 @@ export class RegistrationExecutionRepositoryAdapter
         if (scope.account.status !== 'active') {
           throw new ConflictException('Confirmed listing availability requires an active channel account.');
         }
-        if (snapshot.mallKey !== 'coupang' && input.report.evidence.observedStatus !== undefined) {
+        if (!byOption && input.report.evidence.observedStatus !== undefined) {
           const updatedListing = await tx.channelListing.updateMany({
             where: {
               id: snapshot.channelListingId,
@@ -1711,21 +1723,31 @@ export class RegistrationExecutionRepositoryAdapter
   }
 }
 
-function assertListingAvailabilitySupported(channel: string, kind: 'sold_out' | 'resume'): void {
-  if (!getListingAvailabilityCapability(channel, kind)) {
-    throw new ConflictException(`The channel has no verified ${kind} route.`);
-  }
+/** 몰이 품절 · 재개를 받는 단위(`option` · `listing`). 받는 길이 없으면 거절한다. */
+function assertListingAvailabilitySupported(channel: string, kind: 'sold_out' | 'resume'): 'option' | 'listing' {
+  const capability = getListingAvailabilityCapability(channel, kind);
+  if (!capability) throw new ConflictException(`The channel has no verified ${kind} route.`);
+  return capability.axis;
 }
 
+function isOptionLevelAvailability(snapshot: ListingAvailabilitySnapshot): boolean {
+  return getListingAvailabilityCapability(snapshot.mallKey, snapshot.kind)?.axis === 'option';
+}
+
+function optionRegistrationType(rawJson: Prisma.JsonValue | null): string | null {
+  return rawJson && typeof rawJson === 'object' && !Array.isArray(rawJson) && typeof rawJson.registrationType === 'string'
+    ? rawJson.registrationType
+    : null;
+}
+
+/** 옵션 단위 몰: 살아 있는 옵션이 있어야 하고, 몰이 판매자 재고를 받지 않는 옵션(`excluded`)이 없어야 한다. */
 function assertAvailabilityOptionSupport(
-  channel: string,
+  adapter: ChannelAdapter,
   options: Array<{ externalOptionId: string; rawJson: Prisma.JsonValue | null }>,
 ): void {
-  if (channel !== 'coupang') return;
-  if (options.length === 0) throw new ConflictException('Wing availability requires active options.');
-  if (options.some((option) => option.rawJson && typeof option.rawJson === 'object'
-    && !Array.isArray(option.rawJson) && option.rawJson.registrationType === 'RFM')) {
-    throw new ConflictException('Rocket Growth options do not support seller stock changes.');
+  if (options.length === 0) throw new ConflictException('Option-level availability requires active options.');
+  if (options.some((option) => adapter.availabilityOption({ registrationType: optionRegistrationType(option.rawJson) }) === 'excluded')) {
+    throw new ConflictException('One or more options do not accept seller stock changes on this channel.');
   }
 }
 
@@ -1745,8 +1767,9 @@ async function assertFrozenAvailabilityOptions(
   tx: Prisma.TransactionClient,
   organizationId: string,
   snapshot: ListingAvailabilitySnapshot,
+  adapter: ChannelAdapter,
 ): Promise<void> {
-  if (snapshot.mallKey !== 'coupang') return;
+  if (!isOptionLevelAvailability(snapshot)) return;
   const options = await tx.channelListingOption.findMany({
     where: { organizationId, listingId: snapshot.channelListingId, isActive: true,
       externalOptionId: { in: snapshot.optionCodes } },
@@ -1755,22 +1778,24 @@ async function assertFrozenAvailabilityOptions(
   if (options.length !== snapshot.optionCodes.length) {
     throw new ConflictException('Frozen availability options are no longer active.');
   }
-  assertAvailabilityOptionSupport(snapshot.mallKey, options);
+  assertAvailabilityOptionSupport(adapter, options);
 }
 
-function assertWingAvailabilityConfirmation(
+/** 옵션 단위 확인: 얼린 옵션 전부를 몰에서 다시 읽은 재고가 있어야 하고, 모두 보낼 수 있는 옵션이어야 한다. */
+function assertOptionAvailabilityConfirmation(
   snapshot: ListingAvailabilitySnapshot,
   report: ReportListingAvailabilityInput,
+  adapter: ChannelAdapter,
 ): void {
   const observations = report.evidence.observedOptionStocks ?? [];
   const ids = new Set(observations.map((option) => option.externalOptionId));
   if (report.evidence.externalListingId !== snapshot.externalListingId
     || observations.length !== snapshot.optionCodes.length || ids.size !== observations.length
     || snapshot.optionCodes.some((id) => !ids.has(id))
-    || observations.some((option) => option.registrationType !== 'NORMAL'
+    || observations.some((option) => adapter.availabilityOption({ registrationType: option.registrationType ?? null }) !== 'sendable'
       || !Number.isSafeInteger(option.stock) || option.stock < 0
       || (snapshot.kind === 'sold_out' ? option.stock !== 0 : option.stock === 0))) {
-    throw new ConflictException('Wing confirmation requires a matching stock reread for every frozen normal option.');
+    throw new ConflictException('Option-level confirmation requires a matching stock reread for every frozen sendable option.');
   }
 }
 

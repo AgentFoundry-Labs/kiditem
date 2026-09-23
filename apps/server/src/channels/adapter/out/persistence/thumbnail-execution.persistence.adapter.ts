@@ -35,7 +35,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
   }) {
     const activeAccounts = await this.prisma.channelAccount.findMany({
       where: { organizationId: input.organizationId, channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
-      select: { id: true },
+      select: { id: true, channel: true },
       orderBy: { createdAt: 'asc' },
     });
     const activeAccountIds = activeAccounts.map((account) => account.id);
@@ -44,9 +44,9 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       isActive: true,
       channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
     } satisfies Prisma.ChannelListingWhereInput;
-    const select = { id: true, channelAccountId: true, salesProductId: true, channelName: true, externalId: true } as const;
+    const select = { id: true, channelAccountId: true, salesProductId: true, channelName: true, externalId: true, channelAccount: { select: { channel: true } } } as const;
     const evidence = (
-      listing: { id: string; channelAccountId: string; channelName: string | null; externalId: string | null } | null,
+      listing: { id: string; channelAccountId: string; channelName: string | null; externalId: string | null; channelAccount: { channel: string } } | null,
       productListingCount = listing ? 1 : 0,
     ) => ({
       listingAccountId: listing?.channelAccountId ?? null,
@@ -55,6 +55,10 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       listingExternalId: listing?.externalId ?? null,
       productListingCount,
       activeAccountIds,
+      channelByAccountId: Object.fromEntries([
+        ...activeAccounts.map((account) => [account.id, account.channel] as const),
+        ...(listing ? [[listing.channelAccountId, listing.channelAccount.channel] as const] : []),
+      ]),
     });
 
     if (input.pickedListingId) {

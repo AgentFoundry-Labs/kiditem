@@ -1,5 +1,5 @@
 import type { ChannelDelivery } from '@kiditem/shared/channel-registry';
-import type { RegistrationMallInput } from '@kiditem/shared/schemas';
+import type { RegistrationMallInput, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { RepresentativeImageRunnerPort } from '../automation/representative-image-runner.port';
 
@@ -35,6 +35,8 @@ export interface ConfirmationEvidenceInput {
 export interface PrepareAdapterPayloadInput {
   organizationId: string;
   channelAccountId: string;
+  /** 준비 트랜잭션이 잠그고 읽은 그 계정. */
+  account: ChannelAccountIdentity;
   salesProductId: string;
   registrationTargetId: string;
   kind: string;
@@ -44,7 +46,18 @@ export interface PrepareAdapterPayloadInput {
   adapterValues: Readonly<Record<string, string>>;
   /** 실행 준비가 이 실행에 붙일 기존 몰 상품. 없으면 null. */
   channelListingId: string | null;
+  /** 이 실행이 얼리는 판매 상품(선택한 옵션만). 몰 상품 문서의 이름 · 옵션 코드가 여기서 온다. */
+  product: TargetExecutionSnapshot['product'];
 }
+
+/**
+ * listing 가용성(품절 · 재개)에서 한 몰 옵션을 판매자 재고 전송에 쓸 수 있는가. `registrationType` 은 몰이
+ * 옵션에 붙인 판매 방식이다(수집한 옵션 원본). listing 단위 몰은 늘 `sendable`.
+ *  - `sendable`: 재고를 바꿀 수 있다.
+ *  - `excluded`: 몰이 판매자 재고를 받지 않는 옵션 — 준비가 거절한다.
+ *  - `unknown`: 옵션 종류를 아직 모른다 — 품절 판정을 미룬다.
+ */
+export type AvailabilityOptionKind = 'sendable' | 'excluded' | 'unknown';
 
 export interface ChannelAdapter {
   readonly channel: string;
@@ -68,6 +81,8 @@ export interface ChannelAdapter {
   prepareAdapterPayload(transaction: OwnerTransaction, input: PrepareAdapterPayloadInput): Promise<Record<string, unknown>>;
   /** 대표이미지 반영을 지원하면 runner, 아니면 null(registry `representativeImage` 와 같아야 한다). */
   readonly representativeImage: RepresentativeImageRunnerPort | null;
+  /** 품절 · 재개 실행이 이 몰 옵션을 보낼 수 있는가(`AvailabilityOptionKind`). */
+  availabilityOption(option: { registrationType: string | null }): AvailabilityOptionKind;
 }
 
 export interface ChannelAdapterRegistryPort {

@@ -1,3 +1,4 @@
+import { channelAdapters } from './channel-adapters';
 import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { productTransactionalRead } from './product-transactional-read.fake';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
@@ -46,6 +47,7 @@ describe('registration execution fence (PG integration)', () => {
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
       new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
+      channelAdapters(),
     );
     targets = new RegistrationTargetRepositoryAdapter(
       prisma as unknown as PrismaService,
@@ -682,6 +684,7 @@ describe('registration execution fence (PG integration)', () => {
     const failingRepository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
       failingDrafts,
+      channelAdapters(),
     );
     await createTarget(ACCOUNT_ID);
     const input = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
@@ -955,6 +958,7 @@ describe('registration execution fence (PG integration)', () => {
     const pausedRepository = new RegistrationExecutionRepositoryAdapter(
       pausedPrisma as unknown as PrismaService,
       new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
+      channelAdapters(),
     );
     const supersede = pausedRepository.prepare({
       ...base,

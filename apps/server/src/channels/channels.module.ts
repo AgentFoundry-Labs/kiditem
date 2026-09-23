@@ -97,12 +97,14 @@ import { ChannelsRepresentativeImageCapabilityAdapter } from './adapter/in/agent
 import { CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT } from './application/port/in/capability/representative-image.port';
 import { ThumbnailExecutionController } from './adapter/in/web/thumbnail-execution.controller';
 import { ThumbnailExecutionPersistenceAdapter } from './adapter/out/persistence/thumbnail-execution.persistence.adapter';
-import { WingThumbnailRunnerAdapter } from './adapter/out/automation/wing-thumbnail-runner.adapter';
+import { CoupangRepresentativeImageRunnerAdapter } from './adapter/out/channel/coupang/representative-image-runner.adapter';
 import { RegistrableThumbnailAdapter } from './adapter/out/content/registrable-thumbnail.adapter';
 import { ThumbnailExecutionService } from './application/service/registration/thumbnail-execution.service';
 import { CHANNELS_THUMBNAIL_EXECUTION_PORT } from './application/port/in/thumbnail-execution.port';
 import { THUMBNAIL_EXECUTION_PERSISTENCE_PORT } from './application/port/out/persistence/thumbnail-execution.persistence.port';
-import { REPRESENTATIVE_IMAGE_RUNNER_PORT } from './application/port/out/automation/representative-image-runner.port';
+import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/channel-adapter.port';
+import { ChannelAdapterRegistryAdapter } from './adapter/out/channel/channel-adapter-registry.adapter';
+import { CoupangChannelAdapter } from './adapter/out/channel/coupang/coupang-channel.adapter';
 import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/content/registrable-thumbnail.port';
 
 @Module({
@@ -174,12 +176,15 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
     ChannelsRepresentativeImageCapabilityAdapter,
     // 대표이미지 몰 반영 실행(thumbnail_update). Content 는 승인 사진만 준다.
     ThumbnailExecutionPersistenceAdapter,
-    WingThumbnailRunnerAdapter,
+    CoupangRepresentativeImageRunnerAdapter,
     RegistrableThumbnailAdapter,
     { provide: THUMBNAIL_EXECUTION_PERSISTENCE_PORT, useExisting: ThumbnailExecutionPersistenceAdapter },
-    { provide: REPRESENTATIVE_IMAGE_RUNNER_PORT, useExisting: WingThumbnailRunnerAdapter },
+    // 채널 어댑터(KID-321): 몰마다 다른 것 — 계정 식별자 · 확인 증거 · 준비 때 얼릴 몰 사실 · 대표이미지 runner.
+    CoupangChannelAdapter,
+    ChannelAdapterRegistryAdapter,
+    { provide: CHANNEL_ADAPTER_REGISTRY_PORT, useExisting: ChannelAdapterRegistryAdapter },
     { provide: CHANNEL_REGISTRABLE_THUMBNAIL_PORT, useExisting: RegistrableThumbnailAdapter },
-    { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, REPRESENTATIVE_IMAGE_RUNNER_PORT, CHANNEL_INTEGRITY_PORT] },
+    { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, CHANNEL_ADAPTER_REGISTRY_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: CHANNELS_THUMBNAIL_EXECUTION_PORT, useExisting: ThumbnailExecutionService },
     ChannelDashboardRepositoryAdapter,
     ListingRegistrationPersistenceAdapter,
@@ -272,6 +277,7 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
     CHANNEL_SKU_AVAILABILITY_PORT,
     CHANNEL_REGISTRATION_PORT,
     CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT,
+    CHANNEL_ADAPTER_REGISTRY_PORT,
   ],
 })
 export class ChannelsModule {}
