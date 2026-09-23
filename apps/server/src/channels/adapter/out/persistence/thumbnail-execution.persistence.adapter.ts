@@ -1,7 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma, type ProductRegistrationExecution } from '@prisma/client';
 import type { OperationStatus, ProviderOutcome } from '@kiditem/shared/registration-execution';
 import { THUMBNAIL_UPDATE_EXECUTION_KIND } from '@kiditem/shared/thumbnail-execution';
+import { FactConflictError, FactNotFoundError } from '../../../../common/errors/fact-errors';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ThumbnailExecutionPersistencePort,
@@ -39,7 +40,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
         where: { ...listingWhere, id: input.channelListingId },
         select: { id: true, channelAccountId: true },
       });
-      if (!listing) throw new NotFoundException('쿠팡 listing 을 찾을 수 없습니다');
+      if (!listing) throw new FactNotFoundError('쿠팡 listing 을 찾을 수 없습니다');
       return { listingAccountId: listing.channelAccountId, channelListingId: listing.id, activeCoupangAccountIds };
     }
     if (input.salesProductId) {
@@ -105,10 +106,12 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       });
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
-      // 같은 owner 키의 동시 요청은 advisory lock 이 막지만, 같은 listing 의 다른 종류 실행은
-      // 부분 unique index 가 막는다. 어느 쪽이든 이 생성의 새 실행은 만들 수 없다.
+      // 행이 listing 을 적지 않으므로 남은 unique 는 (조직, 멱등 키) 하나다. 같은 owner 키가 다른
+      // 생성으로 먼저 들어왔으면(lock 은 생성 단위다) 그 실행을 재생하거나 충돌로 답한다. 화면
+      // 호출의 멱등 키는 매번 새 nonce 라 여기 올 일이 없고, 오면 이 생성의 반영 중 충돌이 아니다.
       const replay = await this.findReplay(this.prisma, input);
-      return replay ?? { mode: 'live_conflict' };
+      if (replay) return replay;
+      throw new FactConflictError('Thumbnail execution idempotency key already exists.', { code: 'idempotency_key_conflict' });
     }
   }
 
@@ -212,7 +215,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       || existing.ownerIdempotencyKey !== input.ownerIdempotencyKey
       || existing.requestHash !== input.requestHash
       || payloadGenerationId(existing.submissionPayloadJson) !== input.payload.generationId) {
-      throw new ConflictException('Wing registration owner idempotency key conflicted.');
+      throw new FactConflictError('Wing registration owner idempotency key conflicted.', { code: 'owner_idempotency_key_conflict' });
     }
     return { mode: 'replay', execution: toRow(existing) };
   }

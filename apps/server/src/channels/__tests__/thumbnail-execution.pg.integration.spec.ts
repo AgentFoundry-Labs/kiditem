@@ -227,7 +227,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     expect(runner.calls).toBe(1);
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: first.executionId } }))
       .toMatchObject({ ownerIdempotencyKey: owner.ownerIdempotencyKey, requestHash: owner.requestHash, idempotencyKey: `thumbnail_update:${owner.ownerIdempotencyKey}` });
-    expect(await rejection(service.runOnServer({ ...input, owner: { ...owner, requestHash: 'b'.repeat(64) } }))).toMatchObject({ kind: '409' });
+    expect(await rejection(service.runOnServer({ ...input, owner: { ...owner, requestHash: 'b'.repeat(64) } }))).toMatchObject({ kind: 'conflict' });
   });
 
   it('turns a runner crash into an unknown outcome, rethrows it and answers the owner replay as pending reconciliation', async () => {
@@ -362,7 +362,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       const product = await salesProductGeneration();
       const theirs = await listingGeneration(OTHER_ORGANIZATION_ID);
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: product.generation.id, channelListingId: theirs.listing.id })))
-        .toMatchObject({ kind: '404' });
+        .toMatchObject({ kind: 'not_found' });
     });
   });
 });

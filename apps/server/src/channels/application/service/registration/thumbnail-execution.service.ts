@@ -16,6 +16,7 @@ import type {
   ThumbnailExecutionPersistencePort,
   ThumbnailExecutionRow,
 } from '../../port/out/persistence/thumbnail-execution.persistence.port';
+import { FactConflictError, FactInputError, FactNotFoundError } from '../../../../common/errors/fact-errors';
 import {
   ChannelConflictError,
   ChannelInputError,
@@ -58,7 +59,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     channelListingId?: string;
   }): Promise<ThumbnailExecutionPrepareResponse> {
     const intent = await this.freezeIntent(input.organizationId, input.generationId, input.channelListingId ?? null);
-    const created = await this.persistence.createExecuting({
+    const created = await owned(() => this.persistence.createExecuting({
       organizationId: input.organizationId,
       requestedByUserId: input.requestedByUserId,
       channelAccountId: intent.channelAccountId,
@@ -67,7 +68,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       requestHash: intent.payloadHash,
       payload: intent.payload,
       payloadHash: intent.payloadHash,
-    });
+    }));
     if (created.mode !== 'created') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
     return {
       executionId: created.executionId,
@@ -104,7 +105,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
   }): Promise<ThumbnailExecutionResult> {
     if (this.runner.isBlocked()) throw new ChannelUnavailableError(SERVER_AUTOMATION_BLOCKED_MESSAGE);
     const intent = await this.freezeIntent(input.organizationId, input.generationId, null);
-    const created = await this.persistence.createExecuting({
+    const created = await owned(() => this.persistence.createExecuting({
       organizationId: input.organizationId,
       requestedByUserId: input.requestedByUserId,
       channelAccountId: intent.channelAccountId,
@@ -117,7 +118,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       requestHash: input.owner?.requestHash ?? intent.payloadHash,
       payload: intent.payload,
       payloadHash: intent.payloadHash,
-    });
+    }));
     if (created.mode === 'live_conflict') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
     if (created.mode === 'replay') {
       if (created.execution.status === 'succeeded' || created.execution.status === 'failed') return toResult(created.execution);
@@ -199,11 +200,11 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     image: ThumbnailImagePayload;
   }> {
     const thumbnail: RegistrableThumbnail = await this.content.read({ organizationId, generationId });
-    const evidence = await this.persistence.readAccountEvidence({
+    const evidence = await owned(() => this.persistence.readAccountEvidence({
       organizationId,
       channelListingId: requestedListingId ?? thumbnail.channelListingId,
       salesProductId: thumbnail.salesProductId,
-    });
+    }));
     const account = resolveThumbnailAccount(evidence);
     if (!account.ok) throw new ChannelInputError(ACCOUNT_MESSAGES[account.reason]);
     const image = await this.content.loadImage({ organizationId, generationId, url: thumbnail.image.url });
@@ -234,4 +235,16 @@ function toResult(row: ThumbnailExecutionRow): ThumbnailExecutionResult {
     screenshotPath: success ? row.screenshotPath : null,
     ...(success ? {} : { error: row.lastErrorMessage ?? 'Wing upload failed' }),
   };
+}
+
+/** 저장소의 fact 오류를 Channels 업무 오류로 옮긴다(HTTP 로는 필터가 옮긴다). */
+async function owned<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof FactNotFoundError) throw new ChannelNotFoundError(error.message);
+    if (error instanceof FactConflictError) throw new ChannelConflictError(error.message);
+    if (error instanceof FactInputError) throw new ChannelInputError(error.message);
+    throw error;
+  }
 }
