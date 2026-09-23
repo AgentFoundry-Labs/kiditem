@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { executeTargetRegistration, valuesForTargetExecution } from './target-registration-execution';
 import type { MallPublishAdapter } from './mall-publish-adapter';
+import { ApiError } from '@/lib/api-error';
 import type {
   TargetExecutionResult,
   TargetExecutionSnapshot,
@@ -296,6 +297,76 @@ describe('executeTargetRegistration', () => {
         observedStatus: 'confirmed',
       },
     });
+  });
+
+  it('reports submitted with the same evidence when the server rejects the automatic confirmation', async () => {
+    const send = vi.fn().mockResolvedValue({
+      ok: true,
+      submitted: true,
+      accepted: true,
+      productNo: '427011919',
+      providerEvidence: {
+        providerAccountId: 'A00012345',
+        externalListingId: '427011919',
+        observedUrl: 'https://wing.example.test/vendor-inventory/427011919',
+      },
+      confirmed: false,
+      manualSteps: [],
+      warnings: [],
+    });
+    const reconciling = execution({ status: 'reconciling', providerOutcome: 'uncertain', externalListingId: '427011919' });
+    const client = {
+      prepare: vi.fn().mockResolvedValue(execution()),
+      start: vi.fn().mockResolvedValue(execution({
+        status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true,
+        expectedProviderAccountId: 'A00012345',
+      })),
+      report: vi.fn()
+        .mockRejectedValueOnce(new ApiError(409, 'Conflict', 'listing collision'))
+        .mockResolvedValueOnce(reconciling),
+    };
+    const confirming = adapter(send);
+    confirming.requiresOperatorSubmit = false;
+
+    const run = await executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
+      mallKey: 'smartstore', adapter: confirming, client });
+
+    expect(client.report).toHaveBeenCalledTimes(2);
+    expect(client.report).toHaveBeenLastCalledWith(EXECUTION_ID, {
+      leaseToken: LEASE,
+      payloadHash: 'hash-1',
+      outcome: 'submitted',
+      evidence: {
+        channelAccountId: ACCOUNT_ID,
+        externalListingId: '427011919',
+        providerAccountId: 'A00012345',
+        observedUrl: 'https://wing.example.test/vendor-inventory/427011919',
+        observedStatus: 'submitted',
+        message: 'listing collision',
+      },
+    });
+    expect(run.execution).toBe(reconciling);
+    expect(run.outcome.confirmed).toBe(false);
+    expect(run.outcome.warnings).toContain('몰에는 올라갔지만 확인이 거절됐습니다 — 확인 창에서 마무리하세요');
+  });
+
+  it('keeps a transport failure on the automatic confirmation a thrown error', async () => {
+    const send = vi.fn().mockResolvedValue({
+      ok: true, submitted: true, accepted: true, productNo: '427011919',
+      providerEvidence: { providerAccountId: 'A00012345', externalListingId: '427011919' },
+      confirmed: false, manualSteps: [], warnings: [],
+    });
+    const client = {
+      prepare: vi.fn().mockResolvedValue(execution()),
+      start: vi.fn().mockResolvedValue(execution({ status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true })),
+      report: vi.fn().mockRejectedValueOnce(new Error('network down')),
+    };
+    const confirming = adapter(send);
+    confirming.requiresOperatorSubmit = false;
+
+    await expect(executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
+      mallKey: 'smartstore', adapter: confirming, client })).rejects.toThrow('network down');
+    expect(client.report).toHaveBeenCalledTimes(1);
   });
 
   it('never claims confirmation from a submission without provider evidence', async () => {
