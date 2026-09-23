@@ -51,7 +51,13 @@ export interface ThumbnailExecutionPersistencePort {
     requestHash: string;
     payload: ThumbnailUpdatePayload;
     payloadHash: string;
-  }): Promise<{ mode: 'created'; executionId: string } | { mode: 'replay'; execution: ThumbnailExecutionRow } | { mode: 'live_conflict' }>;
+  }): Promise<
+    | { mode: 'created'; executionId: string }
+    | { mode: 'replay'; execution: ThumbnailExecutionRow }
+    | { mode: 'live_conflict' }
+    /** 동결 payload 의 listing 에 다른 생성의 살아 있는 반영이 있다(listing 도 생성과 같이 lock 한다). */
+    | { mode: 'listing_conflict' }
+  >;
   /**
    * 보고를 반영한다. `acceptFrom` 에 없는 상태면 `rejected`. 사진 경로 · 외부 id 는 주어질 때만
    * 덮어쓴다(운영자 확인이 올릴 때의 스크린샷을 지우지 않게).

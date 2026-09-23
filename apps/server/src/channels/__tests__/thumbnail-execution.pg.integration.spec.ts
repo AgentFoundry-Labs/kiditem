@@ -344,6 +344,26 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     })).resolves.toMatchObject({ status: 'prepared' });
   });
 
+  it('keeps one live thumbnail upload per listing: a second generation of the workspace waits until the first is marked not applied', async () => {
+    const { workspace, generation } = await listingGeneration();
+    const second = await prisma.thumbnailGeneration.create({
+      data: { organizationId: ORG, contentWorkspaceId: workspace.id, status: 'succeeded', selectedUrl: PNG_DATA_URL },
+    });
+    const first = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id });
+
+    const concurrent = await Promise.allSettled([
+      service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: second.id }),
+      service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: second.id }),
+    ]);
+    expect(concurrent.map((result) => result.status)).toEqual(['rejected', 'rejected']);
+    expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: second.id })))
+      .toEqual({ kind: 'conflict', message: '이 listing 에 반영 중인 대표이미지가 있습니다' });
+
+    await service.markNotApplied({ organizationId: ORG, requestedByUserId: USER, executionId: first.executionId });
+    await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: second.id }))
+      .resolves.toMatchObject({ generationId: second.id });
+  });
+
   it('lets the operator mark an unknown outcome as not applied, which frees the generation for a new upload', async () => {
     const { generation } = await listingGeneration();
     const input = { organizationId: ORG, requestedByUserId: USER, generationId: generation.id };

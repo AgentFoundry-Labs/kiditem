@@ -107,10 +107,17 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     requestHash: string;
     payload: ThumbnailUpdatePayload;
     payloadHash: string;
-  }): Promise<{ mode: 'created'; executionId: string } | { mode: 'replay'; execution: ThumbnailExecutionRow } | { mode: 'live_conflict' }> {
+  }): Promise<
+    | { mode: 'created'; executionId: string }
+    | { mode: 'replay'; execution: ThumbnailExecutionRow }
+    | { mode: 'live_conflict' }
+    | { mode: 'listing_conflict' }
+  > {
     try {
       return await this.prisma.$transaction(async (tx) => {
         await lockGeneration(tx, input.organizationId, input.payload.generationId);
+        // listing 은 행에 적지 않으므로 listing 하나에 살아 있는 반영 하나도 여기서 지킨다.
+        if (input.payload.channelListingId) await lockListing(tx, input.organizationId, input.payload.channelListingId);
         const replay = await this.findReplay(tx, input);
         if (replay) return replay;
         const live = await tx.productRegistrationExecution.findFirst({
@@ -123,6 +130,18 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
           select: { id: true },
         });
         if (live) return { mode: 'live_conflict' as const };
+        if (input.payload.channelListingId) {
+          const liveOnListing = await tx.productRegistrationExecution.findFirst({
+            where: {
+              organizationId: input.organizationId,
+              executionKind: THUMBNAIL_UPDATE_EXECUTION_KIND,
+              status: { in: [...LIVE_STATUSES] },
+              submissionPayloadJson: { path: ['channelListingId'], equals: input.payload.channelListingId },
+            },
+            select: { id: true },
+          });
+          if (liveOnListing) return { mode: 'listing_conflict' as const };
+        }
         const now = new Date();
         const created = await tx.productRegistrationExecution.create({
           data: {
@@ -280,6 +299,14 @@ async function lockGeneration(tx: Prisma.TransactionClient, organizationId: stri
   const lockKey = `thumbnail_update:${organizationId}:${generationId}`;
   await tx.$queryRaw`
     -- queryraw-tenancy-exempt: organization-scoped advisory lock keyed by organization and generation.
+    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+  `;
+}
+
+async function lockListing(tx: Prisma.TransactionClient, organizationId: string, channelListingId: string): Promise<void> {
+  const lockKey = `thumbnail_update:${organizationId}:listing:${channelListingId}`;
+  await tx.$queryRaw`
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock keyed by organization and listing.
     SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
   `;
 }

@@ -38,6 +38,7 @@ import {
 
 export const SERVER_AUTOMATION_BLOCKED_MESSAGE = '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.';
 const RECONCILIATION_PENDING = 'wing_registration_reconciliation_pending';
+const LISTING_BUSY_MESSAGE = '이 listing 에 반영 중인 대표이미지가 있습니다';
 export const OPERATOR_NOT_APPLIED_MESSAGE = '운영자가 반영되지 않았다고 표시함';
 
 const ACCOUNT_MESSAGES = {
@@ -75,6 +76,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       payload: intent.payload,
       payloadHash: intent.payloadHash,
     }));
+    if (created.mode === 'listing_conflict') throw new ChannelConflictError(LISTING_BUSY_MESSAGE);
     if (created.mode !== 'created') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
     return {
       executionId: created.executionId,
@@ -155,6 +157,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       payloadHash: intent.payloadHash,
     }));
     if (created.mode === 'live_conflict') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
+    if (created.mode === 'listing_conflict') throw new ChannelConflictError(LISTING_BUSY_MESSAGE);
     if (created.mode === 'replay') return replayReceipt(created.execution);
 
     let outcome: Awaited<ReturnType<WingThumbnailRunnerPort['upload']>>;
