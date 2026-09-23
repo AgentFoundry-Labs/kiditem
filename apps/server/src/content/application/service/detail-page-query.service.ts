@@ -14,9 +14,13 @@ import {
 } from '../port/out/storage/image-storage.port';
 import {
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-  type DetailPageGenerationSnapshot,
   type DetailPageQueryRepositoryPort,
 } from '../port/out/repository/detail-page-query.repository.port';
+import {
+  DETAIL_PAGE_REPOSITORY_PORT,
+  type DetailPageRepositoryPort,
+  type DetailPageRow,
+} from '../port/out/repository/detail-page.repository.port';
 import { isRenderableDetailHtml } from '../../domain/detail-page/renderable-detail-html';
 
 export interface DetailPageListQuery {
@@ -31,6 +35,8 @@ export class DetailPageQueryService {
   constructor(
     @Inject(DETAIL_PAGE_QUERY_REPOSITORY_PORT)
     private readonly repository: DetailPageQueryRepositoryPort,
+    @Inject(DETAIL_PAGE_REPOSITORY_PORT)
+    private readonly detailPages: DetailPageRepositoryPort,
     private readonly resultRefiner: DetailPageResultRefinerService,
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage: ImageStoragePort,
@@ -44,9 +50,9 @@ export class DetailPageQueryService {
     if (templateId && templateId !== 'kids-playful' && templateId !== 'bold-vertical') {
       throw new BadRequestException('invalid templateId');
     }
-    const rows = await this.repository.list({
+    const rows = await this.detailPages.listByWorkspace({
       organizationId,
-      contentWorkspaceId,
+      contentWorkspaceId: contentWorkspaceId ?? null,
     });
     return rows
       .map((row) => this.toDto(row))
@@ -54,15 +60,15 @@ export class DetailPageQueryService {
   }
 
   async getById(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
-    const row = await this.repository.findById({ id, organizationId });
-    if (!row) throw new NotFoundException('Detail page generation not found');
+    const row = await this.detailPages.findById({ detailPageId: id, organizationId });
+    if (!row) throw new NotFoundException('Detail page not found');
     return this.toDto(row);
   }
 
   async remove(id: string, organizationId: string): Promise<{ ok: true }> {
-    const exists = await this.repository.existsActive({ id, organizationId });
-    if (!exists) throw new NotFoundException('Detail page generation not found');
-    await this.repository.markDeleted({ id, organizationId, deletedAt: new Date() });
+    const deleted = await this.detailPages.runInTransaction((transaction) =>
+      this.detailPages.markDeleted(transaction, { organizationId, detailPageId: id }));
+    if (!deleted) throw new NotFoundException('Detail page not found');
     return { ok: true };
   }
 
@@ -73,8 +79,9 @@ export class DetailPageQueryService {
   ): Promise<{ ok: true }> {
     const normalizedTitle = title.trim();
     if (!normalizedTitle) throw new BadRequestException('title is required');
-    const renamed = await this.repository.renameVersion({ id, organizationId, title: normalizedTitle });
-    if (!renamed) throw new NotFoundException('Detail page generation not found');
+    const renamed = await this.detailPages.runInTransaction((transaction) =>
+      this.detailPages.rename(transaction, { organizationId, detailPageId: id, title: normalizedTitle }));
+    if (!renamed) throw new NotFoundException('Detail page not found');
     return { ok: true };
   }
 
@@ -181,14 +188,14 @@ export class DetailPageQueryService {
     return { html: null, savedAt: null };
   }
 
-  toDto(row: DetailPageGenerationSnapshot): DetailPageGenerationDto {
+  toDto(row: DetailPageRow): DetailPageGenerationDto {
     const stored = toDetailPageStoredJson({
       templateId: this.normalizeTemplateId(row.templateId),
       generationInput: row.generationInput,
       generationResult: row.generationResult,
     });
     const orderedImageUrls = moveSafetyLabelImagesToEnd(stored.imageUrls);
-    const productName = row.generatedTitle ?? stored.rawTitle ?? '상세페이지';
+    const productName = row.title ?? stored.rawTitle ?? '상세페이지';
     const rawInput = normalizeStoredDetailPageRawInput({
       stored,
       templateId: stored.templateId,
@@ -209,7 +216,7 @@ export class DetailPageQueryService {
       result,
       imageUrls: orderedImageUrls,
       processedImages: stored.processedImages,
-      imageProcessingStatus: this.mapStatus(row.status),
+      imageProcessingStatus: mapStatus(row.status),
       imageProcessingError: row.errorMessage,
       createdAt: row.createdAt.toISOString(),
     };
@@ -266,13 +273,16 @@ export class DetailPageQueryService {
     return value === 'bold-vertical' ? 'bold-vertical' : 'kids-playful';
   }
 
-  private mapStatus(status: string): string {
-    if (status === 'READY' || status === 'completed') return 'completed';
-    if (status === 'FAILED' || status === 'failed') return 'failed';
-    if (status === 'CANCELLED' || status === 'cancelled') return 'cancelled';
-    if (status === 'PROCESSING' || status === 'generating') return 'processing';
-    return status.toLowerCase();
-  }
+}
+
+/**
+ * 웹이 읽는 진행 표시(옛 계약 그대로): 생성 전 · 중 → processing, ready → completed, failed → failed(취소 포함 —
+ * 사유는 `imageProcessingError`).
+ */
+function mapStatus(status: DetailPageRow['status']): string {
+  if (status === 'ready') return 'completed';
+  if (status === 'failed') return 'failed';
+  return 'processing';
 }
 
 export function extractImageSrcs(html: string): string[] {

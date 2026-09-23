@@ -37,24 +37,16 @@ function makeRepository() {
   };
   const repository = {
     findActiveContentWorkspace: vi.fn().mockResolvedValue(null),
-    ensureRerunGenerationGroup: vi.fn(),
-    openProcessingGenerationLedger: vi.fn().mockResolvedValue({
+    openGeneration: vi.fn().mockResolvedValue({
       status: 'created',
-      row,
+      page: row,
       directJobId: 'direct-job-1',
       releaseRequired: true,
     }),
-    markGenerationFailed: vi.fn(),
-    findRerunBase: vi.fn(),
     findImageOnlyBaseCandidates: vi.fn().mockResolvedValue([]),
-    findSourceContentGeneration: vi.fn(),
+    findSourceDetailPage: vi.fn(),
     findSourceContentAsset: vi.fn(),
-    findCancellableGeneration: vi.fn().mockResolvedValue({
-      id: GENERATION_ID,
-      status: 'PROCESSING',
-      generationInput: {},
-      generationResult: {},
-    }),
+    findGenerationStatus: vi.fn().mockResolvedValue({ id: GENERATION_ID, status: 'processing' }),
     cancelDirectGeneration: vi.fn().mockResolvedValue({
       status: 'cancelled',
       generationId: GENERATION_ID,
@@ -83,12 +75,7 @@ function makeService() {
     release: vi.fn().mockResolvedValue(undefined),
   };
   const contentWorkspaces = {
-    ensureForGeneration: vi.fn().mockResolvedValue({
-      id: WORKSPACE_ID,
-      displayName: '자석 다트게임',
-      normalizedTitle: '자석 다트게임',
-      sourceCandidateId: null,
-    }),
+    ensureForGeneration: vi.fn().mockResolvedValue({ id: WORKSPACE_ID }),
   };
   const service = new DetailPageGenerationService(
     repository,
@@ -182,11 +169,10 @@ describe('DetailPageGenerationService', () => {
       id: GENERATION_ID,
       contentWorkspaceId: WORKSPACE_ID,
     });
-    expect(repository.openProcessingGenerationLedger).toHaveBeenCalledWith(expect.objectContaining({
+    expect(repository.openGeneration).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORGANIZATION_ID,
       contentWorkspaceId: WORKSPACE_ID,
-      rawTitle: '자석 다트게임',
-      sourceReferences: [],
+      title: '자석 다트게임',
     }));
     expect(directGenerationJobs.prepareGenerate).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ templateId: 'kids-playful' }),
@@ -200,9 +186,9 @@ describe('DetailPageGenerationService', () => {
 
   it('reuses an admitted product-generation child without releasing a non-held direct job', async () => {
     const { service, repository, directGenerationJobs } = makeService();
-    vi.mocked(repository.openProcessingGenerationLedger).mockResolvedValueOnce({
+    vi.mocked(repository.openGeneration).mockResolvedValueOnce({
       status: 'existing',
-      row: makeRepository().row,
+      page: makeRepository().row as never,
       directJobId: 'direct-job-1',
       releaseRequired: false,
     });
@@ -217,7 +203,7 @@ describe('DetailPageGenerationService', () => {
       },
     );
 
-    expect(repository.openProcessingGenerationLedger).toHaveBeenCalledWith(
+    expect(repository.openGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
         productGenerationIdentity: {
           generationId: GENERATION_ID,
@@ -236,8 +222,6 @@ describe('DetailPageGenerationService', () => {
     vi.mocked(repository.findActiveContentWorkspace).mockResolvedValueOnce({
       id: WORKSPACE_ID,
       salesProductId: SALES_PRODUCT_ID,
-      displayName: '기존 작업공간',
-      normalizedTitle: '기존 작업공간',
     });
 
     await service.generate(input({ contentWorkspaceId: WORKSPACE_ID }), ORGANIZATION_ID, USER_ID);
@@ -264,7 +248,7 @@ describe('DetailPageGenerationService', () => {
     });
     expect(repository.cancelDirectGeneration).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
-      generationId: GENERATION_ID,
+      detailPageId: GENERATION_ID,
       reason: '사용자 요청',
     });
   });
@@ -274,7 +258,7 @@ describe('DetailPageGenerationService', () => {
 
     await expect(service.generate(input({ imageUrls: [] }), ORGANIZATION_ID, USER_ID))
       .rejects.toThrow('상세페이지 생성에는 상품 이미지가 최소 1장 필요합니다.');
-    expect(repository.openProcessingGenerationLedger).not.toHaveBeenCalled();
+    expect(repository.openGeneration).not.toHaveBeenCalled();
     expect(directGenerationJobs.prepareGenerate).not.toHaveBeenCalled();
   });
 
@@ -315,11 +299,11 @@ describe('DetailPageGenerationService', () => {
       contentWorkspaceId: WORKSPACE_ID,
       templateId: 'bold-vertical',
     });
-    expect(repository.openProcessingGenerationLedger).toHaveBeenCalledWith(
+    expect(repository.openGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
         rawInput: expect.objectContaining({
           generationMode: 'image',
-          baseContentGenerationId: draftBase.id,
+          baseDetailPageId: draftBase.id,
         }),
       }),
     );
@@ -358,10 +342,10 @@ describe('DetailPageGenerationService', () => {
       contentWorkspaceId: WORKSPACE_ID,
       templateId: 'bold-vertical',
     });
-    expect(repository.openProcessingGenerationLedger).toHaveBeenCalledWith(
+    expect(repository.openGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
         contentWorkspaceId: WORKSPACE_ID,
-        rawInput: expect.objectContaining({ baseContentGenerationId: base.id }),
+        rawInput: expect.objectContaining({ baseDetailPageId: base.id }),
       }),
     );
   });
@@ -379,7 +363,7 @@ describe('DetailPageGenerationService', () => {
       USER_ID,
     );
 
-    expect(repository.openProcessingGenerationLedger).toHaveBeenCalledWith(
+    expect(repository.openGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
         rawInput: expect.objectContaining({
           sourceReferences: [
@@ -390,13 +374,6 @@ describe('DetailPageGenerationService', () => {
             },
           ],
         }),
-        sourceReferences: [
-          {
-            sourceType: 'sourcing_candidate',
-            sourceCandidateId: CANDIDATE_ID,
-            label: '소싱 후보 상품',
-          },
-        ],
       }),
     );
   });
@@ -414,15 +391,17 @@ describe('DetailPageGenerationService', () => {
       USER_ID,
     );
 
-    expect(repository.openProcessingGenerationLedger).toHaveBeenCalledWith(
+    expect(repository.openGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
-        sourceReferences: [
-          {
-            sourceType: 'sourcing_candidate',
-            sourceCandidateId: CANDIDATE_ID,
-            label: '수집 원천',
-          },
-        ],
+        rawInput: expect.objectContaining({
+          sourceReferences: [
+            {
+              sourceType: 'sourcing_candidate',
+              sourceCandidateId: CANDIDATE_ID,
+              label: '수집 원천',
+            },
+          ],
+        }),
       }),
     );
   });
@@ -451,7 +430,7 @@ describe('DetailPageGenerationService', () => {
       rawTitle: '자석 다트게임',
       salesProductId: null,
     });
-    expect(repository.openProcessingGenerationLedger).toHaveBeenCalledWith(
+    expect(repository.openGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
         contentWorkspaceId: WORKSPACE_ID,
       }),
@@ -463,8 +442,6 @@ describe('DetailPageGenerationService', () => {
     vi.mocked(repository.findActiveContentWorkspace).mockResolvedValueOnce({
       id: WORKSPACE_ID,
       salesProductId: SALES_PRODUCT_ID,
-      displayName: '기존 작업공간',
-      normalizedTitle: '기존 작업공간',
     });
 
     await service.generate(
@@ -474,10 +451,10 @@ describe('DetailPageGenerationService', () => {
     );
 
     expect(contentWorkspaces.ensureForGeneration).not.toHaveBeenCalled();
-    expect(repository.openProcessingGenerationLedger).toHaveBeenCalledWith(
+    expect(repository.openGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
         contentWorkspaceId: WORKSPACE_ID,
-        sourceReferences: [],
+        rawInput: expect.not.objectContaining({ sourceReferences: expect.anything() }),
       }),
     );
   });

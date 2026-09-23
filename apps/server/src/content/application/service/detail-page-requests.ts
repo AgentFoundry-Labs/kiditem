@@ -7,13 +7,13 @@ import type {
 export type DetailPageSourceReferenceType =
   | 'sourcing_candidate'
   | 'input_asset'
-  | 'content_generation';
+  | 'detail_page';
 
 export interface DetailPageSourceReferenceInput {
   sourceType: DetailPageSourceReferenceType;
   sourceCandidateId?: string;
   contentAssetId?: string;
-  sourceContentGenerationId?: string;
+  sourceDetailPageId?: string;
   label?: string;
 }
 

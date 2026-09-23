@@ -147,7 +147,7 @@ export class DetailPageGenerationService {
       if (!imageOnlyBase) {
         throw new BadRequestException('이미지만 생성하려면 먼저 같은 작업공간/템플릿의 카피 생성 결과가 필요합니다.');
       }
-      rawInput.baseContentGenerationId = imageOnlyBase.id;
+      rawInput.baseDetailPageId = imageOnlyBase.id;
     }
 
     return this.enqueueGeneration({
@@ -158,7 +158,6 @@ export class DetailPageGenerationService {
       heroImageMode,
       imageUrls,
       rawInput,
-      sourceReferences,
       existingResult: imageOnlyBase?.result,
       contentWorkspaceId: contentWorkspace.id,
       productGenerationIdentity,
@@ -168,12 +167,7 @@ export class DetailPageGenerationService {
   private async resolveContentWorkspace(
     organizationId: string,
     contentWorkspaceId: string,
-  ): Promise<{
-    id: string;
-    salesProductId: string | null;
-    displayName: string;
-    normalizedTitle: string;
-  }> {
+  ): Promise<{ id: string; salesProductId: string | null }> {
     const row = await this.repository.findActiveContentWorkspace({
       organizationId,
       contentWorkspaceId,
@@ -190,9 +184,7 @@ export class DetailPageGenerationService {
     heroImageMode: 'first' | 'llm-pick';
     imageUrls: string[];
     rawInput: DetailPageRawInput;
-    sourceReferences: DetailPageSourceReference[];
     existingResult?: unknown;
-    generationGroupId?: string | null;
     contentWorkspaceId: string;
     productGenerationIdentity?: ProductGenerationChildIdentity;
   }): Promise<DetailPageGenerationDto> {
@@ -219,20 +211,17 @@ export class DetailPageGenerationService {
     };
     const directJob = this.directGenerationJobs.prepareGenerate({ payload: directPayload, models });
 
-    const opened = await this.repository.openProcessingGenerationLedger({
+    const opened = await this.repository.openGeneration({
       organizationId: input.organizationId,
-      generationGroupId: input.generationGroupId,
       contentWorkspaceId: input.contentWorkspaceId,
       triggeredByUserId: input.triggeredByUserId,
       templateId: input.templateId,
       rawInput: input.rawInput,
       imageUrls: input.imageUrls,
-      rawTitle: input.rawTitle,
-      sourceReferences: input.sourceReferences,
+      title: input.rawTitle,
       productGenerationIdentity: input.productGenerationIdentity,
       directJob,
     });
-    const row = opened.row;
 
     if (opened.releaseRequired) {
       await this.directGenerationJobs.release({
@@ -241,70 +230,7 @@ export class DetailPageGenerationService {
       });
     }
 
-    return this.query.getById(row.id, input.organizationId);
-  }
-
-  async rerunSameInput(
-    generationId: string,
-    organizationId: string,
-    triggeredByUserId: string | null,
-  ): Promise<DetailPageGenerationDto> {
-    const base = await this.repository.findRerunBase({ generationId, organizationId });
-    if (!base) throw new NotFoundException('Detail page generation not found');
-    const stored = toDetailPageStoredJson({
-      templateId: this.normalizeTemplateId(base.templateId),
-      generationInput: base.generationInput,
-      generationResult: base.generationResult,
-    });
-    const rawRecord = stored.rawInput && typeof stored.rawInput === 'object'
-      ? stored.rawInput as Record<string, unknown>
-      : {};
-    const imageUrls = stored.imageUrls;
-    if (imageUrls.length === 0) {
-      throw new BadRequestException(DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE);
-    }
-    const templateId: DetailPageTemplateId =
-      base.templateId === 'bold-vertical' || stored.templateId === 'bold-vertical'
-        ? 'bold-vertical'
-        : 'kids-playful';
-    const generationGroupId = await this.ensureGenerationGroup({
-      organizationId,
-      baseGenerationId: base.id,
-      existingGroupId: base.generationGroupId,
-      contentWorkspaceId: base.contentWorkspaceId,
-      title: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
-      triggeredByUserId,
-    });
-    const contentWorkspaceId = base.contentWorkspaceId;
-    const rawInput: DetailPageRawInput = {
-      rawTitle: pickRawString(rawRecord, 'rawTitle') ?? base.generatedTitle ?? '상세페이지 작업',
-      rawCategory: pickRawString(rawRecord, 'rawCategory') ?? '',
-      rawDescription: pickRawString(rawRecord, 'rawDescription') ?? '',
-      rawOptions: pickRawString(rawRecord, 'rawOptions') ?? '',
-      imageUrls,
-      heroImageMode: rawRecord.heroImageMode === 'llm-pick' ? 'llm-pick' : 'first',
-      templateId,
-      ageGroup: rawRecord.ageGroup === 'age-14-plus' ? 'age-14-plus' : 'age-8-plus',
-      detailImageCount: pickDetailImageCount(rawRecord.detailImageCount),
-      usageSectionMode: rawRecord.usageSectionMode === 'exclude' ? 'exclude' : 'include',
-      kcCertificationStatus: pickKcCertificationStatus(rawRecord.kcCertificationStatus),
-      kcCertificationNumber: pickRawString(rawRecord, 'kcCertificationNumber') ?? undefined,
-      sourceReferences: Array.isArray(rawRecord.sourceReferences)
-        ? rawRecord.sourceReferences.filter(isDetailPageSourceReference)
-        : undefined,
-    };
-    return this.enqueueGeneration({
-      organizationId,
-      triggeredByUserId,
-      rawTitle: rawInput.rawTitle,
-      templateId,
-      heroImageMode: rawInput.heroImageMode,
-      imageUrls,
-      rawInput,
-      sourceReferences: rawInput.sourceReferences ?? [],
-      generationGroupId,
-      contentWorkspaceId,
-    });
+    return this.query.getById(opened.page.id, input.organizationId);
   }
 
   private async findImageOnlyBaseGeneration(input: {
@@ -332,17 +258,6 @@ export class DetailPageGenerationService {
     return null;
   }
 
-  private async ensureGenerationGroup(input: {
-    organizationId: string;
-    baseGenerationId: string;
-    existingGroupId: string | null;
-    contentWorkspaceId: string;
-    title: string;
-    triggeredByUserId: string | null;
-  }): Promise<string> {
-    return this.repository.ensureRerunGenerationGroup(input);
-  }
-
   private async normalizeSourceReferences(input: {
     organizationId: string;
     sourceReferences: NonNullable<GenerateDetailPageInput['sourceReferences']>;
@@ -363,19 +278,19 @@ export class DetailPageGenerationService {
         continue;
       }
 
-      if (ref.sourceType === 'content_generation') {
-        if (!ref.sourceContentGenerationId) {
-          throw new BadRequestException(`sourceReferences[${index}].sourceContentGenerationId is required`);
+      if (ref.sourceType === 'detail_page') {
+        if (!ref.sourceDetailPageId) {
+          throw new BadRequestException(`sourceReferences[${index}].sourceDetailPageId is required`);
         }
-        const generation = await this.repository.findSourceContentGeneration({
+        const page = await this.repository.findSourceDetailPage({
           organizationId: input.organizationId,
-          sourceContentGenerationId: ref.sourceContentGenerationId,
+          detailPageId: ref.sourceDetailPageId,
         });
-        if (!generation) throw new NotFoundException('Content generation source not found');
+        if (!page) throw new NotFoundException('Detail page source not found');
         out.push({
-          sourceType: 'content_generation',
-          sourceContentGenerationId: generation.id,
-          label: ref.label ?? generation.generatedTitle ?? 'Generated content',
+          sourceType: 'detail_page',
+          sourceDetailPageId: page.id,
+          label: ref.label ?? page.title ?? '상세 페이지',
         });
         continue;
       }
@@ -431,7 +346,7 @@ export class DetailPageGenerationService {
   }> {
     return this.repository.cancelDirectGeneration({
       organizationId: input.organizationId,
-      generationId: input.generationId,
+      detailPageId: input.generationId,
       reason: input.reason,
     });
   }
@@ -462,31 +377,4 @@ export class DetailPageGenerationService {
       return buffer;
     }
   }
-}
-
-function pickRawString(record: Record<string, unknown>, key: string): string | null {
-  const value = record[key];
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function pickDetailImageCount(value: unknown): DetailImageCount {
-  if (value === '1' || value === '2' || value === '3' || value === 'auto') return value;
-  return '2';
-}
-
-function pickKcCertificationStatus(value: unknown): KcCertificationStatus {
-  if (value === 'none' || value === 'exists') return value;
-  return 'unknown';
-}
-
-function isDetailPageSourceReference(value: unknown): value is DetailPageSourceReference {
-  if (!value || typeof value !== 'object') return false;
-  const record = value as Record<string, unknown>;
-  return (
-    record.sourceType === 'sourcing_candidate' ||
-    record.sourceType === 'input_asset' ||
-    record.sourceType === 'content_generation'
-  );
 }

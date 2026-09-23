@@ -6,9 +6,9 @@ import type {
 } from '../../domain/prompts/detail-page/types';
 
 /**
- * Helpers for the detail-page JSON snapshots stored on ContentGeneration.
- * `generationInput` preserves the request/input snapshot. `generationResult`
- * preserves the validated AI result plus generated media URLs.
+ * Helpers for the detail-page JSON snapshots stored on a generated DetailPage
+ * (KID-313 W3b). `generationInput` preserves the request/input snapshot.
+ * `generationResult` preserves the validated AI result plus generated media URLs.
  *
  * Shape:
  * ```
@@ -21,8 +21,7 @@ import type {
  * }
  * ```
  *
- * The `result` field is `{}` while the row is `PROCESSING`. The sink
- * replaces it on success.
+ * `generationResult` is `{}` until the sink records it (`processing → ready`).
  */
 
 export interface DetailPageStoredJson {
@@ -139,7 +138,7 @@ export function normalizeStoredDetailPageRawInput(input: {
     heroImageMode: pickStoredHeroMode(rawInput),
     templateId: input.templateId,
     generationMode: pickStoredGenerationMode(rawInput),
-    baseContentGenerationId: pickStoredString(rawInput, 'baseContentGenerationId') ?? undefined,
+    baseDetailPageId: pickStoredString(rawInput, 'baseDetailPageId') ?? undefined,
     ageGroup: pickStoredAgeGroup(rawInput),
     detailImageCount: pickStoredDetailImageCount(rawInput),
     usageSectionMode: pickStoredUsageSectionMode(rawInput),
@@ -158,12 +157,12 @@ function pickStoredGenerationMode(rawInput: unknown): 'draft' | 'image' | 'full'
 export function detailPageResultHref(input: {
   productId: string | null;
   contentWorkspaceId?: string | null;
-  contentGenerationId: string;
+  detailPageId: string;
   templateId: DetailPageTemplateId;
 }): string {
   void input.productId;
   void input.templateId;
-  const generationId = encodeURIComponent(input.contentGenerationId);
+  const generationId = encodeURIComponent(input.detailPageId);
   if (input.contentWorkspaceId) {
     const workspaceId = encodeURIComponent(input.contentWorkspaceId);
     const returnTo = encodeURIComponent(`/product-pipeline/registered-products/${workspaceId}`);

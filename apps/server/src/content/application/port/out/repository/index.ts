@@ -1,4 +1,3 @@
-export * from './content-archive.repository.port';
 export * from './content-asset-library.repository.port';
 export * from './content-workspace-lifecycle.repository.port';
 export * from './content-workspace-thumbnail-selection.repository.port';

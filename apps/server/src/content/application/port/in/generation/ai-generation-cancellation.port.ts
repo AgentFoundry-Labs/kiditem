@@ -15,7 +15,8 @@ export interface AiDirectJobCancellationTargetResult {
 }
 
 export interface AiGenerationCancellationPort {
-  cancelContentGeneration(input: {
+  /** AI 상세 생성(`generated` 상세 페이지)을 멈춘다. `generationId` 는 그 상세 페이지 id. */
+  cancelDetailPageGeneration(input: {
     organizationId: string;
     generationId: string;
     actorUserId: string | null;

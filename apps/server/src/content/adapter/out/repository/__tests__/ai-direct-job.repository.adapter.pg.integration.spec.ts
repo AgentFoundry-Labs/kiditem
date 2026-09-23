@@ -9,7 +9,7 @@ import {
 } from '../../../../../test-helpers/real-prisma';
 import { AiDirectJobRepositoryAdapter } from '../ai-direct-job.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from '../detail-page-generation.repository.adapter';
-import { ContentAssetLibraryRepositoryAdapter } from '../content-asset-library.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../detail-page.repository.adapter';
 import { deriveProductGenerationChildIdentity } from '../../../../application/service/product-generation-child-identity';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../thumbnail-generation-ledger.repository.adapter';
 import type { PrismaClient } from '@prisma/client';
@@ -111,7 +111,6 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'direct_detail_page',
-        displayName: 'Concurrent child',
         normalizedTitle: 'concurrent child',
         createdByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
       },
@@ -132,7 +131,7 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
     const open = (
       detailPages: DetailPageGenerationRepositoryAdapter,
       productGenerationIdentity = identity,
-    ) => detailPages.openProcessingGenerationLedger({
+    ) => detailPages.openGeneration({
       organizationId: TEST_ORGANIZATION_ID,
       contentWorkspaceId: workspace.id,
       triggeredByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
@@ -148,8 +147,7 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
         productGenerationRequestHash: productGenerationIdentity.requestHash,
       },
       imageUrls: [],
-      rawTitle: 'Concurrent child',
-      sourceReferences: [],
+      title: 'Concurrent child',
       productGenerationIdentity,
       directJob: {
         jobType: 'detail_page_generate',
@@ -190,12 +188,12 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
       ]);
 
       expect([first.status, second.status].sort()).toEqual(['created', 'existing']);
-      expect(first.row.id).toBe(identity.generationId);
-      expect(second.row.id).toBe(identity.generationId);
+      expect(first.page.id).toBe(identity.generationId);
+      expect(second.page.id).toBe(identity.generationId);
       expect(first.directJobId).toBe(second.directJobId);
       expect(first.releaseRequired).toBe(true);
       expect(second.releaseRequired).toBe(true);
-      await expect(prisma.contentGeneration.count({
+      await expect(prisma.detailPage.count({
         where: { id: identity.generationId, organizationId: TEST_ORGANIZATION_ID },
       })).resolves.toBe(1);
       await expect(prisma.aiDirectJob.count({
@@ -336,29 +334,17 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'direct_detail_page',
-        displayName: 'Cancellation owner',
         normalizedTitle: 'cancellation owner',
         createdByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
       },
       select: { id: true },
     });
-    const group = await prisma.contentGenerationGroup.create({
+    const detail = await prisma.detailPage.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         contentWorkspaceId: workspace.id,
-        title: 'Cancellation owner',
-      },
-      select: { id: true },
-    });
-    const detail = await prisma.contentGeneration.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        generationGroupId: group.id,
-        contentWorkspaceId: workspace.id,
-        contentType: 'detail_page',
-        generationInput: {},
-        generationResult: {},
-        status: 'PROCESSING',
+        source: 'generated',
+        status: 'processing',
       },
       select: { id: true },
     });
@@ -401,12 +387,12 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
       Promise.all([
         detailCanceller.cancelDirectGeneration({
           organizationId: TEST_ORGANIZATION_ID,
-          generationId: detail.id,
+          detailPageId: detail.id,
           reason: 'operator_cancelled',
         }),
         detailCanceller.cancelDirectGeneration({
           organizationId: TEST_ORGANIZATION_ID,
-          generationId: detail.id,
+          detailPageId: detail.id,
           reason: 'operator_cancelled',
         }),
       ]),
@@ -436,11 +422,11 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
       'already_terminal',
       'cancelled',
     ]);
-    await expect(prisma.contentGeneration.findUniqueOrThrow({
+    await expect(prisma.detailPage.findUniqueOrThrow({
       where: { id: detail.id },
       select: { status: true, errorMessage: true },
     })).resolves.toEqual({
-      status: 'CANCELLED',
+      status: 'failed',
       errorMessage: 'operator_cancelled',
     });
     await expect(prisma.thumbnailGeneration.findUniqueOrThrow({
@@ -470,7 +456,7 @@ function detailGenerationRepository(prisma: PrismaClient): DetailPageGenerationR
   const scopedPrisma = prisma as unknown as PrismaService;
   return new DetailPageGenerationRepositoryAdapter(
     scopedPrisma,
-    new ContentAssetLibraryRepositoryAdapter(scopedPrisma),
+    new DetailPageRepositoryAdapter(scopedPrisma),
     new AiDirectJobRepositoryAdapter(scopedPrisma),
   );
 }

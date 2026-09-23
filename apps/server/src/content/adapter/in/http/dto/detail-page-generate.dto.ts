@@ -30,8 +30,8 @@ const PRODUCT_TITLE_MESSAGE = '상품명은 한글, 영문, 숫자, 공백만 �
 const PRODUCT_TITLE_PATTERN = /^(?=.*[\p{L}\p{N}])[\p{L}\p{N}\s]+$/u;
 
 export class DetailPageSourceReferenceDto implements DetailPageSourceReferenceInput {
-  @IsIn(['sourcing_candidate', 'input_asset', 'content_generation'])
-  sourceType!: 'sourcing_candidate' | 'input_asset' | 'content_generation';
+  @IsIn(['sourcing_candidate', 'input_asset', 'detail_page'])
+  sourceType!: 'sourcing_candidate' | 'input_asset' | 'detail_page';
 
   @IsOptional()
   @IsUUID()
@@ -43,7 +43,7 @@ export class DetailPageSourceReferenceDto implements DetailPageSourceReferenceIn
 
   @IsOptional()
   @IsUUID()
-  sourceContentGenerationId?: string;
+  sourceDetailPageId?: string;
 
   @IsOptional()
   @IsString()

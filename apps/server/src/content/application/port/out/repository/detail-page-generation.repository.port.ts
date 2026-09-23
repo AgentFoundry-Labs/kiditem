@@ -1,7 +1,6 @@
-import type { DetailPageGenerationSnapshot } from './detail-page-query.repository.port';
+import type { DetailPageRow } from './detail-page.repository.port';
 import type {
   DetailPageRawInput,
-  DetailPageSourceReference,
   DetailPageTemplateId,
 } from '../../../service/detail-page-ai.types';
 import type { ProductGenerationChildIdentity } from '../../../service/product-generation-child-identity';
@@ -11,16 +10,20 @@ export const DETAIL_PAGE_GENERATION_REPOSITORY_PORT = Symbol(
   'DETAIL_PAGE_GENERATION_REPOSITORY_PORT',
 );
 
+/**
+ * AI 상세 생성의 저장소 계약(KID-313 W3b). 생성 하나 = `source: 'generated'` 상세 페이지 하나이고, 그 id 가 direct
+ * job 의 `sourceResourceId` 다. 생성 입력 사진은 워크스페이스 자산(`detail_source`)으로, 출처(원본 기록 id ·
+ * 기반 상세 페이지 id · 입력 자산 id)는 `generation_input` 에 남는다.
+ */
+
 export interface DetailPageContentWorkspaceSnapshot {
   id: string;
   salesProductId: string | null;
-  displayName: string;
-  normalizedTitle: string;
 }
 
-export interface DetailPageSourceContentGenerationSnapshot {
+export interface DetailPageSourcePageSnapshot {
   id: string;
-  generatedTitle: string | null;
+  title: string | null;
 }
 
 export interface DetailPageSourceContentAssetSnapshot {
@@ -34,24 +37,6 @@ export interface DetailPageImageOnlyBaseCandidateSnapshot {
   generationInput: unknown;
   generationResult: unknown;
   templateId: string | null;
-  generatedTitle: string | null;
-}
-
-export interface DetailPageRerunBaseSnapshot {
-  id: string;
-  generationGroupId: string;
-  contentWorkspaceId: string;
-  generationInput: unknown;
-  generationResult: unknown;
-  templateId: string | null;
-  generatedTitle: string | null;
-}
-
-export interface DetailPageCancellableGenerationSnapshot {
-  id: string;
-  status: string;
-  generationInput: unknown;
-  generationResult: unknown;
 }
 
 export interface DetailPageDirectGenerationCancellation {
@@ -60,9 +45,9 @@ export interface DetailPageDirectGenerationCancellation {
   preserved: boolean;
 }
 
-export type DetailPageOpenProcessingGenerationLedgerResult = {
+export type DetailPageOpenGenerationResult = {
   status: 'created' | 'existing';
-  row: DetailPageGenerationSnapshot;
+  page: DetailPageRow;
   directJobId: string;
   releaseRequired: boolean;
 };
@@ -72,56 +57,44 @@ export interface DetailPageGenerationRepositoryPort {
     organizationId: string;
     contentWorkspaceId: string;
   }): Promise<DetailPageContentWorkspaceSnapshot | null>;
-  ensureRerunGenerationGroup(input: {
+  /**
+   * 생성 페이지(`pending`) · 입력 사진 자산 · held direct job 을 한 트랜잭션에서 연다. 상품 생성의 결정적 id 가
+   * 이미 있으면 같은 요청(hash)일 때 그것을 돌려주고, 다르면 Conflict.
+   */
+  openGeneration(input: {
     organizationId: string;
-    baseGenerationId: string;
-    existingGroupId: string | null;
-    contentWorkspaceId: string;
-    title: string;
-    triggeredByUserId: string | null;
-  }): Promise<string>;
-  openProcessingGenerationLedger(input: {
-    organizationId: string;
-    generationGroupId?: string | null;
     contentWorkspaceId: string;
     triggeredByUserId: string | null;
     templateId: DetailPageTemplateId;
     rawInput: DetailPageRawInput;
     imageUrls: string[];
-    rawTitle: string;
-    sourceReferences: DetailPageSourceReference[];
+    title: string;
     productGenerationIdentity?: ProductGenerationChildIdentity;
     directJob: Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'>;
-  }): Promise<DetailPageOpenProcessingGenerationLedgerResult>;
-  markGenerationFailed(input: {
-    organizationId: string;
-    generationId: string;
-    errorMessage: string;
-  }): Promise<void>;
-  findRerunBase(input: {
-    organizationId: string;
-    generationId: string;
-  }): Promise<DetailPageRerunBaseSnapshot | null>;
+  }): Promise<DetailPageOpenGenerationResult>;
+  /** 같은 워크스페이스 · 템플릿의 결과가 있는 최근 생성(이미지만 다시 만들기의 기반). */
   findImageOnlyBaseCandidates(input: {
     organizationId: string;
     contentWorkspaceId: string;
     templateId: DetailPageTemplateId;
   }): Promise<DetailPageImageOnlyBaseCandidateSnapshot[]>;
-  findSourceContentGeneration(input: {
+  findSourceDetailPage(input: {
     organizationId: string;
-    sourceContentGenerationId: string;
-  }): Promise<DetailPageSourceContentGenerationSnapshot | null>;
+    detailPageId: string;
+  }): Promise<DetailPageSourcePageSnapshot | null>;
   findSourceContentAsset(input: {
     organizationId: string;
     contentAssetId: string;
   }): Promise<DetailPageSourceContentAssetSnapshot | null>;
-  findCancellableGeneration(input: {
+  /** direct job 이 아직 돌 수 있는가(pending · processing). 없으면 null. */
+  findGenerationStatus(input: {
     organizationId: string;
-    generationId: string;
-  }): Promise<DetailPageCancellableGenerationSnapshot | null>;
+    detailPageId: string;
+  }): Promise<{ id: string; status: string } | null>;
+  /** 진행 중인 생성을 `failed`(사유 = 취소 메시지)로 닫고 그 job 을 취소한다. 끝난 생성은 그대로. */
   cancelDirectGeneration(input: {
     organizationId: string;
-    generationId: string;
+    detailPageId: string;
     reason: string;
   }): Promise<DetailPageDirectGenerationCancellation>;
 }

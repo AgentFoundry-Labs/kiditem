@@ -1,55 +1,32 @@
-import { Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { DetailPageDirectOutputSinkPort } from '../../../application/port/out/sink/detail-page-direct-output-sink.port';
-import type { DetailPageGenerateDirectOutput } from '../../../domain/direct-generation';
-import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {
-  type DetailPageStoredJson,
-  toDetailPageStoredJson,
-} from '../../../application/service/detail-page-stored.helpers';
-import { ContentAssetService } from '../../../application/service/content-asset.service';
+  DETAIL_PAGE_REPOSITORY_PORT,
+  type DetailPageRepositoryPort,
+} from '../../../application/port/out/repository/detail-page.repository.port';
+import type { DetailPageGenerateDirectOutput } from '../../../domain/direct-generation';
+import { recordDetailPageAssets } from '../repository/detail-page-assets';
 
-const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
-  'READY',
-  'FAILED',
-  'CANCELLED',
-  'completed',
-  'failed',
-  'cancelled',
-]);
+const RUNNABLE = new Set(['pending', 'processing']);
 
 /**
- * Real `DetailPageDirectOutputSinkPort` adapter — applies validated
- * detail-page generation output back onto the originating `ContentGeneration`
- * row.
+ * AI 상세 생성의 결과를 그 생성 페이지(`detail_pages`, `source: 'generated'`)에 적는 sink(KID-313 W3b).
  *
- * Boundary contract — the sink is the only piece on the AI side that owns
- * Prisma writes for ContentGeneration after enqueue. Direct jobs perform
- * provider/media work and call this sink with validated output; the sink only
- * projects that output into domain tables.
+ * 한 트랜잭션에서 `pending → processing → ready` 로 옮기며 결과(`generation_result`) · 제목을 적고, AI 가 만든
+ * 사진을 워크스페이스 자산(`detail_image`)으로 남긴다. 결과 없이 상태만 바꾸는 길은 없다. revision 은 만들지
+ * 않는다 — HTML 은 웹 템플릿이 이 결과로 그리고, 처음 저장할 때 `generated` revision 이 된다.
  *
- * Organization scope — every Prisma write goes through `findFirst({ id,
- * organizationId })` + `updateMany({ id, organizationId })`. The sink
- * never trusts `sourceResourceId` alone; the IDOR boundary is the
- * server-resolved `organizationId` passed by the direct job.
- *
- * Recovery — the row remains `PROCESSING` only while the direct job is
- * running. Cancellation and retirement migrations move abandoned historical
- * rows to terminal states instead of replaying legacy requests.
+ * 조직 범위: 모든 읽기 · 쓰기가 `{ id, organizationId }` 로 간다. 이미 끝난(ready · failed — 취소 포함) 페이지는
+ * 건드리지 않는다(재시도 job · 늦은 결과는 no-op).
  */
 @Injectable()
-export class DetailPageContentGenerationSinkAdapter
-  implements DetailPageDirectOutputSinkPort
-{
-  private readonly logger = new Logger(
-    DetailPageContentGenerationSinkAdapter.name,
-  );
+export class DetailPageContentGenerationSinkAdapter implements DetailPageDirectOutputSinkPort {
+  private readonly logger = new Logger(DetailPageContentGenerationSinkAdapter.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly _generatedImages: DetailPageGeneratedImagesService,
-    private readonly contentAssets: ContentAssetService,
+    @Inject(DETAIL_PAGE_REPOSITORY_PORT)
+    private readonly detailPages: DetailPageRepositoryPort,
   ) {}
 
   async applySuccess(input: {
@@ -60,134 +37,63 @@ export class DetailPageContentGenerationSinkAdapter
     output: DetailPageGenerateDirectOutput;
   }): Promise<void> {
     if (!input.sourceResourceId) {
-      this.logger.warn(
-        `detail_page_generate success without sourceResourceId (request=${input.requestId}); cannot apply.`,
-      );
+      this.logger.warn(`detail_page_generate success without sourceResourceId (request=${input.requestId}); cannot apply.`);
+      return;
+    }
+    const page = await this.detailPages.findById({ organizationId: input.organizationId, detailPageId: input.sourceResourceId });
+    if (!page || page.source !== 'generated') {
+      this.logger.warn(`detail_page_generate success: detail page ${input.sourceResourceId} not found in organization ${input.organizationId}.`);
+      return;
+    }
+    if (!RUNNABLE.has(page.status)) {
+      this.logger.debug(`detail_page_generate success: detail page ${page.id} already ${page.status}; no-op.`);
       return;
     }
 
-    const row = await this.prisma.contentGeneration.findFirst({
-      where: { id: input.sourceResourceId, organizationId: input.organizationId },
-    });
-    if (!row) {
-      this.logger.warn(
-        `detail_page_generate success: ContentGeneration ${input.sourceResourceId} not found in organization ${input.organizationId}.`,
-      );
-      return;
-    }
-    if (TERMINAL_CONTENT_GENERATION_STATUSES.has(row.status)) {
-      // Idempotent: a retried direct job or cancellation already made the row terminal.
-      this.logger.debug(
-        `detail_page_generate success: ContentGeneration ${row.id} already terminal (${row.status}); no-op.`,
-      );
-      return;
-    }
-
-    const stored = toDetailPageStoredJson({
-      templateId: input.output.templateId,
-      generationInput: row.generationInput,
-      generationResult: row.generationResult,
-    });
-    const productName = pickProductName(
-      input.output.result,
-      input.output.templateId,
-      stored.rawTitle ?? row.generatedTitle ?? '상세페이지',
-    );
-
+    const rawTitle = typeof page.generationInput.rawTitle === 'string' ? page.generationInput.rawTitle : null;
+    const title = pickProductName(input.output.result, input.output.templateId, rawTitle ?? page.title ?? '상세페이지');
     const processedImages = input.output.processedImages ?? {};
-
-    const applied = await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.contentGeneration.updateMany({
-        where: {
-          id: row.id,
-          organizationId: input.organizationId,
-          status: 'PROCESSING',
-        },
-        data: { status: 'APPLYING' },
-      });
-      if (claimed.count === 0) return null;
-
-      const artifact = row.detailPageArtifactId
-        ? await tx.detailPageArtifact.findFirstOrThrow({
-            where: {
-              id: row.detailPageArtifactId,
-              organizationId: input.organizationId,
-            },
-            select: { id: true },
-          })
-        : await tx.detailPageArtifact.create({
-            data: {
-              organizationId: input.organizationId,
-              contentWorkspaceId: row.contentWorkspaceId,
-              sourceContentGenerationId: row.id,
-              title: productName,
-              status: 'generated',
-              createdByUserId: row.triggeredByUserId,
-              metadata: {
-                source: 'detail_page_generation_success',
-                ...projectionMetadata(input.requestId, input.runId),
-              },
-            },
-            select: { id: true },
+    const applied = await this.detailPages.runInTransaction(async (transaction) => {
+      try {
+        if (page.status === 'pending') {
+          await this.detailPages.setStatus(transaction, {
+            organizationId: input.organizationId, detailPageId: page.id, status: 'processing',
           });
-
-      if (Object.keys(processedImages).length > 0) {
-        await this.contentAssets.recordDetailPageGeneratedAssetsTx(tx, {
+        }
+        await this.detailPages.completeGeneration(transaction, {
           organizationId: input.organizationId,
-          contentGenerationId: row.id,
-          generationGroupId: row.generationGroupId,
-          processedImages,
-        });
-      }
-
-      await tx.contentWorkspace.updateMany({
-        where: {
-          id: row.contentWorkspaceId,
-          organizationId: input.organizationId,
-          isDeleted: false,
-        },
-        data: {
-          currentDetailPageArtifactId: artifact.id,
-          status: 'active',
-        },
-      });
-
-      const finalized = await tx.contentGeneration.updateMany({
-        where: {
-          id: row.id,
-          organizationId: input.organizationId,
-          status: 'APPLYING',
-        },
-        data: {
-          detailPageArtifactId: artifact.id,
-          generatedTitle: productName,
+          detailPageId: page.id,
+          title,
           generationResult: {
             templateId: input.output.templateId,
             result: input.output.result,
             imageUrls: input.output.imageUrls,
             processedImages,
-          } as Prisma.InputJsonValue,
-          status: 'READY',
-          errorMessage: null,
-        },
-      });
-      if (finalized.count !== 1) {
-        throw new Error(
-          `detail_page_generate ${row.id}: APPLYING claim was lost before finalize`,
-        );
+          },
+        });
+      } catch (error) {
+        // 확인과 잠금 사이에 취소 · 다른 결과가 먼저 끝냈다.
+        if (error instanceof ConflictException) return false;
+        throw error;
       }
-      return { artifactId: artifact.id };
+      await recordDetailPageAssets(ownerTransactionClient(transaction), {
+        organizationId: input.organizationId,
+        contentWorkspaceId: page.contentWorkspaceId,
+        detailPageId: page.id,
+        createdByUserId: null,
+        role: 'detail_image',
+        images: Object.entries(processedImages)
+          .filter(([slot, url]) => slot.trim().length > 0 && url.trim().length > 0)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([slot, url]) => ({ url, label: slot })),
+      });
+      return true;
     });
     if (!applied) {
-      this.logger.debug(
-        `detail_page_generate success: ContentGeneration ${row.id} became terminal before apply; no-op.`,
-      );
+      this.logger.debug(`detail_page_generate success: detail page ${page.id} became terminal before apply; no-op.`);
       return;
     }
-
-    this.logger.log(
-      `detail_page_generate applied success → ContentGeneration ${row.id} READY (request=${input.requestId}).`,
-    );
+    this.logger.log(`detail_page_generate applied success → detail page ${page.id} ready (request=${input.requestId}).`);
   }
 
   async applyFailure(input: {
@@ -199,69 +105,32 @@ export class DetailPageContentGenerationSinkAdapter
     errorMessage: string;
   }): Promise<void> {
     if (!input.sourceResourceId) {
-      this.logger.warn(
-        `detail_page_generate failure without sourceResourceId (request=${input.requestId}); cannot apply.`,
-      );
+      this.logger.warn(`detail_page_generate failure without sourceResourceId (request=${input.requestId}); cannot apply.`);
       return;
     }
-
-    const row = await this.prisma.contentGeneration.findFirst({
-      where: { id: input.sourceResourceId, organizationId: input.organizationId },
-      select: { id: true, status: true, generationInput: true },
+    const page = await this.detailPages.findById({ organizationId: input.organizationId, detailPageId: input.sourceResourceId });
+    if (!page || !RUNNABLE.has(page.status)) {
+      this.logger.debug(`detail_page_generate failure: detail page ${input.sourceResourceId} missing or already terminal; no-op.`);
+      return;
+    }
+    const failed = await this.detailPages.runInTransaction(async (transaction) => {
+      try {
+        await this.detailPages.setStatus(transaction, {
+          organizationId: input.organizationId,
+          detailPageId: page.id,
+          status: 'failed',
+          errorMessage: input.errorMessage,
+        });
+        return true;
+      } catch (error) {
+        if (error instanceof ConflictException) return false;
+        throw error;
+      }
     });
-    if (!row) {
-      this.logger.warn(
-        `detail_page_generate failure: ContentGeneration ${input.sourceResourceId} not found in organization ${input.organizationId}.`,
-      );
-      return;
+    if (failed) {
+      this.logger.log(`detail_page_generate applied failure → detail page ${page.id} failed (code=${input.errorCode} request=${input.requestId}).`);
     }
-    if (TERMINAL_CONTENT_GENERATION_STATUSES.has(row.status)) {
-      this.logger.debug(
-        `detail_page_generate failure: ContentGeneration ${row.id} already terminal (${row.status}); no-op.`,
-      );
-      return;
-    }
-
-    const updated = await this.prisma.contentGeneration.updateMany({
-      where: {
-        id: row.id,
-        organizationId: input.organizationId,
-        status: { notIn: [...TERMINAL_CONTENT_GENERATION_STATUSES] },
-      },
-      data: {
-        status: 'FAILED',
-        errorMessage: input.errorMessage,
-      },
-    });
-    if (updated.count === 0) {
-      this.logger.debug(
-        `detail_page_generate failure: ContentGeneration ${row.id} became terminal before apply; no-op.`,
-      );
-      return;
-    }
-
-    this.logger.log(
-      `detail_page_generate applied failure → ContentGeneration ${row.id} FAILED (code=${input.errorCode} request=${input.requestId}).`,
-    );
   }
-
-}
-
-function projectionMetadata(
-  requestId: string,
-  runId: string | undefined,
-): Record<string, unknown> {
-  if (requestId.startsWith('direct-ai:')) {
-    return {
-      executionMode: 'direct_ai',
-      aiJobId: requestId,
-    };
-  }
-  return {
-    executionMode: 'agent_os',
-    aiJobId: requestId,
-    agentRunId: runId ?? null,
-  };
 }
 
 function pickProductName(
@@ -271,19 +140,13 @@ function pickProductName(
 ): string {
   if (templateId === 'bold-vertical') {
     const hookText = (parsed as { hook?: { text?: unknown } }).hook?.text;
-    const hookTitleSub = (parsed as { hook?: { titleSub?: unknown } }).hook
-      ?.titleSub;
+    const hookTitleSub = (parsed as { hook?: { titleSub?: unknown } }).hook?.titleSub;
     const title = [
       typeof hookText === 'string' ? hookText.trim() : '',
       typeof hookTitleSub === 'string' ? hookTitleSub.trim() : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+    ].filter(Boolean).join(' ');
     return title || fallback.slice(0, 50);
   }
-  const headline = (parsed as { section1?: { mainHeadline?: unknown } }).section1
-    ?.mainHeadline;
-  return typeof headline === 'string' && headline.trim()
-    ? headline.trim()
-    : fallback.slice(0, 50);
+  const headline = (parsed as { section1?: { mainHeadline?: unknown } }).section1?.mainHeadline;
+  return typeof headline === 'string' && headline.trim() ? headline.trim() : fallback.slice(0, 50);
 }

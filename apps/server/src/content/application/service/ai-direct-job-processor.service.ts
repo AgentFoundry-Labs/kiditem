@@ -35,14 +35,8 @@ const THUMBNAIL_TERMINAL = new Set([
   'cancelled',
   'skipped',
 ]);
-const DETAIL_TERMINAL = new Set([
-  'READY',
-  'FAILED',
-  'CANCELLED',
-  'completed',
-  'failed',
-  'cancelled',
-]);
+/** 상세 생성 페이지가 끝난 상태(취소는 failed). */
+const DETAIL_TERMINAL = new Set(['ready', 'failed']);
 export interface NormalizedAiDirectJobError {
   errorCode: string;
   errorMessage: string;
@@ -95,9 +89,9 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         return 'runnable';
       }
       case 'detail_page_generate': {
-        const row = await this.detailPageRepository.findCancellableGeneration({
+        const row = await this.detailPageRepository.findGenerationStatus({
           organizationId: job.organizationId,
-          generationId: job.sourceResourceId,
+          detailPageId: job.sourceResourceId,
         });
         if (!row) return 'invalid';
         if (DETAIL_TERMINAL.has(row.status)) return 'cancelled';
