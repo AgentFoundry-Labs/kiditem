@@ -21,6 +21,12 @@ export interface RegistrableThumbnailPort {
     /** 등록 대상이 고른 자산. null 이면 작업공간의 현재 대표이미지. */
     selectedThumbnailAssetId: string | null;
   }): Promise<RegistrableThumbnailView>;
+  /** `readRegistrableThumbnail` 과 같되 고른 자산도 현재 대표이미지도 없으면 null(등록 준비가 쓴다). */
+  findRegistrableThumbnail(input: {
+    organizationId: string;
+    salesProductId: string;
+    selectedThumbnailAssetId: string | null;
+  }): Promise<RegistrableThumbnailView | null>;
   /** 자산의 사진을 크기·형식 검사 뒤 data URL 로 돌려준다. */
   loadThumbnailImage(input: { organizationId: string; assetId: string }): Promise<{
     dataUrl: string;

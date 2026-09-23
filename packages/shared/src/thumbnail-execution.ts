@@ -4,12 +4,16 @@ import { zIsoDate } from './schemas/common.js';
 
 /**
  * 대표이미지를 몰에 반영하는 일은 Channels 등록 실행 하나다(`executionKind = 'thumbnail_update'`).
- * Content 는 승인된 사진만 준다 — 사진을 만든 것은 몰에 반영된 것이 아니다.
+ * 실행은 판매 상품의 대표이미지 자산 하나를 얼린다(KID-313 W3a): 요청이 자산을 고르면 그것, 아니면 등록 대상이
+ * 고른 자산, 아니면 작업공간의 현재 대표이미지. 업로드본과 AI 후보가 같은 `content_assets` 행이다.
+ * Content 는 사진만 준다 — 사진을 만든 것은 몰에 반영된 것이 아니다.
  */
 export const THUMBNAIL_UPDATE_EXECUTION_KIND = 'thumbnail_update' as const;
 
 export const ThumbnailExecutionPrepareRequestSchema = z.object({
-  generationId: z.string().uuid(),
+  salesProductId: z.string().uuid(),
+  /** 올릴 자산. 없으면 등록 대상이 고른 자산, 그것도 없으면 작업공간의 현재 대표이미지. */
+  assetId: z.string().uuid().optional(),
   /** 판매상품에 쿠팡 listing 이 여럿일 때만 고른다. */
   channelListingId: z.string().uuid().optional(),
 }).strict();
@@ -24,7 +28,8 @@ export const ThumbnailExecutionImageSchema = z.object({
 /** 확장에 넘길 것. 이 응답을 받은 순간 실행은 `executing` 이다. */
 export const ThumbnailExecutionPrepareResponseSchema = z.object({
   executionId: z.string().uuid(),
-  generationId: z.string().uuid(),
+  salesProductId: z.string().uuid(),
+  assetId: z.string().uuid(),
   productName: z.string().min(1),
   image: ThumbnailExecutionImageSchema,
 }).strict();
@@ -55,7 +60,8 @@ export type ThumbnailExecutionReportRequest = z.infer<typeof ThumbnailExecutionR
  * `status: 'reconciling'` 이고 `error` 가 운영자에게 할 일을 말한다.
  */
 export const ThumbnailExecutionResultSchema = z.object({
-  generationId: z.string().uuid(),
+  salesProductId: z.string().uuid(),
+  assetId: z.string().uuid(),
   executionId: z.string().uuid(),
   success: z.boolean(),
   status: OperationStatusSchema,
@@ -86,12 +92,13 @@ export const ThumbnailExecutionListingChoiceListSchema = z.object({
 }).strict();
 
 export const ThumbnailExecutionStatusQuerySchema = z.object({
-  generationIds: z.array(z.string().uuid()).min(1).max(200),
+  salesProductIds: z.array(z.string().uuid()).min(1).max(200),
 }).strict();
 
-/** 생성 하나의 가장 최근 반영 실행. 운영자가 치운 실패는 빠진다. */
+/** 판매 상품 하나의 가장 최근 대표이미지 반영 실행. 운영자가 치운 실패는 빠진다. */
 export const ThumbnailExecutionStatusSchema = z.object({
-  generationId: z.string().uuid(),
+  salesProductId: z.string().uuid(),
+  assetId: z.string().uuid(),
   executionId: z.string().uuid(),
   status: OperationStatusSchema,
   providerOutcome: ProviderOutcomeSchema,

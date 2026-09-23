@@ -64,26 +64,27 @@ export class ThumbnailExecutionController {
     return this.executions.markNotApplied({ organizationId, requestedByUserId: user?.id ?? null, executionId });
   }
 
-  /** 판매상품에 쿠팡 listing 이 여럿일 때 운영자가 고를 목록. */
+  /** 판매상품에 대표이미지를 받는 listing 이 여럿일 때 운영자가 고를 목록. */
   @Get('listing-choices')
   async listingChoices(
     @CurrentOrganization() organizationId: string,
-    @Query('generationId', new ParseUUIDPipe()) generationId: string,
+    @Query('salesProductId', new ParseUUIDPipe()) salesProductId: string,
   ) {
-    return { items: await this.executions.listingChoices({ organizationId, generationId }) };
+    return { items: await this.executions.listingChoices({ organizationId, salesProductId }) };
   }
 
+  /** 판매 상품마다 가장 최근 대표이미지 반영 실행. */
   @Get()
-  async listLatest(@CurrentOrganization() organizationId: string, @Query('generationIds') generationIds: string | undefined) {
+  async listLatest(@CurrentOrganization() organizationId: string, @Query('salesProductIds') salesProductIds: string | undefined) {
     const parsed = ThumbnailExecutionStatusQuerySchema.safeParse({
-      generationIds: (generationIds ?? '').split(',').map((id) => id.trim()).filter(Boolean),
+      salesProductIds: (salesProductIds ?? '').split(',').map((id) => id.trim()).filter(Boolean),
     });
     if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
-    return { items: await this.executions.listLatest({ organizationId, generationIds: parsed.data.generationIds }) };
+    return { items: await this.executions.listLatest({ organizationId, salesProductIds: parsed.data.salesProductIds }) };
   }
 
-  @Delete('failed/:generationId')
-  dismissFailed(@CurrentOrganization() organizationId: string, @Param('generationId', new ParseUUIDPipe()) generationId: string) {
-    return this.executions.dismissFailed({ organizationId, generationId });
+  @Delete('failed/:salesProductId')
+  dismissFailed(@CurrentOrganization() organizationId: string, @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string) {
+    return this.executions.dismissFailed({ organizationId, salesProductId });
   }
 }

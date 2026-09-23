@@ -30,18 +30,21 @@ import { freezeProductRegistrationPayload, type RegistrationSubmissionJson } fro
 import {
   THUMBNAIL_CONFIRMABLE_STATUSES,
   THUMBNAIL_REPORTABLE_STATUSES,
+  THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX,
   resolveThumbnailAccount,
   thumbnailConfirmationTransition,
   thumbnailProductName,
   thumbnailReportTransition,
   thumbnailUpdateIdempotencyKey,
   type ThumbnailUpdatePayload,
+  type ThumbnailUpdateSubject,
 } from '../../../domain/registration/thumbnail-update';
 
 export const SERVER_AUTOMATION_BLOCKED_MESSAGE = '스테이징/운영에서는 대표이미지를 Chrome 확장 프로그램으로만 반영할 수 있습니다.';
 const RECONCILIATION_PENDING = 'representative_image_reconciliation_pending';
 const UPLOAD_FAILED = 'representative image upload failed';
 const LISTING_BUSY_MESSAGE = '이 listing 에 반영 중인 대표이미지가 있습니다';
+const LIVE_MESSAGE = '이 대표이미지는 이미 반영 중입니다';
 export const OPERATOR_NOT_APPLIED_MESSAGE = '운영자가 반영되지 않았다고 표시함';
 
 const ACCOUNT_MESSAGES = {
@@ -51,8 +54,8 @@ const ACCOUNT_MESSAGES = {
 } as const satisfies Record<ThumbnailAccountResolutionReason, string>;
 
 /**
- * 대표이미지 몰 반영의 소유자. Content 에서 승인 사진을 받아 실행 하나를 동결하고, 확장
- * 보고나 개발 서버 runner 결과로 그 실행을 끝낸다.
+ * 대표이미지 몰 반영의 소유자. Content 에서 판매 상품의 대표이미지 자산을 받아 실행 하나를 동결하고, 확장
+ * 보고나 개발 서버 runner 결과로 그 실행을 끝낸다. 실행의 정체는 (판매 상품, 계정, 자산)이다(KID-313 W3a).
  */
 export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort {
   constructor(
@@ -65,25 +68,32 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
   async prepare(input: {
     organizationId: string;
     requestedByUserId: string | null;
-    generationId: string;
+    salesProductId: string;
+    assetId?: string;
     channelListingId?: string;
   }): Promise<ThumbnailExecutionPrepareResponse> {
-    const intent = await this.freezeIntent(input.organizationId, input.generationId, input.channelListingId ?? null);
+    const intent = await this.freezeIntent({
+      organizationId: input.organizationId,
+      salesProductId: input.salesProductId,
+      requestedAssetId: input.assetId ?? null,
+      requestedListingId: input.channelListingId ?? null,
+    });
     const created = await owned(() => this.persistence.createExecuting({
       organizationId: input.organizationId,
       requestedByUserId: input.requestedByUserId,
       channelAccountId: intent.channelAccountId,
-      idempotencyKey: thumbnailUpdateIdempotencyKey({ generationId: input.generationId, ownerIdempotencyKey: null, nonce: globalThis.crypto.randomUUID() }),
+      idempotencyKey: thumbnailUpdateIdempotencyKey({ subject: intent.subject, ownerIdempotencyKey: null, nonce: globalThis.crypto.randomUUID() }),
       ownerIdempotencyKey: null,
       requestHash: intent.payloadHash,
       payload: intent.payload,
       payloadHash: intent.payloadHash,
     }));
     if (created.mode === 'listing_conflict') throw new ChannelConflictError(LISTING_BUSY_MESSAGE);
-    if (created.mode !== 'created') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
+    if (created.mode !== 'created') throw new ChannelConflictError(LIVE_MESSAGE);
     return {
       executionId: created.executionId,
-      generationId: input.generationId,
+      salesProductId: intent.payload.salesProductId,
+      assetId: intent.payload.assetId,
       productName: intent.payload.productName,
       image: { dataUrl: intent.image.dataUrl, filename: intent.image.filename, mimeType: intent.image.mimeType },
     };
@@ -128,7 +138,8 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
   async runOnServer(input: {
     organizationId: string;
     requestedByUserId: string | null;
-    generationId: string;
+    salesProductId: string;
+    assetId?: string | null;
     owner: { ownerIdempotencyKey: string; requestHash: string } | null;
   }): Promise<ThumbnailExecutionResult> {
     // owner 키 재생이 먼저다: 운영 차단 · Content 읽기 · 계정 · 사진이 바뀌어도 기록된 영수증을 돌려준다.
@@ -136,14 +147,19 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     if (owner) {
       const recorded = await owned(() => this.persistence.findOwnerReplay({
         organizationId: input.organizationId,
-        idempotencyKey: thumbnailUpdateIdempotencyKey({ generationId: input.generationId, ownerIdempotencyKey: owner.ownerIdempotencyKey, nonce: '' }),
+        idempotencyKey: `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${owner.ownerIdempotencyKey}`,
         ownerIdempotencyKey: owner.ownerIdempotencyKey,
         requestHash: owner.requestHash,
-        generationId: input.generationId,
+        salesProductId: input.salesProductId,
       }));
       if (recorded) return replayReceipt(recorded);
     }
-    const intent = await this.freezeIntent(input.organizationId, input.generationId, null);
+    const intent = await this.freezeIntent({
+      organizationId: input.organizationId,
+      salesProductId: input.salesProductId,
+      requestedAssetId: input.assetId ?? null,
+      requestedListingId: null,
+    });
     // runner 는 그 계정 채널의 어댑터가 들고 있다. 없거나 운영에서 막혔으면 실행을 만들지 않는다.
     const runner = this.adapters.get(intent.channel).representativeImage;
     if (!runner || runner.isBlocked()) throw new ChannelUnavailableError(SERVER_AUTOMATION_BLOCKED_MESSAGE);
@@ -152,7 +168,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       requestedByUserId: input.requestedByUserId,
       channelAccountId: intent.channelAccountId,
       idempotencyKey: thumbnailUpdateIdempotencyKey({
-        generationId: input.generationId,
+        subject: intent.subject,
         ownerIdempotencyKey: input.owner?.ownerIdempotencyKey ?? null,
         nonce: globalThis.crypto.randomUUID(),
       }),
@@ -161,7 +177,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       payload: intent.payload,
       payloadHash: intent.payloadHash,
     }));
-    if (created.mode === 'live_conflict') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
+    if (created.mode === 'live_conflict') throw new ChannelConflictError(LIVE_MESSAGE);
     if (created.mode === 'listing_conflict') throw new ChannelConflictError(LISTING_BUSY_MESSAGE);
     if (created.mode === 'replay') return replayReceipt(created.execution);
 
@@ -197,10 +213,11 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     return toResult(applied.execution);
   }
 
-  async listLatest(input: { organizationId: string; generationIds: readonly string[] }): Promise<ThumbnailExecutionStatus[]> {
-    const rows = await this.persistence.findLatest({ organizationId: input.organizationId, generationIds: [...new Set(input.generationIds)] });
+  async listLatest(input: { organizationId: string; salesProductIds: readonly string[] }): Promise<ThumbnailExecutionStatus[]> {
+    const rows = await this.persistence.findLatest({ organizationId: input.organizationId, salesProductIds: [...new Set(input.salesProductIds)] });
     return rows.map((row) => ({
-      generationId: row.generationId,
+      salesProductId: row.salesProductId,
+      assetId: row.assetId,
       executionId: row.id,
       status: row.status,
       providerOutcome: row.providerOutcome,
@@ -210,13 +227,8 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     }));
   }
 
-  async listingChoices(input: { organizationId: string; generationId: string }): Promise<ThumbnailExecutionListingChoice[]> {
-    const thumbnail = await this.content.read(input);
-    const listings = await this.persistence.findListingChoices({
-      organizationId: input.organizationId,
-      salesProductId: thumbnail.salesProductId,
-      workspaceListingId: thumbnail.channelListingId,
-    });
+  async listingChoices(input: { organizationId: string; salesProductId: string }): Promise<ThumbnailExecutionListingChoice[]> {
+    const listings = await this.persistence.findListingChoices(input);
     return listings.map((listing) => ({
       channelListingId: listing.id,
       channelName: listing.channelName,
@@ -230,13 +242,14 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     if (live.mode === 'not_found') throw new ChannelNotFoundError('썸네일 반영 실행을 찾을 수 없습니다');
     if (live.mode === 'finished') throw new ChannelConflictError(`이 실행은 이미 끝났습니다(${live.status})`);
     const { payload } = live;
-    const image = await this.content.loadImage({ organizationId: input.organizationId, generationId: payload.generationId, url: payload.image.url });
-    if (payload.image.sha256 !== 'legacy' && image.sha256 !== payload.image.sha256) {
+    const image = await this.content.loadImage({ organizationId: input.organizationId, assetId: payload.assetId });
+    if (image.sha256 !== payload.image.sha256) {
       throw new ChannelConflictError('사진이 바뀌어 같은 반영을 다시 보낼 수 없습니다 — 반영 안 됨으로 표시한 뒤 새로 올리세요');
     }
     return {
       executionId: input.executionId,
-      generationId: payload.generationId,
+      salesProductId: payload.salesProductId,
+      assetId: payload.assetId,
       productName: payload.productName,
       image: { dataUrl: image.dataUrl, filename: image.filename, mimeType: image.mimeType },
     };
@@ -246,43 +259,56 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     return this.report({ ...input, report: { outcome: 'definitive_failure', error: OPERATOR_NOT_APPLIED_MESSAGE } });
   }
 
-  async dismissFailed(input: { organizationId: string; generationId: string }): Promise<{ dismissed: boolean }> {
+  async dismissFailed(input: { organizationId: string; salesProductId: string }): Promise<{ dismissed: boolean }> {
     return { dismissed: await this.persistence.dismissLatestFailed(input) };
   }
 
-  private async freezeIntent(organizationId: string, generationId: string, requestedListingId: string | null): Promise<{
+  /**
+   * 실행 하나를 얼린다: 판매 상품의 계정 · listing 을 정하고, 올릴 자산을 고른다(요청의 자산 → 그 계정 등록
+   * 대상이 고른 자산 → 작업공간의 현재 대표이미지). 자산은 Content 가 그 판매 상품의 것인지 확인한다.
+   */
+  private async freezeIntent(input: {
+    organizationId: string;
+    salesProductId: string;
+    requestedAssetId: string | null;
+    requestedListingId: string | null;
+  }): Promise<{
     channelAccountId: string;
     channel: string;
     listingExternalId: string | null;
+    subject: ThumbnailUpdateSubject;
     payload: ThumbnailUpdatePayload;
     payloadHash: string;
     image: ThumbnailImagePayload;
   }> {
-    const thumbnail: RegistrableThumbnail = await this.content.read({ organizationId, generationId });
+    const { organizationId, salesProductId } = input;
     const evidence = await owned(() => this.persistence.readAccountEvidence({
       organizationId,
-      pickedListingId: requestedListingId,
-      workspaceListingId: thumbnail.channelListingId,
-      salesProductId: thumbnail.salesProductId,
+      pickedListingId: input.requestedListingId,
+      salesProductId,
     }));
     const account = resolveThumbnailAccount(evidence);
     if (!account.ok) throw new ChannelInputError({ message: ACCOUNT_MESSAGES[account.reason], code: account.reason });
-    const productName = thumbnailProductName(evidence.listingChannelName, thumbnail.workspaceDisplayName);
+    const productName = thumbnailProductName(evidence.listingChannelName, evidence.salesProductName);
     if (!productName) throw new ChannelInputError('몰 등록 상품명을 찾을 수 없습니다');
-    const image = await this.content.loadImage({ organizationId, generationId, url: thumbnail.image.url });
+    const selectedThumbnailAssetId = input.requestedAssetId
+      ?? await this.persistence.findTargetThumbnailAssetId({ organizationId, salesProductId, channelAccountId: account.channelAccountId });
+    const thumbnail: RegistrableThumbnail = await this.content.read({ organizationId, salesProductId, selectedThumbnailAssetId });
+    const image = await this.content.loadImage({ organizationId, assetId: thumbnail.assetId });
     const frozen = freezeProductRegistrationPayload({
       kind: 'thumbnail_update',
-      generationId,
+      salesProductId,
+      assetId: thumbnail.assetId,
       contentWorkspaceId: thumbnail.contentWorkspaceId,
-      salesProductId: thumbnail.salesProductId,
       channelListingId: evidence.channelListingId,
       productName,
-      image: { url: thumbnail.image.url, assetId: thumbnail.image.assetId, sha256: image.sha256 },
+      image: { url: thumbnail.image.url, sha256: image.sha256 },
     } satisfies ThumbnailUpdatePayload as unknown as RegistrationSubmissionJson, (value) => this.integrity.sha256(value));
     return {
       channelAccountId: account.channelAccountId,
       channel: evidence.channelByAccountId[account.channelAccountId]!,
       listingExternalId: evidence.listingExternalId,
+      subject: { salesProductId, channelAccountId: account.channelAccountId, assetId: thumbnail.assetId },
       payload: frozen.payload as unknown as ThumbnailUpdatePayload,
       payloadHash: frozen.hash,
       image,
@@ -302,7 +328,8 @@ function replayReceipt(execution: ThumbnailExecutionRow): ThumbnailExecutionResu
 function toResult(row: ThumbnailExecutionRow): ThumbnailExecutionResult {
   const success = row.status === 'succeeded';
   return {
-    generationId: row.generationId,
+    salesProductId: row.salesProductId,
+    assetId: row.assetId,
     executionId: row.id,
     success,
     status: row.status,

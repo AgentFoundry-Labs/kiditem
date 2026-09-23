@@ -5,7 +5,8 @@ export const THUMBNAIL_EXECUTION_PERSISTENCE_PORT = Symbol('THUMBNAIL_EXECUTION_
 
 export type ThumbnailExecutionRow = Readonly<{
   id: string;
-  generationId: string;
+  salesProductId: string;
+  assetId: string;
   status: OperationStatus;
   providerOutcome: ProviderOutcome;
   lastErrorCode: string | null;
@@ -16,22 +17,23 @@ export type ThumbnailExecutionRow = Readonly<{
 }>;
 
 /**
- * `ProductRegistrationExecution` 중 `executionKind = 'thumbnail_update'` 행만 쓴다. 생성 id 는
- * 동결 payload(`submissionPayloadJson.generationId`)에만 있다. 같은 생성의 살아 있는 실행 검사는
- * 생성 id 로 잡은 advisory lock 안에서 한다.
+ * `ProductRegistrationExecution` 중 `executionKind = 'thumbnail_update'` 행만 쓴다(KID-313 W3a). 판매 상품 ·
+ * 자산 id 는 동결 payload(`submissionPayloadJson.salesProductId` · `.assetId`)에만 있다. 살아 있는 실행 검사는
+ * (조직, 판매 상품, 계정, 자산)으로 잡은 advisory lock 안에서 한다 — 생성 job id 는 쓰지 않는다.
  */
 export interface ThumbnailExecutionPersistencePort {
   /**
-   * 조직의 활성 쿠팡 계정과 반영할 listing. 운영자가 고른 listing 은 이 조직의 살아 있는 쿠팡
-   * listing 이면서 이 판매상품의 것이거나 작업공간 자신의 listing 이어야 한다(아니면 입력 오류).
-   * 고르지 않았으면 작업공간 listing(살아 있지 않으면 없음 오류), 없으면 판매상품의 쿠팡 listing 이다.
+   * 판매 상품과 반영할 계정 · listing. 판매 상품이 이 조직 것이 아니면 없음 오류. 운영자가 고른 listing 은
+   * 이 조직의 살아 있는 대표이미지 지원 listing 이면서 이 판매상품의 것이어야 한다(아니면 입력 오류).
+   * 고르지 않았으면 판매상품의 대표이미지 지원 listing 이다.
    */
   readAccountEvidence(input: {
     organizationId: string;
     pickedListingId: string | null;
-    workspaceListingId: string | null;
-    salesProductId: string | null;
+    salesProductId: string;
   }): Promise<{
+    /** 판매 상품 이름. listing 이름이 없을 때 몰 관리자에서 상품을 찾는 이름이다. */
+    salesProductName: string;
     listingAccountId: string | null;
     channelListingId: string | null;
     /** 반영할 listing 의 몰 상품명. 몰 관리자에서 상품을 찾는 이름이다. */
@@ -39,7 +41,7 @@ export interface ThumbnailExecutionPersistencePort {
     /** 반영할 listing 의 몰 상품 id. 없으면 null. */
     listingExternalId: string | null;
     /**
-     * 고르지 않았고 작업공간 listing 도 없을 때 판매상품의 살아 있는 listing 수(2 는 "여럿"). 대표이미지
+     * 고르지 않았을 때 판매상품의 살아 있는 listing 수(2 는 "여럿"). 대표이미지
      * 반영을 지원하는 채널(registry `representativeImage`)의 listing 만 센다.
      */
     productListingCount: number;
@@ -62,9 +64,15 @@ export interface ThumbnailExecutionPersistencePort {
     | { mode: 'created'; executionId: string }
     | { mode: 'replay'; execution: ThumbnailExecutionRow }
     | { mode: 'live_conflict' }
-    /** 동결 payload 의 listing 에 다른 생성의 살아 있는 반영이 있다(listing 도 생성과 같이 lock 한다). */
+    /** 동결 payload 의 listing 에 다른 자산의 살아 있는 반영이 있다(listing 도 같이 lock 한다). */
     | { mode: 'listing_conflict' }
   >;
+  /** 그 판매 상품 · 계정의 등록 대상이 고른 대표이미지 자산. 대상이 없거나 고르지 않았으면 null. */
+  findTargetThumbnailAssetId(input: {
+    organizationId: string;
+    salesProductId: string;
+    channelAccountId: string;
+  }): Promise<string | null>;
   /**
    * 보고를 반영한다. `acceptFrom` 에 없는 상태면 `rejected`. 사진 경로 · 외부 id 는 주어질 때만
    * 덮어쓴다(운영자 확인이 올릴 때의 스크린샷을 지우지 않게).
@@ -77,14 +85,13 @@ export interface ThumbnailExecutionPersistencePort {
     screenshotPath: string | null;
     externalId: string | null;
   }): Promise<{ mode: 'applied'; execution: ThumbnailExecutionRow } | { mode: 'rejected'; status: OperationStatus } | { mode: 'not_found' }>;
-  /** 판매상품(없으면 작업공간 listing)의 살아 있는 쿠팡 listing. 운영자가 고를 목록이다. */
+  /** 판매상품의 살아 있는 대표이미지 지원 listing. 운영자가 고를 목록이다. */
   findListingChoices(input: {
     organizationId: string;
-    salesProductId: string | null;
-    workspaceListingId: string | null;
+    salesProductId: string;
   }): Promise<Array<{ id: string; channelName: string | null; channelAccountName: string; externalId: string }>>;
   /**
-   * owner 키로 이미 만든 실행. 없으면 null, 같은 키가 다른 생성 · 요청 해시로 쓰였으면 충돌을 던진다.
+   * owner 키로 이미 만든 실행. 없으면 null, 같은 키가 다른 판매 상품 · 요청 해시로 쓰였으면 충돌을 던진다.
    * 재생은 Content 읽기 · 계정 결정 · 사진 읽기 · 운영 차단보다 먼저 답한다.
    */
   findOwnerReplay(input: {
@@ -92,7 +99,7 @@ export interface ThumbnailExecutionPersistencePort {
     idempotencyKey: string;
     ownerIdempotencyKey: string;
     requestHash: string;
-    generationId: string;
+    salesProductId: string;
   }): Promise<ThumbnailExecutionRow | null>;
   /** 살아 있는 실행의 동결 payload. 끝난 실행은 그 상태를, 없으면 `not_found`. */
   readLivePayload(input: { organizationId: string; executionId: string }): Promise<
@@ -100,6 +107,7 @@ export interface ThumbnailExecutionPersistencePort {
     | { mode: 'finished'; status: OperationStatus }
     | { mode: 'not_found' }
   >;
-  findLatest(input: { organizationId: string; generationIds: readonly string[] }): Promise<ThumbnailExecutionRow[]>;
-  dismissLatestFailed(input: { organizationId: string; generationId: string }): Promise<boolean>;
+  /** 판매 상품마다 가장 최근 실행. 운영자가 치운 실패는 빠진다. */
+  findLatest(input: { organizationId: string; salesProductIds: readonly string[] }): Promise<ThumbnailExecutionRow[]>;
+  dismissLatestFailed(input: { organizationId: string; salesProductId: string }): Promise<boolean>;
 }

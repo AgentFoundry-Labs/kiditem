@@ -13,7 +13,9 @@ export type RepresentativeImageCapabilityResult =
 export interface ChannelsRepresentativeImageCapabilityPort {
   submitRepresentativeImage(input: {
     organizationId: string;
-    generationId: string;
+    /** 대표이미지를 올릴 판매 상품. 자산을 고르지 않으면 등록 대상이 고른 자산, 없으면 작업공간의 현재 대표이미지. */
+    salesProductId: string;
+    assetId?: string;
     triggeredByUserId?: string | null;
     ownerIdempotencyKey: string;
     requestHash: string;

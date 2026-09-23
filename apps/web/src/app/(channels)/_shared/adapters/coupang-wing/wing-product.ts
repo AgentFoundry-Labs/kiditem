@@ -172,7 +172,8 @@ export function salesProductToWingProduct(
 
 /**
  * 등록 실행의 WING 상품. 상품 사실은 실행이 얼린 판매상품에서, WING 값은 쿠팡 채널 어댑터가 준비 때 얼린
- * `adapterPayload.wingProduct`(등록 대상에 저장된 값 + 이름 + 업체상품코드)에서 온다. 얼린 문서에 없는 WING
+ * `adapterPayload.wingProduct`(등록 대상에 저장된 값 + 이름 + 업체상품코드)에서, 대표이미지는 실행이 얼린
+ * `adapterPayload.representativeImage` 에서 온다. 얼린 문서에 없는 WING
  * 값(등록 마법사처럼 확인 창을 거치지 않은 실행)만 실행 값(`values`)에서 채운다.
  */
 export function wingProductForExecution(
@@ -186,6 +187,9 @@ export function wingProductForExecution(
   const baseVariant = base.variants[0]!;
   const vendorItemCode = text(frozenVariant.vendorItemCode) || text(snapshot.adapterPayload.vendorItemCode)
     || baseVariant.vendorItemCode;
+  // 등록 실행이 얼린 대표이미지 자산(작업공간이 고른 업로드본 · AI 후보, KID-313 W3a)이 판매상품 사진 첫 장보다 이긴다.
+  const representativeImageUrl = text(record(snapshot.adapterPayload.representativeImage).url)
+    || baseVariant.representativeImageUrl;
   return {
     ...base,
     categoryCell: text(frozen.categoryCell) || base.categoryCell,
@@ -197,6 +201,7 @@ export function wingProductForExecution(
         ? { purchaseOptions: frozenVariant.purchaseOptions as WingOption[] }
         : {}),
       ...(typeof frozenVariant.stock === 'number' ? { stock: frozenVariant.stock } : {}),
+      representativeImageUrl,
       ...(vendorItemCode ? { vendorItemCode } : {}),
     }],
   };

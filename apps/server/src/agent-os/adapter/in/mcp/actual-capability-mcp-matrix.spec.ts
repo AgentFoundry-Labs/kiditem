@@ -175,7 +175,7 @@ const scenarios: readonly InvocationScenario[] = [
   scenario('channels.start_target_execution', 'channels.startTargetExecution', 'medium', {
     executionId: OPERATION_ID,
   }, targetExecutionResult),
-  scenario('channels.submit_representative_image', 'channels.submitRepresentativeImage', 'high', { generationId: 'generation-1' }, {
+  scenario('channels.submit_representative_image', 'channels.submitRepresentativeImage', 'high', { salesProductId: 'sales-product-1' }, {
     success: true,
     status: 'succeeded',
     screenshotPath: null,

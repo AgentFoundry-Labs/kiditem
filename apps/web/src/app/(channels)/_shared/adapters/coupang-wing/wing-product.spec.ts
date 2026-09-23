@@ -176,6 +176,17 @@ describe('등록 실행의 WING 상품', () => {
     });
   });
 
+  it('등록 실행이 얼린 대표이미지 자산이 있으면 그 사진이 WING 대표이미지다(KID-313 W3a)', () => {
+    const frozen = wingProductForExecution(snapshot({
+      wingProduct: { productName: '이름' },
+      representativeImage: { assetId: '22222222-2222-4222-8222-222222222222', url: 'https://storage.example/adopted.png' },
+    }), { wingCategoryKey: '64687' });
+    expect(frozen.variants[0]?.representativeImageUrl).toBe('https://storage.example/adopted.png');
+
+    const withoutAsset = wingProductForExecution(snapshot({ wingProduct: { productName: '이름' } }), { wingCategoryKey: '64687' });
+    expect(withoutAsset.variants[0]?.representativeImageUrl).toBe('https://img.example/rep.jpg');
+  });
+
   it('얼린 WING 상품에 카테고리가 없으면 실행 값의 카테고리를 쓴다(등록 마법사)', () => {
     const wing = wingProductForExecution(snapshot({ wingProduct: { productName: '이름' }, vendorItemCode: 'KID-1' }), {
       wingCategoryKey: '64687',

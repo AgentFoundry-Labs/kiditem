@@ -7,9 +7,11 @@ import {
   type RegistrableThumbnailRepositoryPort,
 } from '../port/out/repository/registrable-thumbnail.repository.port';
 import { MAX_FETCH_BYTES, parseDataImageUrl } from '../../domain/thumbnail-image-source';
-import { pickRegistrationImageUrl } from '../../domain/registrable-thumbnail';
 
-/** 승인된 생성 썸네일과 그 사진을 내준다. 몰 반영 실행은 Channels 가 한다. */
+/**
+ * 몰에 올릴 대표이미지 자산과 그 사진을 내준다(KID-313 W3a). 열쇠는 판매 상품과 고른 자산이고, 고르지 않았으면
+ * 작업공간의 현재 대표이미지다. 몰 반영 실행은 Channels 가 한다.
+ */
 @Injectable()
 export class RegistrableThumbnailService implements RegistrableThumbnailPort {
   constructor(
@@ -19,38 +21,51 @@ export class RegistrableThumbnailService implements RegistrableThumbnailPort {
     private readonly imageFetcher: ImageFetchPort,
   ) {}
 
-  async readRegistrableThumbnail(input: { organizationId: string; generationId: string }): Promise<RegistrableThumbnailView> {
-    const { organizationId, generationId } = input;
-    const generation = await this.repository.findGeneration(generationId, organizationId);
-    if (!generation) throw new NotFoundException(`ThumbnailGeneration ${generationId} not found`);
+  async readRegistrableThumbnail(input: {
+    organizationId: string;
+    salesProductId: string;
+    selectedThumbnailAssetId: string | null;
+  }): Promise<RegistrableThumbnailView> {
+    const found = await this.findRegistrableThumbnail(input);
+    if (!found) throw new NotFoundException('이 판매 상품에 대표이미지가 없습니다 — 대표이미지를 먼저 고르세요');
+    return found;
+  }
 
-    const url = pickRegistrationImageUrl(generation);
-    if (!url) throw new NotFoundException('Generation not found or no selected image');
-
-    const workspace = await this.repository.findRegistrableWorkspace(generation.contentWorkspaceId, organizationId);
-    if (!workspace) throw new NotFoundException(`ContentWorkspace ${generation.contentWorkspaceId} not found`);
-
+  async findRegistrableThumbnail(input: {
+    organizationId: string;
+    salesProductId: string;
+    selectedThumbnailAssetId: string | null;
+  }): Promise<RegistrableThumbnailView | null> {
+    const found = await this.repository.findRegistrableAsset({
+      organizationId: input.organizationId,
+      salesProductId: input.salesProductId,
+      assetId: input.selectedThumbnailAssetId,
+    });
+    if (found.mode === 'foreign_asset') {
+      throw new BadRequestException('고른 대표이미지가 이 판매 상품의 이미지가 아닙니다');
+    }
+    if (found.mode === 'none') return null;
     return {
-      generationId,
-      contentWorkspaceId: generation.contentWorkspaceId,
-      salesProductId: workspace.salesProductId,
-      channelListingId: workspace.channelListingId,
-      workspaceDisplayName: workspace.displayName,
-      image: { url, assetId: url === generation.selectedUrl ? generation.selectedAssetId : null },
+      assetId: found.asset.assetId,
+      contentWorkspaceId: found.asset.contentWorkspaceId,
+      salesProductId: input.salesProductId,
+      image: { url: found.asset.url, sha256: null },
     };
   }
 
-  async loadThumbnailImage(input: { organizationId: string; generationId: string; url: string }) {
-    const inline = parseDataImageUrl(input.url);
+  async loadThumbnailImage(input: { organizationId: string; assetId: string }) {
+    const url = await this.repository.findAssetUrl(input);
+    if (!url) throw new NotFoundException(`ContentAsset ${input.assetId} not found`);
+    const inline = parseDataImageUrl(url);
     const image = inline
       ? { buffer: Buffer.from(inline.base64, 'base64'), mimeType: inline.mimeType }
-      : await this.imageFetcher.fetchTrustedStorageImage(input.url);
+      : await this.imageFetcher.fetchTrustedStorageImage(url);
     this.imageFetcher.assertSupportedMime(image.mimeType);
     if (image.buffer.length > MAX_FETCH_BYTES) throw new BadRequestException('image too large');
     const ext = this.imageFetcher.extForMime(image.mimeType);
     return {
-      dataUrl: inline ? input.url : `data:${image.mimeType};base64,${image.buffer.toString('base64')}`,
-      filename: `${input.generationId}.${ext}`,
+      dataUrl: inline ? url : `data:${image.mimeType};base64,${image.buffer.toString('base64')}`,
+      filename: `${input.assetId}.${ext}`,
       mimeType: image.mimeType,
       sha256: createHash('sha256').update(image.buffer).digest('hex'),
     };

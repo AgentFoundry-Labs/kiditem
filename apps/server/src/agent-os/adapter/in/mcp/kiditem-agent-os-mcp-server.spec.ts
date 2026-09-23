@@ -225,7 +225,7 @@ describe('KidItem stateless capability MCP server', () => {
           capabilityKey: MUTATION_RESULT_CAPABILITY,
           requestKey: 'wing-thumbnail-1',
           actingAgentKey: 'merchandising',
-          input: { generationId: '00000000-0000-4000-8000-000000000005' },
+          input: { salesProductId: '00000000-0000-4000-8000-000000000005' },
         },
       });
 

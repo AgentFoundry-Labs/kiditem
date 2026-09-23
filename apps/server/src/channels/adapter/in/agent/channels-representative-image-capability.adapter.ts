@@ -21,14 +21,18 @@ export class ChannelsRepresentativeImageCapabilityAdapter
 
   submitRepresentativeImage(input: {
     organizationId: string;
-    generationId: string;
+    salesProductId: string;
+    assetId?: string;
     triggeredByUserId?: string | null;
     ownerIdempotencyKey: string;
     requestHash: string;
   }): Promise<RepresentativeImageCapabilityResult> {
     if (
       !/^capability-invocation:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.ownerIdempotencyKey)
-      || input.requestHash !== canonicalOwnerInputHash({ generationId: input.generationId })
+      || input.requestHash !== canonicalOwnerInputHash({
+        salesProductId: input.salesProductId,
+        ...(input.assetId ? { assetId: input.assetId } : {}),
+      })
     ) {
       throw new Error('owner_idempotency_key_conflict');
     }
@@ -37,7 +41,8 @@ export class ChannelsRepresentativeImageCapabilityAdapter
 
   private async run(input: {
     organizationId: string;
-    generationId: string;
+    salesProductId: string;
+    assetId?: string;
     triggeredByUserId?: string | null;
     ownerIdempotencyKey: string;
     requestHash: string;
@@ -45,7 +50,8 @@ export class ChannelsRepresentativeImageCapabilityAdapter
     const result = await this.executions.runOnServer({
       organizationId: input.organizationId,
       requestedByUserId: input.triggeredByUserId ?? null,
-      generationId: input.generationId,
+      salesProductId: input.salesProductId,
+      assetId: input.assetId ?? null,
       owner: { ownerIdempotencyKey: input.ownerIdempotencyKey, requestHash: input.requestHash },
     });
     if (result.success) return { success: true, status: 'succeeded', screenshotPath: result.screenshotPath };

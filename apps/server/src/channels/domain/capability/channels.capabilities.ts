@@ -11,14 +11,15 @@ export const CHANNELS_CAPABILITIES = [
     ownerDomain: "channels",
     ownerInputPort: "channels.submitRepresentativeImage",
     description:
-      "Put one approved generated thumbnail (by generationId) into the representative-image slot of the product's " +
+      "Put the representative image of one sales product (salesProductId; optional assetId, else the registration " +
+      "target's chosen image, else the product's current representative image) into the representative-image slot of the product's " +
       "listing edit form on a channel that supports representative images. It does not press save: the result is " +
       "success=false with status awaiting_operator_confirmation and a screenshot path until the operator saves it in " +
       "the mall admin and confirms it in the KidItem web app, after which a replay returns success=true with status " +
-      "succeeded. Use it only for a thumbnail the operator already approved; it does not generate images, and a " +
+      "succeeded. Use it only for an image the operator already chose; it does not generate images, and a " +
       "rejected or unknown mall result is not success.",
     resultSummary: "대표 이미지를 몰 상품 수정 화면에 올렸습니다 — 운영자가 몰에서 저장을 확인하면 반영됩니다.",
-    inputSchema: z.object({ generationId: Identifier }).strict(),
+    inputSchema: z.object({ salesProductId: Identifier, assetId: Identifier.optional() }).strict(),
     outputSchema: z
       .object({
         success: z.boolean(),

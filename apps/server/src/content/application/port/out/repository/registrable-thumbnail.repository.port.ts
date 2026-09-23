@@ -1,21 +1,26 @@
 export const REGISTRABLE_THUMBNAIL_REPOSITORY_PORT = Symbol('REGISTRABLE_THUMBNAIL_REPOSITORY_PORT');
 
-export interface RegistrableThumbnailGenerationRow {
+/** 몰에 올릴 대표이미지 자산 한 행과 그 판매 상품 작업공간(KID-313 W3a). */
+export interface RegistrableThumbnailAssetRow {
+  assetId: string;
   contentWorkspaceId: string;
-  selectedUrl: string | null;
-  candidates: Array<{ url: string | null }>;
-  /** 이 생성에서 고른 관리 사진 자산(가장 최근 선택). 없으면 null. */
-  selectedAssetId: string | null;
-}
-
-export interface RegistrableThumbnailWorkspaceRow {
-  displayName: string;
-  salesProductId: string | null;
-  channelListingId: string | null;
+  url: string;
 }
 
 export interface RegistrableThumbnailRepositoryPort {
-  findGeneration(generationId: string, organizationId: string): Promise<RegistrableThumbnailGenerationRow | null>;
-  /** 활성 작업공간. listing 이 살아 있는지는 Channels 가 본다. */
-  findRegistrableWorkspace(contentWorkspaceId: string, organizationId: string): Promise<RegistrableThumbnailWorkspaceRow | null>;
+  /**
+   * 판매 상품의 활성 작업공간에서 올릴 자산. `assetId` 가 있으면 그 작업공간의 살아 있는 자산이어야 하고
+   * (아니면 `foreign_asset`), 없으면 작업공간의 현재 대표이미지다(없으면 `none`). 작업공간이 없어도 `none` 이다.
+   */
+  findRegistrableAsset(input: {
+    organizationId: string;
+    salesProductId: string;
+    assetId: string | null;
+  }): Promise<
+    | { mode: 'found'; asset: RegistrableThumbnailAssetRow }
+    | { mode: 'none' }
+    | { mode: 'foreign_asset' }
+  >;
+  /** 조직의 살아 있는 자산 URL(사진 읽기용). */
+  findAssetUrl(input: { organizationId: string; assetId: string }): Promise<string | null>;
 }

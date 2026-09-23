@@ -47,20 +47,30 @@ interface ExtensionRepresentativeImageResponse {
  * 확장이 실패라고 답하면(로그인 대기 포함) 아무것도 올라가지 않은 것이라 `definitive_failure`,
  * 확장과의 통신 자체가 끊기면 올라갔는지 모르므로 `uncertain` 으로 보고한다.
  */
+/**
+ * 올릴 대표이미지(KID-313 W3a). 판매 상품과, 고른 자산이 있으면 그 자산 — 없으면 서버가 등록 대상이 고른 자산,
+ * 그것도 없으면 작업공간의 현재 대표이미지를 쓴다.
+ */
+export interface RepresentativeImageSubject {
+  salesProductId: string;
+  assetId?: string | null;
+}
+
 export async function submitRepresentativeImageViaExtension(
-  generationId: string,
+  subject: RepresentativeImageSubject,
   options: { channelListingId?: string } = {},
 ): Promise<RepresentativeImageExecutionResult> {
   const extensionId = await requireExtension();
   let prepared: ThumbnailExecutionPrepareResponse;
   try {
     prepared = await apiClient.post<ThumbnailExecutionPrepareResponse>('/api/channels/thumbnail-executions', {
-      generationId,
+      salesProductId: subject.salesProductId,
+      ...(subject.assetId ? { assetId: subject.assetId } : {}),
       ...(options.channelListingId ? { channelListingId: options.channelListingId } : {}),
     });
   } catch (error) {
     if (isApiError(error) && error.details.code === THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE) {
-      throw new ListingChoiceRequiredError(generationId, error.detail);
+      throw new ListingChoiceRequiredError(subject.salesProductId, error.detail);
     }
     throw error;
   }
@@ -69,16 +79,16 @@ export async function submitRepresentativeImageViaExtension(
 
 /** 판매상품에 대표이미지를 받는 채널의 리스팅이 여럿이라 운영자가 하나를 골라야 한다. 확장에는 아무것도 보내지 않았다. */
 export class ListingChoiceRequiredError extends Error {
-  constructor(readonly generationId: string, message: string) {
+  constructor(readonly salesProductId: string, message: string) {
     super(message);
     this.name = 'ListingChoiceRequiredError';
   }
 }
 
-/** 운영자가 고를 수 있는 이 생성의 리스팅. */
-export async function fetchRepresentativeImageListingChoices(generationId: string): Promise<ThumbnailExecutionListingChoice[]> {
+/** 운영자가 고를 수 있는 이 판매 상품의 리스팅. */
+export async function fetchRepresentativeImageListingChoices(salesProductId: string): Promise<ThumbnailExecutionListingChoice[]> {
   const response = await apiClient.get<{ items: ThumbnailExecutionListingChoice[] }>(
-    `/api/channels/thumbnail-executions/listing-choices?generationId=${encodeURIComponent(generationId)}`,
+    `/api/channels/thumbnail-executions/listing-choices?salesProductId=${encodeURIComponent(salesProductId)}`,
   );
   return response?.items ?? [];
 }
@@ -115,7 +125,7 @@ export function representativeImageUploadedMessage(
   return `${screen} ${what} — 저장한 뒤 반영됨으로 표시하세요`;
 }
 
-/** 운영자의 "반영 안 됨으로 표시". 같은 생성에 새 반영을 열어 준다. */
+/** 운영자의 "반영 안 됨으로 표시". 같은 자산에 새 반영을 열어 준다. */
 export function markRepresentativeImageNotApplied(executionId: string): Promise<RepresentativeImageExecutionResult> {
   return apiClient.post<RepresentativeImageExecutionResult>(`/api/channels/thumbnail-executions/${executionId}/not-applied`, {});
 }
@@ -132,7 +142,8 @@ async function uploadAndReport(extensionId: string, prepared: ThumbnailExecution
     extensionResult = await sendToExtension<ExtensionRepresentativeImageResponse>(extensionId, {
       action: 'registerRepresentativeImage',
       attemptId: prepared.executionId,
-      generationId: prepared.generationId,
+      salesProductId: prepared.salesProductId,
+      assetId: prepared.assetId,
       productName: prepared.productName,
       image: prepared.image,
     });
