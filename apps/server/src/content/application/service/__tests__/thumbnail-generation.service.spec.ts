@@ -8,16 +8,11 @@ const WORKSPACE_ID = '22222222-2222-2222-8222-222222222222';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
 
 const mocks = vi.hoisted(() => ({
-  toThumbnailGenerationItem: vi.fn(),
   resolveWorkspaceThumbnailSource: vi.fn(),
 }));
 
 vi.mock('../../../domain/thumbnail-workspace-source', () => ({
   resolveWorkspaceThumbnailSource: mocks.resolveWorkspaceThumbnailSource,
-}));
-
-vi.mock('../../../domain/thumbnail-generation.mapper', () => ({
-  toThumbnailGenerationItem: mocks.toThumbnailGenerationItem,
 }));
 
 function makeGenerationJobsStub() {
@@ -38,7 +33,6 @@ function makeLedgerStub(): ThumbnailGenerationLedgerRepositoryPort {
         thumbnailUrl: null,
         category: null,
         images: [],
-        thumbnailAnalyses: [],
       }]]),
     ),
     findActiveJobForWorkspace: vi.fn().mockResolvedValue(null),
@@ -46,6 +40,14 @@ function makeLedgerStub(): ThumbnailGenerationLedgerRepositoryPort {
       id: GENERATION_ID,
       contentWorkspaceId: WORKSPACE_ID,
       status: 'pending',
+      method: 'generate',
+      prompt: null,
+      inputMeta: {},
+      errorMessage: null,
+      attemptCount: 0,
+      triggeredByUserId: USER_ID,
+      createdAt: new Date('2026-09-23T00:00:00Z'),
+      updatedAt: new Date('2026-09-23T00:00:00Z'),
     }),
     cancelDirectGeneration: vi.fn().mockResolvedValue({
       status: 'cancelled',
@@ -55,7 +57,6 @@ function makeLedgerStub(): ThumbnailGenerationLedgerRepositoryPort {
     findGenerationProjectionStatus: vi.fn().mockResolvedValue({
       id: GENERATION_ID,
       status: 'running',
-      phase: 'processing',
       inputMeta: null,
       errorMessage: null,
     }),
@@ -64,20 +65,10 @@ function makeLedgerStub(): ThumbnailGenerationLedgerRepositoryPort {
 
 function makeService(ledger: ThumbnailGenerationLedgerRepositoryPort = makeLedgerStub()) {
   const generationJobs = makeGenerationJobsStub();
-  const lifecycle = {
-    recordStatusChange: vi.fn().mockResolvedValue(undefined),
-  };
-  const trackingService = { create: vi.fn().mockResolvedValue(undefined) };
   return {
     ledger,
     generationJobs,
-    lifecycle,
-    service: new ThumbnailGenerationService(
-      ledger,
-      trackingService as never,
-      generationJobs as never,
-      lifecycle as never,
-    ),
+    service: new ThumbnailGenerationService(ledger, {} as never, generationJobs as never),
   };
 }
 
@@ -88,18 +79,15 @@ describe('ThumbnailGenerationService', () => {
     vi.clearAllMocks();
     setImmediateSpy = vi.spyOn(globalThis, 'setImmediate').mockImplementation(() => 0 as never);
     mocks.resolveWorkspaceThumbnailSource.mockReturnValue('https://cdn.example.com/source.jpg');
-    mocks.toThumbnailGenerationItem.mockReturnValue({
-      id: GENERATION_ID,
-      contentWorkspaceId: WORKSPACE_ID,
-    });
   });
 
   afterEach(() => setImmediateSpy.mockRestore());
 
   it('opens and schedules an editor job owned by its ContentWorkspace', async () => {
-    const { service, ledger, generationJobs, lifecycle } = makeService();
+    const { service, ledger, generationJobs } = makeService();
 
-    await service.createEditJobs([WORKSPACE_ID], ORGANIZATION_ID, 'compliance', 'auto', USER_ID);
+    await expect(service.createEditJobs([WORKSPACE_ID], ORGANIZATION_ID, 'compliance', 'auto', USER_ID))
+      .resolves.toEqual([expect.objectContaining({ id: GENERATION_ID, status: 'pending', contentWorkspaceId: WORKSPACE_ID })]);
 
     expect(ledger.openPendingEditorJob).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORGANIZATION_ID,
@@ -112,10 +100,6 @@ describe('ThumbnailGenerationService', () => {
       'compliance',
       'auto',
     );
-    expect(lifecycle.recordStatusChange).toHaveBeenCalledWith(expect.objectContaining({
-      generationId: GENERATION_ID,
-      toStatus: 'pending',
-    }));
   });
 
   it('cancels the direct job and generation atomically through the thumbnail owner', async () => {
@@ -135,8 +119,6 @@ describe('ThumbnailGenerationService', () => {
       organizationId: ORGANIZATION_ID,
       generationId: GENERATION_ID,
       reason: '사용자 요청',
-      actorUserId: USER_ID,
-      payload: { reason: '사용자 요청' },
     });
   });
 });

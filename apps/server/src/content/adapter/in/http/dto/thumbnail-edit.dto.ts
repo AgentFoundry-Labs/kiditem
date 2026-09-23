@@ -4,6 +4,7 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 
@@ -41,14 +42,9 @@ export class ReEditDto {
   variantKey?: 'auto' | 'with-box' | 'no-box';
 }
 
-export class SelectCandidateDto {
-  @IsString()
-  selectedUrl!: string;
-}
-
 export class DeleteCandidateDto {
-  @IsString()
-  url!: string;
+  @IsUUID()
+  assetId!: string;
 }
 
 export class CancelThumbnailGenerationDto {

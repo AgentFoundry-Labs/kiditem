@@ -6,70 +6,28 @@ import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
 import { readProductAbcPublication } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import type { PrismaService } from '../../../../prisma/prisma.service';
-import type { GenerationWorkspaceSummary, GenerationRow } from '../../../domain/thumbnail-generation.mapper';
 import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-generation-subject';
-import type { ThumbnailAnalysisContext } from '../../../domain/thumbnail-generation-inputs';
-
-export const THUMBNAIL_ANALYSIS_SELECT = {
-  recompose: true,
-  complianceGrade: true,
-  complianceScores: true,
-  overallScore: true,
-  grade: true,
-  qualityAnalyzedAt: true,
-  complianceAnalyzedAt: true,
-} satisfies Prisma.ThumbnailAnalysisSelect;
-
-export function generationInclude(organizationId: string): Prisma.ThumbnailGenerationInclude {
-  return {
-    candidates: {
-      where: { organizationId },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-    },
-  };
-}
-
-export function inputImagesInclude(organizationId: string): Prisma.ThumbnailGeneration$inputImagesArgs {
-  return {
-    where: { organizationId },
-    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-  };
-}
-
-export function candidatesInclude(organizationId: string): Prisma.ThumbnailGeneration$candidatesArgs {
-  return {
-    where: { organizationId },
-    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-  };
-}
+import type {
+  ThumbnailGenerationWorkspaceSummary as GenerationWorkspaceSummary,
+  ThumbnailJobRow,
+} from '../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
+import { thumbnailJobSelect } from './thumbnail-generation-ledger.persistence';
 
 const workspaceContextSelect = {
   id: true,
   organizationId: true,
-  displayName: true,
-  currentThumbnailSelection: {
-    select: { contentAsset: { select: { url: true } } },
-  },
-  // The workspace's own managed gallery replaces the sourcing-candidate images
-  // it used to borrow: Sourcing is no longer reachable from an AI row.
-  contentGenerationGroups: {
-    where: { groupType: 'workspace_assets' },
-    take: 1,
-    select: {
-      originatingAssets: {
-        where: { isDeleted: false, assetType: 'image' },
-        orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
-        take: 20,
-        select: { url: true, role: true, sortOrder: true },
-      },
-    },
+  normalizedTitle: true,
+  currentThumbnailAsset: { select: { url: true, isDeleted: true } },
+  // The workspace's own managed images replace the sourcing-candidate images
+  // it used to borrow: Sourcing is no longer reachable from an AI row. AI
+  // candidates that were not adopted are not source photos.
+  assets: {
+    where: { isDeleted: false, assetType: 'image', source: { in: ['upload', 'catalog'] } },
+    orderBy: [{ sortOrder: 'asc' as const }, { id: 'asc' as const }],
+    take: 20,
+    select: { url: true, role: true, sortOrder: true },
   },
   channelListingId: true,
-  thumbnailAnalyses: {
-    orderBy: { updatedAt: 'desc' as const },
-    take: 1,
-    select: THUMBNAIL_ANALYSIS_SELECT,
-  },
 } satisfies Prisma.ContentWorkspaceSelect;
 
 type WorkspaceContextRow = Prisma.ContentWorkspaceGetPayload<{
@@ -88,7 +46,6 @@ export interface ThumbnailJobWorkspaceRow {
     sortOrder: number;
     isPrimary: boolean;
   }>;
-  thumbnailAnalyses: ThumbnailAnalysisContext[];
 }
 
 export type EditorProductRow = {
@@ -99,12 +56,17 @@ export type EditorProductRow = {
   organizationId: string;
 };
 
+/**
+ * 목록 · 프롬프트에 쓰는 작업공간 이름. 직접 작업공간은 제목, 리스팅 작업공간은 몰이 보여주는 이름이다.
+ * 판매 상품 작업공간은 이름을 갖지 않는다 — 호출자가 요청의 상품명을 쓴다(AI 는 Channels 행으로 이름을 채우지 않는다).
+ */
 function workspaceName(workspace: WorkspaceContextRow): string {
   return (
-    workspace.displayName ||
+    workspace.channelListing?.displayName ||
     workspace.channelListing?.displayName ||
     workspace.channelListing?.channelName ||
     workspace.channelListing?.externalId ||
+    (workspace.normalizedTitle?.startsWith('standalone-thumbnail-') ? '' : workspace.normalizedTitle) ||
     ''
   );
 }
@@ -115,7 +77,7 @@ function workspaceAssets(workspace: WorkspaceContextRow): Array<{
   sortOrder: number;
   isPrimary: boolean;
 }> {
-  return (workspace.contentGenerationGroups[0]?.originatingAssets ?? []).map((asset, index) => ({
+  return workspace.assets.map((asset, index) => ({
     url: asset.url,
     role: asset.role ?? 'product',
     sortOrder: asset.sortOrder,
@@ -123,9 +85,14 @@ function workspaceAssets(workspace: WorkspaceContextRow): Array<{
   }));
 }
 
+function currentThumbnailUrl(workspace: WorkspaceContextRow): string | null {
+  const asset = workspace.currentThumbnailAsset;
+  return asset && !asset.isDeleted ? asset.url : null;
+}
+
 function workspaceImageUrl(workspace: WorkspaceContextRow): string | null {
   return (
-    workspace.currentThumbnailSelection?.contentAsset.url ??
+    currentThumbnailUrl(workspace) ??
     workspaceAssets(workspace)[0]?.url ??
     workspace.channelListing?.thumbnails[0]?.imageUrl ??
     null
@@ -133,7 +100,7 @@ function workspaceImageUrl(workspace: WorkspaceContextRow): string | null {
 }
 
 function toThumbnailJobWorkspace(workspace: WorkspaceContextRow): ThumbnailJobWorkspaceRow {
-  const selectedUrl = workspace.currentThumbnailSelection?.contentAsset.url;
+  const selectedUrl = currentThumbnailUrl(workspace);
   const images = selectedUrl
     ? [{ url: selectedUrl, role: 'thumbnail', sortOrder: 0, isPrimary: true }]
     : workspaceAssets(workspace);
@@ -145,7 +112,6 @@ function toThumbnailJobWorkspace(workspace: WorkspaceContextRow): ThumbnailJobWo
     thumbnailUrl: imageUrl,
     category: workspace.channelListing?.category ?? null,
     images,
-    thumbnailAnalyses: workspace.thumbnailAnalyses as unknown as ThumbnailAnalysisContext[],
   };
 }
 
@@ -212,18 +178,6 @@ export async function findGenerationWorkspaces(
   );
 }
 
-export async function findGenerationWorkspace(
-  prisma: PrismaService,
-  contentWorkspaceId: string | null,
-  organizationId: string,
-  listings: ChannelListingQueryPort,
-): Promise<GenerationWorkspaceSummary | null> {
-  if (!contentWorkspaceId) return null;
-  return (
-    (await findGenerationWorkspaces(prisma, [{ contentWorkspaceId }], organizationId, listings)).get(contentWorkspaceId) ?? null
-  );
-}
-
 export async function findWorkspaceForThumbnailJob(
   prisma: PrismaService,
   contentWorkspaceId: string,
@@ -252,7 +206,7 @@ export async function findGenerationRows(
     scope?: ThumbnailGenerationListScope;
     limit?: number | null;
   } = {},
-): Promise<GenerationRow[]> {
+): Promise<ThumbnailJobRow[]> {
   const limit = opts.limit ? Math.min(Math.max(opts.limit, 1), 100) : undefined;
   const ownerFilter: Prisma.ThumbnailGenerationWhereInput = opts.contentWorkspaceId
     ? { contentWorkspaceId: opts.contentWorkspaceId }
@@ -261,62 +215,43 @@ export async function findGenerationRows(
       : opts.scope === 'direct-upload'
         ? { contentWorkspace: { is: { ownerType: 'direct_detail_page' } } }
         : { contentWorkspace: { is: { ownerType: { not: 'direct_detail_page' } } } };
-  const rows = await prisma.thumbnailGeneration.findMany({
+  return prisma.thumbnailGeneration.findMany({
     where: { organizationId, isDeleted: false, ...ownerFilter },
     orderBy: { createdAt: 'desc' },
     ...(limit ? { take: limit } : {}),
-    include: generationInclude(organizationId),
+    select: thumbnailJobSelect,
   });
-  return rows as unknown as GenerationRow[];
 }
 
 export async function findGenerationOrThrow(
   prisma: PrismaService,
   id: string,
   organizationId: string,
-): Promise<GenerationRow> {
+): Promise<ThumbnailJobRow> {
   const row = await prisma.thumbnailGeneration.findFirst({
     where: { id, organizationId, isDeleted: false },
-    include: generationInclude(organizationId),
-  });
-  if (!row) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-  return row as unknown as GenerationRow;
-}
-
-export async function findGenerationWithCandidatesOrThrow(prisma: PrismaService, id: string, organizationId: string) {
-  const row = await prisma.thumbnailGeneration.findFirst({
-    where: { id, organizationId, isDeleted: false },
-    include: { candidates: candidatesInclude(organizationId) },
+    select: thumbnailJobSelect,
   });
   if (!row) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
   return row;
 }
 
-export async function findGenerationWithInputImages(prisma: PrismaService, id: string, organizationId: string) {
-  const row = await prisma.thumbnailGeneration.findFirst({
-    where: { id, organizationId, isDeleted: false },
-    include: { inputImages: inputImagesInclude(organizationId) },
-  });
-  return row;
-}
-
-export async function findActiveJobForWorkspace(
+export function findActiveJobForWorkspace(
   prisma: PrismaService,
   contentWorkspaceId: string,
   organizationId: string,
   method: string,
-): Promise<GenerationRow | null> {
-  const row = await prisma.thumbnailGeneration.findFirst({
+): Promise<ThumbnailJobRow | null> {
+  return prisma.thumbnailGeneration.findFirst({
     where: {
-      contentWorkspaceId: contentWorkspaceId,
+      contentWorkspaceId,
       organizationId,
       isDeleted: false,
       method,
       status: { in: ['pending', 'running'] },
     },
-    include: generationInclude(organizationId),
+    select: thumbnailJobSelect,
   });
-  return row as unknown as GenerationRow | null;
 }
 
 export function findRecentAutoJob(
@@ -380,15 +315,4 @@ async function findAutoBatchCandidatesSnapshot(
   return rows.map(row => ({ ...row, channelListing: row.channelListingId ? sources.get(row.channelListingId) ?? null : null }))
     .filter((workspace) => Boolean(workspaceImageUrl(workspace)))
     .map((workspace) => ({ id: workspace.id }));
-}
-
-export function findThumbnailAnalysisGrade(
-  prisma: PrismaService,
-  contentWorkspaceId: string,
-  organizationId: string,
-): Promise<{ grade: string; overallScore: number } | null> {
-  return prisma.thumbnailAnalysis.findFirst({
-    where: { contentWorkspaceId: contentWorkspaceId, organizationId },
-    select: { grade: true, overallScore: true },
-  });
 }

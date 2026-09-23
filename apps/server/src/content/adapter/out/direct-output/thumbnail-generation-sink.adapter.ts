@@ -10,7 +10,8 @@ import type { ThumbnailEditorCandidate } from '../../../domain/model/thumbnail-e
 
 /**
  * Real `ThumbnailDirectOutputSinkPort` adapter — applies validated thumbnail
- * generation output back onto the originating `ThumbnailGeneration` row.
+ * generation output back onto the originating job: candidates become
+ * `content_assets` rows (source ai) in the same transaction as `succeeded`.
  *
  * Boundary contract — the sink owns validated output projection while the
  * lifecycle service owns the tenant-scoped row lock/write transaction. Direct
@@ -62,19 +63,13 @@ export class ThumbnailGenerationSinkAdapter
       }),
     );
 
-    // applyDirectSuccessResult preserves the input-image rows the producer
-    // wrote at enqueue time — only candidates / status / phase / inputMeta
-    // are owned by the async sink path. `replaceGenerationResult` (used by
-    // the legacy auto-batch) would delete inputs.
+    // 후보는 같은 트랜잭션에서 `content_assets`(source ai) 행이 되고, 요청 때 적은 입력 메타는 남긴 채 실행
+    // 정보만 더한다.
     const applied = await this.lifecycle.projectDirectSuccess({
       generationId: input.sourceResourceId,
       organizationId: input.organizationId,
       candidates,
-      inputMeta: projectionMetadata(input.requestId, input.runId),
-      payload: {
-        ...projectionMetadata(input.requestId, input.runId),
-        candidateCount: candidates.length,
-      },
+      projection: projectionMetadata(input.requestId, input.runId),
     });
     if (!applied) {
       this.logger.debug(
@@ -107,10 +102,6 @@ export class ThumbnailGenerationSinkAdapter
       generationId: input.sourceResourceId,
       organizationId: input.organizationId,
       errorMessage: input.errorMessage,
-      payload: {
-        errorCode: input.errorCode,
-        ...projectionMetadata(input.requestId, input.runId),
-      },
     });
     if (!failed) {
       this.logger.debug(

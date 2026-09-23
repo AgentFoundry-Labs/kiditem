@@ -45,18 +45,10 @@ describe('AiModule thumbnail-analysis route-family wiring', () => {
       method: RequestMethod.POST,
       path: 'generations/:id/cancel',
     });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'selectCandidate')).toEqual({
-      method: RequestMethod.PUT,
-      path: 'generations/:id/select',
-    });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'clearReadySelections')).toEqual({
-      method: RequestMethod.PUT,
-      path: 'generations/clear-ready-selections',
-    });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'applyGeneration')).toEqual({
-      method: RequestMethod.PUT,
-      path: 'generations/:id/apply',
-    });
+    // 후보 채택은 작업공간 대표이미지 route 하나다 — job 에 select · apply 단계가 없다(KID-313 W3a).
+    for (const retired of ['selectCandidate', 'clearReadySelections', 'applyGeneration']) {
+      expect(Reflect.get(ThumbnailAnalysisGenerationReviewController.prototype, retired)).toBeUndefined();
+    }
     expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'skipGeneration')).toEqual({
       method: RequestMethod.PUT,
       path: 'generations/:id/skip',

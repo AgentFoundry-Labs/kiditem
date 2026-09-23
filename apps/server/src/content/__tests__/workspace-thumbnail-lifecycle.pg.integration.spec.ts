@@ -116,26 +116,24 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'direct_detail_page',
-        displayName: 'Concurrent candidate removal',
         normalizedTitle: 'concurrentcandidateremoval',
       },
     });
     const generation = await prisma.thumbnailGeneration.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspace.id, status: 'succeeded' },
+    });
+    const [firstAsset, secondAsset] = await Promise.all([firstUrl, secondUrl].map((url, index) => prisma.contentAsset.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         contentWorkspaceId: workspace.id,
-        status: 'succeeded',
-        phase: 'ready',
-        selectedUrl: firstUrl,
-        candidates: {
-          create: [
-            { organizationId: TEST_ORGANIZATION_ID, url: firstUrl, sortOrder: 0 },
-            { organizationId: TEST_ORGANIZATION_ID, url: secondUrl, sortOrder: 1 },
-          ],
-        },
+        source: 'ai',
+        thumbnailGenerationId: generation.id,
+        assetKey: `ai-candidate:${generation.id}:${index}`,
+        url,
+        role: 'thumbnail',
+        sortOrder: index,
       },
-      include: { candidates: { orderBy: { sortOrder: 'asc' } } },
-    });
+    })));
     let reportGenerationLocked!: () => void;
     const generationLocked = new Promise<void>((resolve) => {
       reportGenerationLocked = resolve;
@@ -172,13 +170,13 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     const first = firstRepository.removeCandidate({
       id: generation.id,
       organizationId: TEST_ORGANIZATION_ID,
-      candidateUrl: firstUrl,
+      assetId: firstAsset!.id,
     });
     await generationLocked;
     const second = secondRepository.removeCandidate({
       id: generation.id,
       organizationId: TEST_ORGANIZATION_ID,
-      candidateUrl: secondUrl,
+      assetId: secondAsset!.id,
     });
     const secondState = await Promise.race([
       second.then(() => 'settled', () => 'settled'),
@@ -190,11 +188,10 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     expect(secondState).toBe('blocked');
     await expect(prisma.thumbnailGeneration.findUniqueOrThrow({
       where: { id: generation.id },
-      select: { isDeleted: true, selectedUrl: true, candidates: { select: { id: true } } },
-    })).resolves.toEqual({
-      isDeleted: true,
-      selectedUrl: null,
-      candidates: [],
-    });
+      select: { isDeleted: true },
+    })).resolves.toEqual({ isDeleted: true });
+    await expect(prisma.contentAsset.count({
+      where: { thumbnailGenerationId: generation.id, isDeleted: false },
+    })).resolves.toBe(0);
   });
 });

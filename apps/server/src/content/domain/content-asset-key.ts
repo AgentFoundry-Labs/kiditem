@@ -16,9 +16,9 @@ export function workspaceImageAssetKey(contentWorkspaceId: string, role: string,
   return `workspace-image:${contentWorkspaceId}:${role}:${hashContentAssetUrl(url).slice(0, 32)}`;
 }
 
-/** Key for candidate `index` of one AI thumbnail job. */
-export function thumbnailCandidateAssetKey(thumbnailGenerationId: string, index: number): string {
-  return `ai-candidate:${thumbnailGenerationId}:${index}`;
+/** Key for one AI candidate image of one thumbnail job. */
+export function thumbnailCandidateAssetKey(thumbnailGenerationId: string, url: string): string {
+  return `ai-candidate:${thumbnailGenerationId}:${hashContentAssetUrl(url).slice(0, 32)}`;
 }
 
 export function hashContentAssetUrl(url: string): string {

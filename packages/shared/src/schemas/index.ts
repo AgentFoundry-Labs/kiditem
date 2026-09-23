@@ -117,8 +117,8 @@ export {
   ThumbnailAnalysisResultSchema,
   ThumbnailAnalysisSummarySchema,
   ThumbnailAnalysisListResponseSchema,
-  ThumbnailGenerationItemSchema,
-  ThumbnailGenerationListResponseSchema,
+  ThumbnailJobListResponseSchema,
+  ThumbnailJobWorkspaceSummarySchema,
   ThumbnailTrackingRecordSchema,
   ThumbnailTrackingListResponseSchema,
   UpdateThumbnailTrackingMetricsSchema,
@@ -127,7 +127,6 @@ export {
   RecomposeVariantClassificationSchema,
   RECOMPOSE_VARIANT_KEYS,
   RECOMPOSE_KINDS,
-  THUMBNAIL_PHASES,
   THUMBNAIL_TRACKING_STATUSES,
 } from './thumbnails.js';
 export type {
@@ -138,8 +137,8 @@ export type {
   ThumbnailAnalysisResult,
   ThumbnailAnalysisSummary,
   ThumbnailAnalysisListResponse,
-  ThumbnailGenerationItem,
-  ThumbnailGenerationListResponse,
+  ThumbnailJobListResponse,
+  ThumbnailJobWorkspaceSummary,
   ThumbnailTrackingRecord,
   ThumbnailTrackingListResponse,
   UpdateThumbnailTrackingMetrics,
@@ -148,7 +147,6 @@ export type {
   RecomposeVariantClassification,
   RecomposeVariantKey,
   RecomposeKind,
-  ThumbnailPhase,
   ThumbnailTrackingStatus,
 } from './thumbnails.js';
 

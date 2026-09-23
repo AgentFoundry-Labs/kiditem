@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ContentAssetItemSchema, ThumbnailJobSchema } from './representative-image.js';
 
 // ─── 가이드라인 준수 점수 스키마 ─────────────────────────────────────────────
 
@@ -167,50 +168,25 @@ export const EditAnalysisResultSchema = z.object({
   grade: z.string(),
 });
 
-// ─── Canonical status + phase ─────────────────────────
-export const THUMBNAIL_PHASES = ['ready', 'applied'] as const;
-export type ThumbnailPhase = (typeof THUMBNAIL_PHASES)[number];
+// ─── 대표이미지 생성 job 목록 ─────────────────────────
+/**
+ * job 목록(KID-313 W3a). job 은 상태 · 방법 · 프롬프트 · 오류 · 시도만 갖고, 후보는 `content_assets` 행
+ * (`ContentAssetItem.thumbnailGenerationId` 가 job id)으로 따로 싣는다. 워크스페이스 요약은 목록 표시용이다.
+ */
+export const ThumbnailJobWorkspaceSummarySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  imageUrl: z.string().nullable(),
+}).strict();
+export type ThumbnailJobWorkspaceSummary = z.infer<typeof ThumbnailJobWorkspaceSummarySchema>;
 
-export const ThumbnailGenerationItemSchema = z.object({
-  id: z.string(),
-  contentWorkspaceId: z.string(),
-  originalUrl: z.string().nullable(),
-  candidates: z.array(
-    z.object({
-      id: z.string().uuid().optional(),
-      url: z.string(),
-      storageKey: z.string().nullable().optional(),
-      filename: z.string(),
-      sortOrder: z.number().int().nonnegative().optional(),
-    }),
-  ),
-  selectedUrl: z.string().nullable(),
-  status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
-  phase: z.enum(THUMBNAIL_PHASES).nullable().optional(),
-  grade: z.string(),
-  score: z.number(),
-  method: z.string().default('generate'),
-  editAnalysis: EditAnalysisResultSchema.nullable().default(null),
-  inputMeta: z.record(z.string(), z.unknown()).nullable().optional(),
-  errorMessage: z.string().nullable().optional(),
-  attemptCount: z.number().int().nonnegative().optional(),
-  triggeredByUserId: z.string().uuid().nullable().optional(),
-  createdAt: z.string(),
-  contentWorkspace: z.object({
-    id: z.string(),
-    name: z.string(),
-    imageUrl: z.string().nullable(),
-    coupangProductId: z.string().nullable(),
-    category: z.string().nullable(),
-    hasBoxImage: z.boolean().optional(),
-    hasColorVariantImages: z.boolean().optional(),
-  }),
-});
-
-export const ThumbnailGenerationListResponseSchema = z.object({
-  items: z.array(ThumbnailGenerationItemSchema),
-  total: z.number(),
-});
+export const ThumbnailJobListResponseSchema = z.object({
+  items: z.array(ThumbnailJobSchema),
+  candidates: z.array(ContentAssetItemSchema),
+  workspaces: z.array(ThumbnailJobWorkspaceSummarySchema),
+  total: z.number().int(),
+}).strict();
+export type ThumbnailJobListResponse = z.infer<typeof ThumbnailJobListResponseSchema>;
 
 // ─── 트래킹 ──────────────────────────────────────────────
 
@@ -263,8 +239,6 @@ export type ComplianceScores = z.infer<typeof ComplianceScoresSchema>;
 export type ThumbnailAnalysisResult = z.infer<typeof ThumbnailAnalysisResultSchema>;
 export type ThumbnailAnalysisSummary = z.infer<typeof ThumbnailAnalysisSummarySchema>;
 export type ThumbnailAnalysisListResponse = z.infer<typeof ThumbnailAnalysisListResponseSchema>;
-export type ThumbnailGenerationItem = z.infer<typeof ThumbnailGenerationItemSchema>;
-export type ThumbnailGenerationListResponse = z.infer<typeof ThumbnailGenerationListResponseSchema>;
 export type ThumbnailTrackingRecord = z.infer<typeof ThumbnailTrackingRecordSchema>;
 export type ThumbnailTrackingListResponse = z.infer<typeof ThumbnailTrackingListResponseSchema>;
 export type UpdateThumbnailTrackingMetrics = z.infer<typeof UpdateThumbnailTrackingMetricsSchema>;

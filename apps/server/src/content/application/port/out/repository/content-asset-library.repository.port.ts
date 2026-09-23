@@ -148,6 +148,11 @@ export interface ContentAssetLibraryRepositoryPort {
     organizationId: string;
     contentWorkspaceId: string;
   }): Promise<ContentAssetRow[]>;
+  /** job 들의 살아 있는 AI 후보 자산(정렬 순서대로). */
+  listThumbnailCandidates(input: {
+    organizationId: string;
+    thumbnailGenerationIds: readonly string[];
+  }): Promise<ContentAssetRow[]>;
   /**
    * 채택: 워크스페이스의 `current_thumbnail_asset_id` 를 그 워크스페이스의 자산으로 옮긴다(Content 소유 쓰기).
    * 워크스페이스가 없거나 다른 조직이면 404, 자산이 그 워크스페이스 것이 아니면 400.

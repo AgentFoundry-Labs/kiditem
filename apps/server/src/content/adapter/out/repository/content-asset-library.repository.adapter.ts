@@ -206,6 +206,23 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     return rows.map(toAssetRow);
   }
 
+  async listThumbnailCandidates(input: {
+    organizationId: string;
+    thumbnailGenerationIds: readonly string[];
+  }): Promise<ContentAssetRow[]> {
+    if (input.thumbnailGenerationIds.length === 0) return [];
+    const rows = await this.prisma.contentAsset.findMany({
+      where: {
+        organizationId: input.organizationId,
+        thumbnailGenerationId: { in: [...input.thumbnailGenerationIds] },
+        isDeleted: false,
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      select: assetRowSelect,
+    });
+    return rows.map(toAssetRow);
+  }
+
   async setCurrentThumbnail(input: {
     organizationId: string;
     contentWorkspaceId: string;

@@ -45,7 +45,6 @@ import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
 import { SharpGeneratedImageValidatorAdapter } from './adapter/out/image-validation/sharp-generated-image-validator.adapter';
 import { DetailPageTemplateStylesAdapter } from './adapter/out/runtime/detail-page-template-styles.adapter';
-import { ThumbnailGenerationEventAdapter } from './adapter/out/repository/thumbnail-generation-event.adapter';
 import { ContentArchiveRepositoryAdapter } from './adapter/out/repository/content-archive.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from './adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from './adapter/out/repository/content-workspace-lifecycle.repository.adapter';
@@ -129,7 +128,6 @@ import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
 } from './application/port/in/workspace';
 // application/port — out
-import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/event';
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
   DETAIL_PAGE_MEDIA_PORT,
@@ -198,7 +196,6 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     DetailPageGenerationRepositoryAdapter,
     DetailPageQueryRepositoryAdapter,
     ProductGenerationContextRepositoryAdapter,
-    ThumbnailGenerationEventAdapter,
     ThumbnailGenerationLedgerRepositoryAdapter,
     ThumbnailImageFetcherService,
     SharpGeneratedImageValidatorAdapter,
@@ -216,7 +213,6 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
     { provide: PRODUCT_GENERATION_AI_TRIGGER_PORT, useExisting: ProductGenerationAiService },
     { provide: PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT, useExisting: ProductGenerationContextRepositoryAdapter },
-    { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
     { provide: THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT, useExisting: ThumbnailGenerationLedgerRepositoryAdapter },
     { provide: THUMBNAIL_IMAGE_GENERATION_PORT, useExisting: ThumbnailImageGenerationAdapter },
     { provide: THUMBNAIL_REFERENCE_IMAGES_PORT, useExisting: ThumbnailReferenceImagesService },
@@ -233,7 +229,6 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     IMAGE_FETCH_PORT,
     IMAGE_STORAGE_PORT,
     PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
-    THUMBNAIL_GENERATION_EVENT_PORT,
     THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
     THUMBNAIL_IMAGE_GENERATION_PORT,
     THUMBNAIL_REFERENCE_IMAGES_PORT,

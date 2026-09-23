@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ThumbnailGenerationItemSchema,
+  ThumbnailJobListResponseSchema,
   ThumbnailTrackingRecordSchema,
   UpdateThumbnailTrackingMetricsSchema,
 } from './thumbnails';
@@ -15,34 +15,40 @@ describe('thumbnail identity contracts', () => {
     expect(thumbnailContracts).not.toHaveProperty('ThumbnailSummarySchema');
   });
 
-  it('uses ContentWorkspace as the generation identity', () => {
-    const parsed = ThumbnailGenerationItemSchema.parse({
-      id: 'generation-1',
-      contentWorkspaceId: WORKSPACE_ID,
-      originalUrl: 'https://cdn.example.com/original.jpg',
-      candidates: [],
-      selectedUrl: null,
-      status: 'pending',
-      phase: null,
-      grade: '',
-      score: 0,
-      method: 'generate',
-      editAnalysis: null,
-      createdAt: '2026-07-14T00:00:00.000Z',
-      contentWorkspace: {
-        id: WORKSPACE_ID,
-        name: 'Workspace product',
-        imageUrl: 'https://cdn.example.com/original.jpg',
-        coupangProductId: null,
-        category: 'toys',
-      },
+  it('lists jobs with their candidates as content assets, not generation items', () => {
+    expect(thumbnailContracts).not.toHaveProperty('ThumbnailGenerationItemSchema');
+    const parsed = ThumbnailJobListResponseSchema.parse({
+      items: [{
+        id: '33333333-3333-4333-8333-333333333333',
+        contentWorkspaceId: WORKSPACE_ID,
+        status: 'succeeded',
+        method: 'generate',
+        prompt: null,
+        errorMessage: null,
+        attemptCount: 1,
+        createdAt: '2026-07-14T00:00:00.000Z',
+        updatedAt: '2026-07-14T00:00:00.000Z',
+      }],
+      candidates: [{
+        id: '44444444-4444-4444-8444-444444444444',
+        contentWorkspaceId: WORKSPACE_ID,
+        source: 'ai',
+        role: 'thumbnail',
+        url: 'https://cdn.example.com/a.png',
+        label: null,
+        sortOrder: 0,
+        width: null,
+        height: null,
+        thumbnailGenerationId: '33333333-3333-4333-8333-333333333333',
+        isCurrentThumbnail: false,
+        createdAt: '2026-07-14T00:00:00.000Z',
+      }],
+      workspaces: [{ id: WORKSPACE_ID, name: 'Workspace product', imageUrl: null }],
+      total: 1,
     });
 
-    expect(parsed.contentWorkspaceId).toBe(WORKSPACE_ID);
-    expect(parsed.contentWorkspace.id).toBe(WORKSPACE_ID);
-    expect(parsed).not.toHaveProperty('productId');
-    expect(parsed).not.toHaveProperty('masterId');
-    expect(parsed).not.toHaveProperty('product');
+    expect(parsed.candidates[0]?.thumbnailGenerationId).toBe(parsed.items[0]?.id);
+    expect(parsed.items[0]).not.toHaveProperty('selectedUrl');
   });
 
   it('uses ChannelListing as the tracking identity', () => {
