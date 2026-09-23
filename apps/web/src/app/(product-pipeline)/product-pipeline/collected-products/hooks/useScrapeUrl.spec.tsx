@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { salesProductKeys } from '@/lib/sales-product-api';
 import { sourcingApi } from '../lib/sourcing-api';
 import { useScrapeUrl } from './useScrapeUrl';
 
@@ -12,8 +13,9 @@ vi.mock('../lib/sourcing-api', () => ({ sourcingApi: { scrapeUrl: vi.fn(), scrap
 const url = 'https://detail.1688.com/offer/123.html';
 const missing = { status: 'available', candidateId: null, href: null, platform: '1688',
   source: { ready: false, latestAttempt: null, latestComplete: null, actualCutoffAt: null, errorCode: null, errorMessage: null } };
+let client: QueryClient;
 function mount() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return renderHook(() => useScrapeUrl(), { wrapper: ({ children }: { children: ReactNode }) =>
     <QueryClientProvider client={client}>{children}</QueryClientProvider> });
 }
@@ -75,5 +77,33 @@ describe('retained scrape URL action', () => {
     await act(async () => reloaded.result.current.handleSubmit());
     await waitFor(() => expect(sourcingApi.scrapeUrl).toHaveBeenCalledTimes(2));
     expect(vi.mocked(sourcingApi.scrapeUrl).mock.calls[1][1]).toBe(key);
+  });
+});
+
+describe('URL 수집이 만든 판매상품 초안', () => {
+  const attempt = (state: 'RUNNING' | 'COMPLETE') => ({ attemptId: 'attempt-1', state, expiresAt: '', completedAt: null,
+    errorCode: null, errorMessage: null });
+
+  it('refreshes the sales-product list after a collect request settles', async () => {
+    navigation.query = new URLSearchParams({ scrapeUrl: url }).toString();
+    vi.mocked(sourcingApi.scrapeUrl).mockResolvedValue({ ok: true, message: '수집했습니다.', product_id: null, attempt: null } as never);
+    const hook = mount();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    await waitFor(() => expect(sourcingApi.scrapeUrlStatus).toHaveBeenCalledOnce());
+    await act(async () => hook.result.current.handleSubmit());
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: salesProductKeys.all }));
+  });
+
+  it('refreshes the sales-product list when the polled attempt turns COMPLETE', async () => {
+    navigation.query = new URLSearchParams({ scrapeUrl: url }).toString();
+    vi.mocked(sourcingApi.scrapeUrlStatus)
+      .mockResolvedValueOnce({ ...missing, source: { ...missing.source, latestAttempt: attempt('RUNNING') } } as never)
+      .mockResolvedValue({ ...missing, status: 'collected', candidateId: 'candidate-1', salesProductId: 'sales-product-1',
+        href: '/product-pipeline/collected-products/sales-product-1',
+        source: { ...missing.source, ready: true, latestAttempt: attempt('COMPLETE') } } as never);
+    mount();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    await waitFor(() => expect(sourcingApi.scrapeUrlStatus).toHaveBeenCalledTimes(2), { timeout: 4000 });
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: salesProductKeys.all }));
   });
 });

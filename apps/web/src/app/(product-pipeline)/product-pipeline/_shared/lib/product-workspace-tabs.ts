@@ -42,7 +42,6 @@ export function buildProductWorkspaceTabUrl({
   productDescription,
   editCase,
   productId,
-  sourceCandidateId,
   contentWorkspaceId,
 }: {
   pathname: string;
@@ -56,7 +55,6 @@ export function buildProductWorkspaceTabUrl({
   productDescription?: string | null;
   editCase?: string | null;
   productId?: string | null;
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }): string {
   const params = new URLSearchParams(currentSearch?.toString() ?? '');
@@ -74,7 +72,6 @@ export function buildProductWorkspaceTabUrl({
   params.delete('productDescription');
   params.delete('editCase');
   params.delete('productId');
-  params.delete('sourceCandidateId');
   params.delete('contentWorkspaceId');
   if (generationId) params.set('generationId', generationId);
   if (thumbnailMode) params.set('thumbnailMode', thumbnailMode);
@@ -84,7 +81,6 @@ export function buildProductWorkspaceTabUrl({
   if (productDescription) params.set('productDescription', productDescription);
   if (editCase) params.set('editCase', editCase);
   if (productId) params.set('productId', productId);
-  if (sourceCandidateId) params.set('sourceCandidateId', sourceCandidateId);
   if (contentWorkspaceId) params.set('contentWorkspaceId', contentWorkspaceId);
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;

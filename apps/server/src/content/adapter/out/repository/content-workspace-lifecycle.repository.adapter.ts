@@ -65,6 +65,23 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     }
   }
 
+  async findActiveSalesProductWorkspaceId(input: {
+    organizationId: string;
+    salesProductId: string;
+  }): Promise<string | null> {
+    const row = await this.prisma.contentWorkspace.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        ownerType: 'sales_product',
+        salesProductId: input.salesProductId,
+        status: 'active',
+        isDeleted: false,
+      },
+      select: { id: true },
+    });
+    return row?.id ?? null;
+  }
+
   findDuplicateByNormalizedTitle(input: {
     organizationId: string;
     normalizedTitle: string;
@@ -288,11 +305,15 @@ async function validateOwnerReferences(
   }
 }
 
+/**
+ * 되살려 쓸 작업공간. 초안 작업공간은 판매상품 하나에 하나뿐이라(`content_workspaces_sales_product_active_key`)
+ * 이름으로 찾지 않는다 — 초안 이름을 바꾼 뒤에도 같은 작업공간이다.
+ */
 function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.ContentWorkspaceWhereInput {
   return {
     organizationId: input.organizationId,
     ownerType: input.ownerType,
-    normalizedTitle: input.normalizedTitle,
+    ...(input.ownerType === 'sales_product' ? {} : { normalizedTitle: input.normalizedTitle }),
     status: 'active',
     isDeleted: false,
     ...(input.ownerType === 'sales_product'

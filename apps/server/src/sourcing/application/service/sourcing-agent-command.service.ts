@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { collectedDraftHref } from '../../domain/collected-draft-href';
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
@@ -39,9 +40,6 @@ function parseCount(value: string | number | null | undefined): number | null {
   return Number.isInteger(count) && count > 0 ? count : null;
 }
 
-function collectedCandidateHref(candidateId: string): string {
-  return `/product-pipeline/collected-products/${encodeURIComponent(candidateId)}`;
-}
 
 @Injectable()
 export class SourcingAgentCommandService {
@@ -67,13 +65,17 @@ export class SourcingAgentCommandService {
       idempotencyKey,
     );
     const candidate = await this.candidates.upsertSourced(candidateInput);
+    // 후보 저장이 초안을 만든다. 화면은 초안으로 열린다.
+    const salesProductId = (await this.salesProductDrafts?.findDraftIdsForSources(organizationId, [candidate.id]))
+      ?.get(candidate.id) ?? null;
 
     return {
       ok: true,
       message: '상품 등록 후보가 생성되었습니다.',
       product_count: 1,
       candidateId: candidate.id,
-      href: collectedCandidateHref(candidate.id),
+      salesProductId,
+      href: salesProductId ? collectedDraftHref(salesProductId) : null,
     };
   }
 

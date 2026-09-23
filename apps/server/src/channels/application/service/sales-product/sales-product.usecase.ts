@@ -1,4 +1,5 @@
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import type { SalesProductThumbnailSourcePort } from '../../port/out/ai/sales-product-thumbnail-source.port';
 import type {
   SalesProductDraftRetireResult,
   SalesProductDraftSource,
@@ -46,11 +47,21 @@ export class SalesProductUseCase implements SalesProductPort {
 
     private readonly repository: SalesProductRepositoryPort,
     private readonly workspaceArchive?: SalesProductWorkspaceArchivePort,
+    private readonly thumbnails?: SalesProductThumbnailSourcePort,
   ) {}
 
-  list(organizationId: string, rawQuery: unknown): Promise<SalesProductListResponse> {
+  /** 목록 줄의 사진은 운영자가 저장한 대표 썸네일이 있으면 그것, 없으면 초안의 첫 사진이다. */
+  async list(organizationId: string, rawQuery: unknown): Promise<SalesProductListResponse> {
     const query = parseOrBadRequest(SalesProductListQuerySchema, rawQuery, '목록 조건이 올바르지 않습니다.');
-    return this.repository.list(organizationId, query);
+    const page = await this.repository.list(organizationId, query);
+    if (!this.thumbnails || page.items.length === 0) return page;
+    const representatives = await this.thumbnails.findRepresentativeThumbnailUrls(
+      organizationId, page.items.map((item) => item.id),
+    );
+    return {
+      ...page,
+      items: page.items.map((item) => ({ ...item, imageUrl: representatives.get(item.id) ?? item.imageUrl })),
+    };
   }
 
   async get(
@@ -206,6 +217,32 @@ export class SalesProductUseCase implements SalesProductPort {
       salesProductId: row.salesProductId,
       retired: false,
       blockedReason: row.activeListingCount > 0
+        ? '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.'
+        : '등록 실행이 남아 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    };
+  }
+
+  /**
+   * 원천 기록이 없는 초안(직접 작성 · 사방넷)을 수집상품 화면에서 지운다. 원천 기록이 있는 초안은
+   * 후보 삭제가 이 규칙을 같은 트랜잭션에서 부른다. 몰에 있거나 살아 있는 등록 실행이 있으면 내리지 않는다.
+   */
+  async retireDraft(organizationId: string, salesProductId: string): Promise<SalesProductDraftRetireResult> {
+    const result = await this.repository.runInTransaction(async (transaction) => {
+      const row = await this.repository.retireDraft(transaction, organizationId, salesProductId);
+      if (row.retired && row.salesProductId) {
+        await this.workspaceArchive?.archiveSalesProductWorkspace(transaction, {
+          organizationId,
+          salesProductId: row.salesProductId,
+          archivedAt: new Date(),
+        });
+      }
+      return row;
+    });
+    if (result.salesProductId === null) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+    return {
+      salesProductId: result.salesProductId,
+      retired: result.retired,
+      blockedReason: result.retired ? null : result.activeListingCount > 0
         ? '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.'
         : '등록 실행이 남아 있어 판매상품을 미사용으로 내리지 않았습니다.',
     };

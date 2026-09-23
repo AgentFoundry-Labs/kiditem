@@ -4,7 +4,6 @@ import WingRegistrationConfirmDialog from './WingRegistrationConfirmDialog';
 import type { WingRegistrationDraft } from '../../lib/wing-registration-flow';
 
 const draft = {
-  candidateId: 'candidate-1',
   idempotencyKey: '33333333-3333-4333-8333-333333333333',
   product: {} as WingRegistrationDraft['product'],
   extensionId: 'ext-1',

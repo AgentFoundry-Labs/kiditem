@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
+import { salesProductKeys } from '@/lib/sales-product-api';
 import { sourcingApi } from '../lib/sourcing-api';
 
 const SCRAPE_STATUS_DEBOUNCE_MS = 350;
@@ -72,6 +73,18 @@ export function useScrapeUrl() {
 
   const ownerStatus = statusUrl === trimmedScrapeUrl ? scrapeStatusQuery.data?.source ?? null : null;
 
+  // 수집이 끝나면 초안이 생겼다 — 수집상품 목록(판매상품 목록)을 새로 읽는다.
+  const latestAttemptState = scrapeStatusQuery.data?.source.latestAttempt?.state ?? null;
+  const latestAttemptId = scrapeStatusQuery.data?.source.latestAttempt?.attemptId ?? null;
+  const previousAttempt = useRef<{ id: string | null; state: string | null }>({ id: null, state: null });
+  useEffect(() => {
+    const previous = previousAttempt.current;
+    previousAttempt.current = { id: latestAttemptId, state: latestAttemptState };
+    if (latestAttemptState !== 'COMPLETE') return;
+    if (previous.id === latestAttemptId && previous.state === 'COMPLETE') return;
+    void queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
+  }, [latestAttemptId, latestAttemptState, queryClient]);
+
   const scrapeMutation = useMutation({
     mutationFn: ({ url, key }: { url: string; key: string }) => sourcingApi.scrapeUrl(url, key),
     onSuccess: (response, request) => {
@@ -82,7 +95,10 @@ export function useScrapeUrl() {
         saveCorrelation(request.url, null);
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all }),
+    onSettled: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all }),
+      queryClient.invalidateQueries({ queryKey: salesProductKeys.all }),
+    ]),
     onError: (err) => {
       setScrapeError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
     },

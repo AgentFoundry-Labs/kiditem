@@ -87,8 +87,13 @@ function flattenOptions(raw: Record<string, unknown> | null): string {
 }
 
 interface TriggerInput {
-  sourceCandidateId: string;
-  productId?: string | null;
+  /**
+   * 생성이 쓸 판매상품 초안. 작업공간이 아직 없으면 서버가 이 초안의 작업공간을 만든다 —
+   * 빠뜨리면 상품 없는 작업공간이 생긴다(A5).
+   */
+  salesProductId: string;
+  /** 초안의 원천 기록(수집상품) — 생성 입력의 출처 기록(provenance)으로만 싣는다. */
+  sourceCandidateId?: string | null;
   productName: string;
   rawData: Record<string, unknown> | null;
   /** 'kids-playful' (default) 또는 'bold-vertical' */
@@ -103,8 +108,8 @@ export function useKidsPlayfulFromSourcing() {
 
   const trigger = useCallback(
     async ({
+      salesProductId,
       sourceCandidateId,
-      productId,
       productName,
       rawData,
       templateId,
@@ -152,13 +157,13 @@ export function useKidsPlayfulFromSourcing() {
           rawOptions,
           imageUrls,
           heroImageMode: 'llm-pick',
-          productId: productId ?? undefined,
+          salesProductId,
           contentWorkspaceId: contentWorkspaceId ?? undefined,
           templateId: templateId ?? 'kids-playful',
           generationMode,
-          sourceReferences: [
-            { sourceType: 'sourcing_candidate', sourceCandidateId },
-          ],
+          ...(sourceCandidateId
+            ? { sourceReferences: [{ sourceType: 'sourcing_candidate' as const, sourceCandidateId }] }
+            : {}),
         });
         toast.success('상세페이지 생성 완료 — 생성 이력에서 바로 확인할 수 있어요', {
           duration: 4000,

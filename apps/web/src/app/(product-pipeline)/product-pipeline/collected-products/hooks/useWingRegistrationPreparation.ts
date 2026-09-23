@@ -14,7 +14,8 @@ interface WingRegistrationPreparationCallbacks {
 }
 
 interface PreparationAttempt {
-  candidateId: string;
+  /** 수집상품 화면의 판매상품 초안 id(KID-310). */
+  salesProductId: string;
   sequence: number;
 }
 
@@ -38,10 +39,10 @@ export function useWingRegistrationPreparation(
   const query = useQuery({
     queryKey: [
       'wing-registration-preparation',
-      attempt?.candidateId ?? null,
+      attempt?.salesProductId ?? null,
       attempt?.sequence ?? 0,
     ],
-    queryFn: () => prepareWingRegistration(attempt!.candidateId, undefined, {
+    queryFn: () => prepareWingRegistration(attempt!.salesProductId, undefined, {
       onRenderProgress: setRenderPhase,
     }),
     enabled: attempt !== null,
@@ -78,10 +79,10 @@ export function useWingRegistrationPreparation(
     }
   }, [attempt, query.data, query.error]);
 
-  const start = useCallback((candidateId: string) => {
+  const start = useCallback((salesProductId: string) => {
     sequence.current += 1;
     setRenderPhase('loading');
-    setAttempt({ candidateId, sequence: sequence.current });
+    setAttempt({ salesProductId, sequence: sequence.current });
   }, []);
 
   const cancel = useCallback(() => {

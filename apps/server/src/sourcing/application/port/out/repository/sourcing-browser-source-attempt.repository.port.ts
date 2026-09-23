@@ -41,7 +41,7 @@ export interface SourcingBrowserSourceAttempt {
   errorCode: string | null;
   errorMessage: string | null;
   completedAt: Date | null;
-  scrapeUrlResult?: { candidateId: string; href: string };
+  scrapeUrlResult?: { candidateId: string };
 }
 
 export interface SourcingBrowserSourceStatus {

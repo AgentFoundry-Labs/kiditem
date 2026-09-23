@@ -93,9 +93,47 @@ function makeController(opts: { withProduct?: boolean } = {}) {
       category: null,
     })),
   };
-  const controller = new ThumbnailEditorController(editorAi as never, generationService as never);
-  return { controller, editorAi, generationService, generatedCandidates };
+  const contentWorkspaces = {
+    ensureForGeneration: vi.fn(async () => ({ id: CONTENT_WORKSPACE_ID, displayName: 'Sample product', normalizedTitle: 'sampleproduct' })),
+  };
+  const controller = new ThumbnailEditorController(editorAi as never, generationService as never, contentWorkspaces as never);
+  return { controller, editorAi, generationService, generatedCandidates, contentWorkspaces };
 }
+
+describe('ThumbnailEditorController draft-bound', () => {
+  const SALES_PRODUCT_ID = '66666666-6666-4666-8666-666666666666';
+
+  it('binds an edit opened from a draft to that draft\'s workspace instead of a standalone upload', async () => {
+    const { controller, generationService, contentWorkspaces } = makeController();
+
+    await controller.generate({
+      salesProductId: SALES_PRODUCT_ID,
+      productName: '초안 상품',
+      productImage: 'main-product-url',
+      purpose: 'compliance',
+      mode: 'edit',
+    } satisfies ThumbnailEditorDto, ORGANIZATION_ID);
+
+    expect(contentWorkspaces.ensureForGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORGANIZATION_ID, salesProductId: SALES_PRODUCT_ID, rawTitle: '초안 상품',
+    }));
+    expect(generationService.findWorkspaceForThumbnailEditor).toHaveBeenCalledWith(CONTENT_WORKSPACE_ID, ORGANIZATION_ID);
+    expect(generationService.enqueueEditorGeneration).toHaveBeenCalledWith(expect.objectContaining({ contentWorkspaceId: CONTENT_WORKSPACE_ID }));
+    expect(generationService.enqueueStandaloneGeneration).not.toHaveBeenCalled();
+  });
+
+  it('refuses a request that names both a workspace and a draft', async () => {
+    const { controller, contentWorkspaces } = makeController();
+
+    await expect(controller.generate({
+      contentWorkspaceId: CONTENT_WORKSPACE_ID,
+      salesProductId: SALES_PRODUCT_ID,
+      productImage: 'main-product-url',
+      purpose: 'compliance',
+    } satisfies ThumbnailEditorDto, ORGANIZATION_ID)).rejects.toThrow('함께 보낼 수 없습니다');
+    expect(contentWorkspaces.ensureForGeneration).not.toHaveBeenCalled();
+  });
+});
 
 describe('ThumbnailEditorController workspace-bound (async direct AI)', () => {
   it('returns pending status + generationId without calling editorAi directly', async () => {

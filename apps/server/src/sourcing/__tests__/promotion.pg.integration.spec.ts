@@ -32,7 +32,7 @@ describe('SourcingPromotionService candidate rejection (PG integration)', () => 
         lock: async () => undefined,
         requireActive: async () => undefined,
       }, { findSalesProductWorkspaceId: async () => null } as never,
-      { listGeneratedThumbnailUrls: async () => [] }),
+      { listGeneratedThumbnailUrls: async () => [] , findRepresentativeThumbnailUrls: async () => new Map<string, string>()}),
       drafts ?? realSalesProductDraftPort(prisma),
     );
   }

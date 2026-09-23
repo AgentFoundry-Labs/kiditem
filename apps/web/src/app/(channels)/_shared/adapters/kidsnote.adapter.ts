@@ -12,7 +12,7 @@ import {
   type KidsnoteCategoryKey,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem } from '../mall-publish-adapter';
+import { listPriceProblem, publishItemSalesProductId } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -161,7 +161,7 @@ export const kidsnoteAdapter: MallPublishAdapter = {
     const categoryKey = values.category ?? KIDSNOTE_DEFAULT_CATEGORY;
     const { draft } = item.source === 'sales_product'
       ? await prepareRegistration(item, 'kidsnote')
-      : await prepareKidsnoteRegistration(item.candidateId);
+      : await prepareKidsnoteRegistration(publishItemSalesProductId(item));
     const result = await fillKidsnoteRegistrationForm(draft, {
       ...(isCategoryKey(categoryKey) ? { category: categoryKey } : {}),
       quantity: parseQuantity(values.quantity),

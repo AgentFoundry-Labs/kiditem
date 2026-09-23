@@ -61,7 +61,6 @@ describe('detail generation rows', () => {
     const boldEntry: KidsPlayfulGenerationItem = {
       id: 'completed-1',
       productId: null,
-      sourceCandidateId: null,
       contentWorkspaceId: 'workspace-1',
       templateId: 'bold-vertical',
       productName: 'KIDITEM 생성 결과',

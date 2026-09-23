@@ -17,7 +17,7 @@ import {
 
 describe('product-pipeline route construction', () => {
   it('keeps collected and registered workspace routes distinct', () => {
-    expect(collectedProductDetailHref('candidate 1')).toBe('/product-pipeline/collected-products/candidate%201');
+    expect(collectedProductDetailHref('sales product 1')).toBe('/product-pipeline/collected-products/sales%20product%201');
     expect(registeredProductDetailHref('workspace 1')).toBe('/product-pipeline/registered-products/workspace%201');
   });
 
@@ -26,12 +26,12 @@ describe('product-pipeline route construction', () => {
 
     expect(
       detailPageEditorHref({
-        candidateId: 'candidate-1',
+        salesProductId: 'sales-product-1',
         generationId: 'generation-1',
-        returnTo: '/product-pipeline/collected-products/candidate-1',
+        returnTo: '/product-pipeline/collected-products/sales-product-1',
       }),
     ).toBe(
-      '/product-pipeline/detail-pages/generation-1/editor?sourceCandidateId=candidate-1&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fcandidate-1',
+      '/product-pipeline/detail-pages/generation-1/editor?salesProductId=sales-product-1&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fsales-product-1',
     );
 
     expect(
@@ -45,9 +45,9 @@ describe('product-pipeline route construction', () => {
 
     expect(
       collectedProductEditorHref({
-        candidateId: 'candidate-1',
+        salesProductId: 'sales-product-1',
       }),
-    ).toBe('/product-pipeline/collected-products/candidate-1/editor');
+    ).toBe('/product-pipeline/collected-products/sales-product-1/editor');
   });
 
   it('normalizes returnTo to product-pipeline workspace routes only', () => {
@@ -82,8 +82,8 @@ describe('product-pipeline route construction', () => {
       thumbnailGenerationEditHref({
         productName: '쭉쭉붙이는터치등',
         imageUrl: 'https://cdn.example.com/source.jpg',
-        returnTo: '/product-pipeline/collected-products/candidate-1',
-        subjectParams: { sourceCandidateId: 'candidate-1' },
+        returnTo: '/product-pipeline/collected-products/sales-product-1',
+        subjectParams: { contentWorkspaceId: 'workspace-1' },
       }),
     ).toContain('/product-pipeline/thumbnail-generation/edit?');
 
@@ -112,10 +112,10 @@ describe('product-pipeline route construction', () => {
   it('builds product workspace tab links for thumbnail and detail work', () => {
     expect(
       collectedProductWorkspaceTabHref({
-        candidateId: 'candidate 1',
+        salesProductId: 'sales product 1',
         tab: 'thumbnail',
       }),
-    ).toBe('/product-pipeline/collected-products/candidate%201?tab=thumbnail');
+    ).toBe('/product-pipeline/collected-products/sales%20product%201?tab=thumbnail');
 
     expect(
       registeredProductWorkspaceTabHref({
@@ -127,16 +127,20 @@ describe('product-pipeline route construction', () => {
   });
 
   it('converges workspace-bound thumbnail entry to its product workspace tab', () => {
+    // 수집상품 화면은 판매상품 초안 id 로 연다 — 원천 기록 id 만으로는 그 화면을 만들지 않는다(KID-310).
+    expect(thumbnailWorkspaceHref({
+      ...({ sourceCandidateId: 'candidate-1' } as Record<string, string>),
+      mode: 'edit',
+    })).toBeNull();
     const collectedHref = thumbnailWorkspaceHref({
-      sourceCandidateId: 'candidate-1',
+      returnTo: '/product-pipeline/collected-products/sales-product-1',
       imageUrl: 'https://cdn.example.com/source.jpg',
       mode: 'edit',
     });
-    expect(collectedHref).toContain('/product-pipeline/collected-products/candidate-1?');
+    expect(collectedHref).toContain('/product-pipeline/collected-products/sales-product-1?');
     expect(collectedHref).toContain('tab=thumbnail');
     expect(collectedHref).toContain('thumbnailMode=edit');
     expect(collectedHref).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fsource.jpg');
-    expect(collectedHref).toContain('sourceCandidateId=candidate-1');
 
     const registeredHref = thumbnailWorkspaceHref({
       contentWorkspaceId: 'workspace-1',

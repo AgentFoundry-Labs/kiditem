@@ -131,21 +131,22 @@ export function requireRenderedDetailImage(
 }
 
 export async function prepareSavedCandidateDetailImage(
-  candidateId: string,
   detail: ProductDetailResponse,
 ): Promise<DetailPageClientRenderPrepareResponse> {
+  // 렌더 라우트는 A3(후속 pass)가 작업공간 라우트로 옮긴다 — 여기서는 원천 기록 id 를 그대로 넘긴다.
+  const candidateId = detail.sourceCandidateId ?? '';
   const firstRender = await renderCandidateDetailImageOnServer(candidateId);
   if (
     firstRender.status === 'ready'
     || firstRender.status !== 'missing'
     || firstRender.reason !== 'no_saved_detail_page'
-    || !detail.contentWorkspaceId
+    || !detail.salesProductId
   ) {
     return firstRender;
   }
 
-  const workspace = await contentWorkspacesApi.get(detail.contentWorkspaceId);
-  if (workspace.currentDetailPageRevisionId) return firstRender;
+  const workspace = await contentWorkspacesApi.getForSalesProduct(detail.salesProductId);
+  if (!workspace || workspace.currentDetailPageRevisionId) return firstRender;
 
   const history = contentWorkspaceHistoryToGenerationHistory(workspace.history);
   const preferredGenerationIds = [
@@ -435,14 +436,14 @@ export async function resolveWingCategorySelections(
   return categoryKeys as WingCategoryKey[];
 }
 
-/** 선택한 수집상품들로 WING 일괄등록 엑셀 바이트 생성. */
-export async function generateWingExcelForCandidates(
-  candidateIds: string[],
+/** 선택한 수집상품(판매상품 초안 id)들로 WING 일괄등록 엑셀 바이트 생성. */
+export async function generateWingExcelForSalesProducts(
+  salesProductIds: string[],
   defaults: WingProductDraftDefaults = WING_PRODUCT_DRAFT_DEFAULTS,
 ): Promise<{ bytes: Uint8Array; fileName: string; productCount: number }> {
-  if (candidateIds.length === 0) throw new Error('선택한 상품이 없습니다.');
+  if (salesProductIds.length === 0) throw new Error('선택한 상품이 없습니다.');
 
-  const details = await Promise.all(candidateIds.map((id) => productsApi.getDetail(id)));
+  const details = await Promise.all(salesProductIds.map((id) => productsApi.getDetail(id)));
   const categoryKeys = await resolveWingCategorySelections(details);
 
   const templateResponse = await fetch(TEMPLATE_URL);
@@ -553,8 +554,7 @@ export interface WingCategoryEvidence {
 }
 
 export interface WingRegistrationDraft {
-  candidateId: string;
-  /** 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) — 등록 실행은 이 id 로 연다. */
+  /** 판매상품 초안 id(ADR-0022) — 등록 실행은 이 id 로 연다. */
   salesProductId: string;
   /** 모달을 닫기 전까지 유지하는 pre-intent 재시도 키. */
   idempotencyKey: string;
@@ -595,7 +595,7 @@ export type WingSellpiaMatchPreview = ChannelsWingSellpiaMatchPreview;
 
 export type WingRegistrationPreparationResult =
   | { status: 'ready'; draft: WingRegistrationDraft }
-  | { status: 'failed'; candidateId: string; message: string };
+  | { status: 'failed'; salesProductId: string; message: string };
 
 export interface WingChannelAccountOption {
   id: string;
@@ -743,7 +743,7 @@ export function applyWingRegistrationOverrides(
  * 조회 시점에 차단하면 고칠 기회 자체가 사라진다.
  */
 export async function prepareWingRegistration(
-  candidateId: string,
+  salesProductId: string,
   defaults: WingProductDraftDefaults = WING_PRODUCT_DRAFT_DEFAULTS,
   options: { onRenderProgress?: (phase: WingRegistrationPreparationPhase) => void } = {},
 ): Promise<WingRegistrationPreparationResult> {
@@ -765,13 +765,8 @@ export async function prepareWingRegistration(
       + '그래도 같으면 확장을 리로드하고 이 페이지도 새로고침(F5)한 뒤 다시 시도하세요.',
     );
   }
-  const detail = await productsApi.getDetail(candidateId);
-  // 수집 시점부터 판매상품 초안이 있다(ADR-0022). 등록 실행은 이 초안을 연다 —
-  // 없으면 023 이전에 수집된 레거시 후보이므로 여기서 분명히 막는다.
-  if (!detail.salesProductId) {
-    throw new Error('이 수집상품에 연결된 판매상품 초안이 없습니다. 관리자에게 문의하세요.');
-  }
-  const salesProductId = detail.salesProductId;
+  // 수집상품 화면은 판매상품 초안으로 연다(ADR-0022) — 등록 실행도 이 초안을 연다.
+  const detail = await productsApi.getDetail(salesProductId);
   const categoryKey = await resolveWingCategoryKeyForRegistration(detail);
   const categoryCell = getWingCategoryDefinition(categoryKey)?.categoryCell ?? '';
   // 추천으로 정해진 카테고리는 근거를 함께 모달에 보여 사람이 검증하게 한다.
@@ -781,7 +776,7 @@ export async function prepareWingRegistration(
   // 대표이미지·원본 수집 이미지로 대체하지 않는다 — 잘못된 상세페이지가 등록되는 것이
   // 등록을 멈추는 것보다 나쁘다.
   options.onRenderProgress?.('rendering');
-  const rendered = await prepareSavedCandidateDetailImage(candidateId, detail);
+  const rendered = await prepareSavedCandidateDetailImage(detail);
   const detailImageUrl = requireRenderedDetailImage(rendered);
   options.onRenderProgress?.('finalizing');
 
@@ -798,7 +793,6 @@ export async function prepareWingRegistration(
   return {
     status: 'ready',
     draft: {
-      candidateId,
       salesProductId,
       idempotencyKey: createSecureRandomUuid(),
       product,

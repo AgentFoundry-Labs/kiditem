@@ -35,7 +35,6 @@ vi.mock('./detail/TagEditor', () => ({
 }));
 
 vi.mock('../../hooks/useGenerateSourcingThumbnail', () => ({
-  useGenerateSourcingThumbnail: () => ({ isPending: false, mutateAsync: vi.fn() }),
   useSourcingThumbnailGenerations: () => ({ data: [] }),
 }));
 
@@ -58,8 +57,8 @@ vi.mock('./thumbnail/ThumbnailWorkspaceTab', () => ({
 }));
 
 vi.mock('./detail/DetailPageWorkspaceTab', () => ({
-  default: ({ initialAgentHistory = [] }: { initialAgentHistory?: unknown[] }) => (
-    <div data-testid="detail-page-workspace-tab">{initialAgentHistory.length}</div>
+  default: ({ agentHistory = [] }: { agentHistory?: unknown[] }) => (
+    <div data-testid="detail-page-workspace-tab">{agentHistory.length}</div>
   ),
 }));
 
@@ -93,7 +92,7 @@ const baseProps = {
   selectedKidsPlayfulId: null,
   selectedRegistrationThumbnailUrl: null,
   thumbnailPreviewImages: [],
-  initialAgentHistory: [],
+  agentHistory: [],
   templateCss: '',
   thumbnailGenerationReturnHref: '/product-pipeline/collected-products/candidate-1',
   thumbnailUrl: null,
@@ -175,7 +174,7 @@ describe('ProductTabContent', () => {
       <ProductTabContent
         {...baseProps}
         activeTab="detail"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '등록 상품 이력',
@@ -198,7 +197,7 @@ describe('ProductTabContent', () => {
   });
 
   it('does not expose thumbnail generation actions in the basic tab', () => {
-    render(<ProductTabContent {...baseProps} thumbnailSourceCandidateId="candidate-1" />);
+    render(<ProductTabContent {...baseProps} contentWorkspaceId="workspace-1" />);
 
     expect(screen.queryByTestId('thumbnail-generation')).not.toBeInTheDocument();
     expect(screen.queryByTestId('thumbnail-editor')).not.toBeInTheDocument();

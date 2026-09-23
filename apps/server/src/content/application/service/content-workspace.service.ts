@@ -122,6 +122,15 @@ export class ContentWorkspaceService {
     };
   }
 
+  /** 판매상품 초안의 작업공간. 아직 콘텐츠를 만든 적이 없으면 null 이다 — 만드는 일은 생성이 한다. */
+  async getForSalesProduct(
+    organizationId: string,
+    salesProductId: string,
+  ): Promise<{ workspace: ContentWorkspaceSummary | null }> {
+    const workspaceId = await this.repository.findActiveSalesProductWorkspaceId({ organizationId, salesProductId });
+    return { workspace: workspaceId ? await this.get(organizationId, workspaceId) : null };
+  }
+
   async get(
     organizationId: string,
     workspaceId: string,

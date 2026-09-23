@@ -249,8 +249,9 @@ export function pickCaseFromSlots(slots: Slot[]): 'compose' | 'color-variants' |
 export type LayoutKindLite = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
 
 interface SlotsDtoExtras {
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
+  /** 작업공간이 아직 없는 판매상품 초안. 서버가 그 초안의 작업공간을 찾거나 만들어 붙인다. */
+  salesProductId?: string | null;
   productName?: string | null;
   supplementaryLabel?: string;
   pieceCount?: number | null;
@@ -266,8 +267,8 @@ interface SlotsDtoExtras {
 }
 
 interface GenerateDto {
-  sourceCandidateId?: string;
   contentWorkspaceId?: string;
+  salesProductId?: string;
   productName?: string;
   productImage?: string;
   packagingImage?: string;
@@ -292,8 +293,8 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
   const {
     mode,
     purpose,
-    sourceCandidateId,
     contentWorkspaceId,
+    salesProductId,
     productName,
     supplementaryLabel,
     pieceCount,
@@ -316,8 +317,10 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
   const isBundle = editCase === 'bundle';
 
   return {
-    sourceCandidateId: sourceCandidateId ?? undefined,
-    contentWorkspaceId: sourceCandidateId ? undefined : ((isBundle ? bundleOwner : contentWorkspaceId) ?? undefined),
+    // 결과는 작업공간에 붙는다 — 원천 기록(수집상품) id 는 싣지 않는다(B4, KID-310).
+    contentWorkspaceId: (isBundle ? bundleOwner : contentWorkspaceId) ?? undefined,
+    // 작업공간을 알면 작업공간만 보낸다 — 둘을 함께 보내면 서버가 거절한다.
+    ...(salesProductId && !((isBundle ? bundleOwner : contentWorkspaceId)) ? { salesProductId } : {}),
     productName: productName?.trim() || undefined,
     productImage: isBundle ? undefined : (productValue ?? undefined),
     packagingImage: isBundle ? undefined : (packagingValue ?? undefined),

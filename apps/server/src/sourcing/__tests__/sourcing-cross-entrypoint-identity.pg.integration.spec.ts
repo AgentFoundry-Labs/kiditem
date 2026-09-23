@@ -132,7 +132,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
         source_url: agentSourceUrl,
         scraped_data: { title: 'Agent Alibaba candidate', variant_key: '  Blue   Set ', images: [] },
       }),
-    } as never);
+    } as never, new SourcingCollectedDraftService(agentCandidates, realSalesProductDraftPort(agentPrisma)));
     const extension = extensionOwner(
       prismaWithCandidateReadBarrier(extensionPrisma, waitForPeerCandidateRead),
     );
@@ -175,6 +175,13 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     });
     expect(canonical.sourceIdentityHash).not.toBeNull();
     expect(canonical.id).toBe(agentResult.candidateId);
+    // 두 수집이 한 원천에 모이면 초안도 하나다. Agent 가 가리키는 초안이 그 초안이다.
+    const drafts = await agentPrisma.salesProduct.findMany({
+      where: { sourceCandidateId: canonical.id },
+      select: { id: true },
+    });
+    expect(drafts).toHaveLength(1);
+    expect(agentResult.salesProductId).toBe(drafts[0]!.id);
     await expect(agentPrisma.candidateImage.count({
       where: { organizationId: TEST_ORGANIZATION_ID, candidateId: canonical.id, isDeleted: false },
     })).resolves.toBe(1);

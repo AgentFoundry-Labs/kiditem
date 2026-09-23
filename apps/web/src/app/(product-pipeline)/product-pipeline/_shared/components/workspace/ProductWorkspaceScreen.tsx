@@ -24,21 +24,21 @@ import {
   buildGenerationHistoryHtml,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/generated-detail-html';
 import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
-import { salesProductApi } from '@/lib/sales-product-api';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
   applyBasicsPriceToSalesProduct,
   registrationStateFromPreparation,
   salesProductUpdateInputFromBasics,
   type UpdateProductBasicsInput,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
-import { useSourcingThumbnailGenerations } from '../../hooks/useGenerateSourcingThumbnail';
 import { useProductDetail } from '../../hooks/useProductDetail';
+import { useSalesProductWorkspace } from '../../hooks/useSalesProductWorkspace';
+import { contentWorkspaceHistoryToGenerationHistory } from '../../lib/detail-generation-history';
 import { PLACEHOLDER_DATA, type ProductEditState } from '../../lib/product-workspace-types';
 import {
   buildProductWorkspaceTabUrl,
   parseProductWorkspaceTab,
 } from '../../lib/product-workspace-tabs';
-import { useGenerationHistory } from '../../hooks/useGenerationHistory';
 import { extractKcCertificationNumber } from '../../lib/kc-autofill';
 import { contentWorkspacesApi } from '../../lib/content-workspaces-api';
 import { buildProductRegistrationPreviewData } from './preview/product-registration-preview';
@@ -60,11 +60,13 @@ interface ProductWorkspaceScreenProps {
   initialAgentHistory?: GenerationHistoryItem[];
   initialWorkspaceData?: ProductWorkspaceData;
   generationHistoryQueryEnabled?: boolean;
-  showCandidateActions?: boolean;
-  contentWorkspaceId?: string | null;
+  /**
+   * 등록상품(리스팅) 화면의 작업공간. 그 화면만 넘긴다 — 수집상품 화면은 판매상품 초안의
+   * 작업공간을 `useSalesProductWorkspace` 로 찾는다(KID-310). 한 화면에는 둘 중 하나만 있다.
+   */
+  listingContentWorkspaceId?: string | null;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
-  thumbnailSourceCandidateId?: string | null;
   detailGenerationEnabled?: boolean;
   onOpenDetailTemplateGeneration?: () => void;
 }
@@ -76,11 +78,9 @@ export function ProductWorkspaceScreen({
   initialAgentHistory,
   initialWorkspaceData,
   generationHistoryQueryEnabled = true,
-  showCandidateActions = true,
-  contentWorkspaceId = null,
+  listingContentWorkspaceId = null,
   hasSavedDetailPage,
   savedDetailPageGenerationId = null,
-  thumbnailSourceCandidateId,
   detailGenerationEnabled = true,
   onOpenDetailTemplateGeneration,
 }: ProductWorkspaceScreenProps) {
@@ -157,19 +157,13 @@ export function ProductWorkspaceScreen({
   // 등록 설정(RegistrationTarget) 유무와 무관하게 늘 이 id 로 저장한다.
   const salesProductId = product?.salesProductId ?? null;
   const salesProductVersion = product?.salesProductVersion ?? null;
-  const detailGenerationProductId = productId;
-  // 후보가 이미 소유한 워크스페이스까지 본다. 수집상품 상세 라우트는 워크스페이스 id 를
-  // prop 으로 넘길 수 없고(후보 id 만 안다), preparation 이 없으면
-  // `sourceContentWorkspaceId` 도 없다. 그 상태에서는 `대표 썸네일 등록` 이 계속
-  // disabled 라 저장 자체가 불가능했다 — 저장 위치가 실재하는데도 화면이 몰랐던 것이다.
-  const detailGenerationContentWorkspaceId =
-    contentWorkspaceId
-    ?? registrationTarget?.sourceContentWorkspaceId
-    ?? product?.contentWorkspaceId
-    ?? null;
-  const detailGenerationSourceCandidateId =
-    detailGenerationContentWorkspaceId ? null : productId;
-  const effectiveContentWorkspaceId = detailGenerationContentWorkspaceId;
+  // 콘텐츠(상세 · 썸네일 이력, 진행 중 생성, KC 자동 채우기, 등록 콘텐츠 선택)는 이 작업공간
+  // 안에서만 읽는다. 없으면(첫 생성 전) 읽지 않고 "아직 콘텐츠 없음" 이다 — 후보 id 나 조직 전체
+  // 목록으로 대신 묻지 않는다(KID-310).
+  const draftWorkspace = useSalesProductWorkspace(salesProductId);
+  const effectiveContentWorkspaceId = listingContentWorkspaceId ?? draftWorkspace.workspaceId;
+  const detailGenerationContentWorkspaceId = effectiveContentWorkspaceId;
+  const contentQueriesEnabled = generationHistoryQueryEnabled && !!effectiveContentWorkspaceId;
   const effectiveSavedDetailPageGenerationId =
     savedDetailPageGenerationId ?? registrationTarget?.selectedDetailPageGenerationId ?? null;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
@@ -183,25 +177,26 @@ export function ProductWorkspaceScreen({
     staleTime: 300_000,
   });
   const templateCss = fetchedData?.templateCss || fallbackTemplateCss;
-  const inProgressEntries = useAllGenerationsInProgress(detailGenerationProductId, {
-    enabled: generationHistoryQueryEnabled,
-    sourceCandidateId: detailGenerationSourceCandidateId,
-    contentWorkspaceId: detailGenerationContentWorkspaceId,
+  const inProgressEntries = useAllGenerationsInProgress(null, {
+    enabled: contentQueriesEnabled,
+    contentWorkspaceId: effectiveContentWorkspaceId,
   });
-  const { data: agentHistory = [] } = useGenerationHistory(
-    productId,
-    initialAgentHistory,
-    { enabled: generationHistoryQueryEnabled },
+  // 에이전트(작업공간) 이력: 등록상품 화면은 리스팅 작업공간 이력을 넘기고, 수집상품 화면은
+  // 초안 작업공간의 상세페이지 이력을 쓴다.
+  const agentHistory = useMemo(
+    () => initialAgentHistory
+      ?? contentWorkspaceHistoryToGenerationHistory(
+        (draftWorkspace.workspace?.history ?? []).filter((item) => item.contentType === 'detail_page'),
+      ),
+    [draftWorkspace.workspace?.history, initialAgentHistory],
   );
-  const { data: kidsPlayfulEntries = [] } = useKidsPlayfulGenerationList(detailGenerationProductId, {
-    enabled: generationHistoryQueryEnabled,
-    sourceCandidateId: detailGenerationSourceCandidateId,
-    contentWorkspaceId: detailGenerationContentWorkspaceId,
+  const { data: kidsPlayfulEntries = [] } = useKidsPlayfulGenerationList(null, {
+    enabled: contentQueriesEnabled,
+    contentWorkspaceId: effectiveContentWorkspaceId,
   });
-  const { data: boldEntries = [] } = useBoldVerticalGenerationList(detailGenerationProductId, {
-    enabled: generationHistoryQueryEnabled,
-    sourceCandidateId: detailGenerationSourceCandidateId,
-    contentWorkspaceId: detailGenerationContentWorkspaceId,
+  const { data: boldEntries = [] } = useBoldVerticalGenerationList(null, {
+    enabled: contentQueriesEnabled,
+    contentWorkspaceId: effectiveContentWorkspaceId,
   });
   const { data: selectedDetailEditedHtml } = useQuery({
     queryKey: effectiveSavedDetailPageGenerationId
@@ -217,12 +212,6 @@ export function ProductWorkspaceScreen({
     },
     enabled: !!effectiveSavedDetailPageGenerationId,
     staleTime: 30_000,
-  });
-  const effectiveThumbnailSourceCandidateId =
-    thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
-  const thumbnailGenerations = useSourcingThumbnailGenerations({
-    sourceCandidateId: effectiveThumbnailSourceCandidateId,
-    contentWorkspaceId: effectiveContentWorkspaceId,
   });
   const loadError = queryError
     ? isApiError(queryError)
@@ -254,8 +243,8 @@ export function ProductWorkspaceScreen({
       return updated;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(productId) });
+      queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
     },
   });
 
@@ -279,10 +268,12 @@ export function ProductWorkspaceScreen({
     setThumbnailPreviewImages([]);
     setDetailWorkspacePreviewHtml(null);
     kcAutoFilledRef.current = null;
-  }, [contentWorkspaceId, productId, thumbnailSourceCandidateId]);
+  }, [listingContentWorkspaceId, productId]);
 
+  // KC 자동 채우기는 이 초안 작업공간의 상세페이지만 읽는다. 작업공간이 없으면 돌지 않는다(B1) —
+  // 예전에는 후보 id 필터가 무시되어 조직의 다른 상품 KC 번호를 이 초안에 저장했다.
   useEffect(() => {
-    if (!salesProductId) return;
+    if (!salesProductId || !effectiveContentWorkspaceId) return;
     const basicInfo = fetchedData?.product?.basicInfo;
     if (!basicInfo) return;
     const status = basicInfo.kcCertificationStatus;
@@ -304,6 +295,7 @@ export function ProductWorkspaceScreen({
     // mutation 객체는 매 렌더 새 identity 라서 ref 로 중복 호출을 막는다.
   }, [
     salesProductId,
+    effectiveContentWorkspaceId,
     fetchedData?.product?.basicInfo?.kcCertificationStatus,
     kidsPlayfulEntries,
     boldEntries,
@@ -346,8 +338,10 @@ export function ProductWorkspaceScreen({
           }),
           queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.all }),
           queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all }),
-          // 저장한 갤러리는 `basicInfo.registrationImages.thumbnail` 로 다시 읽힌다.
-          queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) }),
+          // 저장한 갤러리는 초안의 등록용 사진(`registrationImages.thumbnail`)으로 다시 읽힌다.
+          ...(salesProductId
+            ? [queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.registrationMedia(salesProductId) })]
+            : []),
         ]);
       } else {
         throw new Error('저장 가능한 썸네일 구성이 없습니다.');
@@ -389,7 +383,8 @@ export function ProductWorkspaceScreen({
       );
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(productId) });
     },
   });
 
@@ -580,7 +575,7 @@ export function ProductWorkspaceScreen({
         error={loadError}
         onBack={goBack}
         onRetry={() =>
-          queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) })
+          queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.all })
         }
       />
     );
@@ -599,7 +594,8 @@ export function ProductWorkspaceScreen({
         productName={editData.name || '(상품명 없음)'}
         productId={productId}
         salesProductId={salesProductId}
-        status={product?.status}
+        sourceCandidateId={product?.sourceCandidateId ?? null}
+        status={product?.status ?? undefined}
         registrationTarget={registrationTarget}
         registrationState={registrationState}
         basicInfo={product?.basicInfo ?? null}
@@ -612,7 +608,6 @@ export function ProductWorkspaceScreen({
         selectedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
         detailGenerationContentWorkspaceId={detailGenerationContentWorkspaceId}
         detailGenerationEnabled={detailGenerationEnabled}
-        showCandidateActions={showCandidateActions}
         onOpenDetailTemplateGeneration={onOpenDetailTemplateGeneration}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
         onToggleLocked={() => setIsLocked((v) => !v)}
@@ -648,9 +643,9 @@ export function ProductWorkspaceScreen({
               basicInfo={product?.basicInfo ?? null}
               costCny={product?.cost_cny ?? null}
               updateField={updateField}
-              // 판매상품 초안이 있으면 저장할 수 있다 — 등록상품(showCandidateActions=false)은
-              // 후보 워크스페이스가 아니라 읽기 전용이다.
-              onCommitBasicInfo={salesProductId && showCandidateActions ? handleCommitBasicInfo : undefined}
+              // 판매상품 초안이 있으면 저장할 수 있다 — 등록상품(리스팅) 화면에는 초안이 없어
+              // 읽기 전용이다.
+              onCommitBasicInfo={salesProductId ? handleCommitBasicInfo : undefined}
               nameLength={nameLength}
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}
@@ -662,15 +657,12 @@ export function ProductWorkspaceScreen({
               selectedBoldVerticalId={selectedBoldVerticalId}
               selectedAgentId={selectedAgentId}
               contentWorkspaceId={effectiveContentWorkspaceId}
-              generationQueryProductId={detailGenerationProductId}
-              generationQuerySourceCandidateId={detailGenerationSourceCandidateId}
-              generationQueryContentWorkspaceId={detailGenerationContentWorkspaceId}
+              salesProductId={salesProductId}
               hasSavedDetailPage={hasSavedDetailPage}
               savedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
-              initialAgentHistory={initialAgentHistory}
-              generationHistoryQueryEnabled={generationHistoryQueryEnabled}
-              thumbnailSourceCandidateId={thumbnailSourceCandidateId}
-              detailEditorSourceCandidateId={thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId}
+              agentHistory={agentHistory}
+              generationHistoryQueryEnabled={contentQueriesEnabled}
+              detailEditorSalesProductId={salesProductId}
               detailEditorReturnHref={selfHref}
               onSelectKidsPlayful={(id) => {
                 setSelectedKidsPlayfulId(id);

@@ -20,17 +20,6 @@ vi.mock('@/lib/api-client', () => ({
   },
 }));
 
-vi.mock('../../hooks/useGenerationHistory', () => ({
-  useGenerationHistory: (
-    _productId: string,
-    initialAgentHistory: unknown[] = [],
-  ) => ({
-    data: initialAgentHistory,
-    isLoading: false,
-    error: null,
-  }),
-}));
-
 vi.mock(
   '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate',
   () => ({
@@ -107,7 +96,7 @@ describe('DetailPagePreview', () => {
         detailPreviewHtml="<html><body>placeholder template</body></html>"
         templateCss="/* compiled template css */"
         hasSavedDetailPage={false}
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '이력에는 있지만 저장 선택은 아님',
@@ -123,7 +112,6 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
         detailEditorReturnHref="/product-pipeline/registered-products/workspace-1"
         mobilePreviewData={mobilePreviewData}
       />,
@@ -139,7 +127,7 @@ describe('DetailPagePreview', () => {
         productId="candidate-1"
         detailPreviewHtml="<html><body>깨진 placeholder</body></html>"
         templateCss="/* compiled template css */"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'older-generation',
             generatedTitle: '오래된 상세페이지',
@@ -169,9 +157,8 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
       />,
     );
@@ -190,7 +177,7 @@ describe('DetailPagePreview', () => {
         templateCss="/* compiled template css */"
         hasSavedDetailPage
         savedDetailPageGenerationId="generation-1"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '캐릭터 문어발 비눗방울',
@@ -206,7 +193,6 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
         detailEditorReturnHref="/product-pipeline/registered-products/workspace-1"
         mobilePreviewData={mobilePreviewData}
       />,
@@ -231,7 +217,7 @@ describe('DetailPagePreview', () => {
         templateCss="/* compiled template css */"
         hasSavedDetailPage
         savedDetailPageGenerationId="generation-1"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '캐릭터 문어발 비눗방울',
@@ -247,7 +233,6 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
         detailEditorReturnHref="/product-pipeline/registered-products/workspace-1"
         mobilePreviewData={mobilePreviewData}
       />,
@@ -267,7 +252,7 @@ describe('DetailPagePreview', () => {
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder template</body></html>"
         templateCss="/* compiled template css */"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '자체 수집 생성물',
@@ -283,9 +268,8 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
       />,
     );
@@ -296,7 +280,7 @@ describe('DetailPagePreview', () => {
     });
     expect(screen.getByRole('link', { name: '에디터에서 편집' })).toHaveAttribute(
       'href',
-      '/product-pipeline/detail-pages/generation-1/editor?sourceCandidateId=candidate-1&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fcandidate-1',
+      '/product-pipeline/detail-pages/generation-1/editor?salesProductId=sales-product-1&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fsales-product-1',
     );
   });
 
@@ -308,10 +292,9 @@ describe('DetailPagePreview', () => {
         templateCss=""
         hasSavedDetailPage
         savedDetailPageGenerationId={null}
-        initialAgentHistory={[]}
-        generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        agentHistory={[]}
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
       />,
     );
@@ -338,10 +321,9 @@ describe('DetailPagePreview', () => {
         detailPreviewHtml="<html><body><p>등록 미리보기 상세 본문</p></body></html>"
         templateCss=""
         hasSavedDetailPage
-        initialAgentHistory={[]}
-        generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        agentHistory={[]}
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
         onPreviewHtmlChange={onPreviewHtmlChange}
       />,
@@ -364,10 +346,9 @@ describe('DetailPagePreview', () => {
         detailPreviewHtml="<html><body><p>다운로드 가능한 상세페이지</p></body></html>"
         templateCss=""
         hasSavedDetailPage
-        initialAgentHistory={[]}
-        generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        agentHistory={[]}
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
       />,
     );

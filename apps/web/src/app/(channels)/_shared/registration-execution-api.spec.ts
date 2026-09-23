@@ -87,6 +87,7 @@ const TARGET_RESULT = {
         safetyStock: null,
         sortOrder: 0,
         components: [],
+        referenceCost: null,
         linkedChannelOptionCount: 0,
       }],
       channelOverrides: [],

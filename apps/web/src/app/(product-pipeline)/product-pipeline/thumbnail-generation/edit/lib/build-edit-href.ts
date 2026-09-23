@@ -8,7 +8,6 @@ import { getThemeHint } from './theme-hint';
 
 export function buildEditHref(opts: {
   contentWorkspaceId?: string | null;
-  sourceCandidateId?: string | null;
   imageUrl?: string | null;
   generationId?: string;
   /**
@@ -27,7 +26,6 @@ export function buildEditHref(opts: {
   const workspaceHref = returnToWorkspace
     ? thumbnailWorkspaceHref({
         contentWorkspaceId: opts.contentWorkspaceId,
-        sourceCandidateId: opts.sourceCandidateId,
         returnTo: opts.returnTo,
         generationId: opts.generationId,
         imageUrl: opts.imageUrl,
@@ -46,7 +44,6 @@ export function buildEditHref(opts: {
       returnTo: opts.returnTo,
       subjectParams: {
         contentWorkspaceId: opts.contentWorkspaceId,
-        sourceCandidateId: opts.sourceCandidateId,
       },
     });
 

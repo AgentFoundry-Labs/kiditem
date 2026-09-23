@@ -40,6 +40,7 @@ import type {
   RegisterManualProductCommand,
 } from '../port/in/sourcing.commands';
 import type { ProductGenerationTask } from '../../../content/application/port/in/generation/product-generation-ai-trigger.port';
+import type { DetailPageTemplateId } from '@kiditem/shared/ai';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -207,11 +208,13 @@ export class SourcingService {
     triggeredByUserId: string | null,
     task: ProductGenerationTask,
     idempotencyKey: string,
+    templateId: DetailPageTemplateId = 'bold-vertical',
   ) {
     const requestHash = canonicalOwnerInputHash({
       kind: 'sourcing.quick_process',
       salesProductId,
       task,
+      templateId,
     });
     const draft = await this.requireDraft(organizationId, salesProductId);
     try {
@@ -274,7 +277,7 @@ export class SourcingService {
         boxSetStatus: 'auto',
         boxSetQuantity: draft.boxSetQuantity,
       },
-      templateId: 'bold-vertical',
+      templateId,
       ageGroup: 'age-8-plus',
       detailImageCount: '2',
       usageSectionMode: 'include',

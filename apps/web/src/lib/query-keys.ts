@@ -357,7 +357,6 @@ export const queryKeys = {
     intelligenceProcurementIntents: () =>
       [...queryKeys.sourcing.intelligence(), 'procurement-intents'] as const,
     list: (params: Record<string, string>) => [...queryKeys.sourcing.all, 'list', params] as const,
-    detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
     scrapeUrlStatus: (url: string) => [...queryKeys.sourcing.all, 'scrape-url-status', url] as const,
     liveNaverMarket: () => [...queryKeys.sourcing.all, 'market', 'naver-live'] as const,
@@ -416,8 +415,6 @@ export const queryKeys = {
       [...queryKeys.productContent.all, 'product-workspace', id, params] as const,
     groupWorkspace: (id: string, params?: Record<string, string>) =>
       [...queryKeys.productContent.all, 'group-workspace', id, params] as const,
-    sourcingLinks: (id: string, params?: Record<string, string>) =>
-      [...queryKeys.productContent.all, 'sourcing-links', id, params] as const,
     detail: (id: string) => [...queryKeys.productContent.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.productContent.all, 'preview', id] as const,
     generationEditedHtml: (id: string) =>
@@ -428,16 +425,12 @@ export const queryKeys = {
       templateId: 'kids-playful' | 'bold-vertical',
       scope?: {
         productId?: string | null;
-        sourceCandidateId?: string | null;
         contentWorkspaceId?: string | null;
       },
     ) => {
       const root = templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations';
       if (scope?.contentWorkspaceId) {
         return [root, { contentWorkspaceId: scope.contentWorkspaceId }] as const;
-      }
-      if (scope?.sourceCandidateId) {
-        return [root, { sourceCandidateId: scope.sourceCandidateId }] as const;
       }
       if (templateId === 'kids-playful' && scope?.productId) {
         return [root, { productId: scope.productId }] as const;
@@ -450,11 +443,25 @@ export const queryKeys = {
     detailGeneration: (id: string) => ['kp-generations', 'one', id] as const,
     detailGenerationNoop: () => ['kp-generations', 'one', 'noop'] as const,
   },
+  /** 수집상품 화면 — 판매상품 초안 id 로 연다(KID-310 · ADR-0022). */
+  collectedProducts: {
+    all: ['collected-products'] as const,
+    /** 초안 + 원천 기록(수집상품)의 원천 사실. 등록용 사진은 `contentWorkspaces.registrationMedia`. */
+    workspace: (salesProductId: string) =>
+      [...queryKeys.collectedProducts.all, 'workspace', salesProductId] as const,
+    /** 목록 화면이 시작한 생성의 진행 — 종류마다 목록 하나. */
+    startedProgress: (kind: 'detail' | 'thumbnail') =>
+      [...queryKeys.collectedProducts.all, 'started-progress', kind] as const,
+  },
   contentWorkspaces: {
     all: ['content-workspaces'] as const,
     list: (params: Record<string, string>) =>
       [...queryKeys.contentWorkspaces.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.contentWorkspaces.all, 'detail', id] as const,
+    forSalesProduct: (salesProductId: string) =>
+      [...queryKeys.contentWorkspaces.all, 'sales-product', salesProductId] as const,
+    registrationMedia: (salesProductId: string) =>
+      [...queryKeys.contentWorkspaces.all, 'sales-product', salesProductId, 'registration-media'] as const,
     duplicate: (title: string) =>
       [...queryKeys.contentWorkspaces.all, 'duplicate', title] as const,
   },

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -17,6 +17,7 @@ import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { salesProductKeys } from '@/lib/sales-product-api';
 import { registrationTargetApi, registrationTargetKeys } from '@/lib/registration-target-api';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
@@ -35,11 +36,16 @@ import {
 import { getInlineGenerationProgressLabel } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
 import ProductPreparationDraftDialog from './ProductPreparationDraftDialog';
 
+/** 반려는 원천 기록(수집상품)의 소싱 판단이다 — 직접 작성 · 사방넷 초안에는 반려할 원천이 없다. */
+const NO_SOURCE_REJECT_REASON = '원천 기록이 없는 초안은 반려할 수 없습니다.';
+
 interface ProductEditHeaderProps {
   productName: string;
   productId: string;
-  /** 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) — 등록 설정은 이 id 로 연다. */
+  /** 이 화면의 판매상품 초안 id(ADR-0022) — 등록 설정과 생성은 이 id 로 연다. */
   salesProductId?: string | null;
+  /** 초안의 원천 기록(수집상품). 반려는 원천 기록의 소싱 판단이라 이 id 로 한다. 없으면 반려가 없다. */
+  sourceCandidateId?: string | null;
   status?: SourcingCandidateStatus;
   registrationTarget?: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에서만 `null` 이다. */
@@ -54,7 +60,6 @@ interface ProductEditHeaderProps {
   selectedDetailPageGenerationId?: string | null;
   detailGenerationContentWorkspaceId?: string | null;
   detailGenerationEnabled?: boolean;
-  showCandidateActions?: boolean;
   onOpenDetailTemplateGeneration?: () => void;
   onToggleEditComplete: () => void;
   onToggleLocked: () => void;
@@ -67,6 +72,7 @@ export default function ProductEditHeader({
   productName,
   productId,
   salesProductId = null,
+  sourceCandidateId = null,
   status = 'sourced',
   registrationTarget = null,
   registrationState = null,
@@ -77,7 +83,6 @@ export default function ProductEditHeader({
   selectedDetailPageGenerationId = null,
   detailGenerationContentWorkspaceId = null,
   detailGenerationEnabled = true,
-  showCandidateActions = true,
   onOpenDetailTemplateGeneration,
   onBack,
   rawData = null,
@@ -88,14 +93,21 @@ export default function ProductEditHeader({
   const [preparationDialogOpen, setPreparationDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectInputOpen, setRejectInputOpen] = useState(false);
-  const { mutate: runGenerate, isPending } = useGenerateDetailPage(productId);
+  const { mutate: runGenerate, isPending } = useGenerateDetailPage(salesProductId ?? '');
   const kp = useKidsPlayfulFromSourcing();
-  const kpInProgress = useKidsPlayfulInProgress(productId, {
-    enabled: detailGenerationEnabled && !onOpenDetailTemplateGeneration,
-    sourceCandidateId: detailGenerationContentWorkspaceId ? null : productId,
+  // 진행 중 생성은 이 초안의 작업공간 안에서만 찾는다. 작업공간이 없으면 찾을 것도 없다 —
+  // 후보 id 나 조직 전체 목록으로 대신 묻지 않는다(KID-310).
+  const kpInProgress = useKidsPlayfulInProgress(null, {
+    enabled: detailGenerationEnabled && !onOpenDetailTemplateGeneration && !!detailGenerationContentWorkspaceId,
     contentWorkspaceId: detailGenerationContentWorkspaceId,
   });
-  const generateBusy = isPending || kp.isPending || !!kpInProgress;
+  // 첫 생성은 서버가 초안의 작업공간을 만든다. 그 작업공간을 다시 읽기 전에는 진행 조회가 돌지
+  // 않으므로, 그동안 버튼을 막아 두 번째 유료 생성을 시작하지 못하게 한다(작업공간이 오면 풀린다).
+  const [awaitingDraftWorkspace, setAwaitingDraftWorkspace] = useState(false);
+  useEffect(() => {
+    if (detailGenerationContentWorkspaceId) setAwaitingDraftWorkspace(false);
+  }, [detailGenerationContentWorkspaceId]);
+  const generateBusy = isPending || kp.isPending || !!kpInProgress || awaitingDraftWorkspace;
   const accountsQuery = useQuery({
     queryKey: queryKeys.channelAccounts.active(),
     queryFn: () => channelListingsApi.listAccounts(),
@@ -122,8 +134,7 @@ export default function ProductEditHeader({
       toast.success('제품 등록 준비를 저장했습니다.', {
         description: `등록 설정 ID: ${target.id}`,
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(productId) });
       queryClient.invalidateQueries({ queryKey: registrationTargetKeys.all });
     },
     onError: (err) => {
@@ -134,30 +145,54 @@ export default function ProductEditHeader({
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (reason: string | undefined) =>
-      candidatesApi.reject(productId, reason && reason.trim() ? reason.trim() : undefined),
-    onSuccess: () => {
-      toast.success('소싱 후보를 반려했습니다.');
+    mutationFn: (reason: string | undefined) => {
+      if (!sourceCandidateId) throw new Error(NO_SOURCE_REJECT_REASON);
+      return candidatesApi.reject(sourceCandidateId, reason && reason.trim() ? reason.trim() : undefined);
+    },
+    onSuccess: (result) => {
+      // 초안을 함께 내릴지는 서버가 정한다 — 응답을 그대로 알린다.
+      toast.success('소싱 후보를 반려했습니다.', {
+        description: result.draftRetired ? '판매상품 초안도 함께 내렸습니다.' : undefined,
+      });
+      if (result.draftWarning) {
+        toast.warning('판매상품 초안은 내리지 못했습니다.', { description: result.draftWarning });
+      }
       setRejectInputOpen(false);
       setRejectReason('');
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(productId) });
     },
     onError: (err) => {
       toast.error(isApiError(err) ? err.detail : '반려 처리에 실패했습니다.');
     },
   });
   const handleConfirm = (templateId: string, mode: GenerateMode) => {
+    if (!salesProductId) {
+      toast.error('판매상품 초안이 없어 상세페이지를 만들 수 없습니다.');
+      return;
+    }
     if (templateId === 'kids-playful' || templateId === 'bold-vertical') {
-      kp.trigger({
-        sourceCandidateId: productId,
-        productId: null,
+      const firstGeneration = !detailGenerationContentWorkspaceId;
+      if (firstGeneration) setAwaitingDraftWorkspace(true);
+      void kp.trigger({
+        salesProductId,
+        sourceCandidateId,
         contentWorkspaceId: detailGenerationContentWorkspaceId,
         productName,
         rawData,
         templateId: templateId as DetailPageTemplateId,
         generationMode: templateId === 'kids-playful' ? 'full' : mode,
         imageUrls,
+      }).then((result) => {
+        if (!result) {
+          // 시작하지 못했다(입력 부족 · 요청 실패) — 다시 누를 수 있게 푼다.
+          setAwaitingDraftWorkspace(false);
+          return;
+        }
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.contentWorkspaces.forSalesProduct(salesProductId),
+        });
       });
       return;
     }
@@ -186,7 +221,7 @@ export default function ProductEditHeader({
     (preparationStatus === null || preparationStatus === 'cancelled') &&
     !createPreparationDraftMutation.isPending &&
     !rejectMutation.isPending;
-  const canReject = status === 'sourced' && !registrationStarted && preparationStatus === null &&
+  const canReject = !!sourceCandidateId && status === 'sourced' && !registrationStarted && preparationStatus === null &&
     !createPreparationDraftMutation.isPending && !rejectMutation.isPending;
   const registrationBadge = registrationStarted
     ? registrationStateLabel(fenceState)
@@ -325,7 +360,8 @@ export default function ProductEditHeader({
           </>
         )}
 
-        {showCandidateActions && status === 'sourced' && (
+        {/* 등록 준비 · 반려는 판매상품 초안 화면에만 있다 — 등록상품(리스팅) 화면에는 초안이 없다. */}
+        {salesProductId && status === 'sourced' && (
           <>
             {!registrationStarted
               && (preparationStatus === null || preparationStatus === 'cancelled') && (
@@ -360,11 +396,17 @@ export default function ProductEditHeader({
                     ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
                     : 'cursor-not-allowed border-rose-100 text-rose-300',
                 )}
-                title="후보 반려"
+                title={sourceCandidateId ? '후보 반려' : NO_SOURCE_REJECT_REASON}
+                aria-describedby={sourceCandidateId ? undefined : 'reject-disabled-reason'}
               >
                 <XCircle size={12} />
                 반려
               </button>
+            )}
+            {!sourceCandidateId && preparationStatus === null && !registrationStarted && (
+              <span id="reject-disabled-reason" className="text-[10px] font-medium text-slate-500">
+                {NO_SOURCE_REJECT_REASON}
+              </span>
             )}
             {preparationStatus === null && !registrationStarted && rejectInputOpen && (
               <div className="flex items-center gap-1.5">

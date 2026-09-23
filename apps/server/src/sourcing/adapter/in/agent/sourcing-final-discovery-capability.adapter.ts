@@ -18,6 +18,7 @@ import {
   normalizeSourcingVariantKey,
 } from '../../../domain/sourcing-candidate-identity';
 import type { SourcingSourceSnapshot } from '../../../application/port/in/capability/sourcing-final-capability.port';
+import { SourcingCollectedDraftService } from '../../../application/service/sourcing-collected-draft.service';
 
 /** Owner bridge for final discovery capabilities; raw browser records never cross this boundary. */
 @Injectable()
@@ -27,15 +28,20 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_BROWSER_SCRAPE_PORT)
     private readonly browser: SourcingBrowserScrapePort,
+    private readonly collectedDrafts: SourcingCollectedDraftService,
   ) {}
 
+  /** 이미 수집한 URL 이면 그 원천 기록과, 운영자가 여는 판매상품 초안을 함께 알린다. */
   async duplicateCheck(input: { organizationId: string; sourceUrl: string }) {
     const supplier = parseAllowedSupplierUrl(input.sourceUrl);
     const existing = await this.candidates.findActiveBySourceUrl({
       organizationId: input.organizationId,
       sourceUrl: supplier.normalizedUrl,
     });
-    return { duplicate: Boolean(existing), candidateId: existing?.id ?? null };
+    const salesProductId = existing
+      ? (await this.collectedDrafts.findDraftIds(input.organizationId, [existing.id])).get(existing.id) ?? null
+      : null;
+    return { duplicate: Boolean(existing), candidateId: existing?.id ?? null, salesProductId };
   }
 
   async scrapeProductUrl(input: { sourceUrl: string }): Promise<SourcingSourceSnapshot> {
@@ -79,7 +85,7 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
     const variantKeyNormalized = normalizeSourcingVariantKey(
       input.snapshot.variantKeyNormalized,
     );
-    return this.candidates.upsertSourcedWithIdempotencyReceipt({
+    const receipt = await this.candidates.upsertSourcedWithIdempotencyReceipt({
       capabilityKey: 'sourcing.ingestCandidate',
       requestHash: input.requestHash,
       organizationId: input.organizationId,
@@ -108,6 +114,9 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
       triggeredByUserId: input.initiatingUserId,
       images: input.snapshot.images.map((url, sortOrder) => ({ url, role: 'product', label: null, sortOrder, source: 'agent-final-scrape', isPrimary: sortOrder === 0 })),
     });
+    // 수집한 상품의 편집 정본은 초안이다. 재시도에서도 같은 초안을 돌려준다(초안 보장은 멱등).
+    const drafts = await this.collectedDrafts.ensureDraftsForCandidates(input.organizationId, [receipt.candidateId]);
+    return { candidateId: receipt.candidateId, salesProductId: drafts.get(receipt.candidateId) ?? null };
   }
 }
 

@@ -359,8 +359,8 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
           input.output.discoveredCount - input.output.rejectedCount - persisted.staleDiscardedCount,
         );
     const candidate = scrape ? await upsertSourcedCandidateIn(tx, scrape.candidate) : null;
-    const scrapeUrlResult = candidate ? { candidateId: candidate.id,
-      href: `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}` } : undefined;
+    // 화면 주소는 초안 id 로 만든다 — 초안은 커밋 뒤에 보장되므로 여기서는 후보 id 만 남긴다.
+    const scrapeUrlResult = candidate ? { candidateId: candidate.id } : undefined;
     await tx.sourcingEvidenceIngestionRun.updateMany({
       where: {
         organizationId: attempt.organizationId,
@@ -537,7 +537,7 @@ export function toAttempt(attempt: AttemptRow, now: Date): SourcingBrowserSource
     errorMessage: isReadTimeExpiry ? ATTEMPT_EXPIRED_MESSAGE : attempt.errorMessage,
     completedAt: attempt.completedAt,
     ...(state === 'COMPLETE' && attempt.sourceKey.endsWith('.scrape_url') && quality?.scrapeUrlResult
-      ? { scrapeUrlResult: quality.scrapeUrlResult as { candidateId: string; href: string } } : {}),
+      ? { scrapeUrlResult: { candidateId: (quality.scrapeUrlResult as { candidateId: string }).candidateId } } : {}),
   };
 }
 

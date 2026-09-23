@@ -36,7 +36,7 @@ const scenarios: readonly ApprovalScenario[] = [
         contentHash: 'a'.repeat(64),
       },
     },
-    output: { candidateId: CANDIDATE_ID },
+    output: { candidateId: CANDIDATE_ID, salesProductId: null },
   },
   {
     definition: requiredDefinition(

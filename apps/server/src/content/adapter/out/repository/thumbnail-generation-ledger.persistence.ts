@@ -226,17 +226,22 @@ export async function createPendingSalesProductJob(
       contentWorkspaceId = existing.id;
     } else {
       const displayName = args.productName.trim() || '상품 콘텐츠 작업';
-      const created = await prisma.contentWorkspace.create({
-        data: {
-          organizationId: args.organizationId,
-          ownerType: 'sales_product',
-          salesProductId: args.salesProductId,
-          displayName,
-          normalizedTitle: displayName.toLowerCase(),
-        },
+      // 초안 작업공간은 판매상품 하나에 하나다. 호출자 트랜잭션 안에서도 안전하도록 유일 index 에
+      // 부딪히면 넣지 않고(ON CONFLICT DO NOTHING) 이긴 쪽을 다시 읽는다.
+      await prisma.$executeRaw`
+        INSERT INTO content_workspaces
+          (id, organization_id, owner_type, sales_product_id, display_name, normalized_title, status, is_deleted)
+        VALUES
+          (${randomUUID()}::uuid, ${args.organizationId}::uuid, 'sales_product', ${args.salesProductId}::uuid,
+           ${displayName}, ${displayName.toLowerCase()}, 'active', false)
+        ON CONFLICT (organization_id, sales_product_id)
+          WHERE sales_product_id IS NOT NULL AND status = 'active' AND is_deleted = false
+        DO NOTHING`;
+      const ensured = await prisma.contentWorkspace.findFirstOrThrow({
+        where: { organizationId: args.organizationId, salesProductId: args.salesProductId, status: 'active', isDeleted: false },
         select: { id: true },
       });
-      contentWorkspaceId = created.id;
+      contentWorkspaceId = ensured.id;
     }
   }
   return prisma.thumbnailGeneration.create({

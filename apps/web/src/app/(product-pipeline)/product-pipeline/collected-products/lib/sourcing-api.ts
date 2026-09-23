@@ -5,8 +5,12 @@ import {
   type SourcingCandidateStatus,
 } from '@kiditem/shared/sourcing';
 import { apiClient } from '@/lib/api-client';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import { isApiError } from '@/lib/api-error';
 import { salesProductApi } from '@/lib/sales-product-api';
+import {
+  contentWorkspacesApi,
+  type SalesProductRegistrationMedia,
+} from '../../_shared/lib/content-workspaces-api';
 import type { SalesProduct, SalesProductUpdateInput } from '@kiditem/shared/sales-product';
 
 export type ProductStatus = SourcingCandidateStatus;
@@ -25,9 +29,6 @@ export interface ExternalWingSellpiaMatchPreview {
   sellpiaMatch: (SellpiaInventorySearchItem & { quantity: number }) | null;
   proposals: Array<SellpiaInventorySearchItem & { recommendedQuantity: number | null }>;
 }
-
-export const isInProgress = (s: string | undefined | null): boolean =>
-  s === 'pending' || s === 'processing';
 
 /**
  * 수집후보 하나의 등록 상태. **울타리**(`ProductRegistrationExecution`)가 근거다.
@@ -118,15 +119,17 @@ interface ProductListResponse {
 
 export type SourcingSort = 'newest' | 'oldest' | 'name_asc';
 
-interface ThumbnailGenerationListResponse {
-  items: ThumbnailGenerationItem[];
-  total: number;
-}
-
+/**
+ * 수집상품 화면 하나. `id` 는 판매상품 초안 id 다(KID-310 · ADR-0022) — 원천 기록(수집상품)
+ * id 는 `sourceCandidateId` 이고, 원천이 없는 초안이면 `null` 이다.
+ */
 export interface ProductDetailResponse {
   id: string;
   name: string;
-  status: ProductStatus;
+  /** 원천 기록의 소싱 판단(`sourced` · `rejected`). 원천이 없는 초안이면 `null`. */
+  status: ProductStatus | null;
+  /** 초안을 만든 원천 기록(수집상품) id. 원천 사실을 읽고 원천을 지울 때만 쓴다. */
+  sourceCandidateId: string | null;
   sourcePlatform: string;
   source_platform: string;
   source_url: string | null;
@@ -149,15 +152,7 @@ export interface ProductDetailResponse {
   registrationTarget: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
   registrationState: CandidateRegistrationState | null;
-  /**
-   * 후보가 이미 소유한 `ContentWorkspace.id`. 아직 없으면 `null`.
-   *
-   * `RegistrationTarget` 이 없는 후보는 이 값이 썸네일 구성을 저장할 수 있는
-   * 유일한 위치다(= `ContentAsset role='thumbnail'` 갤러리 소유자).
-   * 구버전 응답에는 없을 수 있어 `null` 로 정규화한다.
-   */
-  contentWorkspaceId: string | null;
-  /** 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) — 없으면 이관 전 구행이다. */
+  /** 판매상품 초안 id(= `id`). 등록상품 화면이 리스팅에서 만든 값에는 초안이 없어 `null` 이다. */
   salesProductId: string | null;
   /** 초안의 낙관적 동시성 버전. `salesProductApi.update`/`replaceOptions` 의 `expectedVersion`. */
   salesProductVersion: number | null;
@@ -315,6 +310,7 @@ export interface ScrapeUrlResponse {
   skipped?: boolean;
   attempt: ScrapeUrlAttempt | null;
   candidateId?: string | null;
+  salesProductId?: string | null;
   href?: string | null;
 }
 
@@ -341,13 +337,16 @@ export type ScrapeUrlStatusResponse = { source: ScrapeUrlSourceStatus } & (
   | {
       status: 'available';
       candidateId: null;
+      salesProductId?: null;
       href: null;
       platform: '1688' | 'alibaba';
     }
   | {
       status: 'collected';
       candidateId: string;
-      href: string;
+      /** 수집상품 화면이 여는 판매상품 초안. 초안을 아직 못 찾았으면 `null` 이고 주소도 없다. */
+      salesProductId: string | null;
+      href: string | null;
     });
 
 /** Coerces backend Decimal/string `costCny` into a plain number. */
@@ -502,15 +501,6 @@ function normalizeCurrentThumbnail(value: unknown): SalesProductCurrentThumbnail
   };
 }
 
-const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'none'];
-
-/** 서버가 값을 안 줬거나 모르는 값이면 출처 미상 → `none`. 추측하지 않는다. */
-function normalizeSalePriceSource(value: unknown): SalePriceSource {
-  return SALE_PRICE_SOURCES.includes(value as SalePriceSource)
-    ? (value as SalePriceSource)
-    : 'none';
-}
-
 /** `{ 키: 문자열 }` 만 남긴다. 구버전 응답에는 아예 없을 수 있다. */
 function normalizeStringMap(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -519,105 +509,6 @@ function normalizeStringMap(value: unknown): Record<string, string> {
     if (typeof entry === 'string') result[key] = entry;
   }
   return result;
-}
-
-/** `{ 몰키: { 칸키: 문자열 } }`. 빈 몰은 담지 않는다. */
-function normalizeStringMapMap(value: unknown): Record<string, Record<string, string>> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const result: Record<string, Record<string, string>> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    const inner = normalizeStringMap(entry);
-    if (Object.keys(inner).length > 0) result[key] = inner;
-  }
-  return result;
-}
-
-function normalizeProductBasics(
-  value: unknown,
-  fallback: {
-    name: string;
-    category: string;
-    description?: string | null;
-    tags?: string[];
-    thumbnailUrls: string[];
-    preparation: ProductPreparationSelection | null;
-  },
-): ProductBasics {
-  const basics = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  const tags = Array.isArray(basics.tags)
-    ? basics.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '')
-    : fallback.tags ?? [];
-  const keywords = Array.isArray(basics.keywords)
-    ? basics.keywords.filter((keyword): keyword is string => typeof keyword === 'string' && keyword.trim() !== '')
-    : [];
-  const optionNames = Array.isArray(basics.optionNames)
-    ? basics.optionNames.filter((option): option is string => typeof option === 'string' && option.trim() !== '')
-    : [];
-  const explicitThumbnailUrls = collectImageUrls(basics.thumbnailPreviewUrls);
-  const thumbnailUrls = collectImageUrls(basics.thumbnailUrls, fallback.thumbnailUrls);
-  const numberOrZero = (item: unknown) => typeof item === 'number' && Number.isFinite(item) ? item : 0;
-  return {
-    name: typeof basics.name === 'string' && basics.name.trim() ? basics.name.trim() : fallback.name,
-    category: typeof basics.category === 'string' && basics.category.trim() ? basics.category.trim() : fallback.category,
-    description: typeof basics.description === 'string' ? basics.description : fallback.description ?? '',
-    target: typeof basics.target === 'string' ? basics.target : '',
-    ageGroup: typeof basics.ageGroup === 'string' ? basics.ageGroup : '',
-    tags,
-    keywords,
-    optionNames,
-    kcCertificationStatus: typeof basics.kcCertificationStatus === 'string' ? basics.kcCertificationStatus : '',
-    kcCertificationNumber: typeof basics.kcCertificationNumber === 'string' ? basics.kcCertificationNumber : '',
-    kcCertificationImageUrl: typeof basics.kcCertificationImageUrl === 'string' ? basics.kcCertificationImageUrl : '',
-    productSize: typeof basics.productSize === 'string' ? basics.productSize : '',
-    colorVariantStatus: typeof basics.colorVariantStatus === 'string' ? basics.colorVariantStatus : '',
-    colorVariantNames: typeof basics.colorVariantNames === 'string' ? basics.colorVariantNames : '',
-    boxSetStatus: typeof basics.boxSetStatus === 'string' ? basics.boxSetStatus : '',
-    boxSetQuantity: typeof basics.boxSetQuantity === 'string' ? basics.boxSetQuantity : '',
-    originalPrice: numberOrZero(basics.originalPrice),
-    salePrice: numberOrZero(basics.salePrice),
-    salePriceSource: normalizeSalePriceSource(basics.salePriceSource),
-    discountRate: numberOrZero(basics.discountRate),
-    rocketBundleQuantity: numberOrZero(basics.rocketBundleQuantity),
-    rocketUnitCost: numberOrZero(basics.rocketUnitCost),
-    // 사방넷 신규등록과 같은 칸. 여기서 빠뜨리면 화면이 값을 들고도 '미입력'으로 보인다.
-    costPrice: numberOrZero(basics.costPrice),
-    brand: typeof basics.brand === 'string' ? basics.brand : '',
-    manufacturer: typeof basics.manufacturer === 'string' ? basics.manufacturer : '',
-    originCountry: typeof basics.originCountry === 'string' ? basics.originCountry : '',
-    modelName: typeof basics.modelName === 'string' ? basics.modelName : '',
-    ownCode: typeof basics.ownCode === 'string' ? basics.ownCode : '',
-    taxType: typeof basics.taxType === 'string' ? basics.taxType : '',
-    deliveryFee: numberOrZero(basics.deliveryFee),
-    deliveryFeeType: typeof basics.deliveryFeeType === 'string' ? basics.deliveryFeeType : '',
-    certificationIssuer: typeof basics.certificationIssuer === 'string' ? basics.certificationIssuer : '',
-    certificationField: typeof basics.certificationField === 'string' ? basics.certificationField : '',
-    thumbnailUrls,
-    thumbnailPreviewUrls: explicitThumbnailUrls,
-    registrationImages: normalizeRegistrationImages(basics.registrationImages),
-    mallRegisterValues: normalizeStringMapMap(basics.mallRegisterValues),
-    mallRegisterShared: normalizeStringMap(basics.mallRegisterShared),
-    selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,
-    selectedThumbnailGenerationId:
-      typeof basics.selectedThumbnailGenerationId === 'string'
-        ? basics.selectedThumbnailGenerationId
-        : fallback.preparation?.selectedThumbnailGenerationId ?? null,
-    selectedThumbnailGenerationCandidateId:
-      typeof basics.selectedThumbnailGenerationCandidateId === 'string'
-        ? basics.selectedThumbnailGenerationCandidateId
-        : fallback.preparation?.selectedThumbnailGenerationCandidateId ?? null,
-    selectedDetailPageGenerationId:
-      typeof basics.selectedDetailPageGenerationId === 'string'
-        ? basics.selectedDetailPageGenerationId
-        : fallback.preparation?.selectedDetailPageGenerationId ?? null,
-    selectedDetailPageArtifactId:
-      typeof basics.selectedDetailPageArtifactId === 'string'
-        ? basics.selectedDetailPageArtifactId
-        : fallback.preparation?.selectedDetailPageArtifactId ?? null,
-    selectedDetailPageRevisionId:
-      typeof basics.selectedDetailPageRevisionId === 'string'
-        ? basics.selectedDetailPageRevisionId
-        : fallback.preparation?.selectedDetailPageRevisionId ?? null,
-  };
 }
 
 /**
@@ -833,80 +724,107 @@ export const productsApi = {
     return { items, total: data.total };
   },
 
-  async getDetail(id: string): Promise<ProductDetailResponse> {
-    const p = await apiClient.get<any>(`/api/sourcing/${id}`);
-    const rawData = (p.rawData as Record<string, unknown>) || p.raw_data || {};
-    const candidateImageUrls = candidateProductImageUrls(p.images);
-    const images = collectImageUrls(
-      candidateImageUrls,
-      rawProductImageCandidates(rawData),
-      p.imageUrl,
-      p.thumbnailUrl,
-    );
-    const hydratedRawData = rawDataWithImageFallback(rawData, images);
-    const thumbnailUrl = selectBestThumbnailImage(hydratedRawData, images, p.thumbnailUrl || p.imageUrl || null);
-    const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
-    const registrationTarget = normalizeProductPreparation(p.registrationTarget);
-    const salesProductId = typeof p.salesProductId === 'string' && p.salesProductId ? p.salesProductId : null;
-    const registrationImages = normalizeRegistrationImages(p.registrationImages);
-    const currentThumbnail = normalizeCurrentThumbnail(p.currentThumbnail);
-    // 편집 정본은 판매상품 초안이다(KID-310 · ADR-0022). 후보는 더 이상 합성 basics 를
-    // 주지 않으므로, 초안이 있으면 그 값을 basics 모양으로 옮겨 읽기 전용으로 보여준다.
-    const salesProduct = salesProductId ? await salesProductApi.get(salesProductId).catch(() => null) : null;
-    const basicInfo = salesProduct
-      ? productBasicsFromSalesProduct(salesProduct, { registrationImages, currentThumbnail })
-      : normalizeProductBasics(undefined, {
-        name: p.name || rawData.title || '',
-        category: p.category || '',
-        description: p.description || '',
-        tags: Array.isArray(p.tags) ? p.tags.filter((tag: unknown): tag is string => typeof tag === 'string') : [],
-        thumbnailUrls: images,
-        preparation: registrationTarget,
-      });
-    return {
-      id: p.id,
-      name: p.name || rawData.title || '',
-      status: SourcingCandidateStatusSchema.parse(p.status),
-      sourcePlatform,
-      source_platform: sourcePlatform,
-      source_url: p.sourceUrl || rawData.source_url || null,
-      thumbnailUrl,
-      thumbnail_url: thumbnailUrl,
-      price_krw: p.sellPrice || null,
-      cost_cny: coerceCostCny(p.costCny) ?? (typeof rawData.price === 'string' ? parseFloat(rawData.price) || null : null),
-      image_count: images.length,
-      is_processed: p.processedData != null,
-      raw_data: hydratedRawData,
-      processed_data: p.processedData || p.processed_data || null,
-      image_urls: images,
-      images: Array.isArray(p.images) ? p.images : [],
-      basicInfo,
-      registrationTarget,
-      registrationState: normalizeRegistrationState(p.registrationState),
-      contentWorkspaceId:
-        typeof p.contentWorkspaceId === 'string' && p.contentWorkspaceId
-          ? p.contentWorkspaceId
-          : null,
-      salesProductId,
-      salesProductVersion: salesProduct?.version ?? null,
-      registrationImages,
-      currentThumbnail,
-      created_at: p.createdAt || '',
-      updated_at: p.updatedAt || '',
-    };
+  /**
+   * 수집상품 화면 하나 — 판매상품 초안 id 로 연다(KID-310 · ADR-0022).
+   *
+   * 편집 정본은 초안이다. 원천 기록(수집상품)은 초안의 `sourceCandidateId` 로만 읽고, 수집 원본
+   * 이미지 · 원천 주소 · 원본 데이터 · 원가 같은 원천 사실에만 쓴다. 등록용 사진과 대표 썸네일은
+   * 초안의 콘텐츠에서 읽는다.
+   */
+  async getDetail(salesProductId: string): Promise<ProductDetailResponse> {
+    const [{ draft, source }, media] = await Promise.all([
+      productsApi.getDraftWithSource(salesProductId),
+      contentWorkspacesApi.getRegistrationMedia(salesProductId),
+    ]);
+    return composeProductDetail(draft, source, media);
   },
 
-  async delete(id: string): Promise<{
-    ok: boolean;
-    archivedCandidateImages?: number;
-    /** 그 후보의 판매상품 초안을 `unused` 로 내렸는가. 초안이 없으면 없다. */
-    draftRetired?: boolean;
-    /** 내리지 못한 이유(몰에 올라가 있다 등). 후보 삭제 자체는 막지 않는다. */
-    draftWarning?: string;
-  }> {
-    return apiClient.delete(`/api/sourcing/candidates/${id}`);
+  /** 초안과, 초안이 원천 기록을 가리키면 그 원천 기록. 원천이 없는 초안은 후보를 묻지 않는다. */
+  async getDraftWithSource(salesProductId: string): Promise<{ draft: SalesProduct; source: unknown | null }> {
+    const draft = await salesProductApi.get(salesProductId);
+    // 원천 기록은 초안보다 먼저 지워질 수 있다(후보를 지워도 초안은 남는다). 그러면 원천 사실이
+    // 없는 초안으로 연다 — 다른 오류는 그대로 올린다.
+    const source = draft.sourceCandidateId
+      ? await apiClient
+        .get<unknown>(`/api/sourcing/${encodeURIComponent(draft.sourceCandidateId)}`)
+        .catch((error: unknown) => {
+          if (isApiError(error) && error.status === 404) return null;
+          throw error;
+        })
+      : null;
+    return { draft, source };
   },
 };
+
+/**
+ * 초안 + 원천 기록 + 초안의 등록용 사진 → 수집상품 화면 값.
+ *
+ * `id` 는 초안 id 다. 원천 기록이 없으면(직접 작성 · 사방넷) 원천 사실은 비고, 사진은 초안의
+ * 사진이다.
+ */
+export function composeProductDetail(
+  draft: SalesProduct,
+  sourceResponse: unknown | null,
+  media: SalesProductRegistrationMedia,
+): ProductDetailResponse {
+  const p = (sourceResponse && typeof sourceResponse === 'object' ? sourceResponse : null) as Record<string, any> | null;
+  const rawData = p ? ((p.rawData as Record<string, unknown>) || p.raw_data || {}) : null;
+  const images = p
+    ? collectImageUrls(
+      candidateProductImageUrls(p.images),
+      rawProductImageCandidates(rawData ?? {}),
+      p.imageUrl,
+      p.thumbnailUrl,
+    )
+    : collectImageUrls(draft.imageUrls);
+  const hydratedRawData = rawData ? rawDataWithImageFallback(rawData, images) : null;
+  const thumbnailUrl = selectBestThumbnailImage(
+    hydratedRawData,
+    images,
+    p ? (p.thumbnailUrl || p.imageUrl || null) : (draft.imageUrls[0] ?? null),
+  );
+  const sourcePlatform = draft.sourcePlatform ?? '';
+  const registrationImages = normalizeRegistrationImages(media.registrationImages);
+  const currentThumbnail = normalizeCurrentThumbnail(media.currentThumbnail);
+  // 남은 원천 기록 읽기 — 등록 설정과 울타리 상태는 아직 후보 응답만 준다. pass C 가
+  // Channels 읽기(등록 대상 목록 + 울타리 상태)로 바꾼다. 원천이 없는 초안은 없음이다.
+  const registrationTarget = p ? normalizeProductPreparation(p.registrationTarget) : null;
+  const registrationState = p ? normalizeRegistrationState(p.registrationState) : 'none';
+  return {
+    id: draft.id,
+    name: draft.name,
+    status: p ? SourcingCandidateStatusSchema.parse(p.status) : null,
+    sourceCandidateId: draft.sourceCandidateId,
+    sourcePlatform,
+    source_platform: sourcePlatform,
+    source_url: draft.sourceUrl ?? (p ? p.sourceUrl || rawData?.source_url || null : null),
+    thumbnailUrl,
+    thumbnail_url: thumbnailUrl,
+    price_krw: p ? p.sellPrice || null : null,
+    cost_cny: p
+      ? coerceCostCny(p.costCny) ?? (typeof rawData?.price === 'string' ? parseFloat(rawData.price) || null : null)
+      : null,
+    image_count: images.length,
+    is_processed: p ? p.processedData != null : false,
+    raw_data: hydratedRawData,
+    processed_data: p ? p.processedData || p.processed_data || null : null,
+    image_urls: images,
+    images: p && Array.isArray(p.images) ? p.images : [],
+    basicInfo: productBasicsFromSalesProduct(draft, { registrationImages, currentThumbnail }),
+    registrationTarget,
+    registrationState,
+    salesProductId: draft.id,
+    salesProductVersion: draft.version,
+    registrationImages,
+    currentThumbnail,
+    created_at: isoString(draft.createdAt),
+    updated_at: isoString(draft.updatedAt),
+  };
+}
+
+function isoString(value: string | Date): string {
+  return typeof value === 'string' ? value : value.toISOString();
+}
 
 export const sourcingApi = {
   async scrapeUrl(url: string, idempotencyKey: string): Promise<ScrapeUrlResponse> {
@@ -918,22 +836,15 @@ export const sourcingApi = {
   },
 };
 
-export const productThumbnailGenerationApi = {
-  async list(params?: { limit?: number }): Promise<ThumbnailGenerationListResponse> {
-    const qs = new URLSearchParams({ limit: String(params?.limit ?? 100) });
-    return apiClient.get<ThumbnailGenerationListResponse>(`/api/thumbnail-analysis/generations?${qs}`);
-  },
-
-  async delete(id: string): Promise<{ ok: true }> {
-    return apiClient.delete<{ ok: true }>(`/api/thumbnail-analysis/generations/${encodeURIComponent(id)}`);
-  },
-};
-
 export interface RejectCandidateResponse {
-  ok: true;
+  status: 'rejected';
+  /** 반려와 함께 그 판매상품 초안을 내렸는가. */
+  draftRetired?: boolean;
+  /** 초안을 내리지 못한 이유(몰에 올라가 있다 등). 반려 자체는 막지 않는다. */
+  draftWarning?: string;
 }
 
-export interface QuickProcessCandidateResponse {
+export interface SalesProductGenerationStartResponse {
   ok: true;
   /** 이 초안의 원천 후보. 후보 없이 직접 만든 초안이면 `null`. */
   candidateId: string | null;
@@ -944,20 +855,24 @@ export interface QuickProcessCandidateResponse {
   contentWorkspaceId: string | null;
 }
 
-export type QuickProcessTask = 'all' | 'detail' | 'thumbnail';
+export type SalesProductGenerationTask = 'all' | 'detail' | 'thumbnail';
 
-export const candidatesApi = {
-  /** 판매상품 초안의 AI 간편 처리 시작(썸네일·상세페이지). 대상은 초안이다(KID-310). */
-  quickProcess: (
+/** 판매상품 초안의 콘텐츠 생성(썸네일 · 상세페이지). 대상은 초안이다(KID-310). */
+export const salesProductGenerationApi = {
+  start: (
     salesProductId: string,
-    task: QuickProcessTask,
+    task: SalesProductGenerationTask,
     idempotencyKey: string,
   ) =>
-    apiClient.post<QuickProcessCandidateResponse>(
+    apiClient.post<SalesProductGenerationStartResponse>(
       `/api/products/sales-products/${encodeURIComponent(salesProductId)}/generation`,
       { task },
       { headers: { 'Idempotency-Key': idempotencyKey } },
     ),
+};
+
+/** 원천 기록(수집상품)의 소싱 판단 — 반려와 삭제. */
+export const candidatesApi = {
   reject: (id: string, reason?: string) =>
     apiClient.post<RejectCandidateResponse>(`/api/sourcing/candidates/${id}/reject`, { reason }),
   delete: (id: string) =>

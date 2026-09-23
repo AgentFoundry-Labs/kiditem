@@ -38,12 +38,13 @@ export const SOURCING_CAPABILITIES = [
     key: 'sourcing.duplicateCheck', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.duplicateCheck',
     description:
       'Check whether an allowed supplier product URL (1688/Alibaba catalog form) already has a sourcing candidate in ' +
-      'this organization; the result is duplicate true/false with the existing candidateId. Call it before ' +
+      'this organization; the result is duplicate true/false with the existing candidateId and the salesProductId of its ' +
+      'draft (the product the operator opens). Call it before ' +
       'sourcing.scrapeProductUrl to avoid collecting the same offer twice. It reads only and does not normalize or ' +
       'validate the offer itself.',
     resultSummary: '중복 상품 여부를 확인했습니다.',
     inputSchema: z.object({ sourceUrl: SupplierUrl }).strict(),
-    outputSchema: z.object({ duplicate: z.boolean(), candidateId: Uuid.nullable() }).strict(),
+    outputSchema: z.object({ duplicate: z.boolean(), candidateId: Uuid.nullable(), salesProductId: Uuid.nullable() }).strict(),
     effects: ['read'], approvalRisk: 'none', idempotency: 'recommended',
   },
   {
@@ -61,13 +62,14 @@ export const SOURCING_CAPABILITIES = [
   {
     key: 'sourcing.ingestCandidate', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.ingestCandidate',
     description:
-      'Persist a snapshot returned by sourcing.scrapeProductUrl in this same turn as a sourcing candidate and its ' +
-      'selling-product draft; the result is the candidateId. The snapshot must be passed back unchanged (the content ' +
+      'Persist a snapshot returned by sourcing.scrapeProductUrl in the same live provider turn as a sourcing candidate and its ' +
+      'selling-product draft; the result is the candidateId and the draft salesProductId the operator opens. The snapshot ' +
+      'must be passed back unchanged (the content ' +
       'hash is verified) and an offer that already has a candidate returns that candidate. It does not register ' +
       'anything on a mall.',
     resultSummary: '상품 후보를 등록했습니다.',
     inputSchema: z.object({ snapshot: SourceSnapshot }).strict(),
-    outputSchema: z.object({ candidateId: Uuid }).strict(),
+    outputSchema: z.object({ candidateId: Uuid, salesProductId: Uuid.nullable() }).strict(),
     effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required',
   },
   {

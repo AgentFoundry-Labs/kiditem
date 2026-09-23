@@ -2,6 +2,8 @@ export type ThumbnailGenerationListScope = 'workspace-bound' | 'direct-upload' |
 
 export interface ThumbnailGenerationSubjectInput {
   contentWorkspaceId?: string | null;
+  /** 초안에서 여는 편집. 요청 경계에서 초안의 작업공간으로 바뀐다 — 생성의 주인은 여전히 작업공간 하나다. */
+  salesProductId?: string | null;
 }
 
 /**
@@ -12,6 +14,7 @@ export interface ThumbnailGenerationSubjectInput {
  */
 export interface ThumbnailGenerationSubject {
   contentWorkspaceId: string | null;
+  salesProductId: string | null;
 }
 
 export class ThumbnailGenerationSubjectError extends Error {
@@ -29,7 +32,12 @@ function clean(value: string | null | undefined): string | null {
 export function resolveThumbnailGenerationSubject(
   input: ThumbnailGenerationSubjectInput,
 ): ThumbnailGenerationSubject {
-  return { contentWorkspaceId: clean(input.contentWorkspaceId) };
+  const contentWorkspaceId = clean(input.contentWorkspaceId);
+  const salesProductId = clean(input.salesProductId);
+  if (contentWorkspaceId && salesProductId) {
+    throw new ThumbnailGenerationSubjectError('contentWorkspaceId 와 salesProductId 는 함께 보낼 수 없습니다');
+  }
+  return { contentWorkspaceId, salesProductId };
 }
 
 export function normalizeThumbnailGenerationListScope(value: string | null | undefined): ThumbnailGenerationListScope {

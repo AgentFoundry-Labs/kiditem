@@ -18,7 +18,6 @@ import {
 } from '../../../_shared/hooks/useThumbnailGenerations';
 import {
   THUMBNAIL_GENERATION_ROOT,
-  collectedProductDetailHref,
   normalizeProductPipelineReturnTo,
 } from '../../../_shared/lib/product-pipeline-routes';
 import { thumbnailSubjectFromParams } from '../../../_shared/lib/thumbnail-subject';
@@ -61,8 +60,9 @@ interface ThumbnailEditorWorkspaceProps {
 export function ThumbnailEditorWorkspace({ embedded = false, onBack }: ThumbnailEditorWorkspaceProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const sourceCandidateId = searchParams.get('sourceCandidateId');
   const contentWorkspaceId = searchParams.get('contentWorkspaceId');
+  // 작업공간이 아직 없는 판매상품 초안에서 연 편집 — 결과는 서버가 그 초안의 작업공간에 붙인다.
+  const salesProductId = contentWorkspaceId ? null : searchParams.get('salesProductId');
   const imageUrlParam = searchParams.get('imageUrl');
   const uploadKeyParam = searchParams.get('uploadKey');
   const productNameParam = searchParams.get('productName')?.trim() ?? '';
@@ -277,7 +277,6 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
   }, [contentWorkspaceId, pollingGenerations.length, generationId, generationIdParam]);
 
   const { historyCandidates, recommendedCandidateUrl } = useEditorHistory({
-    sourceCandidateId,
     contentWorkspaceId,
     mode,
     result,
@@ -329,12 +328,8 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
       const dto = buildGenerateThumbnailDto({
         mode,
         slots,
-        subject: thumbnailSubjectFromParams({
-          sourceCandidateId,
-          contentWorkspaceId,
-        }),
+        subject: thumbnailSubjectFromParams({ contentWorkspaceId, salesProductId }),
         contentWorkspaceId,
-        sourceCandidateId,
         supplementaryLabel,
         pieceCount,
         imageOnly,
@@ -560,7 +555,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
     }
   };
 
-  const hasInput = !!contentWorkspaceId || !!sourceCandidateId || hasInputSlotFilled;
+  const hasInput = !!contentWorkspaceId || hasInputSlotFilled;
 
   // NOTE: 예전에는 imageUrl+contentWorkspaceId+mode+editCase 쿼리가 있으면 자동으로 handleGenerate 를 호출했다.
   // 하지만 이 동작이 두 가지 UX 문제를 일으켰다:
@@ -590,7 +585,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
             return;
           }
           router.push(
-            returnTo ?? (sourceCandidateId ? collectedProductDetailHref(sourceCandidateId) : THUMBNAIL_GENERATION_ROOT),
+            returnTo ?? THUMBNAIL_GENERATION_ROOT,
           );
         }}
         onOpenModeModal={() => setModalOpen(true)}

@@ -73,6 +73,8 @@ export interface SalesProductPort {
     organizationId: string,
     candidateId: string,
   ): Promise<SalesProductDraftRetireResult>;
+  /** 원천 기록이 없는 초안을 내린다(수집상품 화면의 삭제). 몰에 있거나 등록 실행이 살아 있으면 이유만 돌려준다. */
+  retireDraft(organizationId: string, salesProductId: string): Promise<SalesProductDraftRetireResult>;
   /**
    * 팔기로 정한 시점에 KID 를 발급한다(상품 + 파는 단품). 멱등이다 — 이미 있으면 그대로 둔다.
    * 부르는 곳은 첫 등록 설정 생성 · 몰 엑셀 파일 · 직접 작성뿐이다(ADR-0022).

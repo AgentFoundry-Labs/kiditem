@@ -60,6 +60,7 @@ vi.mock('@/lib/sales-product-api', () => ({
 vi.mock('../../_shared/lib/content-workspaces-api', () => ({
   contentWorkspacesApi: {
     get: vi.fn(),
+    getForSalesProduct: vi.fn(),
   },
 }));
 
@@ -138,7 +139,7 @@ beforeEach(() => {
     }],
   }));
   vi.mocked(renderCandidateDetailImageOnServer).mockReset();
-  vi.mocked(contentWorkspacesApi.get).mockReset();
+  vi.mocked(contentWorkspacesApi.getForSalesProduct).mockReset();
   vi.mocked(buildGenerationHistoryHtml).mockReset();
   vi.mocked(resolveWingCategories).mockResolvedValue(new Map());
 });
@@ -250,24 +251,14 @@ describe('direct WING account selection', () => {
       { id: '11111111-1111-4111-8111-111111111111', channel: 'coupang', name: 'Wing A' },
     ]);
 
-    const result = await prepareWingRegistration('candidate-1');
+    const result = await prepareWingRegistration('sales-product-1');
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') throw new Error('expected ready result');
     const draft = result.draft;
 
+    expect(productsApi.getDetail).toHaveBeenCalledWith('sales-product-1');
     expect(draft.channelAccountId).toBe('11111111-1111-4111-8111-111111111111');
     expect(draft.salesProductId).toBe('sales-product-1');
-  });
-
-  it('판매상품 초안이 없는 후보는 등록 실행을 열기 전에 막는다', async () => {
-    vi.mocked(productsApi.getDetail).mockResolvedValue({
-      ...detail(basics()),
-      salesProductId: null,
-    });
-
-    await expect(prepareWingRegistration('candidate-1')).rejects.toThrow(
-      /판매상품 초안이 없습니다/,
-    );
   });
 
   it('requires an explicit choice when an unprepared product has multiple Coupang accounts', async () => {
@@ -278,7 +269,7 @@ describe('direct WING account selection', () => {
       { id: '22222222-2222-4222-8222-222222222222', channel: 'coupang', name: 'Wing B' },
     ]);
 
-    const result = await prepareWingRegistration('candidate-1');
+    const result = await prepareWingRegistration('sales-product-1');
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') throw new Error('expected ready result');
     const draft = result.draft;
@@ -292,7 +283,7 @@ describe('direct WING account selection', () => {
 
   it('automatically saves the latest generated detail page before retrying WING rendering', async () => {
     const product = detail(basics());
-    product.contentWorkspaceId = '44444444-4444-4444-8444-444444444444';
+    const contentWorkspaceId = '44444444-4444-4444-8444-444444444444';
     vi.mocked(productsApi.getDetail).mockResolvedValue(product);
     vi.mocked(renderCandidateDetailImageOnServer)
       .mockResolvedValueOnce({
@@ -301,10 +292,10 @@ describe('direct WING account selection', () => {
         message: '저장된 상세페이지가 없습니다.',
       })
       .mockResolvedValueOnce(renderedDetail);
-    vi.mocked(contentWorkspacesApi.get).mockResolvedValue({
-      id: product.contentWorkspaceId,
+    vi.mocked(contentWorkspacesApi.getForSalesProduct).mockResolvedValue({
+      id: contentWorkspaceId,
       ownerType: 'sourcing_candidate',
-      sourceCandidateId: product.id,
+      salesProductId: product.id,
       channelListingId: null,
       originWorkspaceId: null,
       displayName: product.name,
@@ -372,7 +363,7 @@ describe('direct WING account selection', () => {
     );
     const get = vi.spyOn(apiClient, 'get');
 
-    await expect(prepareWingRegistration('candidate-1')).rejects.toThrow(
+    await expect(prepareWingRegistration('sales-product-1')).rejects.toThrow(
       '상세페이지 서버 렌더링에 실패했습니다.',
     );
     expect(get).not.toHaveBeenCalled();
@@ -408,7 +399,7 @@ describe('direct WING account selection', () => {
     // 없는 확장과 잠든 확장을 같은 말로 뭉개면 사람은 멀쩡한 확장을 계속 리로드한다.
     vi.mocked(detectWingFormExtensionId).mockResolvedValue(null);
 
-    await expect(prepareWingRegistration('candidate-1')).rejects.toThrow(
+    await expect(prepareWingRegistration('sales-product-1')).rejects.toThrow(
       /응답하지 않습니다[\s\S]*잠깐 뒤 한 번 더/,
     );
     expect(productsApi.getDetail).not.toHaveBeenCalled();
@@ -416,9 +407,10 @@ describe('direct WING account selection', () => {
 });
 
 const detail = (basicInfo: ProductBasics): ProductDetailResponse => ({
-  id: 'candidate-1',
+  id: 'sales-product-1',
   name: '딸깍이 키링',
   status: 'sourced',
+  sourceCandidateId: 'candidate-1',
   sourcePlatform: 'ALIBABA_1688',
   source_platform: 'ALIBABA_1688',
   source_url: null,

@@ -12,10 +12,9 @@ const {
   previewProps,
   railProps,
   selectCurrentDetailPageMock,
-  useGenerationHistoryMock,
 } = vi.hoisted(() => ({
   deleteAgentMutate: vi.fn(),
-  previewProps: [] as Array<{ initialAgentHistory?: unknown[] }>,
+  previewProps: [] as Array<{ agentHistory?: unknown[] }>,
   railProps: [] as Array<{
     rows: DetailGenerationRow[];
     selectedKey: string | null;
@@ -26,7 +25,6 @@ const {
     onApply: (row: DetailGenerationRow) => void;
   }>,
   selectCurrentDetailPageMock: vi.fn(),
-  useGenerationHistoryMock: vi.fn(),
 }));
 
 vi.mock('@/lib/api-client', () => ({
@@ -44,7 +42,6 @@ vi.mock('sonner', () => ({
 }));
 
 vi.mock('../../../hooks/useGenerationHistory', () => ({
-  useGenerationHistory: (...args: unknown[]) => useGenerationHistoryMock(...args),
   useGenerationHistoryDelete: () => ({ mutate: deleteAgentMutate }),
 }));
 
@@ -104,16 +101,13 @@ vi.mock('./DetailPageVersionRail', () => ({
 
 vi.mock('../DetailPagePreview', () => ({
   default: (props: {
-    initialAgentHistory?: unknown[];
+    agentHistory?: unknown[];
     mobilePreviewData?: { mainImage: string };
   }) => {
     previewProps.push(props);
     return (
       <div data-testid="detail-page-preview">
-        {props.mobilePreviewData?.mainImage ??
-          (props.initialAgentHistory === undefined
-          ? 'initial-history:undefined'
-            : `initial-history:${props.initialAgentHistory.length}`)}
+        {props.mobilePreviewData?.mainImage ?? `agent-history:${props.agentHistory?.length ?? 0}`}
       </div>
     );
   },
@@ -134,6 +128,9 @@ function renderWithQueryClient(ui: React.ReactElement) {
   );
 }
 
+// 에이전트(작업공간) 이력은 화면이 작업공간에서 읽어 prop 으로 넘긴다.
+let agentHistory: unknown[] = [];
+
 describe('DetailPageWorkspaceTab', () => {
   beforeEach(() => {
     previewProps.length = 0;
@@ -144,43 +141,19 @@ describe('DetailPageWorkspaceTab', () => {
     vi.mocked(toast.success).mockReset();
     deleteAgentMutate.mockReset();
     selectCurrentDetailPageMock.mockReset();
-    useGenerationHistoryMock.mockReset();
-  });
-
-  it('does not seed the preview history query with a fallback empty array before archive data resolves', () => {
-    useGenerationHistoryMock.mockReturnValue({ data: undefined });
-
-    renderWithQueryClient(
-      <DetailPageWorkspaceTab
-        productId="candidate-1"
-        detailPreviewHtml="<html><body>placeholder</body></html>"
-        templateCss=""
-        initialAgentHistory={undefined}
-        selectedKidsPlayfulId={null}
-        selectedBoldVerticalId={null}
-        selectedAgentId={null}
-        onSelectKidsPlayful={vi.fn()}
-        onSelectBoldVertical={vi.fn()}
-        onSelectAgent={vi.fn()}
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
-      />,
-    );
-
-    expect(screen.getByTestId('detail-page-preview')).toHaveTextContent(
-      'initial-history:undefined',
-    );
-    expect(previewProps.at(-1)?.initialAgentHistory).toBeUndefined();
+    agentHistory = [];
   });
 
   it('passes registration mobile preview data into the detail preview', () => {
-    useGenerationHistoryMock.mockReturnValue({ data: [] });
+    agentHistory = [];
 
     renderWithQueryClient(
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
+        editedHtml={null}
         templateCss=""
-        initialAgentHistory={[]}
+        agentHistory={agentHistory as never}
         selectedKidsPlayfulId={null}
         selectedBoldVerticalId={null}
         selectedAgentId={null}
@@ -206,8 +179,7 @@ describe('DetailPageWorkspaceTab', () => {
   });
 
   it('does not place non-completed generation status above the detail preview', () => {
-    useGenerationHistoryMock.mockReturnValue({
-      data: [
+    agentHistory = [
         {
           id: 'failed-generation',
           generatedTitle: '실패한 상세페이지',
@@ -222,15 +194,15 @@ describe('DetailPageWorkspaceTab', () => {
           productId: 'candidate-1',
           createdAt: '2026-05-16T01:00:00.000Z',
         },
-      ],
-    });
+      ];
 
     renderWithQueryClient(
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
+        editedHtml={null}
         templateCss=""
-        initialAgentHistory={[]}
+        agentHistory={agentHistory as never}
         selectedKidsPlayfulId={null}
         selectedBoldVerticalId={null}
         selectedAgentId={null}
@@ -255,8 +227,7 @@ describe('DetailPageWorkspaceTab', () => {
   });
 
   it('reports success after a registered workspace detail selection is persisted', async () => {
-    useGenerationHistoryMock.mockReturnValue({
-      data: [{
+    agentHistory = [{
         id: 'generation-1',
         generatedTitle: '등록 상세페이지',
         status: 'completed',
@@ -269,8 +240,7 @@ describe('DetailPageWorkspaceTab', () => {
         errorMessage: null,
         productId: null,
         createdAt: '2026-05-16T01:00:00.000Z',
-      }],
-    });
+      }];
     selectCurrentDetailPageMock.mockResolvedValue({ id: 'workspace-1' });
 
     renderWithQueryClient(
@@ -278,8 +248,9 @@ describe('DetailPageWorkspaceTab', () => {
         productId="listing-1"
         contentWorkspaceId="workspace-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
+        editedHtml={null}
         templateCss=""
-        initialAgentHistory={[]}
+        agentHistory={agentHistory as never}
         selectedKidsPlayfulId={null}
         selectedBoldVerticalId={null}
         selectedAgentId={null}
@@ -302,8 +273,7 @@ describe('DetailPageWorkspaceTab', () => {
   });
 
   it('renames a generated detail page version through the detail-page API', async () => {
-    useGenerationHistoryMock.mockReturnValue({
-      data: [
+    agentHistory = [
         {
           id: 'generation-1',
           generatedTitle: '원본 상세페이지',
@@ -318,8 +288,7 @@ describe('DetailPageWorkspaceTab', () => {
           productId: 'candidate-1',
           createdAt: '2026-05-16T01:00:00.000Z',
         },
-      ],
-    });
+      ];
     const promptSpy = vi.spyOn(window, 'prompt').mockReturnValueOnce(' 복제 테스트 상세 ');
     vi.mocked(apiClient.patch).mockResolvedValueOnce({ ok: true });
 
@@ -327,8 +296,9 @@ describe('DetailPageWorkspaceTab', () => {
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
+        editedHtml={null}
         templateCss=""
-        initialAgentHistory={[]}
+        agentHistory={agentHistory as never}
         selectedKidsPlayfulId={null}
         selectedBoldVerticalId={null}
         selectedAgentId={null}
@@ -361,8 +331,7 @@ describe('DetailPageWorkspaceTab', () => {
   });
 
   it('duplicates a detail page version and selects the duplicated generation', async () => {
-    useGenerationHistoryMock.mockReturnValue({
-      data: [
+    agentHistory = [
         {
           id: 'generation-1',
           generatedTitle: '원본 상세페이지',
@@ -377,16 +346,16 @@ describe('DetailPageWorkspaceTab', () => {
           productId: 'candidate-1',
           createdAt: '2026-05-16T01:00:00.000Z',
         },
-      ],
-    });
+      ];
     vi.mocked(apiClient.post).mockResolvedValueOnce({ id: 'generation-copy' });
 
     renderWithQueryClient(
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
+        editedHtml={null}
         templateCss=""
-        initialAgentHistory={[]}
+        agentHistory={agentHistory as never}
         selectedKidsPlayfulId={null}
         selectedBoldVerticalId={null}
         selectedAgentId={null}
@@ -424,8 +393,7 @@ describe('DetailPageWorkspaceTab', () => {
   });
 
   it('uses the app confirm dialog instead of window confirm when deleting a version', async () => {
-    useGenerationHistoryMock.mockReturnValue({
-      data: [
+    agentHistory = [
         {
           id: 'generation-1',
           generatedTitle: '삭제할 상세페이지',
@@ -440,16 +408,16 @@ describe('DetailPageWorkspaceTab', () => {
           productId: 'candidate-1',
           createdAt: '2026-05-16T01:00:00.000Z',
         },
-      ],
-    });
+      ];
     const confirmSpy = vi.spyOn(window, 'confirm');
 
     renderWithQueryClient(
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
+        editedHtml={null}
         templateCss=""
-        initialAgentHistory={[]}
+        agentHistory={agentHistory as never}
         selectedKidsPlayfulId={null}
         selectedBoldVerticalId={null}
         selectedAgentId={null}

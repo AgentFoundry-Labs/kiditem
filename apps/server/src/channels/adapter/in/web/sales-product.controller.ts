@@ -288,6 +288,15 @@ export class SalesProductController {
     return this.salesProducts.get(organizationId, salesProductId);
   }
 
+  /** 초안 내리기(`unused`)와 그 작업공간 보관. 원천 기록이 있는 초안은 후보 삭제가 같은 일을 한다. */
+  @Delete(':salesProductId')
+  retireDraft(
+    @CurrentOrganization() organizationId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+  ) {
+    return this.salesProducts.retireDraft(organizationId, salesProductId);
+  }
+
   @Patch(':salesProductId')
   update(
     @CurrentOrganization() organizationId: string,

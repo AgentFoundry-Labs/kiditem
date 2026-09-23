@@ -100,6 +100,7 @@ function option(code: string, value: string, supplyStatus: SalesProduct['options
     components: sellpiaCode
       ? [{ masterProductId: '8b0b4f3e-6d77-4a58-9f43-2f1f2b7b8c11', sellpiaCode, name: 'x', optionName: null, quantity: 1, currentStock: 3 }]
       : [],
+    referenceCost: null,
     linkedChannelOptionCount: 0,
   };
 }

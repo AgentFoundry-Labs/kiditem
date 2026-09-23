@@ -251,6 +251,14 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     candidateId: string,
   ): Promise<SalesProductDraftRetireRow>;
+  /** 판매상품으로 찾은 초안을 내린다(원천 기록이 없는 초안의 삭제). 규칙은 retireDraftForSource 와 같다. */
+  retireDraft(
+    transaction: OwnerTransaction,
+    organizationId: string,
+    salesProductId: string,
+  ): Promise<SalesProductDraftRetireRow>;
+  /** 초안 내리기와 그 작업공간 보관을 한 커밋에 묶는다. 트랜잭션은 persistence 만 연다. */
+  runInTransaction<T>(work: (transaction: OwnerTransaction) => Promise<T>): Promise<T>;
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(있는 것만). */
   readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>>;
   /** 공개 복사본을 저장한다(같은 주소면 바꾼다). 쓴 수. */

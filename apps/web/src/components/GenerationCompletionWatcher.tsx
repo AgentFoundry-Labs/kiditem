@@ -10,9 +10,7 @@ import {
   type KidsPlayfulGenerationItem,
 } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import {
-  collectedProductDetailHref,
   detailPageEditorHref,
-  registeredProductDetailHref,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -56,17 +54,9 @@ export default function GenerationCompletionWatcher() {
         notifiedGenerationIdsRef.current.add(entry.id);
 
         const isBoldVertical = entry.templateId === 'bold-vertical';
-        const sourceCandidateId = sourceCandidateIdFromGeneration(entry);
-        const returnTo = sourceCandidateId
-          ? collectedProductDetailHref(sourceCandidateId)
-          : entry.contentWorkspaceId
-            ? registeredProductDetailHref(entry.contentWorkspaceId)
-            : null;
-        const editorUrl = detailPageEditorHref({
-          candidateId: sourceCandidateId,
-          generationId: entry.id,
-          returnTo,
-        });
+        // 생성 이력은 판매상품 초안 id 도 리스팅 id 도 모른다 — 작업공간 id 로 화면 주소를 만들지
+        // 않는다(닫으면 기본 목록으로 간다, KID-310).
+        const editorUrl = detailPageEditorHref({ generationId: entry.id });
         showDetailGenerationToast({
           status: current === 'cancelled' ? 'cancelled' : current === 'completed' ? 'completed' : 'failed',
           productLabel: entry.productName || '상세페이지',
@@ -122,20 +112,3 @@ function showDetailGenerationToast(input: {
   });
 }
 
-function sourceCandidateIdFromGeneration(entry: KidsPlayfulGenerationItem): string | null {
-  const rawInput = entry.rawInput;
-  if (!rawInput || typeof rawInput !== 'object') return null;
-  const sourceReferences = (rawInput as { sourceReferences?: unknown }).sourceReferences;
-  if (!Array.isArray(sourceReferences)) return null;
-  for (const ref of sourceReferences) {
-    if (
-      ref &&
-      typeof ref === 'object' &&
-      (ref as { sourceType?: unknown }).sourceType === 'sourcing_candidate' &&
-      typeof (ref as { sourceCandidateId?: unknown }).sourceCandidateId === 'string'
-    ) {
-      return (ref as { sourceCandidateId: string }).sourceCandidateId;
-    }
-  }
-  return null;
-}

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -27,9 +28,14 @@ export class DetailPageEditorController {
   @Throttle({ default: { limit: 300, ttl: 60_000 } })
   list(
     @CurrentOrganization() organizationId: string,
-    @Query('contentWorkspaceId') contentWorkspaceId?: string,
+    @Query('contentWorkspaceId', new ParseUUIDPipe({ optional: true })) contentWorkspaceId?: string,
     @Query('templateId') templateId?: string,
+    @Query('sourceCandidateId') sourceCandidateId?: string,
   ) {
+    // 거르지 못하는 필터를 조용히 무시하면 조직 전체의 최근 상세페이지가 한 상품의 이력처럼 보인다.
+    if (sourceCandidateId !== undefined) {
+      throw new BadRequestException('sourceCandidateId는 제거되었습니다. contentWorkspaceId를 사용하세요');
+    }
     return this.service.list(organizationId, {
       contentWorkspaceId,
       templateId,

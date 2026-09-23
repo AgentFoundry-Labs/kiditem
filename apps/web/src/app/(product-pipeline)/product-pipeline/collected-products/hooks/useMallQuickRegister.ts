@@ -29,31 +29,28 @@ import {
  * 늘 "모른다" 가 되고, 그러면 0원 상품도 막지 못한 채 확장까지 간다.
  */
 export function useMallQuickRegister(input: {
-  /** 폼 방식은 화면 하나에 상품 하나다. 여러 개를 골라도 첫 상품만 연다. */
-  candidateId: string | null;
+  /** 판매상품 초안 id. 폼 방식은 화면 하나에 상품 하나다. 여러 개를 골라도 첫 상품만 연다. */
+  salesProductId: string | null;
   /** 모달이 닫혀 있으면 상세를 부르지 않는다. */
   enabled: boolean;
 }) {
-  const { candidateId, enabled } = input;
+  const { salesProductId, enabled } = input;
   // 묶음으로 동시에 도므로 "도는 몰" 은 하나가 아니다.
   const [runningMallKeys, setRunningMallKeys] = useState<readonly string[]>([]);
   const [results, setResults] = useState<Record<string, MallRunOutcome>>({});
   // 실행 중에 상태가 바뀌어도 두 번 돌지 않게 막는다.
   const running = useRef(false);
 
-  // ⚠️ 상세를 여기서 다시 `useQuery` 로 부르지 않는다. `queryKeys.sourcing.detail(id)` 은
-  // `useProductDetail` 이 **워크스페이스 모양**(`{ product, editState, … }`)으로 소유하는
-  // 키다. 같은 키에 다른 모양을 써 넣으면 이 모달을 연 뒤 상품 상세로 들어갔을 때
-  // `fetchedData.product` 가 undefined 가 되어 화면이 통째로 죽는다(라이브에서 잡음).
-  const detailQuery = useProductDetail(candidateId ?? '', {
-    enabled: enabled && Boolean(candidateId),
+  // 상세는 작업공간 화면과 같은 `useProductDetail` 로 읽는다 — 같은 조회를 따로 만들지 않는다.
+  const detailQuery = useProductDetail(salesProductId ?? '', {
+    enabled: enabled && Boolean(salesProductId),
   });
 
   // 상품이 바뀌면 지난 실행 결과를 지운다. 다른 상품의 ✓ 가 남아 있으면 사람은
   // 이 상품이 이미 등록된 줄 안다.
   useEffect(() => {
     setResults({});
-  }, [candidateId]);
+  }, [salesProductId]);
 
   const detail = detailQuery.data?.product ?? null;
 
@@ -74,16 +71,21 @@ export function useMallQuickRegister(input: {
   );
 
   const item: MallPublishItem | null = useMemo(() => {
-    if (!detail || !candidateId) return null;
+    if (!detail || !salesProductId) return null;
+    // 원천 기록이 있는 초안은 수집상품 항목, 없는 초안(직접 작성 · 사방넷)은 판매상품 항목이다 —
+    // `MallPublishItem` 이 두 모양에 두는 id 자리를 그대로 따른다.
+    const identity = detail.sourceCandidateId
+      ? { candidateId: detail.sourceCandidateId, source: 'candidate' as const, salesProductId }
+      : { candidateId: salesProductId, source: 'sales_product' as const };
     return {
-      candidateId,
+      ...identity,
       name: basicInfo?.name || detail.name,
       // 0 은 "모른다" 로 접는다. 목록에는 가격 칸이 없으므로 원본 상세 가격으로
       // 보완하고, 끝까지 없으면 null 로 둔다.
       salePrice: basicInfo?.salePrice || detail.price_krw || null,
       thumbnailUrl: detail.thumbnailUrl ?? null,
     };
-  }, [detail, basicInfo, candidateId]);
+  }, [detail, basicInfo, salesProductId]);
 
   const readiness: MallReadiness[] = useMemo(
     () => mallRegisterReadiness(item, values),

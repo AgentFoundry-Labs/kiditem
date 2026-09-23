@@ -14,19 +14,20 @@ describe('buildEditHref', () => {
     ).toContain('/product-pipeline/registered-products/workspace-123?');
   });
 
-  it('preserves sourceCandidateId by routing collected-product thumbnail creation into the tab', () => {
+  it('routes collected-product thumbnail creation back into the draft’s workspace tab', () => {
     const href = buildEditHref({
-      sourceCandidateId: 'candidate-123',
+      contentWorkspaceId: 'workspace-123',
       imageUrl: 'https://cdn.example.com/source.jpg',
       productName: '쭉쭉붙이는터치등',
-      returnTo: '/product-pipeline/collected-products/candidate-123',
+      returnTo: '/product-pipeline/collected-products/sales-product-123',
     });
 
-    expect(href).toContain('/product-pipeline/collected-products/candidate-123?');
+    expect(href).toContain('/product-pipeline/collected-products/sales-product-123?');
     expect(href).toContain('tab=thumbnail');
     expect(href).toContain('thumbnailMode=edit');
     expect(href).toContain('imageUrl=https%3A%2F%2Fcdn.example.com%2Fsource.jpg');
-    expect(href).not.toContain('contentWorkspaceId=');
+    expect(href).toContain('contentWorkspaceId=workspace-123');
+    expect(href).not.toContain('sourceCandidateId=');
   });
 
   it('keeps direct upload work on the standalone editor route', () => {

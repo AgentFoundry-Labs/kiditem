@@ -7,6 +7,7 @@ import {
   IsEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -34,6 +35,14 @@ export class ThumbnailEditorDto {
   @IsOptional()
   @IsString()
   contentWorkspaceId?: string;
+
+  /**
+   * 판매상품 초안에서 여는 편집. 초안의 작업공간을 찾거나 만들어 그 작업공간에 묶는다 —
+   * 작업공간이 아직 없는 초안에서 시작해도 주인 없는 생성이 되지 않는다. contentWorkspaceId 와 함께 쓰지 않는다.
+   */
+  @IsOptional()
+  @IsUUID()
+  salesProductId?: string;
 
   @IsOptional()
   @IsString()

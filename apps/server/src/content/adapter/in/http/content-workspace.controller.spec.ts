@@ -59,3 +59,17 @@ describe('ContentWorkspaceController thumbnail gallery', () => {
     });
   });
 });
+
+describe('ContentWorkspaceController draft lookups', () => {
+  it('reads the draft workspace and its registration media by sales product within the session organization', async () => {
+    const workspaces = { getForSalesProduct: vi.fn().mockResolvedValue({ workspace: null }) };
+    const media = { registrationImages: { primary: [], thumbnail: ['https://cdn.example.com/t.png'], detail: [] }, currentThumbnail: null };
+    const contentAssets = { loadRegistrationMedia: vi.fn().mockResolvedValue(media) };
+    const controller = new ContentWorkspaceController(workspaces as never, {} as never, contentAssets as never);
+
+    await expect(controller.getForSalesProduct('org-1', 'product-1')).resolves.toEqual({ workspace: null });
+    expect(workspaces.getForSalesProduct).toHaveBeenCalledWith('org-1', 'product-1');
+    await expect(controller.getRegistrationMediaForSalesProduct('org-1', 'product-1')).resolves.toEqual(media);
+    expect(contentAssets.loadRegistrationMedia).toHaveBeenCalledWith({ organizationId: 'org-1', salesProductId: 'product-1' });
+  });
+});

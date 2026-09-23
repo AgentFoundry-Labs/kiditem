@@ -15,9 +15,7 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { useContentWorkspaceImages } from '../../_shared/hooks/useContentWorkspaceImages';
 import {
-  collectedProductDetailHref,
   detailPageEditorHref,
-  registeredProductDetailHref,
 } from '../../_shared/lib/product-pipeline-routes';
 import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
@@ -145,7 +143,6 @@ export function resolveGenerateOwnerInputs(
       initialTitle: '',
       initialContentWorkspaceId: null,
       sourceReferences: [] as NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
-      primarySourceCandidateId: null,
     };
   }
 
@@ -153,16 +150,12 @@ export function resolveGenerateOwnerInputs(
   const initialTitle = searchParams.get('title') ?? '';
   const initialContentWorkspaceId = searchParams.get('contentWorkspaceId');
   const sourceReferences = getGenerateSourceReferences(searchParams, productId);
-  const primarySourceCandidateId =
-    sourceReferences.find((reference) => reference.sourceType === 'sourcing_candidate')
-      ?.sourceCandidateId ?? null;
 
   return {
     productId,
     initialTitle,
     initialContentWorkspaceId,
     sourceReferences,
-    primarySourceCandidateId,
   };
 }
 
@@ -173,7 +166,6 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     initialTitle,
     initialContentWorkspaceId,
     sourceReferences,
-    primarySourceCandidateId,
   } = resolveGenerateOwnerInputs(
     new URLSearchParams(searchParams.toString()),
     options.ownerBindingMode ?? 'allow-url',
@@ -266,7 +258,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     setGenerationDialog((prev) => {
       if (!prev?.open || prev.generationId !== item.id) return prev;
       if (prev.thumbnailGenerationId) return prev;
-      const editorUrl = buildGenerationEditorUrl(item, primarySourceCandidateId);
+      const editorUrl = buildGenerationEditorUrl(item);
       if (
         prev.phase === phase &&
         prev.editorUrl === editorUrl &&
@@ -282,7 +274,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
         errorMessage: item.imageProcessingError,
       };
     });
-  }, [generationStatusQuery.data, primarySourceCandidateId]);
+  }, [generationStatusQuery.data]);
 
   useEffect(() => {
     setGenerationDialog((prev) => {
@@ -554,7 +546,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
               ...prev,
               phase: nextPhase,
               generationId: generated.id,
-              editorUrl: buildGenerationEditorUrl(generated, primarySourceCandidateId),
+              editorUrl: buildGenerationEditorUrl(generated),
               errorMessage: generated.imageProcessingError,
             }
           : {
@@ -564,7 +556,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
               productName: title,
               templateId: selectedTemplateId,
               generationId: generated.id,
-              editorUrl: buildGenerationEditorUrl(generated, primarySourceCandidateId),
+              editorUrl: buildGenerationEditorUrl(generated),
               errorMessage: generated.imageProcessingError,
             },
       );
@@ -743,21 +735,12 @@ export function resolveProductGenerationDialogPhase(input: {
   return null;
 }
 
-function buildGenerationEditorUrl(
-  item: KidsPlayfulGenerationItem,
-  sourceCandidateId?: string | null,
-): string | undefined {
-  const candidateId = item.sourceCandidateId ?? sourceCandidateId ?? null;
-  const contentWorkspaceId = item.contentWorkspaceId ?? null;
-  const returnTo = candidateId
-    ? collectedProductDetailHref(candidateId)
-    : contentWorkspaceId
-      ? registeredProductDetailHref(contentWorkspaceId)
-      : null;
-  if (candidateId) {
-    return detailPageEditorHref({ candidateId, generationId: item.id, returnTo });
-  }
-  return detailPageEditorHref({ generationId: item.id, returnTo });
+/**
+ * 생성 이력은 판매상품 초안 id 도 리스팅 id 도 모른다 — 작업공간 id 로 화면 주소를 만들지 않는다
+ * (닫으면 기본 목록으로 간다, KID-310).
+ */
+function buildGenerationEditorUrl(item: KidsPlayfulGenerationItem): string | undefined {
+  return detailPageEditorHref({ generationId: item.id });
 }
 
 function mergeSourceReferences(

@@ -125,7 +125,7 @@ function setup(overrides: {
     service: new RegistrationExecutionService(executions, registration, drafts, {
       list: vi.fn(), findDraftIdForSource: vi.fn(), findDraftIdsForSources: vi.fn(), ensureSalesProductCodes: vi.fn(),
       get: vi.fn(), create: vi.fn(), update: vi.fn(),
-      replaceOptions: vi.fn(), createFromSource: vi.fn(), retireDraftForSource: vi.fn(), mallCategories: vi.fn(),
+      replaceOptions: vi.fn(), createFromSource: vi.fn(), retireDraftForSource: vi.fn(), retireDraft: vi.fn(), mallCategories: vi.fn(),
     }, {
       resolve: vi.fn(), list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
       archive: vi.fn(),

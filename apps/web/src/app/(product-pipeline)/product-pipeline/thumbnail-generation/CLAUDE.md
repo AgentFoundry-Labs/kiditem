@@ -27,9 +27,10 @@ ModeShowcase / edit route
   -> invalidate thumbnail analysis/generation history
 ```
 
-`sourceCandidateId` and `contentWorkspaceId` are contextual identity for result
-attachment. Ownerless direct generation is allowed before registration;
-workspace-entered generation should attach through `contentWorkspaceId`.
+`contentWorkspaceId` is the identity for result attachment. A sales-product
+draft without a workspace yet sends `salesProductId` instead (never both), and
+the server attaches the result to that draft's workspace. Ownerless direct
+generation is allowed before registration.
 
 ## Payload Rules
 
@@ -50,8 +51,9 @@ Edit mode always sends `purpose: 'compliance'`; creative sends `'quality'`.
 - Switching edit/creative tabs preserves state.
 - `colorImages` requires at least 2 images; `colorCount` is array length.
 - `selectedCandidateUrl` gates apply/skip buttons.
-- Subject query state uses one canonical identity: `sourceCandidateId` or
-  `contentWorkspaceId`.
+- Subject query state uses one canonical identity: `contentWorkspaceId`,
+  `salesProductId` for a draft without a workspace, or none for direct upload.
+  Never send `sourceCandidateId`.
 - `HubImagePickerModal` is not used in this route.
 
 ## Cross-Route Dependencies

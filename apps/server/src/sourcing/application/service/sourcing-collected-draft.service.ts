@@ -26,19 +26,27 @@ export class SourcingCollectedDraftService {
     private readonly drafts: SalesProductDraftPort,
   ) {}
 
-  /** 이 후보들의 초안을 보장한다. 이미 있으면 건너뛴다. */
+  /** 이 후보들의 초안을 보장하고 후보 id → 초안(판매상품) id 를 돌려준다. 이미 있으면 건너뛴다. */
   async ensureDraftsForCandidates(
     organizationId: string,
     candidateIds: readonly string[],
-  ): Promise<void> {
+  ): Promise<Map<string, string>> {
     const unique = [...new Set(candidateIds.filter(Boolean))];
-    if (unique.length === 0) return;
-    const existing = await this.drafts.findDraftIdsForSources(organizationId, unique);
-    const missing = unique.filter((candidateId) => !existing.has(candidateId));
-    if (missing.length === 0) return;
+    if (unique.length === 0) return new Map();
+    const drafts = new Map(await this.drafts.findDraftIdsForSources(organizationId, unique));
+    const missing = unique.filter((candidateId) => !drafts.has(candidateId));
+    if (missing.length === 0) return drafts;
     for (const facts of await this.candidates.readDraftSourceFacts(organizationId, missing)) {
-      await this.drafts.createFromSource(organizationId, facts);
+      const created = await this.drafts.createFromSource(organizationId, facts);
+      drafts.set(facts.candidateId, created.salesProductId);
     }
+    return drafts;
+  }
+
+  /** 읽기 전용: 이미 있는 초안만 찾는다. */
+  findDraftIds(organizationId: string, candidateIds: readonly string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(candidateIds.filter(Boolean))];
+    return unique.length === 0 ? Promise.resolve(new Map()) : this.drafts.findDraftIdsForSources(organizationId, unique);
   }
 
   /**

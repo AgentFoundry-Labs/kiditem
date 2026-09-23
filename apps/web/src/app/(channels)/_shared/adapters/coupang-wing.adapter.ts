@@ -1,9 +1,10 @@
 import {
   downloadWingExcel,
-  generateWingExcelForCandidates,
+  generateWingExcelForSalesProducts,
 } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow';
 import { WING_PRODUCT_DRAFT_DEFAULTS } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-excel';
 import { formatNumber } from '@/lib/utils';
+import { publishItemSalesProductId } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -113,8 +114,8 @@ export const coupangWingAdapter: MallPublishAdapter = {
     if (items.length === 0) {
       return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
     }
-    const { bytes, productCount } = await generateWingExcelForCandidates(
-      items.map((item) => item.candidateId),
+    const { bytes, productCount } = await generateWingExcelForSalesProducts(
+      items.map(publishItemSalesProductId),
       {
         ...WING_PRODUCT_DRAFT_DEFAULTS,
         defaultBrand: values.brand ?? WING_PRODUCT_DRAFT_DEFAULTS.defaultBrand,

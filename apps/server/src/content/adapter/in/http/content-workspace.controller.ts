@@ -57,6 +57,23 @@ export class ContentWorkspaceController {
     return this.contentWorkspaces.checkDuplicate(organizationId, query.title);
   }
 
+  @Get('by-sales-product/:salesProductId')
+  getForSalesProduct(
+    @CurrentOrganization() organizationId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+  ) {
+    return this.contentWorkspaces.getForSalesProduct(organizationId, salesProductId);
+  }
+
+  /** 초안의 등록용 사진(대표 · 썸네일 · 상세)과 저장한 대표 썸네일. 콘텐츠가 없으면 빈 목록과 null. */
+  @Get('by-sales-product/:salesProductId/registration-media')
+  getRegistrationMediaForSalesProduct(
+    @CurrentOrganization() organizationId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+  ) {
+    return this.contentAssets.loadRegistrationMedia({ organizationId, salesProductId });
+  }
+
   @Get(':workspaceId')
   get(
     @CurrentOrganization() organizationId: string,

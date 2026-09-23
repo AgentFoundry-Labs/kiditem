@@ -245,6 +245,12 @@ export const SalesProductOptionSchema = z.object({
   safetyStock: z.number().int().nullable(),
   sortOrder: z.number().int(),
   components: z.array(SalesProductOptionComponentSchema),
+  /**
+   * 참고 원가(원). 구성 원천 상품의 지금 매입가 × 수량의 합이다. 구성이 없거나 매입가가 빠진
+   * 원천이 하나라도 있으면 null(계산 불가). 읽기 전용 표시이며 손익 · ABC 계산과 무관하다.
+   */
+  // 이 칸이 생기기 전에 동결한 실행 payload 도 읽히도록 비어 있으면 null 이다.
+  referenceCost: z.number().int().nullable().default(null),
   /** 이 단품에 연결된 몰 옵션 수. 연결된 단품은 지우지 않는다. */
   linkedChannelOptionCount: z.number().int().min(0),
 });
@@ -348,9 +354,11 @@ export const SalesProductListQuerySchema = z.object({
   sourcePlatform: z.string().trim().max(40).optional(),
   /**
    * `with_options`: 단품이 둘 이상 · `unlinked`: 셀피아 연결이 빠진 단품이 있는 상품 ·
-   * `unregistered`: 아직 어느 몰에도 올라가지 않은 상품(수집상품에서 만든 것과 직접 만든 것을 함께).
+   * `unregistered`: 아직 어느 몰에도 올라가지 않은 상품(수집상품에서 만든 것과 직접 만든 것을 함께) ·
+   * `preparing`: 수집상품 화면 — 몰에 올라간 적 없고 내리지도(보관 · 미사용) 않은 상품. 판매가를 정한
+   * 뒤에도 몰에 올라갈 때까지 남아 있어야 등록 · 몰 대량등록을 거기서 할 수 있다.
    */
-  focus: z.enum(['all', 'with_options', 'unlinked', 'unregistered']).default('all'),
+  focus: z.enum(['all', 'with_options', 'unlinked', 'unregistered', 'preparing']).default('all'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });

@@ -11,8 +11,9 @@ export const THUMBNAIL_AI_ROOT = `${PRODUCT_PIPELINE_ROOT}/thumbnail-ai`;
 export const THUMBNAIL_GENERATION_ROOT = `${PRODUCT_PIPELINE_ROOT}/thumbnail-generation`;
 export const THUMBNAIL_GENERATION_EDIT_ROOT = `${THUMBNAIL_GENERATION_ROOT}/edit`;
 
-export function collectedProductDetailHref(candidateId: string): string {
-  return `${COLLECTED_PRODUCTS_ROOT}/${encodeURIComponent(candidateId)}`;
+/** 수집상품 작업공간 화면. 판매상품 초안 id 로 연다(KID-310 · ADR-0022) — 원천 기록 id 가 아니다. */
+export function collectedProductDetailHref(salesProductId: string): string {
+  return `${COLLECTED_PRODUCTS_ROOT}/${encodeURIComponent(salesProductId)}`;
 }
 
 export function registeredProductDetailHref(workspaceId: string): string {
@@ -20,7 +21,7 @@ export function registeredProductDetailHref(workspaceId: string): string {
 }
 
 export function collectedProductWorkspaceTabHref({
-  candidateId,
+  salesProductId,
   tab,
   generationId,
   thumbnailMode,
@@ -30,10 +31,9 @@ export function collectedProductWorkspaceTabHref({
   productDescription,
   editCase,
   productId,
-  sourceCandidateId,
   contentWorkspaceId,
 }: {
-  candidateId: string;
+  salesProductId: string;
   tab: ProductWorkspaceTab;
   generationId?: string | null;
   thumbnailMode?: 'edit' | 'creative' | null;
@@ -43,11 +43,10 @@ export function collectedProductWorkspaceTabHref({
   productDescription?: string | null;
   editCase?: string | null;
   productId?: string | null;
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }): string {
   return buildProductWorkspaceTabUrl({
-    pathname: collectedProductDetailHref(candidateId),
+    pathname: collectedProductDetailHref(salesProductId),
     tab,
     generationId,
     thumbnailMode,
@@ -57,7 +56,6 @@ export function collectedProductWorkspaceTabHref({
     productDescription,
     editCase,
     productId,
-    sourceCandidateId,
     contentWorkspaceId,
   });
 }
@@ -73,7 +71,6 @@ export function registeredProductWorkspaceTabHref({
   productDescription,
   editCase,
   productId,
-  sourceCandidateId,
   contentWorkspaceId,
 }: {
   workspaceId: string;
@@ -86,7 +83,6 @@ export function registeredProductWorkspaceTabHref({
   productDescription?: string | null;
   editCase?: string | null;
   productId?: string | null;
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }): string {
   return buildProductWorkspaceTabUrl({
@@ -100,13 +96,11 @@ export function registeredProductWorkspaceTabHref({
     productDescription,
     editCase,
     productId,
-    sourceCandidateId,
     contentWorkspaceId,
   });
 }
 
 export function thumbnailWorkspaceHref({
-  sourceCandidateId,
   contentWorkspaceId,
   returnTo,
   generationId,
@@ -117,7 +111,6 @@ export function thumbnailWorkspaceHref({
   editCase,
   mode,
 }: {
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   returnTo?: string | null;
   generationId?: string | null;
@@ -143,7 +136,6 @@ export function thumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      sourceCandidateId,
       contentWorkspaceId,
     });
   }
@@ -160,7 +152,6 @@ export function thumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      sourceCandidateId,
       contentWorkspaceId,
     });
   }
@@ -175,36 +166,21 @@ export function thumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      sourceCandidateId,
       contentWorkspaceId,
     });
   }
-  if (sourceCandidateId) {
-    return collectedProductWorkspaceTabHref({
-      candidateId: sourceCandidateId,
-      tab: 'thumbnail',
-      generationId,
-      thumbnailMode,
-      imageUrl,
-      uploadKey,
-      productName,
-      productDescription,
-      editCase,
-      sourceCandidateId,
-      contentWorkspaceId,
-    });
-  }
+  // 원천 기록 id 로는 수집상품 화면을 열지 않는다 — 그 화면은 판매상품 초안 id 로 연다(KID-310).
   return null;
 }
 
 export function collectedProductEditorHref({
-  candidateId,
+  salesProductId,
   generationId,
 }: {
-  candidateId: string;
+  salesProductId: string;
   generationId?: string | null;
 }): string {
-  const href = `${collectedProductDetailHref(candidateId)}/editor`;
+  const href = `${collectedProductDetailHref(salesProductId)}/editor`;
   if (!generationId) return href;
   const params = new URLSearchParams({ generationId });
   return `${href}?${params.toString()}`;
@@ -214,18 +190,22 @@ export function registeredProductEditorHref(generationId: string): string {
   return `${DETAIL_PAGE_EDITOR_ROOT}/${encodeURIComponent(generationId)}/editor`;
 }
 
+/**
+ * 상세페이지 에디터. 수집상품 화면에서 열면 `salesProductId` 를 실어 저장 뒤 그 화면 값을 새로
+ * 읽게 한다. 생성 이력만 아는 곳(생성 목록 · 완료 알림)은 초안 id 를 모르므로 싣지 않는다.
+ */
 export function detailPageEditorHref({
-  candidateId,
+  salesProductId,
   generationId,
   returnTo,
 }: {
-  candidateId?: string | null;
+  salesProductId?: string | null;
   generationId?: string | null;
   returnTo?: string | null;
 }): string {
-  if (candidateId) {
-    if (!generationId) return collectedProductEditorHref({ candidateId });
-    const params = new URLSearchParams({ sourceCandidateId: candidateId });
+  if (salesProductId) {
+    if (!generationId) return collectedProductEditorHref({ salesProductId });
+    const params = new URLSearchParams({ salesProductId });
     const normalizedReturnTo = normalizeProductPipelineReturnTo(returnTo);
     if (normalizedReturnTo) params.set('returnTo', normalizedReturnTo);
     return `${registeredProductEditorHref(generationId)}?${params.toString()}`;
@@ -286,9 +266,6 @@ export function thumbnailGenerationHubHref({
   if (subjectParams?.contentWorkspaceId) {
     params.set('contentWorkspaceId', subjectParams.contentWorkspaceId);
   }
-  if (!subjectParams?.contentWorkspaceId && subjectParams?.sourceCandidateId) {
-    params.set('sourceCandidateId', subjectParams.sourceCandidateId);
-  }
   if (imageUrl) params.set('imageUrl', imageUrl);
   if (productName) params.set('productName', productName);
   if (productDescription) params.set('productDescription', productDescription);
@@ -328,9 +305,6 @@ export function thumbnailGenerationEditHref({
   if (editCase) params.set('editCase', editCase);
   if (subjectParams?.contentWorkspaceId) {
     params.set('contentWorkspaceId', subjectParams.contentWorkspaceId);
-  }
-  if (!subjectParams?.contentWorkspaceId && subjectParams?.sourceCandidateId) {
-    params.set('sourceCandidateId', subjectParams.sourceCandidateId);
   }
   if (generationId) params.set('generationId', generationId);
   if (imageUrl) params.set('imageUrl', imageUrl);

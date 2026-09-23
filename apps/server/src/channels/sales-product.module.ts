@@ -38,6 +38,8 @@ import { SalesProductUseCase } from './application/service/sales-product/sales-p
 import { AiModule } from '../content/ai.module';
 import { SalesProductWorkspaceArchiveAdapter } from './adapter/out/repository/sales-product-workspace-archive.adapter';
 import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from './application/port/out/ai/sales-product-workspace-archive.port';
+import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/sales-product-thumbnail-source.port';
+import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-product-thumbnail-source.adapter';
 
 /**
  * 판매상품 · 단품(ADR-0020). 몰에 보낼 상품을 한 번 편집하는 등록용 정의이고, 재고 · ABC 는 건드리지 않는다.
@@ -69,7 +71,9 @@ import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from './application/port/out/ai/
     { provide: REGISTRATION_TARGET_REPOSITORY_PORT, useExisting: RegistrationTargetRepositoryAdapter },
     SalesProductWorkspaceArchiveAdapter,
     { provide: SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT, useExisting: SalesProductWorkspaceArchiveAdapter },
-    { provide: SalesProductUseCase, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductUseCase>) => new SalesProductUseCase(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT] },
+    SalesProductThumbnailSourceAdapter,
+    { provide: SALES_PRODUCT_THUMBNAIL_SOURCE_PORT, useExisting: SalesProductThumbnailSourceAdapter },
+    { provide: SalesProductUseCase, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductUseCase>) => new SalesProductUseCase(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT, SALES_PRODUCT_THUMBNAIL_SOURCE_PORT] },
     { provide: SALES_PRODUCT_PORT, useExisting: SalesProductUseCase },
     { provide: SabangnetProductImportService, useFactory: (...dependencies: ConstructorParameters<typeof SabangnetProductImportService>) => new SabangnetProductImportService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, PRODUCT_SOURCE_READ_PORT, SALES_PRODUCT_LINK_PORT, SALES_PRODUCT_IMAGE_MIRROR_PORT, CHANNEL_DOCUMENTS_PORT, CHANNEL_ACTIVITY_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: SalesProductLinkService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductLinkService>) => new SalesProductLinkService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, CHANNEL_OPTION_RECIPE_PORT, CHANNEL_ACTIVITY_PORT] },

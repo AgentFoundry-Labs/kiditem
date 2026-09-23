@@ -1,290 +1,324 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api-error';
+import {
+  DRAFT_CANDIDATE_ID,
+  DRAFT_ID,
+  salesProductDraft,
+  salesProductDraftListItem,
+} from '@/test/fixtures/sales-product-draft';
 import SourcingPage from './page';
 
-const {
-  deleteCandidateMock,
-  quickProcessMock,
-  createRequestId,
-  invalidateQueriesMock,
-  toastErrorMock,
-  wingOnReadyRef,
-  submitWingRegistrationMock,
-  waitForRegisteredListingMock,
-  registrationExecutionConfirmMock,
-  registrationExecutionMarkUnresolvedMock,
-} = vi.hoisted(() => ({
-  deleteCandidateMock: vi.fn(),
-  quickProcessMock: vi.fn(),
+const { api, push, toastError, toastSuccess, toastWarning, createRequestId } = vi.hoisted(() => ({
+  api: {
+    get: vi.fn(),
+    getParsed: vi.fn(),
+    post: vi.fn(),
+    patch: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
+  },
+  push: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastWarning: vi.fn(),
   createRequestId: vi.fn(),
-  invalidateQueriesMock: vi.fn(),
-  toastErrorMock: vi.fn(),
-  wingOnReadyRef: { current: null as ((draft: unknown) => void) | null },
-  submitWingRegistrationMock: vi.fn(),
-  waitForRegisteredListingMock: vi.fn(),
-  registrationExecutionConfirmMock: vi.fn(),
-  registrationExecutionMarkUnresolvedMock: vi.fn(),
 }));
 
+vi.mock('@/lib/api-client', () => ({ apiClient: api }));
+vi.mock('@/lib/secure-random-uuid', () => ({ createSecureRandomUuid: createRequestId }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push, replace: vi.fn() }),
+  usePathname: () => '/product-pipeline/collected-products',
+  useSearchParams: () => new URLSearchParams(),
 }));
-
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: invalidateQueriesMock }),
-  useQuery: () => ({
-    data: {
-      items: [{ id: 'candidate-1', name: '테스트 상품', status: 'sourced' }],
-      total: 1,
-    },
-    isLoading: false,
-    isPlaceholderData: false,
-  }),
-  useMutation: (options: {
-    mutationFn: (variables: unknown) => Promise<unknown>;
-    onSuccess?: (data: unknown, variables: unknown) => void;
-    onError?: (error: unknown, variables: unknown) => void;
-    onSettled?: (data: unknown, error: unknown, variables: unknown) => void;
-  }) => ({
-    isPending: false,
-    mutate: (variables: unknown) => {
-      void options.mutationFn(variables).then(
-        (data) => {
-          options.onSuccess?.(data, variables);
-          options.onSettled?.(data, null, variables);
-        },
-        (error) => {
-          options.onError?.(error, variables);
-          options.onSettled?.(undefined, error, variables);
-        },
-      );
-    },
-  }),
-}));
-
 vi.mock('sonner', () => ({
-  toast: {
-    error: toastErrorMock,
-    success: vi.fn(),
-    warning: vi.fn(),
-  },
+  toast: { error: toastError, success: toastSuccess, warning: toastWarning, info: vi.fn() },
 }));
 
-vi.mock('./lib/sourcing-api', () => ({
-  candidatesApi: { delete: deleteCandidateMock, quickProcess: quickProcessMock },
-  productsApi: { list: vi.fn() },
-  searchSellpiaInventorySkus: vi.fn(),
-  isInProgress: () => false,
-}));
+const SECOND_DRAFT_ID = '10000000-0000-4000-8000-000000000002';
+const SECOND_CANDIDATE_ID = '20000000-0000-4000-8000-000000000002';
 
-vi.mock('@/lib/secure-random-uuid', () => ({
-  createSecureRandomUuid: createRequestId,
-}));
-
-vi.mock('./hooks/useProcessingIds', () => ({
-  useProcessingIds: () => ({ processingIds: new Set<string>() }),
-}));
-
-vi.mock('./hooks/useScrapeUrl', () => ({
-  useScrapeUrl: () => ({ showScrapeInput: false }),
-}));
-
-vi.mock('./hooks/useWingRegistrationPreparation', () => ({
-  useWingRegistrationPreparation: (options: { onReady: (draft: unknown) => void }) => {
-    wingOnReadyRef.current = options.onReady;
-    return {
-      start: vi.fn(),
-      cancel: vi.fn(),
-      isPreparing: false,
-      message: null,
-    };
-  },
-}));
-
-// registrationExecutionApi 는 page.tsx 가 직접 부른다(WING 확정/미해결 표시) — KID-310 부터 salesProductId 로 연다.
-vi.mock('../../../(channels)/_shared/registration-execution-api', () => ({
-  registrationExecutionApi: {
-    confirm: registrationExecutionConfirmMock,
-    markUnresolved: registrationExecutionMarkUnresolvedMock,
-  },
-}));
-
-// submitWingRegistration/waitForRegisteredListing 만 갈아 끼운다 — isConfirmedWingRegistration ·
-// translateWingError 는 실제 구현 그대로 써서 분기 판정까지 검증한다.
-vi.mock('./lib/wing-registration-flow', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./lib/wing-registration-flow')>();
+function listResponse(items: ReturnType<typeof salesProductDraftListItem>[], total = items.length) {
   return {
-    ...actual,
-    submitWingRegistration: submitWingRegistrationMock,
-    waitForRegisteredListing: waitForRegisteredListingMock,
+    items,
+    total,
+    page: 1,
+    limit: 20,
+    summary: { total, withOptions: 0, withUnlinkedOptions: 0, unregistered: total, draft: total },
   };
-});
+}
 
-vi.mock('./components/wing/WingRegistrationConfirmDialog', () => ({
-  default: ({ draft, onConfirm }: { draft: unknown; onConfirm: (overrides: unknown, autoSubmit: boolean, channelAccountId: string, sellpiaSelection: unknown) => void }) =>
-    draft ? (
-      <button type="button" onClick={() => onConfirm({}, false, 'channel-account-1', { mode: 'skip' })}>
-        WING 확인
-      </button>
-    ) : null,
-}));
+/** 초안 목록은 `getParsed`, 나머지 읽기는 `get` 으로 온다. 모르는 읽기는 빈 값으로 둔다. */
+function serveDraftPages(pages: Record<number, ReturnType<typeof listResponse>>) {
+  api.getParsed.mockImplementation(async (url: string) => {
+    const parsed = new URL(url, 'http://kiditem.local');
+    if (parsed.pathname === '/api/products/sales-products') {
+      return pages[Number(parsed.searchParams.get('page') ?? '1')] ?? listResponse([]);
+    }
+    if (parsed.pathname.startsWith('/api/products/sales-products/')) {
+      return salesProductDraft({ id: parsed.pathname.split('/').pop()!, sourceCandidateId: null, version: 3 });
+    }
+    throw new Error(`unexpected getParsed ${url}`);
+  });
+  api.get.mockImplementation(async (url: string) => {
+    if (url === '/api/ai/detail-page') {
+      return [
+        { id: 'detail-generation-1', imageProcessingStatus: 'processing' },
+        // 다른 곳에서 시작한 생성 — 목록 카드는 이것을 보지 않는다.
+        { id: 'detail-generation-elsewhere', imageProcessingStatus: 'processing' },
+      ];
+    }
+    if (url.startsWith('/api/ai/content-workspaces/by-sales-product/')) return { registrationImages: { primary: [], thumbnail: [], detail: [] }, currentThumbnail: null };
+    if (url.startsWith('/api/thumbnail-analysis/generations')) {
+      return { items: [{ id: 'thumbnail-generation-1', status: 'running' }], total: 1 };
+    }
+    throw new Error(`unexpected get ${url}`);
+  });
+}
 
-vi.mock('@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate', () => ({
-  useAllGenerationsInProgress: () => [],
-  useKidsPlayfulGenerationCancel: () => ({ mutateAsync: vi.fn() }),
-}));
+function renderPage() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return render(<SourcingPage />, { wrapper });
+}
 
-vi.mock('../_shared/components/inbox/ProductPipelineHeader', () => ({
-  ProductPipelineHeader: () => null,
-}));
-vi.mock('../_shared/components/inbox/ProductPipelineStats', () => ({
-  ProductPipelineStats: () => null,
-}));
-vi.mock('../_shared/components/workspace/GenerationProgressBanner', () => ({
-  GenerationProgressBannerStack: () => null,
-}));
-vi.mock('@/components/ui/Pagination', () => ({ Pagination: () => null }));
-vi.mock('./components/list/ScrapeUrlInput', () => ({ default: () => null }));
-vi.mock('./components/list/SourcingToolbar', () => ({ default: () => null }));
-vi.mock('./components/list/ProductList', () => ({
-  default: ({
-    onDelete,
-    onOpenQuickProcess,
-  }: {
-    onDelete: (id: string) => void;
-    onOpenQuickProcess: (id: string) => void;
-  }) => (
-    <>
-      <button type="button" onClick={() => onDelete('candidate-1')}>삭제 실행</button>
-      <button type="button" onClick={() => onOpenQuickProcess('candidate-1')}>AI 작업 선택</button>
-    </>
-  ),
-}));
+function listUrls(): URL[] {
+  return api.getParsed.mock.calls
+    .map(([url]) => new URL(url as string, 'http://kiditem.local'))
+    .filter((url) => url.pathname === '/api/products/sales-products');
+}
 
-describe('SourcingPage candidate deletion', () => {
+describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     createRequestId.mockReturnValue('batch-quick-process-key');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, text: async () => '' }));
   });
 
-  it('shows the server reason when a candidate deletion is blocked', async () => {
-    deleteCandidateMock.mockRejectedValueOnce(new ApiError(
-      409,
-      'Conflict',
-      '쿠팡 등록이 시작된 상품은 삭제할 수 없습니다.',
-    ));
+  it('reads the draft list with a source-platform tab and routes a card by its sales-product id', async () => {
+    serveDraftPages({ 1: listResponse([salesProductDraftListItem()]) });
+    renderPage();
 
-    render(<SourcingPage />);
-    fireEvent.click(screen.getByRole('button', { name: '삭제 실행' }));
+    fireEvent.click(await screen.findByRole('img', { name: '자석 다트게임' }));
+    expect(push).toHaveBeenCalledWith(`/product-pipeline/collected-products/${DRAFT_ID}`);
 
+    const first = listUrls()[0]!;
+    // 몰에 올라가기 전의 상품 전부 — 판매가를 정한 뒤에도 남는다(status 로 거르지 않는다).
+    expect(first.searchParams.get('focus')).toBe('preparing');
+    expect(first.searchParams.has('status')).toBe(false);
+    expect(first.searchParams.get('page')).toBe('1');
+    expect(first.searchParams.get('limit')).toBe('20');
+    expect(first.searchParams.has('sourcePlatform')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: '1688' }));
     await waitFor(() => {
-      expect(toastErrorMock).toHaveBeenCalledWith(
-        '쿠팡 등록이 시작된 상품은 삭제할 수 없습니다.',
-      );
+      expect(listUrls().some((url) => url.searchParams.get('sourcePlatform') === 'ALIBABA_1688')).toBe(true);
     });
+    // 원천 기록(수집상품) 목록은 읽지 않는다.
+    expect(api.get.mock.calls.some(([url]) => String(url).startsWith('/api/sourcing/extension/products'))).toBe(false);
   });
 
-  it('reuses a failed batch quick-process key when the user retries the same candidate', async () => {
-    quickProcessMock
+  it('starts AI 작업 on the sales-product draft and reuses the key when the same request is retried', async () => {
+    serveDraftPages({ 1: listResponse([salesProductDraftListItem()]) });
+    api.post
       .mockRejectedValueOnce(new Error('network response lost'))
-      .mockResolvedValueOnce({ ok: true });
+      .mockResolvedValueOnce({
+        ok: true,
+        candidateId: DRAFT_CANDIDATE_ID,
+        salesProductId: DRAFT_ID,
+        href: `/product-pipeline/collected-products/${DRAFT_ID}`,
+        detailGenerationId: 'detail-generation-1',
+        thumbnailGenerationId: 'thumbnail-generation-1',
+        contentWorkspaceId: 'workspace-1',
+      });
+    renderPage();
 
-    render(<SourcingPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'AI 작업 선택' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'AI 작업 선택' }));
     fireEvent.click(screen.getByRole('button', { name: /둘 다 실행/ }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
 
-    await waitFor(() => {
-      expect(quickProcessMock).toHaveBeenCalledWith(
-        'candidate-1',
-        'all',
-        'batch-quick-process-key',
-      );
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'AI 작업 선택' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'AI 작업 선택' }));
     fireEvent.click(screen.getByRole('button', { name: /둘 다 실행/ }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
 
-    await waitFor(() => {
-      expect(quickProcessMock).toHaveBeenCalledTimes(2);
-    });
-    expect(quickProcessMock).toHaveBeenLastCalledWith(
-      'candidate-1',
-      'all',
-      'batch-quick-process-key',
-    );
+    for (const call of api.post.mock.calls) {
+      expect(call).toEqual([
+        `/api/products/sales-products/${DRAFT_ID}/generation`,
+        { task: 'all' },
+        { headers: { 'Idempotency-Key': 'batch-quick-process-key' } },
+      ]);
+    }
     expect(createRequestId).toHaveBeenCalledTimes(1);
   });
-});
 
-// draft 는 useWingRegistrationPreparation({ onReady }) 로 들어오는 최소 필드만 채운다 — 나머지는
-// submitWingRegistration 이 mock 이라 안 쓰인다.
-const WING_DRAFT = {
-  candidateId: 'candidate-1',
-  salesProductId: 'sales-product-1',
-  idempotencyKey: 'idem-1',
-  product: {},
-  overrides: {},
-  extensionId: 'extension-1',
-  channelAccountId: 'channel-account-1',
-};
+  it('deletes the selection kept across pages, through each draft’s source record', async () => {
+    serveDraftPages({
+      1: listResponse([salesProductDraftListItem()], 40),
+      2: listResponse([salesProductDraftListItem({
+        id: SECOND_DRAFT_ID,
+        sourceCandidateId: SECOND_CANDIDATE_ID,
+        name: '두 번째 초안',
+      })], 40),
+    });
+    api.delete.mockResolvedValue({ ok: true });
+    renderPage();
 
-describe('SourcingPage WING 확정', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    createRequestId.mockReturnValue('batch-quick-process-key');
-    waitForRegisteredListingMock.mockResolvedValue(true);
+    fireEvent.click(await screen.findByRole('checkbox', { name: '자석 다트게임 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: '두 번째 초안 선택' }));
+    expect(screen.getByText('2개 선택됨')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /선택 삭제 2/ }));
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledTimes(2));
+    expect(api.delete.mock.calls.map(([url]) => url).sort()).toEqual([
+      `/api/sourcing/candidates/${DRAFT_CANDIDATE_ID}`,
+      `/api/sourcing/candidates/${SECOND_CANDIDATE_ID}`,
+    ].sort());
   });
 
-  it('resolves the current sales-product draft id, not the candidate id, when confirming a completed WING registration', async () => {
-    submitWingRegistrationMock.mockResolvedValue({
-      submission: {
-        attempted: true,
-        ok: true,
-        status: 'registered',
-        externalListingId: 'external-listing-1',
-        executionId: 'execution-1',
-        evidence: { screenshot: 'shot.png' },
-      },
-    });
+  it('shows the server reason when a deletion is blocked', async () => {
+    serveDraftPages({ 1: listResponse([salesProductDraftListItem()]) });
+    api.delete.mockRejectedValueOnce(new ApiError(409, 'Conflict', '쿠팡 등록이 시작된 상품은 삭제할 수 없습니다.'));
+    renderPage();
 
-    render(<SourcingPage />);
-    act(() => wingOnReadyRef.current?.(WING_DRAFT));
-    fireEvent.click(await screen.findByRole('button', { name: 'WING 확인' }));
+    const card = (await screen.findByText('자석 다트게임')).closest('article')!;
+    fireEvent.click(within(card).getByTitle('수집상품 삭제'));
 
     await waitFor(() => {
-      expect(registrationExecutionConfirmMock).toHaveBeenCalledWith('sales-product-1', {
-        executionId: 'execution-1',
-        externalListingId: 'external-listing-1',
-        evidence: { screenshot: 'shot.png' },
-      });
+      expect(toastError).toHaveBeenCalledWith('쿠팡 등록이 시작된 상품은 삭제할 수 없습니다.');
     });
-    expect(registrationExecutionConfirmMock).not.toHaveBeenCalledWith('candidate-1', expect.anything());
   });
 
-  it('reports a failed listing sync against the sales-product draft id, not the candidate id', async () => {
-    submitWingRegistrationMock.mockResolvedValue({
-      submission: {
-        attempted: true,
-        ok: true,
-        status: 'registered',
-        externalListingId: 'external-listing-1',
-        executionId: 'execution-1',
+  it('shows progress only for drafts whose generation this page started, without per-card requests', async () => {
+    serveDraftPages({
+      1: listResponse([
+        salesProductDraftListItem(),
+        salesProductDraftListItem({ id: SECOND_DRAFT_ID, sourceCandidateId: SECOND_CANDIDATE_ID, name: '두 번째 초안' }),
+      ]),
+    });
+    api.post.mockResolvedValueOnce({
+      ok: true,
+      candidateId: DRAFT_CANDIDATE_ID,
+      salesProductId: DRAFT_ID,
+      href: `/product-pipeline/collected-products/${DRAFT_ID}`,
+      detailGenerationId: 'detail-generation-1',
+      thumbnailGenerationId: 'thumbnail-generation-1',
+      contentWorkspaceId: 'workspace-1',
+    });
+    renderPage();
+
+    await screen.findByText('두 번째 초안');
+    // 시작한 것이 없으면 진행을 묻지 않는다 — 카드도 묻지 않는다.
+    expect(api.get).not.toHaveBeenCalled();
+
+    const firstCard = screen.getByText('자석 다트게임').closest('article')!;
+    fireEvent.click(within(firstCard).getByRole('button', { name: 'AI 작업 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /둘 다 실행/ }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('AI 작업 진행 중 — 상세페이지 1개 · 썸네일 1개');
+    expect(within(firstCard).getByText('생성 중')).toBeInTheDocument();
+    const secondCard = screen.getByText('두 번째 초안').closest('article')!;
+    expect(within(secondCard).queryByText('생성 중')).toBeNull();
+    // 모달의 몰 등록 줄이 여는 초안 상세 읽기는 빼고, 생성 진행 읽기만 센다.
+    const progressUrls = api.get.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.startsWith('/api/ai/detail-page') || url.startsWith('/api/thumbnail-analysis'));
+    expect(new Set(progressUrls)).toEqual(new Set(['/api/ai/detail-page', '/api/thumbnail-analysis/generations?limit=100']));
+  });
+
+  it('retires a draft without a source record through the sales-product route (S1)', async () => {
+    serveDraftPages({ 1: listResponse([salesProductDraftListItem({ sourceCandidateId: null, sourcePlatform: null })]) });
+    api.delete.mockResolvedValue({ salesProductId: DRAFT_ID, retired: true, blockedReason: null });
+    renderPage();
+
+    const card = (await screen.findByText('자석 다트게임')).closest('article')!;
+    fireEvent.click(within(card).getByTitle('수집상품 삭제'));
+
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith(`/api/products/sales-products/${DRAFT_ID}`));
+    expect(api.patch).not.toHaveBeenCalled();
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('1개 수집상품을 지웠습니다.', {
+      description: '판매상품 초안 1개도 함께 내렸습니다.',
+    }));
+  });
+
+  it('shows why a draft without a source record was not retired', async () => {
+    serveDraftPages({ 1: listResponse([salesProductDraftListItem({ sourceCandidateId: null, sourcePlatform: null })]) });
+    api.delete.mockResolvedValue({
+      salesProductId: DRAFT_ID,
+      retired: false,
+      blockedReason: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    });
+    renderPage();
+
+    const card = (await screen.findByText('자석 다트게임')).closest('article')!;
+    fireEvent.click(within(card).getByTitle('수집상품 삭제'));
+
+    await waitFor(() => expect(toastWarning).toHaveBeenCalledWith('판매상품 초안을 내리지 못한 상품이 있습니다.', {
+      description: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    }));
+    // 내리지 못했으면 지웠다고 말하지 않는다.
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('says whether deleting the source record also retired its draft (S1)', async () => {
+    serveDraftPages({
+      1: listResponse([
+        salesProductDraftListItem(),
+        salesProductDraftListItem({ id: SECOND_DRAFT_ID, sourceCandidateId: SECOND_CANDIDATE_ID, name: '두 번째 초안' }),
+      ]),
+    });
+    api.delete.mockImplementation(async (url: string) => (
+      url.endsWith(DRAFT_CANDIDATE_ID)
+        ? { ok: true, draftRetired: true }
+        : { ok: true, draftRetired: false, draftWarning: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.' }
+    ));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '자석 다트게임 선택' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '두 번째 초안 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 삭제 2/ }));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('2개 수집상품을 지웠습니다.', {
+      description: '판매상품 초안 1개도 함께 내렸습니다.',
+    }));
+    expect(toastWarning).toHaveBeenCalledWith('판매상품 초안을 내리지 못한 상품이 있습니다.', {
+      description: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    });
+  });
+
+  it('keeps a priced product on the list and marks only unpriced drafts 판매가 미정', async () => {
+    serveDraftPages({
+      1: {
+        ...listResponse([
+          salesProductDraftListItem(),
+          salesProductDraftListItem({
+            id: SECOND_DRAFT_ID,
+            sourceCandidateId: SECOND_CANDIDATE_ID,
+            name: '판매가 정한 상품',
+            status: 'active',
+            salePrice: 12900,
+          }),
+        ]),
+        summary: { total: 2, withOptions: 0, withUnlinkedOptions: 0, unregistered: 2, draft: 1 },
       },
     });
-    registrationExecutionConfirmMock.mockRejectedValueOnce(new Error('등록상품 반영 실패'));
+    renderPage();
 
-    render(<SourcingPage />);
-    act(() => wingOnReadyRef.current?.(WING_DRAFT));
-    fireEvent.click(await screen.findByRole('button', { name: 'WING 확인' }));
-
-    await waitFor(() => {
-      expect(registrationExecutionMarkUnresolvedMock).toHaveBeenCalledWith(
-        'sales-product-1',
-        'execution-1',
-        { reason: 'completion_failed', message: expect.any(String) },
-      );
-    });
-    expect(registrationExecutionMarkUnresolvedMock).not.toHaveBeenCalledWith('candidate-1', expect.anything(), expect.anything());
+    const pricedCard = (await screen.findByText('판매가 정한 상품')).closest('article')!;
+    const draftCard = screen.getByText('자석 다트게임').closest('article')!;
+    expect(within(draftCard).getByText('판매가 미정')).toBeInTheDocument();
+    expect(within(pricedCard).queryByText('판매가 미정')).toBeNull();
+    // 한 줄에 몰 등록 전 수와 판매가 미정 수를 하나씩만 보인다.
+    const stats = screen.getByRole('group', { name: '수집상품 수' });
+    expect(stats).toHaveTextContent('몰 등록 전2개');
+    expect(stats).toHaveTextContent('판매가 미정1개');
   });
 });

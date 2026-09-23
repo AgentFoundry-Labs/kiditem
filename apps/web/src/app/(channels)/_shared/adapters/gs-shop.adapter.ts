@@ -12,7 +12,7 @@ import {
   parseGsshopSection,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/gsshop-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem, mallFormExecutionOptions, publishItemSalesProductId, registrationOutcome } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -98,6 +98,15 @@ function supplierCodeProblem(raw: string | undefined): string | null {
     : 'GS샵 협력사 상품코드는 영문·숫자·-_() 20자 이내여야 합니다.';
 }
 
+/** 초안이 없는 옛 수집상품 줄은 미리보기를 깨뜨리지 않고 확인을 부탁한다(보낼 때는 막힌다). */
+function previewSupplierCode(item: Parameters<MallPublishAdapter['preview']>[0]): string {
+  try {
+    return `${gsshopSupplierProductCode(publishItemSalesProductId(item))} (자동)`;
+  } catch {
+    return '상세에서 확인';
+  }
+}
+
 export const gsShopAdapter: MallPublishAdapter = {
   mallKey: 'gs-shop',
   mallName: 'GS샵',
@@ -132,7 +141,8 @@ export const gsShopAdapter: MallPublishAdapter = {
       },
       {
         label: '협력사 상품코드',
-        value: values.gsshopSupplierCode?.trim() || `${gsshopSupplierProductCode(item.candidateId)} (자동)`,
+        // 채우는 폼과 같은 id(판매상품 초안)로 만든다 — 미리보기와 실제 코드가 달라지면 안 된다.
+        value: values.gsshopSupplierCode?.trim() || previewSupplierCode(item),
         origin: 'override',
         mallSpecific: true,
       },

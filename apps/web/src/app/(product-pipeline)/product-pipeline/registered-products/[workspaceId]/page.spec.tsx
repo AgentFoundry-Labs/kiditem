@@ -139,13 +139,14 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     };
     expect(props).toEqual(expect.objectContaining({
       productId: 'listing-1',
-      contentWorkspaceId: 'listing-workspace-1',
+      listingContentWorkspaceId: 'listing-workspace-1',
       detailGenerationEnabled: true,
-      showCandidateActions: false,
-      thumbnailSourceCandidateId: null,
     }));
-    expect(initialWorkspaceData.product.status).toBe('sourced');
-    expect(initialWorkspaceData.product.contentWorkspaceId).toBe('listing-workspace-1');
+    // 리스팅에서 만든 값에는 원천 기록이 없다 — 소싱 판단을 지어내지 않는다.
+    expect(initialWorkspaceData.product.status).toBeNull();
+    expect(initialWorkspaceData.product.sourceCandidateId).toBeNull();
+    // 작업공간 id 는 화면 값에 싣지 않고 prop(`contentWorkspaceId`)으로만 넘긴다.
+    expect(initialWorkspaceData.product).not.toHaveProperty('contentWorkspaceId');
     expect(initialWorkspaceData.product).not.toHaveProperty('promotedMasterId');
     expect(initialWorkspaceData.product).not.toHaveProperty('promoted_master_id');
     expect(initialWorkspaceData.product.raw_data).toEqual(expect.objectContaining({

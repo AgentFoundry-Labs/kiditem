@@ -120,7 +120,7 @@ vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registra
 }));
 
 vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow', () => ({
-  generateWingExcelForCandidates: generateWingExcelMock,
+  generateWingExcelForSalesProducts: generateWingExcelMock,
   downloadWingExcel: downloadWingExcelMock,
 }));
 
@@ -304,7 +304,8 @@ describe('상품 등록 (N × M)', () => {
     });
     // 엑셀은 파일 하나에 2건, 폼은 1건씩 2번. 작업은 3개다.
     expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
-    expect(generateWingExcelMock).toHaveBeenCalledWith(['c1', 'c2'], expect.anything());
+    // 수집상품 항목도 판매상품 초안 id 로 엑셀을 만든다(KID-310).
+    expect(generateWingExcelMock).toHaveBeenCalledWith(['sp-c1', 'sp-c2'], expect.anything());
     expect(downloadWingExcelMock).toHaveBeenCalledTimes(1);
     expect(resolveTargetMock).toHaveBeenCalledTimes(2);
   });

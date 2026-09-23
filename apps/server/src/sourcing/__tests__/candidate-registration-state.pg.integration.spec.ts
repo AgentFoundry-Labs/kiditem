@@ -42,7 +42,7 @@ describe('candidate registration state (PG integration)', () => {
         requireActive: async () => undefined,
       },
       { findSalesProductWorkspaceId: async () => workspaceId } as never,
-      { listGeneratedThumbnailUrls: async () => [] },
+      { listGeneratedThumbnailUrls: async () => [] , findRepresentativeThumbnailUrls: async () => new Map<string, string>()},
     );
     channelListings = new ChannelListingQueryService(
       new ChannelListingQueryPersistenceAdapter(prisma as unknown as PrismaService),

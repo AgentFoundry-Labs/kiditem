@@ -29,6 +29,7 @@ describe('SalesProductGenerationController', () => {
       'user-1',
       'all',
       'generation-key',
+      undefined,
     );
   });
 

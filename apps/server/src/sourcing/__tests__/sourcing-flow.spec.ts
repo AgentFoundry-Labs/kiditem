@@ -257,6 +257,7 @@ describe('SourcingService — candidate ingest', () => {
   });
 
   it('manual product registration creates collected-product candidate', async () => {
+    drafts.findDraftIdsForSources.mockResolvedValueOnce(new Map([['cand-1', DRAFT_ID]]));
     const result = await service.registerManualProduct(
       {
         title: '바삭바삭 수제왁스팝',
@@ -304,7 +305,9 @@ describe('SourcingService — candidate ingest', () => {
       ok: true,
       product_count: 1,
       candidateId: 'cand-1',
-      href: '/product-pipeline/collected-products/cand-1',
+      salesProductId: DRAFT_ID,
+      // 화면은 초안으로 열린다 — 후보 id 주소는 열리지 않는다.
+      href: `/product-pipeline/collected-products/${DRAFT_ID}`,
     });
   });
 
@@ -399,6 +402,7 @@ describe('SourcingService — candidate ingest', () => {
         kind: 'sourcing.quick_process',
         salesProductId: DRAFT_ID,
         task: 'all',
+        templateId: 'bold-vertical',
       }),
     });
     expect(gateway.startProductGeneration).toHaveBeenCalledWith(expect.objectContaining({
@@ -426,6 +430,7 @@ describe('SourcingService — candidate ingest', () => {
         kind: 'sourcing.quick_process',
         salesProductId: DRAFT_ID,
         task: 'all',
+        templateId: 'bold-vertical',
       }),
     }));
     expect(result).toEqual(expect.objectContaining({
@@ -532,6 +537,35 @@ describe('SourcingService — candidate ingest', () => {
       sourceCandidateId: 'candidate-1',
       task: 'thumbnail',
       idempotencyKey: 'quick-process-thumbnail-key',
+      templateId: 'bold-vertical',
+    }));
+
+    gateway.startProductGeneration.mockResolvedValueOnce({
+      salesProductId: DRAFT_ID,
+      detailGenerationId: 'detail-2',
+      thumbnailGenerationId: null,
+      contentWorkspaceId: 'workspace-1',
+      href: '/product-pipeline/collected-products/candidate-1',
+    });
+    await service.startProductGeneration(
+      DRAFT_ID,
+      'org-1',
+      'user-1',
+      'detail',
+      'template-change-key',
+      'kids-playful',
+    );
+    expect(gateway.startProductGeneration).toHaveBeenLastCalledWith(expect.objectContaining({
+      task: 'detail',
+      templateId: 'kids-playful',
+    }));
+    expect(repo.claimQuickProcess).toHaveBeenLastCalledWith(expect.objectContaining({
+      requestHash: canonicalOwnerInputHash({
+        kind: 'sourcing.quick_process',
+        salesProductId: DRAFT_ID,
+        task: 'detail',
+        templateId: 'kids-playful',
+      }),
     }));
   });
 

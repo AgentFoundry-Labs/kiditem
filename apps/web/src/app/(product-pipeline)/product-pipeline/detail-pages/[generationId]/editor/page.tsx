@@ -28,13 +28,13 @@ function DetailPageGenerationEditorPageContent() {
   const search = useSearchParams();
   const generationId = params.generationId as string;
   const closeHref = normalizeProductPipelineReturnTo(search.get('returnTo')) ?? REGISTERED_PRODUCTS_ROOT;
-  const candidateId = search.get('sourceCandidateId');
+  const salesProductId = search.get('salesProductId');
 
   return (
     <ContentGenerationEditorSurface
       generationId={generationId}
       closeHref={closeHref}
-      candidateId={candidateId}
+      salesProductId={salesProductId}
     />
   );
 }

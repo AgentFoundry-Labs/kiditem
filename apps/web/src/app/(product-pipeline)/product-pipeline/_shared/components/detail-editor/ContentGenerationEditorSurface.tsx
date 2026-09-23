@@ -38,11 +38,12 @@ interface EditedHtmlResponse {
 export function ContentGenerationEditorSurface({
   generationId,
   closeHref,
-  candidateId,
+  salesProductId,
 }: {
   generationId: string;
   closeHref: string;
-  candidateId?: string | null;
+  /** 수집상품 화면에서 열었으면 그 판매상품 초안 id — 저장 뒤 그 화면 값을 새로 읽는다. */
+  salesProductId?: string | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -112,12 +113,10 @@ export function ContentGenerationEditorSurface({
         queryClient.invalidateQueries({
           queryKey: queryKeys.productContent.generationEditedHtml(generationId),
         }),
-        ...(candidateId
+        ...(salesProductId
           ? [
-              queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(candidateId) }),
-              queryClient.invalidateQueries({
-                queryKey: [...queryKeys.sourcing.detail(candidateId), 'history'],
-              }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(salesProductId) }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.forSalesProduct(salesProductId) }),
             ]
           : []),
       ]);
@@ -141,11 +140,11 @@ export function ContentGenerationEditorSurface({
       }),
     ]);
     const params = new URLSearchParams();
-    if (candidateId) params.set('sourceCandidateId', candidateId);
+    if (salesProductId) params.set('salesProductId', salesProductId);
     if (closeHref) params.set('returnTo', closeHref);
     const suffix = params.toString() ? `?${params.toString()}` : '';
     router.replace(`/product-pipeline/detail-pages/${nextGenerationId}/editor${suffix}`);
-  }, [candidateId, closeHref, queryClient, router]);
+  }, [closeHref, queryClient, router, salesProductId]);
 
   if (isEntryLoading || isEditedHtmlLoading || isEntryProcessing) {
     return <EditorLoadingScreen />;
@@ -173,6 +172,7 @@ export function ContentGenerationEditorSurface({
           templateCss={templateCss}
           productName={entry.productName ?? ''}
           productId={entry.productId ?? undefined}
+          salesProductId={salesProductId}
           contentGenerationId={generationId}
           contentWorkspaceId={entry.contentWorkspaceId ?? null}
           generationRawInput={entry.rawInput}

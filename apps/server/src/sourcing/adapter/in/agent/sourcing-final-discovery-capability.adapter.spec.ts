@@ -2,6 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { SourcingFinalDiscoveryCapabilityAdapter } from './sourcing-final-discovery-capability.adapter';
 
+const DRAFT_ID = '00000000-0000-4000-8000-0000000000d1';
+/** 원천 기록 → 판매상품 초안. 초안 보장은 Channels 소유라 여기서는 경계에서 대신한다. */
+function collectedDrafts() {
+  return {
+    findDraftIds: vi.fn(async (_organizationId: string, ids: readonly string[]) => new Map(ids.map((id) => [id, DRAFT_ID]))),
+    ensureDraftsForCandidates: vi.fn(async (_organizationId: string, ids: readonly string[]) => new Map(ids.map((id) => [id, DRAFT_ID]))),
+  };
+}
+
 describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
   it('checks for an existing candidate without writing Sourcing state', async () => {
     const candidates = {
@@ -13,6 +22,7 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
     const adapter = new SourcingFinalDiscoveryCapabilityAdapter(
       candidates as never,
       { scrapeProductUrl: vi.fn() } as never,
+      collectedDrafts() as never,
     );
 
     await expect(adapter.duplicateCheck({
@@ -21,6 +31,7 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
     })).resolves.toEqual({
       duplicate: true,
       candidateId: '00000000-0000-4000-8000-000000000001',
+      salesProductId: DRAFT_ID,
     });
     expect(candidates.findActiveBySourceUrl).toHaveBeenCalledWith({
       organizationId: '00000000-0000-4000-8000-000000000002',
@@ -51,6 +62,7 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
     const adapter = new SourcingFinalDiscoveryCapabilityAdapter(
       candidates as never,
       browser as never,
+      collectedDrafts() as never,
     );
 
     await expect(adapter.scrapeProductUrl({ sourceUrl: 'https://detail.1688.com/offer/1.html' })).resolves.toMatchObject({
@@ -76,6 +88,7 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
     const adapter = new SourcingFinalDiscoveryCapabilityAdapter(
       candidates as never,
       browser as never,
+      collectedDrafts() as never,
     );
 
     await expect(adapter.scrapeProductUrl({ sourceUrl: 'https://detail.1688.com/offer/1.html' }))
@@ -105,6 +118,7 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
     const adapter = new SourcingFinalDiscoveryCapabilityAdapter(
       candidates as never,
       browser as never,
+      collectedDrafts() as never,
     );
     const snapshot = await adapter.scrapeProductUrl({
       sourceUrl: 'https://detail.1688.com/offer/1.html',
@@ -117,7 +131,7 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
       idempotencyKey: 'owner:attempt:ingest',
       requestHash,
       snapshot,
-    })).resolves.toEqual({ candidateId: '00000000-0000-4000-8000-000000000011' });
+    })).resolves.toEqual({ candidateId: '00000000-0000-4000-8000-000000000011', salesProductId: DRAFT_ID });
 
     expect(candidates.upsertSourcedWithIdempotencyReceipt).toHaveBeenCalledWith(
       expect.objectContaining({

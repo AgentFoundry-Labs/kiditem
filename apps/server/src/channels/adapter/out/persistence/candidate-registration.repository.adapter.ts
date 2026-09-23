@@ -92,14 +92,38 @@ export class ProductPreparationRepositoryAdapter
     }
     if (ids.length === 0) return result;
 
-    // 후보 → 초안(판매상품) → 등록 설정. owner 를 넘는 조인이 아니라 Channels 안의 조인이다.
+    // 후보 → 초안(판매상품). owner 를 넘는 조인이 아니라 Channels 안의 조인이다.
     const drafts = await this.prisma.salesProduct.findMany({
       where: { organizationId, sourceCandidateId: { in: ids } },
       select: { id: true, sourceCandidateId: true },
     });
-    const candidateByProduct = new Map(drafts.map((draft) => [draft.id, draft.sourceCandidateId!]));
+    const byProduct = await this.readForSalesProducts(organizationId, drafts.map((draft) => draft.id));
+    for (const draft of drafts) {
+      const registration = byProduct.get(draft.id);
+      if (draft.sourceCandidateId && registration) result.set(draft.sourceCandidateId, registration);
+    }
+    return result;
+  }
+
+  async readForSalesProducts(
+    organizationId: string,
+    salesProductIds: readonly string[],
+  ): Promise<Awaited<ReturnType<CandidateRegistrationPort['readForSalesProducts']>>> {
+    const ids = [...new Set(salesProductIds.filter((id): id is string => Boolean(id)))];
+    const result = new Map<string, {
+      preparations: ProductPreparationRow[];
+      registrationState: CandidateRegistrationState;
+    }>();
+    if (ids.length === 0) return result;
+
+    const drafts = await this.prisma.salesProduct.findMany({
+      where: { organizationId, id: { in: ids } },
+      select: { id: true, sourceCandidateId: true },
+    });
+    const candidateByProduct = new Map(drafts.map((draft) => [draft.id, draft.sourceCandidateId]));
+    for (const draft of drafts) result.set(draft.id, { preparations: [], registrationState: 'none' });
     if (candidateByProduct.size === 0) return result;
-    const rows = await this.prisma.registrationTarget.findMany({
+    const targetRows = await this.prisma.registrationTarget.findMany({
       where: {
         organizationId,
         salesProductId: { in: [...candidateByProduct.keys()] },
@@ -123,48 +147,42 @@ export class ProductPreparationRepositoryAdapter
         updatedAt: true,
       },
     });
-    const validRows = rows
-      .map((row) => ({ ...row, sourceCandidateId: candidateByProduct.get(row.salesProductId) }))
-      .filter((row): row is typeof row & { sourceCandidateId: string } => typeof row.sourceCandidateId === 'string');
-    if (validRows.length === 0) return result;
+    // 이 조직에서 찾은 초안의 설정만 읽는다.
+    const rows = targetRows.filter((row) => candidateByProduct.has(row.salesProductId));
+    if (rows.length === 0) return result;
 
     const facts = await readRegistrationExecutionFacts(this.prisma, {
       organizationId,
-      registrationTargetIds: validRows.map((row) => row.id),
+      registrationTargetIds: rows.map((row) => row.id),
     });
     // The registered reader returns newest-first. Keep the first fact for each
-    // preparation; Map(facts.map(...)) would overwrite it with an older row.
-    const latestByPreparation = new Map<string, typeof facts[number]>();
+    // target; Map(facts.map(...)) would overwrite it with an older row.
+    const latestByTarget = new Map<string, typeof facts[number]>();
     for (const fact of facts) {
-      if (!latestByPreparation.has(fact.registrationTargetId)) {
-        latestByPreparation.set(fact.registrationTargetId, fact);
+      if (!latestByTarget.has(fact.registrationTargetId)) {
+        latestByTarget.set(fact.registrationTargetId, fact);
       }
     }
-    const candidateByPreparation = new Map(
-      validRows.map((row) => [row.id, row.sourceCandidateId]),
-    );
-    const factsByCandidate = new Map<string, typeof facts[number][]>();
-    // The registered reader is newest-first across all preparations. Preserve
-    // that order after retaining one fact per preparation so the candidate
+    const productByTarget = new Map(rows.map((row) => [row.id, row.salesProductId]));
+    const factsByProduct = new Map<string, typeof facts[number][]>();
+    // Newest-first across all targets; keep one fact per target so the product
     // projection also uses its newest registration attempt.
     for (const fact of facts) {
-      if (latestByPreparation.get(fact.registrationTargetId)?.executionId !== fact.executionId) {
-        continue;
-      }
-      const candidateId = candidateByPreparation.get(fact.registrationTargetId);
-      if (!candidateId) continue;
-      const candidateFacts = factsByCandidate.get(candidateId);
-      if (candidateFacts) candidateFacts.push(fact);
-      else factsByCandidate.set(candidateId, [fact]);
+      if (latestByTarget.get(fact.registrationTargetId)?.executionId !== fact.executionId) continue;
+      const salesProductId = productByTarget.get(fact.registrationTargetId);
+      if (!salesProductId) continue;
+      const productFacts = factsByProduct.get(salesProductId);
+      if (productFacts) productFacts.push(fact);
+      else factsByProduct.set(salesProductId, [fact]);
     }
-    for (const row of validRows) {
-      const candidate = result.get(row.sourceCandidateId);
-      if (!candidate) continue;
-      const execution = latestByPreparation.get(row.id);
-      candidate.preparations.push({
+    for (const row of rows) {
+      const product = result.get(row.salesProductId);
+      if (!product) continue;
+      const execution = latestByTarget.get(row.id);
+      product.preparations.push({
         id: row.id,
         salesProductId: row.salesProductId,
-        sourceCandidateId: row.sourceCandidateId,
+        sourceCandidateId: candidateByProduct.get(row.salesProductId) ?? null,
         channelAccountId: row.channelAccountId,
         channelListingId: execution?.channelListingId ?? null,
         displayName: row.displayName,
@@ -180,8 +198,8 @@ export class ProductPreparationRepositoryAdapter
         updatedAt: row.updatedAt,
       });
     }
-    for (const [candidateId, state] of result) {
-      state.registrationState = candidateRegistrationState(factsByCandidate.get(candidateId) ?? []);
+    for (const [salesProductId, state] of result) {
+      state.registrationState = candidateRegistrationState(factsByProduct.get(salesProductId) ?? []);
     }
     return result;
   }
