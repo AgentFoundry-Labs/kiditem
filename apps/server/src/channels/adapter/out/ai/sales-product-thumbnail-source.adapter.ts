@@ -19,4 +19,10 @@ export class SalesProductThumbnailSourceAdapter implements SalesProductThumbnail
     const images = await this.assets.listRegistrationImages({ organizationId, salesProductId });
     return [...new Set([...images.primary, ...images.thumbnail, ...images.detail])];
   }
+
+  async findRepresentativeThumbnailUrls(organizationId: string, salesProductIds: readonly string[]): Promise<Map<string, string>> {
+    if (salesProductIds.length === 0) return new Map();
+    const thumbnails = await this.assets.findCurrentThumbnails({ organizationId, salesProductIds: [...salesProductIds] });
+    return new Map([...thumbnails].map(([salesProductId, thumbnail]) => [salesProductId, thumbnail.url]));
+  }
 }

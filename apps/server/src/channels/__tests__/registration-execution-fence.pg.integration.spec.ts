@@ -1780,7 +1780,7 @@ describe('registration execution fence (PG integration)', () => {
    */
   function thumbnailSourceFake() {
     return {
-      listGeneratedThumbnailUrls: async () => (canonicalThumbnailUrl ? [canonicalThumbnailUrl] : []),
+      listGeneratedThumbnailUrls: async () => (canonicalThumbnailUrl ? [canonicalThumbnailUrl] : []), findRepresentativeThumbnailUrls: async () => new Map<string, string>(),
     };
   }
 

@@ -1,4 +1,5 @@
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import type { SalesProductThumbnailSourcePort } from '../../port/out/ai/sales-product-thumbnail-source.port';
 import type {
   SalesProductDraftRetireResult,
   SalesProductDraftSource,
@@ -46,11 +47,21 @@ export class SalesProductUseCase implements SalesProductPort {
 
     private readonly repository: SalesProductRepositoryPort,
     private readonly workspaceArchive?: SalesProductWorkspaceArchivePort,
+    private readonly thumbnails?: SalesProductThumbnailSourcePort,
   ) {}
 
-  list(organizationId: string, rawQuery: unknown): Promise<SalesProductListResponse> {
+  /** 목록 줄의 사진은 운영자가 저장한 대표 썸네일이 있으면 그것, 없으면 초안의 첫 사진이다. */
+  async list(organizationId: string, rawQuery: unknown): Promise<SalesProductListResponse> {
     const query = parseOrBadRequest(SalesProductListQuerySchema, rawQuery, '목록 조건이 올바르지 않습니다.');
-    return this.repository.list(organizationId, query);
+    const page = await this.repository.list(organizationId, query);
+    if (!this.thumbnails || page.items.length === 0) return page;
+    const representatives = await this.thumbnails.findRepresentativeThumbnailUrls(
+      organizationId, page.items.map((item) => item.id),
+    );
+    return {
+      ...page,
+      items: page.items.map((item) => ({ ...item, imageUrl: representatives.get(item.id) ?? item.imageUrl })),
+    };
   }
 
   async get(
