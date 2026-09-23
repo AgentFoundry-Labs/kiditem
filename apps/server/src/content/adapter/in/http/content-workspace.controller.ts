@@ -4,7 +4,6 @@ import { CurrentUser } from '../../../../auth/decorators/current-user.decorator'
 import type { AuthUser } from '../../../../auth/auth.types';
 import { ContentAssetService } from '../../../application/service/content-asset.service';
 import { ContentWorkspaceService } from '../../../application/service/content-workspace.service';
-import { ContentWorkspaceThumbnailSelectionService } from '../../../application/service/content-workspace-thumbnail-selection.service';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
@@ -23,7 +22,6 @@ import {
 export class ContentWorkspaceController {
   constructor(
     private readonly contentWorkspaces: ContentWorkspaceService,
-    private readonly thumbnailSelections: ContentWorkspaceThumbnailSelectionService,
     private readonly contentAssets: ContentAssetService,
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly registrationContent: RegistrationContentWorkspacePort,
@@ -121,28 +119,27 @@ export class ContentWorkspaceController {
     });
   }
 
+  /** 채택: 그 워크스페이스의 자산(업로드 · AI 후보) 하나를 대표이미지로(`currentThumbnailAssetId`). */
   @Patch(':workspaceId/current-thumbnail')
   selectCurrentThumbnail(
     @CurrentOrganization() organizationId: string,
     @Param('workspaceId', new ParseUUIDPipe()) workspaceId: string,
-    @CurrentUser() user: AuthUser,
     @Body() body: SelectContentWorkspaceThumbnailDto,
   ) {
-    return this.thumbnailSelections.setCurrent({
+    return this.contentAssets.adoptCurrentThumbnail({
       organizationId,
-      workspaceId,
-      userId: user.id ?? null,
-      selection: {
-        ...(body.contentAssetId ? { contentAssetId: body.contentAssetId } : {}),
-        ...(body.sourceThumbnailGenerationId
-          ? { sourceThumbnailGenerationId: body.sourceThumbnailGenerationId }
-          : {}),
-        ...(body.sourceThumbnailCandidateId
-          ? { sourceThumbnailCandidateId: body.sourceThumbnailCandidateId }
-          : {}),
-        ...(body.externalUrl ? { externalUrl: body.externalUrl } : {}),
-      },
+      contentWorkspaceId: workspaceId,
+      assetId: body.assetId,
     });
+  }
+
+  /** 대표이미지 갤러리: 업로드와 AI 후보(`ContentAssetItem`), 새것부터. */
+  @Get(':workspaceId/thumbnail-gallery')
+  listThumbnailGallery(
+    @CurrentOrganization() organizationId: string,
+    @Param('workspaceId', new ParseUUIDPipe()) workspaceId: string,
+  ) {
+    return this.contentAssets.listThumbnailGallery({ organizationId, contentWorkspaceId: workspaceId });
   }
 
   /**

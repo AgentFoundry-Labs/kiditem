@@ -1,20 +1,24 @@
 import { createHash } from 'node:crypto';
 
-export function groupUrlAssetKey(generationGroupId: string, url: string): string {
-  return `group-url:${generationGroupId}:${hashContentAssetUrl(url).slice(0, 32)}`;
-}
-
 /**
- * Key for one entry of a workspace's `role='thumbnail'` gallery.
+ * Key for one entry of a workspace's uploaded `role='thumbnail'` gallery.
  *
- * It is deliberately its own namespace, separate from `group-url:` (generation
- * inputs/outputs) and `managed-url:` (the current-thumbnail selection asset).
- * Reusing a `group-url:` asset would silently keep its original role — the
- * gallery would then never show up in `registrationImages.thumbnail`, and the
- * save would look successful while changing nothing.
+ * It is its own namespace so a gallery entry never reuses a detail-page image
+ * row (which would keep its original role and silently drop out of
+ * `registrationImages.thumbnail`).
  */
 export function workspaceThumbnailAssetKey(contentWorkspaceId: string, url: string): string {
   return `workspace-thumbnail:${contentWorkspaceId}:${hashContentAssetUrl(url).slice(0, 32)}`;
+}
+
+/** Key for a workspace image recorded under one role (detail-page inputs and outputs). */
+export function workspaceImageAssetKey(contentWorkspaceId: string, role: string, url: string): string {
+  return `workspace-image:${contentWorkspaceId}:${role}:${hashContentAssetUrl(url).slice(0, 32)}`;
+}
+
+/** Key for candidate `index` of one AI thumbnail job. */
+export function thumbnailCandidateAssetKey(thumbnailGenerationId: string, index: number): string {
+  return `ai-candidate:${thumbnailGenerationId}:${index}`;
 }
 
 export function hashContentAssetUrl(url: string): string {

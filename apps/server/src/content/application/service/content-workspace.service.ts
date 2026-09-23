@@ -21,7 +21,6 @@ export interface CreateContentWorkspaceInput {
   rawTitle: string;
   salesProductId: string | null;
   channelListingId?: string | null;
-  originWorkspaceId?: string | null;
 }
 
 export interface ContentWorkspaceSummary {
@@ -29,9 +28,8 @@ export interface ContentWorkspaceSummary {
   ownerType: string;
   salesProductId: string | null;
   channelListingId: string | null;
-  originWorkspaceId: string | null;
-  displayName: string;
-  normalizedTitle: string;
+  /** 직접 상세 작업공간의 제목(정규화). 판매 상품 · 리스팅 작업공간은 null — 이름은 그 주인에게 있다. */
+  normalizedTitle: string | null;
   status: string;
   href: string;
   generationCount: number;
@@ -39,11 +37,8 @@ export interface ContentWorkspaceSummary {
   latestStatus: string | null;
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
-  currentThumbnailSelection: {
-    id: string;
-    contentAssetId: string;
-    url: string;
-  } | null;
+  /** 대표이미지 자산(`currentThumbnailAssetId`). */
+  currentThumbnailAsset: { id: string; url: string } | null;
   currentDetailPageGenerationId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -77,8 +72,7 @@ export class ContentWorkspaceService {
     rawTitle: string;
     salesProductId: string | null;
     channelListingId?: string | null;
-    originWorkspaceId?: string | null;
-  }): Promise<{ id: string; displayName: string; normalizedTitle: string }> {
+  }): Promise<{ id: string; normalizedTitle: string | null }> {
     return this.ensureWorkspace(input);
   }
 
@@ -89,20 +83,16 @@ export class ContentWorkspaceService {
 
   private async ensureWorkspace(input: CreateContentWorkspaceInput): Promise<{
     id: string;
-    displayName: string;
-    normalizedTitle: string;
+    normalizedTitle: string | null;
   }> {
-    const normalizedTitle = normalizeContentTitle(input.rawTitle);
-    const displayName = displayTitle(input.rawTitle);
     const ownerType = ownerTypeFor(input);
     return this.repository.ensureActiveWorkspace({
       organizationId: input.organizationId,
       ownerType,
       salesProductId: input.salesProductId,
       channelListingId: input.channelListingId ?? null,
-      originWorkspaceId: input.originWorkspaceId ?? null,
-      displayName,
-      normalizedTitle,
+      // 직접 상세만 제목을 갖는다. 판매 상품 · 리스팅 작업공간의 이름은 그 주인에서 읽는다.
+      normalizedTitle: ownerType === 'direct_detail_page' ? normalizeContentTitle(input.rawTitle) : null,
       createdByUserId: input.triggeredByUserId,
     });
   }
@@ -219,8 +209,6 @@ export class ContentWorkspaceService {
       ownerType: row.ownerType,
       salesProductId: row.salesProductId,
       channelListingId: row.channelListingId,
-      originWorkspaceId: row.originWorkspaceId,
-      displayName: row.displayName,
       normalizedTitle: row.normalizedTitle,
       status: row.status,
       href: registeredWorkspaceHref(row.id),
@@ -229,13 +217,7 @@ export class ContentWorkspaceService {
       latestStatus: latest?.status ?? null,
       currentDetailPageArtifactId: row.currentDetailPageArtifactId,
       currentDetailPageRevisionId: row.currentDetailPageRevisionId,
-      currentThumbnailSelection: row.currentThumbnailSelection
-        ? {
-            id: row.currentThumbnailSelection.id,
-            contentAssetId: row.currentThumbnailSelection.contentAsset.id,
-            url: row.currentThumbnailSelection.contentAsset.url,
-          }
-        : null,
+      currentThumbnailAsset: row.currentThumbnailAsset,
       currentDetailPageGenerationId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
@@ -321,16 +303,11 @@ function toDuplicateSummary(row: {
   ownerType: string;
   salesProductId: string | null;
   channelListingId: string | null;
-  originWorkspaceId: string | null;
-  displayName: string;
-  normalizedTitle: string;
+  normalizedTitle: string | null;
   status: string;
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
-  currentThumbnailSelection: {
-    id: string;
-    contentAsset: { id: string; url: string };
-  } | null;
+  currentThumbnailAsset: { id: string; url: string } | null;
   currentDetailPageArtifact: { sourceContentGenerationId: string | null } | null;
   createdAt: Date;
   updatedAt: Date;
@@ -341,8 +318,6 @@ function toDuplicateSummary(row: {
     ownerType: row.ownerType,
     salesProductId: row.salesProductId,
     channelListingId: row.channelListingId,
-    originWorkspaceId: row.originWorkspaceId,
-    displayName: row.displayName,
     normalizedTitle: row.normalizedTitle,
     status: row.status,
     href: registeredWorkspaceHref(row.id),
@@ -351,22 +326,12 @@ function toDuplicateSummary(row: {
     latestStatus: null,
     currentDetailPageArtifactId: row.currentDetailPageArtifactId,
     currentDetailPageRevisionId: row.currentDetailPageRevisionId,
-    currentThumbnailSelection: row.currentThumbnailSelection
-      ? {
-          id: row.currentThumbnailSelection.id,
-          contentAssetId: row.currentThumbnailSelection.contentAsset.id,
-          url: row.currentThumbnailSelection.contentAsset.url,
-        }
-      : null,
+    currentThumbnailAsset: row.currentThumbnailAsset,
     currentDetailPageGenerationId: row.currentDetailPageArtifact?.sourceContentGenerationId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     history: [],
   };
-}
-
-function displayTitle(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').slice(0, 120) || '상세페이지 작업';
 }
 
 function ownerTypeFor(input: {

@@ -32,14 +32,11 @@ function workspace(overrides: Record<string, unknown> = {}) {
     salesProductId: null,
     targetMasterId: null,
     channelListingId: null,
-    originWorkspaceId: null,
-    displayName: '키즈 텀블러',
     normalizedTitle: '키즈텀블러',
     status: 'active',
     currentDetailPageArtifactId: ARTIFACT_ID,
     currentDetailPageRevisionId: REVISION_ID,
-    currentThumbnailSelectionId: null,
-    currentThumbnailSelection: null,
+    currentThumbnailAsset: null,
     createdByUserId: null,
     isDeleted: false,
     deletedAt: null,
@@ -90,22 +87,14 @@ function generation(overrides: Record<string, unknown> = {}) {
 }
 
 describe('ContentWorkspaceService', () => {
-  it('creates a channel-listing workspace owner and projects its branch provenance', async () => {
+  it('creates a channel-listing workspace without a title and projects its representative image', async () => {
     const repo = repository({
-      ensureActiveWorkspace: vi.fn().mockResolvedValue({
-        id: WORKSPACE_ID,
-        displayName: 'Kids rain boots',
-        normalizedTitle: 'kidsrainboots',
-      }),
+      ensureActiveWorkspace: vi.fn().mockResolvedValue({ id: WORKSPACE_ID, normalizedTitle: null }),
       getById: vi.fn().mockResolvedValue(workspace({
         ownerType: 'channel_listing',
         channelListingId: 'listing-1',
-        originWorkspaceId: 'source-workspace-1',
-        currentThumbnailSelectionId: 'selection-1',
-        currentThumbnailSelection: {
-          id: 'selection-1',
-          contentAsset: { id: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
-        },
+        normalizedTitle: null,
+        currentThumbnailAsset: { id: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
       })),
     });
     const service = new ContentWorkspaceService(repo);
@@ -116,33 +105,26 @@ describe('ContentWorkspaceService', () => {
       rawTitle: 'Kids rain boots',
       salesProductId: null,
       channelListingId: 'listing-1',
-      originWorkspaceId: 'source-workspace-1',
     });
 
-    expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith(expect.objectContaining({
+    expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith({
+      organizationId: ORG,
       ownerType: 'channel_listing',
       salesProductId: null,
       channelListingId: 'listing-1',
-      originWorkspaceId: 'source-workspace-1',
-    }));
+      normalizedTitle: null,
+      createdByUserId: 'user-1',
+    });
     await expect(service.get(ORG, WORKSPACE_ID)).resolves.toMatchObject({
       channelListingId: 'listing-1',
-      originWorkspaceId: 'source-workspace-1',
-      currentThumbnailSelection: {
-        id: 'selection-1',
-        contentAssetId: 'asset-1',
-        url: 'https://cdn.example.com/thumb.png',
-      },
+      normalizedTitle: null,
+      currentThumbnailAsset: { id: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
     });
   });
 
-  it('normalizes a direct detail-page workspace before delegating creation to the lifecycle repository', async () => {
+  it('gives only a direct detail-page workspace a normalized title', async () => {
     const repo = repository({
-      ensureActiveWorkspace: vi.fn().mockResolvedValue({
-        id: WORKSPACE_ID,
-        displayName: '키즈 터치등',
-        normalizedTitle: '키즈터치등',
-      }),
+      ensureActiveWorkspace: vi.fn().mockResolvedValue({ id: WORKSPACE_ID, normalizedTitle: '키즈터치등' }),
     });
     const service = new ContentWorkspaceService(repo);
 
@@ -151,27 +133,31 @@ describe('ContentWorkspaceService', () => {
       triggeredByUserId: 'user-1',
       rawTitle: ' 키즈   터치등 ',
       salesProductId: null,
-    })).resolves.toEqual({
-      id: WORKSPACE_ID,
-      displayName: '키즈 터치등',
-      normalizedTitle: '키즈터치등',
-    });
-
+    })).resolves.toEqual({ id: WORKSPACE_ID, normalizedTitle: '키즈터치등' });
     expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith({
       organizationId: ORG,
       ownerType: 'direct_detail_page',
       salesProductId: null,
       channelListingId: null,
-      originWorkspaceId: null,
-      displayName: '키즈 터치등',
       normalizedTitle: '키즈터치등',
       createdByUserId: 'user-1',
     });
+
+    await service.ensureForGeneration({
+      organizationId: ORG,
+      triggeredByUserId: 'user-1',
+      rawTitle: '키즈 터치등',
+      salesProductId: 'sales-product-1',
+    });
+    expect(repo.ensureActiveWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({
+      ownerType: 'sales_product',
+      salesProductId: 'sales-product-1',
+      normalizedTitle: null,
+    }));
   });
 
   it('creates a content workspace without a detail-page generation history', async () => {
     const emptyWorkspace = workspace({
-      displayName: '키즈 컵',
       normalizedTitle: '키즈컵',
       currentDetailPageArtifactId: null,
       currentDetailPageRevisionId: null,
@@ -181,11 +167,7 @@ describe('ContentWorkspaceService', () => {
       _count: { contentGenerations: 0 },
     });
     const repo = repository({
-      ensureActiveWorkspace: vi.fn().mockResolvedValue({
-        id: WORKSPACE_ID,
-        displayName: '키즈 컵',
-        normalizedTitle: '키즈컵',
-      }),
+      ensureActiveWorkspace: vi.fn().mockResolvedValue({ id: WORKSPACE_ID, normalizedTitle: '키즈컵' }),
       getById: vi.fn().mockResolvedValue(emptyWorkspace),
     });
     const service = new ContentWorkspaceService(repo);
@@ -197,7 +179,6 @@ describe('ContentWorkspaceService', () => {
       salesProductId: null,
     })).resolves.toMatchObject({
       id: WORKSPACE_ID,
-      displayName: '키즈 컵',
       normalizedTitle: '키즈컵',
       generationCount: 0,
       latestGenerationId: null,
@@ -223,7 +204,6 @@ describe('ContentWorkspaceService', () => {
       exists: true,
       workspace: {
         id: WORKSPACE_ID,
-        displayName: '키즈 텀블러',
         normalizedTitle: '키즈텀블러',
         generationCount: 2,
         latestGenerationId: null,

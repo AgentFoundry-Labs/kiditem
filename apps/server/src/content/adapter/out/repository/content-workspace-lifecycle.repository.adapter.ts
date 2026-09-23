@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
@@ -31,7 +31,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
 
   async ensureActiveWorkspace(
     input: EnsureContentWorkspaceInput,
-  ): Promise<{ id: string; displayName: string; normalizedTitle: string }> {
+  ): Promise<{ id: string; normalizedTitle: string | null }> {
     assertValidOwnerShape(input);
     const where = activeWorkspaceWhere(input);
     try {
@@ -45,8 +45,6 @@ implements ContentWorkspaceLifecycleRepositoryPort {
             ownerType: input.ownerType,
             salesProductId: input.salesProductId,
             channelListingId: input.channelListingId,
-            originWorkspaceId: input.originWorkspaceId,
-            displayName: input.displayName,
             normalizedTitle: input.normalizedTitle,
             status: 'active',
             createdByUserId: input.createdByUserId,
@@ -99,25 +97,17 @@ implements ContentWorkspaceLifecycleRepositoryPort {
         ownerType: true,
         salesProductId: true,
         channelListingId: true,
-        originWorkspaceId: true,
-        displayName: true,
         normalizedTitle: true,
         status: true,
         currentDetailPageArtifactId: true,
         currentDetailPageRevisionId: true,
-        currentThumbnailSelectionId: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { contentGenerations: true } },
         currentDetailPageArtifact: {
           select: { sourceContentGenerationId: true },
         },
-        currentThumbnailSelection: {
-          select: {
-            id: true,
-            contentAsset: { select: { id: true, url: true } },
-          },
-        },
+        currentThumbnailAsset: { select: { id: true, url: true } },
       },
     }) as Promise<ContentWorkspaceSnapshot | null>;
   }
@@ -233,7 +223,6 @@ implements ContentWorkspaceLifecycleRepositoryPort {
 
 const workspaceIdentitySelect = {
   id: true,
-  displayName: true,
   normalizedTitle: true,
 } as const;
 
@@ -251,13 +240,14 @@ function findActiveWorkspace(
 function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
   const hasSalesProduct = input.salesProductId !== null;
   const hasListing = input.channelListingId !== null;
-  const hasOrigin = input.originWorkspaceId !== null;
+  const hasTitle = input.normalizedTitle !== null;
   // A draft workspace gains its listing through `attachToListing`, never at creation.
+  // Only a direct detail-page workspace carries a title; the others take their name from the owner.
   const valid = input.ownerType === 'sales_product'
-    ? hasSalesProduct && !hasListing && !hasOrigin
+    ? hasSalesProduct && !hasListing && !hasTitle
     : input.ownerType === 'channel_listing'
-      ? !hasSalesProduct && hasListing
-      : !hasSalesProduct && !hasListing && !hasOrigin;
+      ? !hasSalesProduct && hasListing && !hasTitle
+      : !hasSalesProduct && !hasListing && hasTitle;
   if (!valid) {
     throw new BadRequestException('Content workspace owner fields do not match ownerType.');
   }
@@ -265,8 +255,7 @@ function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
 
 /**
  * Every owner a workspace can name is checked through its owner's capability —
- * the draft and the listing through Channels, the origin workspace through AI's
- * own locked row.
+ * the draft and the listing through Channels.
  */
 async function validateOwnerReferences(
   tx: Prisma.TransactionClient,
@@ -289,20 +278,6 @@ async function validateOwnerReferences(
     organizationId: input.organizationId,
     listingId: input.channelListingId!,
   });
-  if (!input.originWorkspaceId) return;
-  const originRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id
-    FROM content_workspaces
-    WHERE id = ${input.originWorkspaceId}::uuid
-      AND organization_id = ${input.organizationId}::uuid
-      AND owner_type = 'sales_product'
-      AND status = 'active'
-      AND is_deleted = false
-    FOR UPDATE
-  `);
-  if (originRows.length !== 1) {
-    throw new NotFoundException('Origin content workspace not found.');
-  }
 }
 
 /**
@@ -313,7 +288,7 @@ function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.Conten
   return {
     organizationId: input.organizationId,
     ownerType: input.ownerType,
-    ...(input.ownerType === 'sales_product' ? {} : { normalizedTitle: input.normalizedTitle }),
+    ...(input.ownerType === 'direct_detail_page' ? { normalizedTitle: input.normalizedTitle } : {}),
     status: 'active',
     isDeleted: false,
     ...(input.ownerType === 'sales_product'
@@ -353,12 +328,7 @@ function workspaceInclude() {
     currentDetailPageRevision: {
       select: { id: true, revisionType: true, createdAt: true },
     },
-    currentThumbnailSelection: {
-      select: {
-        id: true,
-        contentAsset: { select: { id: true, url: true } },
-      },
-    },
+    currentThumbnailAsset: { select: { id: true, url: true } },
     _count: { select: { contentGenerations: true } },
     contentGenerations: {
       where: { isDeleted: false },

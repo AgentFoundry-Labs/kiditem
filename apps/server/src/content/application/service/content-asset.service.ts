@@ -5,18 +5,22 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { ContentAssetItem } from '@kiditem/shared/product-content';
 import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   type ContentAssetLibraryRepositoryPort,
   type ContentAssetLibraryWriteScope,
+  type ContentAssetRow,
   type PersistedContentAssetRef,
+  type RecordDetailPageGeneratedAssetsInput,
+  type RecordDetailPageInputAssetsInput,
+  type SyncGenerationImageUsagesInput,
 } from '../port/out/repository/content-asset-library.repository.port';
 import type {
   SalesProductContentAssetPort,
   SalesProductCurrentThumbnail,
   SalesProductRegistrationImages,
 } from '../port/in/workspace/sales-product-content-asset.port';
-export { groupUrlAssetKey } from '../../domain/content-asset-key';
 
 /** Roles that may be pushed into a channel registration form, in form order. */
 const REGISTRATION_ROLES = ['primary', 'thumbnail', 'detail'] as const;
@@ -32,7 +36,7 @@ export interface ContentAssetListQuery {
   page?: number;
   limit?: number;
   contentWorkspaceId?: string | null;
-  generationId?: string | null;
+  thumbnailGenerationId?: string | null;
 }
 
 export type { PersistedContentAssetRef };
@@ -84,8 +88,7 @@ export class ContentAssetService implements SalesProductContentAssetPort {
       if (grouped[row.role].includes(url)) continue;
       grouped[row.role].push(url);
     }
-    // 원본 워크스페이스가 다른 재사용 썸네일은 자산 소유 스캔에서 놓친다.
-    // 상세 응답에 내보낼 바로 그 현재 선택을 같은 스냅샷으로 그룹에 보강한다.
+    // 채택한 AI 후보는 자산 스캔에서 빠지므로(채택 전 후보는 몰로 가지 않는다) 현재 대표이미지로 보강한다.
     if (currentThumbnail && !grouped.thumbnail.includes(currentThumbnail.url)) {
       grouped.thumbnail.push(currentThumbnail.url);
     }
@@ -95,9 +98,8 @@ export class ContentAssetService implements SalesProductContentAssetPort {
   /**
    * The candidate's saved representative thumbnail, or `null`.
    *
-   * This is the read side of `PATCH /ai/content-workspaces/:id/current-thumbnail`
-   * for a candidate that has no `RegistrationTarget`: the selection lives on the
-   * workspace, so nothing else can restore it after a reload.
+   * This is the read side of `PATCH /ai/content-workspaces/:id/current-thumbnail`:
+   * the workspace's `currentThumbnailAssetId`.
    */
   findCurrentThumbnail(input: {
     organizationId: string;
@@ -151,6 +153,24 @@ export class ContentAssetService implements SalesProductContentAssetPort {
     return { thumbnailUrls: result.urls };
   }
 
+  /** 대표이미지 갤러리: 워크스페이스의 업로드 · AI 후보(`role='thumbnail'`), 새것부터. */
+  async listThumbnailGallery(input: {
+    organizationId: string;
+    contentWorkspaceId: string;
+  }): Promise<ContentAssetItem[]> {
+    const rows = await this.repository.listWorkspaceThumbnailGallery(input);
+    return rows.map(toContentAssetItem);
+  }
+
+  /** 채택: 그 워크스페이스의 자산 하나를 대표이미지(`currentThumbnailAssetId`)로. */
+  async adoptCurrentThumbnail(input: {
+    organizationId: string;
+    contentWorkspaceId: string;
+    assetId: string;
+  }): Promise<ContentAssetItem> {
+    return toContentAssetItem(await this.repository.setCurrentThumbnail(input));
+  }
+
   async deleteAsset(
     organizationId: string,
     contentAssetId: string,
@@ -163,73 +183,41 @@ export class ContentAssetService implements SalesProductContentAssetPort {
     if (result.status === 'not_found') throw new NotFoundException('Content asset not found.');
     if (result.status === 'in_use') {
       throw new ConflictException(
-        'Content asset is still used by an active generation or thumbnail selection.',
+        'Content asset is the representative image or is used by a current detail page.',
       );
     }
     return { ok: true };
   }
 
-  recordDetailPageInputAssets(input: {
-    organizationId: string;
-    generationGroupId: string;
-    createdByUserId: string | null;
-    imageUrls: string[];
-  }): Promise<PersistedContentAssetRef[]> {
+  recordDetailPageInputAssets(input: RecordDetailPageInputAssetsInput): Promise<PersistedContentAssetRef[]> {
     return this.repository.recordDetailPageInputAssets(input);
   }
 
   recordDetailPageInputAssetsTx(
     scope: ContentAssetLibraryWriteScope,
-    input: {
-      organizationId: string;
-      generationGroupId: string;
-      createdByUserId: string | null;
-      imageUrls: string[];
-    },
+    input: RecordDetailPageInputAssetsInput,
   ): Promise<PersistedContentAssetRef[]> {
     return this.repository.recordDetailPageInputAssetsInScope(scope, input);
   }
 
-  recordDetailPageGeneratedAssets(input: {
-    organizationId: string;
-    generationGroupId: string;
-    contentGenerationId: string;
-    processedImages: Record<string, string>;
-  }): Promise<void> {
+  recordDetailPageGeneratedAssets(input: RecordDetailPageGeneratedAssetsInput): Promise<void> {
     return this.repository.recordDetailPageGeneratedAssets(input);
   }
 
   recordDetailPageGeneratedAssetsTx(
     scope: ContentAssetLibraryWriteScope,
-    input: {
-      organizationId: string;
-      generationGroupId: string;
-      contentGenerationId: string;
-      processedImages: Record<string, string>;
-    },
+    input: RecordDetailPageGeneratedAssetsInput,
   ): Promise<void> {
     return this.repository.recordDetailPageGeneratedAssetsInScope(scope, input);
   }
 
-  syncGenerationImageUsages(input: {
-    organizationId: string;
-    generationGroupId: string;
-    contentGenerationId: string;
-    createdByUserId: string | null;
-    imageUrls: string[];
-  }): Promise<PersistedContentAssetRef[]> {
+  syncGenerationImageUsages(input: SyncGenerationImageUsagesInput): Promise<PersistedContentAssetRef[]> {
     return this.repository.syncGenerationImageUsages(input);
   }
 
   syncGenerationImageUsagesTx(
     scope: ContentAssetLibraryWriteScope,
-    input: {
-      organizationId: string;
-      generationGroupId: string;
-      contentGenerationId: string;
-      createdByUserId: string | null;
-      imageUrls: string[];
-    },
+    input: SyncGenerationImageUsagesInput,
   ): Promise<PersistedContentAssetRef[]> {
     return this.repository.syncGenerationImageUsagesInScope(scope, input);
   }
@@ -237,25 +225,7 @@ export class ContentAssetService implements SalesProductContentAssetPort {
   async listAssets(
     organizationId: string,
     query: ContentAssetListQuery = {},
-  ): Promise<{
-    items: Array<{
-      id: string;
-      contentWorkspaceId: string | null;
-      originGenerationGroupId: string | null;
-      url: string;
-      assetType: string;
-      role: string | null;
-      label: string | null;
-      sortOrder: number;
-      metadata: unknown;
-      workspace: { id: string; displayName: string } | null;
-      createdAt: string;
-      updatedAt: string;
-    }>;
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  ): Promise<{ items: ContentAssetItem[]; total: number; page: number; limit: number }> {
     const page = Number.isFinite(query.page) && query.page && query.page > 0
       ? Math.floor(query.page)
       : 1;
@@ -268,27 +238,25 @@ export class ContentAssetService implements SalesProductContentAssetPort {
       page,
       limit,
       contentWorkspaceId: query.contentWorkspaceId ?? null,
-      generationId: query.generationId ?? null,
+      thumbnailGenerationId: query.thumbnailGenerationId ?? null,
     });
-
-    return {
-      items: rows.map((row) => ({
-        id: row.id,
-        contentWorkspaceId: row.originGenerationGroup?.contentWorkspace.id ?? null,
-        originGenerationGroupId: row.originGenerationGroupId,
-        url: row.url,
-        assetType: row.assetType,
-        role: row.role,
-        label: row.label,
-        sortOrder: row.sortOrder,
-        metadata: row.metadata,
-        workspace: row.originGenerationGroup?.contentWorkspace ?? null,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-      })),
-      total,
-      page,
-      limit,
-    };
+    return { items: rows.map(toContentAssetItem), total, page, limit };
   }
+}
+
+export function toContentAssetItem(row: ContentAssetRow): ContentAssetItem {
+  return {
+    id: row.id,
+    contentWorkspaceId: row.contentWorkspaceId,
+    source: row.source,
+    role: row.role,
+    url: row.url,
+    label: row.label,
+    sortOrder: row.sortOrder,
+    width: row.width,
+    height: row.height,
+    thumbnailGenerationId: row.thumbnailGenerationId,
+    isCurrentThumbnail: row.isCurrentThumbnail,
+    createdAt: row.createdAt.toISOString(),
+  };
 }

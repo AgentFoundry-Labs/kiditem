@@ -19,7 +19,6 @@ import { DetailPageTemplateStylesAdapter } from '../adapter/out/runtime/detail-p
 import { ContentArchiveRepositoryAdapter } from '../adapter/out/repository/content-archive.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
-import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
@@ -33,7 +32,6 @@ import { RegistrableThumbnailRepositoryAdapter } from '../adapter/out/repository
 import { RegistrableThumbnailService } from '../application/service/registrable-thumbnail.service';
 import { AiGenerationCancellationService } from '../application/service/ai-generation-cancellation.service';
 import { ContentAssetService } from '../application/service/content-asset.service';
-import { ContentWorkspaceThumbnailSelectionService } from '../application/service/content-workspace-thumbnail-selection.service';
 import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
 import { ProductGenerationAiService } from '../application/service/product-generation-ai.service';
 import { SalesProductWorkspaceArchiveService } from '../application/service/sales-product-workspace-archive.service';
@@ -56,7 +54,6 @@ import {
   CONTENT_ARCHIVE_REPOSITORY_PORT,
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
-  CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT,
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   DETAIL_PAGE_IMAGE_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
@@ -172,7 +169,6 @@ describe('AiModule hexagonal wiring contract', () => {
       [AI_DIRECT_JOB_WAKE_PORT, AiDirectJobWorkerService],
       [THUMBNAIL_DIRECT_OUTPUT_SINK_PORT, ThumbnailGenerationSinkAdapter],
       [CONTENT_ARCHIVE_REPOSITORY_PORT, ContentArchiveRepositoryAdapter],
-      [CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT, ContentWorkspaceThumbnailSelectionRepositoryAdapter],
       [DETAIL_PAGE_IMAGE_REPOSITORY_PORT, DetailPageImageRepositoryAdapter],
       [DETAIL_PAGE_TEMPLATE_STYLES_PORT, DetailPageTemplateStylesAdapter],
       [REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT, RegistrationContentWorkspaceRepositoryAdapter],
@@ -188,7 +184,6 @@ describe('AiModule hexagonal wiring contract', () => {
     expect(runtimeProviders).not.toContain(ProductGenerationAiService);
     expect(runtimeProviders).not.toContain(AiDirectJobWakeRegistrationService);
     expect(apiProviders).toContain(AiDirectJobWakeRegistrationService);
-    expect(apiProviders).toContain(ContentWorkspaceThumbnailSelectionService);
     expect(apiProviders).toContain(DetailPageClientRenderService);
   });
 

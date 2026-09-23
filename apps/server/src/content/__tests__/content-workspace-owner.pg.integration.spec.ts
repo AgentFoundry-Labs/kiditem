@@ -80,7 +80,6 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
       organizationId,
       ownerType: 'sales_product',
       salesProductId,
-      displayName: title,
       normalizedTitle: title.trim().toLowerCase(),
       createdByUserId: null,
     };
@@ -96,7 +95,6 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'sourcing_candidate',
-        displayName: '지운 후보의 작업공간',
         normalizedTitle: '지운 후보의 작업공간',
         status: 'archived',
       },
@@ -202,7 +200,6 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
         ownerType: 'channel_listing',
         salesProductId: null,
         channelListingId: listing.id,
-        displayName: 'Imported listing content',
         normalizedTitle: `listing-${randomUUID().slice(0, 8)}`,
         createdByUserId: TEST_USER_ID,
       },
@@ -227,23 +224,6 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
         )
     `);
     expect(columns).toEqual([]);
-  });
-
-  it('keeps provenance ids that record where the content came from', async () => {
-    const provenance = await prisma.$queryRaw<Array<{ table_name: string; column_name: string }>>(Prisma.sql`
-      SELECT table_name, column_name
-      FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND (
-          (table_name = 'content_generation_sources' AND column_name = 'source_candidate_id')
-          OR (table_name = 'thumbnail_generation_input_images' AND column_name = 'source_record_image_id')
-        )
-      ORDER BY table_name
-    `);
-    expect(provenance.map((row) => row.table_name)).toEqual([
-      'content_generation_sources',
-      'thumbnail_generation_input_images',
-    ]);
   });
 
   it('keeps no foreign key from AI content tables to sourcing tables', async () => {
@@ -271,7 +251,6 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'direct_detail_page',
-        displayName: `상세 ${revisionType}`,
         normalizedTitle: `상세 ${revisionType}`,
       },
     });

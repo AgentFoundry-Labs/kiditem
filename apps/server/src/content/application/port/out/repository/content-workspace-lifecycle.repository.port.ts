@@ -8,16 +8,14 @@ export interface EnsureContentWorkspaceInput {
   ownerType: 'sales_product' | 'channel_listing' | 'direct_detail_page';
   salesProductId: string | null;
   channelListingId: string | null;
-  originWorkspaceId: string | null;
-  displayName: string;
-  normalizedTitle: string;
+  /** 직접 상세 작업공간의 중복 방지 제목. 판매 상품 · 리스팅 작업공간은 null — 이름은 그 주인에서 읽는다. */
+  normalizedTitle: string | null;
   createdByUserId: string | null;
 }
 
 export interface ContentWorkspaceIdentity {
   id: string;
-  displayName: string;
-  normalizedTitle: string;
+  normalizedTitle: string | null;
 }
 
 export interface ContentWorkspaceArtifactSnapshot {
@@ -45,17 +43,12 @@ export interface ContentWorkspaceSnapshot {
   ownerType: string;
   salesProductId: string | null;
   channelListingId: string | null;
-  originWorkspaceId: string | null;
-  displayName: string;
-  normalizedTitle: string;
+  normalizedTitle: string | null;
   status: string;
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
-  currentThumbnailSelectionId: string | null;
-  currentThumbnailSelection: {
-    id: string;
-    contentAsset: { id: string; url: string };
-  } | null;
+  /** 대표이미지 자산(`current_thumbnail_asset_id`). */
+  currentThumbnailAsset: { id: string; url: string } | null;
   currentDetailPageArtifact: ContentWorkspaceArtifactSnapshot | null;
   /** 현재 revision 의 종류(정한 목록 안의 값). 목록 조회만 싣는다. */
   currentDetailPageRevision?: { id: string; revisionType: DetailPageRevisionType; createdAt: Date } | null;
