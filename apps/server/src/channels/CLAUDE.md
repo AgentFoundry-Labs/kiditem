@@ -82,6 +82,9 @@ sync, registration, matching, and capacity behavior is executable in
   workspace, and a frozen Sellpia match becomes the option recipe in the same
   transaction. The extension presses a form's [등록] only with the execution's
   context (KID-322).
+- 등록 상태는 `registration-state.service` 하나가 계정별로 읽는다; 화면·목록·매트릭스가 실행 표를 조합하지 않는다.
+  `register` · `update` · `composition_change` 가 등록 상태를, `sold_out` · `resume` 는 품절만 정하고
+  `thumbnail_update` 는 상태에 들어가지 않는다(`domain/registration/registration-account-state.ts`).
 - New Open API submission is an explicit unsupported path with no external IO
   or database intent. Listing deletion has no ledger or route; a mall delete
   will be a registration execution kind once an adapter can delete (KID-321).

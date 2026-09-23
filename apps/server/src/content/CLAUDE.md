@@ -93,6 +93,9 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
   direct-job application services; they never call providers directly.
 - Sourcing, Alerts, Inventory display media, provider/media/fetch, and storage
   integrations use their named incoming or outgoing ports.
+- Channels' registration-state reader reads Content only through
+  `CONTENT_REGISTRATION_FACTS_PORT` (`content-registration-facts.module.ts`):
+  the product workspace's current detail revision id and thumbnail asset id.
 - Model selection is explicit. Asset deletion/GC rejects active generation
   usage and current-thumbnail references.
 - Generation-control changes update shared type/tuple, HTTP DTO, web payload,
