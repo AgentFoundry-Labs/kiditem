@@ -6,10 +6,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SalesProductListItem } from '@kiditem/shared/sales-product';
 import { FileSpreadsheet, Loader2, RefreshCw, Store, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  useAllGenerationsInProgress,
-  useKidsPlayfulGenerationCancel,
-} from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { MallSheetDialog } from '@/components/mall-sheet/MallSheetDialog';
 import { Pagination } from '@/components/ui/Pagination';
 import { isApiError } from '@/lib/api-error';
@@ -23,7 +19,6 @@ import {
 } from '../_shared/lib/product-pipeline-routes';
 import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
-import { GenerationProgressBannerStack } from '../_shared/components/workspace/GenerationProgressBanner';
 import {
   KIDSNOTE_CATEGORY_PRESET,
   KIDSNOTE_DEFAULT_CATEGORY,
@@ -33,6 +28,10 @@ import ProductList from './components/list/ProductList';
 import ScrapeUrlInput from './components/list/ScrapeUrlInput';
 import SourcingToolbar from './components/list/SourcingToolbar';
 import { useScrapeUrl } from './hooks/useScrapeUrl';
+import {
+  useStartedGenerationProgress,
+  type StartedGeneration,
+} from './hooks/useStartedGenerationProgress';
 import { useWingRegistrationPreparation } from './hooks/useWingRegistrationPreparation';
 import { registrationExecutionApi } from '../../../(channels)/_shared/registration-execution-api';
 import {
@@ -75,6 +74,9 @@ export default function SourcingPage() {
   const [quickProcessTargetIds, setQuickProcessTargetIds] = useState<string[]>([]);
   const [quickProcessingIds, setQuickProcessingIds] = useState<Set<string>>(() => new Set());
   const pendingQuickProcessKeys = useRef(new Map<string, string>());
+  // 이 화면이 시작한 생성. 진행은 이 목록의 생성 id 로만 본다 — 카드는 묻지 않는다.
+  const [startedGenerations, setStartedGenerations] = useState<StartedGeneration[]>([]);
+  const startedProgress = useStartedGenerationProgress(startedGenerations);
   const [wingGenerating, setWingGenerating] = useState(false);
   // 등록 확인 모달의 초안. `null` 이면 모달이 닫혀 있다. 초안이 있다는 것은
   // 카테고리 추론과 상세설명 렌더가 이미 성공했다는 뜻이다.
@@ -118,7 +120,7 @@ export default function SourcingPage() {
     salesProductId: quickProcessTargetIds[0] ?? null,
     enabled: quickProcessModalOpen,
   });
-  const displayedProcessingIds = quickProcessingIds;
+  const displayedProcessingIds = new Set([...startedProgress.runningSalesProductIds, ...quickProcessingIds]);
 
   const deleteMutation = useMutation({
     mutationFn: async (items: SalesProductListItem[]) => {
@@ -178,20 +180,35 @@ export default function SourcingPage() {
           const idempotencyKey = pendingQuickProcessKeys.current.get(requestKey)
             ?? createSecureRandomUuid();
           pendingQuickProcessKeys.current.set(requestKey, idempotencyKey);
-          return candidatesApi.quickProcess(id, task, idempotencyKey).then(() => id);
+          return candidatesApi.quickProcess(id, task, idempotencyKey).then((response) => ({
+            salesProductId: id,
+            detailGenerationId: response.detailGenerationId,
+            thumbnailGenerationId: response.thumbnailGenerationId,
+            startedAt: Date.now(),
+          }));
         }),
       );
-      const succeededIds = results
-        .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+      const started = results
+        .filter((result): result is PromiseFulfilledResult<StartedGeneration> => result.status === 'fulfilled')
         .map((result) => result.value);
+      const succeededIds = started.map((item) => item.salesProductId);
       const failedIds = uniqueIds.filter((id) => !succeededIds.includes(id));
-      return { succeededIds, failedIds };
+      return { started, succeededIds, failedIds };
     },
     onMutate: ({ ids }) => {
       setQuickProcessingIds((prev) => new Set([...prev, ...ids]));
     },
-    onSuccess: ({ succeededIds, failedIds }, { task }) => {
+    onSuccess: ({ started, succeededIds, failedIds }, { task }) => {
       const taskLabel = quickProcessTaskLabel(task);
+      if (started.length > 0) {
+        const restarted = new Set(succeededIds);
+        setStartedGenerations((prev) => [
+          ...prev.filter((item) => !restarted.has(item.salesProductId)),
+          ...started,
+        ]);
+        queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.startedProgress('detail') });
+        queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.startedProgress('thumbnail') });
+      }
       if (succeededIds.length > 0) {
         succeededIds.forEach((id) => pendingQuickProcessKeys.current.delete(`${task}:${id}`));
         setSelected((prev) => {
@@ -406,8 +423,16 @@ export default function SourcingPage() {
     <div className="flex flex-col h-full bg-slate-50">
       <ProductPipelineHeader />
 
-      {/* productId 없이 호출 — Trend/KIDITEM 전체에서 진행 중인 첫 entry 반환 */}
-      <GenerationInProgressBannerSlot products={products} />
+      {(startedProgress.runningDetailCount > 0 || startedProgress.runningThumbnailCount > 0) && (
+        <div
+          className="flex items-center gap-2 border-b border-violet-100 bg-violet-50 px-5 py-2 text-sm font-semibold text-violet-800"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 size={14} className="animate-spin" />
+          {startedGenerationProgressLabel(startedProgress.runningDetailCount, startedProgress.runningThumbnailCount)}
+        </div>
+      )}
 
       <ProductPipelineStats
         draftLabel="판매가 미정"
@@ -756,38 +781,11 @@ async function deleteCollectedDraft(item: SalesProductListItem): Promise<void> {
   await candidatesApi.delete(item.sourceCandidateId);
 }
 
-/**
- * 리스트 페이지 상단 진행 배너 슬롯.
- *
- * `useAllGenerationsInProgress(null)` 는 productId 필터 없이 Trend+KIDITEM 전체 list polling
- * → 진행 중인 모든 entry 반환 → 다건이면 stacked 배너로 모두 표시.
- */
-function GenerationInProgressBannerSlot({
-  products,
-}: {
-  products: SalesProductListItem[];
-}) {
-  const inProgressEntries = useAllGenerationsInProgress(null);
-  const cancelGeneration = useKidsPlayfulGenerationCancel();
-  if (inProgressEntries.length === 0) return null;
-
-  const entries = inProgressEntries.map((e) => {
-    const product = e.productId ? products.find((p) => p.id === e.productId) : null;
-    return {
-      id: e.id,
-      templateId: e.templateId,
-      status: e.imageProcessingStatus,
-      productName: product?.name ?? e.productName ?? '',
-      rawInput: e.rawInput,
-    };
-  });
-
-  return (
-    <GenerationProgressBannerStack
-      entries={entries}
-      onCancel={async (entry) => {
-        await cancelGeneration.mutateAsync(entry.id);
-      }}
-    />
-  );
+/** 이 화면이 시작한 AI 작업 진행 한 줄. */
+function startedGenerationProgressLabel(detailCount: number, thumbnailCount: number): string {
+  const parts = [
+    ...(detailCount > 0 ? [`상세페이지 ${detailCount}개`] : []),
+    ...(thumbnailCount > 0 ? [`썸네일 ${thumbnailCount}개`] : []),
+  ];
+  return `AI 작업 진행 중 — ${parts.join(' · ')}`;
 }

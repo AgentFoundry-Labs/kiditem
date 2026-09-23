@@ -59,9 +59,18 @@ function serveDraftPages(pages: Record<number, ReturnType<typeof listResponse>>)
     throw new Error(`unexpected getParsed ${url}`);
   });
   api.get.mockImplementation(async (url: string) => {
-    if (url.startsWith('/api/ai/detail-page')) return [];
-    if (url.startsWith('/api/thumbnail-analysis/generations')) return { items: [], total: 0 };
-    return {};
+    if (url === '/api/ai/detail-page') {
+      return [
+        { id: 'detail-generation-1', imageProcessingStatus: 'processing' },
+        // 다른 곳에서 시작한 생성 — 목록 카드는 이것을 보지 않는다.
+        { id: 'detail-generation-elsewhere', imageProcessingStatus: 'processing' },
+      ];
+    }
+    if (url.startsWith('/api/ai/content-workspaces/by-sales-product/')) return { registrationImages: { primary: [], thumbnail: [], detail: [] }, currentThumbnail: null };
+    if (url.startsWith('/api/thumbnail-analysis/generations')) {
+      return { items: [{ id: 'thumbnail-generation-1', status: 'running' }], total: 1 };
+    }
+    throw new Error(`unexpected get ${url}`);
   });
 }
 
@@ -179,5 +188,42 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
     await waitFor(() => {
       expect(toastError).toHaveBeenCalledWith('쿠팡 등록이 시작된 상품은 삭제할 수 없습니다.');
     });
+  });
+
+  it('shows progress only for drafts whose generation this page started, without per-card requests', async () => {
+    serveDraftPages({
+      1: listResponse([
+        salesProductDraftListItem(),
+        salesProductDraftListItem({ id: SECOND_DRAFT_ID, sourceCandidateId: SECOND_CANDIDATE_ID, name: '두 번째 초안' }),
+      ]),
+    });
+    api.post.mockResolvedValueOnce({
+      ok: true,
+      candidateId: DRAFT_CANDIDATE_ID,
+      salesProductId: DRAFT_ID,
+      href: `/product-pipeline/collected-products/${DRAFT_ID}`,
+      detailGenerationId: 'detail-generation-1',
+      thumbnailGenerationId: 'thumbnail-generation-1',
+      contentWorkspaceId: 'workspace-1',
+    });
+    renderPage();
+
+    await screen.findByText('두 번째 초안');
+    // 시작한 것이 없으면 진행을 묻지 않는다 — 카드도 묻지 않는다.
+    expect(api.get).not.toHaveBeenCalled();
+
+    const firstCard = screen.getByText('자석 다트게임').closest('article')!;
+    fireEvent.click(within(firstCard).getByRole('button', { name: 'AI 작업 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /둘 다 실행/ }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('AI 작업 진행 중 — 상세페이지 1개 · 썸네일 1개');
+    expect(within(firstCard).getByText('생성 중')).toBeInTheDocument();
+    const secondCard = screen.getByText('두 번째 초안').closest('article')!;
+    expect(within(secondCard).queryByText('생성 중')).toBeNull();
+    // 모달의 몰 등록 줄이 여는 초안 상세 읽기는 빼고, 생성 진행 읽기만 센다.
+    const progressUrls = api.get.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.startsWith('/api/ai/detail-page') || url.startsWith('/api/thumbnail-analysis'));
+    expect(new Set(progressUrls)).toEqual(new Set(['/api/ai/detail-page', '/api/thumbnail-analysis/generations?limit=100']));
   });
 });

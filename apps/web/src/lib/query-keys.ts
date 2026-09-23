@@ -453,6 +453,9 @@ export const queryKeys = {
     /** 초안 + 원천 기록(수집상품)의 원천 사실. 등록용 사진은 `contentWorkspaces.registrationMedia`. */
     workspace: (salesProductId: string) =>
       [...queryKeys.collectedProducts.all, 'workspace', salesProductId] as const,
+    /** 목록 화면이 시작한 생성의 진행 — 종류마다 목록 하나. */
+    startedProgress: (kind: 'detail' | 'thumbnail') =>
+      [...queryKeys.collectedProducts.all, 'started-progress', kind] as const,
   },
   contentWorkspaces: {
     all: ['content-workspaces'] as const,
