@@ -925,6 +925,51 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     ]);
   });
 
+  it('stores the mall template values a target can hold, and names a 25 000-character 상단추가문구 in an issue line instead', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({}), false);
+    const { id: productId } = await product();
+    const accountId = randomUUID();
+    await prisma.channelAccount.create({ data: {
+      id: accountId, organizationId: TEST_ORGANIZATION_ID, channel: '11st', name: '11번가', externalAccountId: `external-${accountId}`, status: 'active',
+    } });
+    const target = await prisma.registrationTarget.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, channelAccountId: accountId,
+      registrationInput: { mallCategory: null, mallFields: { deliveryTemplate: 'T1' }, adapter: {} },
+    } });
+    const book = (title: string, headers: string[], rows: (string | null)[][]) => {
+      const sheet = XLSX.utils.aoa_to_sheet([[title], headers, headers.map((header) => `▶${header} 설명`), ...rows]);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, sheet, 'Sheet1');
+      return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    };
+    const files = [
+      { originalname: '쇼핑몰상품수정_다운로드.xlsx', buffer: book('상품관리 > 쇼핑몰상품수정', ['쇼핑몰코드', '쇼핑몰상품코드', '품번코드', '부가정보코드'], [
+        ['shop0464', '438217859', GOODS_NO, '00102324'],
+      ]) },
+      { originalname: '부가정보.xlsx', buffer: book(' 쇼핑몰관리 > 쇼핑몰부가정보 > 수정파일', [
+        '부가정보코드\n[수정불가]', '쇼핑몰명\n[수정불가]', '부가정보 제목', '카테고리(쇼핑몰)\n[수정불가]', '사용여부',
+        '상품설명 상단 추가문구', '상품설명 하단 추가문구', '상품명 추가 앞문구', '상품명 추가 뒷문구',
+      ], [['00102324', '11번가', '무료배송', '장난감 > 역할놀이', '사용', 'a'.repeat(25_000), null, '[키드아이템]', null]]) },
+    ];
+
+    const result = await service.import(TEST_ORGANIZATION_ID, files, false);
+
+    expect(result.mallValues).toMatchObject({ pairs: 1 });
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: GOODS_NO, message: expect.stringContaining('sabangnetDetailTop') }));
+    const stored = await prisma.registrationTarget.findUniqueOrThrow({ where: { id: target.id } });
+    expect(stored.registrationInput).toEqual({
+      mallCategory: null,
+      mallFields: {
+        deliveryTemplate: 'T1',
+        sabangnetTemplateCode: '00102324',
+        sabangnetTemplateTitle: '무료배송',
+        sabangnetCategoryPath: '장난감 > 역할놀이',
+        sabangnetNamePrefix: '[키드아이템]',
+      },
+      adapter: {},
+    });
+  });
+
   it('never matches a draft by own code — the row becomes an issue naming the draft and the rest of the file still lands', async () => {
     const draft = await prisma.salesProduct.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, status: 'draft', name: '직접 작성 초안', ownCode: 'OWN-1',

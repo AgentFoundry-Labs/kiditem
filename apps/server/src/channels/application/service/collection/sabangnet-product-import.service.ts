@@ -6,6 +6,7 @@ import { CHANNEL_DOCUMENTS_PORT, type ChannelDocumentsPort } from '../../port/ou
 import { issueSalesProductOptionCodes } from '../sales-product/sales-product-code';
 import { ChannelInputError as BadRequestException, ChannelConflictError as ConflictException } from '../../../domain/exception/channel-business-error';
 import type {
+  SabangnetImportIssue,
   SabangnetImportPreview,
   SabangnetImportSelection,
   SabangnetWorkbookKind,
@@ -116,6 +117,12 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         productIdByCode,
         accounts,
       });
+    // 몰 값 줄이 못 넣은 칸은 가져오기 결과의 알림 줄로 간다 — 상품 줄은 그대로 옮긴다.
+    const mallValueIssues: SabangnetImportIssue[] = [];
+    const withMallValueIssues = (preview: SabangnetImportPreview): SabangnetImportPreview => {
+      const issues = [...preview.issues, ...mallValueIssues];
+      return { ...preview, issues: issues.slice(0, 200), issueCount: preview.issueCount + mallValueIssues.length };
+    };
     const writeMallValues = async () => {
       if (sendRecordRows.length === 0) return null;
       const [productIdByCode, accounts] = await Promise.all([
@@ -123,6 +130,7 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         this.repository.listChannelAccounts(organizationId),
       ]);
       const planned = mallValues(productIdByCode, accounts);
+      mallValueIssues.push(...planned.issues);
       if (!dryRun) await this.repository.mergeSabangnetMallValues(organizationId, planned.writes);
       return { pairs: planned.writes.length, withCategory: planned.withCategory, withTemplate: planned.withTemplate };
     };
@@ -134,7 +142,8 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
       const links = dryRun
         ? await this.links.preview(organizationId, sendRecords)
         : await this.links.autoLink(organizationId, sendRecords);
-      return { ...emptyPreview(dryRun, parsed), links, mallValues: await writeMallValues() };
+      const mallValuesResult = await writeMallValues();
+      return withMallValueIssues({ ...emptyPreview(dryRun, parsed), links, mallValues: mallValuesResult });
     }
 
     const productRows = products.rows as SabangnetProductRow[];
@@ -300,12 +309,10 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
       mallValues: null,
     };
     if (dryRun) {
-      return {
-        ...preview,
-        links: sendRecords.length > 0 ? await this.links.preview(organizationId, sendRecords) : null,
-        // 새로 만들 판매상품은 아직 id 가 없어 세지 못한다 — 옮긴 뒤 다시 미리보면 잡힌다.
-        mallValues: await writeMallValues(),
-      };
+      const links = sendRecords.length > 0 ? await this.links.preview(organizationId, sendRecords) : null;
+      // 새로 만들 판매상품은 아직 id 가 없어 세지 못한다 — 옮긴 뒤 다시 미리보면 잡힌다.
+      const mallValuesResult = await writeMallValues();
+      return withMallValueIssues({ ...preview, links, mallValues: mallValuesResult });
     }
 
     const result = await this.repository.importSabangnet(organizationId, writes);
@@ -315,13 +322,13 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
     this.logger.log(
       `사방넷 가져오기 org=${organizationId} 새로 ${result.created} · 고침 ${result.updated} · 그대로 ${result.unchanged} · 몰별 값 ${result.overridesSaved}`,
     );
-    return {
+    return withMallValueIssues({
       ...preview,
       products: { ...preview.products, created: result.created, updated: result.updated, unchanged: result.unchanged },
       channelOverrides: { ...preview.channelOverrides, saved: result.overridesSaved },
       links,
       mallValues: savedMallValues,
-    };
+    });
   }
 
   /**

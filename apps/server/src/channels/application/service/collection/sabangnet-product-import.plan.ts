@@ -4,6 +4,7 @@ import {
 import {
   buildSalesProductOptionCombinations,
   nextSalesProductOptionCode,
+  REGISTRATION_MALL_FIELD_VALUE_MAX,
   SALES_PRODUCT_SABANGNET_VALUE_KEYS,
   salesProductOptionKey,
   type SabangnetImportIssue,
@@ -17,6 +18,7 @@ import {
   taxTypeFromSabangnet,
   type SalesProductOptionDraft,
 } from '../../../domain/sales-product/sales-product';
+import { acceptedMallFields, type MallFieldRejection } from '../../../domain/registration/registration-mall-input';
 import type { ProductSourceReadModel } from '../../../../products/application/port/in/product-source-read.port';
 import type {
   SalesProductBasicsRecord,
@@ -421,24 +423,23 @@ export interface SabangnetMallValuesWrite {
   values: Record<string, string>;
 }
 
-const MALL_VALUE_MAX = 2000;
-
 /**
  * 송신 기록(몰 × 상품)이 가리키는 사방넷 분류 · 부가정보를 상품 × 몰 값으로 푼다. 같은 몰 계정으로 오는 쇼핑몰이
  * 둘이면(11번가 신 · 구) 몰별 값과 같이 표 앞쪽이 이긴다. 우리 몰 계정이 없거나 판매상품이 없으면 넘긴다.
  */
 export function planSabangnetMallValues(input: {
-  sendRecords: readonly Pick<SabangnetSendRecordRow, 'shopCode' | 'goodsNo' | 'additionCode' | 'categoryCode'>[];
+  sendRecords: readonly Pick<SabangnetSendRecordRow, 'row' | 'shopCode' | 'goodsNo' | 'additionCode' | 'categoryCode'>[];
   categories: readonly SabangnetMallCategoryRow[];
   templates: readonly SabangnetMallTemplateRow[];
   productIdByCode: ReadonlyMap<string, string>;
   accounts: readonly { id: string; channel: string }[];
-}): { writes: SabangnetMallValuesWrite[]; withCategory: number; withTemplate: number } {
+}): { writes: SabangnetMallValuesWrite[]; withCategory: number; withTemplate: number; issues: SabangnetImportIssue[] } {
   const categoryByCode = new Map(input.categories.map((row) => [row.code, row]));
   const templateByCode = new Map(input.templates.map((row) => [row.code, row]));
   const accountByChannel = new Map(input.accounts.map((account) => [account.channel, account.id]));
   const keys = SALES_PRODUCT_SABANGNET_VALUE_KEYS;
   const byPair = new Map<string, SabangnetMallValuesWrite>();
+  const issues: SabangnetImportIssue[] = [];
   const sorted = [...input.sendRecords].sort((left, right) => shopPriority(left.shopCode) - shopPriority(right.shopCode));
   for (const record of sorted) {
     const mallKey = sabangnetShopMallKey(record.shopCode);
@@ -452,7 +453,7 @@ export function planSabangnetMallValues(input: {
     const values: Record<string, string> = {};
     const put = (key: string, value: string | null | undefined) => {
       const text = value?.trim();
-      if (text) values[key] = text.length > MALL_VALUE_MAX ? text.slice(0, MALL_VALUE_MAX) : text;
+      if (text) values[key] = text;
     };
     put(keys.categoryCode, record.categoryCode);
     put(keys.categoryTitle, category?.title);
@@ -464,13 +465,31 @@ export function planSabangnetMallValues(input: {
     put(keys.nameSuffix, template?.nameSuffix);
     put(keys.detailTop, template?.detailTop);
     put(keys.detailBottom, template?.detailBottom);
-    if (Object.keys(values).length === 0) continue;
-    byPair.set(pair, { salesProductId, channelAccountId, values });
+    // 등록 설정이 받지 못하는 칸(2만 자를 넘는 추가문구 …)은 자르지 않고 빼고, 그 상품 줄에 어느 칸인지 알린다.
+    const { mallFields, rejected } = acceptedMallFields(values);
+    if (rejected.length > 0) {
+      issues.push({
+        kind: 'send_records',
+        row: record.row,
+        code: record.goodsNo,
+        message: `몰 값을 저장하지 않음(${template?.mallName?.trim() || record.shopCode}) — ${rejected.map(mallFieldRejectionText).join(' · ')}.`,
+      });
+    }
+    const accepted = Object.fromEntries(Object.entries(mallFields).map(([key, value]) => [key, String(value)]));
+    if (Object.keys(accepted).length === 0) continue;
+    byPair.set(pair, { salesProductId, channelAccountId, values: accepted });
   }
   const writes = [...byPair.values()];
   return {
+    issues,
     writes,
     withCategory: writes.filter((write) => write.values[keys.categoryPath]).length,
     withTemplate: writes.filter((write) => write.values[keys.templateTitle]).length,
   };
+}
+
+function mallFieldRejectionText(rejection: MallFieldRejection): string {
+  if (rejection.reason === 'too_long') return `${rejection.key}: ${REGISTRATION_MALL_FIELD_VALUE_MAX.toLocaleString('ko-KR')}자를 넘음`;
+  if (rejection.reason === 'product_fact') return `${rejection.key}: 상품 사실은 판매 상품에서 고침`;
+  return `${rejection.key}: 받을 수 없는 값`;
 }

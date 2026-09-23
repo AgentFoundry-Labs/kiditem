@@ -378,6 +378,26 @@ describe('registration target repository (PostgreSQL)', () => {
     await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({ version: 1 });
   });
 
+  it('refuses a product fact inside mallFields by name and a value over 20 000 characters as invalid, not a crash', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const targetId = await repository.resolve(TEST_ORGANIZATION_ID, { salesProductId: productId, channelAccountId: accountId });
+
+    const fact = repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
+      expectedVersion: 1,
+      registrationInput: { mallCategory: null, mallFields: { salePrice: 9_900 }, adapter: {} },
+      selectedOptions: [selected(options[0]!.id)],
+    }));
+    await expect(fact).rejects.toMatchObject({ code: 'invalid' });
+    await expect(fact).rejects.toThrow(/salePrice/);
+    await expect(repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
+      expectedVersion: 1,
+      registrationInput: { mallCategory: null, mallFields: { detailTop: 'a'.repeat(20_001) }, adapter: {} },
+      selectedOptions: [selected(options[0]!.id)],
+    }))).rejects.toMatchObject({ code: 'invalid' });
+    await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({ version: 1 });
+  });
+
   it('stores the selected content ids only when they belong to the product\'s own workspace', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);

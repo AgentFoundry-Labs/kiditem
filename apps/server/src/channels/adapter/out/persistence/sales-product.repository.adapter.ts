@@ -56,7 +56,7 @@ import {
   type RegistrationTargetRecord,
   type RegistrationTargetRepositoryPort,
 } from '../../../application/port/out/persistence/registration-target.repository.port';
-import { emptyRegistrationMallInput } from '../../../domain/registration/registration-mall-input';
+import { emptyRegistrationMallInput, normalizeRegistrationMallInput } from '../../../domain/registration/registration-mall-input';
 import type {
   SabangnetImportProductWrite,
   SalesProductBasicsRecord,
@@ -1481,19 +1481,20 @@ async function materializeImportedTarget(
     orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
     select: { id: true },
   });
-  const mallInput = emptyRegistrationMallInput();
+  // 가져오기가 만드는 등록 설정도 사람이 고친 것과 같은 규칙을 지난다 — 계획이 이미 못 받는 칸을 뺐다.
+  const registrationInput = normalizeRegistrationMallInput({
+    ...emptyRegistrationMallInput(),
+    mallFields: {
+      ...(data.stockPercent !== null ? { stockPercent: data.stockPercent } : {}),
+      ...(isStringRecord(data.adapterValues) ? data.adapterValues : {}),
+    },
+  });
   await tx.registrationTarget.create({
     data: {
       organizationId,
       salesProductId,
       channelAccountId,
-      registrationInput: {
-        ...mallInput,
-        mallFields: {
-          ...(data.stockPercent !== null ? { stockPercent: data.stockPercent } : {}),
-          ...(isStringRecord(data.adapterValues) ? data.adapterValues : {}),
-        },
-      } as Prisma.InputJsonValue,
+      registrationInput: registrationInput as Prisma.InputJsonValue,
       selectedOptions: options.length === 0
         ? undefined
         : { createMany: { data: options.map((option, sortOrder) => ({ salesProductOptionId: option.id, sortOrder })) } },

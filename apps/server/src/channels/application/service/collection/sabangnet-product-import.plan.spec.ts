@@ -207,9 +207,9 @@ describe('Sabangnet workbook import', () => {
     expect(categories[0]).toMatchObject({ code: 'C1207602', path: '장난감 > 역할놀이/소꿉놀이 > 역할놀이 기타', active: true });
     const planned = planSabangnetMallValues({
       sendRecords: [
-        { shopCode: 'shop0003', goodsNo: '103181', additionCode: null, categoryCode: 'C0000001' },
-        { shopCode: 'shop0464', goodsNo: '103181', additionCode: '00102324', categoryCode: 'C1207602' },
-        { shopCode: 'shop0464', goodsNo: '999999', additionCode: '00102324', categoryCode: 'C1207602' },
+        { row: 4, shopCode: 'shop0003', goodsNo: '103181', additionCode: null, categoryCode: 'C0000001' },
+        { row: 5, shopCode: 'shop0464', goodsNo: '103181', additionCode: '00102324', categoryCode: 'C1207602' },
+        { row: 6, shopCode: 'shop0464', goodsNo: '999999', additionCode: '00102324', categoryCode: 'C1207602' },
       ],
       categories,
       templates,
@@ -230,6 +230,30 @@ describe('Sabangnet workbook import', () => {
       },
     }]);
     expect(planned).toMatchObject({ withCategory: 1, withTemplate: 1 });
+  });
+
+  it('keeps a mall template text over 20 000 characters out of the mall values and names it in an issue line', () => {
+    const planned = planSabangnetMallValues({
+      sendRecords: [{ row: 4, shopCode: 'shop0464', goodsNo: '103181', additionCode: '00102324', categoryCode: null }],
+      categories: [],
+      templates: [{
+        row: 4, code: '00102324', mallName: '11번가', title: '무료배송', path: null, active: true,
+        detailTop: 'a'.repeat(25_000), detailBottom: null, namePrefix: '[키드아이템]', nameSuffix: null,
+      }],
+      productIdByCode: new Map([['103181', 'p-1']]),
+      accounts: [{ id: 'acc-11st', channel: '11st' }],
+    });
+    expect(planned.writes).toEqual([{
+      salesProductId: 'p-1',
+      channelAccountId: 'acc-11st',
+      values: { sabangnetTemplateCode: '00102324', sabangnetTemplateTitle: '무료배송', sabangnetNamePrefix: '[키드아이템]' },
+    }]);
+    expect(planned.issues).toEqual([{
+      kind: 'send_records',
+      row: 4,
+      code: '103181',
+      message: expect.stringContaining('sabangnetDetailTop'),
+    }]);
   });
 
   it('refuses a workbook that is not a Sabangnet export', () => {

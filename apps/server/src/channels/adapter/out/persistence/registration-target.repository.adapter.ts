@@ -27,6 +27,7 @@ import type {
   RegistrationTargetRecord,
   RegistrationTargetRepositoryPort,
 } from '../../../application/port/out/persistence/registration-target.repository.port';
+import { ZodError } from 'zod';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -440,12 +441,16 @@ function toRecord(row: TargetRow): RegistrationTargetRecord {
   };
 }
 
-/** 몰 값 규칙을 등록 설정의 400 으로 바꾼다. 거절한 키 이름이 메시지에 있다. */
+/** 몰 값 규칙과 스키마(값 길이 · 모양)를 등록 설정의 400 으로 바꾼다. 거절한 키 이름이 메시지에 있다. */
 function mallInputOrInvalid(raw: unknown): RegistrationMallInput {
   try {
     return normalizeRegistrationMallInput(raw);
   } catch (error) {
     if (error instanceof RegistrationMallInputError) throw new RegistrationTargetException('invalid', error.message);
+    if (error instanceof ZodError) {
+      const keys = [...new Set(error.issues.map((issue) => issue.path.join('.')))];
+      throw new RegistrationTargetException('invalid', `등록 설정의 몰 값이 올바르지 않습니다(${keys.join(', ')}).`);
+    }
     throw error;
   }
 }

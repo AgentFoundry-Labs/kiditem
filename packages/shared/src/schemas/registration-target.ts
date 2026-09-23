@@ -11,7 +11,9 @@ export const RegistrationTargetOptionInputSchema = z.object({
 }).strict();
 export type RegistrationTargetOptionInput = z.infer<typeof RegistrationTargetOptionInputSchema>;
 
-const mallFieldValue = z.union([z.string().max(2000), z.number(), z.boolean(), z.null()]);
+/** 몰 칸 값 하나의 글자 상한. 사방넷 부가정보의 상단 · 하단 추가문구(HTML)가 들어가는 자리다. */
+export const REGISTRATION_MALL_FIELD_VALUE_MAX = 20_000;
+const mallFieldValue = z.union([z.string().max(REGISTRATION_MALL_FIELD_VALUE_MAX), z.number(), z.boolean(), z.null()]);
 
 /**
  * 등록 대상의 몰 전용 값(KID-313 W2). 상품 사실(이름·설명·이미지·가격·상세·고시·키워드)은
@@ -33,7 +35,7 @@ export const RegistrationMallInputSchema = z.object({
 }).strict();
 export type RegistrationMallInput = z.infer<typeof RegistrationMallInputSchema>;
 
-/** 옛 `registrationInput` 이 상품 사실을 복사해 두던 키 — 새 계약은 이 키를 거절한다. */
+/** 옛 `registrationInput` 이 상품 사실을 복사해 두던 키 — 새 계약은 이 키를 거절한다(맨 위와 `mallFields` 안 모두). */
 export const REGISTRATION_INPUT_PRODUCT_FACT_KEYS = [
   'name', 'productName', 'sellerProductName', 'originalName', 'displayName',
   'salePrice', 'normalPrice', 'supplyPrice', 'priceRateBp', 'promoText',
@@ -41,6 +43,9 @@ export const REGISTRATION_INPUT_PRODUCT_FACT_KEYS = [
   'notice', 'noticeCategory', 'keywords', 'tags', 'manufacturer', 'maker', 'brand',
   'sourceCategory', 'description',
 ] as const;
+
+/** 상품 사실 이름이지만 몰 값인 키 — `mallFields` 안에서만 받는다(몰 공급가 · 몰 홍보문). */
+export const REGISTRATION_MALL_FIELD_FACT_EXCEPTIONS = ['supplyPrice', 'promoText'] as const;
 
 const editable = {
   registrationInput: RegistrationMallInputSchema.default({ mallCategory: null, mallFields: {}, adapter: {} }),
