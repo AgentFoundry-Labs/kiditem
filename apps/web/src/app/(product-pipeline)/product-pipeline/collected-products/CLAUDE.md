@@ -75,6 +75,11 @@ and the server answers a genuine conflict with 409. There is no separate
 preparation draft and no `{ preparationId, status }` response to render; the
 resolved target's id stands in for the old preparation id.
 
+The header reads per-account state from the Channels registration-state reader
+(`registrationAccounts`, KID-320). Preparation opens only for an unregistered or
+failed account; a live account disables it with the reason, and the account
+picker blocks accounts that are registered or live.
+
 A product appears in registered-products only after a registration execution
 succeeds with a real `ChannelListing`; registered navigation uses the
 listing/content-workspace identifiers.

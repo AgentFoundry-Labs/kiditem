@@ -64,6 +64,11 @@
   `MallAdapterManifest` 가 유일한 권위다. 화면에 상수로 다시 적지 않는다.
 - 성공은 몰 재조회로 확인된 것(`published`)뿐이다. 전송 완료(`submitted`)를 성공으로
   표시하지 않는다.
+- 판매상품 × 몰 계정의 등록 상태(미등록 · 준비 중 · 전송 중 · 확인 대기 · 등록됨 · 실패 + 품절 ·
+  변경됨)는 서버 등록 상태 reader 가 답한다. 화면은 목록 · 리스팅 · 매트릭스 칸이 싣고 온 값이나
+  `_shared/use-registration-state.ts`(살아 있는 계정이 있을 때만 5초 폴링)를 읽고,
+  `_shared/registration-account-state.ts` 표와 `RegistrationStateBadge` 로만 그린다. 실행 이력을
+  조합해 상태를 짓거나 대상마다 이력을 폴링하지 않는다.
 - 리스팅을 한 번도 가져오지 않은 몰의 빈 칸은 '몰에 없다'가 아니라 '우리가 모른다'다.
   열과 카드가 `imported` 로 그 차이를 말한다. 모르는 자리에 0 을 찍지 않는다.
 - 몰 원문 상태는 도메인(`mall-listing-state.ts`)이 우리 어휘로 접는다. 접히지 않는
