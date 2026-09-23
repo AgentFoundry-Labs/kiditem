@@ -58,3 +58,29 @@ export const RegistrationTargetSchema = z.object({
   }),
 });
 export type RegistrationTarget = z.infer<typeof RegistrationTargetSchema>;
+
+/** 울타리가 말하는 판매상품 초안의 등록 상태(가장 최근 실행 기준). */
+export const SALES_PRODUCT_REGISTRATION_STATES = ['none', 'preparing', 'confirming', 'failed', 'registered'] as const;
+export const SalesProductRegistrationStateValueSchema = z.enum(SALES_PRODUCT_REGISTRATION_STATES);
+
+/**
+ * `GET /api/products/sales-products/:salesProductId/registration/state` 응답. 후보가 있든 없든
+ * 초안마다 같은 모양이다. 등록 설정은 상품 × 몰 계정당 하나라 `targets` 는 계정마다 한 줄이다.
+ */
+export const SalesProductRegistrationStateSchema = z.object({
+  registrationState: SalesProductRegistrationStateValueSchema,
+  targets: z.array(z.object({
+    id: z.string().uuid(),
+    channelAccountId: z.string().uuid(),
+    channelListingId: z.string().uuid().nullable(),
+    status: z.enum(['draft', 'submitting', 'registered', 'failed', 'cancelled']),
+    selectedThumbnailUrl: z.string().nullable(),
+    selectedThumbnailGenerationId: z.string().uuid().nullable(),
+    selectedThumbnailGenerationCandidateId: z.string().uuid().nullable(),
+    selectedDetailPageArtifactId: z.string().uuid().nullable(),
+    selectedDetailPageRevisionId: z.string().uuid().nullable(),
+    selectedDetailPageGenerationId: z.string().uuid().nullable(),
+    updatedAt: z.string(),
+  }).strict()),
+}).strict();
+export type SalesProductRegistrationState = z.infer<typeof SalesProductRegistrationStateSchema>;

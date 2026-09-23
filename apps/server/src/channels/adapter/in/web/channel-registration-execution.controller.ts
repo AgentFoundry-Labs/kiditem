@@ -1,12 +1,17 @@
 import { UseFilters } from '@nestjs/common';
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
-import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import {
   REGISTRATION_EXECUTION_PORT,
   type RegistrationExecutionPort,
 } from '../../../application/port/in/capability/registration-execution.port';
+import {
+  CANDIDATE_REGISTRATION_PORT,
+  type CandidateRegistrationPort,
+} from '../../../application/port/in/candidate-registration.port';
+import type { SalesProductRegistrationState } from '@kiditem/shared/sales-product';
 import {
   ConfirmRegistrationExecutionDto,
   PrepareWingRegistrationExecutionDto,
@@ -30,7 +35,35 @@ export class ChannelRegistrationExecutionController {
   constructor(
     @Inject(REGISTRATION_EXECUTION_PORT)
     private readonly executions: RegistrationExecutionPort,
+    @Inject(CANDIDATE_REGISTRATION_PORT)
+    private readonly registrations: CandidateRegistrationPort,
   ) {}
+
+  /** 초안의 등록 설정(몰 계정마다 하나)과 울타리가 말하는 등록 상태. 후보 조회에 기대지 않는다. */
+  @Get(':salesProductId/registration/state')
+  async registrationState(
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+    @CurrentOrganization() organizationId: string,
+  ): Promise<SalesProductRegistrationState> {
+    const view = (await this.registrations.readForSalesProducts(organizationId, [salesProductId])).get(salesProductId);
+    if (!view) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+    return {
+      registrationState: view.registrationState,
+      targets: view.preparations.map((row) => ({
+        id: row.id,
+        channelAccountId: row.channelAccountId,
+        channelListingId: row.channelListingId,
+        status: row.status as SalesProductRegistrationState['targets'][number]['status'],
+        selectedThumbnailUrl: row.selectedThumbnailUrl,
+        selectedThumbnailGenerationId: row.selectedThumbnailGenerationId,
+        selectedThumbnailGenerationCandidateId: row.selectedThumbnailGenerationCandidateId,
+        selectedDetailPageArtifactId: row.selectedDetailPageArtifactId,
+        selectedDetailPageRevisionId: row.selectedDetailPageRevisionId,
+        selectedDetailPageGenerationId: row.selectedDetailPageGenerationId,
+        updatedAt: row.updatedAt.toISOString(),
+      })),
+    };
+  }
 
   @Post(':salesProductId/registration/executions/prepare')
   prepareWingRegistration(
