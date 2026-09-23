@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SalesProduct } from '@kiditem/shared/sales-product';
 import {
   addMissingCombinations,
+  BASIC_FIELDS,
   basicsFromProduct,
   basicsPatch,
   commonNormalPrice,
@@ -103,6 +104,21 @@ describe('sales product editor draft', () => {
     expect(basicsPatch(current, basicsFromProduct(current))).toBeNull();
     expect(basicsPatch(current, draft)).toEqual({ keywords: ['패드', '만능패드'] });
     expect(commonNormalPrice(optionsFromProduct(current))).toEqual({ value: 9000, mixed: false });
+  });
+
+  // KID-313: 상태는 편집 칸이 아니다. 판매 상품을 보관하는 것만 요청하고, 초안은 보관하지 않고 지운다.
+  it('never sends a status field — it asks to archive only an active product', () => {
+    expect(BASIC_FIELDS).not.toContain('status');
+    const active = product({ status: 'active' });
+    expect(basicsPatch(active, basicsFromProduct(active), { archive: true })).toEqual({ status: 'archived' });
+    expect(basicsPatch(active, { ...basicsFromProduct(active), brand: '새 브랜드' }, { archive: true }))
+      .toEqual({ brand: '새 브랜드', status: 'archived' });
+    expect(basicsPatch(active, basicsFromProduct(active), { archive: false })).toBeNull();
+
+    const draft = product({ status: 'draft', code: null });
+    expect(basicsPatch(draft, basicsFromProduct(draft), { archive: true })).toBeNull();
+    const archived = product({ status: 'archived' });
+    expect(basicsPatch(archived, basicsFromProduct(archived), { archive: true })).toBeNull();
   });
 
   // KID-310: 수집·직접 작성 초안이 채우는 칸 — 전에는 후보에만 있어 이 편집기에서 못 고쳤다.
