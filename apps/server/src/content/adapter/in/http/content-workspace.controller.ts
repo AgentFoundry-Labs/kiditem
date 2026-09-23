@@ -83,7 +83,7 @@ export class ContentWorkspaceController {
 
   /**
    * 상세가 없는 판매상품에 첫 상세를 직접 쓴다(`manual_edit` revision, 현재가 된다). 이미 상세가 있으면 409 —
-   * 그때는 그 상세 생성의 edited-html 저장으로 고친다.
+   * 그때는 그 상세 페이지의 edited-html 저장으로 고친다.
    */
   @Post('by-sales-product/:salesProductId/manual-detail-page')
   createManualDetailPage(
@@ -117,7 +117,7 @@ export class ContentWorkspaceController {
     return this.contentWorkspaces.selectCurrentDetailPage({
       organizationId,
       workspaceId,
-      contentGenerationId: body.contentGenerationId,
+      detailPageId: body.detailPageId,
     });
   }
 

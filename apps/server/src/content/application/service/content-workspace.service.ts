@@ -1,10 +1,14 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
-  type ContentWorkspaceGenerationSnapshot,
+  type ContentWorkspaceDetailPageSnapshot,
   type ContentWorkspaceLifecycleRepositoryPort,
   type ContentWorkspaceSnapshot,
 } from '../port/out/repository/content-workspace-lifecycle.repository.port';
+import {
+  DETAIL_PAGE_REPOSITORY_PORT,
+  type DetailPageRepositoryPort,
+} from '../port/out/repository/detail-page.repository.port';
 import { toDetailPageStoredJson } from './detail-page-stored.helpers';
 import type { DetailPageTemplateId } from './detail-page-ai.types';
 
@@ -21,43 +25,46 @@ export interface CreateContentWorkspaceInput {
   rawTitle: string;
   salesProductId: string | null;
   channelListingId?: string | null;
-  originWorkspaceId?: string | null;
 }
 
+/**
+ * 작업공간 요약(KID-313 W3b). 이름은 없다 — 판매 상품 작업공간은 상품에서, 직접 상세는 상세 페이지 제목에서
+ * 읽는다. 상세는 상세 페이지 id 하나로 부른다(`/api/ai/detail-page/:id`).
+ */
 export interface ContentWorkspaceSummary {
   id: string;
   ownerType: string;
   salesProductId: string | null;
   channelListingId: string | null;
-  originWorkspaceId: string | null;
-  displayName: string;
-  normalizedTitle: string;
+  normalizedTitle: string | null;
   status: string;
   href: string;
-  generationCount: number;
-  latestGenerationId: string | null;
+  detailPageCount: number;
+  latestDetailPageId: string | null;
   latestStatus: string | null;
-  currentDetailPageArtifactId: string | null;
+  /** 몰로 가는 현재 revision 과 그 revision 의 상세 페이지. */
+  currentDetailPageId: string | null;
   currentDetailPageRevisionId: string | null;
   currentThumbnailSelection: {
     id: string;
     contentAssetId: string;
     url: string;
   } | null;
-  currentDetailPageGenerationId: string | null;
   createdAt: string;
   updatedAt: string;
   history: Array<{
+    /** 상세 페이지 id. */
     id: string;
-    contentType: string;
+    source: string;
     status: string;
-    generatedTitle: string | null;
+    title: string | null;
     templateId: string | null;
     generationInput: unknown;
     detailPageData: Record<string, unknown> | null;
     imageUrls: string[];
     processedImages: Record<string, string>;
-    detailPageArtifactId: string | null;
+    currentRevisionId: string | null;
+    errorMessage: string | null;
     href: string;
     createdAt: string;
     updatedAt: string;
@@ -69,6 +76,8 @@ export class ContentWorkspaceService {
   constructor(
     @Inject(CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT)
     private readonly repository: ContentWorkspaceLifecycleRepositoryPort,
+    @Inject(DETAIL_PAGE_REPOSITORY_PORT)
+    private readonly detailPages: DetailPageRepositoryPort,
   ) {}
 
   async ensureForGeneration(input: {
@@ -77,8 +86,7 @@ export class ContentWorkspaceService {
     rawTitle: string;
     salesProductId: string | null;
     channelListingId?: string | null;
-    originWorkspaceId?: string | null;
-  }): Promise<{ id: string; displayName: string; normalizedTitle: string }> {
+  }): Promise<{ id: string }> {
     return this.ensureWorkspace(input);
   }
 
@@ -87,22 +95,15 @@ export class ContentWorkspaceService {
     return this.get(input.organizationId, workspace.id);
   }
 
-  private async ensureWorkspace(input: CreateContentWorkspaceInput): Promise<{
-    id: string;
-    displayName: string;
-    normalizedTitle: string;
-  }> {
-    const normalizedTitle = normalizeContentTitle(input.rawTitle);
-    const displayName = displayTitle(input.rawTitle);
+  private async ensureWorkspace(input: CreateContentWorkspaceInput): Promise<{ id: string }> {
     const ownerType = ownerTypeFor(input);
     return this.repository.ensureActiveWorkspace({
       organizationId: input.organizationId,
       ownerType,
       salesProductId: input.salesProductId,
       channelListingId: input.channelListingId ?? null,
-      originWorkspaceId: input.originWorkspaceId ?? null,
-      displayName,
-      normalizedTitle,
+      // 이름으로 중복을 막는 것은 상품 없는 직접 상세뿐이다.
+      normalizedTitle: ownerType === 'direct_detail_page' ? normalizeContentTitle(input.rawTitle) : null,
       createdByUserId: input.triggeredByUserId,
     });
   }
@@ -177,111 +178,88 @@ export class ContentWorkspaceService {
     return { ok: true, archivedWorkspaces };
   }
 
+  /**
+   * 운영자가 고른 상세 페이지를 몰로 갈 현재로 삼는다 — 그 페이지의 현재 revision 이 워크스페이스의 현재가 된다.
+   * 포인터는 상세 페이지 저장소만 옮긴다.
+   */
   async selectCurrentDetailPage(input: {
     organizationId: string;
     workspaceId: string;
-    contentGenerationId: string;
+    detailPageId: string;
   }): Promise<ContentWorkspaceSummary> {
-    const generation = await this.repository.findSelectableDetailPageGeneration({
+    const page = await this.detailPages.findById({ organizationId: input.organizationId, detailPageId: input.detailPageId });
+    if (!page || page.contentWorkspaceId !== input.workspaceId) throw new NotFoundException('Detail page not found');
+    if (!page.currentRevisionId) throw new BadRequestException('Detail page has no saved revision yet');
+    const revisionId = page.currentRevisionId;
+    await this.detailPages.runInTransaction((transaction) => this.detailPages.setCurrentRevision(transaction, {
       organizationId: input.organizationId,
-      workspaceId: input.workspaceId,
-      contentGenerationId: input.contentGenerationId,
-    });
-    if (!generation) throw new NotFoundException('Detail page generation not found');
-    if (!generation.detailPageArtifactId) {
-      throw new BadRequestException('Detail page artifact is not ready');
-    }
-
-    const updated = await this.repository.selectCurrentDetailPage({
-      organizationId: input.organizationId,
-      workspaceId: input.workspaceId,
-      detailPageArtifactId: generation.detailPageArtifactId,
-      detailPageRevisionId: generation.detailPageArtifact?.currentRevisionId ?? null,
-    });
-    if (updated === 0) throw new NotFoundException('Content workspace not found');
+      contentWorkspaceId: input.workspaceId,
+      revisionId,
+    }));
     return this.get(input.organizationId, input.workspaceId);
   }
 
   private toSummary(row: ContentWorkspaceSnapshot): ContentWorkspaceSummary {
-    const history = [...(row.contentGenerations ?? [])]
+    const history = [...(row.detailPages ?? [])]
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     const latest = history[0] ?? null;
-    const currentDetailPageGenerationId =
-      row.currentDetailPageArtifact?.sourceContentGenerationId ??
-      (
-        row.currentDetailPageArtifactId
-          ? history.find((generation) => generation.detailPageArtifactId === row.currentDetailPageArtifactId)?.id
-          : null
-      ) ??
-      null;
     return {
-      id: row.id,
-      ownerType: row.ownerType,
-      salesProductId: row.salesProductId,
-      channelListingId: row.channelListingId,
-      originWorkspaceId: row.originWorkspaceId,
-      displayName: row.displayName,
-      normalizedTitle: row.normalizedTitle,
-      status: row.status,
-      href: registeredWorkspaceHref(row.id),
-      generationCount: row._count?.contentGenerations ?? history.length,
-      latestGenerationId: latest?.id ?? null,
+      ...summaryHead(row),
+      detailPageCount: row._count?.detailPages ?? history.length,
+      latestDetailPageId: latest?.id ?? null,
       latestStatus: latest?.status ?? null,
-      currentDetailPageArtifactId: row.currentDetailPageArtifactId,
-      currentDetailPageRevisionId: row.currentDetailPageRevisionId,
-      currentThumbnailSelection: row.currentThumbnailSelection
-        ? {
-            id: row.currentThumbnailSelection.id,
-            contentAssetId: row.currentThumbnailSelection.contentAsset.id,
-            url: row.currentThumbnailSelection.contentAsset.url,
-          }
-        : null,
-      currentDetailPageGenerationId,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-      history: history.map((generation) => ({
-        ...this.toHistoryItem(row.id, generation),
-      })),
-    };
-  }
-
-  private toHistoryItem(workspaceId: string, generation: ContentWorkspaceGenerationSnapshot) {
-    const detailProjection = projectDetailPageGeneration(generation);
-    return {
-      id: generation.id,
-      contentType: generation.contentType,
-      status: generation.status,
-      generatedTitle: generation.generatedTitle,
-      templateId: generation.templateId,
-      generationInput: generation.generationInput,
-      detailPageData: detailProjection.detailPageData,
-      imageUrls: detailProjection.imageUrls,
-      processedImages: detailProjection.processedImages,
-      detailPageArtifactId: generation.detailPageArtifactId,
-      href: registeredWorkspaceEditorHref(workspaceId, generation.id),
-      createdAt: generation.createdAt.toISOString(),
-      updatedAt: generation.updatedAt.toISOString(),
+      history: history.map((page) => toHistoryItem(row.id, page)),
     };
   }
 }
 
-function projectDetailPageGeneration(generation: ContentWorkspaceGenerationSnapshot): {
-  detailPageData: Record<string, unknown> | null;
-  imageUrls: string[];
-  processedImages: Record<string, string>;
-} {
-  if (generation.contentType !== 'detail_page') {
-    return { detailPageData: null, imageUrls: [], processedImages: {} };
-  }
+function summaryHead(row: ContentWorkspaceSnapshot): Omit<
+  ContentWorkspaceSummary,
+  'detailPageCount' | 'latestDetailPageId' | 'latestStatus' | 'history'
+> {
+  return {
+    id: row.id,
+    ownerType: row.ownerType,
+    salesProductId: row.salesProductId,
+    channelListingId: row.channelListingId,
+    normalizedTitle: row.normalizedTitle,
+    status: row.status,
+    href: registeredWorkspaceHref(row.id),
+    currentDetailPageId: row.currentDetailPageRevision?.detailPageId ?? null,
+    currentDetailPageRevisionId: row.currentDetailPageRevisionId,
+    currentThumbnailSelection: row.currentThumbnailSelection
+      ? {
+          id: row.currentThumbnailSelection.id,
+          contentAssetId: row.currentThumbnailSelection.contentAsset.id,
+          url: row.currentThumbnailSelection.contentAsset.url,
+        }
+      : null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toHistoryItem(workspaceId: string, page: ContentWorkspaceDetailPageSnapshot): ContentWorkspaceSummary['history'][number] {
   const stored = toDetailPageStoredJson({
-    templateId: normalizeTemplateId(generation.templateId),
-    generationInput: generation.generationInput,
-    generationResult: generation.generationResult,
+    templateId: normalizeTemplateId(page.templateId),
+    generationInput: page.generationInput,
+    generationResult: page.generationResult,
   });
   return {
-    detailPageData: asPlainRecord(stored.result),
+    id: page.id,
+    source: page.source,
+    status: page.status,
+    title: page.title,
+    templateId: page.templateId,
+    generationInput: page.generationInput,
+    detailPageData: page.source === 'generated' ? asPlainRecord(stored.result) : null,
     imageUrls: stored.imageUrls,
     processedImages: stored.processedImages,
+    currentRevisionId: page.currentRevisionId,
+    errorMessage: page.errorMessage,
+    href: registeredWorkspaceEditorHref(workspaceId, page.id),
+    createdAt: page.createdAt.toISOString(),
+    updatedAt: page.updatedAt.toISOString(),
   };
 }
 
@@ -310,63 +288,20 @@ export function registeredWorkspaceHref(workspaceId: string): string {
 
 export function registeredWorkspaceEditorHref(
   workspaceId: string,
-  generationId: string,
+  detailPageId: string,
 ): string {
   const returnTo = encodeURIComponent(`/product-pipeline/registered-products/${encodeURIComponent(workspaceId)}`);
-  return `/product-pipeline/detail-pages/${encodeURIComponent(generationId)}/editor?returnTo=${returnTo}`;
+  return `/product-pipeline/detail-pages/${encodeURIComponent(detailPageId)}/editor?returnTo=${returnTo}`;
 }
 
-function toDuplicateSummary(row: {
-  id: string;
-  ownerType: string;
-  salesProductId: string | null;
-  channelListingId: string | null;
-  originWorkspaceId: string | null;
-  displayName: string;
-  normalizedTitle: string;
-  status: string;
-  currentDetailPageArtifactId: string | null;
-  currentDetailPageRevisionId: string | null;
-  currentThumbnailSelection: {
-    id: string;
-    contentAsset: { id: string; url: string };
-  } | null;
-  currentDetailPageArtifact: { sourceContentGenerationId: string | null } | null;
-  createdAt: Date;
-  updatedAt: Date;
-  _count?: { contentGenerations: number };
-}): ContentWorkspaceSummary {
+function toDuplicateSummary(row: ContentWorkspaceSnapshot): ContentWorkspaceSummary {
   return {
-    id: row.id,
-    ownerType: row.ownerType,
-    salesProductId: row.salesProductId,
-    channelListingId: row.channelListingId,
-    originWorkspaceId: row.originWorkspaceId,
-    displayName: row.displayName,
-    normalizedTitle: row.normalizedTitle,
-    status: row.status,
-    href: registeredWorkspaceHref(row.id),
-    generationCount: row._count?.contentGenerations ?? 0,
-    latestGenerationId: null,
+    ...summaryHead(row),
+    detailPageCount: row._count?.detailPages ?? 0,
+    latestDetailPageId: null,
     latestStatus: null,
-    currentDetailPageArtifactId: row.currentDetailPageArtifactId,
-    currentDetailPageRevisionId: row.currentDetailPageRevisionId,
-    currentThumbnailSelection: row.currentThumbnailSelection
-      ? {
-          id: row.currentThumbnailSelection.id,
-          contentAssetId: row.currentThumbnailSelection.contentAsset.id,
-          url: row.currentThumbnailSelection.contentAsset.url,
-        }
-      : null,
-    currentDetailPageGenerationId: row.currentDetailPageArtifact?.sourceContentGenerationId ?? null,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
     history: [],
   };
-}
-
-function displayTitle(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').slice(0, 120) || '상세페이지 작업';
 }
 
 function ownerTypeFor(input: {

@@ -4,6 +4,7 @@ export * from './content-workspace-lifecycle.repository.port';
 export * from './content-workspace-thumbnail-selection.repository.port';
 export * from './detail-page-generation.repository.port';
 export * from './detail-page-image.repository.port';
+export * from './detail-page.repository.port';
 export * from './detail-page-query.repository.port';
 export * from './product-generation-context.repository.port';
 export * from './registration-content-workspace.repository.port';

@@ -53,6 +53,7 @@ import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from './adapter/o
 import { RegistrationContentWorkspaceRepositoryAdapter } from './adapter/out/repository/registration-content-workspace.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from './adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from './adapter/out/repository/detail-page-query.repository.adapter';
+import { DetailPageRepositoryAdapter } from './adapter/out/repository/detail-page.repository.adapter';
 import { DetailPageImageRepositoryAdapter } from './adapter/out/repository/detail-page-image.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from './adapter/out/repository/product-generation-context.repository.adapter';
 import { SalesProductWorkspaceArchiveRepositoryAdapter } from './adapter/out/repository/sales-product-workspace-archive.repository.adapter';
@@ -153,6 +154,7 @@ import {
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   DETAIL_PAGE_IMAGE_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
+  DETAIL_PAGE_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
   SALES_PRODUCT_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
@@ -200,6 +202,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     SalesProductOwnerReadAdapter,
     DetailPageGenerationRepositoryAdapter,
     DetailPageQueryRepositoryAdapter,
+    DetailPageRepositoryAdapter,
     ProductGenerationContextRepositoryAdapter,
     ThumbnailGenerationEventAdapter,
     ThumbnailGenerationLedgerRepositoryAdapter,
@@ -214,6 +217,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     { provide: SALES_PRODUCT_OWNER_READ_PORT, useExisting: SalesProductOwnerReadAdapter },
     { provide: DETAIL_PAGE_GENERATION_REPOSITORY_PORT, useExisting: DetailPageGenerationRepositoryAdapter },
     { provide: DETAIL_PAGE_QUERY_REPOSITORY_PORT, useExisting: DetailPageQueryRepositoryAdapter },
+    { provide: DETAIL_PAGE_REPOSITORY_PORT, useExisting: DetailPageRepositoryAdapter },
     { provide: GENERATED_IMAGE_VALIDATOR_PORT, useExisting: SharpGeneratedImageValidatorAdapter },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
@@ -232,6 +236,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
     DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
     DETAIL_PAGE_QUERY_REPOSITORY_PORT,
+    DETAIL_PAGE_REPOSITORY_PORT,
     GENERATED_IMAGE_VALIDATOR_PORT,
     IMAGE_FETCH_PORT,
     IMAGE_STORAGE_PORT,

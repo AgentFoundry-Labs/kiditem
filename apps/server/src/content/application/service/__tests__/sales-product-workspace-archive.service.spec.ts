@@ -12,11 +12,7 @@ describe('AI SalesProductWorkspaceArchiveService', () => {
       contentWorkspace: {
         updateMany: vi.fn(),
       },
-      contentGeneration: {
-        findMany: vi.fn(),
-        updateMany: vi.fn(),
-      },
-      detailPageArtifact: {
+      detailPage: {
         updateMany: vi.fn(),
       },
       contentAsset: {
@@ -28,8 +24,7 @@ describe('AI SalesProductWorkspaceArchiveService', () => {
     };
     const repository: SalesProductWorkspaceArchiveRepositoryPort = {
       archiveSalesProductWorkspace: vi.fn().mockResolvedValue({
-        archivedContentGenerations: 2,
-        archivedDetailPageArtifacts: 1,
+        archivedDetailPages: 1,
         archivedContentAssets: 3,
         archivedThumbnailGenerations: 4,
       }),
@@ -43,8 +38,7 @@ describe('AI SalesProductWorkspaceArchiveService', () => {
         archivedAt: ARCHIVED_AT,
       }),
     ).resolves.toEqual({
-      archivedContentGenerations: 2,
-      archivedDetailPageArtifacts: 1,
+      archivedDetailPages: 1,
       archivedContentAssets: 3,
       archivedThumbnailGenerations: 4,
     });

@@ -5,7 +5,8 @@ import type { DetailPageRevisionType } from './detail-page-revision-type';
  *
  * 상세 페이지는 어떻게 시작됐든(`source`) 한 표의 한 행이고, 그 이력은 revision 이다. 상태는 AI 생성에만
  * 뜻이 있다: `pending → processing → ready | failed`. 직접 작성 · 올린 파일 · 가져오기는 처음부터 `ready` 다.
- * `ready` 는 generated revision 과 함께만 온다 — sink 가 revision 없이 상태만 바꾸는 길은 없다.
+ * `ready` 는 결과(`generation_result`)를 적는 것과 함께만 온다 — sink 가 결과 없이 상태만 바꾸는 길은 없다.
+ * HTML 은 웹 템플릿이 그 결과로 그리고, 처음 저장될 때 `generated` revision 이 된다.
  */
 
 export const DETAIL_PAGE_SOURCES = ['generated', 'manual', 'uploaded', 'imported'] as const;

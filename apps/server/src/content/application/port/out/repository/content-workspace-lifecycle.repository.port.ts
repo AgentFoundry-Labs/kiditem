@@ -8,34 +8,26 @@ export interface EnsureContentWorkspaceInput {
   ownerType: 'sales_product' | 'channel_listing' | 'direct_detail_page';
   salesProductId: string | null;
   channelListingId: string | null;
-  originWorkspaceId: string | null;
-  displayName: string;
-  normalizedTitle: string;
+  /** 직접 상세 작업공간의 중복 방지 제목. 판매 상품 · 리스팅 작업공간은 null(이름은 소유자에게서 읽는다). */
+  normalizedTitle: string | null;
   createdByUserId: string | null;
 }
 
 export interface ContentWorkspaceIdentity {
   id: string;
-  displayName: string;
-  normalizedTitle: string;
 }
 
-export interface ContentWorkspaceArtifactSnapshot {
+/** 작업공간의 상세 페이지 한 행(KID-313 W3b) — 생성 · 직접 작성 · 올린 파일 · 가져오기 어느 것이든. */
+export interface ContentWorkspaceDetailPageSnapshot {
   id: string;
-  currentRevisionId: string | null;
-  title: string | null;
-  sourceContentGenerationId: string | null;
-}
-
-export interface ContentWorkspaceGenerationSnapshot {
-  id: string;
-  contentType: string;
+  source: string;
   status: string;
-  generatedTitle: string | null;
+  title: string | null;
   templateId: string | null;
   generationInput: unknown;
   generationResult: unknown;
-  detailPageArtifactId: string | null;
+  errorMessage: string | null;
+  currentRevisionId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,24 +37,20 @@ export interface ContentWorkspaceSnapshot {
   ownerType: string;
   salesProductId: string | null;
   channelListingId: string | null;
-  originWorkspaceId: string | null;
-  displayName: string;
-  normalizedTitle: string;
+  normalizedTitle: string | null;
   status: string;
-  currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
   currentThumbnailSelectionId: string | null;
   currentThumbnailSelection: {
     id: string;
     contentAsset: { id: string; url: string };
   } | null;
-  currentDetailPageArtifact: ContentWorkspaceArtifactSnapshot | null;
-  /** 현재 revision 의 종류(정한 목록 안의 값). 목록 조회만 싣는다. */
-  currentDetailPageRevision?: { id: string; revisionType: DetailPageRevisionType; createdAt: Date } | null;
+  /** 현재 revision 과 그 revision 이 속한 상세 페이지. */
+  currentDetailPageRevision?: { id: string; detailPageId: string; revisionType: DetailPageRevisionType; createdAt: Date } | null;
   createdAt: Date;
   updatedAt: Date;
-  _count?: { contentGenerations: number };
-  contentGenerations?: ContentWorkspaceGenerationSnapshot[];
+  _count?: { detailPages: number };
+  detailPages?: ContentWorkspaceDetailPageSnapshot[];
 }
 
 export interface ContentWorkspaceListInput {
@@ -71,14 +59,6 @@ export interface ContentWorkspaceListInput {
   normalizedTitle: string | null;
   page: number;
   limit: number;
-}
-
-export interface SelectableDetailPageGenerationSnapshot {
-  id: string;
-  detailPageArtifactId: string | null;
-  detailPageArtifact: {
-    currentRevisionId: string | null;
-  } | null;
 }
 
 export interface ContentWorkspaceLifecycleRepositoryPort {
@@ -101,16 +81,5 @@ export interface ContentWorkspaceLifecycleRepositoryPort {
     organizationId: string;
     workspaceId: string;
     archivedAt: Date;
-  }): Promise<number>;
-  findSelectableDetailPageGeneration(input: {
-    organizationId: string;
-    workspaceId: string;
-    contentGenerationId: string;
-  }): Promise<SelectableDetailPageGenerationSnapshot | null>;
-  selectCurrentDetailPage(input: {
-    organizationId: string;
-    workspaceId: string;
-    detailPageArtifactId: string;
-    detailPageRevisionId: string | null;
   }): Promise<number>;
 }

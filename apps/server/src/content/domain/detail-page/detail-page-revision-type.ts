@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * `DetailPageRevision.revisionType` 의 값 전부 — 이 목록 밖의 값은 어느 writer 도 쓰지 않는다(KID-313 W3b).
  *
- * - `generated`: AI 생성 결과. sink 가 이 revision 을 붙이며 상세 페이지가 `ready` 가 된다.
+ * - `generated`: AI 생성 결과를 웹 템플릿이 처음 그려 저장한 HTML(그 생성 페이지의 첫 저장).
  * - `manual_edit`: 편집기 저장(첫 직접 작성 포함), 스키마 기본값.
  * - `duplicate`: 상세 페이지 복제가 원본의 현재 revision 을 복사한 것.
  * - `imported`: 사방넷 같은 미러 원천에서 가져온 상세 HTML(KID-313 W2). `source` · `sourceDigest` 를 가진다.
