@@ -941,16 +941,23 @@ authorization and uncertainty live in `ChannelListingDeletionOperation`; an
 extension-observed success alone remains `reconciling/uncertain` and cannot
 deactivate the listing until an independent provider verifier confirms it.
 
-The canonical draft APIs are candidate preparation create, preparation update,
-submit, and cancel under `/api/sourcing`. The fence lifecycle — prepare, match
+Sourcing keeps only the immutable source record, read at
+`GET /api/sourcing/source-records/:id`. Collection (`POST /api/sourcing/scrape-url`,
+the extension product-data attempts) and direct creation
+(`POST /api/sourcing/product-generation`) admit the draft into Channels in the
+same transaction; a repeated source is refused with 409 and names the existing
+draft. The draft is a `SalesProduct` with `status = draft`, edited and deleted
+through `/api/products/sales-products/:salesProductId` (`GET`, `PATCH`,
+`PUT …/options`, `DELETE`); only a draft is deleted, and a selling product is
+archived. Registration settings per channel account live under
+`/api/channels/registration-targets`, one unarchived target per organization,
+sales product, and account. The fence lifecycle — state, prepare, match
 preview, start, status, unresolved, not-submitted, confirm — is Channels' own
-route family, `/api/channels/candidates/:id/registration-executions/*`, and the
-product-pipeline Wing flow and the mall wizard reach it through the one web
-client `(channels)/_shared/registration-execution-api.ts`.
-Active preparation uniqueness is scoped
-to organization, candidate, and selected channel account. The same candidate
-may therefore have one active draft per account, while duplicate active drafts
-for the same account are rejected deterministically.
+route family, `/api/products/sales-products/:salesProductId/registration/*`
+beside `/api/channels/registration-targets/:id/executions` and
+`/api/channels/registration-executions/:id`, and the product-pipeline Wing flow
+and the mall wizard reach it through the one web client
+`(channels)/_shared/registration-execution-api.ts`.
 
 Historical sourcing migrations populated compatibility rows for older candidate
 and content models. This reconstruction intentionally adds no registration or
