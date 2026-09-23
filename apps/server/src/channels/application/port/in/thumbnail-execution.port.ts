@@ -1,4 +1,5 @@
 import type {
+  ThumbnailExecutionListingChoice,
   ThumbnailExecutionPrepareResponse,
   ThumbnailExecutionReportRequest,
   ThumbnailExecutionResult,
@@ -49,6 +50,8 @@ export interface ChannelsThumbnailExecutionPort {
   }): Promise<ThumbnailExecutionResult>;
   listLatest(input: { organizationId: string; generationIds: readonly string[] }): Promise<ThumbnailExecutionStatus[]>;
   dismissFailed(input: { organizationId: string; generationId: string }): Promise<{ dismissed: boolean }>;
+  /** 운영자가 고를 수 있는 이 생성의 쿠팡 listing(판매상품의 살아 있는 쿠팡 listing, 없으면 작업공간 listing). */
+  listingChoices(input: { organizationId: string; generationId: string }): Promise<ThumbnailExecutionListingChoice[]>;
   resend(input: { organizationId: string; executionId: string }): Promise<ThumbnailExecutionPrepareResponse>;
   confirmApplied(input: {
     organizationId: string;

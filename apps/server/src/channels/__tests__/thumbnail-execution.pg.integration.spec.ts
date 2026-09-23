@@ -410,6 +410,23 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
         .toEqual({ kind: 'invalid', message: '쿠팡 등록 상품명을 찾을 수 없습니다' });
     });
 
+    it('names the choice with a machine code and lists the product Coupang listings the operator can pick', async () => {
+      const product = await salesProductGeneration({ listings: 2 });
+      await prisma.channelListing.update({ where: { id: product.listings[0]!.id }, data: { channelName: '첫 listing' } });
+      await prisma.channelListing.create({
+        data: { organizationId: ORG, channelAccountId: product.listings[0]!.channelAccountId, externalId: randomUUID(), salesProductId: product.product.id, isActive: false },
+      });
+
+      await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: product.generation.id }))
+        .rejects.toMatchObject({ kind: 'invalid', details: { code: 'ambiguous_coupang_listing' } });
+      const choices = await service.listingChoices({ organizationId: ORG, generationId: product.generation.id });
+      expect(choices.map((choice) => choice.channelListingId).sort()).toEqual(product.listings.map((listing) => listing.id).sort());
+      expect(choices.find((choice) => choice.channelListingId === product.listings[0]!.id)).toMatchObject({
+        channelListingId: product.listings[0]!.id, channelName: '첫 listing', channelAccountName: expect.stringMatching(/^Wing /), externalId: product.listings[0]!.externalId,
+      });
+      await expect(service.listingChoices({ organizationId: OTHER_ORGANIZATION_ID, generationId: product.generation.id })).rejects.toBeTruthy();
+    });
+
     it('refuses two Coupang listings of the product on one account instead of picking one', async () => {
       const product = await salesProductGeneration({ listings: 1 });
       await prisma.channelListing.create({

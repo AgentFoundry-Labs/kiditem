@@ -16,6 +16,7 @@ import {
   markWingThumbnailNotApplied,
   registerWingThumbnailViaExtension,
   resendWingThumbnailViaExtension,
+  WingListingChoiceRequiredError,
   wingUploadReached,
   type WingRegistrationResult,
 } from '../lib/wing-registration';
@@ -375,7 +376,10 @@ export function useCreateEditJobs() {
 export function useWingRegister() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => registerWingThumbnailViaExtension(id),
+    mutationFn: (input: string | { generationId: string; channelListingId: string }) =>
+      typeof input === 'string'
+        ? registerWingThumbnailViaExtension(input)
+        : registerWingThumbnailViaExtension(input.generationId, { channelListingId: input.channelListingId }),
     onSettled: () => invalidateThumbnailRegistration(queryClient),
   });
 }
@@ -385,6 +389,8 @@ export interface WingBatchItemResult {
   success: boolean;
   screenshotPath: string | null;
   error?: string;
+  /** 판매상품에 쿠팡 listing 이 여럿이라 운영자가 골라야 올릴 수 있다. */
+  needsListingChoice?: boolean;
 }
 
 export function useBatchWingRegister() {
@@ -409,6 +415,7 @@ export function useBatchWingRegister() {
             success: false,
             screenshotPath: null,
             error: error instanceof Error ? error.message : String(error),
+            ...(error instanceof WingListingChoiceRequiredError ? { needsListingChoice: true } : {}),
           });
         }
       }

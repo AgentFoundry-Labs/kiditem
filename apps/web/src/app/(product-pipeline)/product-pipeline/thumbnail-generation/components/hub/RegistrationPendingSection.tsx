@@ -21,6 +21,7 @@ import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
+import { WingListingPicker } from './WingListingPicker';
 
 /** 적용했지만 아직 몰에 반영되지 않은 생성. 결과를 모르는 실행(`checking`)도 여기 남겨 보이게 한다. */
 function isPendingRegistration(g: ThumbnailGenerationListItem): boolean {
@@ -297,6 +298,9 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
         runningIds={runningIds}
         results={results}
         itemsById={itemsById}
+        onListingUploaded={(id) =>
+          setResults((prev) => prev?.map((r) => (r.id === id ? { ...r, success: true, error: undefined, needsListingChoice: false } : r)) ?? prev)
+        }
       />
     </>
   );
@@ -451,6 +455,7 @@ function BatchProgressDialog({
   runningIds,
   results,
   itemsById,
+  onListingUploaded,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -458,6 +463,7 @@ function BatchProgressDialog({
   runningIds: string[];
   results: WingBatchItemResult[] | null;
   itemsById: Map<string, ThumbnailGenerationListItem>;
+  onListingUploaded: (id: string) => void;
 }) {
   const okCount = results?.filter((r) => r.success).length ?? 0;
   const failCount = results ? results.length - okCount : 0;
@@ -468,6 +474,7 @@ function BatchProgressDialog({
     state: 'running' | 'ok' | 'fail';
     error?: string;
     screenshotPath?: string | null;
+    needsListingChoice?: boolean;
   }> = results
     ? results.map((r) => ({
         id: r.id,
@@ -475,6 +482,7 @@ function BatchProgressDialog({
         state: r.success ? 'ok' : 'fail',
         error: r.error,
         screenshotPath: r.screenshotPath,
+        needsListingChoice: r.needsListingChoice,
       }))
     : runningIds.map((id) => ({
         id,
@@ -544,6 +552,9 @@ function BatchProgressDialog({
                       <div className="text-[11px] text-rose-600 truncate" title={r.error}>
                         {r.error}
                       </div>
+                    )}
+                    {r.state === 'fail' && r.needsListingChoice && (
+                      <WingListingPicker generationId={r.id} onDone={() => onListingUploaded(r.id)} />
                     )}
                     {r.state === 'ok' && r.screenshotPath && (
                       <div className="text-[11px] text-gray-500 truncate font-mono" title={r.screenshotPath}>

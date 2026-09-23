@@ -64,6 +64,12 @@ export interface ThumbnailExecutionPersistencePort {
     screenshotPath: string | null;
     externalId: string | null;
   }): Promise<{ mode: 'applied'; execution: ThumbnailExecutionRow } | { mode: 'rejected'; status: OperationStatus } | { mode: 'not_found' }>;
+  /** 판매상품(없으면 작업공간 listing)의 살아 있는 쿠팡 listing. 운영자가 고를 목록이다. */
+  findListingChoices(input: {
+    organizationId: string;
+    salesProductId: string | null;
+    workspaceListingId: string | null;
+  }): Promise<Array<{ id: string; channelName: string | null; channelAccountName: string; externalId: string }>>;
   /**
    * owner 키로 이미 만든 실행. 없으면 null, 같은 키가 다른 생성 · 요청 해시로 쓰였으면 충돌을 던진다.
    * 재생은 Content 읽기 · 계정 결정 · 사진 읽기 · 운영 차단보다 먼저 답한다.

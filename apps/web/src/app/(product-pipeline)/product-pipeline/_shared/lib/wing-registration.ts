@@ -1,9 +1,12 @@
-import type {
-  ThumbnailExecutionPrepareResponse,
-  ThumbnailExecutionReportRequest,
-  ThumbnailExecutionResult,
+import {
+  THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE,
+  type ThumbnailExecutionListingChoice,
+  type ThumbnailExecutionPrepareResponse,
+  type ThumbnailExecutionReportRequest,
+  type ThumbnailExecutionResult,
 } from '@kiditem/shared/thumbnail-execution';
 import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 
 export const EXTENSION_REQUIRED_MESSAGE =
@@ -28,12 +31,40 @@ interface ExtensionWingRegistrationResponse {
  * 확장이 실패라고 답하면(로그인 대기 포함) 아무것도 올라가지 않은 것이라 `definitive_failure`,
  * 확장과의 통신 자체가 끊기면 올라갔는지 모르므로 `uncertain` 으로 보고한다.
  */
-export async function registerWingThumbnailViaExtension(generationId: string): Promise<WingRegistrationResult> {
+export async function registerWingThumbnailViaExtension(
+  generationId: string,
+  options: { channelListingId?: string } = {},
+): Promise<WingRegistrationResult> {
   const extensionId = await requireExtension();
-  const prepared = await apiClient.post<ThumbnailExecutionPrepareResponse>('/api/channels/thumbnail-executions', {
-    generationId,
-  });
+  let prepared: ThumbnailExecutionPrepareResponse;
+  try {
+    prepared = await apiClient.post<ThumbnailExecutionPrepareResponse>('/api/channels/thumbnail-executions', {
+      generationId,
+      ...(options.channelListingId ? { channelListingId: options.channelListingId } : {}),
+    });
+  } catch (error) {
+    if (isApiError(error) && error.details.code === THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE) {
+      throw new WingListingChoiceRequiredError(generationId, error.detail);
+    }
+    throw error;
+  }
   return uploadAndReport(extensionId, prepared);
+}
+
+/** 판매상품에 쿠팡 listing 이 여럿이라 운영자가 하나를 골라야 한다. 확장에는 아무것도 보내지 않았다. */
+export class WingListingChoiceRequiredError extends Error {
+  constructor(readonly generationId: string, message: string) {
+    super(message);
+    this.name = 'WingListingChoiceRequiredError';
+  }
+}
+
+/** 운영자가 고를 수 있는 이 생성의 쿠팡 listing. */
+export async function fetchWingListingChoices(generationId: string): Promise<ThumbnailExecutionListingChoice[]> {
+  const response = await apiClient.get<{ items: ThumbnailExecutionListingChoice[] }>(
+    `/api/channels/thumbnail-executions/listing-choices?generationId=${encodeURIComponent(generationId)}`,
+  );
+  return response?.items ?? [];
 }
 
 /** 결과를 모르는("확인 중") 같은 실행을 확장에 다시 보내고 그 실행에 보고한다. */

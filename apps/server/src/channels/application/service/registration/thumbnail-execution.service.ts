@@ -1,4 +1,5 @@
 import type {
+  ThumbnailExecutionListingChoice,
   ThumbnailExecutionPrepareResponse,
   ThumbnailExecutionReportRequest,
   ThumbnailExecutionResult,
@@ -201,6 +202,21 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     }));
   }
 
+  async listingChoices(input: { organizationId: string; generationId: string }): Promise<ThumbnailExecutionListingChoice[]> {
+    const thumbnail = await this.content.read(input);
+    const listings = await this.persistence.findListingChoices({
+      organizationId: input.organizationId,
+      salesProductId: thumbnail.salesProductId,
+      workspaceListingId: thumbnail.channelListingId,
+    });
+    return listings.map((listing) => ({
+      channelListingId: listing.id,
+      channelName: listing.channelName,
+      channelAccountName: listing.channelAccountName,
+      externalId: listing.externalId,
+    }));
+  }
+
   async resend(input: { organizationId: string; executionId: string }): Promise<ThumbnailExecutionPrepareResponse> {
     const live = await this.persistence.readLivePayload(input);
     if (live.mode === 'not_found') throw new ChannelNotFoundError('썸네일 반영 실행을 찾을 수 없습니다');
@@ -240,7 +256,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       salesProductId: thumbnail.salesProductId,
     }));
     const account = resolveThumbnailAccount(evidence);
-    if (!account.ok) throw new ChannelInputError(ACCOUNT_MESSAGES[account.reason]);
+    if (!account.ok) throw new ChannelInputError({ message: ACCOUNT_MESSAGES[account.reason], code: account.reason });
     const productName = thumbnailProductName(evidence.listingChannelName, thumbnail.workspaceDisplayName);
     if (!productName) throw new ChannelInputError('쿠팡 등록 상품명을 찾을 수 없습니다');
     const image = await this.content.loadImage({ organizationId, generationId, url: thumbnail.image.url });

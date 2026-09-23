@@ -262,6 +262,7 @@ export const queryKeys = {
   thumbnailExecutions: {
     all: ['thumbnailExecutions'] as const,
     latest: (generationIds: readonly string[]) => [...queryKeys.thumbnailExecutions.all, 'latest', [...generationIds]] as const,
+    listingChoices: (generationId: string) => [...queryKeys.thumbnailExecutions.all, 'listingChoices', generationId] as const,
   },
   channelAccounts: {
     all: ['channelAccounts'] as const,

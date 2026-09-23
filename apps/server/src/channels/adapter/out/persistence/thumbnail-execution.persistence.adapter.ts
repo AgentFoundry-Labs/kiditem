@@ -79,6 +79,25 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     return evidence(null);
   }
 
+  async findListingChoices(input: { organizationId: string; salesProductId: string | null; workspaceListingId: string | null }) {
+    const scope = input.salesProductId
+      ? { salesProductId: input.salesProductId }
+      : input.workspaceListingId ? { id: input.workspaceListingId } : null;
+    if (!scope) return [];
+    const listings = await this.prisma.channelListing.findMany({
+      where: { organizationId: input.organizationId, isActive: true, channelAccount: { channel: COUPANG_CHANNEL, status: 'active' }, ...scope },
+      select: { id: true, channelName: true, externalId: true, channelAccount: { select: { name: true } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 50,
+    });
+    return listings.map((listing) => ({
+      id: listing.id,
+      channelName: listing.channelName,
+      channelAccountName: listing.channelAccount.name,
+      externalId: listing.externalId,
+    }));
+  }
+
   async createExecuting(input: {
     organizationId: string;
     requestedByUserId: string | null;

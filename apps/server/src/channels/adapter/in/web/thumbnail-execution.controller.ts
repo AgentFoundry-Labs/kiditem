@@ -64,6 +64,15 @@ export class ThumbnailExecutionController {
     return this.executions.markNotApplied({ organizationId, requestedByUserId: user?.id ?? null, executionId });
   }
 
+  /** 판매상품에 쿠팡 listing 이 여럿일 때 운영자가 고를 목록. */
+  @Get('listing-choices')
+  async listingChoices(
+    @CurrentOrganization() organizationId: string,
+    @Query('generationId', new ParseUUIDPipe()) generationId: string,
+  ) {
+    return { items: await this.executions.listingChoices({ organizationId, generationId }) };
+  }
+
   @Get()
   async listLatest(@CurrentOrganization() organizationId: string, @Query('generationIds') generationIds: string | undefined) {
     const parsed = ThumbnailExecutionStatusQuerySchema.safeParse({

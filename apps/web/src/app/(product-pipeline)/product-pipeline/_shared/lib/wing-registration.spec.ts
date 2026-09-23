@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { ApiError } from '@/lib/api-error';
 import {
   EXTENSION_REQUIRED_MESSAGE,
+  WingListingChoiceRequiredError,
+  fetchWingListingChoices,
   confirmWingThumbnailApplied,
   markWingThumbnailNotApplied,
   registerWingThumbnailViaExtension,
@@ -12,6 +15,7 @@ import {
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     post: vi.fn(),
+    get: vi.fn(),
   },
 }));
 
@@ -144,5 +148,35 @@ describe('registerWingThumbnailViaExtension', () => {
     await expect(confirmWingThumbnailApplied(EXECUTION_ID)).resolves.toMatchObject({ success: true });
 
     expect(mockedApiPost).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION_ID}/applied`, {});
+  });
+
+  it('asks the operator to pick a listing when the product has several, without touching the extension', async () => {
+    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
+    mockedApiPost.mockRejectedValueOnce(new ApiError(400, 'Bad Request', '쿠팡 listing 이 여럿입니다 — listing을 고르세요', { code: 'ambiguous_coupang_listing' }));
+
+    const error = await registerWingThumbnailViaExtension('gen-1').catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(WingListingChoiceRequiredError);
+    expect(error).toMatchObject({ generationId: 'gen-1', message: '쿠팡 listing 이 여럿입니다 — listing을 고르세요' });
+    expect(mockedSendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('prepares with the listing the operator picked', async () => {
+    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
+    mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, status: 'reconciling', screenshotPath: null });
+    mockedSendToExtension.mockResolvedValueOnce({ success: true });
+
+    await registerWingThumbnailViaExtension('gen-1', { channelListingId: 'listing-2' });
+
+    expect(mockedApiPost).toHaveBeenNthCalledWith(1, '/api/channels/thumbnail-executions', { generationId: 'gen-1', channelListingId: 'listing-2' });
+  });
+
+  it('reads the listings the operator can pick from Channels', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ items: [{ channelListingId: 'listing-2', channelName: '두번째', channelAccountName: 'Wing', externalId: '99' }] });
+
+    await expect(fetchWingListingChoices('gen-1')).resolves.toEqual([
+      { channelListingId: 'listing-2', channelName: '두번째', channelAccountName: 'Wing', externalId: '99' },
+    ]);
+    expect(apiClient.get).toHaveBeenCalledWith('/api/channels/thumbnail-executions/listing-choices?generationId=gen-1');
   });
 });

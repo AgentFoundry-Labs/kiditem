@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { RegistrationPendingSection } from './RegistrationPendingSection';
 
@@ -68,5 +69,22 @@ describe('RegistrationPendingSection checking actions', () => {
     fireEvent.click(screen.getByRole('button', { name: '반영됨으로 표시' }));
 
     await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/applied`, {}));
+  });
+
+  it('lets the operator pick one of several Coupang listings in the batch result and upload with it', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
+      if (href.includes('listing-choices')) return { items: [{ channelListingId: '00000000-0000-4000-8000-0000000000a2', channelName: 'B', channelAccountName: 'Wing', externalId: '2' }] };
+      return { items: [] };
+    });
+    vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError(400, 'Bad Request', '쿠팡 listing 이 여럿입니다 — listing을 고르세요', { code: 'ambiguous_coupang_listing' }));
+    renderSection();
+
+    fireEvent.click(await screen.findByRole('button', { name: '쿠팡 등록 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 1장 쿠팡 등록/ }));
+
+    expect(await screen.findByRole('combobox', { name: '쿠팡 listing' })).toBeTruthy();
+    expect(sendToExtension).not.toHaveBeenCalled();
   });
 });

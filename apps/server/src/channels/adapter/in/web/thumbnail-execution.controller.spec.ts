@@ -21,6 +21,7 @@ describe('ThumbnailExecutionController', () => {
     expect(route('prepare')).toEqual({ path: '/', method: RequestMethod.POST });
     expect(route('report')).toEqual({ path: ':executionId/report', method: RequestMethod.POST });
     expect(route('listLatest')).toEqual({ path: '/', method: RequestMethod.GET });
+    expect(route('listingChoices')).toEqual({ path: 'listing-choices', method: RequestMethod.GET });
     expect(route('dismissFailed')).toEqual({ path: 'failed/:generationId', method: RequestMethod.DELETE });
     expect(route('resend')).toEqual({ path: ':executionId/resend', method: RequestMethod.POST });
     expect(route('confirmApplied')).toEqual({ path: ':executionId/applied', method: RequestMethod.POST });

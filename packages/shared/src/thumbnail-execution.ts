@@ -64,6 +64,24 @@ export const ThumbnailExecutionResultSchema = z.object({
 }).strict();
 export type ThumbnailExecutionResult = z.infer<typeof ThumbnailExecutionResultSchema>;
 
+/**
+ * 판매상품에 쿠팡 listing 이 여럿이면 준비가 `code: 'ambiguous_coupang_listing'` 400 으로 답한다.
+ * 화면은 이 목록에서 하나를 골라 `channelListingId` 와 함께 다시 준비한다.
+ */
+export const THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE = 'ambiguous_coupang_listing' as const;
+
+export const ThumbnailExecutionListingChoiceSchema = z.object({
+  channelListingId: z.string().uuid(),
+  channelName: z.string().nullable(),
+  channelAccountName: z.string(),
+  externalId: z.string(),
+}).strict();
+export type ThumbnailExecutionListingChoice = z.infer<typeof ThumbnailExecutionListingChoiceSchema>;
+
+export const ThumbnailExecutionListingChoiceListSchema = z.object({
+  items: z.array(ThumbnailExecutionListingChoiceSchema),
+}).strict();
+
 export const ThumbnailExecutionStatusQuerySchema = z.object({
   generationIds: z.array(z.string().uuid()).min(1).max(200),
 }).strict();
