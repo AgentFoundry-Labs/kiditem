@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -97,7 +97,13 @@ export default function ProductEditHeader({
     enabled: detailGenerationEnabled && !onOpenDetailTemplateGeneration && !!detailGenerationContentWorkspaceId,
     contentWorkspaceId: detailGenerationContentWorkspaceId,
   });
-  const generateBusy = isPending || kp.isPending || !!kpInProgress;
+  // 첫 생성은 서버가 초안의 작업공간을 만든다. 그 작업공간을 다시 읽기 전에는 진행 조회가 돌지
+  // 않으므로, 그동안 버튼을 막아 두 번째 유료 생성을 시작하지 못하게 한다(작업공간이 오면 풀린다).
+  const [awaitingDraftWorkspace, setAwaitingDraftWorkspace] = useState(false);
+  useEffect(() => {
+    if (detailGenerationContentWorkspaceId) setAwaitingDraftWorkspace(false);
+  }, [detailGenerationContentWorkspaceId]);
+  const generateBusy = isPending || kp.isPending || !!kpInProgress || awaitingDraftWorkspace;
   const accountsQuery = useQuery({
     queryKey: queryKeys.channelAccounts.active(),
     queryFn: () => channelListingsApi.listAccounts(),
@@ -156,7 +162,9 @@ export default function ProductEditHeader({
       return;
     }
     if (templateId === 'kids-playful' || templateId === 'bold-vertical') {
-      kp.trigger({
+      const firstGeneration = !detailGenerationContentWorkspaceId;
+      if (firstGeneration) setAwaitingDraftWorkspace(true);
+      void kp.trigger({
         salesProductId,
         sourceCandidateId,
         contentWorkspaceId: detailGenerationContentWorkspaceId,
@@ -165,6 +173,15 @@ export default function ProductEditHeader({
         templateId: templateId as DetailPageTemplateId,
         generationMode: templateId === 'kids-playful' ? 'full' : mode,
         imageUrls,
+      }).then((result) => {
+        if (!result) {
+          // 시작하지 못했다(입력 부족 · 요청 실패) — 다시 누를 수 있게 푼다.
+          setAwaitingDraftWorkspace(false);
+          return;
+        }
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.contentWorkspaces.forSalesProduct(salesProductId),
+        });
       });
       return;
     }

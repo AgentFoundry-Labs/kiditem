@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { queryKeys } from '@/lib/query-keys';
 import ProductEditHeader from './ProductEditHeader';
 
 // 네트워크(apiClient)만 막는다 — 생성 훅은 진짜 것이 요청을 만든다.
@@ -8,11 +9,10 @@ const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-function renderHeader(props: { contentWorkspaceId: string | null; sourceCandidateId: string | null }) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return render(
+let queryClient: QueryClient;
+
+function header(props: { contentWorkspaceId: string | null; sourceCandidateId: string | null }) {
+  return (
     <QueryClientProvider client={queryClient}>
       <ProductEditHeader
         productName="자석 다트게임"
@@ -28,8 +28,15 @@ function renderHeader(props: { contentWorkspaceId: string | null; sourceCandidat
         onToggleLocked={vi.fn()}
         onBack={vi.fn()}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+}
+
+function renderHeader(props: { contentWorkspaceId: string | null; sourceCandidateId: string | null }) {
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(header(props));
 }
 
 function generateRequests() {
@@ -76,5 +83,27 @@ describe('ProductEditHeader 상세페이지 생성', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(api.get.mock.calls.filter(([url]) => String(url).startsWith('/api/ai/detail-page'))).toEqual([]);
+  });
+
+  it('refreshes the draft workspace after a first generation and blocks a second paid click until it arrives (M3)', async () => {
+    const view = renderHeader({ contentWorkspaceId: null, sourceCandidateId: 'candidate-1' });
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    fireEvent.click(screen.getByRole('button', { name: /상세페이지 생성/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /생성 시작/ }));
+    await waitFor(() => expect(generateRequests()).toHaveLength(1));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.contentWorkspaces.forSalesProduct('sales-product-1'),
+    }));
+    // 작업공간 조회가 새로 오기 전에는 다시 눌러도 두 번째 생성이 시작되지 않는다.
+    const busy = screen.getByRole('button', { name: /생성 중/ });
+    expect(busy).toBeDisabled();
+    fireEvent.click(busy);
+    expect(generateRequests()).toHaveLength(1);
+
+    // 작업공간이 생기면 그 작업공간의 진행 조회가 버튼을 맡는다.
+    view.rerender(header({ contentWorkspaceId: '44444444-4444-4444-8444-444444444444', sourceCandidateId: 'candidate-1' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /상세페이지 생성/ })).toBeEnabled());
   });
 });
