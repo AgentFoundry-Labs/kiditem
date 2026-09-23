@@ -29,7 +29,7 @@ function snapshot(): TargetExecutionSnapshot {
       channelOverrides: [{ mallKey: 'smartstore', adapterValues: { quantity: '2' } }],
     } as unknown as TargetExecutionSnapshot['product'],
     detailPage: null,
-    registrationInput: { smartstoreCategory: '50004643:기타감각발달완구' },
+    registrationInput: { mallCategory: null, mallFields: { smartstoreCategory: '50004643:기타감각발달완구' }, adapter: {} },
   };
 }
 
@@ -321,32 +321,38 @@ describe('valuesForTargetExecution', () => {
 
   it('uses explicit frozen submission edits over saved settings without changing those settings', () => {
     const frozen = snapshot();
-    frozen.registrationInput = { quantity: '3', certNumber: 'saved' };
+    frozen.registrationInput = { mallCategory: null, mallFields: { quantity: '3', certNumber: 'saved' }, adapter: {} };
     frozen.adapterValues = { quantity: '4', certNumber: '' };
     expect(valuesForTargetExecution(frozen, 'smartstore', adapter(vi.fn()))).toMatchObject({ quantity: '4', certNumber: '' });
-    expect(frozen.registrationInput).toEqual({ quantity: '3', certNumber: 'saved' });
+    expect(frozen.registrationInput.mallFields).toEqual({ quantity: '3', certNumber: 'saved' });
   });
 
-  it('maps frozen #554 saved values and the frozen mall supply price (mallFields.supplyPrice) into adapter input', () => {
+  it('passes the target\'s mall category, mall fields and this channel\'s adapter values, and nothing else from registrationInput', () => {
     const target = snapshot();
+    target.product.channelOverrides = [];
+    target.adapterDefaults = {};
     target.registrationInput = {
-      mallRegisterShared: { certNumber: 'CB-FROZEN-1' },
-      mallRegisterValues: { smartstore: { smartstoreCategory: '50000001:Frozen' } },
-      smartstore: { quantity: 3 },
-      mallFields: { supplyPrice: 4700 },
-    };
-    target.adapterDefaults = { quantity: '1', smartstoreCategory: '', certNumber: '', supplyPrice: '' };
-    const values = valuesForTargetExecution(target, 'smartstore', adapter(vi.fn(), [
-      { key: 'quantity', label: '수량', origin: 'override', control: 'text', defaultValue: '1', required: true },
-      { key: 'smartstoreCategory', label: '카테고리', origin: 'override', control: 'text', defaultValue: '', required: false },
-      { key: 'certNumber', label: '인증', origin: 'override', control: 'text', defaultValue: '', required: false },
-      { key: 'supplyPrice', label: '공급가', origin: 'override', control: 'text', defaultValue: '', required: false },
-    ]));
+      mallCategory: { key: '50000001', label: '완구>감각발달' },
+      mallFields: { sabangnetCategory: '001002', stockPercent: 80, supplyPrice: 4700, sabangnetTemplate: null },
+      adapter: { coupang: { wingCategoryKey: '77777', linkedOptions: { a: 1 } }, smartstore: { storeKey: 'S-1' } },
+      mallRegisterShared: { certNumber: 'OLD-SHAPE' },
+      salePrice: 1,
+    } as unknown as TargetExecutionSnapshot['registrationInput'];
 
-    expect(values).toMatchObject({
-      quantity: '3',
-      smartstoreCategory: '50000001:Frozen',
-      certNumber: 'CB-FROZEN-1',
+    expect(valuesForTargetExecution(target, 'coupang', adapter(vi.fn()))).toEqual({
+      mallCategoryKey: '50000001',
+      mallCategoryLabel: '완구>감각발달',
+      sabangnetCategory: '001002',
+      stockPercent: '80',
+      supplyPrice: '4700',
+      wingCategoryKey: '77777',
+      linkedOptions: JSON.stringify({ a: 1 }),
+    });
+    expect(valuesForTargetExecution(target, 'teacherville', adapter(vi.fn()))).toEqual({
+      mallCategoryKey: '50000001',
+      mallCategoryLabel: '완구>감각발달',
+      sabangnetCategory: '001002',
+      stockPercent: '80',
       supplyPrice: '4700',
     });
   });

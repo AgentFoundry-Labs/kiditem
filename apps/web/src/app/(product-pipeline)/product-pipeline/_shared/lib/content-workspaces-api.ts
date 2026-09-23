@@ -108,6 +108,20 @@ export const contentWorkspacesApi = {
   },
 
   /**
+   * 판매상품 작업공간의 현재 상세 HTML — 허브가 읽는 길(작업공간의 현재 상세 생성 → 저장된 HTML)이다.
+   * 작업공간이나 상세가 없으면 `null`. 판매상품 필드로 대신하지 않는다(KID-313).
+   */
+  async getCurrentDetailHtml(salesProductId: string): Promise<string | null> {
+    const workspace = await contentWorkspacesApi.getForSalesProduct(salesProductId);
+    const generationId = workspace?.currentDetailPageGenerationId;
+    if (!generationId) return null;
+    const saved = await apiClient.get<{ html: string | null }>(
+      `/api/ai/detail-page/${encodeURIComponent(generationId)}/edited-html`,
+    );
+    return saved.html?.trim() ? saved.html : null;
+  },
+
+  /**
    * 초안의 등록용 사진과 저장한 대표 썸네일. 콘텐츠를 만든 적이 없으면 빈 목록과 `null` 이다 —
    * 원천 기록(수집상품)을 거쳐 읽지 않는다.
    */

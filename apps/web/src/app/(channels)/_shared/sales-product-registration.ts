@@ -7,6 +7,7 @@ import {
   type MallProductVariant,
 } from '../../(product-pipeline)/product-pipeline/_shared/lib/mall-product-draft';
 import { prepareMallRegistration } from '../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { contentWorkspacesApi } from '../../(product-pipeline)/product-pipeline/_shared/lib/content-workspaces-api';
 import { publishItemSalesProductId, type MallPublishItem } from './mall-publish-adapter';
 
 /**
@@ -145,14 +146,13 @@ export async function prepareRegistration(
   mallKey: string,
 ): Promise<{ draft: MallProductDraft }> {
   if (item.source === 'sales_product') {
-    const product = item.targetExecution?.snapshot.product
-      ?? await salesProductApi.get(item.candidateId);
-    const draft = salesProductToMallProductDraft(
-      product,
-      mallKey,
-      item.targetExecution?.snapshot.registrationInput,
-      item.targetExecution?.snapshot.detailPage?.html ?? null,
-    );
+    const snapshot = item.targetExecution?.snapshot;
+    const product = snapshot?.product ?? await salesProductApi.get(item.candidateId);
+    // 동결된 실행이 없으면(바로 등록) 작업공간의 현재 상세를 Content 에서 읽는다 — 판매상품 필드가 아니다.
+    const detailHtml = snapshot
+      ? snapshot.detailPage?.html ?? null
+      : await contentWorkspacesApi.getCurrentDetailHtml(product.id);
+    const draft = salesProductToMallProductDraft(product, mallKey, snapshot?.registrationInput, detailHtml);
     if (draft.variants.length === 0) throw new Error('보낼 단품이 없습니다. 모든 단품이 미사용입니다.');
     if (draft.detailImageUrls.length === 0) throw new Error('상세 이미지가 없습니다. 판매상품 상세에 이미지를 넣으세요.');
     return { draft };

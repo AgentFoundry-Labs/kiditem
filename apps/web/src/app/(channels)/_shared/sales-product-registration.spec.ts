@@ -5,6 +5,9 @@ vi.mock('@/lib/sales-product-api', () => ({ salesProductApi: { get: vi.fn() } })
 vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api', () => ({
   prepareMallRegistration: vi.fn(),
 }));
+vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/content-workspaces-api', () => ({
+  contentWorkspacesApi: { getCurrentDetailHtml: vi.fn() },
+}));
 
 const {
   detailImageUrlsFromHtml,
@@ -211,5 +214,27 @@ describe('sales product → mall draft', () => {
 
     expect(salesProductApi.get).not.toHaveBeenCalled();
     expect(draft.draft.displayName).toBe('frozen target name');
+  });
+
+  it('builds a sales-product item without a snapshot from the workspace\'s current detail, and fails only when that is empty', async () => {
+    const live = product();
+    const { salesProductApi } = await import('@/lib/sales-product-api');
+    const { contentWorkspacesApi } = await import('../../(product-pipeline)/product-pipeline/_shared/lib/content-workspaces-api');
+    vi.mocked(salesProductApi.get).mockResolvedValue(live as never);
+    const item = {
+      candidateId: live.id,
+      name: live.name,
+      salePrice: live.options[0]!.salePrice,
+      thumbnailUrl: live.imageUrls[0] ?? null,
+      source: 'sales_product' as const,
+    };
+
+    vi.mocked(contentWorkspacesApi.getCurrentDetailHtml).mockResolvedValue(DETAIL_HTML);
+    const { draft } = await prepareRegistration(item, 'smartstore');
+    expect(contentWorkspacesApi.getCurrentDetailHtml).toHaveBeenCalledWith(live.id);
+    expect(draft.detailImageUrls).toEqual(['http://kiditem.diskn.com/a', 'https://kiditem.diskn.com/b']);
+
+    vi.mocked(contentWorkspacesApi.getCurrentDetailHtml).mockResolvedValue(null);
+    await expect(prepareRegistration(item, 'smartstore')).rejects.toThrow('상세 이미지가 없습니다');
   });
 });
