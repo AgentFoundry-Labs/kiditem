@@ -70,6 +70,12 @@ const TARGET_EXECUTION_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 
  * 등록 대상 실행 행. 같은 표의 대표이미지 반영(`thumbnail_update`)이나 listing 가용성 실행 id 가
  * 이 경로에 오면 없는 실행으로 답한다.
  */
+/** listing 가용성(품절 · 재개) 실행 행. 다른 종류의 id 는 없는 실행으로 답한다. */
+const LISTING_AVAILABILITY_ROW = {
+  registrationTargetId: null,
+  executionKind: { in: ['sold_out', 'resume'] },
+} satisfies Prisma.ProductRegistrationExecutionWhereInput;
+
 const TARGET_EXECUTION_ROW = {
   registrationTargetId: { not: null },
   executionKind: { in: [...TargetExecutionKindSchema.options] },
@@ -289,7 +295,7 @@ export class RegistrationExecutionRepositoryAdapter
     return this.prisma.$transaction(async (tx) => {
       await lockExecution(tx, input.organizationId, input.executionId);
       const execution = await tx.productRegistrationExecution.findFirst({
-        where: { id: input.executionId, organizationId: input.organizationId },
+        where: { id: input.executionId, organizationId: input.organizationId, ...LISTING_AVAILABILITY_ROW },
       });
       if (!execution) throw new NotFoundException('Listing availability execution not found.');
       if (execution.requestedByUserId !== input.requestedByUserId) {
@@ -344,7 +350,7 @@ export class RegistrationExecutionRepositoryAdapter
     return this.prisma.$transaction(async (tx) => {
       await lockExecution(tx, input.organizationId, input.executionId);
       const execution = await tx.productRegistrationExecution.findFirst({
-        where: { id: input.executionId, organizationId: input.organizationId },
+        where: { id: input.executionId, organizationId: input.organizationId, ...LISTING_AVAILABILITY_ROW },
       });
       if (!execution) throw new NotFoundException('Listing availability execution not found.');
       if (execution.requestedByUserId !== input.requestedByUserId) {
