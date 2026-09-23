@@ -113,8 +113,6 @@ export type ProductInventoryMatchingSaveInput = {
   options: Array<{ channelListingOptionId: string } & ReplaceChannelOptionInventoryInput>;
 };
 
-/** Shown when another screen changed the recipe after this one loaded it (409). */
-export const RECIPE_CHANGED_ELSEWHERE_MESSAGE = '다른 곳에서 구성이 바뀌었습니다. 새로고침 후 다시 적용하세요.';
 
 export async function saveProductInventoryMatching(
   input: ProductInventoryMatchingSaveInput,

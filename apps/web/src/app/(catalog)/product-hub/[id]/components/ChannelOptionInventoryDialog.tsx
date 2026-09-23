@@ -18,6 +18,7 @@ import {
 } from '@kiditem/shared/product-operations';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { recipeConflictMessage } from '@/lib/recipe-conflict';
 import { queryKeys } from '@/lib/query-keys';
 import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
 
@@ -143,9 +144,8 @@ export function ChannelOptionInventoryDialog({
     });
   };
   const errorMessage = mutation.error
-    ? (isApiError(mutation.error) && mutation.error.status === 409
-      ? '다른 곳에서 구성이 바뀌었습니다. 새로고침 후 다시 적용하세요.'
-      : isApiError(mutation.error) ? mutation.error.detail : '옵션 레시피를 저장하지 못했습니다.')
+    ? recipeConflictMessage(mutation.error)
+      ?? (isApiError(mutation.error) ? mutation.error.detail : '옵션 레시피를 저장하지 못했습니다.')
     : null;
 
   return (

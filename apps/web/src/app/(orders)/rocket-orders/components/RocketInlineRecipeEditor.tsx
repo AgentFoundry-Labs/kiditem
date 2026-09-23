@@ -10,7 +10,8 @@ import {
 } from "@kiditem/shared/product-operations";
 import type { RocketPurchasePreviewComponent } from "@kiditem/shared/rocket-purchase-preview";
 import { apiClient } from "@/lib/api-client";
-import { friendlyError, isApiError } from "@/lib/api-error";
+import { friendlyError } from "@/lib/api-error";
+import { recipeConflictMessage } from "@/lib/recipe-conflict";
 import { queryKeys } from "@/lib/query-keys";
 import { SellpiaOutOfStockToggle } from "@/components/SellpiaOutOfStockToggle";
 import { toast } from "sonner";
@@ -171,9 +172,9 @@ export function RocketInlineRecipeEditor({
   const errorMessage = product.error
     ? "현재 Sellpia 재고 구성을 불러오지 못했습니다."
     : save.error
-      ? (isApiError(save.error) && save.error.status === 409
-        ? "다른 곳에서 구성이 바뀌었습니다. 새로고침 후 다시 적용하세요."
-        : friendlyError(save.error) ?? "Sellpia 재고 구성을 저장하지 못했습니다.")
+      ? (recipeConflictMessage(save.error)
+        ?? friendlyError(save.error)
+        ?? "Sellpia 재고 구성을 저장하지 못했습니다.")
       : null;
 
   return (

@@ -7,13 +7,13 @@ import { toast } from 'sonner';
 import type { ProductRecipeComponentCandidate } from '@kiditem/shared/product-operations';
 import type { ChannelOptionMatchingQueueRow, ChannelProductMatchingQueueRow } from '@kiditem/shared/channel-product-matching';
 import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
-import { friendlyError, isApiError } from '@/lib/api-error';
+import { friendlyError } from '@/lib/api-error';
+import { recipeConflictMessage } from '@/lib/recipe-conflict';
 import { formatNumber } from '@/lib/utils';
 import {
   useRecipeComponentCandidates,
   useSaveProductInventoryMatching,
 } from '../hooks/useChannelSkuMappings';
-import { RECIPE_CHANGED_ELSEWHERE_MESSAGE } from '../lib/channel-sku-matching-api';
 
 type Props = {
   open: boolean;
@@ -244,7 +244,7 @@ function loadedRecipe({ option }: ChannelOptionMatchingQueueRow) {
 }
 
 function saveErrorMessage(error: unknown): string | null {
-  return isApiError(error) && error.status === 409 ? RECIPE_CHANGED_ELSEWHERE_MESSAGE : friendlyError(error);
+  return recipeConflictMessage(error) ?? friendlyError(error);
 }
 
 function optionSearch(row?: ChannelOptionMatchingQueueRow): string {
