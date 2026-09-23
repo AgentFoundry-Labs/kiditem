@@ -112,7 +112,7 @@ describe('GenerationCompletionWatcher', () => {
     view.rerender(<GenerationCompletionWatcher />);
 
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
-    const toastOptions = vi.mocked(toast.success).mock.calls[0][1] as { action: { onClick: () => void } };
+    const toastOptions = vi.mocked(toast.success).mock.calls[0][1] as unknown as { action: { onClick: () => void } };
     toastOptions.action.onClick();
     // 등록상품 화면 주소는 리스팅 id 로 연다 — 작업공간 id 로 만들면 열리지 않는 주소가 된다.
     expect(mockPush).toHaveBeenCalledWith('/product-pipeline/detail-pages/generation-245/editor');
