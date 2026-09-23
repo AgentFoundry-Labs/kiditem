@@ -1,30 +1,16 @@
 /**
- * 몰에서 읽은 옵션별 최종 판매가를 기존 등록 대상에 반영할 계획을 만든다.
+ * 몰에서 읽은 옵션 판매가를 판매 상품 옵션에 반영할 계획을 만든다 — 순수 함수(KID-313 W2).
  *
- * `RegistrationTarget`이 상품 × 계정의 유일한 가격 저장소다. 이 모듈은
- * 저장소를 직접 쓰지 않고, 같은 옵션에 서로 다른 몰 가격이 있거나 대상이
- * 여러 개/없는 경우에는 계획을 만들지 않는다.
+ * 가격은 판매 상품 옵션 한 곳에만 있다. 등록 대상은 가격을 갖지 않으므로, 몰에 걸린 값이 모든 몰에서
+ * 같을 때만 그 값을 옵션 판매가로 받는다. 같은 옵션이 몰마다 다른 값으로 팔리면 어느 값을 정본으로
+ * 삼을지 근거가 없어 그 상품은 계획을 만들지 않고 충돌로 남긴다. 이 모듈은 저장소를 직접 쓰지 않는다.
  */
-
-export interface MallPriceCandidateTargetOption {
-  salesProductOptionId: string;
-  salePrice: number | null;
-  normalPrice: number | null;
-  supplyPrice: number | null;
-}
-
-export interface MallPriceCandidateTarget {
-  id: string;
-  channelAccountId: string;
-  version: number;
-  selectedOptions: MallPriceCandidateTargetOption[];
-}
 
 export interface MallPriceCandidateProduct {
   id: string;
+  /** 판매 상품 버전 — 쓰는 쪽이 이 버전일 때만 옵션 판매가를 바꾼다. */
+  version: number;
   options: { id: string; salePrice: number | null; normalPrice: number | null }[];
-  /** 살아 있는 등록 대상. 같은 계정에 여러 개가 있으면 채택하지 않는다. */
-  targets: MallPriceCandidateTarget[];
 }
 
 export interface MallPriceCandidateListingOption {
@@ -34,15 +20,13 @@ export interface MallPriceCandidateListingOption {
 }
 
 /** 기존 public 결과 스키마를 유지하는 동안 세부 충돌은 하나의 이유로 투영한다. */
-export type MallPriceConflictReason = 'options_disagree' | 'below_extra_price';
+export type MallPriceConflictReason = 'options_disagree';
 
 export interface MallPriceAdoptionWrite {
   salesProductId: string;
-  channelAccountId: string;
-  /** compatibility caller가 읽던 대표값. 실제 저장은 optionPrices를 사용한다. */
-  salePrice: number;
-  targetId: string;
   expectedVersion: number;
+  /** 가격 근거가 된 몰 계정(결과 요약의 몰별 수). */
+  channelAccountIds: string[];
   optionPrices: { salesProductOptionId: string; salePrice: number }[];
 }
 
@@ -50,28 +34,20 @@ export interface MallPriceAdoptionPlan {
   writes: MallPriceAdoptionWrite[];
   conflicts: {
     salesProductId: string;
-    channelAccountId: string;
+    channelAccountIds: string[];
     reason: MallPriceConflictReason;
     prices: number[];
   }[];
-  /** 몰 가격이 이미 등록 대상의 옵션별 최종가와 같은 상품 × 몰. */
+  /** 몰 가격이 이미 옵션 판매가와 같은 상품. */
   unchanged: number;
 }
 
-interface PairEvidence {
+interface ProductEvidence {
   product: MallPriceCandidateProduct;
-  channelAccountId: string;
   pricesByOption: Map<string, Set<number>>;
+  accountsByOption: Map<string, Set<string>>;
 }
 
-/**
- * 활성 몰 옵션의 가격을 옵션별 최종가로 채택한다.
- *
- * 같은 옵션에 서로 다른 가격이 있으면 어떤 값을 저장할지 정할 근거가
- * 없으므로 충돌로 남긴다. 대상이 정확히 하나가 아니면 새 대상을 만들거나
- * 첫 대상을 고르지 않는다. 대상이 선택하지 않은 옵션의 가격만 들어온
- * 경우에도 같은 이유로 충돌 처리한다.
- */
 export function planMallPriceAdoption(input: {
   products: readonly MallPriceCandidateProduct[];
   listingOptions: readonly MallPriceCandidateListingOption[];
@@ -81,87 +57,55 @@ export function planMallPriceAdoption(input: {
     for (const option of product.options) productByOptionId.set(option.id, product);
   }
 
-  const pairs = new Map<string, PairEvidence>();
+  const evidenceByProduct = new Map<string, ProductEvidence>();
   for (const listingOption of input.listingOptions) {
     if (listingOption.salePrice === null) continue;
     const product = productByOptionId.get(listingOption.salesProductOptionId);
     if (!product) continue;
-    const key = `${product.id}|${listingOption.channelAccountId}`;
-    const evidence = pairs.get(key) ?? {
-      product,
-      channelAccountId: listingOption.channelAccountId,
-      pricesByOption: new Map<string, Set<number>>(),
-    };
+    const evidence = evidenceByProduct.get(product.id)
+      ?? { product, pricesByOption: new Map<string, Set<number>>(), accountsByOption: new Map<string, Set<string>>() };
     const prices = evidence.pricesByOption.get(listingOption.salesProductOptionId) ?? new Set<number>();
     prices.add(listingOption.salePrice);
     evidence.pricesByOption.set(listingOption.salesProductOptionId, prices);
-    pairs.set(key, evidence);
+    const accounts = evidence.accountsByOption.get(listingOption.salesProductOptionId) ?? new Set<string>();
+    accounts.add(listingOption.channelAccountId);
+    evidence.accountsByOption.set(listingOption.salesProductOptionId, accounts);
+    evidenceByProduct.set(product.id, evidence);
   }
 
   const plan: MallPriceAdoptionPlan = { writes: [], conflicts: [], unchanged: 0 };
-  for (const evidence of pairs.values()) {
-    const targets = evidence.product.targets.filter((target) => target.channelAccountId === evidence.channelAccountId);
-    const allPrices = [...evidence.pricesByOption.values()].flatMap((prices) => [...prices]);
-    const distinctPrices = [...new Set(allPrices)].sort((left, right) => left - right);
-    if (targets.length !== 1) {
+  for (const evidence of evidenceByProduct.values()) {
+    const accountIds = sortedUnique([...evidence.accountsByOption.values()].flatMap((accounts) => [...accounts]));
+    const disagreeing = [...evidence.pricesByOption.values()].find((prices) => prices.size > 1);
+    if (disagreeing) {
       plan.conflicts.push({
         salesProductId: evidence.product.id,
-        channelAccountId: evidence.channelAccountId,
+        channelAccountIds: accountIds,
         reason: 'options_disagree',
-        prices: distinctPrices,
+        prices: [...disagreeing].sort((left, right) => left - right),
       });
       continue;
     }
-
-    const target = targets[0]!;
-    const selectedIds = new Set(target.selectedOptions.map((option) => option.salesProductOptionId));
-    const unselectedEvidence = [...evidence.pricesByOption.keys()].some((id) => !selectedIds.has(id));
-    if (unselectedEvidence) {
-      plan.conflicts.push({
-        salesProductId: evidence.product.id,
-        channelAccountId: evidence.channelAccountId,
-        reason: 'options_disagree',
-        prices: distinctPrices,
-      });
+    const optionPrices = evidence.product.options.flatMap((option) => {
+      const [observed] = [...(evidence.pricesByOption.get(option.id) ?? [])];
+      return observed !== undefined && observed !== option.salePrice
+        ? [{ salesProductOptionId: option.id, salePrice: observed }]
+        : [];
+    });
+    if (optionPrices.length === 0) {
+      plan.unchanged += 1;
       continue;
     }
-
-    const canonicalById = new Map(evidence.product.options.map((option) => [option.id, option]));
-    const optionPrices: { salesProductOptionId: string; salePrice: number }[] = [];
-    let hasEvidence = false;
-    let optionConflict = false;
-    for (const selection of target.selectedOptions) {
-      const prices = evidence.pricesByOption.get(selection.salesProductOptionId);
-      if (!prices) continue;
-      hasEvidence = true;
-      if (prices.size !== 1) {
-        plan.conflicts.push({
-          salesProductId: evidence.product.id,
-          channelAccountId: evidence.channelAccountId,
-          reason: 'options_disagree',
-          prices: [...prices].sort((left, right) => left - right),
-        });
-        optionConflict = true;
-        break;
-      }
-      const [salePrice] = prices;
-      const canonical = canonicalById.get(selection.salesProductOptionId);
-      const current = selection.salePrice ?? canonical?.salePrice;
-      if (current !== salePrice) optionPrices.push({ salesProductOptionId: selection.salesProductOptionId, salePrice: salePrice! });
-    }
-    if (optionConflict || !hasEvidence || optionPrices.length === 0) {
-      if (!optionConflict && hasEvidence) plan.unchanged += 1;
-      continue;
-    }
-
     plan.writes.push({
       salesProductId: evidence.product.id,
-      channelAccountId: evidence.channelAccountId,
-      salePrice: optionPrices[0]!.salePrice,
-      targetId: target.id,
-      expectedVersion: target.version,
+      expectedVersion: evidence.product.version,
+      channelAccountIds: accountIds,
       optionPrices,
     });
   }
   return plan;
+}
+
+function sortedUnique(values: readonly string[]): string[] {
+  return [...new Set(values)].sort();
 }

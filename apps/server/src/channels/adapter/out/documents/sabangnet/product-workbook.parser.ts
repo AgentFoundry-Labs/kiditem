@@ -19,7 +19,6 @@ import type { SabangnetProductRow, SabangnetOptionRow, SabangnetChannelOverrideR
 export type { SabangnetProductRow, SabangnetOptionRow, SabangnetChannelOverrideRow, SabangnetSendRecordRow, SabangnetMallCategoryRow, SabangnetMallTemplateRow, ParsedSabangnetWorkbook } from '../../../../application/port/out/documents/channel-document.models';
 
 import { ChannelIntegrityAdapter } from '../../integrity/channel-integrity.adapter';
-import { sabangnetDetailDigests, type SabangnetDetailDigests } from '../../../../domain/sales-product/sales-product-reimport-merge';
 
 export class SabangnetWorkbookFormatError extends Error {}
 
@@ -175,11 +174,10 @@ const EXCLUDED_RAW = new Set(['상품상세설명', '추가상품상세설명_1'
 
 /**
  * 원문에 상세 대신 남기는 디지스트 키. 머리 이름은 '#' 으로 시작하지 않아 사방넷 칸과 겹치지 않는다.
- * 값은 `sabangnetDetailDigests` 가 만든다(빈 상세는 빈 문자열).
+ * 값은 상품상세설명의 sha256 이고 빈 상세는 빈 문자열이다. 추가상품상세설명은 보내는 곳이 없어 원문에도 남기지 않는다.
  */
 export const SABANGNET_DETAIL_DIGEST_KEYS = {
   detailHtml: '#digest:상품상세설명',
-  extraDetailHtml: '#digest:추가상품상세설명',
 } as const;
 
 const integrity = new ChannelIntegrityAdapter();
@@ -282,9 +280,6 @@ function productRowFromCells(
       .map((at) => (at >= 0 ? cellText(cells[at]) : ''))
       .filter((url) => /^https?:\/\//i.test(url)))],
     detailHtml: textOrNull(get(['상품상세설명'])),
-    extraDetailHtml: ['추가상품상세설명_1', '추가상품상세설명_2', '추가상품상세설명_3']
-      .map((header) => cellText(get([header])))
-      .filter(Boolean),
     certification: certNumber
       ? {
         number: certNumber,
@@ -318,46 +313,18 @@ function parseProducts(table: SheetTable): { rows: SabangnetProductRow[]; issues
       continue;
     }
     // 상세 HTML 은 원문에 담지 않고 디지스트만 남긴다 — 다시 가져올 때 사람이 고쳤는지 가르는 기준값이다.
-    const digests = sabangnetDetailDigests(parsed, integrity.sha256);
-    parsed.raw[SABANGNET_DETAIL_DIGEST_KEYS.detailHtml] = digests.detailHtml;
-    parsed.raw[SABANGNET_DETAIL_DIGEST_KEYS.extraDetailHtml] = digests.extraDetailHtml;
+    parsed.raw[SABANGNET_DETAIL_DIGEST_KEYS.detailHtml] = parsed.detailHtml ? integrity.sha256(parsed.detailHtml) : '';
     rows.push(parsed);
   }
   return { rows, issues };
 }
 
 /**
- * 시스템이 상세 HTML 을 고쳐 쓸 때(사진 옮기기) 기준값도 함께 옮긴다. 원문의 디지스트가 고치기 전 상세와
- * 같았던 칸만 고친 뒤 상세의 디지스트로 바꾼다 — 사람이 고친 상세(이미 기준값과 다르다)는 그대로 둔다.
- * 바꿀 칸이 없으면 null 이다.
- */
-export function restampSabangnetDetailDigests(
-  sourceRaw: unknown,
-  before: { detailHtml: string | null; extraDetailHtml: readonly string[] },
-  after: { detailHtml: string | null; extraDetailHtml: readonly string[] },
-): Record<string, unknown> | null {
-  if (!sourceRaw || typeof sourceRaw !== 'object' || Array.isArray(sourceRaw)) return null;
-  const raw = { ...(sourceRaw as Record<string, unknown>) };
-  const was = sabangnetDetailDigests(before, integrity.sha256);
-  const now = sabangnetDetailDigests(after, integrity.sha256);
-  let changed = false;
-  for (const field of ['detailHtml', 'extraDetailHtml'] as const) {
-    const key = SABANGNET_DETAIL_DIGEST_KEYS[field];
-    if (raw[key] !== was[field] || was[field] === now[field]) continue;
-    raw[key] = now[field];
-    changed = true;
-  }
-  return changed ? raw : null;
-}
-
-/**
  * 저장된 상품 원문(`SalesProduct.sourceRaw`)을 그 줄을 읽었던 매핑 그대로 다시 읽는다. 원문 키는 머리
- * 이름이고(같은 머리가 둘이면 뒤 것은 `머리#열번호`), 빈 칸은 없다. 상세는 원문에 없고 디지스트만 있다.
- * 디지스트를 남기기 전에 가져온 원문이면 `detailDigests` 는 null 이다.
+ * 이름이고(같은 머리가 둘이면 뒤 것은 `머리#열번호`), 빈 칸은 없다. 상세는 원문에 없고 디지스트만 있으며,
+ * 다시 읽을 때 디지스트 칸은 건너뛴다(상세의 장부는 Content revision 의 `source_digest` 다).
  */
-export function readSabangnetProductSource(
-  sourceRaw: unknown,
-): { row: SabangnetProductRow; detailDigests: SabangnetDetailDigests | null } | null {
+export function readSabangnetProductSource(sourceRaw: unknown): SabangnetProductRow | null {
   if (!sourceRaw || typeof sourceRaw !== 'object' || Array.isArray(sourceRaw)) return null;
   const entries = Object.entries(sourceRaw as Record<string, unknown>)
     .filter((entry): entry is [string, string] => typeof entry[1] === 'string');
@@ -365,16 +332,7 @@ export function readSabangnetProductSource(
   const columns = entries.filter(([key]) => !digestKeys.has(key));
   const headers = columns.map(([key]) => key.replace(/#\d+$/, ''));
   const parsed = productRowFromCells(headers, productColumnLayout(headers), 0, columns.map(([, value]) => value));
-  if ('issue' in parsed) return null;
-  const raw = sourceRaw as Record<string, unknown>;
-  const detailHtml = raw[SABANGNET_DETAIL_DIGEST_KEYS.detailHtml];
-  const extraDetailHtml = raw[SABANGNET_DETAIL_DIGEST_KEYS.extraDetailHtml];
-  return {
-    row: parsed,
-    detailDigests: typeof detailHtml === 'string' && typeof extraDetailHtml === 'string'
-      ? { detailHtml, extraDetailHtml }
-      : null,
-  };
+  return 'issue' in parsed ? null : parsed;
 }
 
 function trimTrailingBlanks(values: string[]): string[] {

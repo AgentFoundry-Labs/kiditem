@@ -285,47 +285,6 @@ model ChannelRegistrationOwnerIdempotencyReceipt {
   @@map("channel_registration_owner_idempotency_receipts")
 }
 
-/// @namespace Channels
-/// @describe Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다.
-model ChannelListingDeletionOperation {
-  id               String @id @default(uuid()) @db.Uuid
-  organizationId   String @map("organization_id") @db.Uuid
-  channelAccountId String @map("channel_account_id") @db.Uuid
-  channelListingId String @map("channel_listing_id") @db.Uuid
-
-  idempotencyKey            String @map("idempotency_key")
-  requestHash               String @map("request_hash")
-  externalListingId         String @map("external_listing_id")
-  expectedProviderAccountId String @map("expected_provider_account_id")
-
-  status          String @default("prepared")
-  providerOutcome String @default("not_attempted") @map("provider_outcome")
-
-  resultJson       Json?   @map("result_json") @db.JsonB
-  lastErrorCode    String? @map("last_error_code")
-  lastErrorMessage String? @map("last_error_message")
-
-  leaseToken             String?   @map("lease_token") @db.Uuid
-  leaseClaimedAt         DateTime? @map("lease_claimed_at") @db.Timestamptz
-  requestedByUserId      String?   @map("requested_by_user_id") @db.Uuid
-  authorizationExpiresAt DateTime? @map("authorization_expires_at") @db.Timestamptz
-  startedAt              DateTime? @map("started_at") @db.Timestamptz
-  completedAt            DateTime? @map("completed_at") @db.Timestamptz
-  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  channelAccount ChannelAccount @relation("ChannelAccountListingDeletionOperations", fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  channelListing ChannelListing @relation("ChannelListingDeletionOperations", fields: [channelListingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
-
-  @@unique([organizationId, idempotencyKey], map: "channel_listing_deletion_operations_org_idempotency_key")
-  @@unique([organizationId, channelListingId], map: "channel_listing_deletion_operations_active_listing_key", where: raw("status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
-  @@index([channelAccountId])
-  @@index([channelListingId])
-  @@index([requestedByUserId])
-  @@index([organizationId, status, createdAt])
-  @@map("channel_listing_deletion_operations")
-}
-
 // ── 몰 작업 관찰 기록 ───────────────────────────────────────────────────────
 //
 // 몰 송신 프로필은 `ChannelAccount.config.listingProfile`, 고시·KC 는 수집상품 초안
@@ -437,8 +396,6 @@ model SalesProduct {
   stockManaged         Boolean  @default(false) @map("stock_managed")
   /// [0] 대표, 그다음 추가 사진 순서.
   imageUrls            String[] @default([]) @map("image_urls")
-  detailHtml           String?  @map("detail_html")
-  extraDetailHtml      String[] @default([]) @map("extra_detail_html")
   /// 사방넷 속성분류코드(상품정보고시)와 그 순서대로의 값.
   noticeCategory       String?  @map("notice_category") @db.VarChar(10)
   noticeValues         String[] @default([]) @map("notice_values")
@@ -575,15 +532,12 @@ model RegistrationTarget {
 
   archivedAt DateTime? @map("archived_at") @db.Timestamptz
 
-  displayName String? @map("display_name")
+  /// 이 몰에 올릴 대표이미지 — Content 자산 id(교차 owner scalar id, FK 없음). 비면 워크스페이스의 현재 썸네일(KID-313 W2).
+  selectedThumbnailAssetId     String? @map("selected_thumbnail_asset_id") @db.Uuid
+  /// 이 몰에 올릴 상세 — Content revision id(교차 owner scalar id). 비면 워크스페이스의 현재 revision.
+  selectedDetailPageRevisionId String? @map("selected_detail_page_revision_id") @db.Uuid
 
-  selectedThumbnailUrl                   String? @map("selected_thumbnail_url")
-  selectedThumbnailGenerationId          String? @map("selected_thumbnail_generation_id") @db.Uuid
-  selectedThumbnailGenerationCandidateId String? @map("selected_thumbnail_generation_candidate_id") @db.Uuid
-  selectedDetailPageArtifactId           String? @map("selected_detail_page_artifact_id") @db.Uuid
-  selectedDetailPageRevisionId           String? @map("selected_detail_page_revision_id") @db.Uuid
-  selectedDetailPageGenerationId         String? @map("selected_detail_page_generation_id") @db.Uuid
-
+  /// 몰 전용 값만(shared `RegistrationMallInputSchema`: mallCategory · mallFields · adapter). 상품 사실은 두지 않는다(KID-313 W2).
   registrationInput Json @default("{}") @map("registration_input")
 
   createdByUserId String?  @map("created_by_user_id") @db.Uuid
@@ -603,11 +557,8 @@ model RegistrationTarget {
   @@index([salesProductId, organizationId])
   @@index([organizationId, archivedAt])
   @@index([channelAccountId])
-  @@index([selectedDetailPageArtifactId])
   @@index([selectedDetailPageRevisionId])
-  @@index([selectedDetailPageGenerationId])
-  @@index([selectedThumbnailGenerationId])
-  @@index([selectedThumbnailGenerationCandidateId])
+  @@index([selectedThumbnailAssetId])
   @@index([createdByUserId])
   @@map("registration_targets")
 }
@@ -620,9 +571,6 @@ model RegistrationTargetOption {
   registrationTargetId String @map("registration_target_id") @db.Uuid
   salesProductOptionId String @map("sales_product_option_id") @db.Uuid
   sortOrder            Int    @default(0) @map("sort_order")
-  salePrice            Int?   @map("sale_price")
-  normalPrice          Int?   @map("normal_price")
-  supplyPrice          Int?   @map("supply_price")
 
   preparation RegistrationTarget @relation(fields: [registrationTargetId, organizationId], references: [id, organizationId], onDelete: Cascade)
   option      SalesProductOption @relation(fields: [salesProductOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
@@ -651,11 +599,10 @@ model ChannelAccount {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  listings                         ChannelListing[]
-  productPreparations              RegistrationTarget[]
-  productRegistrationExecutions    ProductRegistrationExecution[]    @relation("ChannelAccountProductRegistrationExecutions")
-  channelListingDeletionOperations ChannelListingDeletionOperation[] @relation("ChannelAccountListingDeletionOperations")
-  channelScrapeRuns                ChannelScrapeRun[]
+  listings                      ChannelListing[]
+  productPreparations           RegistrationTarget[]
+  productRegistrationExecutions ProductRegistrationExecution[] @relation("ChannelAccountProductRegistrationExecutions")
+  channelScrapeRuns             ChannelScrapeRun[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")
@@ -700,10 +647,9 @@ model ChannelListing {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  channelAccount                ChannelAccount                    @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelAccount                ChannelAccount                 @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   options                       ChannelListingOption[]
-  productRegistrationExecutions ProductRegistrationExecution[]    @relation("ChannelListingProductRegistrationExecutions")
-  deletionOperations            ChannelListingDeletionOperation[] @relation("ChannelListingDeletionOperations")
+  productRegistrationExecutions ProductRegistrationExecution[] @relation("ChannelListingProductRegistrationExecutions")
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeSnapshots             ChannelScrapeSnapshot[]

@@ -683,8 +683,8 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
   it('저장된 카테고리 키를 수집상품 카테고리보다 우선한다', () => {
     const saved = detail(basics({ category: '물총' }));
     saved.registrationTarget = {
-      registrationInput: { wingCategoryKey: '64687' },
-    } as ProductDetailResponse['registrationTarget'];
+      registrationInput: { mallCategory: null, mallFields: {}, adapter: { coupang: { wingCategoryKey: '64687' } } },
+    } as unknown as ProductDetailResponse['registrationTarget'];
 
     expect(resolveWingCategoryKey(saved)).toBe('64687');
   });
@@ -734,8 +734,8 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     vi.mocked(resolveWingCategories).mockClear();
     const saved = detail(basics({ name: '저장 키링', category: '물총' }));
     saved.registrationTarget = {
-      registrationInput: { wingCategoryKey: '64687' },
-    } as ProductDetailResponse['registrationTarget'];
+      registrationInput: { mallCategory: null, mallFields: {}, adapter: { coupang: { wingCategoryKey: '64687' } } },
+    } as unknown as ProductDetailResponse['registrationTarget'];
     const aliased = detail(basics({ name: '원본 물총', category: '물총' }));
 
     await expect(resolveWingCategorySelections([saved, aliased])).resolves.toEqual([

@@ -39,6 +39,8 @@ import { MallCategorySuggester } from '../../../domain/registration/bulk-sheet/m
 import {
   pendingPublicImages,
   privateImageUrls,
+  sheetDetailPageRevisionId,
+  chosenDetailPageRevisionIds,
   toMallSheetProduct,
   unreadableSheetImages,
   type MallSheetSourceProduct,
@@ -47,6 +49,7 @@ import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SalesProductRepositoryPort,
 } from '../../port/out/persistence/sales-product.repository.port';
+import type { ChannelRegistrableDetailPagePort } from '../../port/out/content/registrable-detail-page.port';
 import {
   MALL_BULK_SHEET_FILES_PORT,
   type MallBulkSheetFilesPort,
@@ -79,7 +82,54 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
 
     private readonly files: MallBulkSheetFilesPort,
     private readonly logger: ChannelActivityPort,
+    private readonly detailPages: ChannelRegistrableDetailPagePort,
   ) {}
+
+  /**
+   * 판매상품과 그 상세. 상세 HTML 은 Content revision 에서 한 번에 읽는다(KID-313 W2): 시트의 몰(`mallKeys`)에
+   * 걸린 첫 등록 대상이 고른 revision, 없으면 현재 revision. 몰별 상세 override 는 없다. revision 이 없는
+   * 상품은 상세가 비어 몰 규칙이 "상세설명이 비어 있습니다" 로 막는다.
+   */
+  private async readSources(
+    organizationId: string,
+    salesProductIds: readonly string[],
+    mallKeys: readonly string[],
+  ): Promise<MallSheetSourceProduct[]> {
+    const products = await this.repository.readMallSheetProducts(organizationId, salesProductIds);
+    const details = await this.detailPages.readMany({
+      organizationId,
+      products: products.map((product) => ({
+        salesProductId: product.id,
+        selectedDetailPageRevisionId: sheetDetailPageRevisionId(product.overrides, mallKeys),
+      })),
+    });
+    return products.map((product) => ({ ...product, detailHtml: details.get(product.id)?.html || null }));
+  }
+
+  /**
+   * 상품마다 현재 revision HTML 과 등록 대상이 고른 revision HTML 들. Content 일괄 읽기는 상품 하나에 한 revision 이라,
+   * 상품마다 n 번째로 고른 revision 을 한 번에 읽는다 — 부르는 횟수는 한 상품이 고른 revision 수(몰 수 이하)만큼이다.
+   */
+  private async detailHtmlsForImages(
+    organizationId: string,
+    products: ReadonlyArray<Pick<MallSheetSourceProduct, 'id' | 'overrides'>>,
+  ): Promise<Map<string, (string | null)[]>> {
+    const chosen = new Map(products.map((product) => [product.id, chosenDetailPageRevisionIds(product.overrides)]));
+    const depth = Math.max(0, ...[...chosen.values()].map((ids) => ids.length));
+    const rounds = [products.map((product) => ({ salesProductId: product.id, selectedDetailPageRevisionId: null as string | null }))];
+    for (let index = 0; index < depth; index += 1) {
+      rounds.push(products.flatMap((product) => {
+        const revisionId = chosen.get(product.id)![index];
+        return revisionId ? [{ salesProductId: product.id, selectedDetailPageRevisionId: revisionId }] : [];
+      }));
+    }
+    const htmls = new Map<string, (string | null)[]>(products.map((product) => [product.id, []]));
+    for (const requests of rounds) {
+      const details = await this.detailPages.readMany({ organizationId, products: requests });
+      for (const request of requests) htmls.get(request.salesProductId)!.push(details.get(request.salesProductId)?.html || null);
+    }
+    return htmls;
+  }
 
   list(): SalesProductMallSheetList {
     return {
@@ -108,7 +158,7 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     const scope = request.salesProductIds?.length ? 'selected' : 'missing';
     const missing = scope === 'missing' ? await this.repository.findMallSheetMissing(organizationId, spec.mallKeys) : null;
     const ids = missing?.salesProductIds ?? request.salesProductIds ?? [];
-    const sources = await this.repository.readMallSheetProducts(organizationId, ids);
+    const sources = await this.readSources(organizationId, ids, spec.mallKeys);
     const context = await this.context(spec, request, sources, organizationId);
     const suggester = new MallCategorySuggester(await this.repository.listMallCategoryPaths(organizationId));
     const products = sources.map((source) => {
@@ -143,13 +193,13 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     if (ids.length > spec.maxProducts) {
       throw new BadRequestException(`${spec.label}은(는) 한 파일에 ${spec.maxProducts}개까지 받습니다. 나눠서 받으세요.`);
     }
-    const preflight = await this.repository.readMallSheetProducts(organizationId, ids);
+    const preflight = await this.readSources(organizationId, ids, spec.mallKeys);
     // 등록 동결 · 품절 송신과 같은 게이트다. 판매가를 정하지 않은 초안은 몰 파일에 들어가지 않는다.
     for (const source of preflight) this.assertConfirmedPrice(source);
     // 파일을 만드는 순간이 판매 결정이다 — 등록 설정 없이 나가는 상품도 여기서 KID 를 받는다.
     // 한 파일이 상품 수만큼 트랜잭션을 열지 않게 한 번에 발급한다.
     await this.repository.ensureCodesForMany(organizationId, preflight.map((source) => source.id));
-    const sources = await this.repository.readMallSheetProducts(organizationId, ids);
+    const sources = await this.readSources(organizationId, ids, spec.mallKeys);
     const context = await this.context(spec, request, sources, organizationId);
     const missingFixed = missingFixedFields(spec, context.fixed);
     if (missingFixed.length) throw new BadRequestException(`비어 있는 고정값: ${missingFixed.join(', ')}`);
@@ -261,9 +311,16 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
   async pendingPublicImages(organizationId: string, body: unknown): Promise<SalesProductPublicImagePending> {
     const parsed = SalesProductPublicImagePendingRequestSchema.safeParse(body ?? {});
     if (!parsed.success) throw new BadRequestException('판매상품을 골라 주세요.');
-    const sources = await this.repository.readMallSheetProducts(organizationId, parsed.data.salesProductIds);
-    const copies = await this.repository.readPublicImages(organizationId, sources.flatMap(privateImageUrls));
-    const perProduct = sources.map((source) => pendingPublicImages(source, copies));
+    // 시트를 모르는 자리라 현재 revision 에, 어느 등록 대상이든 고른 revision 들을 더해 본다 — 예전 revision 을 고른
+    // 시트도 여기서 올린 사진으로 풀린다.
+    const products = await this.repository.readMallSheetProducts(organizationId, parsed.data.salesProductIds);
+    const details = await this.detailHtmlsForImages(organizationId, products);
+    const sources = products.map((product) => (details.get(product.id) ?? [null]).map((detailHtml, index) => ({
+      imageUrls: index === 0 ? product.imageUrls : [],
+      detailHtml,
+    })));
+    const copies = await this.repository.readPublicImages(organizationId, sources.flat().flatMap(privateImageUrls));
+    const perProduct = sources.map((list) => [...new Set(list.flatMap((source) => pendingPublicImages(source, copies)))]);
     return {
       urls: [...new Set(perProduct.flat())],
       products: perProduct.filter((list) => list.length > 0).length,

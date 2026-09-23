@@ -3,8 +3,13 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type AttachContentWorkspaceToListingInput,
+  type CreateManualDetailPageInput,
+  type CreateManualDetailPageResult,
   type EnsureSalesProductContentWorkspaceInput,
   type FindSalesProductContentWorkspaceInput,
+  type ImportDetailPageInput,
+  type ImportDetailPageResult,
+  type RegistrableDetailPage,
   type RegistrationContentSelectionInput,
   type RegistrationContentWorkspacePort,
   type ResolvedRegistrationContentSelections,
@@ -14,6 +19,7 @@ import {
   type RegistrationContentWorkspaceRepositoryPort,
 } from '../port/out/repository/registration-content-workspace.repository.port';
 import { normalizeContentTitle } from './content-workspace.service';
+import { extractImageSrcs } from './detail-page-query.service';
 
 @Injectable()
 export class RegistrationContentWorkspaceService
@@ -56,6 +62,33 @@ export class RegistrationContentWorkspaceService
       displayName,
       normalizedTitle: normalizeContentTitle(displayName),
     });
+  }
+
+  readRegistrableDetailPage(input: {
+    organizationId: string;
+    salesProductId: string;
+    revisionId: string | null;
+  }): Promise<RegistrableDetailPage | null> {
+    return this.repository.readRegistrableDetailPage(input);
+  }
+
+  readRegistrableDetailPages(input: {
+    organizationId: string;
+    requests: ReadonlyArray<{ salesProductId: string; revisionId: string | null }>;
+  }): Promise<ReadonlyMap<string, RegistrableDetailPage>> {
+    return this.repository.readRegistrableDetailPages(input);
+  }
+
+  importDetailPage(transaction: OwnerTransaction, input: ImportDetailPageInput): Promise<ImportDetailPageResult> {
+    return this.repository.importDetailPage(transaction, {
+      ...input,
+      imageUrls: extractImageSrcs(input.html),
+    });
+  }
+
+  createManualDetailPage(input: CreateManualDetailPageInput): Promise<CreateManualDetailPageResult> {
+    if (!input.html.trim()) throw new BadRequestException('상세 HTML 을 넣어 주세요.');
+    return this.repository.createManualDetailPage({ ...input, imageUrls: extractImageSrcs(input.html) });
   }
 
   attachToListing(

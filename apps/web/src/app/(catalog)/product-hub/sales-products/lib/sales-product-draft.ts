@@ -46,7 +46,7 @@ export interface OptionTableDraft {
 export const BASIC_FIELDS = [
   'name', 'shortName', 'ownCode', 'modelName', 'modelNo', 'brand', 'manufacturer', 'originCountry',
   'taxType', 'deliveryFeeType', 'deliveryFee', 'keywords', 'imageUrls',
-  'detailHtml', 'noticeCategory', 'noticeValues', 'certifications', 'adminMemo',
+  'noticeCategory', 'noticeValues', 'certifications', 'adminMemo',
   // KID-310: 수집·직접 작성 초안이 채우는 칸(전에는 후보에만 있었다).
   'description', 'targetAudience', 'ageGroup', 'productSize', 'colorVariantNames', 'boxSetQuantity',
 ] as const;

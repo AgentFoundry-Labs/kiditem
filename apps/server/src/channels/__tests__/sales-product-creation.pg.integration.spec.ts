@@ -6,6 +6,7 @@ import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
 import { productTransactionalRead } from './product-transactional-read.fake';
 import { realDraftDeletionPorts } from '../../test-helpers/sales-product-draft-port';
+import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 
 /**
@@ -23,7 +24,9 @@ describe('sales product creation issues its KID in the same transaction (Postgre
     useCase = new SalesProductUseCase(new SalesProductRepositoryAdapter(
       service,
       productTransactionalRead(),
-      new RegistrationTargetRepositoryAdapter(service, productTransactionalRead()),
+      new RegistrationTargetRepositoryAdapter(service, productTransactionalRead(), realRegistrationContentWorkspace(prisma)),
+      realRegistrationContentWorkspace(prisma),
+      realRegistrableDetailPages(prisma),
     ), ...realDraftDeletionPorts(prisma));
   });
   afterAll(async () => { await prisma?.$disconnect(); });
@@ -62,5 +65,19 @@ describe('sales product creation issues its KID in the same transaction (Postgre
 
     expect(new Set(created.map((product) => product.code)).size).toBe(4);
     expect(created.every((product) => product.status === 'active')).toBe(true);
+  });
+
+  it('opens exactly one active content workspace with every selling product it creates — direct or collected', async () => {
+    const direct = await useCase.create(TEST_ORGANIZATION_ID, input('직접 만든 상품'));
+    const collected = await useCase.createDraft(TEST_ORGANIZATION_ID, {
+      name: '수집한 상품', optionNames: [], imageUrls: [], sourceRecordId: null, sourcePlatform: null,
+    });
+
+    for (const salesProductId of [direct.id, collected]) {
+      await expect(prisma.contentWorkspace.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID, salesProductId, status: 'active', isDeleted: false },
+        select: { ownerType: true, displayName: true },
+      })).resolves.toEqual([expect.objectContaining({ ownerType: 'sales_product' })]);
+    }
   });
 });

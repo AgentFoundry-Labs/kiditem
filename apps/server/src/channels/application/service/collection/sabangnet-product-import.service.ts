@@ -6,6 +6,7 @@ import { CHANNEL_DOCUMENTS_PORT, type ChannelDocumentsPort } from '../../port/ou
 import { issueSalesProductOptionCodes } from '../sales-product/sales-product-code';
 import { ChannelInputError as BadRequestException, ChannelConflictError as ConflictException } from '../../../domain/exception/channel-business-error';
 import type {
+  SabangnetImportIssue,
   SabangnetImportPreview,
   SabangnetImportSelection,
   SabangnetWorkbookKind,
@@ -115,6 +116,12 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         productIdByCode,
         accounts,
       });
+    // 몰 값 줄이 못 넣은 칸은 가져오기 결과의 알림 줄로 간다 — 상품 줄은 그대로 옮긴다.
+    const mallValueIssues: SabangnetImportIssue[] = [];
+    const withMallValueIssues = (preview: SabangnetImportPreview): SabangnetImportPreview => {
+      const issues = [...preview.issues, ...mallValueIssues];
+      return { ...preview, issues: issues.slice(0, 200), issueCount: preview.issueCount + mallValueIssues.length };
+    };
     const writeMallValues = async () => {
       if (sendRecordRows.length === 0) return null;
       const [productIdByCode, accounts] = await Promise.all([
@@ -122,6 +129,7 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         this.repository.listChannelAccounts(organizationId),
       ]);
       const planned = mallValues(productIdByCode, accounts);
+      mallValueIssues.push(...planned.issues);
       if (!dryRun) await this.repository.mergeSabangnetMallValues(organizationId, planned.writes);
       return { pairs: planned.writes.length, withCategory: planned.withCategory, withTemplate: planned.withTemplate };
     };
@@ -133,7 +141,8 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
       const links = dryRun
         ? await this.links.preview(organizationId, sendRecords)
         : await this.links.autoLink(organizationId, sendRecords);
-      return { ...emptyPreview(dryRun, parsed), links, mallValues: await writeMallValues() };
+      const mallValuesResult = await writeMallValues();
+      return withMallValueIssues({ ...emptyPreview(dryRun, parsed), links, mallValues: mallValuesResult });
     }
 
     const productRows = products.rows as SabangnetProductRow[];
@@ -195,7 +204,6 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
           current: current.basics,
           incoming,
           baseline: this.reimportBaseline(current.sourceRaw, preferMirrored),
-          sha256: (value) => this.integrity.sha256(value),
         })
         : null;
       const product = { ...planned, create: merge?.merged ?? incoming };
@@ -273,6 +281,7 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         create,
         plan: optionPlan,
         overrides: product.overrides.map(({ channelAccountId, data }) => ({ channelAccountId, data })),
+        detail: this.importedDetail(product.detail),
       });
     }
 
@@ -299,12 +308,10 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
       mallValues: null,
     };
     if (dryRun) {
-      return {
-        ...preview,
-        links: sendRecords.length > 0 ? await this.links.preview(organizationId, sendRecords) : null,
-        // 새로 만들 판매상품은 아직 id 가 없어 세지 못한다 — 옮긴 뒤 다시 미리보면 잡힌다.
-        mallValues: await writeMallValues(),
-      };
+      const links = sendRecords.length > 0 ? await this.links.preview(organizationId, sendRecords) : null;
+      // 새로 만들 판매상품은 아직 id 가 없어 세지 못한다 — 옮긴 뒤 다시 미리보면 잡힌다.
+      const mallValuesResult = await writeMallValues();
+      return withMallValueIssues({ ...preview, links, mallValues: mallValuesResult });
     }
 
     const result = await this.repository.importSabangnet(organizationId, writes);
@@ -314,13 +321,13 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
     this.logger.log(
       `사방넷 가져오기 org=${organizationId} 새로 ${result.created} · 고침 ${result.updated} · 그대로 ${result.unchanged} · 몰별 값 ${result.overridesSaved}`,
     );
-    return {
+    return withMallValueIssues({
       ...preview,
       products: { ...preview.products, created: result.created, updated: result.updated, unchanged: result.unchanged },
       channelOverrides: { ...preview.channelOverrides, saved: result.overridesSaved },
       links,
       mallValues: savedMallValues,
-    };
+    });
   }
 
   /**
@@ -331,13 +338,21 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
     sourceRaw: unknown,
     preferMirrored: (urls: readonly string[]) => string[],
   ): SabangnetReimportBaseline | null {
-    const source = this.documents.readSabangnetProductSource(sourceRaw);
-    if (!source) return null;
-    const { detailHtml: _detailHtml, extraDetailHtml: _extraDetailHtml, ...basics } = sabangnetProductBasics(source.row);
-    return {
-      basics: { ...basics, imageUrls: preferMirrored(basics.imageUrls) },
-      detailDigests: source.detailDigests,
-    };
+    const row = this.documents.readSabangnetProductSource(sourceRaw);
+    if (!row) return null;
+    const basics = sabangnetProductBasics(row);
+    return { basics: { ...basics, imageUrls: preferMirrored(basics.imageUrls) } };
+  }
+
+  /**
+   * 상세는 Content 의 `imported` revision 으로 간다(KID-313 W2). digest 는 원문에 남기는 KID-304 디지스트
+   * `#digest:상품상세설명` 과 같은 값이다 — 같은 상세를 다시 가져오면 revision 이 생기지 않는다.
+   */
+  private importedDetail(
+    detail: { html: string } | null,
+  ): SabangnetImportProductWrite['detail'] {
+    if (!detail) return null;
+    return { html: detail.html, digest: this.integrity.sha256(detail.html) };
   }
 }
 

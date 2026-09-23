@@ -65,12 +65,13 @@ const target = {
   salesProductId: PRODUCT_ID,
   channelAccountId: ACCOUNT_ID,
   version: 2,
-  displayName: null,
-  registrationInput: { wingProduct: { category: 'toy' } },
-  selectedOptions: [{ salesProductOptionId: OPTION_ONE, salePrice: null, normalPrice: null, supplyPrice: null }],
+  registrationInput: { mallCategory: null, mallFields: {}, adapter: { coupang: { wingCategoryKey: 'toy' } } },
+  selectedThumbnailAssetId: null,
+  selectedDetailPageRevisionId: null,
+  selectedOptions: [{ salesProductOptionId: OPTION_ONE }],
   resolved: {
     name: '동물 블록',
-    options: [{ salesProductOptionId: OPTION_ONE, code: '100-0001', values: ['파랑'], salePrice: 5900, normalPrice: 9000, supplyPrice: null }],
+    options: [{ salesProductOptionId: OPTION_ONE, code: '100-0001', values: ['파랑'], salePrice: 5900, normalPrice: 9000 }],
   },
 } satisfies RegistrationTarget;
 
@@ -116,23 +117,21 @@ describe('<ChannelOverridesSection />', () => {
     }]);
     renderSection();
 
-    expect(await screen.findByLabelText('스마트스토어 본계정 몰 상품명')).toBeEnabled();
-    expect(screen.getByLabelText('스마트스토어 본계정 판매가')).toHaveValue('');
-    expect(screen.getByPlaceholderText('옵션별 기본값 유지')).toBeInTheDocument();
+    expect(await screen.findByLabelText('스마트스토어 본계정 몰 카테고리')).toBeEnabled();
+    // 판매가는 판매상품 값을 보여 줄 뿐 몰마다 고치지 않는다(KID-313 W2).
+    expect(screen.getByLabelText('스마트스토어 본계정 판매가')).toHaveTextContent('옵션별 판매가');
+    expect(screen.queryByLabelText('스마트스토어 본계정 몰 상품명')).toBeNull();
     expect(screen.getByRole('button', { name: '저장' })).toBeDisabled();
-    expect(screen.queryByText(/provider document|등록 대상 추가|버전/)).toBeNull();
+    expect(screen.queryByText(/몰 전용 값 \(JSON|등록 대상 추가|버전/)).toBeNull();
     expect(registrationTargetApi.resolve).not.toHaveBeenCalled();
     expect(registrationTargetApi.update).not.toHaveBeenCalled();
   });
 
-  it('resolves common defaults only after an edit and preserves saved options and provider input', async () => {
+  it('resolves the target only after an edit and keeps its other mall values, options and content ids', async () => {
     const configured = {
       ...target,
-      selectedOptions: [{
-        salesProductOptionId: OPTION_ONE, salePrice: 7100, normalPrice: 9000, supplyPrice: 5100,
-      }],
-      registrationInput: { mallRegisterShared: { returnFee: '3000' }, private: { keep: true } },
-      resolved: { ...target.resolved, options: [{ ...target.resolved.options[0]!, salePrice: 7100, supplyPrice: 5100 }] },
+      registrationInput: { mallCategory: null, mallFields: { returnFee: '3000' }, adapter: { coupang: { keep: true } } },
+      selectedDetailPageRevisionId: '99999999-9999-4999-8999-999999999999',
     } satisfies RegistrationTarget;
     vi.mocked(registrationTargetApi.list).mockResolvedValue([configured]);
     vi.mocked(registrationTargetApi.resolve).mockResolvedValue(configured);
@@ -142,8 +141,8 @@ describe('<ChannelOverridesSection />', () => {
     }]);
     renderSection();
 
-    const name = await screen.findByLabelText('스마트스토어 본계정 몰 상품명');
-    fireEvent.change(name, { target: { value: '몰 전용 이름' } });
+    const category = await screen.findByLabelText('스마트스토어 본계정 몰 카테고리');
+    fireEvent.change(category, { target: { value: '완구>블록' } });
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
 
     // resolve 요청에는 targetId 가 없다 — 상품 × 몰계정당 활성 설정은 늘 하나라 고를 것이 없다(ADR-0022).
@@ -152,8 +151,8 @@ describe('<ChannelOverridesSection />', () => {
     }));
     await waitFor(() => expect(registrationTargetApi.update).toHaveBeenCalledWith(TARGET_ID, expect.objectContaining({
       expectedVersion: 2,
-      displayName: '몰 전용 이름',
-      registrationInput: configured.registrationInput,
+      registrationInput: { ...configured.registrationInput, mallCategory: { key: '완구>블록', label: null } },
+      selectedDetailPageRevisionId: configured.selectedDetailPageRevisionId,
       selectedOptions: configured.selectedOptions,
     })));
   });
@@ -165,11 +164,11 @@ describe('<ChannelOverridesSection />', () => {
     }]);
     renderSection();
 
-    expect(await screen.findByLabelText('스마트스토어 본계정 몰 상품명')).toBeEnabled();
+    expect(await screen.findByLabelText('스마트스토어 본계정 몰 카테고리')).toBeEnabled();
     expect(screen.queryByRole('combobox', { name: /등록 설정/ })).not.toBeInTheDocument();
   });
 
-  it('edits a persistent target, keeps defaults blank, and excludes unchecked options', async () => {
+  it('edits a persistent target\'s mall values and option selection without any price input', async () => {
     vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
     vi.mocked(listRegistrationTargetExecutions).mockResolvedValue([]);
     vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
@@ -184,20 +183,17 @@ describe('<ChannelOverridesSection />', () => {
     await waitFor(() => expect(screen.getAllByText('쿠팡 본계정')[0]).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '1 / 2' }));
 
-    expect(screen.getByDisplayValue(/"wingProduct"/)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('5900')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('없음')).toBeInTheDocument();
-    expect(screen.getByText('기본 판매가 5,900원 · 정상가 9,000원')).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/"wingCategoryKey"/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('100-0001 판매가 override')).toBeNull();
+    expect(screen.getByText('판매가 5,900원 · 정상가 9,000원')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('checkbox', { name: '100-0002 외부 송신 선택' }));
     fireEvent.click(screen.getByRole('button', { name: '등록 대상 저장' }));
 
     await waitFor(() => expect(registrationTargetApi.update).toHaveBeenCalledWith(TARGET_ID, expect.objectContaining({
       expectedVersion: 2,
-      selectedOptions: expect.arrayContaining([
-        expect.objectContaining({ salesProductOptionId: OPTION_ONE, salePrice: null, normalPrice: null, supplyPrice: null }),
-        expect.objectContaining({ salesProductOptionId: OPTION_TWO }),
-      ]),
+      registrationInput: target.registrationInput,
+      selectedOptions: [{ salesProductOptionId: OPTION_ONE }, { salesProductOptionId: OPTION_TWO }],
     })));
   });
 
@@ -249,8 +245,8 @@ describe('<ChannelOverridesSection />', () => {
           name: '동물 블록',
           options: [{ id: OPTION_ONE, optionCode: '100-0001', values: ['파랑'] }],
         },
+        detailPage: null,
         registrationInput: {},
-        supplyPrices: [],
       },
       leaseToken: '77777777-7777-4777-8777-777777777777',
       maySubmit: false,

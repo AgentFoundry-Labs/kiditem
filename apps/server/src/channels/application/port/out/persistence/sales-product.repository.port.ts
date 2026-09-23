@@ -75,18 +75,20 @@ export interface SabangnetImportProductWrite {
     channelAccountId: string;
     data: SalesProductChannelOverrideRecord;
   }[];
+  /**
+   * 상품 상세. 상품과 같은 트랜잭션에서 Content 의 `imported` revision 으로 넘긴다(KID-313 W2).
+   * `digest` 는 원문에 남기는 상세설명 디지스트(KID-304 `#digest:상품상세설명`) — 같으면 revision 을 만들지 않는다.
+   * 추가상품상세설명은 보내는 곳이 없어 가져오지 않는다.
+   */
+  detail: { html: string; digest: string } | null;
 }
 
+/**
+ * 사방넷 몰별 값 줄에서 등록 대상에 두는 몰 전용 값. 이름 · 가격 · 상세 · 홍보문 · 고시는 상품 사실이라
+ * 등록 대상에 두지 않는다(KID-313 W2).
+ */
 export interface SalesProductChannelOverrideRecord {
-  /** Import-only exact source option identity and resolved final price, never a live ratio. */
-  optionPrices?: readonly { sabangnetOptionCode: string; salePrice: number }[];
-  salePrice: number | null;
-  priceRateBp: number | null;
-  costPrice: number | null;
-  name: string | null;
-  detailHtml: string | null;
-  promoText: string | null;
-  noticeCategory: string | null;
+  /** 재고분할퍼센트 — 몰 전용 칸(`mallFields.stockPercent`). */
   stockPercent: number | null;
   /** 없으면(undefined) 지금 값을 그대로 둔다. 사람이 몰별 값을 고쳐도 옮겨 온 사방넷 값이 지워지지 않게. */
   adapterValues?: Record<string, string> | null;
@@ -172,13 +174,16 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     codes: readonly string[],
   ): Promise<Map<string, SalesProductImportCurrent>>;
-  /** 몰 가격 가져오기 후보: 판매상품(단품 추가금액 · 몰별 값)과 이어진 활성 몰 옵션의 가격. */
+  /** 몰 가격 가져오기 후보: 판매상품(버전 · 단품 판매가)과 이어진 활성 몰 옵션의 가격. */
   readMallPriceCandidates(organizationId: string): Promise<{
     products: (MallPriceCandidateProduct & { code: string | null; name: string })[];
     listingOptions: MallPriceCandidateListingOption[];
   }>;
-  /** 명시한 대상·버전에 옵션별 최종가를 반영한다. 없거나 바뀐 대상은 거부한다. */
-  setChannelOverrideSalePrices(
+  /**
+   * 채택한 몰 가격을 판매 상품 단품 판매가로 쓴다(KID-313 W2). 판매 상품 버전이 같을 때만 쓰고 버전을 올린다.
+   * 버전이 다르거나 그 상품의 단품이 아니면 모두 되돌린다.
+   */
+  applyMallPriceAdoption(
     organizationId: string,
     writes: readonly MallPriceAdoptionWrite[],
   ): Promise<number>;
@@ -200,17 +205,13 @@ export interface SalesProductRepositoryPort {
   /** 가져오기: 자체상품코드 → 판매상품코드(이미 있는 것만). */
   findCodesByOwnCodes(organizationId: string, ownCodes: readonly string[]): Promise<Map<string, string>>;
   /** 사진 옮기기: 이 조직 판매상품의 사진 주소와 버전. */
-  listImageUrls(organizationId: string): Promise<{ id: string; code: string | null; version: number; imageUrls: string[]; detailHtml: string | null; extraDetailHtml: string[]; sourceRaw: unknown }[]>;
+  listImageUrls(organizationId: string): Promise<{ id: string; code: string | null; version: number; imageUrls: string[] }[]>;
   /** 버전이 같을 때만 사진 주소를 바꾸고 버전을 올린다. 버전이 다르면 false. */
   replaceImageUrls(input: {
     organizationId: string;
     salesProductId: string;
     expectedVersion: number;
     imageUrls: string[];
-    detailHtml?: string | null;
-    extraDetailHtml?: string[];
-    /** 상세를 고치면서 옮긴 원문(기준값 디지스트). 주면 같은 문장에서 쓴다. */
-    sourceRaw?: Record<string, unknown>;
   }): Promise<boolean>;
   /**
    * 쿠팡상품정보 수정요청: 윙 옵션 ID → 그 옵션과 이어진 우리 단품 · 판매상품이 아는 값.
@@ -220,8 +221,8 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     optionIds: readonly string[],
   ): Promise<CoupangCatalogFacts[]>;
-  /** 몰 엑셀: 이 조직의 판매상품(없는 id 는 빠진다), 코드 순. */
-  readMallSheetProducts(organizationId: string, salesProductIds: readonly string[]): Promise<MallSheetSourceProduct[]>;
+  /** 몰 엑셀: 이 조직의 판매상품(없는 id 는 빠진다), 코드 순. 상세 HTML 은 Content 가 따로 준다(KID-313 W2). */
+  readMallSheetProducts(organizationId: string, salesProductIds: readonly string[]): Promise<Omit<MallSheetSourceProduct, 'detailHtml'>[]>;
   /**
    * 몰 엑셀: 이 몰들에 아직 없는 판매중 판매상품 — 그 몰 상품과 이어지지 않았고 사방넷이 그 몰에 보낸 적도 없는 것.
    * `maybeListed` 는 이어지지 않았지만 사방넷이 보낸 적이 있어 뺀 수.

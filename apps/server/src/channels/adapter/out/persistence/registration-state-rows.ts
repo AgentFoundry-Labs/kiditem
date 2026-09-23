@@ -1,15 +1,10 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma, type RegistrationTarget } from '@prisma/client';
 import {
   SalesProductDraftError,
   requireConfirmedPrice,
 } from '../../../domain/sales-product/sales-product-draft';
-import {
-  SelectedThumbnailError,
-  assertSelectedThumbnailAllowed,
-} from '../../../domain/registration/selected-thumbnail';
 import type { SalesProductStatus } from '@kiditem/shared/sales-product';
-import type { ResolvedRegistrationContentSelections } from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
 
 /**
  * 등록 설정 행을 다루는 공용 조각. 등록 상태 리더와 등록 울타리가 쓰는 설정 어댑터가 같은
@@ -93,14 +88,6 @@ export async function findAccountPreparation(
   return rows[0] ?? null;
 }
 
-export type OptionalSelectionKey =
-  | 'selectedThumbnailUrl'
-  | 'selectedThumbnailGenerationId'
-  | 'selectedThumbnailGenerationCandidateId'
-  | 'selectedDetailPageArtifactId'
-  | 'selectedDetailPageRevisionId'
-  | 'selectedDetailPageGenerationId';
-
 export async function lockPreparation(
   tx: Prisma.TransactionClient,
   organizationId: string,
@@ -116,11 +103,7 @@ export async function lockPreparation(
 }
 
 /**
- * 등록 설정의 정체성은 상품과 계정이다.
- *
- * 표시명은 정체성이 아니라 덮어쓰기다 — 비어 있으면 판매상품 이름을 쓴다. 설정을 찾거나
- * 만드는 길(`registration-targets/resolve`)은 이름을 주지 않으므로 이름을 요구하면 그 길로 만든
- * 설정이 제출 동결에서 통째로 막힌다.
+ * 등록 설정의 정체성은 상품과 계정이다. 이름은 설정이 갖지 않는다 — 판매 상품 이름이다(KID-313 W2).
  */
 export function assertRegistrationIdentity(
   row: Pick<RegistrationTarget, 'salesProductId' | 'channelAccountId'>,
@@ -131,66 +114,4 @@ export function assertRegistrationIdentity(
   if (!row.salesProductId || !row.channelAccountId) {
     throw new ConflictException('Preparation is missing account-scoped registration identity.');
   }
-}
-
-/**
- * 고른 대표 사진이 이 판매상품의 것인지 본다(KID-310).
- *
- * AI 는 id 를 가진 선택만 자기 작업공간 소유인지 확인한다 — 맨 주소(`selectedThumbnailUrl`)는
- * 초안이 든 사진인지 알 방법이 없어 그대로 채택한다. 초안의 사진 목록은 Channels 것이므로
- * 여기서 막는다. 초안 편집과 제출 동결이 같은 허용 목록을 쓴다.
- */
-export async function assertThumbnailBelongsToProduct(
-  reader: Pick<Prisma.TransactionClient, 'salesProduct'>,
-  thumbnailSources: { listGeneratedThumbnailUrls(organizationId: string, salesProductId: string): Promise<string[]> },
-  organizationId: string,
-  salesProductId: string,
-  selectedThumbnailUrl: string | null | undefined,
-): Promise<void> {
-  if (!selectedThumbnailUrl) return;
-  const [product, generated] = await Promise.all([
-    reader.salesProduct.findFirst({
-      where: { id: salesProductId, organizationId },
-      select: { imageUrls: true },
-    }),
-    thumbnailSources.listGeneratedThumbnailUrls(organizationId, salesProductId),
-  ]);
-  try {
-    assertSelectedThumbnailAllowed(selectedThumbnailUrl, [...(product?.imageUrls ?? []), ...generated]);
-  } catch (error) {
-    if (error instanceof SelectedThumbnailError) throw new BadRequestException(error.message);
-    throw error;
-  }
-}
-
-export function selectionResolutionInput(
-  organizationId: string,
-  sourceWorkspaceId: string,
-  selections: Partial<Record<OptionalSelectionKey, string | null | undefined>>,
-) {
-  return {
-    organizationId,
-    sourceWorkspaceId,
-    selectedThumbnailUrl: selections.selectedThumbnailUrl ?? null,
-    selectedThumbnailGenerationId: selections.selectedThumbnailGenerationId ?? null,
-    selectedThumbnailGenerationCandidateId:
-      selections.selectedThumbnailGenerationCandidateId ?? null,
-    selectedDetailPageArtifactId: selections.selectedDetailPageArtifactId ?? null,
-    selectedDetailPageRevisionId: selections.selectedDetailPageRevisionId ?? null,
-    selectedDetailPageGenerationId: selections.selectedDetailPageGenerationId ?? null,
-  };
-}
-
-export function resolvedSelectionData(
-  resolved: ResolvedRegistrationContentSelections,
-): Record<OptionalSelectionKey, string | null> {
-  return {
-    selectedThumbnailUrl: resolved.selectedThumbnailUrl,
-    selectedThumbnailGenerationId: resolved.selectedThumbnailGenerationId,
-    selectedThumbnailGenerationCandidateId:
-      resolved.selectedThumbnailGenerationCandidateId,
-    selectedDetailPageArtifactId: resolved.selectedDetailPageArtifactId,
-    selectedDetailPageRevisionId: resolved.selectedDetailPageRevisionId,
-    selectedDetailPageGenerationId: resolved.selectedDetailPageGenerationId,
-  };
 }

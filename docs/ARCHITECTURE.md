@@ -332,7 +332,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/todo` | Owner Domain | Operator-written to-do list (`/api/todo`): who owes the work (operator or development), its area, and its status. Nothing derives it from other screens. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), durable listing-deletion operations, Wing representative-image uploads as `thumbnail_update` executions (Content supplies only the approved image), Wing/Rocket listing identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), Wing representative-image uploads as `thumbnail_update` executions (Content supplies only the approved image), Wing/Rocket listing identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -638,7 +638,7 @@ Notable route subtrees:
   authored ones have none — KID-313), draft detail route entries, draft-scoped
   generated content links, and the fixed WING category
   registry used at registration confirmation. WING category selection uses the
-  saved `RegistrationTarget.registrationInput.wingCategoryKey` or an exact
+  saved `RegistrationTarget.registrationInput.adapter.coupang.wingCategoryKey` or an exact
   source-category alias; it does not read registered `ChannelListing` rows or
   call a runtime category-suggestion API. Its mall bulk-sheet action creates
   sales products through the Products API and opens the shared
@@ -936,10 +936,10 @@ without storing an observation or opening an execution. A path that starts
 submitting to an account enters the fence first.
 
 The unpromoted `022_registration_target_cutover` was removed with KID-313; Office's
-registration rows are discarded under ADR-0010. Listing deletion
-authorization and uncertainty live in `ChannelListingDeletionOperation`; an
-extension-observed success alone remains `reconciling/uncertain` and cannot
-deactivate the listing until an independent provider verifier confirms it.
+registration rows are discarded under ADR-0010. Listing deletion has no
+ledger: `ChannelListingDeletionOperation` and its routes were removed with
+KID-317, and a mall delete arrives only as a registration execution kind once a
+mall adapter can delete (KID-321).
 
 Sourcing keeps only the immutable source record, read at
 `GET /api/sourcing/source-records/:id`. Collection (`POST /api/sourcing/scrape-url`,

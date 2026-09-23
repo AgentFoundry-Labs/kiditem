@@ -43,6 +43,8 @@ import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-produ
 import { SourcingSourceRecordModule } from '../sourcing/sourcing-source-record.module';
 import { SourceRecordAdapter } from './adapter/out/sourcing/source-record.adapter';
 import { CHANNEL_SOURCE_RECORD_PORT } from './application/port/out/sourcing/source-record.port';
+import { RegistrableDetailPageAdapter } from './adapter/out/content/registrable-detail-page.adapter';
+import { CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT } from './application/port/out/content/registrable-detail-page.port';
 
 /**
  * 판매상품 · 단품(ADR-0020). 몰에 보낼 상품을 한 번 편집하는 등록용 정의이고, 재고 · ABC 는 건드리지 않는다.
@@ -83,10 +85,13 @@ import { CHANNEL_SOURCE_RECORD_PORT } from './application/port/out/sourcing/sour
     { provide: SALES_PRODUCT_PORT, useExisting: SalesProductUseCase },
     { provide: SabangnetProductImportService, useFactory: (...dependencies: ConstructorParameters<typeof SabangnetProductImportService>) => new SabangnetProductImportService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, PRODUCT_SOURCE_READ_PORT, SALES_PRODUCT_LINK_PORT, SALES_PRODUCT_IMAGE_MIRROR_PORT, CHANNEL_DOCUMENTS_PORT, CHANNEL_ACTIVITY_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: SalesProductLinkService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductLinkService>) => new SalesProductLinkService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, CHANNEL_OPTION_RECIPE_PORT, CHANNEL_ACTIVITY_PORT] },
-    { provide: SalesProductImageService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductImageService>) => new SalesProductImageService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_IMAGE_MIRROR_PORT, CHANNEL_ACTIVITY_PORT, CHANNEL_INTEGRITY_PORT, CHANNEL_DOCUMENTS_PORT] },
+    { provide: SalesProductImageService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductImageService>) => new SalesProductImageService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_IMAGE_MIRROR_PORT, CHANNEL_ACTIVITY_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: SalesProductMallPriceService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductMallPriceService>) => new SalesProductMallPriceService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, CHANNEL_ACTIVITY_PORT] },
-    { provide: SalesProductMallSheetService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductMallSheetService>) => new SalesProductMallSheetService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, MALL_BULK_SHEET_FILES_PORT, CHANNEL_ACTIVITY_PORT] },
+    { provide: SalesProductMallSheetService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductMallSheetService>) => new SalesProductMallSheetService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, MALL_BULK_SHEET_FILES_PORT, CHANNEL_ACTIVITY_PORT, CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT] },
     { provide: SalesProductCoupangCatalogService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductCoupangCatalogService>) => new SalesProductCoupangCatalogService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, CHANNEL_DOCUMENTS_PORT] },
+    // 상세 HTML 은 Content revision 한 곳에서만 읽는다(KID-313 W2).
+    RegistrableDetailPageAdapter,
+    { provide: CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT, useExisting: RegistrableDetailPageAdapter },
     SalesProductRepositoryAdapter,
     { provide: SALES_PRODUCT_REPOSITORY_PORT, useExisting: SalesProductRepositoryAdapter },
     SalesProductImageMirrorAdapter,
@@ -94,6 +99,6 @@ import { CHANNEL_SOURCE_RECORD_PORT } from './application/port/out/sourcing/sour
     MallBulkSheetFilesAdapter,
     { provide: MALL_BULK_SHEET_FILES_PORT, useExisting: MallBulkSheetFilesAdapter },
   ],
-  exports: [SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT],
+  exports: [SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT, CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT],
 })
 export class SalesProductModule {}

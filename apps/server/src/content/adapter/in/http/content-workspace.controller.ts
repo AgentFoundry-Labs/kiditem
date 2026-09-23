@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -6,7 +6,12 @@ import { ContentAssetService } from '../../../application/service/content-asset.
 import { ContentWorkspaceService } from '../../../application/service/content-workspace.service';
 import { ContentWorkspaceThumbnailSelectionService } from '../../../application/service/content-workspace-thumbnail-selection.service';
 import {
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+  type RegistrationContentWorkspacePort,
+} from '../../../application/port/in/workspace/registration-content-workspace.port';
+import {
   CreateContentWorkspaceDto,
+  CreateManualDetailPageDto,
   DuplicateContentWorkspaceQueryDto,
   ListContentWorkspacesQueryDto,
   ReplaceContentWorkspaceThumbnailGalleryDto,
@@ -20,6 +25,8 @@ export class ContentWorkspaceController {
     private readonly contentWorkspaces: ContentWorkspaceService,
     private readonly thumbnailSelections: ContentWorkspaceThumbnailSelectionService,
     private readonly contentAssets: ContentAssetService,
+    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
+    private readonly registrationContent: RegistrationContentWorkspacePort,
   ) {}
 
   @Get()
@@ -74,6 +81,25 @@ export class ContentWorkspaceController {
     return this.contentAssets.loadRegistrationMedia({ organizationId, salesProductId });
   }
 
+  /**
+   * 상세가 없는 판매상품에 첫 상세를 직접 쓴다(`manual_edit` revision, 현재가 된다). 이미 상세가 있으면 409 —
+   * 그때는 그 상세 생성의 edited-html 저장으로 고친다.
+   */
+  @Post('by-sales-product/:salesProductId/manual-detail-page')
+  createManualDetailPage(
+    @CurrentOrganization() organizationId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: CreateManualDetailPageDto,
+  ) {
+    return this.registrationContent.createManualDetailPage({
+      organizationId,
+      salesProductId,
+      html: body.html,
+      createdByUserId: user.id ?? null,
+    });
+  }
+
   @Get(':workspaceId')
   get(
     @CurrentOrganization() organizationId: string,
@@ -122,8 +148,8 @@ export class ContentWorkspaceController {
   /**
    * 워크스페이스가 소유한 썸네일 미리보기 목록(= `ContentAsset.role='thumbnail'`)을 통째로 교체한다.
    *
-   * `RegistrationTarget` 이 없는 후보는 `registrationInput.thumbnailUrls` 를 쓸 수 없어서
-   * 이 경로가 목록의 유일한 저장처다.
+   * 썸네일 목록은 이 워크스페이스의 콘텐츠 자산이 유일한 저장처다 — 등록 대상은 고른 자산 id
+   * (`selectedThumbnailAssetId`)만 갖는다(KID-313).
    */
   @Put(':workspaceId/thumbnail-gallery')
   replaceThumbnailGallery(

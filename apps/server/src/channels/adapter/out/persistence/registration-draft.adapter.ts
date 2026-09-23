@@ -10,19 +10,13 @@ import {
   type RegistrationContentWorkspacePort,
 } from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
 import {
-  SALES_PRODUCT_THUMBNAIL_SOURCE_PORT,
-  type SalesProductThumbnailSourcePort,
-} from '../../../application/port/out/ai/sales-product-thumbnail-source.port';
-import {
   assertRegistrationIdentity,
-  assertThumbnailBelongsToProduct,
   requireConfirmedSalesProduct,
   findAccountPreparation,
   lockPreparation,
   lockSalesProduct,
-  resolvedSelectionData,
-  selectionResolutionInput,
 } from './registration-state-rows';
+import { normalizeRegistrationMallInput, withAdapterValues } from '../../../domain/registration/registration-mall-input';
 import type {
   CloseRegistrationDraftInput,
   FreezeRegistrationDraftInput,
@@ -41,8 +35,6 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
   constructor(
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly contentWorkspaces: RegistrationContentWorkspacePort,
-    @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
-    private readonly thumbnailSources: SalesProductThumbnailSourcePort,
   ) {}
 
   async lockProduct(
@@ -92,7 +84,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
    */
   private async readSourceContext(
     tx: ChannelsRepositoryTransaction,
-    row: Pick<RegistrationTarget, 'organizationId' | 'salesProductId' | 'displayName'>,
+    row: Pick<RegistrationTarget, 'organizationId' | 'salesProductId'>,
     options: { ensure?: boolean } = {},
   ): Promise<{ sourceRecordId: string | null; sourceContentWorkspaceId: string | null; productName: string }> {
     const product = await client(tx).salesProduct.findFirst({
@@ -103,7 +95,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       ? (await this.contentWorkspaces.ensureSalesProductWorkspace(tx, {
         organizationId: row.organizationId,
         salesProductId: row.salesProductId,
-        displayName: row.displayName ?? product?.name ?? '',
+        displayName: product?.name ?? '',
         createdByUserId: null,
       })).workspaceId
       : await this.contentWorkspaces.findSalesProductWorkspaceId({
@@ -155,8 +147,9 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
   ): Promise<FrozenRegistrationDraft | null> {
     const row = await findAccountPreparation(client(tx), input.organizationId, input.salesProductId, input.channelAccountId);
     if (!row) return null;
-    const named = await this.ensureDisplayName(tx, row);
-    const draft = await toFrozenDraft(client(tx), named, await this.readSourceContext(tx, named));
+    // 판매가 게이트는 등록 설정이 있어도 본다 — 초안이면 제출하지 않는다.
+    await requireConfirmedSalesProduct(client(tx), row.organizationId, row.salesProductId);
+    const draft = await toFrozenDraft(client(tx), row, await this.readSourceContext(tx, row));
     if (draft.reviewPayloadHash !== null && draft.status === 'draft') {
       throw new ConflictException('Approved preparation is missing its registration execution.');
     }
@@ -189,39 +182,33 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       displayName: input.displayName,
       createdByUserId: input.requestedByUserId,
     });
-    const resolved = await this.contentWorkspaces.resolveSourceSelections(
-      handle,
-      selectionResolutionInput(input.organizationId, sourceContentWorkspaceId, {}),
-    );
-    await assertThumbnailBelongsToProduct(
-      tx, this.thumbnailSources, input.organizationId, product.id, resolved.selectedThumbnailUrl,
-    );
+    // 고른 콘텐츠가 이 상품 작업공간의 것인지 보고, 비어 있으면 지금 현재 값으로 채운다. 대상에는 다시 쓰지 않는다.
+    const resolved = await this.contentWorkspaces.resolveSourceSelections(handle, {
+      organizationId: input.organizationId,
+      sourceWorkspaceId: sourceContentWorkspaceId,
+      selectedThumbnailAssetId: existing.selectedThumbnailAssetId,
+      selectedDetailPageRevisionId: existing.selectedDetailPageRevisionId,
+    });
+    // 설정에는 쿠팡 어댑터 값만 남긴다(KID-321 이 몰 중립으로 옮길 때까지). 실행 시점 사실은 실행 payload 에만 있다.
     const row = await tx.registrationTarget.update({
       where: { id: existing.id, organizationId: input.organizationId },
       data: {
-        registrationInput: input.registrationInput as Prisma.InputJsonValue,
-        ...(existing.displayName === null ? { displayName: input.displayName } : {}),
-        ...resolvedSelectionData(resolved),
+        registrationInput: withAdapterValues(
+          normalizeRegistrationMallInput(existing.registrationInput),
+          'coupang',
+          coupangAdapterValues(input.registrationInput),
+        ) as Prisma.InputJsonValue,
       },
     });
-    return toFrozenDraft(tx, row, {
-      sourceRecordId: product.sourceRecordId,
-      sourceContentWorkspaceId,
-      productName: product.name,
-    });
-  }
-
-  /**
-   * 이름 없는 옛 설정에 판매상품 이름을 채운다. 가격 게이트는 이름이 이미 있어도 본다 —
-   * 이름이 있다고 초안이 아닌 것은 아니다.
-   */
-  private async ensureDisplayName(handle: ChannelsRepositoryTransaction, row: RegistrationTarget): Promise<RegistrationTarget> {
-    const product = await requireConfirmedSalesProduct(client(handle), row.organizationId, row.salesProductId);
-    if (row.displayName) return row;
-    return client(handle).registrationTarget.update({
-      where: { id: row.id, organizationId: row.organizationId },
-      data: { displayName: product.name },
-    });
+    return {
+      ...await toFrozenDraft(tx, row, {
+        sourceRecordId: product.sourceRecordId,
+        sourceContentWorkspaceId,
+        productName: product.name,
+      }),
+      selectedThumbnailAssetId: resolved.selectedThumbnailAssetId,
+      selectedDetailPageRevisionId: resolved.selectedDetailPageRevisionId,
+    };
   }
 
   async closeDraft(tx: ChannelsRepositoryTransaction, input: CloseRegistrationDraftInput): Promise<number> {
@@ -244,12 +231,6 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       listingId: string;
       displayName: string;
       createdByUserId: string | null;
-      selectedThumbnailUrl: string | null;
-      selectedThumbnailGenerationId: string | null;
-      selectedThumbnailGenerationCandidateId: string | null;
-      selectedDetailPageArtifactId: string | null;
-      selectedDetailPageRevisionId: string | null;
-      selectedDetailPageGenerationId: string | null;
     },
   ): Promise<{ workspaceId: string }> {
     return this.contentWorkspaces.attachToListing(tx, {
@@ -279,8 +260,8 @@ async function toFrozenDraft(
     sourceRecordId: context.sourceRecordId,
     channelAccountId: row.channelAccountId,
     sourceContentWorkspaceId: context.sourceContentWorkspaceId,
-    // 표시명은 설정이 덮어쓴 값이고, 없으면 판매상품 이름이다.
-    displayName: row.displayName ?? context.productName,
+    // 등록 설정은 이름을 갖지 않는다 — 판매상품 이름이다(KID-313 W2).
+    displayName: context.productName,
     status: registrationDraftState(row.archivedAt, execution),
     closedAt: row.archivedAt,
     isDeleted: row.archivedAt !== null,
@@ -288,11 +269,17 @@ async function toFrozenDraft(
     approvedByUserId: execution?.approvedByUserId ?? null,
     reviewPayloadHash: execution?.reviewPayloadHash ?? null,
     updatedAt: row.updatedAt,
-    selectedThumbnailUrl: row.selectedThumbnailUrl,
-    selectedThumbnailGenerationId: row.selectedThumbnailGenerationId,
-    selectedThumbnailGenerationCandidateId: row.selectedThumbnailGenerationCandidateId,
-    selectedDetailPageArtifactId: row.selectedDetailPageArtifactId,
+    selectedThumbnailAssetId: row.selectedThumbnailAssetId,
     selectedDetailPageRevisionId: row.selectedDetailPageRevisionId,
-    selectedDetailPageGenerationId: row.selectedDetailPageGenerationId,
   };
+}
+
+/** 쿠팡 윙 흐름이 다음 제출 때 다시 읽는 값. 없으면 쿠팡 칸을 비운다. */
+function coupangAdapterValues(input: Record<string, unknown>): Record<string, unknown> | null {
+  const values: Record<string, unknown> = {};
+  if (typeof input.wingCategoryKey === 'string') values.wingCategoryKey = input.wingCategoryKey;
+  if (input.wingProduct && typeof input.wingProduct === 'object' && !Array.isArray(input.wingProduct)) {
+    values.wingProduct = input.wingProduct;
+  }
+  return Object.keys(values).length > 0 ? values : null;
 }

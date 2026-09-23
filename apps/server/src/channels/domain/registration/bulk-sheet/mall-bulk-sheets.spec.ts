@@ -85,47 +85,22 @@ function source(overrides: Partial<MallSheetSourceProduct> = {}): MallSheetSourc
     overrides: [
       {
         mallKey: 'gmarket',
-        salePrice: 4200,
-        priceRateBp: null,
-        name: null,
-        detailHtml: null,
-        promoText: null,
         adapterValues: { sabangnetCategoryPath: '장난감/완구 > 감각발달완구 > 기타감각발달완구' },
       },
       {
         mallKey: 'auction',
-        salePrice: null,
-        priceRateBp: 11000,
-        name: null,
-        detailHtml: null,
-        promoText: null,
         adapterValues: { sabangnetCategoryPath: '장난감/완구 > 감각발달완구 > 기타감각발달완구' },
       },
       {
         mallKey: '11st',
-        salePrice: null,
-        priceRateBp: null,
-        name: null,
-        detailHtml: null,
-        promoText: null,
         adapterValues: { sabangnetCategoryPath: '장난감 > 감각발달완구 > 비눗방울/버블건' },
       },
       {
         mallKey: 'coupang',
-        salePrice: null,
-        priceRateBp: null,
-        name: null,
-        detailHtml: null,
-        promoText: null,
         adapterValues: { categoryCode: '77388' },
       },
       {
         mallKey: 'onch',
-        salePrice: null,
-        priceRateBp: null,
-        name: null,
-        detailHtml: null,
-        promoText: null,
         adapterValues: {
           sabangnetCategoryPath: '출산/육아 > 완구/인형 > 감각발달완구 > 비눗방울',
           supplyPrice: '2200',
@@ -134,29 +109,14 @@ function source(overrides: Partial<MallSheetSourceProduct> = {}): MallSheetSourc
       },
       {
         mallKey: 'smartstore',
-        salePrice: null,
-        priceRateBp: null,
-        name: null,
-        detailHtml: null,
-        promoText: null,
         adapterValues: { categoryCode: '50003307' },
       },
       {
         mallKey: 'icecream-mall',
-        salePrice: null,
-        priceRateBp: null,
-        name: null,
-        detailHtml: null,
-        promoText: null,
         adapterValues: { sabangnetCategoryPath: '아이스크림몰 > 유치원 > 브랜드마켓 > 장난감/완구' },
       },
       {
         mallKey: 'kidsnote',
-        salePrice: null,
-        priceRateBp: null,
-        name: null,
-        detailHtml: null,
-        promoText: null,
         adapterValues: { sabangnetCategoryPath: '선물/행사/체험 > 행사용품 > 할로윈데이' },
       },
     ],
@@ -196,8 +156,14 @@ describe('one registration setting per product and mall', () => {
 
   it('takes the one setting, and stays on common values when there is none', () => {
     expect(pickMallOverride(source({ overrides: [] }), 'gmarket')).toBeNull();
-    expect(pickMallOverride(source(), 'gmarket')?.salePrice).toBe(4200);
+    expect(pickMallOverride(source(), 'gmarket')?.adapterValues.sabangnetCategoryPath)
+      .toBe('장난감/완구 > 감각발달완구 > 기타감각발달완구');
     expect(toMallSheetProduct(source({ overrides: [] }), esmSheet, lookup).malls.gmarket!.salePrice).toBe(3960);
+  });
+
+  it('takes the mall category the operator chose ahead of the Sabangnet path', () => {
+    const chosen = source({ overrides: [{ mallKey: 'gmarket', categoryPath: '고른 > 분류', adapterValues: { sabangnetCategoryPath: '사방넷 > 분류' } }] });
+    expect(mallTargetCategoryPath(mallTargets(chosen, 'gmarket')[0]!)).toBe('고른 > 분류');
   });
 
   describe('borrowing a category from a mall with the same category tree', () => {
@@ -220,11 +186,10 @@ describe('one registration setting per product and mall', () => {
 });
 
 describe('toMallSheetProduct', () => {
-  it('prices each mall from its own value and falls back to Sabangnet images when ours are private', () => {
+  it('prices every mall from the selling product and falls back to Sabangnet images when ours are private', () => {
     const product = toMallSheetProduct(source(), esmSheet, lookup);
-    expect(product.malls.gmarket!.salePrice).toBe(4200);
-    // Legacy priceRateBp is no longer an authority; without an explicit target
-    // final price the canonical option price is used.
+    // 등록 대상은 가격을 갖지 않는다(KID-313 W2) — 몰마다 같은 판매 상품 가격이다.
+    expect(product.malls.gmarket!.salePrice).toBe(3960);
     expect(product.malls.auction!.salePrice).toBe(3960);
     expect(product.malls.gmarket!.categoryCode).toBe('100000042200001589300028350');
     expect(product.imageSource).toBe('sabangnet');
@@ -273,7 +238,7 @@ describe('toMallSheetProduct', () => {
     expect(product.options.map((option) => option.code)).toEqual(['a']);
   });
 
-  it('keeps explicit target final prices and sends only selected options', () => {
+  it('sends only the selected options at the selling product\'s prices', () => {
     const input = source({
       salePrice: 4000,
       optionAxes: ['색상'],
@@ -286,20 +251,19 @@ describe('toMallSheetProduct', () => {
           ...item,
           targetId: 'target-1',
           selectedOptionIds: ['option-a'],
-          optionPrices: [{ salesProductOptionId: 'option-a', salePrice: 4700, normalPrice: 5200, supplyPrice: null }],
         }
         : item),
     });
     const product = toMallSheetProduct(input, coupangWingSheet, lookup);
-    expect(product.malls.coupang).toMatchObject({ salePrice: 4700, selectedOptionCodes: ['a'], optionPrices: { a: 4700 } });
+    expect(product.malls.coupang).toMatchObject({ salePrice: 4000, selectedOptionCodes: ['a'], optionPrices: { a: 4000 } });
     const result = run(coupangWingSheet, input);
     expect(result.problems).toEqual([]);
     expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]?.판매가격).toBe(4700);
+    expect(result.rows[0]?.판매가격).toBe(4000);
     expect(result.rows[0]?.옵션값1).toBe('빨강');
   });
 
-  it('reports differing target normal prices instead of taking the first option', () => {
+  it('reports differing option normal prices instead of taking the first option', () => {
     const input = source({
       salePrice: 4000,
       optionAxes: ['색상'],
@@ -312,10 +276,6 @@ describe('toMallSheetProduct', () => {
           ...item,
           targetId: 'target-2',
           selectedOptionIds: ['option-a', 'option-b'],
-          optionPrices: [
-            { salesProductOptionId: 'option-a', salePrice: 4100, normalPrice: 5000, supplyPrice: null },
-            { salesProductOptionId: 'option-b', salePrice: 4600, normalPrice: 5600, supplyPrice: null },
-          ],
         }
         : item),
     });
@@ -326,7 +286,7 @@ describe('toMallSheetProduct', () => {
 });
 
 describe('ESM sheet', () => {
-  it('writes both sites with ESM · site category codes, per-site prices and the account defaults', () => {
+  it('writes both sites with ESM · site category codes, the product price and the account defaults', () => {
     const result = run(esmSheet, source());
     expect(result.problems).toEqual([]);
     expect(result.warnings).toContain('사진이 사방넷 서버 주소입니다. 사방넷을 끊으면 몰에서 사진이 안 보일 수 있습니다.');
@@ -338,7 +298,7 @@ describe('ESM sheet', () => {
       '카테고리 코드': '00310013000100010000',
       'G 노출코드': '100000042200001589300028350',
       'A 노출코드': '20141000',
-      'G 판매가': 4200,
+      'G 판매가': 3960,
       'A 판매가': 3960,
       '옵션 타입': '미사용',
       배송정책번호: '33173429',
@@ -490,7 +450,7 @@ describe('Icecream mall sheet', () => {
     const optionId = '11111111-1111-4111-8111-111111111112';
     input.options[0]!.id = optionId;
     const mall = input.overrides.find((item) => item.mallKey === 'icecream-mall')!;
-    mall.optionPrices = [{ salesProductOptionId: optionId, salePrice: null, normalPrice: null, supplyPrice: 2200 }];
+    mall.adapterValues = { ...mall.adapterValues, supplyPrice: '2200' };
 
     const { rows, problems } = run(icecreamSheet, input, { supplyRate: '75', feeMode });
 
@@ -534,7 +494,7 @@ describe('Icecream mall sheet', () => {
     const inCategory = { adapterValues: { categoryCode: 'BC0215010500' } };
     const mathToy = (certificationNumbers: string[]) => source({
       certificationNumbers,
-      overrides: [{ mallKey: 'icecream-mall', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, ...inCategory }],
+      overrides: [{ mallKey: 'icecream-mall', ...inCategory }],
     });
     expect(run(icecreamSheet, mathToy([])).problems.join()).toContain('안전인증');
     const [row] = run(icecreamSheet, mathToy(['CB123-456'])).rows;
@@ -543,9 +503,24 @@ describe('Icecream mall sheet', () => {
 
   it('asks for a number when one category name points at several', () => {
     const many = source({
-      overrides: [{ mallKey: 'icecream-mall', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { sabangnetCategoryPath: '아이스크림몰 > 유치원 > 생활·소모품 > 위생/안전' } }],
+      overrides: [{ mallKey: 'icecream-mall', adapterValues: { sabangnetCategoryPath: '아이스크림몰 > 유치원 > 생활·소모품 > 위생/안전' } }],
     });
     expect(run(icecreamSheet, many).problems.join()).toContain('번호 2개를 가리킵니다');
+  });
+});
+
+describe('mall promo text', () => {
+  it('takes the promo text from the target\'s mall-only value mallFields.promoText, trimmed, and none when it is blank', () => {
+    const input = source();
+    input.overrides = [
+      { mallKey: 'teacher-mall', adapterValues: { categoryCode: '00010001', promoText: '  무료배송  ' } },
+      { mallKey: 'gmarket', adapterValues: { sabangnetCategoryPath: '장난감/완구 > 감각발달완구 > 기타감각발달완구', promoText: '   ' } },
+    ];
+
+    expect(run(teachervilleSheet, input, { supplyRate: '80' }).rows[0]!.간략설명).toBe('무료배송');
+    const esm = toMallSheetProduct(input, esmSheet, lookup);
+    expect(esm.malls.gmarket!.promoText).toBeNull();
+    expect(esm.malls.auction!.promoText).toBeNull();
   });
 });
 
@@ -555,10 +530,8 @@ describe('Teacherville supply price', () => {
     const optionId = '11111111-1111-4111-8111-111111111112';
     input.options[0]!.id = optionId;
     input.overrides = [{
-      mallKey: 'teacher-mall', salePrice: null, priceRateBp: null,
-      name: null, detailHtml: null, promoText: null,
-      adapterValues: { categoryCode: '00010001' },
-      optionPrices: [{ salesProductOptionId: optionId, salePrice: null, normalPrice: null, supplyPrice }],
+      mallKey: 'teacher-mall',
+      adapterValues: { categoryCode: '00010001', ...(supplyPrice === null ? {} : { supplyPrice: String(supplyPrice) }) },
     }];
 
     const { rows, problems } = run(teachervilleSheet, input, { supplyRate: '80' });
@@ -600,8 +573,8 @@ describe('Onchannel sheet', () => {
     const borrowed = source({
       keywords: ['가', '나', '다', '라', '마'],
       overrides: [
-        { mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { supplyPrice: '2200' } },
-        { mallKey: 'smartstore', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { sabangnetCategoryPath: '출산/육아 > 완구/인형 > 감각발달완구 > 비눗방울' } },
+        { mallKey: 'onch', adapterValues: { supplyPrice: '2200' } },
+        { mallKey: 'smartstore', adapterValues: { sabangnetCategoryPath: '출산/육아 > 완구/인형 > 감각발달완구 > 비눗방울' } },
       ],
     });
     expect(run(onchannelSheet, borrowed).rows[0]?.분류).toBe('50004224');
@@ -611,8 +584,8 @@ describe('Onchannel sheet', () => {
     const unknown = source({
       keywords: ['가', '나', '다', '라', '마'],
       overrides: [
-        { mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { supplyPrice: '2200' } },
-        { mallKey: 'smartstore', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { sabangnetCategoryPath: '없는 > 분류 > 경로' } },
+        { mallKey: 'onch', adapterValues: { supplyPrice: '2200' } },
+        { mallKey: 'smartstore', adapterValues: { sabangnetCategoryPath: '없는 > 분류 > 경로' } },
       ],
     });
     expect(run(onchannelSheet, unknown).problems.join()).toContain('온채널 분류 번호를 모릅니다');
@@ -621,12 +594,12 @@ describe('Onchannel sheet', () => {
   it('refuses a product without a supply price or with fewer than five keywords', () => {
     const noSupply = source({
       keywords: ['가', '나', '다', '라', '마'],
-      overrides: [{ mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { categoryCode: '50004224' } }],
+      overrides: [{ mallKey: 'onch', adapterValues: { categoryCode: '50004224' } }],
     });
     expect(run(onchannelSheet, noSupply).problems.join()).toContain('공급가');
     const fewKeywords = source({
       keywords: ['하나'],
-      overrides: [{ mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { categoryCode: '50004224', supplyPrice: '2200' } }],
+      overrides: [{ mallKey: 'onch', adapterValues: { categoryCode: '50004224', supplyPrice: '2200' } }],
     });
     expect(run(onchannelSheet, fewKeywords).problems.join()).toContain('키워드가 1개');
   });
@@ -635,7 +608,7 @@ describe('Onchannel sheet', () => {
     const certified = source({
       keywords: ['가', '나', '다', '라', '마'],
       certificationNumbers: ['CB123-456'],
-      overrides: [{ mallKey: 'onch', salePrice: null, priceRateBp: null, name: null, detailHtml: null, promoText: null, adapterValues: { categoryCode: '50004224', supplyPrice: '2200' } }],
+      overrides: [{ mallKey: 'onch', adapterValues: { categoryCode: '50004224', supplyPrice: '2200' } }],
     });
     expect(run(onchannelSheet, certified).rows[0]).toMatchObject({
       'KC 인증번호': 'CB123-456',

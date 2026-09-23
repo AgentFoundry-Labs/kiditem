@@ -83,37 +83,31 @@ function recordValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function stringValues(value: unknown): Record<string, string> {
-  return directRegistrationValues(recordValue(value));
+/** 어댑터 namespace 값: 글자 · 숫자 · 참거짓은 글자로, 안에 든 객체 · 배열은 그 키 아래 JSON 글자로 둔다. */
+function adapterNamespaceValues(input: Record<string, unknown>): Record<string, string> {
+  const values = directRegistrationValues(input);
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== null && typeof value === 'object') values[key] = JSON.stringify(value);
+  }
+  return values;
 }
 
 /**
- * The legacy #554 editor stores its saved fields as
- * `mallRegisterShared` + `mallRegisterValues[mallKey]`. Target documents may
- * use that shape as well as the provider's direct scalar fields. Keep both
- * paths at this boundary so a target does not silently fall back to live UI
- * defaults when it is executed later.
+ * 등록 대상이 몰에 넘기는 값(KID-313): 몰 카테고리 · 몰 전용 칸(`mallFields`) · 이 채널의 어댑터 namespace
+ * (`adapter[mallKey]`). `registrationInput` 에서 다른 것은 읽지 않는다 — 상품 사실은 동결된 판매상품에서 온다.
  */
 function targetRegistrationValues(
-  input: Record<string, unknown>,
+  input: TargetExecutionSnapshot['registrationInput'],
   mallKey: string,
 ): Record<string, string> {
-  const mallRegisterValues = recordValue(input.mallRegisterValues);
+  const category = recordValue(input.mallCategory);
   return {
-    ...stringValues(input.mallRegisterShared),
-    ...stringValues(recordValue(mallRegisterValues[mallKey])),
-    ...stringValues(recordValue(input[mallKey])),
-    ...stringValues(input.adapterValues),
-    ...directRegistrationValues(input),
+    ...(typeof category.key === 'string'
+      ? { mallCategoryKey: category.key, mallCategoryLabel: typeof category.label === 'string' ? category.label : '' }
+      : {}),
+    ...directRegistrationValues(recordValue(input.mallFields)),
+    ...adapterNamespaceValues(recordValue(recordValue(input.adapter)[mallKey])),
   };
-}
-
-function frozenSupplyPrice(snapshot: TargetExecutionSnapshot): string | undefined {
-  const prices = snapshot.supplyPrices
-    .map((entry) => entry.supplyPrice)
-    .filter((price): price is number => price !== null);
-  if (prices.length === 0 || new Set(prices).size !== 1) return undefined;
-  return String(prices[0]);
 }
 
 /**
@@ -127,16 +121,10 @@ export function valuesForTargetExecution(
   _adapter: MallPublishAdapter,
 ): Record<string, string> {
   const override = snapshot.product.channelOverrides.find((item) => item.mallKey === mallKey);
-  const targetValues = targetRegistrationValues(snapshot.registrationInput, mallKey);
-  const targetSupply = frozenSupplyPrice(snapshot);
-  const supportsSupplyPrice = Object.hasOwn(snapshot.adapterDefaults ?? {}, 'supplyPrice');
   return {
     ...(snapshot.adapterDefaults ?? {}),
     ...(override?.adapterValues ?? {}),
-    ...(supportsSupplyPrice && targetSupply && targetValues.supplyPrice === undefined
-      ? { supplyPrice: targetSupply }
-      : {}),
-    ...targetValues,
+    ...targetRegistrationValues(snapshot.registrationInput, mallKey),
     ...(snapshot.adapterValues ?? {}),
   };
 }

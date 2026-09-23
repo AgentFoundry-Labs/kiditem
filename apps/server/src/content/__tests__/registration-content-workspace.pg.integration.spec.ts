@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -9,24 +10,33 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
+import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
+import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
+import type { ImportDetailPageInput } from '../application/port/in/workspace/registration-content-workspace.port';
 
-describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () => {
+describe('registration content workspace (PG integration)', () => {
   let prisma: PrismaClient;
-  let repository: RegistrationContentWorkspaceRepositoryAdapter;
+  let content: RegistrationContentWorkspaceService;
+  let detailPages: DetailPageQueryRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new RegistrationContentWorkspaceRepositoryAdapter(
+    content = new RegistrationContentWorkspaceService(new RegistrationContentWorkspaceRepositoryAdapter(
       prisma as unknown as PrismaService,
       new ChannelListingQueryService(
         new ChannelListingQueryPersistenceAdapter(prisma as never),
         { findForListings: async () => [] },
       ),
+    ));
+    detailPages = new DetailPageQueryRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new ContentAssetLibraryRepositoryAdapter(prisma as unknown as PrismaService),
     );
   });
 
@@ -37,140 +47,335 @@ describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () =>
     await seedBaseFixture(prisma);
   });
 
-  it('adopts a draft image the owner selected into managed source content', async () => {
-    const thumbnailUrl = 'https://cdn.example.com/source.jpg';
-    const sourceWorkspace = await prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sales_product',
-        salesProductId: randomUUID(),
-        displayName: 'Kids rain boots',
-        normalizedTitle: 'kidsrainboots',
-        createdByUserId: TEST_USER_ID,
-      },
-    });
+  async function ensureWorkspace(salesProductId = randomUUID()) {
+    const { workspaceId } = await prisma.$transaction((tx) => content.ensureSalesProductWorkspace(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId,
+      displayName: '아동 장화',
+      createdByUserId: TEST_USER_ID,
+    }));
+    return { salesProductId, workspaceId };
+  }
 
-    await expect(prisma.$transaction((transaction) =>
-      repository.resolveSourceSelections(ownerTransaction(transaction), {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceWorkspaceId: sourceWorkspace.id,
-        selectedThumbnailUrl: thumbnailUrl,
-        selectedThumbnailGenerationId: null,
-        selectedThumbnailGenerationCandidateId: null,
-        selectedDetailPageArtifactId: null,
-        selectedDetailPageRevisionId: null,
-        selectedDetailPageGenerationId: null,
-      }),
-    )).resolves.toMatchObject({ selectedThumbnailUrl: thumbnailUrl });
+  function importInput(salesProductId: string, overrides: Partial<ImportDetailPageInput> = {}): ImportDetailPageInput {
+    return {
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId,
+      source: 'sabangnet',
+      html: '<p>사방넷 상세</p>',
+      digest: 'digest-1',
+      createdByUserId: null,
+      ...overrides,
+    };
+  }
 
-    const selection = await prisma.contentWorkspaceThumbnailSelection.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        contentWorkspaceId: sourceWorkspace.id,
-        sourceThumbnailGenerationId: null,
-        sourceThumbnailCandidateId: null,
-      },
-      include: { contentAsset: true },
-    });
-    expect(selection.contentAsset).toMatchObject({
-      url: thumbnailUrl,
-      role: 'thumbnail',
-      isDeleted: false,
-    });
+  function importDetail(input: ImportDetailPageInput) {
+    return prisma.$transaction((tx) => content.importDetailPage(ownerTransaction(tx), input));
+  }
+
+  it('keeps one active workspace per selling product however often or concurrently it is ensured', async () => {
+    const salesProductId = randomUUID();
+    const ensured = await Promise.all([1, 2, 3].map(() => ensureWorkspace(salesProductId)));
+
+    expect(new Set(ensured.map((row) => row.workspaceId)).size).toBe(1);
+    await expect(prisma.contentWorkspace.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId, status: 'active', isDeleted: false },
+    })).resolves.toBe(1);
   });
 
-  it('waits for the thumbnail-generation lock and rejects a concurrently archived selection', async () => {
-    const sourceWorkspace = await prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sales_product',
-        salesProductId: randomUUID(),
-        displayName: 'Kids rain boots',
-        normalizedTitle: 'kidsrainboots',
-        createdByUserId: TEST_USER_ID,
-      },
+  it('makes the first imported detail the current revision the mall reads', async () => {
+    const { salesProductId, workspaceId } = await ensureWorkspace();
+
+    const result = await importDetail(importInput(salesProductId));
+
+    expect(result).toMatchObject({ kind: 'appended', workspaceId, becameCurrent: true });
+    const read = await content.readRegistrableDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, revisionId: null,
     });
-    const generation = await prisma.thumbnailGeneration.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        contentWorkspaceId: sourceWorkspace.id,
-        originalUrl: 'https://cdn.example.com/source.jpg',
-        status: 'succeeded',
-        triggeredByUserId: TEST_USER_ID,
-      },
+    expect(read).toMatchObject({
+      workspaceId,
+      revisionType: 'imported',
+      html: '<p>사방넷 상세</p>',
     });
-    const generatedCandidate = await prisma.thumbnailGenerationCandidate.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        generationId: generation.id,
-        url: 'https://cdn.example.com/generated.jpg',
-      },
+    expect(read).not.toHaveProperty('extraHtml');
+    expect(read?.revisionId).toBe(result.kind === 'appended' ? result.revisionId : null);
+  });
+
+  it('keeps the import bookkeeping on the revision row itself, not on the artifact', async () => {
+    const { salesProductId } = await ensureWorkspace();
+
+    const result = await importDetail(importInput(salesProductId));
+
+    const revision = await prisma.detailPageRevision.findUniqueOrThrow({
+      where: { id: result.kind === 'appended' ? result.revisionId : '' },
+      select: { source: true, sourceDigest: true, revisionType: true, artifact: { select: { metadata: true } } },
+    });
+    expect(revision).toMatchObject({ source: 'sabangnet', sourceDigest: 'digest-1', revisionType: 'imported' });
+    expect(revision.artifact.metadata).toEqual({ source: 'sabangnet_import' });
+  });
+
+  it('compares a re-import with the newest imported revision of that source — an older digest coming back appends', async () => {
+    const { salesProductId } = await ensureWorkspace();
+    await importDetail(importInput(salesProductId));
+    await importDetail(importInput(salesProductId, { html: '<p>두 번째</p>', digest: 'digest-2' }));
+
+    await expect(importDetail(importInput(salesProductId, { html: '<p>사방넷 상세</p>', digest: 'digest-1' })))
+      .resolves.toMatchObject({ kind: 'appended', becameCurrent: true });
+    await expect(importDetail(importInput(salesProductId, { html: '<p>사방넷 상세</p>', digest: 'digest-1' })))
+      .resolves.toMatchObject({ kind: 'skipped', reason: 'unchanged' });
+    await expect(prisma.detailPageRevision.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      orderBy: { createdAt: 'asc' },
+      select: { sourceDigest: true },
+    })).resolves.toEqual([{ sourceDigest: 'digest-1' }, { sourceDigest: 'digest-2' }, { sourceDigest: 'digest-1' }]);
+  });
+
+  it('does not add a revision when the same content is imported again', async () => {
+    const { salesProductId } = await ensureWorkspace();
+    await importDetail(importInput(salesProductId));
+
+    await expect(importDetail(importInput(salesProductId))).resolves.toMatchObject({ kind: 'skipped', reason: 'unchanged' });
+    await expect(prisma.detailPageRevision.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(1);
+  });
+
+  it('replaces an earlier import but never a human edit — a re-import after the edit only joins the history', async () => {
+    const { salesProductId } = await ensureWorkspace();
+    await importDetail(importInput(salesProductId));
+    const second = await importDetail(importInput(salesProductId, { html: '<p>두 번째</p>', digest: 'digest-2' }));
+    expect(second).toMatchObject({ kind: 'appended', becameCurrent: true });
+
+    const generation = await prisma.contentGeneration.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, contentType: 'detail_page' },
+    });
+    const edited = await detailPages.saveEditedHtmlRevision({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentGenerationId: generation.id,
+      html: '<p>사람이 고친 상세</p>',
+      assetUrlMap: {},
+      imageUrls: [],
+      savedAt: new Date(),
     });
 
-    let releaseArchive!: () => void;
-    let reportSourceRowsLocked!: () => void;
-    const archiveRelease = new Promise<void>((resolve) => {
-      releaseArchive = resolve;
-    });
-    const sourceRowsLocked = new Promise<void>((resolve) => {
-      reportSourceRowsLocked = resolve;
-    });
-    const archive = prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw(Prisma.sql`
-        SELECT id FROM thumbnail_generations
-        WHERE id = ${generation.id}::uuid
-          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
-        FOR UPDATE
-      `);
-      await transaction.$queryRaw(Prisma.sql`
-        SELECT id FROM thumbnail_generation_candidates
-        WHERE id = ${generatedCandidate.id}::uuid
-          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
-          AND generation_id = ${generation.id}::uuid
-        FOR UPDATE
-      `);
-      reportSourceRowsLocked();
-      await archiveRelease;
-      await transaction.thumbnailGeneration.updateMany({
-        where: {
-          id: generation.id,
-          organizationId: TEST_ORGANIZATION_ID,
-          isDeleted: false,
-        },
-        data: { isDeleted: true, deletedAt: new Date() },
-      });
-    });
-    await sourceRowsLocked;
+    const third = await importDetail(importInput(salesProductId, { html: '<p>세 번째</p>', digest: 'digest-3' }));
 
-    const branch = prisma.$transaction((transaction) => repository.resolveSourceSelections(
-      ownerTransaction(transaction),
-      {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceWorkspaceId: sourceWorkspace.id,
-        selectedThumbnailUrl: generatedCandidate.url,
-        selectedThumbnailGenerationId: generation.id,
-        selectedThumbnailGenerationCandidateId: generatedCandidate.id,
-        selectedDetailPageArtifactId: null,
-        selectedDetailPageRevisionId: null,
-        selectedDetailPageGenerationId: null,
-      },
-    ));
+    expect(third).toMatchObject({ kind: 'appended', becameCurrent: false });
+    await expect(content.readRegistrableDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, revisionId: null,
+    })).resolves.toMatchObject({ revisionId: edited.revisionId, revisionType: 'manual_edit', html: '<p>사람이 고친 상세</p>' });
+    await expect(prisma.detailPageRevision.findUniqueOrThrow({
+      where: { id: edited.revisionId }, select: { source: true, sourceDigest: true },
+    })).resolves.toEqual({ source: null, sourceDigest: null });
+    await expect(prisma.detailPageRevision.findUniqueOrThrow({
+      where: { id: third.kind === 'appended' ? third.revisionId : '' }, select: { source: true, sourceDigest: true },
+    })).resolves.toEqual({ source: 'sabangnet', sourceDigest: 'digest-3' });
+    await expect(prisma.detailPageRevision.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, revisionType: 'imported' },
+    })).resolves.toBe(3);
+  });
+
+  it('writes a first detail page by hand into a workspace with none, and refuses a second one', async () => {
+    const { salesProductId, workspaceId } = await ensureWorkspace();
+
+    const created = await content.createManualDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, html: '<p>직접 쓴 상세 <img src="https://cdn.example/a.jpg"></p>', createdByUserId: TEST_USER_ID,
+    });
+
+    expect(created.workspaceId).toBe(workspaceId);
+    await expect(content.readRegistrableDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, revisionId: null,
+    })).resolves.toMatchObject({
+      revisionId: created.revisionId,
+      revisionType: 'manual_edit',
+      html: '<p>직접 쓴 상세 <img src="https://cdn.example/a.jpg"></p>',
+      imageUrls: ['https://cdn.example/a.jpg'],
+    });
+    await expect(prisma.contentWorkspace.findUniqueOrThrow({
+      where: { id: workspaceId }, select: { currentDetailPageArtifact: { select: { metadata: true, sourceContentGenerationId: true } } },
+    })).resolves.toEqual({ currentDetailPageArtifact: { metadata: { source: 'manual' }, sourceContentGenerationId: created.contentGenerationId } });
+    // 허브가 읽는 길(현재 상세 생성의 저장된 HTML)로도 같은 글이 보인다.
+    await expect(detailPages.getEditedHtml({ organizationId: TEST_ORGANIZATION_ID, id: created.contentGenerationId }))
+      .resolves.toMatchObject({ detailPageArtifact: { currentRevision: { html: '<p>직접 쓴 상세 <img src="https://cdn.example/a.jpg"></p>' } } });
+
+    await expect(content.createManualDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, html: '<p>또 쓴 상세</p>', createdByUserId: TEST_USER_ID,
+    })).rejects.toBeInstanceOf(ConflictException);
+    await expect(prisma.detailPageRevision.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(1);
+  });
+
+  it('has no manual first detail page for a product without a workspace', async () => {
+    await expect(content.createManualDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: randomUUID(), html: '<p>상세</p>', createdByUserId: null,
+    })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('reads the revision a target selected instead of the current one', async () => {
+    const { salesProductId } = await ensureWorkspace();
+    const first = await importDetail(importInput(salesProductId));
+    await importDetail(importInput(salesProductId, { html: '<p>새 상세</p>', digest: 'digest-2' }));
+    const firstRevisionId = first.kind === 'appended' ? first.revisionId : '';
+
+    await expect(content.readRegistrableDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, revisionId: firstRevisionId,
+    })).resolves.toMatchObject({ revisionId: firstRevisionId, html: '<p>사방넷 상세</p>' });
+    await expect(content.readRegistrableDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, revisionId: null,
+    })).resolves.toMatchObject({ html: '<p>새 상세</p>' });
+  });
+
+  it('reads many products\' details in one call — a chosen revision, the current one, and none for a product without a workspace', async () => {
+    const chosen = await ensureWorkspace();
+    const current = await ensureWorkspace();
+    const withoutWorkspace = randomUUID();
+    const first = await importDetail(importInput(chosen.salesProductId, { html: '<p>고른 상세</p>', digest: 'digest-a' }));
+    await importDetail(importInput(chosen.salesProductId, { html: '<p>새 상세</p>', digest: 'digest-b' }));
+    await importDetail(importInput(current.salesProductId, { html: '<p>현재 상세</p>' }));
+    const chosenRevisionId = first.kind === 'appended' ? first.revisionId : '';
+
+    const pages = await content.readRegistrableDetailPages({
+      organizationId: TEST_ORGANIZATION_ID,
+      requests: [
+        { salesProductId: chosen.salesProductId, revisionId: chosenRevisionId },
+        { salesProductId: current.salesProductId, revisionId: null },
+        { salesProductId: withoutWorkspace, revisionId: null },
+      ],
+    });
+
+    expect([...pages.keys()].sort()).toEqual([chosen.salesProductId, current.salesProductId].sort());
+    expect(pages.get(chosen.salesProductId)).toMatchObject({
+      workspaceId: chosen.workspaceId, revisionId: chosenRevisionId, revisionType: 'imported', html: '<p>고른 상세</p>',
+    });
+    expect(pages.get(current.salesProductId)).toMatchObject({ workspaceId: current.workspaceId, html: '<p>현재 상세</p>' });
+    await expect(content.readRegistrableDetailPages({ organizationId: TEST_ORGANIZATION_ID, requests: [] }))
+      .resolves.toEqual(new Map());
+  });
+
+  it('rejects a batch that names another product\'s revision, like the single read does', async () => {
+    const own = await ensureWorkspace();
+    const foreign = await ensureWorkspace();
+    const foreignImport = await importDetail(importInput(foreign.salesProductId));
+    const foreignRevisionId = foreignImport.kind === 'appended' ? foreignImport.revisionId : '';
+
+    await expect(content.readRegistrableDetailPages({
+      organizationId: TEST_ORGANIZATION_ID,
+      requests: [
+        { salesProductId: foreign.salesProductId, revisionId: null },
+        { salesProductId: own.salesProductId, revisionId: foreignRevisionId },
+      ],
+    })).rejects.toThrow('Selected detail revision is not source-owned.');
+    await expect(content.readRegistrableDetailPages({
+      organizationId: TEST_ORGANIZATION_ID,
+      requests: [{ salesProductId: randomUUID(), revisionId: foreignRevisionId }],
+    })).rejects.toThrow('Selected detail revision is not source-owned.');
+  });
+
+  it('has no detail for a product without a revision', async () => {
+    const { salesProductId } = await ensureWorkspace();
+
+    await expect(content.readRegistrableDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, revisionId: null,
+    })).resolves.toBeNull();
+    await expect(content.readRegistrableDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: randomUUID(), revisionId: null,
+    })).resolves.toBeNull();
+  });
+
+  it('fills an empty selection with the current revision and thumbnail asset, and rejects another workspace\'s content', async () => {
+    const own = await ensureWorkspace();
+    const foreign = await ensureWorkspace();
+    const ownImport = await importDetail(importInput(own.salesProductId));
+    const foreignImport = await importDetail(importInput(foreign.salesProductId));
+    const ownAsset = await createWorkspaceAsset(prisma, own.workspaceId, 'https://cdn.example.com/own.jpg', { current: true });
+    const foreignAsset = await createWorkspaceAsset(prisma, foreign.workspaceId, 'https://cdn.example.com/foreign.jpg');
+    const ownRevisionId = ownImport.kind === 'appended' ? ownImport.revisionId : '';
+    const foreignRevisionId = foreignImport.kind === 'appended' ? foreignImport.revisionId : '';
+    const select = (selection: { selectedThumbnailAssetId: string | null; selectedDetailPageRevisionId: string | null }) => ({
+      organizationId: TEST_ORGANIZATION_ID, sourceWorkspaceId: own.workspaceId, ...selection,
+    });
+
+    await expect(prisma.$transaction((tx) => content.resolveSourceSelections(
+      ownerTransaction(tx), select({ selectedThumbnailAssetId: null, selectedDetailPageRevisionId: null }),
+    ))).resolves.toEqual({ selectedThumbnailAssetId: ownAsset, selectedDetailPageRevisionId: ownRevisionId });
+
+    await expect(content.validateSourceSelections(null, select({
+      selectedThumbnailAssetId: ownAsset, selectedDetailPageRevisionId: ownRevisionId,
+    }))).resolves.toBeUndefined();
+    await expect(content.validateSourceSelections(null, select({
+      selectedThumbnailAssetId: foreignAsset, selectedDetailPageRevisionId: null,
+    }))).rejects.toThrow('Selected thumbnail asset is not source-owned.');
+    await expect(content.validateSourceSelections(null, select({
+      selectedThumbnailAssetId: null, selectedDetailPageRevisionId: foreignRevisionId,
+    }))).rejects.toThrow('Selected detail revision is not source-owned.');
+    await expect(content.readRegistrableDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: own.salesProductId, revisionId: foreignRevisionId,
+    })).rejects.toThrow('Selected detail revision is not source-owned.');
+  });
+
+  it('waits for the selected asset lock and rejects an asset deleted meanwhile', async () => {
+    const { workspaceId } = await ensureWorkspace();
+    const assetId = await createWorkspaceAsset(prisma, workspaceId, 'https://cdn.example.com/selected.jpg');
+
+    let releaseDelete!: () => void;
+    let reportLocked!: () => void;
+    const deleteRelease = new Promise<void>((resolve) => { releaseDelete = resolve; });
+    const locked = new Promise<void>((resolve) => { reportLocked = resolve; });
+    const deletion = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM content_assets WHERE id = ${assetId}::uuid FOR UPDATE`);
+      reportLocked();
+      await deleteRelease;
+      await tx.contentAsset.update({ where: { id: assetId }, data: { isDeleted: true, deletedAt: new Date() } });
+    });
+    await locked;
+
+    const resolve = prisma.$transaction((tx) => content.resolveSourceSelections(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceWorkspaceId: workspaceId,
+      selectedThumbnailAssetId: assetId,
+      selectedDetailPageRevisionId: null,
+    }));
     const observation = await Promise.race([
-      branch.then(() => 'settled' as const, () => 'settled' as const),
-      new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 100)),
+      resolve.then(() => 'settled' as const, () => 'settled' as const),
+      new Promise<'blocked'>((done) => setTimeout(() => done('blocked'), 100)),
     ]);
-    releaseArchive();
+    releaseDelete();
 
-    await expect(archive).resolves.toBeUndefined();
-    await expect(branch).rejects.toThrow(
-      'Selected thumbnail generation is not successful source content.',
-    );
+    await expect(deletion).resolves.toBeUndefined();
+    await expect(resolve).rejects.toThrow('Selected thumbnail asset is no longer available.');
     expect(observation).toBe('blocked');
-    expect(await prisma.contentWorkspaceThumbnailSelection.count({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceThumbnailCandidateId: generatedCandidate.id,
-      },
-    })).toBe(0);
   });
 });
+
+async function createWorkspaceAsset(
+  prisma: PrismaClient,
+  workspaceId: string,
+  url: string,
+  options: { current?: boolean } = {},
+): Promise<string> {
+  const group = await prisma.contentGenerationGroup.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+      groupType: 'workspace_assets',
+      title: 'Workspace managed assets',
+    },
+  });
+  const asset = await prisma.contentAsset.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      originGenerationGroupId: group.id,
+      assetKey: `test:${randomUUID()}`,
+      url,
+      assetType: 'image',
+      role: 'thumbnail',
+    },
+  });
+  if (options.current) {
+    const selection = await prisma.contentWorkspaceThumbnailSelection.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspaceId, contentAssetId: asset.id },
+    });
+    await prisma.contentWorkspace.update({
+      where: { id: workspaceId },
+      data: { currentThumbnailSelectionId: selection.id },
+    });
+  }
+  return asset.id;
+}

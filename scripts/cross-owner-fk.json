@@ -13,7 +13,6 @@
     "ChannelAdTargetDailySnapshot": "advertising",
     "ChannelListing": "channels",
     "ChannelListingDailySnapshot": "channels",
-    "ChannelListingDeletionOperation": "channels",
     "ChannelListingOption": "channels",
     "ChannelListingOptionDailySnapshot": "channels",
     "ChannelListingOptionInventoryComponent": "channels",

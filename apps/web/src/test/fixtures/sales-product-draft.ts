@@ -39,8 +39,6 @@ export function salesProductDraft(overrides: Partial<SalesProduct> = {}): SalesP
     optionAxes: [],
     stockManaged: false,
     imageUrls: ['https://cdn.example.com/draft.jpg'],
-    detailHtml: null,
-    extraDetailHtml: [],
     noticeCategory: null,
     noticeValues: [],
     certifications: [],

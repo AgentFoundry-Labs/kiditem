@@ -181,7 +181,7 @@ export const SalesProductBasicsInputSchema = z.object({
   originRegion: optionalText(50),
   keywords: z.array(requiredText(60)).max(30).default([]),
   standardCategory: optionalText(40),
-  /** 상세설명 본문(사람이 쓰는 글). 몰 상세 HTML(detailHtml) 과 다르다. */
+  /** 상세설명 본문(사람이 쓰는 글). 몰 상세 HTML 은 Content 의 상세 페이지 revision 이 정본이다(KID-313 W2). */
   description: z.string().max(20_000).default(''),
   targetAudience: optionalText(200),
   ageGroup: optionalText(100),
@@ -195,8 +195,6 @@ export const SalesProductBasicsInputSchema = z.object({
   deliveryFee: money.nullable().optional(),
   stockManaged: z.boolean().default(false),
   imageUrls: z.array(requiredText(1000)).max(30).default([]),
-  detailHtml: z.string().max(200_000).nullable().optional(),
-  extraDetailHtml: z.array(z.string().max(200_000)).max(3).default([]),
   noticeCategory: optionalText(10),
   noticeValues: z.array(z.string().max(1000)).max(40).default([]),
   certifications: z.array(SalesProductCertificationSchema).max(10).default([]),
@@ -274,7 +272,6 @@ export const SalesProductChannelOverrideSchema = z.object({
   mallName: z.string(),
   salePrice: z.number().int().nullable(),
   name: z.string().nullable(),
-  detailHtml: z.string().nullable(),
   promoText: z.string().nullable(),
   noticeCategory: z.string().nullable(),
   stockPercent: z.number().int().nullable(),
@@ -341,8 +338,6 @@ export const SalesProductSchema = z.object({
   optionAxes: z.array(z.string()),
   stockManaged: z.boolean(),
   imageUrls: z.array(z.string()),
-  detailHtml: z.string().nullable(),
-  extraDetailHtml: z.array(z.string()),
   noticeCategory: z.string().nullable(),
   noticeValues: z.array(z.string()),
   certifications: z.array(SalesProductCertificationSchema),
@@ -576,20 +571,19 @@ export const SalesProductMallCategoriesSchema = z.object({
 });
 export type SalesProductMallCategories = z.infer<typeof SalesProductMallCategoriesSchema>;
 
-// ── 몰 가격을 몰별 값으로 가져오기 ─────────────────────────────────────
+// ── 몰 가격을 판매 상품 단품 판매가로 가져오기(KID-313 W2) ──────────────────
 
 /**
- * 몰 가격을 몰별 값으로 가져오지 못한 까닭.
- * - `options_disagree`: 같은 몰에서 옵션 · 몰 상품마다 맞출 판매가가 다르다(몰별 값은 몰 하나에 판매가 하나).
- * - `below_extra_price`: 몰 가격이 단품 추가금액보다 작아 몰별 판매가가 0 이하가 된다.
+ * 몰 가격을 단품 판매가로 가져오지 못한 까닭.
+ * - `options_disagree`: 같은 단품이 몰 · 몰 상품마다 다른 값으로 팔린다(단품 판매가는 하나다).
  */
-export const SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS = ['options_disagree', 'below_extra_price'] as const;
+export const SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS = ['options_disagree'] as const;
 export const SalesProductMallPriceConflictReasonSchema = z.enum(SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS);
 
 export const SalesProductMallPriceAdoptionSchema = z.object({
   /** false 면 미리보기 — 쓰지 않았다. */
   applied: z.boolean(),
-  /** 몰별 판매가를 몰 가격으로 바꿀(바꾼) 상품 × 몰. */
+  /** 단품 판매가를 몰 가격으로 바꿀(바꾼) 상품의 가격 근거 상품 × 몰. */
   pairs: z.number().int(),
   products: z.number().int(),
   /** 이미 같은 상품 × 몰. */

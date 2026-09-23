@@ -15,6 +15,7 @@ describe('ContentWorkspaceController current thumbnail', () => {
       workspaces as never,
       thumbnails as never,
       {} as never,
+      {} as never,
     );
 
     await expect(controller.selectCurrentThumbnail(
@@ -43,6 +44,7 @@ describe('ContentWorkspaceController thumbnail gallery', () => {
       {} as never,
       {} as never,
       contentAssets as never,
+      {} as never,
     );
 
     await expect(controller.replaceThumbnailGallery(
@@ -65,11 +67,26 @@ describe('ContentWorkspaceController draft lookups', () => {
     const workspaces = { getForSalesProduct: vi.fn().mockResolvedValue({ workspace: null }) };
     const media = { registrationImages: { primary: [], thumbnail: ['https://cdn.example.com/t.png'], detail: [] }, currentThumbnail: null };
     const contentAssets = { loadRegistrationMedia: vi.fn().mockResolvedValue(media) };
-    const controller = new ContentWorkspaceController(workspaces as never, {} as never, contentAssets as never);
+    const controller = new ContentWorkspaceController(workspaces as never, {} as never, contentAssets as never, {} as never);
 
     await expect(controller.getForSalesProduct('org-1', 'product-1')).resolves.toEqual({ workspace: null });
     expect(workspaces.getForSalesProduct).toHaveBeenCalledWith('org-1', 'product-1');
     await expect(controller.getRegistrationMediaForSalesProduct('org-1', 'product-1')).resolves.toEqual(media);
     expect(contentAssets.loadRegistrationMedia).toHaveBeenCalledWith({ organizationId: 'org-1', salesProductId: 'product-1' });
+  });
+});
+
+describe('ContentWorkspaceController manual first detail page', () => {
+  it('writes the first detail page for the session organization and user only', async () => {
+    const registrationContent = {
+      createManualDetailPage: vi.fn().mockResolvedValue({ workspaceId: 'w-1', revisionId: 'r-1', contentGenerationId: 'g-1' }),
+    };
+    const controller = new ContentWorkspaceController({} as never, {} as never, {} as never, registrationContent as never);
+
+    await expect(controller.createManualDetailPage('org-1', 'product-1', { id: 'user-1' } as never, { html: '<p>상세</p>' }))
+      .resolves.toEqual({ workspaceId: 'w-1', revisionId: 'r-1', contentGenerationId: 'g-1' });
+    expect(registrationContent.createManualDetailPage).toHaveBeenCalledWith({
+      organizationId: 'org-1', salesProductId: 'product-1', html: '<p>상세</p>', createdByUserId: 'user-1',
+    });
   });
 });

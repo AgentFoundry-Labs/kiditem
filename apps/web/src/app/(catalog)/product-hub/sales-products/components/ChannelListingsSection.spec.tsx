@@ -25,8 +25,8 @@ const product = {
 } as unknown as SalesProduct;
 const target = {
   id: 'target', salesProductId: 'product', channelAccountId: 'account', version: 3,
-  displayName: '카카오 소매', registrationInput: {}, selectedOptions: [],
-  resolved: { name: '상품', options: [{ salesProductOptionId: 'option', salePrice: 3000 }] },
+  registrationInput: { mallCategory: null, mallFields: {}, adapter: {} }, selectedOptions: [],
+  resolved: { name: '카카오 소매', options: [{ salesProductOptionId: 'option', salePrice: 3000 }] },
 } as unknown as RegistrationTarget;
 function mount() {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

@@ -1,8 +1,13 @@
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   AttachContentWorkspaceToListingInput,
+  CreateManualDetailPageInput,
+  CreateManualDetailPageResult,
   EnsureSalesProductContentWorkspaceInput,
   FindSalesProductContentWorkspaceInput,
+  ImportDetailPageInput,
+  ImportDetailPageResult,
+  RegistrableDetailPage,
   RegistrationContentSelectionInput,
   ResolvedRegistrationContentSelections,
 } from '../../in/workspace/registration-content-workspace.port';
@@ -33,6 +38,22 @@ export interface RegistrationContentWorkspaceRepositoryPort {
     input: EnsureSalesProductContentWorkspaceInput &
       RegistrationContentWorkspaceOwnerInput,
   ): Promise<{ workspaceId: string }>;
+  readRegistrableDetailPage(input: {
+    organizationId: string;
+    salesProductId: string;
+    revisionId: string | null;
+  }): Promise<RegistrableDetailPage | null>;
+  readRegistrableDetailPages(input: {
+    organizationId: string;
+    requests: ReadonlyArray<{ salesProductId: string; revisionId: string | null }>;
+  }): Promise<ReadonlyMap<string, RegistrableDetailPage>>;
+  importDetailPage(
+    transaction: OwnerTransaction,
+    input: ImportDetailPageInput & { imageUrls: readonly string[] },
+  ): Promise<ImportDetailPageResult>;
+  createManualDetailPage(
+    input: CreateManualDetailPageInput & { imageUrls: readonly string[] },
+  ): Promise<CreateManualDetailPageResult>;
   attachToListing(
     transaction: OwnerTransaction,
     input: AttachContentWorkspaceToListingInput,

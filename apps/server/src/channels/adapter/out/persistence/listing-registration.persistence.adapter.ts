@@ -234,29 +234,6 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
           },
         })
       : null;
-    if (existing) {
-      const activeDeletion = await tx.channelListingDeletionOperation.findFirst(
-        {
-          where: {
-            organizationId: input.organizationId,
-            channelAccountId: account.id,
-            channelListingId: existing.id,
-            // A completed provider deletion is also a hard fence: registration
-            // finalization must never resurrect a listing that WING deleted.
-            OR: [
-              { status: { in: ["prepared", "executing", "reconciling"] } },
-              { providerOutcome: "succeeded" },
-            ],
-          },
-          select: { id: true },
-        },
-      );
-      if (activeDeletion) {
-        throw new ConflictException(
-          "Marketplace listing has an active deletion operation and cannot be reactivated.",
-        );
-      }
-    }
     const existingListingProductId = existing
       ? (await readListingProductIds(tx, {
         organizationId: input.organizationId,

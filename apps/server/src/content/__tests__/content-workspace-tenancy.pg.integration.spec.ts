@@ -214,6 +214,13 @@ describe('AI content ownership constraints (PG integration)', () => {
         title: 'Foreign selected detail page',
       },
     });
+    const foreignRevision = await prisma.detailPageRevision.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        artifactId: foreignArtifact.id,
+        html: '<p>foreign</p>',
+      },
+    });
     const localCandidate = await prisma.sourceRecord.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -265,24 +272,19 @@ describe('AI content ownership constraints (PG integration)', () => {
       const selections = await registrationContent.resolveSourceSelections(ownerTransaction(tx), {
         organizationId: TEST_ORGANIZATION_ID,
         sourceWorkspaceId: localWorkspace.id,
-        selectedThumbnailUrl: null,
-        selectedThumbnailGenerationId: null,
-        selectedThumbnailGenerationCandidateId: null,
-        selectedDetailPageArtifactId: foreignArtifact.id,
-        selectedDetailPageRevisionId: null,
-        selectedDetailPageGenerationId: null,
+        selectedThumbnailAssetId: null,
+        selectedDetailPageRevisionId: foreignRevision.id,
       });
       return tx.registrationTarget.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           salesProductId: localProduct.id,
           channelAccountId: localAccount.id,
-          displayName: 'Cross-tenant preparation',
           registrationInput: {},
           ...selections,
         },
       });
-    })).rejects.toThrow('Selected detail artifact is not source-owned.');
+    })).rejects.toThrow('Selected detail revision is not source-owned.');
 
     expect(await prisma.registrationTarget.count({
       where: { organizationId: TEST_ORGANIZATION_ID },

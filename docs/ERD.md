@@ -29,7 +29,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 21 |
 | [Analytics](erd/analytics.md) | 2 |
-| [Channels](erd/channels.md) | 20 |
+| [Channels](erd/channels.md) | 19 |
 | [Core](erd/core.md) | 7 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 3 |
@@ -81,7 +81,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelAccount | Channels | `channel_accounts` | ChannelAccount canonical state owned by channels. |
 | ChannelListing | Channels | `channel_listings` | ChannelListing canonical state owned by channels. |
 | ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
-| ChannelListingDeletionOperation | Channels | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
 | ChannelListingOption | Channels | `channel_listing_options` | ChannelListingOption canonical state owned by channels. |
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelListingOptionInventoryComponent | Channels | `channel_listing_option_inventory_components` | ChannelListingOptionInventoryComponent canonical state owned by channels. |
@@ -423,29 +422,6 @@ erDiagram
     DateTime lastObservedAt
     String rawSnapshotId FK
     Json metaJson
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ChannelListingDeletionOperation {
-    String id PK
-    String organizationId FK
-    String channelAccountId FK
-    String channelListingId FK
-    String idempotencyKey
-    String requestHash
-    String externalListingId
-    String expectedProviderAccountId
-    String status
-    String providerOutcome
-    Json resultJson
-    String lastErrorCode
-    String lastErrorMessage
-    String leaseToken
-    DateTime leaseClaimedAt
-    String requestedByUserId
-    DateTime authorizationExpiresAt
-    DateTime startedAt
-    DateTime completedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -928,6 +904,8 @@ erDiagram
     String html
     Json assetUrlMap
     Json imageUrls
+    String source
+    String sourceDigest
     String createdByUserId FK
     DateTime createdAt
   }
@@ -1317,13 +1295,8 @@ erDiagram
     Int version
     String channelAccountId FK
     DateTime archivedAt
-    String displayName
-    String selectedThumbnailUrl
-    String selectedThumbnailGenerationId
-    String selectedThumbnailGenerationCandidateId
-    String selectedDetailPageArtifactId
+    String selectedThumbnailAssetId
     String selectedDetailPageRevisionId
-    String selectedDetailPageGenerationId
     Json registrationInput
     String createdByUserId
     DateTime createdAt
@@ -1335,9 +1308,6 @@ erDiagram
     String registrationTargetId FK
     String salesProductOptionId FK
     Int sortOrder
-    Int salePrice
-    Int normalPrice
-    Int supplyPrice
   }
   ReturnTransfer {
     String id PK
@@ -1534,8 +1504,6 @@ erDiagram
     StringArray optionAxes
     Boolean stockManaged
     StringArray imageUrls
-    String detailHtml
-    StringArray extraDetailHtml
     String noticeCategory
     StringArray noticeValues
     Json certifications
@@ -2552,13 +2520,11 @@ erDiagram
   }
   AdAction ||--o{ ExecutionTask : "action"
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
-  ChannelAccount ||--o{ ChannelListingDeletionOperation : "channelAccount"
   ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"
   ChannelAccount ||--o{ ProductRegistrationExecution : "channelAccount"
   ChannelAccount ||--o{ RegistrationTarget : "channelAccount"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
-  ChannelListing ||--o{ ChannelListingDeletionOperation : "channelListing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
   ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"

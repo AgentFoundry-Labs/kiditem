@@ -1,5 +1,4 @@
 import { MALL_PUBLISHING_PORT } from "./application/port/in/registration/mall-publishing.port";
-import { CHANNEL_LISTING_DELETION_PORT } from "./application/port/in/listing/channel-listing-deletion.port";
 import { SELLPIA_MANUAL_MATCH_PORT } from "./application/port/in/listing/sellpia-manual-match.port";
 import { CHANNEL_PRODUCT_MATCHING_PORT } from "./application/port/in/listing/channel-product-matching.port";
 import { CHANNEL_OPTION_RECIPE_CANDIDATE_PORT } from "./application/port/in/listing/channel-option-recipe-candidate.port";
@@ -49,7 +48,6 @@ import { CoupangWingInventoryExportController } from './adapter/in/web/coupang-w
 import { CoupangWingRegistrationExportController } from './adapter/in/web/coupang-wing-registration-export.controller';
 import { OrderCollectionMallAccountController } from './adapter/in/web/account/order-collection-mall-account.controller';
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
-import { ChannelListingRepositoryAdapter } from './adapter/out/repository/channel-listing.repository.adapter';
 import { ListingRegistrationPersistenceAdapter } from './adapter/out/persistence/listing-registration.persistence.adapter';
 import { LISTING_REGISTRATION_PERSISTENCE_PORT, type ListingRegistrationPersistencePort } from './application/port/out/persistence/listing-registration.persistence.port';
 import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
@@ -61,7 +59,6 @@ import { ChannelRecipeSuggestionContextRepositoryAdapter } from './adapter/out/r
 import { SellpiaManualMatchRepositoryAdapter } from './adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { SellpiaRecipeEvidenceAdapter } from './adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelDashboardService } from './application/service/listing/channel-dashboard.service';
-import { ChannelListingDeletionService } from './application/service/listing/channel-listing-deletion.service';
 import { ChannelRegistrationService } from './application/service/registration/channel-registration.service';
 import { ChannelCatalogImportService } from './application/service/collection/channel-catalog-import.service';
 import { RocketSellpiaMatchingCsvImportService } from './application/service/collection/rocket-sellpia-matching-csv-import.service';
@@ -84,9 +81,6 @@ import { CHANNEL_REGISTRATION_PORT } from './application/port/in/registration/ch
 import { CHANNEL_CATALOG_IMPORT_PORT } from './application/port/in/channel-catalog-import.port';
 import { ROCKET_SELLPIA_MATCHING_CSV_IMPORT_PORT } from './application/port/in/rocket-sellpia-matching-csv-import.port';
 import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from './application/port/out/repository/channel-dashboard.repository.port';
-import {
-  CHANNEL_LISTING_REPOSITORY_PORT,
-} from './application/port/out/repository/channel-listing.repository.port';
 import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-import.repository.port';
 import { ROCKET_SELLPIA_MATCHING_CSV_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
 import { CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-collection.repository.port';
@@ -142,7 +136,6 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
   ],
   providers: [
     { provide: MALL_PUBLISHING_PORT, useExisting: MallPublishingService },
-    { provide: CHANNEL_LISTING_DELETION_PORT, useExisting: ChannelListingDeletionService },
     { provide: SELLPIA_MANUAL_MATCH_PORT, useExisting: SellpiaManualMatchService },
     { provide: CHANNEL_PRODUCT_MATCHING_PORT, useExisting: ChannelProductMatchingService },
     { provide: CHANNEL_OPTION_RECIPE_CANDIDATE_PORT, useExisting: ChannelOptionRecipeCandidateService },
@@ -157,7 +150,6 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
     ListingContentAdapter,
     { provide: CHANNEL_LISTING_CONTENT_PORT, useExisting: ListingContentAdapter },
     { provide: ChannelDashboardService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelDashboardService>) => new ChannelDashboardService(...dependencies), inject: [CHANNEL_DASHBOARD_REPOSITORY_PORT] },
-    { provide: ChannelListingDeletionService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelListingDeletionService>) => new ChannelListingDeletionService(...dependencies), inject: [CHANNEL_LISTING_REPOSITORY_PORT] },
     {
       provide: ChannelRegistrationService,
       useFactory: (persistence: ListingRegistrationPersistencePort, suggestions: ChannelRecipeSuggestionService) => new ChannelRegistrationService(persistence, suggestions),
@@ -190,7 +182,6 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
     { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, WING_THUMBNAIL_RUNNER_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: CHANNELS_THUMBNAIL_EXECUTION_PORT, useExisting: ThumbnailExecutionService },
     ChannelDashboardRepositoryAdapter,
-    ChannelListingRepositoryAdapter,
     ListingRegistrationPersistenceAdapter,
     ChannelCatalogImportRepositoryAdapter,
     RocketSellpiaMatchingCsvImportRepositoryAdapter,
@@ -201,7 +192,6 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
     SellpiaManualMatchRepositoryAdapter,
     SellpiaRecipeEvidenceAdapter,
     { provide: CHANNEL_DASHBOARD_REPOSITORY_PORT, useExisting: ChannelDashboardRepositoryAdapter },
-    { provide: CHANNEL_LISTING_REPOSITORY_PORT, useExisting: ChannelListingRepositoryAdapter },
     {
       provide: LISTING_REGISTRATION_PERSISTENCE_PORT,
       useExisting: ListingRegistrationPersistenceAdapter,

@@ -289,7 +289,7 @@ const REIMPORT_FIELD_LABELS: Record<string, string> = {
   standardCategory: '표준분류', description: '설명', targetAudience: '대상', ageGroup: '연령', productSize: '크기',
   colorVariantNames: '색상', boxSetQuantity: '입수', registrationDefaults: '등록 기본값', status: '상태',
   taxType: '과세', deliveryFeeType: '배송비', deliveryFee: '배송비', stockManaged: '재고관리', imageUrls: '사진',
-  detailHtml: '상세', extraDetailHtml: '상세', noticeCategory: '고시', noticeValues: '고시',
+  noticeCategory: '고시', noticeValues: '고시',
   certifications: 'KC', kcStatus: 'KC', importDeclarationNo: '수입신고번호', adminMemo: '메모',
 };
 

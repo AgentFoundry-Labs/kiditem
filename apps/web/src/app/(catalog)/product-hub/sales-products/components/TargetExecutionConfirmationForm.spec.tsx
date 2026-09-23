@@ -42,7 +42,6 @@ function execution(overrides: Record<string, unknown> = {}): TargetExecutionResu
         options: [{ id: OPTION_ID, optionCode: '100-0001', values: ['파랑'] }],
       },
       registrationInput: { wingProduct: { category: 'toy' } },
-      supplyPrices: [{ salesProductOptionId: OPTION_ID, supplyPrice: 3200 }],
     },
     leaseToken: LEASE_TOKEN,
     maySubmit: false,

@@ -566,11 +566,7 @@ export class RegistrationExecutionRepositoryAdapter
 
         const targetOptionIds = target.selectedOptions.map((option) => option.salesProductOptionId);
         const snapshotOptionIds = frozen.payload.product.options.map((option) => option.id);
-        if (!sameStringArray(targetOptionIds, snapshotOptionIds)
-          || !sameStringSet(
-            frozen.payload.supplyPrices.map((price) => price.salesProductOptionId),
-            snapshotOptionIds,
-          )) {
+        if (!sameStringArray(targetOptionIds, snapshotOptionIds)) {
           throw new ConflictException('Registration target options changed while the execution was being prepared.');
         }
         const options = await tx.salesProductOption.findMany({
@@ -729,8 +725,7 @@ export class RegistrationExecutionRepositoryAdapter
         throw new ConflictException('Sales product changed after execution preparation.');
       }
       const snapshotOptionIds = snapshot.product.options.map(option => option.id);
-      if (!sameStringArray(target.selectedOptions.map(option => option.salesProductOptionId), snapshotOptionIds)
-        || !sameStringSet(snapshot.supplyPrices.map(price => price.salesProductOptionId), snapshotOptionIds)) {
+      if (!sameStringArray(target.selectedOptions.map(option => option.salesProductOptionId), snapshotOptionIds)) {
         throw new ConflictException('Registration target options changed after execution preparation.');
       }
       if (snapshotOptionIds.length > 0) {
@@ -2144,27 +2139,6 @@ function toFrozenSubmission(
     providerOutcome: execution.providerOutcome as RegistrationExecutionProviderOutcome,
     submissionLeaseToken: execution.leaseToken,
     isRetry: execution.lastErrorMessage !== null || execution.providerOutcome !== 'not_attempted',
-    selectedThumbnailUrl: frozenNullableString(payload, 'selectedThumbnailUrl'),
-    selectedThumbnailGenerationId: frozenNullableString(
-      payload,
-      'selectedThumbnailGenerationId',
-    ),
-    selectedThumbnailGenerationCandidateId: frozenNullableString(
-      payload,
-      'selectedThumbnailGenerationCandidateId',
-    ),
-    selectedDetailPageArtifactId: frozenNullableString(
-      payload,
-      'selectedDetailPageArtifactId',
-    ),
-    selectedDetailPageRevisionId: frozenNullableString(
-      payload,
-      'selectedDetailPageRevisionId',
-    ),
-    selectedDetailPageGenerationId: frozenNullableString(
-      payload,
-      'selectedDetailPageGenerationId',
-    ),
   };
 }
 
@@ -2175,18 +2149,6 @@ function frozenRequiredString(
   const value = (payload as Record<string, RegistrationSubmissionJson>)[key];
   if (typeof value !== 'string' || !value.trim()) {
     throw new ConflictException(`Frozen preparation payload is missing '${key}'.`);
-  }
-  return value;
-}
-
-function frozenNullableString(
-  payload: RegistrationSubmissionJson,
-  key: string,
-): string | null {
-  const value = (payload as Record<string, RegistrationSubmissionJson>)[key];
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'string') {
-    throw new ConflictException(`Frozen preparation payload field '${key}' is invalid.`);
   }
   return value;
 }

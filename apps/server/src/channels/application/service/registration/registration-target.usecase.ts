@@ -35,15 +35,15 @@ function resolveTarget(record: RegistrationTargetRecord): RegistrationTarget {
   return {
     ...target,
     resolved: {
-      name: record.displayName ?? product.name,
+      // 등록 대상은 이름과 가격을 저장하지 않는다 — 판매 상품 · 옵션이 정본이다(KID-313 W2).
+      name: product.name,
       options: record.selectedOptions.map(selection => {
         const option = byId.get(selection.salesProductOptionId);
         if (!option) throw new RegistrationTargetException('invalid', '선택한 옵션이 해당 판매상품에 없습니다.');
         return {
           salesProductOptionId: option.id, code: option.code, values: option.values,
-          salePrice: selection.salePrice ?? option.salePrice,
-          normalPrice: selection.normalPrice ?? option.normalPrice,
-          supplyPrice: selection.supplyPrice,
+          salePrice: option.salePrice,
+          normalPrice: option.normalPrice,
         };
       }),
     },

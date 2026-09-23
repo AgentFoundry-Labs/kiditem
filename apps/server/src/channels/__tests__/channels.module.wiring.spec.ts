@@ -14,11 +14,9 @@ import { ChannelActivityAdapter } from '../adapter/out/alerts/channel-activity.a
 import { ChannelsDocumentsAdapter } from '../adapter/out/documents/channel-documents.adapter';
 import { ProductAvailabilityAdapter } from '../adapter/out/products/product-availability.adapter';
 import { ChannelDashboardRepositoryAdapter } from '../adapter/out/repository/channel-dashboard.repository.adapter';
-import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
 import { ListingRegistrationPersistenceAdapter } from '../adapter/out/persistence/listing-registration.persistence.adapter';
 import { ChannelRegistrationService } from '../application/service/registration/channel-registration.service';
 import { ChannelDashboardService } from '../application/service/listing/channel-dashboard.service';
-import { ChannelListingDeletionService } from '../application/service/listing/channel-listing-deletion.service';
 import { ChannelOptionRecipeCandidateService } from '../application/service/listing/channel-option-recipe-candidate.service';
 import { MallPublishingService } from '../application/service/registration/mall-publishing.service';
 import { CHANNEL_REGISTRATION_PORT } from '../application/port/in/registration/channel-registration.port';
@@ -34,9 +32,6 @@ import { CHANNEL_DOCUMENTS_PORT } from '../application/port/out/documents/channe
 import { CHANNEL_ACTIVITY_PORT } from '../application/port/out/alerts/channel-activity.port';
 import { CHANNEL_INTEGRITY_PORT } from '../application/port/out/integrity/channel-integrity.port';
 import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../application/port/out/repository/channel-dashboard.repository.port';
-import {
-  CHANNEL_LISTING_REPOSITORY_PORT,
-} from '../application/port/out/repository/channel-listing.repository.port';
 import { ChannelCatalogImportController } from '../adapter/in/web/channel-catalog-import.controller';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { CHANNEL_CATALOG_IMPORT_PORT } from '../application/port/in/channel-catalog-import.port';
@@ -76,7 +71,6 @@ import { CoupangWingInventoryExportController } from '../adapter/in/web/coupang-
 import { CoupangWingRegistrationExportController } from '../adapter/in/web/coupang-wing-registration-export.controller';
 import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from '../application/port/in/capability/wing-thumbnail.port';
 import { CHANNEL_DASHBOARD_PORT } from '../application/port/in/listing/channel-dashboard.port';
-import { CHANNEL_LISTING_DELETION_PORT } from '../application/port/in/listing/channel-listing-deletion.port';
 import { CHANNEL_OPTION_RECIPE_CANDIDATE_PORT } from '../application/port/in/listing/channel-option-recipe-candidate.port';
 import { CHANNEL_PRODUCT_MATCHING_PORT } from '../application/port/in/listing/channel-product-matching.port';
 import { SELLPIA_MANUAL_MATCH_PORT } from '../application/port/in/listing/sellpia-manual-match.port';
@@ -185,7 +179,6 @@ describe('ChannelsModule canonical owner wiring', () => {
       CHANNEL_CREDENTIALS_PORT,
     ]);
     expect(providers).toContain(ChannelDashboardRepositoryAdapter);
-    expect(providers).toContain(ChannelListingRepositoryAdapter);
     expect(providers).toContain(ListingRegistrationPersistenceAdapter);
     expectFactoryBinding(providers, ChannelRegistrationService, [
       LISTING_REGISTRATION_PERSISTENCE_PORT,
@@ -238,7 +231,6 @@ describe('ChannelsModule canonical owner wiring', () => {
     expectBinding(providers, CHANNEL_DOCUMENTS_PORT, ChannelsDocumentsAdapter);
     expectBinding(providers, CHANNEL_PRODUCT_AVAILABILITY_PORT, ProductAvailabilityAdapter);
     expectBinding(providers, CHANNEL_DASHBOARD_PORT, ChannelDashboardService);
-    expectBinding(providers, CHANNEL_LISTING_DELETION_PORT, ChannelListingDeletionService);
     expectBinding(providers, CHANNEL_OPTION_RECIPE_CANDIDATE_PORT, ChannelOptionRecipeCandidateService);
     expectBinding(providers, CHANNEL_PRODUCT_MATCHING_PORT, ChannelProductMatchingService);
     expectBinding(providers, SELLPIA_MANUAL_MATCH_PORT, SellpiaManualMatchService);
@@ -250,7 +242,6 @@ describe('ChannelsModule canonical owner wiring', () => {
     expectBinding(salesProductProviders, SALES_PRODUCT_MALL_SHEET_PORT, SalesProductMallSheetService);
     expectBinding(salesProductProviders, SALES_PRODUCT_COUPANG_CATALOG_PORT, SalesProductCoupangCatalogService);
     expectBinding(providers, CHANNEL_DASHBOARD_REPOSITORY_PORT, ChannelDashboardRepositoryAdapter);
-    expectBinding(providers, CHANNEL_LISTING_REPOSITORY_PORT, ChannelListingRepositoryAdapter);
     expectBinding(
       providers,
       LISTING_REGISTRATION_PERSISTENCE_PORT,

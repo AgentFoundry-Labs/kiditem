@@ -4,6 +4,7 @@ import {
 import {
   buildSalesProductOptionCombinations,
   nextSalesProductOptionCode,
+  REGISTRATION_MALL_FIELD_VALUE_MAX,
   SALES_PRODUCT_SABANGNET_VALUE_KEYS,
   salesProductOptionKey,
   type SabangnetImportIssue,
@@ -17,6 +18,7 @@ import {
   taxTypeFromSabangnet,
   type SalesProductOptionDraft,
 } from '../../../domain/sales-product/sales-product';
+import { acceptedMallFields, type MallFieldRejection } from '../../../domain/registration/registration-mall-input';
 import type { ProductSourceReadModel } from '../../../../products/application/port/in/product-source-read.port';
 import type {
   SalesProductBasicsRecord,
@@ -63,6 +65,11 @@ export interface PlannedSabangnetProduct {
   create: SalesProductCreateRecord;
   options: SalesProductOptionDraft[];
   overrides: { channelAccountId: string; shopCode: string; data: SalesProductChannelOverrideRecord }[];
+  /**
+   * 상품 상세설명. 판매 상품 칸이 아니라 Content 의 `imported` revision 으로 들어간다(KID-313 W2). 비었으면
+   * null — 추가상품상세설명은 몰 시트 · 등록 payload 어느 곳도 보내지 않아 가져오지 않는다.
+   */
+  detail: { html: string } | null;
 }
 
 export interface SabangnetImportPlan {
@@ -135,13 +142,6 @@ export function buildSabangnetImportPlan(input: {
     const { optionAxes, options } = planOptions(row, code, sourceOptionRows, issues);
     const linkedOptions = options.map((option) =>
       linkOption(option, optionAxes.length === 0, row, { skuByCode, skusByPrefix, skusByBarcode }));
-    const extraPriceBySourceCode = new Map((sourceOptionRows ?? []).map((option) => [option.optionCode, option.extraPrice]));
-    const optionPriceInputs = linkedOptions.flatMap((option) => {
-      const sabangnetOptionCode = option.sabangnetOptionCode;
-      return sabangnetOptionCode
-        ? [{ sabangnetOptionCode, extraPrice: extraPriceBySourceCode.get(sabangnetOptionCode) ?? 0 }]
-        : [];
-    });
     products.push({
       create: {
         code,
@@ -152,11 +152,9 @@ export function buildSabangnetImportPlan(input: {
       },
       options: linkedOptions,
       overrides: row.goodsNo
-        ? planOverrides(overridesByGoods.get(row.goodsNo) ?? [], accountByChannel, skippedByShop, {
-          sourceBasePrice: row.salePrice ?? 0,
-          options: optionPriceInputs,
-        })
+        ? planOverrides(overridesByGoods.get(row.goodsNo) ?? [], accountByChannel, skippedByShop, issues)
         : [],
+      detail: sabangnetDetail(row),
     });
   }
   return { products, issues, overrideRows: input.overrides.length, skippedByShop };
@@ -195,8 +193,6 @@ export function sabangnetProductBasics(row: SabangnetProductRow): SalesProductBa
     deliveryFee: row.deliveryFee,
     stockManaged: row.stockManaged,
     imageUrls: row.imageUrls.slice(0, 30),
-    detailHtml: row.detailHtml,
-    extraDetailHtml: row.extraDetailHtml.slice(0, 3),
     noticeCategory: clamp(row.noticeCategory, 10),
     noticeValues: row.noticeValues.slice(0, 40),
     certifications: row.certification ? [row.certification satisfies SalesProductCertification] : [],
@@ -339,18 +335,35 @@ function linkOption(
   };
 }
 
+/** 상품 줄의 상세. 판매 상품이 아니라 Content revision 으로 간다. */
+function sabangnetDetail(row: SabangnetProductRow): PlannedSabangnetProduct['detail'] {
+  return row.detailHtml ? { html: row.detailHtml } : null;
+}
+
+/**
+ * 몰별 값 줄 → 등록 대상에 둘 몰 전용 값. 등록 대상은 상품 사실(이름 · 가격 · 상세 · 홍보문 · 고시)을
+ * 갖지 않으므로(KID-313 W2) 그 칸은 옮기지 않는다. 몰별 상세는 줄마다, 버린 몰별 값은 상품마다 한 줄로
+ * 어느 몰의 무엇인지 알린다 — 조용히 버리지 않는다.
+ */
 function planOverrides(
   rows: readonly SabangnetChannelOverrideRow[],
   accountByChannel: Map<string, string>,
   skippedByShop: Record<string, number>,
-  source: {
-    sourceBasePrice: number;
-    options: readonly { sabangnetOptionCode: string; extraPrice: number }[];
-  },
+  issues: SabangnetImportIssue[],
 ): PlannedSabangnetProduct['overrides'] {
+  const ignored = ignoredMallValuesIssue(rows);
+  if (ignored) issues.push(ignored);
   const byAccount = new Map<string, { shopCode: string; data: SalesProductChannelOverrideRecord }>();
   const sorted = [...rows].sort((left, right) => shopPriority(left.shopCode) - shopPriority(right.shopCode));
   for (const row of sorted) {
+    if (row.detailHtml) {
+      issues.push({
+        kind: 'channel_overrides',
+        row: row.row,
+        code: row.goodsNo,
+        message: '몰별 상세 override 는 더 이상 받지 않음 — 상세는 상품 상세 페이지 하나에서 고칩니다.',
+      });
+    }
     const mallKey = sabangnetShopMallKey(row.shopCode);
     const accountId = mallKey ? accountByChannel.get(mallKey) : undefined;
     if (!accountId) {
@@ -358,39 +371,42 @@ function planOverrides(
       continue;
     }
     if (byAccount.has(accountId)) continue;
-    const hasValue = [row.salePrice, row.priceRateBp, row.name, row.detailHtml, row.promoText, row.noticeCategory, row.costPrice, row.stockPercent]
+    const hasValue = [row.salePrice, row.priceRateBp, row.name, row.promoText, row.noticeCategory, row.costPrice, row.stockPercent]
       .some((value) => value !== null && value !== undefined);
     if (!hasValue) continue;
-    const baseMallPrice = row.salePrice !== null
-      ? row.salePrice
-      : row.priceRateBp !== null
-        ? Math.round((source.sourceBasePrice * row.priceRateBp) / 10_000)
-        : null;
-    const optionPrices = baseMallPrice === null
-      ? undefined
-      : source.options.map(({ sabangnetOptionCode, extraPrice }) => ({
-        sabangnetOptionCode,
-        // This is the one-time legacy import calculation. The source mall
-        // price is resolved first, then each source option's extra is applied.
-        salePrice: Math.max(0, baseMallPrice + extraPrice),
-      }));
     byAccount.set(accountId, {
       shopCode: row.shopCode,
       data: {
-        optionPrices,
-        salePrice: row.salePrice,
-        priceRateBp: row.priceRateBp,
-        costPrice: row.costPrice,
-        name: clamp(row.name, 255),
-        detailHtml: row.detailHtml,
-        promoText: clamp(row.promoText, 255),
-        noticeCategory: clamp(row.noticeCategory, 10),
         stockPercent: row.stockPercent !== null ? Math.max(0, Math.min(100, row.stockPercent)) : null,
         sourceRaw: row.raw,
       },
     });
   }
   return [...byAccount.entries()].map(([channelAccountId, value]) => ({ channelAccountId, ...value }));
+}
+
+const IGNORED_MALL_VALUES = [
+  ['판매가', (row: SabangnetChannelOverrideRow) => row.salePrice !== null],
+  ['적용율', (row: SabangnetChannelOverrideRow) => row.priceRateBp !== null],
+  ['원가', (row: SabangnetChannelOverrideRow) => row.costPrice !== null],
+  ['상품명', (row: SabangnetChannelOverrideRow) => Boolean(row.name?.trim())],
+  ['홍보문', (row: SabangnetChannelOverrideRow) => Boolean(row.promoText?.trim())],
+  ['고시', (row: SabangnetChannelOverrideRow) => Boolean(row.noticeCategory?.trim())],
+] as const;
+
+/** 한 상품의 몰별 값 줄에서 받지 않은 상품 사실(판매가 · 적용율 · 원가 · 상품명 · 홍보문 · 고시) — `판매가(11번가 · 보리보리) · 상품명(11번가)` 처럼 한 줄. */
+function ignoredMallValuesIssue(rows: readonly SabangnetChannelOverrideRow[]): SabangnetImportIssue | null {
+  const parts = IGNORED_MALL_VALUES.flatMap(([label, carries]) => {
+    const malls = [...new Set(rows.filter(carries).map((row) => row.shopName?.trim() || row.shopCode))];
+    return malls.length ? [`${label}(${malls.join(' · ')})`] : [];
+  });
+  if (parts.length === 0) return null;
+  return {
+    kind: 'channel_overrides',
+    row: rows[0]!.row,
+    code: rows[0]!.goodsNo,
+    message: `몰별 값은 더 이상 받지 않음 — ${parts.join(' · ')}. 판매 상품 한 곳에서 고칩니다.`,
+  };
 }
 
 function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[]> {
@@ -409,24 +425,23 @@ export interface SabangnetMallValuesWrite {
   values: Record<string, string>;
 }
 
-const MALL_VALUE_MAX = 2000;
-
 /**
  * 송신 기록(몰 × 상품)이 가리키는 사방넷 분류 · 부가정보를 상품 × 몰 값으로 푼다. 같은 몰 계정으로 오는 쇼핑몰이
  * 둘이면(11번가 신 · 구) 몰별 값과 같이 표 앞쪽이 이긴다. 우리 몰 계정이 없거나 판매상품이 없으면 넘긴다.
  */
 export function planSabangnetMallValues(input: {
-  sendRecords: readonly Pick<SabangnetSendRecordRow, 'shopCode' | 'goodsNo' | 'additionCode' | 'categoryCode'>[];
+  sendRecords: readonly Pick<SabangnetSendRecordRow, 'row' | 'shopCode' | 'goodsNo' | 'additionCode' | 'categoryCode'>[];
   categories: readonly SabangnetMallCategoryRow[];
   templates: readonly SabangnetMallTemplateRow[];
   productIdByCode: ReadonlyMap<string, string>;
   accounts: readonly { id: string; channel: string }[];
-}): { writes: SabangnetMallValuesWrite[]; withCategory: number; withTemplate: number } {
+}): { writes: SabangnetMallValuesWrite[]; withCategory: number; withTemplate: number; issues: SabangnetImportIssue[] } {
   const categoryByCode = new Map(input.categories.map((row) => [row.code, row]));
   const templateByCode = new Map(input.templates.map((row) => [row.code, row]));
   const accountByChannel = new Map(input.accounts.map((account) => [account.channel, account.id]));
   const keys = SALES_PRODUCT_SABANGNET_VALUE_KEYS;
   const byPair = new Map<string, SabangnetMallValuesWrite>();
+  const issues: SabangnetImportIssue[] = [];
   const sorted = [...input.sendRecords].sort((left, right) => shopPriority(left.shopCode) - shopPriority(right.shopCode));
   for (const record of sorted) {
     const mallKey = sabangnetShopMallKey(record.shopCode);
@@ -440,7 +455,7 @@ export function planSabangnetMallValues(input: {
     const values: Record<string, string> = {};
     const put = (key: string, value: string | null | undefined) => {
       const text = value?.trim();
-      if (text) values[key] = text.length > MALL_VALUE_MAX ? text.slice(0, MALL_VALUE_MAX) : text;
+      if (text) values[key] = text;
     };
     put(keys.categoryCode, record.categoryCode);
     put(keys.categoryTitle, category?.title);
@@ -452,13 +467,31 @@ export function planSabangnetMallValues(input: {
     put(keys.nameSuffix, template?.nameSuffix);
     put(keys.detailTop, template?.detailTop);
     put(keys.detailBottom, template?.detailBottom);
-    if (Object.keys(values).length === 0) continue;
-    byPair.set(pair, { salesProductId, channelAccountId, values });
+    // 등록 설정이 받지 못하는 칸(2만 자를 넘는 추가문구 …)은 자르지 않고 빼고, 그 상품 줄에 어느 칸인지 알린다.
+    const { mallFields, rejected } = acceptedMallFields(values);
+    if (rejected.length > 0) {
+      issues.push({
+        kind: 'send_records',
+        row: record.row,
+        code: record.goodsNo,
+        message: `몰 값을 저장하지 않음(${template?.mallName?.trim() || record.shopCode}) — ${rejected.map(mallFieldRejectionText).join(' · ')}.`,
+      });
+    }
+    const accepted = Object.fromEntries(Object.entries(mallFields).map(([key, value]) => [key, String(value)]));
+    if (Object.keys(accepted).length === 0) continue;
+    byPair.set(pair, { salesProductId, channelAccountId, values: accepted });
   }
   const writes = [...byPair.values()];
   return {
+    issues,
     writes,
     withCategory: writes.filter((write) => write.values[keys.categoryPath]).length,
     withTemplate: writes.filter((write) => write.values[keys.templateTitle]).length,
   };
+}
+
+function mallFieldRejectionText(rejection: MallFieldRejection): string {
+  if (rejection.reason === 'too_long') return `${rejection.key}: ${REGISTRATION_MALL_FIELD_VALUE_MAX.toLocaleString('ko-KR')}자를 넘음`;
+  if (rejection.reason === 'product_fact') return `${rejection.key}: 상품 사실은 판매 상품에서 고침`;
+  return `${rejection.key}: 받을 수 없는 값`;
 }

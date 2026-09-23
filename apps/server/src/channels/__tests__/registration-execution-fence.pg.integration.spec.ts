@@ -1,3 +1,4 @@
+import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { productTransactionalRead } from './product-transactional-read.fake';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
@@ -34,8 +35,6 @@ const DIRECT_SALES_PRODUCT_OPTION_ID = '77777777-7777-4777-8777-777777777777';
 describe('registration execution fence (PG integration)', () => {
   let prisma: PrismaClient;
   let targets: RegistrationTargetRepositoryAdapter;
-  /** 동결 시 선택값이 정본으로 바뀌는 것을 재는 테스트만 켠다. */
-  let canonicalThumbnailUrl: string | null = null;
   let repository: RegistrationExecutionRepositoryAdapter;
   let candidateId: string;
 
@@ -46,18 +45,18 @@ describe('registration execution fence (PG integration)', () => {
     // 실제 두 어댑터를 그대로 엮어야 한 트랜잭션 계약이 여기서 검증된다.
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(workspaceFake(), thumbnailSourceFake()),
+      new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
     );
     targets = new RegistrationTargetRepositoryAdapter(
       prisma as unknown as PrismaService,
       productTransactionalRead(),
+      realRegistrationContentWorkspace(prisma),
     );
   });
 
   afterAll(async () => prisma?.$disconnect());
 
   beforeEach(async () => {
-    canonicalThumbnailUrl = null;
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     await prisma.channelAccount.createMany({
@@ -676,9 +675,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('rolls back a failed bundle allocation without leaving an execution or preparation', async () => {
-    const failingDrafts = new RegistrationDraftAdapter(
-      workspaceFake(), thumbnailSourceFake(),
-    );
+    const failingDrafts = new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma));
     vi.spyOn(failingDrafts, 'freezeForSubmission').mockRejectedValueOnce(
       new Error('forced transaction rollback after allocation'),
     );
@@ -704,6 +701,36 @@ describe('registration execution fence (PG integration)', () => {
       ...input,
       idempotencyKey: randomUUID(),
     })).resolves.toMatchObject({ status: 'prepared', kidItemCode: expect.stringMatching(/^KID[0-9]{8}$/) });
+  });
+
+  it('leaves only the Coupang adapter values on the target — execution facts stay in the execution payload', async () => {
+    const { preparationId } = await createTarget(ACCOUNT_ID);
+    const input = createExternalRegistrationInput(randomUUID(), { quantity: 1 });
+    const prepared = await repository.prepare({
+      ...input,
+      registrationInput: { ...input.registrationInput, wingCategoryKey: '64687' },
+    });
+
+    const target = await prisma.registrationTarget.findUniqueOrThrow({
+      where: { id: preparationId },
+      select: { registrationInput: true, selectedThumbnailAssetId: true, selectedDetailPageRevisionId: true },
+    });
+    expect(target).toEqual({
+      registrationInput: {
+        mallCategory: null,
+        mallFields: {},
+        adapter: { coupang: { wingCategoryKey: '64687', wingProduct: input.registrationInput.wingProduct } },
+      },
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+    });
+    const execution = await prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: prepared.executionId },
+      select: { submissionPayloadJson: true },
+    });
+    expect(execution.submissionPayloadJson).toMatchObject({
+      registrationInput: { sellpiaMatch: expect.any(Object), kidItemCode: prepared.kidItemCode },
+    });
   });
 
   it('abandons a never-submitted execution and reuses its target for a changed payload', async () => {
@@ -927,7 +954,7 @@ describe('registration execution fence (PG integration)', () => {
     };
     const pausedRepository = new RegistrationExecutionRepositoryAdapter(
       pausedPrisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(workspaceFake(), thumbnailSourceFake()),
+      new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
     );
     const supersede = pausedRepository.prepare({
       ...base,
@@ -1041,111 +1068,11 @@ describe('registration execution fence (PG integration)', () => {
    * 등록 설정을 만드는 길은 하나다 — 상품 × 몰 계정으로 찾거나 만든다(KID-310 · ADR-0022).
    * 울타리 spec 도 그 길로 설정을 세워야 실제 배선과 같은 것을 잰다.
    */
-  /** 등록 설정 편집도 살아남은 길 하나로 한다. 설정의 지금 값을 그대로 싣고 고칠 칸만 바꾼다. */
-  async function editTarget(
-    targetId: string,
-    patch: { displayName?: string | null; registrationInput?: Record<string, unknown> },
-  ): Promise<void> {
-    const current = await prisma.registrationTarget.findUniqueOrThrow({
-      where: { id: targetId },
-      select: {
-        version: true, displayName: true, registrationInput: true,
-        selectedOptions: { select: { salesProductOptionId: true, salePrice: true, normalPrice: true, supplyPrice: true } },
-      },
-    });
-    await targets.update(TEST_ORGANIZATION_ID, targetId, {
-      expectedVersion: current.version,
-      displayName: patch.displayName !== undefined ? patch.displayName : current.displayName,
-      registrationInput: patch.registrationInput
-        ?? (current.registrationInput as Record<string, unknown>),
-      selectedOptions: current.selectedOptions.map((option) => ({
-        salesProductOptionId: option.salesProductOptionId,
-        salePrice: option.salePrice,
-        normalPrice: option.normalPrice,
-        supplyPrice: option.supplyPrice,
-      })),
-    });
-  }
-
   async function createTarget(channelAccountId: string, salesProductId = SALES_PRODUCT_ID) {
     return {
       preparationId: await targets.resolve(TEST_ORGANIZATION_ID, { salesProductId, channelAccountId }),
       status: 'draft' as const,
     };
-  }
-
-  /**
-   * AI 가 이 판매상품을 위해 만든 생성 썸네일 목록. 대표 사진 울타리가 초안의 사진 목록과
-   * 합쳐서 본다 — 정본으로 바뀌는 주소도 이 목록에서 온 사진이다.
-   */
-  function thumbnailSourceFake() {
-    return {
-      listGeneratedThumbnailUrls: async () => (canonicalThumbnailUrl ? [canonicalThumbnailUrl] : []), findRepresentativeThumbnailUrls: async () => new Map<string, string>(),
-    };
-  }
-
-  /**
-   * AI 공개 작업공간 port 의 대역. 초안 하나에 작업공간 하나이고, 등록은 그 작업공간을
-   * 복제하지 않고 listing 을 가리키게만 한다(KID-310).
-   */
-  function workspaceFake() {
-    return {
-      findSalesProductWorkspaceId: async () => null,
-      resolveSourceSelections: async (_opaqueTx: OwnerTransaction, input: unknown) => (canonicalThumbnailUrl
-        ? { ...(input as Record<string, unknown>), selectedThumbnailUrl: canonicalThumbnailUrl }
-        : input),
-      validateSourceSelections: async () => undefined,
-      ensureSalesProductWorkspace: async (
-        ownerTx: OwnerTransaction,
-        input: { salesProductId: string },
-      ) => ({
-        workspaceId: await ensureWorkspace(ownerTx, input.salesProductId),
-      }),
-      attachToListing: async () => ({ workspaceId: '' }),
-    } as never;
-  }
-
-  /** 콘텐츠 작업공간은 판매상품 초안이 가진다(KID-310). 후보는 그 초안이 가리킨다. */
-  async function ensureWorkspace(
-    ownerTx: OwnerTransaction,
-    salesProductId: string = SALES_PRODUCT_ID,
-  ): Promise<string> {
-    const client = ownerTransactionClient(ownerTx);
-    const existing = await client.contentWorkspace.findFirst({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        salesProductId,
-        status: 'active',
-        isDeleted: false,
-      },
-    });
-    if (existing) return existing.id;
-    return (await client.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sales_product',
-        salesProductId,
-        displayName: 'Kids rain boots',
-        normalizedTitle: 'kids rain boots',
-        createdByUserId: TEST_USER_ID,
-      },
-    })).id;
-  }
-
-  async function resolveSelections(
-    _opaqueTx: OwnerTransaction,
-    input: {
-      organizationId: string;
-      sourceWorkspaceId: string;
-      selectedThumbnailUrl: string | null;
-      selectedThumbnailGenerationId: string | null;
-      selectedThumbnailGenerationCandidateId: string | null;
-      selectedDetailPageArtifactId: string | null;
-      selectedDetailPageRevisionId: string | null;
-      selectedDetailPageGenerationId: string | null;
-    },
-  ) {
-    return input;
   }
 
   async function createListingBranch(

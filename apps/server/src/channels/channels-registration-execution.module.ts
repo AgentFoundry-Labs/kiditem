@@ -20,11 +20,10 @@ import { RegistrationExecutionRepositoryAdapter } from './adapter/out/repository
 import { RegistrationExecutionService } from './application/service/registration/registration-execution.service';
 import { REGISTRATION_EXECUTION_PORT } from './application/port/in/capability/registration-execution.port';
 import { REGISTRATION_EXECUTION_REPOSITORY_PORT, type RegistrationExecutionRepositoryPort } from './application/port/out/repository/registration-execution.repository.port';
-import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-product-thumbnail-source.adapter';
 import { RegistrationDraftAdapter } from './adapter/out/persistence/registration-draft.adapter';
 import { RegistrationStateRepositoryAdapter } from './adapter/out/persistence/registration-state.repository.adapter';
 import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
-import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/sales-product-thumbnail-source.port';
+import { CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT } from './application/port/out/content/registrable-detail-page.port';
 
 /**
  * 등록 실행 울타리([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
@@ -44,7 +43,7 @@ import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/s
     { provide: StockoutCheckService, useFactory: (persistence: StockoutCheckPersistencePort, executions: RegistrationExecutionRepositoryPort) => new StockoutCheckService(persistence, executions), inject: [STOCKOUT_CHECK_PERSISTENCE_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT] },
     { provide: STOCKOUT_CHECK_PORT, useExisting: StockoutCheckService },
     RegistrationExecutionRepositoryAdapter,
-    { provide: RegistrationExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof RegistrationExecutionService>) => new RegistrationExecutionService(...dependencies), inject: [REGISTRATION_EXECUTION_REPOSITORY_PORT, CHANNEL_REGISTRATION_PORT, REGISTRATION_DRAFT_PORT, SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT, STOCKOUT_CHECK_PORT] },
+    { provide: RegistrationExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof RegistrationExecutionService>) => new RegistrationExecutionService(...dependencies), inject: [REGISTRATION_EXECUTION_REPOSITORY_PORT, CHANNEL_REGISTRATION_PORT, REGISTRATION_DRAFT_PORT, SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT, STOCKOUT_CHECK_PORT, CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT] },
     {
       provide: REGISTRATION_EXECUTION_REPOSITORY_PORT,
       useExisting: RegistrationExecutionRepositoryAdapter,
@@ -53,9 +52,6 @@ import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/s
     // 예전 channels-registration-preparation.module.ts.
     RegistrationDraftAdapter,
     RegistrationStateRepositoryAdapter,
-    SalesProductThumbnailSourceAdapter,
-    // 대표 사진 울타리가 쓰는 생성 썸네일 목록. 소비자가 필수로 받으므로 빠지면 부트가 실패한다.
-    { provide: SALES_PRODUCT_THUMBNAIL_SOURCE_PORT, useExisting: SalesProductThumbnailSourceAdapter },
     { provide: REGISTRATION_DRAFT_PORT, useExisting: RegistrationDraftAdapter },
     { provide: REGISTRATION_STATE_PORT, useExisting: RegistrationStateRepositoryAdapter },
   ],

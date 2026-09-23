@@ -17,7 +17,7 @@ function responseHost() {
   const status = vi.fn().mockReturnValue({ json });
   const host = {
     switchToHttp: () => ({
-      getRequest: () => ({ method: 'POST', url: '/api/channels/listings/deletion-authorization' }),
+      getRequest: () => ({ method: 'POST', url: '/api/channels/listings' }),
       getResponse: () => ({ status }),
     }),
   } as unknown as ArgumentsHost;
@@ -47,11 +47,11 @@ describe('ChannelBusinessExceptionFilter HTTP contract', () => {
       error: `HTTP_${statusCode}`,
       message: '업무 요청을 처리할 수 없습니다.',
       timestamp: expect.any(String),
-      path: '/api/channels/listings/deletion-authorization',
+      path: '/api/channels/listings',
     });
   });
 
-  it('keeps the unsupported deletion route behind the HTTP exception mapping', () => {
+  it('keeps the listing routes behind the HTTP exception mapping', () => {
     const filters = Reflect.getMetadata('__exceptionFilters__', ChannelListingController);
     expect(filters).toContain(ChannelBusinessExceptionFilter);
   });
@@ -73,7 +73,7 @@ describe('ChannelBusinessExceptionFilter HTTP contract', () => {
       code: 'ATTEMPT_IN_PROGRESS',
       attemptId,
       timestamp: expect.any(String),
-      path: '/api/channels/listings/deletion-authorization',
+      path: '/api/channels/listings',
     });
   });
 });

@@ -59,18 +59,19 @@ sync, registration, matching, and capacity behavior is executable in
   selling product. `channels/registration-targets` (resolve, update, archive) is
   the only way to make or change one; `resolve` is the only way one comes to exist
   (it finds or creates it and issues the product's KID),
-  and a target with a live execution cannot be archived. The target display name
-  is an override, not identity — an empty one reads as the product name.
+  and a target with a live execution cannot be archived. A target stores only its
+  selected options, mall-only values (`RegistrationMallInputSchema`) and the
+  chosen Content asset and revision ids; name, prices and detail HTML are read
+  from the selling product and its content at use time (KID-313).
 - Selected accounts must exist and be active. `ChannelAccount` stores the Wing
   vendor identity used to fence browser evidence; Open API credentials are not
   accepted or resolved.
 - `register_confirmed_listing` is the supported registration mutation. It
   validates server-frozen provenance and Wing confirmation evidence before the
   final listing resolution transaction.
-- New Open API submission and deletion authorization/claim/reconciliation are
-  explicit unsupported paths with no external IO or database intent. Existing
-  deletion status reads, unresolved records, and succeeded receipt replays
-  remain readable.
+- New Open API submission is an explicit unsupported path with no external IO
+  or database intent. Listing deletion has no ledger or route; a mall delete
+  will be a registration execution kind once an adapter can delete (KID-321).
 - Catalog publication refreshes channel facts while preserving product links,
   option recipes, and listing content. It never creates `MasterProduct` rows
   or changes stock.

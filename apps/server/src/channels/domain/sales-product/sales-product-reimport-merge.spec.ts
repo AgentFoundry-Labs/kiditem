@@ -1,12 +1,9 @@
-import { ChannelIntegrityAdapter } from '../../adapter/out/integrity/channel-integrity.adapter';
 import { describe, expect, it } from 'vitest';
 import {
   mergeSabangnetReimport,
-  sabangnetDetailDigests,
   type SabangnetReimportBasics,
 } from './sales-product-reimport-merge';
 
-const sha256 = new ChannelIntegrityAdapter().sha256;
 
 function basics(overrides: Partial<SabangnetReimportBasics> = {}): SabangnetReimportBasics {
   return {
@@ -36,8 +33,6 @@ function basics(overrides: Partial<SabangnetReimportBasics> = {}): SabangnetReim
     deliveryFee: null,
     stockManaged: false,
     imageUrls: ['https://pic.sabangnet.co.kr/a.jpg', 'https://pic.sabangnet.co.kr/b.jpg'],
-    detailHtml: '<p>상세</p>',
-    extraDetailHtml: ['<p>추가</p>'],
     noticeCategory: '01',
     noticeValues: ['면', '중국'],
     certifications: [{
@@ -52,8 +47,7 @@ function basics(overrides: Partial<SabangnetReimportBasics> = {}): SabangnetReim
 }
 
 function baselineOf(record: SabangnetReimportBasics) {
-  const { detailHtml, extraDetailHtml, ...rest } = record;
-  return { basics: rest, detailDigests: sabangnetDetailDigests({ detailHtml, extraDetailHtml }, sha256) };
+  return { basics: record };
 }
 
 describe('Sabangnet reimport three-way merge', () => {
@@ -61,7 +55,7 @@ describe('Sabangnet reimport three-way merge', () => {
     const last = basics();
     const file = basics({ name: '투명우산 그리기', noticeValues: ['면', '베트남'] });
 
-    const result = mergeSabangnetReimport({ current: last, incoming: file, baseline: baselineOf(last), sha256 });
+    const result = mergeSabangnetReimport({ current: last, incoming: file, baseline: baselineOf(last) });
 
     expect(result.merged.name).toBe('투명우산 그리기');
     expect(result.merged.noticeValues).toEqual(['면', '베트남']);
@@ -85,7 +79,7 @@ describe('Sabangnet reimport three-way merge', () => {
       brand: '새 브랜드',
     });
 
-    const result = mergeSabangnetReimport({ current, incoming: file, baseline: baselineOf(last), sha256 });
+    const result = mergeSabangnetReimport({ current, incoming: file, baseline: baselineOf(last) });
 
     expect(result.merged).toMatchObject({
       noticeValues: ['면', '한국'],
@@ -101,13 +95,13 @@ describe('Sabangnet reimport three-way merge', () => {
 
   it('keeps every current value when there is no baseline', () => {
     const current = basics({ adminMemo: '운영 메모' });
-    const file = basics({ name: '다른 이름', detailHtml: '<p>새 상세</p>', adminMemo: null });
+    const file = basics({ name: '다른 이름', adminMemo: null });
 
-    const result = mergeSabangnetReimport({ current, incoming: file, baseline: null, sha256 });
+    const result = mergeSabangnetReimport({ current, incoming: file, baseline: null });
 
     expect(result.merged).toEqual(current);
     expect(result.updated).toEqual([]);
-    expect(result.preserved).toEqual(['name', 'detailHtml', 'adminMemo']);
+    expect(result.preserved).toEqual(['name', 'adminMemo']);
   });
 
   it('compares arrays and certification objects by value, not by identity or key order', () => {
@@ -122,7 +116,7 @@ describe('Sabangnet reimport three-way merge', () => {
     });
     const file = basics({ keywords: ['우산', '미술'], certifications: [] });
 
-    const result = mergeSabangnetReimport({ current, incoming: file, baseline: baselineOf(last), sha256 });
+    const result = mergeSabangnetReimport({ current, incoming: file, baseline: baselineOf(last) });
 
     expect(result.merged.keywords).toEqual(['우산', '미술']);
     expect(result.merged.certifications).toEqual([]);
@@ -134,36 +128,10 @@ describe('Sabangnet reimport three-way merge', () => {
     const current = basics({ imageUrls: [...last.imageUrls].reverse() });
     const file = basics({ imageUrls: ['https://pic.sabangnet.co.kr/c.jpg'] });
 
-    const result = mergeSabangnetReimport({ current, incoming: file, baseline: baselineOf(last), sha256 });
+    const result = mergeSabangnetReimport({ current, incoming: file, baseline: baselineOf(last) });
 
     expect(result.merged.imageUrls).toEqual([...last.imageUrls].reverse());
     expect(result.preserved).toEqual(['imageUrls']);
-  });
-
-  it('decides the detail HTML by its digest: edited, not edited, and no digest', () => {
-    const last = basics();
-    const file = basics({ detailHtml: '<p>새 상세</p>', extraDetailHtml: [] });
-
-    const notEdited = mergeSabangnetReimport({ current: last, incoming: file, baseline: baselineOf(last), sha256 });
-    expect(notEdited.merged.detailHtml).toBe('<p>새 상세</p>');
-    expect(notEdited.merged.extraDetailHtml).toEqual([]);
-    expect(notEdited.updated).toEqual(['detailHtml', 'extraDetailHtml']);
-
-    const edited = basics({ detailHtml: '<p>운영자 상세</p>' });
-    const kept = mergeSabangnetReimport({ current: edited, incoming: file, baseline: baselineOf(last), sha256 });
-    expect(kept.merged.detailHtml).toBe('<p>운영자 상세</p>');
-    expect(kept.merged.extraDetailHtml).toEqual([]);
-    expect(kept.preserved).toEqual(['detailHtml']);
-    expect(kept.updated).toEqual(['extraDetailHtml']);
-
-    // 디지스트를 남기기 전에 가져온 줄: 상세는 지금 값을 지킨다.
-    const { detailDigests: _dropped, ...withoutDigest } = baselineOf(last);
-    const old = mergeSabangnetReimport({
-      current: last, incoming: file, baseline: { ...withoutDigest, detailDigests: null }, sha256,
-    });
-    expect(old.merged.detailHtml).toBe('<p>상세</p>');
-    expect(old.merged.extraDetailHtml).toEqual(['<p>추가</p>']);
-    expect(old.preserved).toEqual(['detailHtml', 'extraDetailHtml']);
   });
 
   it('always keeps the draft fields the Sabangnet file never carries, without reporting them', () => {
@@ -173,7 +141,7 @@ describe('Sabangnet reimport three-way merge', () => {
       colorVariantNames: ['빨강'], boxSetQuantity: 12, registrationDefaults: { deliveryDays: 2 },
     });
 
-    const result = mergeSabangnetReimport({ current, incoming: basics(), baseline: baselineOf(last), sha256 });
+    const result = mergeSabangnetReimport({ current, incoming: basics(), baseline: baselineOf(last) });
 
     expect(result.merged).toMatchObject({
       description: '운영자 설명', targetAudience: '유아', ageGroup: '3세+', productSize: '20cm',
@@ -186,7 +154,7 @@ describe('Sabangnet reimport three-way merge', () => {
   it('fills an empty own code from the file', () => {
     const last = basics({ ownCode: null });
     const result = mergeSabangnetReimport({
-      current: last, incoming: basics({ ownCode: 'OWN-2' }), baseline: baselineOf(last), sha256,
+      current: last, incoming: basics({ ownCode: 'OWN-2' }), baseline: baselineOf(last),
     });
     expect(result.merged.ownCode).toBe('OWN-2');
   });
@@ -194,21 +162,10 @@ describe('Sabangnet reimport three-way merge', () => {
   it('never replaces a set own code with the file one', () => {
     const last = basics();
     const result = mergeSabangnetReimport({
-      current: last, incoming: basics({ ownCode: 'OWN-2' }), baseline: baselineOf(last), sha256,
+      current: last, incoming: basics({ ownCode: 'OWN-2' }), baseline: baselineOf(last),
     });
     expect(result.merged.ownCode).toBe('OWN-1');
     expect(result.updated).toEqual([]);
     expect(result.preserved).toEqual([]);
-  });
-
-  it('digests an empty detail as empty so a missing and a blank detail agree', () => {
-    expect(sabangnetDetailDigests({ detailHtml: null, extraDetailHtml: [] }, sha256))
-      .toEqual({ detailHtml: '', extraDetailHtml: '' });
-    expect(sabangnetDetailDigests({ detailHtml: 'x', extraDetailHtml: ['x', 'y'] }, sha256))
-      .toEqual({
-        detailHtml: '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881',
-        extraDetailHtml: '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881,'
-          + 'a1fce4363854ff888cff4b8e7875d600c2682390412a8cf79b37d0b11148b0fa',
-      });
   });
 });

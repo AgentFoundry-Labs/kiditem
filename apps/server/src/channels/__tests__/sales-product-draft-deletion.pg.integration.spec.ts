@@ -1,3 +1,4 @@
+import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
@@ -104,7 +105,9 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     const repository = new SalesProductRepositoryAdapter(
       service,
       productTransactionalRead(),
-      new RegistrationTargetRepositoryAdapter(service, productTransactionalRead()),
+      new RegistrationTargetRepositoryAdapter(service, productTransactionalRead(), realRegistrationContentWorkspace(service)),
+    realRegistrationContentWorkspace(service),
+      realRegistrableDetailPages(service),
     );
     records = new SourceRecordRepositoryAdapter(service);
     useCase = new SalesProductUseCase(
@@ -137,9 +140,10 @@ describe('sales product draft deletion (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID, salesProductId: admitted.salesProductId, channelAccountId: account.id,
       registrationInput: {}, archivedAt: new Date(),
     } });
-    const workspace = await prisma.contentWorkspace.create({ data: {
+    // 초안을 만든 트랜잭션이 작업공간도 만들었다(KID-313 W2) — 지울 때 그것이 보관된다.
+    const workspace = await prisma.contentWorkspace.findFirstOrThrow({ where: {
       organizationId: TEST_ORGANIZATION_ID, ownerType: 'sales_product', salesProductId: admitted.salesProductId,
-      displayName: '지울 초안', normalizedTitle: '지울초안',
+      status: 'active', isDeleted: false,
     } });
 
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId))

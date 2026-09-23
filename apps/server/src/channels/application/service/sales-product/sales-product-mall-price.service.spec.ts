@@ -2,28 +2,20 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SalesProductRepositoryPort } from '../../port/out/persistence/sales-product.repository.port';
 import { SalesProductMallPriceService } from './sales-product-mall-price.service';
 
-describe('SalesProductMallPriceService', () => {
-  it('applies per-option final prices to the existing target only', async () => {
-    const setPrices = vi.fn().mockResolvedValue(1);
-    const repository = {
+function repository(apply = vi.fn().mockResolvedValue(1)) {
+  return {
+    apply,
+    port: {
       readMallPriceCandidates: vi.fn().mockResolvedValue({
         products: [{
           id: 'product-1',
           code: 'K000001',
           name: '상품',
+          version: 7,
           options: [
             { id: 'option-1', salePrice: 1000, normalPrice: null },
             { id: 'option-2', salePrice: 1200, normalPrice: null },
           ],
-          targets: [{
-            id: 'target-1',
-            channelAccountId: 'account-1',
-            version: 7,
-            selectedOptions: [
-              { salesProductOptionId: 'option-1', salePrice: 1000, normalPrice: null, supplyPrice: null },
-              { salesProductOptionId: 'option-2', salePrice: 1200, normalPrice: null, supplyPrice: null },
-            ],
-          }],
         }],
         listingOptions: [
           { channelAccountId: 'account-1', salesProductOptionId: 'option-1', salePrice: 1100 },
@@ -31,19 +23,22 @@ describe('SalesProductMallPriceService', () => {
         ],
       }),
       listChannelAccounts: vi.fn().mockResolvedValue([{ id: 'account-1', channel: 'coupang', name: '쿠팡' }]),
-      setChannelOverrideSalePrices: setPrices,
-    } as unknown as SalesProductRepositoryPort;
+      applyMallPriceAdoption: apply,
+    } as unknown as SalesProductRepositoryPort,
+  };
+}
 
+describe('SalesProductMallPriceService', () => {
+  it('writes the adopted mall prices to the selling product options', async () => {
+    const { port, apply } = repository();
     const activity = { log: vi.fn(), warn: vi.fn() };
-    const result = await new SalesProductMallPriceService(repository, activity).adopt('org-1', true);
+    const result = await new SalesProductMallPriceService(port, activity).adopt('org-1', true);
 
     expect(result).toMatchObject({ applied: true, pairs: 1, products: 1, unchanged: 0, conflicts: 0, byMall: { 쿠팡: 1 } });
-    expect(setPrices).toHaveBeenCalledWith('org-1', [{
+    expect(apply).toHaveBeenCalledWith('org-1', [{
       salesProductId: 'product-1',
-      channelAccountId: 'account-1',
-      salePrice: 1100,
-      targetId: 'target-1',
       expectedVersion: 7,
+      channelAccountIds: ['account-1'],
       optionPrices: [
         { salesProductOptionId: 'option-1', salePrice: 1100 },
         { salesProductOptionId: 'option-2', salePrice: 1300 },
@@ -52,27 +47,12 @@ describe('SalesProductMallPriceService', () => {
   });
 
   it('does not write during preview', async () => {
-    const setPrices = vi.fn();
-    const repository = {
-      readMallPriceCandidates: vi.fn().mockResolvedValue({
-        products: [{
-          id: 'product-1', code: 'K000001', name: '상품',
-          options: [{ id: 'option-1', salePrice: 1000, normalPrice: null }],
-          targets: [{ id: 'target-1', channelAccountId: 'account-1', version: 2, selectedOptions: [{
-            salesProductOptionId: 'option-1', salePrice: 1000, normalPrice: null, supplyPrice: null,
-          }] }],
-        }],
-        listingOptions: [{ channelAccountId: 'account-1', salesProductOptionId: 'option-1', salePrice: 1100 }],
-      }),
-      listChannelAccounts: vi.fn().mockResolvedValue([{ id: 'account-1', channel: 'coupang', name: '쿠팡' }]),
-      setChannelOverrideSalePrices: setPrices,
-    } as unknown as SalesProductRepositoryPort;
-
+    const { port, apply } = repository(vi.fn());
     const activity = { log: vi.fn(), warn: vi.fn() };
-    const result = await new SalesProductMallPriceService(repository, activity).adopt('org-1', false);
+    const result = await new SalesProductMallPriceService(port, activity).adopt('org-1', false);
 
     expect(result.applied).toBe(false);
     expect(result.pairs).toBe(1);
-    expect(setPrices).not.toHaveBeenCalled();
+    expect(apply).not.toHaveBeenCalled();
   });
 });
