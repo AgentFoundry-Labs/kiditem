@@ -196,6 +196,7 @@ async function consumeResponse<T>(
     throw new ApiError(res.status, code, detail, {
       ...(typeof record.code === 'string' && record.code.trim() ? { code: record.code } : {}),
       ...(typeof record.attemptId === 'string' && record.attemptId ? { attemptId: record.attemptId } : {}),
+      ...existingSalesProductDetail(record.existing),
       ...retryAfterDetail(res),
     });
   }
@@ -410,3 +411,10 @@ export const apiClient = {
   fetchRaw: async (path: string, init?: RequestInit): Promise<Response> =>
     fetchRaw(path, init),
 };
+
+/** 중복 거절(409)이 가리키는 기존 판매 상품. 화면이 그 초안으로 가는 링크를 낸다(KID-313). */
+function existingSalesProductDetail(existing: unknown): { existingSalesProductId?: string } {
+  if (!existing || typeof existing !== 'object') return {};
+  const salesProductId = (existing as Record<string, unknown>).salesProductId;
+  return typeof salesProductId === 'string' && salesProductId ? { existingSalesProductId: salesProductId } : {};
+}

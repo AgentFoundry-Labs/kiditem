@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '@/lib/api-error';
 import { salesProductKeys } from '@/lib/sales-product-api';
 import { sourcingApi } from '../lib/sourcing-api';
 import { useScrapeUrl } from './useScrapeUrl';
@@ -83,6 +84,19 @@ describe('retained scrape URL action', () => {
 describe('URL 수집이 만든 판매상품 초안', () => {
   const attempt = (state: 'RUNNING' | 'COMPLETE') => ({ attemptId: 'attempt-1', state, expiresAt: '', completedAt: null,
     errorCode: null, errorMessage: null });
+
+  it('shows the duplicate refusal with a link to the draft that already holds the source', async () => {
+    navigation.query = new URLSearchParams({ scrapeUrl: url }).toString();
+    vi.mocked(sourcingApi.scrapeUrl).mockRejectedValue(
+      new ApiError(409, null, '이미 수집한 원본입니다.', { existingSalesProductId: 'draft-1' }),
+    );
+    const hook = mount();
+    await waitFor(() => expect(sourcingApi.scrapeUrlStatus).toHaveBeenCalledOnce());
+    await act(async () => hook.result.current.handleSubmit());
+
+    await waitFor(() => expect(hook.result.current.scrapeError).toBe('이미 수집한 원본입니다.'));
+    expect(hook.result.current.scrapeErrorHref).toBe('/product-pipeline/collected-products/draft-1');
+  });
 
   it('refreshes the sales-product list after a collect request settles', async () => {
     navigation.query = new URLSearchParams({ scrapeUrl: url }).toString();

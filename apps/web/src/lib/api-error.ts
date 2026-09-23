@@ -6,6 +6,8 @@ export type ApiErrorDetails = Readonly<{
   attemptId?: string;
   /** How long the response said to wait before asking again, from its `Retry-After`. */
   retryAfterMs?: number;
+  /** The sales product a duplicate refusal collides with, from its `existing.salesProductId`. */
+  existingSalesProductId?: string;
 }>;
 
 export class ApiError extends Error {

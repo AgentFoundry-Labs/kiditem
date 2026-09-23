@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { isApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { salesProductKeys } from '@/lib/sales-product-api';
@@ -38,6 +39,7 @@ export function useScrapeUrl() {
   const [scrapeUrl, setScrapeUrl] = useState('');
   const [statusUrl, setStatusUrl] = useState('');
   const [scrapeError, setScrapeError] = useState<string | null>(null);
+  const [scrapeErrorHref, setScrapeErrorHref] = useState<string | null>(null);
   const [scrapeSuccess, setScrapeSuccess] = useState<string | null>(null);
   const scrapeInputRef = useRef<HTMLInputElement>(null);
   const trimmedScrapeUrl = scrapeUrl.trim();
@@ -101,6 +103,9 @@ export function useScrapeUrl() {
     ]),
     onError: (err) => {
       setScrapeError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
+      // 같은 원본을 이미 수집했으면 서버가 그 초안을 알려 준다 — 거기로 가는 링크를 붙인다.
+      const existing = isApiError(err) && err.status === 409 ? err.details.existingSalesProductId : undefined;
+      setScrapeErrorHref(existing ? `/product-pipeline/collected-products/${encodeURIComponent(existing)}` : null);
     },
   });
 
@@ -111,12 +116,14 @@ export function useScrapeUrl() {
     setScrapeUrl('');
     setStatusUrl('');
     setScrapeError(null);
+    setScrapeErrorHref(null);
     setScrapeSuccess(null);
   };
 
   const handleSubmit = () => {
     if (!trimmedScrapeUrl || duplicate || scrapeMutation.isPending || ownerStatus?.latestAttempt?.state === 'RUNNING') return;
     setScrapeError(null);
+    setScrapeErrorHref(null);
     setScrapeSuccess(null);
     const prior = requestIdentity.current;
     const latest = ownerStatus?.latestAttempt;
@@ -142,6 +149,7 @@ export function useScrapeUrl() {
     scrapeUrl,
     setScrapeUrl,
     scrapeError: ownerStatus?.errorMessage ?? scrapeError,
+    scrapeErrorHref: ownerStatus?.errorMessage ? null : scrapeErrorHref,
     scrapeSuccess,
     ownerStatus,
     duplicate,

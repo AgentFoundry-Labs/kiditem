@@ -14,6 +14,8 @@ interface Props {
   duplicate: Extract<ScrapeUrlStatusResponse, { status: 'collected' }> | null;
   ownerStatus?: ScrapeUrlStatusResponse['source'] | null;
   error: string | null;
+  /** 중복 거절이 가리키는 기존 초안. 있으면 오류 옆에 링크를 낸다. */
+  errorHref?: string | null;
   success: string | null;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }
@@ -29,6 +31,7 @@ export default function ScrapeUrlInput({
   duplicate,
   ownerStatus,
   error,
+  errorHref = null,
   success,
   inputRef,
 }: Props) {
@@ -71,8 +74,17 @@ export default function ScrapeUrlInput({
         </button>
       </div>
       {error && (
-        <div className="mt-2 text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-md">
-          {error}
+        <div className="mt-2 flex items-center justify-between gap-2 text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-md">
+          <span>{error}</span>
+          {errorHref && (
+            <a
+              href={errorHref}
+              className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800"
+            >
+              기존 초안 열기
+              <ExternalLink size={12} />
+            </a>
+          )}
         </div>
       )}
       {ownerStatus && (

@@ -473,6 +473,7 @@ export default function SourcingPage() {
             isCheckingDuplicate={scrape.isCheckingDuplicate}
             duplicate={scrape.duplicate}
             error={scrape.scrapeError}
+            errorHref={scrape.scrapeErrorHref}
             success={scrape.scrapeSuccess}
             inputRef={scrape.scrapeInputRef}
           />
