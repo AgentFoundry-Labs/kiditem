@@ -1482,7 +1482,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
     /** 판매 상품의 콘텐츠 작업공간 — 상품을 만드는 길이 만들어 두는 것을 여기서 직접 만든다. */
     async function withWorkspace<T extends { productId: string }>(fixture: T): Promise<T> {
       await prisma.$transaction((tx) => realRegistrationContentWorkspace(prisma).ensureSalesProductWorkspace(ownerTransaction(tx), {
-        organizationId: TEST_ORGANIZATION_ID, salesProductId: fixture.productId, displayName: '공통 상품', createdByUserId: null,
+        organizationId: TEST_ORGANIZATION_ID, salesProductId: fixture.productId, createdByUserId: null,
       }));
       return fixture;
     }

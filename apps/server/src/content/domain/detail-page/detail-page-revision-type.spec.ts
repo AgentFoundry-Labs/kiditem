@@ -19,13 +19,15 @@ function sourceFiles(directory: string): string[] {
 /**
  * `DetailPageRevision.revisionType` 을 쓰는 곳 전부의 값: 서버 writer 는 상수의 키로, 데이터 이관은 상수의
  * 키나 SQL 문자열로, 스키마는 기본값으로 쓴다. 이 집합이 상수와 같아야 한다 — 없는 값을 쓰는 writer 도,
- * 아무도 쓰지 않는 값도 없다.
+ * 아무도 쓰지 않는 값도 없다. 이미 닫힌 열차의 이관(`v0.1.1`)은 옛 표(`detail_page_artifacts`)에 쓰던 역사라
+ * 세지 않는다 — 그 값의 행은 ADR-0010 cutover 로 사라졌다(KID-313 W3b).
  */
+const CLOSED_TRAIN_MIGRATIONS = /scripts\/data-migrations\/v0\.1\.1\//;
 function writtenRevisionTypes(): { value: string; writer: string }[] {
   const written: { value: string; writer: string }[] = [];
   const files = [
     ...sourceFiles(join(REPO, 'apps/server/src')),
-    ...sourceFiles(join(REPO, 'scripts/data-migrations')),
+    ...sourceFiles(join(REPO, 'scripts/data-migrations')).filter((file) => !CLOSED_TRAIN_MIGRATIONS.test(relative(REPO, file))),
   ];
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
@@ -57,6 +59,6 @@ describe('detail-page revision types', () => {
 
   it('rejects a revision type no writer produces', () => {
     expect(DetailPageRevisionTypeSchema.safeParse('manual_edit').success).toBe(true);
-    expect(DetailPageRevisionTypeSchema.safeParse('generated').success).toBe(false);
+    expect(DetailPageRevisionTypeSchema.safeParse('legacy_edited_html_backfill').success).toBe(false);
   });
 });

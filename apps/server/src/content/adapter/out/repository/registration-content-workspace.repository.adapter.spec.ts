@@ -8,7 +8,7 @@ function makeRepository(prisma: unknown = {}) {
       id: 'listing-1',
       accountId: 'account-1',
     }),
-  } as never);
+  } as never, {} as never);
 }
 
 describe('RegistrationContentWorkspaceRepositoryAdapter', () => {

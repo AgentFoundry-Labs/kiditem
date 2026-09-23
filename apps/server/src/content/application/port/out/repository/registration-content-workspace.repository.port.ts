@@ -16,11 +16,6 @@ export const REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT = Symbol(
   'REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT',
 );
 
-export interface RegistrationContentWorkspaceOwnerInput {
-  displayName: string;
-  normalizedTitle: string;
-}
-
 export interface RegistrationContentWorkspaceRepositoryPort {
   findSalesProductWorkspaceId(
     input: FindSalesProductContentWorkspaceInput,
@@ -35,8 +30,7 @@ export interface RegistrationContentWorkspaceRepositoryPort {
   ): Promise<void>;
   ensureSalesProductWorkspace(
     transaction: OwnerTransaction,
-    input: EnsureSalesProductContentWorkspaceInput &
-      RegistrationContentWorkspaceOwnerInput,
+    input: EnsureSalesProductContentWorkspaceInput,
   ): Promise<{ workspaceId: string }>;
   readRegistrableDetailPage(input: {
     organizationId: string;

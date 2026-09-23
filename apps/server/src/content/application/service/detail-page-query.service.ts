@@ -13,15 +13,12 @@ import {
   type ImageStoragePort,
 } from '../port/out/storage/image-storage.port';
 import {
-  DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-  type DetailPageQueryRepositoryPort,
-} from '../port/out/repository/detail-page-query.repository.port';
-import {
   DETAIL_PAGE_REPOSITORY_PORT,
   type DetailPageRepositoryPort,
   type DetailPageRow,
 } from '../port/out/repository/detail-page.repository.port';
 import { isRenderableDetailHtml } from '../../domain/detail-page/renderable-detail-html';
+import { DETAIL_PAGE_REVISION_TYPE } from '../../domain/detail-page/detail-page-revision-type';
 
 export interface DetailPageListQuery {
   contentWorkspaceId?: string | null;
@@ -33,8 +30,6 @@ export class DetailPageQueryService {
   private readonly logger = new Logger(DetailPageQueryService.name);
 
   constructor(
-    @Inject(DETAIL_PAGE_QUERY_REPOSITORY_PORT)
-    private readonly repository: DetailPageQueryRepositoryPort,
     @Inject(DETAIL_PAGE_REPOSITORY_PORT)
     private readonly detailPages: DetailPageRepositoryPort,
     private readonly resultRefiner: DetailPageResultRefinerService,
@@ -85,32 +80,51 @@ export class DetailPageQueryService {
     return { ok: true };
   }
 
+  /**
+   * 상세 페이지를 복제한다 — 같은 워크스페이스에 사람이 만든(`manual`) 새 상세 페이지와, 원본의 현재 revision 을
+   * 옮긴 `duplicate` revision. 사람이 한 일이라 몰로 가는 현재가 된다. 저장한 HTML 이 없는 페이지는 복제할 것이 없다.
+   */
   async duplicateVersion(
     id: string,
     organizationId: string,
     triggeredByUserId: string | null,
   ): Promise<DetailPageGenerationDto> {
-    const source = await this.repository.findDuplicateSource({ id, organizationId });
-    if (!source) throw new NotFoundException('Detail page generation not found');
+    const source = await this.detailPages.findById({ organizationId, detailPageId: id });
+    if (!source) throw new NotFoundException('Detail page not found');
+    const sourceRevision = source.currentRevisionId
+      ? await this.detailPages.findRevision({ organizationId, revisionId: source.currentRevisionId })
+      : null;
+    if (!sourceRevision) throw new BadRequestException('저장한 상세페이지가 있어야 복제할 수 있습니다.');
 
-    const duplicateTitle = duplicateVersionTitle(
-      source.detailPageArtifact?.title ?? source.generatedTitle ?? '상세페이지',
-    );
-    const duplicated = await this.repository.duplicateVersion({
-      organizationId,
-      triggeredByUserId,
-      source,
-      duplicateTitle,
+    const duplicated = await this.detailPages.runInTransaction(async (transaction) => {
+      const page = await this.detailPages.create(transaction, {
+        organizationId,
+        contentWorkspaceId: source.contentWorkspaceId,
+        source: 'manual',
+        templateId: source.templateId,
+        title: duplicateVersionTitle(source.title ?? '상세페이지'),
+        status: 'ready',
+        generationInput: { duplicatedFromDetailPageId: source.id, duplicatedFromRevisionId: sourceRevision.id },
+        triggeredByUserId,
+      });
+      await this.detailPages.appendRevision(transaction, {
+        organizationId,
+        detailPageId: page.id,
+        revisionType: DETAIL_PAGE_REVISION_TYPE.duplicate,
+        html: sourceRevision.html,
+        imageUrls: sourceRevision.imageUrls,
+        assetUrlMap: sourceRevision.assetUrlMap,
+        createdByUserId: triggeredByUserId,
+      });
+      return page.id;
     });
-
-    return this.toDto(duplicated);
+    return this.getById(duplicated, organizationId);
   }
 
   /**
    * 다른 데서 가져온 상세페이지를 우리 상세페이지로 등록한다. AI 를 부르지 않는다 — 이미 있는
-   * 이미지를 세로로 이어 한 판으로 만들 뿐이다(사장님 2026-09-22).
-   *
-   * HTML 은 편집 저장과 **같은 경로**로 넣는다. 그래야 이미지 자산 승격 규칙이 한 벌로 남는다.
+   * 이미지를 세로로 이어 한 판으로 만들 뿐이다(사장님 2026-09-22). `source: 'uploaded'` 상세 페이지 하나이고,
+   * HTML 은 편집 저장과 **같은 경로**로 넣는다(사람의 `manual_edit`). 그래야 이미지 승격 규칙이 한 벌로 남는다.
    */
   async registerUploaded(input: {
     organizationId: string;
@@ -125,39 +139,52 @@ export class DetailPageQueryService {
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : '상세페이지를 만들지 못했습니다.');
     }
-    const created = await this.repository.createUploadedVersion({
+    const title = input.title.trim().slice(0, 80) || '상세페이지';
+    const created = await this.detailPages.runInTransaction((transaction) => this.detailPages.create(transaction, {
       organizationId: input.organizationId,
-      triggeredByUserId: input.triggeredByUserId,
       contentWorkspaceId: input.contentWorkspaceId,
-      title: input.title,
-      imageUrls: input.imageUrls,
-    });
-    await this.saveEditedHtml(created.id, input.organizationId, html);
+      source: 'uploaded',
+      templateId: null,
+      title,
+      status: 'ready',
+      generationInput: { imageUrls: [...input.imageUrls] },
+      triggeredByUserId: input.triggeredByUserId,
+    }));
+    await this.saveEditedHtml(created.id, input.organizationId, html, input.triggeredByUserId);
     return { id: created.id, contentWorkspaceId: input.contentWorkspaceId };
   }
 
+  /**
+   * 편집 저장. 생성 페이지의 첫 저장은 웹 템플릿이 결과로 처음 그린 HTML 이라 `generated`, 그 밖은 사람의
+   * `manual_edit` 이다. 두 현재 포인터는 상세 페이지 저장소가 도메인 규칙으로 옮긴다.
+   */
   async saveEditedHtml(
     id: string,
     organizationId: string,
     html: string,
+    savedByUserId: string | null = null,
   ): Promise<{ html: string; savedAt: string; assetUrlMap: Record<string, string> }> {
     if (!isRenderableDetailHtml(html)) {
       throw new BadRequestException('렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.');
     }
-    const promoted = await this.promoteEditableImageUrls({
-      organizationId,
-      contentGenerationId: id,
-      html,
-    });
+    const page = await this.detailPages.findById({ organizationId, detailPageId: id });
+    if (!page) throw new NotFoundException('Detail page not found');
+    const promoted = await this.promoteEditableImageUrls({ organizationId, detailPageId: id, html });
     const imageUrls = extractImageSrcs(promoted.html);
-    const savedAt = new Date();
-    const revision = await this.repository.saveEditedHtmlRevision({
-      organizationId,
-      contentGenerationId: id,
-      html: promoted.html,
-      assetUrlMap: promoted.assetUrlMap,
-      imageUrls,
-      savedAt,
+    // 새 페이지의 첫 revision 은 늘 그 페이지의 현재가 되므로, 현재가 없으면 아직 저장한 적이 없다.
+    const revisionType = page.source === 'generated' && !page.currentRevisionId
+      ? DETAIL_PAGE_REVISION_TYPE.generated
+      : DETAIL_PAGE_REVISION_TYPE.manual_edit;
+    const revision = await this.detailPages.runInTransaction(async (transaction) => {
+      return this.detailPages.appendRevision(transaction, {
+        organizationId,
+        detailPageId: id,
+        revisionType,
+        html: promoted.html,
+        imageUrls,
+        assetUrlMap: promoted.assetUrlMap,
+        createdByUserId: savedByUserId ?? page.triggeredByUserId,
+      });
     });
 
     void this.deleteTmpImagesBestEffort(promoted.tmpKeysToDelete);
@@ -172,18 +199,13 @@ export class DetailPageQueryService {
     id: string,
     organizationId: string,
   ): Promise<{ html: string | null; savedAt: string | null }> {
-    const row = await this.repository.getEditedHtml({ id, organizationId });
-    if (!row) throw new NotFoundException('Detail page generation not found');
-    const currentRevision = row.detailPageArtifact?.currentRevision;
-    if (
-      currentRevision &&
-      row.detailPageArtifact?.isDeleted === false &&
-      isRenderableDetailHtml(currentRevision.html)
-    ) {
-      return {
-        html: currentRevision.html,
-        savedAt: currentRevision.createdAt.toISOString(),
-      };
+    const page = await this.detailPages.findById({ organizationId, detailPageId: id });
+    if (!page) throw new NotFoundException('Detail page not found');
+    const revision = page.currentRevisionId
+      ? await this.detailPages.findRevision({ organizationId, revisionId: page.currentRevisionId })
+      : null;
+    if (revision && isRenderableDetailHtml(revision.html)) {
+      return { html: revision.html, savedAt: revision.createdAt.toISOString() };
     }
     return { html: null, savedAt: null };
   }
@@ -224,7 +246,7 @@ export class DetailPageQueryService {
 
   private async promoteEditableImageUrls(input: {
     organizationId: string;
-    contentGenerationId: string;
+    detailPageId: string;
     html: string;
   }): Promise<{
     html: string;
@@ -240,7 +262,7 @@ export class DetailPageQueryService {
       if (!key || !isEditableTmpImageKey(key)) continue;
       const promotedKey = permanentAssetKey({
         organizationId: input.organizationId,
-        contentGenerationId: input.contentGenerationId,
+        detailPageId: input.detailPageId,
         sourceKey: key,
       });
       const promotedUrl = await this.imageStorage.copy(key, promotedKey);
@@ -306,12 +328,12 @@ function isEditableTmpImageKey(key: string): boolean {
 
 function permanentAssetKey(input: {
   organizationId: string;
-  contentGenerationId: string;
+  detailPageId: string;
   sourceKey: string;
 }): string {
   const ext = extensionFromKey(input.sourceKey);
   const hash = createHash('sha256').update(input.sourceKey).digest('hex').slice(0, 32);
-  return `content-assets/${input.organizationId}/${input.contentGenerationId}/${hash}.${ext}`;
+  return `content-assets/${input.organizationId}/${input.detailPageId}/${hash}.${ext}`;
 }
 
 function duplicateVersionTitle(title: string): string {

@@ -40,14 +40,11 @@ describe('RegistrationContentWorkspaceService', () => {
     await expect(service.ensureSalesProductWorkspace(TX, {
       organizationId: 'org-1',
       salesProductId: 'sales-product-1',
-      displayName: ' Kids rain boots ',
       createdByUserId: 'user-1',
     })).resolves.toEqual({ workspaceId: 'source-workspace-1' });
     expect(repository.ensureSalesProductWorkspace).toHaveBeenCalledWith(TX, {
       organizationId: 'org-1',
       salesProductId: 'sales-product-1',
-      displayName: 'Kids rain boots',
-      normalizedTitle: 'kidsrainboots',
       createdByUserId: 'user-1',
     });
   });

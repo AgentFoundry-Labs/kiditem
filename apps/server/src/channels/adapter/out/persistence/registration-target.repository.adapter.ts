@@ -285,7 +285,6 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         const { workspaceId } = await this.contentWorkspaces.ensureSalesProductWorkspace(handle, {
           organizationId,
           salesProductId: current.salesProductId,
-          displayName: product.name,
           createdByUserId: null,
         });
         await this.contentWorkspaces.validateSourceSelections(handle, {

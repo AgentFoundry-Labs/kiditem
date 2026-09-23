@@ -1,297 +1,85 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DetailPageQueryRepositoryPort } from '../../port/out/repository/detail-page-query.repository.port';
+import type { DetailPageRepositoryPort, DetailPageRow } from '../../port/out/repository/detail-page.repository.port';
 import { DetailPageQueryService } from '../detail-page-query.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
-const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
+const PAGE_ID = '33333333-3333-4333-8333-333333333333';
 const WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
-const REVISION_ID = '60620087-f5d8-4307-8591-221fd018eaa0';
-const ARTIFACT_ID = '71429ba3-af81-409e-a976-029c67d86bcb';
 
-function makeRepository(
-  overrides: Partial<Record<keyof DetailPageQueryRepositoryPort, ReturnType<typeof vi.fn>>> = {},
-): DetailPageQueryRepositoryPort {
+function page(overrides: Partial<DetailPageRow> = {}): DetailPageRow {
   return {
-    list: vi.fn().mockResolvedValue([]),
-    findById: vi.fn().mockResolvedValue(null),
-    existsActive: vi.fn().mockResolvedValue(false),
-    markDeleted: vi.fn().mockResolvedValue(undefined),
-    renameVersion: vi.fn().mockResolvedValue(false),
-    findDuplicateSource: vi.fn().mockResolvedValue(null),
-    duplicateVersion: vi.fn(),
-    saveEditedHtmlRevision: vi.fn(),
-    getEditedHtml: vi.fn().mockResolvedValue(null),
-    ...overrides,
-  } as unknown as DetailPageQueryRepositoryPort;
-}
-
-function makeService(
-  repository: DetailPageQueryRepositoryPort = makeRepository(),
-  overrides: {
-    imageStorage?: Partial<{
-      extractKey: ReturnType<typeof vi.fn>;
-      copy: ReturnType<typeof vi.fn>;
-      delete: ReturnType<typeof vi.fn>;
-    }>;
-  } = {},
-) {
-  const refiner = {
-    suppressProductInfoWhenSafetyLabelExists: vi.fn((result) => result),
-  };
-  const imageStorage = {
-    extractKey: vi.fn().mockReturnValue(null),
-    copy: vi.fn(),
-    delete: vi.fn(),
-    ...overrides.imageStorage,
-  };
-  const rasterJobs = { ensureScheduled: vi.fn().mockResolvedValue({ status: 'processing' }) };
-  return {
-    service: new DetailPageQueryService(
-      repository,
-      refiner as never,
-      imageStorage as never,
-    ),
-    imageStorage,
-    rasterJobs,
-    repository,
-  };
-}
-
-describe('DetailPageQueryService list', () => {
-  it('passes ownership filters through the repository seam and filters by template', async () => {
-    const kidsRow = makeGenerationRow({ templateId: 'kids-playful' });
-    const boldRow = makeGenerationRow({
-      id: 'bold-row',
-      templateId: 'bold-vertical',
-      generationInput: {
-        rawTitle: '원본 상품',
-        imageUrls: ['https://cdn.example.com/a.jpg'],
-        templateId: 'bold-vertical',
-      },
-      generationResult: {
-        templateId: 'bold-vertical',
-        result: {},
-        imageUrls: ['https://cdn.example.com/a.jpg'],
-        processedImages: {},
-      },
-    });
-    const repository = makeRepository({
-      list: vi.fn().mockResolvedValue([kidsRow, boldRow]),
-    });
-    const { service } = makeService(repository);
-
-    await expect(service.list(ORG, {
-      contentWorkspaceId: WORKSPACE_ID,
-      templateId: 'kids-playful',
-    })).resolves.toHaveLength(1);
-
-    expect(repository.list).toHaveBeenCalledWith({
-      organizationId: ORG,
-      contentWorkspaceId: WORKSPACE_ID,
-    });
-  });
-});
-
-describe('DetailPageQueryService edited HTML', () => {
-  it('promotes temporary edited images and saves through the versioning seam', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-05-13T10:30:00.000Z'));
-    try {
-      const tmpUrl = 'https://cdn.example.com/tmp/image-edits/org-1/custom.png';
-      const durableUrl = `https://cdn.example.com/content-assets/${ORG}/${GENERATION_ID}/promoted.png`;
-      const repository = makeRepository({
-        saveEditedHtmlRevision: vi.fn().mockResolvedValue({
-          revisionId: REVISION_ID,
-          artifactId: ARTIFACT_ID,
-          html: `<section><img src="${durableUrl}" /></section>`,
-          createdAt: new Date('2026-05-13T10:30:00.000Z'),
-        }),
-      });
-      const { service, imageStorage, rasterJobs } = makeService(repository, {
-        imageStorage: {
-          extractKey: vi.fn((url: string) => (
-            url === tmpUrl ? 'tmp/image-edits/org-1/custom.png' : null
-          )),
-          copy: vi.fn().mockResolvedValue(durableUrl),
-          delete: vi.fn().mockResolvedValue(undefined),
-        },
-      });
-
-      await expect(
-        service.saveEditedHtml(GENERATION_ID, ORG, `<section><img src="${tmpUrl}" /></section>`),
-      ).resolves.toEqual({
-        html: `<section><img src="${durableUrl}" /></section>`,
-        savedAt: '2026-05-13T10:30:00.000Z',
-        assetUrlMap: { [tmpUrl]: durableUrl },
-      });
-
-      expect(imageStorage.copy).toHaveBeenCalledWith(
-        'tmp/image-edits/org-1/custom.png',
-        expect.stringMatching(
-          new RegExp(`^content-assets/${ORG}/${GENERATION_ID}/[a-f0-9]{32}\\.png$`),
-        ),
-      );
-      expect(repository.saveEditedHtmlRevision).toHaveBeenCalledWith({
-        organizationId: ORG,
-        contentGenerationId: GENERATION_ID,
-        html: `<section><img src="${durableUrl}" /></section>`,
-        assetUrlMap: { [tmpUrl]: durableUrl },
-        imageUrls: [durableUrl],
-        savedAt: new Date('2026-05-13T10:30:00.000Z'),
-      });
-      expect(rasterJobs.ensureScheduled).not.toHaveBeenCalled();
-      expect(imageStorage.delete).toHaveBeenCalledWith('tmp/image-edits/org-1/custom.png');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('rejects JSON payloads before crossing the repository seam', async () => {
-    const repository = makeRepository();
-    const { service } = makeService(repository);
-
-    await expect(
-      service.saveEditedHtml(GENERATION_ID, ORG, '{"templateId":"kids-playful","result":{}}'),
-    ).rejects.toThrow('렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.');
-    expect(repository.saveEditedHtmlRevision).not.toHaveBeenCalled();
-  });
-
-  it('loads edited HTML from the current artifact revision', async () => {
-    const savedAt = new Date('2026-05-13T11:00:00.000Z');
-    const repository = makeRepository({
-      getEditedHtml: vi.fn().mockResolvedValue({
-        id: GENERATION_ID,
-        detailPageArtifact: {
-          isDeleted: false,
-          currentRevision: {
-            html: '<main>saved</main>',
-            createdAt: savedAt,
-          },
-        },
-      }),
-    });
-    const { service } = makeService(repository);
-
-    await expect(service.getEditedHtml(GENERATION_ID, ORG)).resolves.toEqual({
-      html: '<main>saved</main>',
-      savedAt: savedAt.toISOString(),
-    });
-  });
-
-  it('reports no saved HTML when the current revision is not renderable, without a generation fallback', async () => {
-    const repository = makeRepository({
-      getEditedHtml: vi.fn().mockResolvedValue({
-        id: GENERATION_ID,
-        detailPageArtifact: {
-          isDeleted: false,
-          currentRevision: {
-            html: '{"templateId":"kids-playful","result":{"section1":{"mainHeadline":"raw json"}}}',
-            createdAt: new Date('2026-05-13T11:00:00.000Z'),
-          },
-        },
-      }),
-    });
-    const { service } = makeService(repository);
-
-    await expect(service.getEditedHtml(GENERATION_ID, ORG)).resolves.toEqual({ html: null, savedAt: null });
-  });
-});
-
-describe('DetailPageQueryService detail page version management', () => {
-  it('duplicates a version using repository-owned artifact and revision rules', async () => {
-    const source = {
-      id: GENERATION_ID,
-      generationGroupId: 'group-1',
-      contentWorkspaceId: WORKSPACE_ID,
-      detailPageArtifactId: 'artifact-1',
-      contentType: 'detail_page',
-      templateId: 'bold-vertical',
-      generationInput: { rawTitle: '원본 상품' },
-      generationResult: {
-        templateId: 'bold-vertical',
-        result: { hook: { text: '원본' } },
-        imageUrls: ['https://cdn.example.com/a.jpg'],
-        processedImages: {},
-      },
-      generatedTitle: '원본 상세페이지',
-      generatedDescription: 'desc',
-      generatedCopy: 'copy',
-      status: 'READY',
-      triggeredByUserId: 'source-user',
-      generationGroup: { targetMasterId: null },
-      detailPageArtifact: {
-        id: 'artifact-1',
-        title: '원본 상세페이지',
-        targetMasterId: null,
-        currentRevision: null,
-      },
-    };
-    const repository = makeRepository({
-      findDuplicateSource: vi.fn().mockResolvedValue(source),
-      duplicateVersion: vi.fn().mockResolvedValue(makeGenerationRow({
-        id: 'duplicate-1',
-        generatedTitle: '원본 상세페이지 복사본',
-      })),
-    });
-    const { service } = makeService(repository);
-
-    await service.duplicateVersion(GENERATION_ID, ORG, 'operator-1');
-
-    expect(repository.duplicateVersion).toHaveBeenCalledWith({
-      organizationId: ORG,
-      triggeredByUserId: 'operator-1',
-      source,
-      duplicateTitle: '원본 상세페이지 복사본',
-    });
-  });
-
-  it('renames a version with trimmed title', async () => {
-    const repository = makeRepository({
-      renameVersion: vi.fn().mockResolvedValue(true),
-    });
-    const { service } = makeService(repository);
-
-    await expect(
-      service.renameVersion(GENERATION_ID, ORG, '  등록용 상세 v2  '),
-    ).resolves.toEqual({ ok: true });
-
-    expect(repository.renameVersion).toHaveBeenCalledWith({
-      id: GENERATION_ID,
-      organizationId: ORG,
-      title: '등록용 상세 v2',
-    });
-  });
-});
-
-function makeGenerationRow(overrides: Partial<ReturnType<typeof baseGenerationRow>> = {}) {
-  return {
-    ...baseGenerationRow(),
-    ...overrides,
-  };
-}
-
-function baseGenerationRow() {
-  return {
-    id: GENERATION_ID,
+    id: PAGE_ID,
+    organizationId: ORG,
     contentWorkspaceId: WORKSPACE_ID,
-    templateId: 'kids-playful',
-    generationInput: {
-      rawTitle: '원본 상품',
-      imageUrls: ['https://cdn.example.com/a.jpg'],
-      templateId: 'kids-playful',
-    },
-    generationResult: {
-      templateId: 'kids-playful',
-      result: {},
-      imageUrls: ['https://cdn.example.com/a.jpg'],
-      processedImages: {},
-    },
-    generatedTitle: '원본 상품',
-    status: 'READY',
+    source: 'generated',
+    templateId: 'bold-vertical',
+    title: '키즈 텀블러',
+    status: 'ready',
+    generationInput: { rawTitle: '키즈 텀블러', imageUrls: ['https://example.com/a.jpg'] },
+    generationResult: { templateId: 'bold-vertical', result: { hook: { text: '텀블러' } }, processedImages: {} },
     errorMessage: null,
-    createdAt: new Date('2026-05-17T01:00:00.000Z'),
-    generationGroup: {
-      targetMasterId: null,
-    },
+    currentRevisionId: null,
+    triggeredByUserId: null,
+    createdAt: new Date('2026-05-12T01:00:00.000Z'),
+    updatedAt: new Date('2026-05-12T01:00:00.000Z'),
+    ...overrides,
   };
 }
+
+function makeService(detailPages: Partial<DetailPageRepositoryPort>) {
+  const repository = {
+    runInTransaction: vi.fn(async (work) => work({} as never)),
+    ...detailPages,
+  } as unknown as DetailPageRepositoryPort;
+  const service = new DetailPageQueryService(
+    repository,
+    { suppressProductInfoWhenSafetyLabelExists: vi.fn((result) => result) } as never,
+    { extractKey: vi.fn().mockReturnValue(null), copy: vi.fn(), delete: vi.fn() } as never,
+  );
+  return { service, repository };
+}
+
+describe('DetailPageQueryService', () => {
+  it('lists a workspace\'s detail pages and filters by template', async () => {
+    const { service, repository } = makeService({
+      listByWorkspace: vi.fn().mockResolvedValue([
+        page(),
+        page({ id: '44444444-4444-4444-8444-444444444444', templateId: 'kids-playful', generationResult: { templateId: 'kids-playful' } }),
+      ]),
+    });
+
+    const rows = await service.list(ORG, { contentWorkspaceId: WORKSPACE_ID, templateId: 'bold-vertical' });
+
+    expect(rows.map((row) => row.id)).toEqual([PAGE_ID]);
+    expect(repository.listByWorkspace).toHaveBeenCalledWith({ organizationId: ORG, contentWorkspaceId: WORKSPACE_ID });
+  });
+
+  it('projects the page status onto the progress values the web polls', async () => {
+    const pending = makeService({ findById: vi.fn().mockResolvedValue(page({ status: 'pending' })) });
+    const failed = makeService({ findById: vi.fn().mockResolvedValue(page({ status: 'failed', errorMessage: '취소' })) });
+
+    await expect(pending.service.getById(PAGE_ID, ORG)).resolves.toMatchObject({ imageProcessingStatus: 'processing' });
+    await expect(failed.service.getById(PAGE_ID, ORG)).resolves.toMatchObject({
+      imageProcessingStatus: 'failed',
+      imageProcessingError: '취소',
+      result: { hook: { text: '텀블러' } },
+      productName: '키즈 텀블러',
+    });
+  });
+
+  it('rejects JSON before saving and a blank title before renaming', async () => {
+    const { service, repository } = makeService({ findById: vi.fn(), rename: vi.fn() });
+
+    await expect(service.saveEditedHtml(PAGE_ID, ORG, '{"hook":{}}')).rejects.toThrow('렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.');
+    await expect(service.renameVersion(PAGE_ID, ORG, '   ')).rejects.toThrow('title is required');
+    expect(repository.findById).not.toHaveBeenCalled();
+    expect(repository.rename).not.toHaveBeenCalled();
+  });
+
+  it('renames a page with a trimmed title', async () => {
+    const { service, repository } = makeService({ rename: vi.fn().mockResolvedValue(true) });
+
+    await expect(service.renameVersion(PAGE_ID, ORG, '  새 이름  ')).resolves.toEqual({ ok: true });
+    expect(repository.rename).toHaveBeenCalledWith(expect.anything(), { organizationId: ORG, detailPageId: PAGE_ID, title: '새 이름' });
+  });
+});

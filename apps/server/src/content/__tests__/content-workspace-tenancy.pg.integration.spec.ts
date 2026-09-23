@@ -18,6 +18,7 @@ import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repos
 import { groupUrlAssetKey } from '../domain/content-asset-key';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ownerTransaction } from '../../prisma/owner-transaction';
@@ -37,6 +38,7 @@ describe('AI content ownership constraints (PG integration)', () => {
     registrationContent = new RegistrationContentWorkspaceRepositoryAdapter(
       prisma as unknown as PrismaService,
       channelListings,
+      new DetailPageRepositoryAdapter(prisma as unknown as PrismaService),
     );
   });
 
@@ -87,9 +89,7 @@ describe('AI content ownership constraints (PG integration)', () => {
       ownerType: 'sales_product',
       salesProductId: foreignProduct.id,
       channelListingId: null,
-      originWorkspaceId: null,
-      displayName: 'Cross-tenant draft',
-      normalizedTitle: 'crosstenantdraft',
+      normalizedTitle: null,
       createdByUserId: null,
     })).rejects.toBeInstanceOf(NotFoundException);
 
@@ -110,14 +110,13 @@ describe('AI content ownership constraints (PG integration)', () => {
   }
 
   function draftWorkspaceInput(salesProductId: string, title: string) {
+    void title; // 판매 상품 작업공간은 이름을 갖지 않는다 — 상품 이름이 바뀌어도 같은 작업공간이다.
     return {
       organizationId: TEST_ORGANIZATION_ID,
       ownerType: 'sales_product' as const,
       salesProductId,
       channelListingId: null,
-      originWorkspaceId: null,
-      displayName: title,
-      normalizedTitle: title.replace(/\s+/g, '').toLowerCase(),
+      normalizedTitle: null,
       createdByUserId: null,
     };
   }
@@ -149,8 +148,6 @@ describe('AI content ownership constraints (PG integration)', () => {
         organizationId: OTHER_ORGANIZATION_ID,
         ownerType: 'sales_product',
         salesProductId: foreign.id,
-        displayName: 'Foreign draft',
-        normalizedTitle: 'foreigndraft',
       },
     });
     const repository = lifecycleRepository();
@@ -172,24 +169,21 @@ describe('AI content ownership constraints (PG integration)', () => {
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         ownerType: 'direct_detail_page',
-        displayName: 'Foreign detail page',
         normalizedTitle: 'foreigndetailpage',
       },
     });
-    const foreignArtifact = await prisma.detailPageArtifact.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        contentWorkspaceId: foreignWorkspace.id,
-        title: 'Foreign detail page',
-      },
+    const foreignPage = await prisma.detailPage.create({
+      data: { organizationId: OTHER_ORGANIZATION_ID, contentWorkspaceId: foreignWorkspace.id, source: 'manual', title: 'Foreign detail page' },
+    });
+    const foreignRevision = await prisma.detailPageRevision.create({
+      data: { organizationId: OTHER_ORGANIZATION_ID, detailPageId: foreignPage.id, html: '<p>foreign</p>' },
     });
 
     await expect(prisma.contentWorkspace.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'direct_detail_page',
-        currentDetailPageArtifactId: foreignArtifact.id,
-        displayName: 'Cross-tenant current content',
+        currentDetailPageRevisionId: foreignRevision.id,
         normalizedTitle: 'crosstenantcurrentcontent',
       },
     })).rejects.toMatchObject({ code: 'P2003' });
@@ -229,21 +223,16 @@ describe('AI content ownership constraints (PG integration)', () => {
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         ownerType: 'direct_detail_page',
-        displayName: 'Foreign selected detail page',
         normalizedTitle: 'foreignselecteddetailpage',
       },
     });
-    const foreignArtifact = await prisma.detailPageArtifact.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        contentWorkspaceId: foreignWorkspace.id,
-        title: 'Foreign selected detail page',
-      },
+    const foreignPage = await prisma.detailPage.create({
+      data: { organizationId: OTHER_ORGANIZATION_ID, contentWorkspaceId: foreignWorkspace.id, source: 'manual', title: 'Foreign selected detail page' },
     });
     const foreignRevision = await prisma.detailPageRevision.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
-        artifactId: foreignArtifact.id,
+        detailPageId: foreignPage.id,
         html: '<p>foreign</p>',
       },
     });
@@ -279,8 +268,6 @@ describe('AI content ownership constraints (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'sales_product',
         salesProductId: localProduct.id,
-        displayName: localCandidate.name,
-        normalizedTitle: 'localpreparationcandidate',
       },
     });
     await prisma.salesProductOption.create({
@@ -406,104 +393,6 @@ describe('AI content ownership constraints (PG integration)', () => {
       isDeleted: false,
       usages: [{ contentGenerationId: generation.id }],
     });
-  });
-
-  it('locks the origin draft workspace until the listing workspace creation commits', async () => {
-    const account = await prisma.channelAccount.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channel: 'coupang',
-        externalAccountId: randomUUID(),
-        name: 'Origin lock account',
-        status: 'active',
-      },
-    });
-    const listing = await prisma.channelListing.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
-        externalId: randomUUID(),
-        channelName: 'Origin lock listing',
-        status: 'active',
-      },
-    });
-    const origin = await prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sales_product',
-        salesProductId: randomUUID(),
-        displayName: 'Origin owner lock',
-        normalizedTitle: 'originownerlock',
-      },
-    });
-    let signalLocked!: () => void;
-    const locked = new Promise<void>((resolve) => {
-      signalLocked = resolve;
-    });
-    let releaseLock!: () => void;
-    const released = new Promise<void>((resolve) => {
-      releaseLock = resolve;
-    });
-    const prismaWithPausedOwnerLock = {
-      $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) =>
-        prisma.$transaction(async (tx) => callback(new Proxy(tx, {
-          get(target, property, receiver) {
-            if (property !== '$queryRaw') return Reflect.get(target, property, receiver);
-            return async <R>(query: Prisma.Sql): Promise<R> => {
-              const rows = await tx.$queryRaw<R>(query);
-              // The listing lock runs first; pause only once the origin
-              // workspace row itself is held.
-              if (query.sql.includes('content_workspaces')) {
-                signalLocked();
-                await released;
-              }
-              return rows;
-            };
-          },
-        }))),
-    };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(
-      prismaWithPausedOwnerLock as unknown as PrismaService,
-      new ChannelListingQueryService(
-        new ChannelListingQueryPersistenceAdapter(prisma as never),
-        { findForListings: async () => [] },
-      ),
-      salesProductOwners(),
-    );
-
-    const creation = repository.ensureActiveWorkspace({
-      organizationId: TEST_ORGANIZATION_ID,
-      ownerType: 'channel_listing',
-      salesProductId: null,
-      channelListingId: listing.id,
-      originWorkspaceId: origin.id,
-      displayName: 'Origin owner lock',
-      normalizedTitle: 'originownerlockbranch',
-      createdByUserId: null,
-    });
-    await locked;
-    const archive = prisma.$executeRaw`
-      UPDATE content_workspaces
-      SET status = 'archived'
-      WHERE id = ${origin.id}::uuid
-        AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
-    `;
-    await expect(Promise.race([
-      archive.then(() => 'settled'),
-      new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 100)),
-    ])).resolves.toBe('blocked');
-
-    releaseLock();
-    await expect(creation).resolves.toMatchObject({
-      displayName: 'Origin owner lock',
-    });
-    await expect(archive).resolves.toBe(1);
-    expect(await prisma.contentWorkspace.count({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelListingId: listing.id,
-      },
-    })).toBe(1);
   });
 
   it('serializes thumbnail adoption against generation deletion and reports an explicit conflict', async () => {

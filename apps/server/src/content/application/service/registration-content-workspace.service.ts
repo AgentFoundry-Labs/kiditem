@@ -18,7 +18,6 @@ import {
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
   type RegistrationContentWorkspaceRepositoryPort,
 } from '../port/out/repository/registration-content-workspace.repository.port';
-import { normalizeContentTitle } from './content-workspace.service';
 import { extractImageSrcs } from './detail-page-query.service';
 
 @Injectable()
@@ -56,12 +55,7 @@ export class RegistrationContentWorkspaceService
     transaction: OwnerTransaction,
     input: EnsureSalesProductContentWorkspaceInput,
   ): Promise<{ workspaceId: string }> {
-    const displayName = normalizedDisplayName(input.displayName);
-    return this.repository.ensureSalesProductWorkspace(transaction, {
-      ...input,
-      displayName,
-      normalizedTitle: normalizeContentTitle(displayName),
-    });
+    return this.repository.ensureSalesProductWorkspace(transaction, input);
   }
 
   readRegistrableDetailPage(input: {
@@ -99,8 +93,3 @@ export class RegistrationContentWorkspaceService
   }
 }
 
-function normalizedDisplayName(value: string): string {
-  const normalized = value.trim().replace(/\s+/g, ' ').slice(0, 120);
-  if (!normalized) throw new BadRequestException('Content workspace display name is required.');
-  return normalized;
-}

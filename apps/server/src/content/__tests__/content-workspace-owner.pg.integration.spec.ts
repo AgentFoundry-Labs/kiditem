@@ -12,6 +12,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
@@ -45,6 +46,7 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
         new ChannelListingQueryPersistenceAdapter(prisma as never),
         { findForListings: async () => [] },
       ),
+      new DetailPageRepositoryAdapter(prisma as unknown as PrismaService),
     );
   }
 
@@ -76,12 +78,11 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
   }
 
   function workspaceData(salesProductId: string, title: string, organizationId = TEST_ORGANIZATION_ID) {
+    void title; // 판매 상품 작업공간은 이름을 갖지 않는다(KID-313 W3).
     return {
       organizationId,
       ownerType: 'sales_product',
       salesProductId,
-      displayName: title,
-      normalizedTitle: title.trim().toLowerCase(),
       createdByUserId: null,
     };
   }
@@ -96,7 +97,6 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'sourcing_candidate',
-        displayName: '지운 후보의 작업공간',
         normalizedTitle: '지운 후보의 작업공간',
         status: 'archived',
       },
@@ -202,8 +202,6 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
         ownerType: 'channel_listing',
         salesProductId: null,
         channelListingId: listing.id,
-        displayName: 'Imported listing content',
-        normalizedTitle: `listing-${randomUUID().slice(0, 8)}`,
         createdByUserId: TEST_USER_ID,
       },
     });
@@ -222,28 +220,11 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
         AND table_name IN (
           'content_workspaces',
           'thumbnail_generations',
-          'content_generations',
+          'detail_pages',
           'detail_page_image_render_intents'
         )
     `);
     expect(columns).toEqual([]);
-  });
-
-  it('keeps provenance ids that record where the content came from', async () => {
-    const provenance = await prisma.$queryRaw<Array<{ table_name: string; column_name: string }>>(Prisma.sql`
-      SELECT table_name, column_name
-      FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND (
-          (table_name = 'content_generation_sources' AND column_name = 'source_candidate_id')
-          OR (table_name = 'thumbnail_generation_input_images' AND column_name = 'source_record_image_id')
-        )
-      ORDER BY table_name
-    `);
-    expect(provenance.map((row) => row.table_name)).toEqual([
-      'content_generation_sources',
-      'thumbnail_generation_input_images',
-    ]);
   });
 
   it('keeps no foreign key from AI content tables to sourcing tables', async () => {
@@ -256,10 +237,9 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
         AND child.relname IN (
           'content_workspaces',
           'thumbnail_generations',
-          'content_generations',
-          'content_generation_sources',
-          'detail_page_image_render_intents',
-          'thumbnail_generation_input_images'
+          'detail_pages',
+          'content_assets',
+          'detail_page_image_render_intents'
         )
         AND parent.relname IN ('source_records', 'source_record_images')
     `);
@@ -271,19 +251,18 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'direct_detail_page',
-        displayName: `상세 ${revisionType}`,
         normalizedTitle: `상세 ${revisionType}`,
       },
     });
-    const artifact = await prisma.detailPageArtifact.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspace.id, title: '상세', status: 'draft' },
+    const page = await prisma.detailPage.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspace.id, source: 'manual', title: '상세' },
     });
     const revision = await prisma.detailPageRevision.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, artifactId: artifact.id, revisionType, html: '<main>상세</main>' },
+      data: { organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id, revisionType, html: '<main>상세</main>' },
     });
     await prisma.contentWorkspace.update({
       where: { id: workspace.id },
-      data: { currentDetailPageArtifactId: artifact.id, currentDetailPageRevisionId: revision.id },
+      data: { currentDetailPageRevisionId: revision.id },
     });
     return { workspaceId: workspace.id, revisionId: revision.id };
   }
@@ -297,7 +276,7 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
   });
 
   it('refuses a current revision whose type no writer produces', async () => {
-    const { workspaceId } = await seedWorkspaceRevision('generated');
+    const { workspaceId } = await seedWorkspaceRevision('legacy_edited_html_backfill');
 
     await expect(lifecycle().getById({ organizationId: TEST_ORGANIZATION_ID, workspaceId })).rejects.toThrow();
   });

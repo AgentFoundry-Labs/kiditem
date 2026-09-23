@@ -11,8 +11,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
-import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
-import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ownerTransaction } from '../../prisma/owner-transaction';
@@ -22,22 +21,20 @@ import type { ImportDetailPageInput } from '../application/port/in/workspace/reg
 describe('registration content workspace (PG integration)', () => {
   let prisma: PrismaClient;
   let content: RegistrationContentWorkspaceService;
-  let detailPages: DetailPageQueryRepositoryAdapter;
+  let detailPages: DetailPageRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    detailPages = new DetailPageRepositoryAdapter(prisma as unknown as PrismaService);
     content = new RegistrationContentWorkspaceService(new RegistrationContentWorkspaceRepositoryAdapter(
       prisma as unknown as PrismaService,
       new ChannelListingQueryService(
         new ChannelListingQueryPersistenceAdapter(prisma as never),
         { findForListings: async () => [] },
       ),
+      detailPages,
     ));
-    detailPages = new DetailPageQueryRepositoryAdapter(
-      prisma as unknown as PrismaService,
-      new ContentAssetLibraryRepositoryAdapter(prisma as unknown as PrismaService),
-    );
   });
 
   afterAll(async () => prisma?.$disconnect());
@@ -51,7 +48,6 @@ describe('registration content workspace (PG integration)', () => {
     const { workspaceId } = await prisma.$transaction((tx) => content.ensureSalesProductWorkspace(ownerTransaction(tx), {
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId,
-      displayName: '아동 장화',
       createdByUserId: TEST_USER_ID,
     }));
     return { salesProductId, workspaceId };
@@ -101,17 +97,23 @@ describe('registration content workspace (PG integration)', () => {
     expect(read?.revisionId).toBe(result.kind === 'appended' ? result.revisionId : null);
   });
 
-  it('keeps the import bookkeeping on the revision row itself, not on the artifact', async () => {
-    const { salesProductId } = await ensureWorkspace();
+  it('keeps the import bookkeeping on the revision row itself, inside one imported detail page per source', async () => {
+    const { salesProductId, workspaceId } = await ensureWorkspace();
 
-    const result = await importDetail(importInput(salesProductId));
+    const first = await importDetail(importInput(salesProductId));
+    const second = await importDetail(importInput(salesProductId, { html: '<p>두 번째</p>', digest: 'digest-2' }));
 
-    const revision = await prisma.detailPageRevision.findUniqueOrThrow({
-      where: { id: result.kind === 'appended' ? result.revisionId : '' },
-      select: { source: true, sourceDigest: true, revisionType: true, artifact: { select: { metadata: true } } },
+    const revisions = await prisma.detailPageRevision.findMany({
+      where: { id: { in: [first, second].map((result) => (result.kind === 'appended' ? result.revisionId : '')) } },
+      orderBy: { createdAt: 'asc' },
+      select: { source: true, sourceDigest: true, revisionType: true, detailPage: { select: { id: true, source: true } } },
     });
-    expect(revision).toMatchObject({ source: 'sabangnet', sourceDigest: 'digest-1', revisionType: 'imported' });
-    expect(revision.artifact.metadata).toEqual({ source: 'sabangnet_import' });
+    expect(revisions).toMatchObject([
+      { source: 'sabangnet', sourceDigest: 'digest-1', revisionType: 'imported', detailPage: { source: 'imported' } },
+      { source: 'sabangnet', sourceDigest: 'digest-2', revisionType: 'imported', detailPage: { source: 'imported' } },
+    ]);
+    expect(revisions[0]!.detailPage.id).toBe(revisions[1]!.detailPage.id);
+    await expect(prisma.detailPage.count({ where: { contentWorkspaceId: workspaceId } })).resolves.toBe(1);
   });
 
   it('compares a re-import with the newest imported revision of that source — an older digest coming back appends', async () => {
@@ -144,26 +146,27 @@ describe('registration content workspace (PG integration)', () => {
     const second = await importDetail(importInput(salesProductId, { html: '<p>두 번째</p>', digest: 'digest-2' }));
     expect(second).toMatchObject({ kind: 'appended', becameCurrent: true });
 
-    const generation = await prisma.contentGeneration.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, contentType: 'detail_page' },
+    const importedPage = await prisma.detailPage.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, source: 'imported' },
     });
-    const edited = await detailPages.saveEditedHtmlRevision({
+    const edited = await prisma.$transaction((tx) => detailPages.appendRevision(ownerTransaction(tx), {
       organizationId: TEST_ORGANIZATION_ID,
-      contentGenerationId: generation.id,
+      detailPageId: importedPage.id,
+      revisionType: 'manual_edit',
       html: '<p>사람이 고친 상세</p>',
-      assetUrlMap: {},
       imageUrls: [],
-      savedAt: new Date(),
-    });
+      createdByUserId: TEST_USER_ID,
+    }));
+    const editedRevisionId = edited.id;
 
     const third = await importDetail(importInput(salesProductId, { html: '<p>세 번째</p>', digest: 'digest-3' }));
 
     expect(third).toMatchObject({ kind: 'appended', becameCurrent: false });
     await expect(content.readRegistrableDetailPage({
       organizationId: TEST_ORGANIZATION_ID, salesProductId, revisionId: null,
-    })).resolves.toMatchObject({ revisionId: edited.revisionId, revisionType: 'manual_edit', html: '<p>사람이 고친 상세</p>' });
+    })).resolves.toMatchObject({ revisionId: editedRevisionId, revisionType: 'manual_edit', html: '<p>사람이 고친 상세</p>' });
     await expect(prisma.detailPageRevision.findUniqueOrThrow({
-      where: { id: edited.revisionId }, select: { source: true, sourceDigest: true },
+      where: { id: editedRevisionId }, select: { source: true, sourceDigest: true },
     })).resolves.toEqual({ source: null, sourceDigest: null });
     await expect(prisma.detailPageRevision.findUniqueOrThrow({
       where: { id: third.kind === 'appended' ? third.revisionId : '' }, select: { source: true, sourceDigest: true },
@@ -189,12 +192,9 @@ describe('registration content workspace (PG integration)', () => {
       html: '<p>직접 쓴 상세 <img src="https://cdn.example/a.jpg"></p>',
       imageUrls: ['https://cdn.example/a.jpg'],
     });
-    await expect(prisma.contentWorkspace.findUniqueOrThrow({
-      where: { id: workspaceId }, select: { currentDetailPageArtifact: { select: { metadata: true, sourceContentGenerationId: true } } },
-    })).resolves.toEqual({ currentDetailPageArtifact: { metadata: { source: 'manual' }, sourceContentGenerationId: created.contentGenerationId } });
-    // 허브가 읽는 길(현재 상세 생성의 저장된 HTML)로도 같은 글이 보인다.
-    await expect(detailPages.getEditedHtml({ organizationId: TEST_ORGANIZATION_ID, id: created.contentGenerationId }))
-      .resolves.toMatchObject({ detailPageArtifact: { currentRevision: { html: '<p>직접 쓴 상세 <img src="https://cdn.example/a.jpg"></p>' } } });
+    // 허브가 읽고 고치는 상세 페이지(직접 작성)의 현재 revision 이 그 글이다.
+    await expect(detailPages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: created.detailPageId }))
+      .resolves.toMatchObject({ source: 'manual', status: 'ready', contentWorkspaceId: workspaceId, currentRevisionId: created.revisionId });
 
     await expect(content.createManualDetailPage({
       organizationId: TEST_ORGANIZATION_ID, salesProductId, html: '<p>또 쓴 상세</p>', createdByUserId: TEST_USER_ID,
@@ -350,18 +350,11 @@ async function createWorkspaceAsset(
   url: string,
   options: { current?: boolean } = {},
 ): Promise<string> {
-  const group = await prisma.contentGenerationGroup.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      contentWorkspaceId: workspaceId,
-      groupType: 'workspace_assets',
-      title: 'Workspace managed assets',
-    },
-  });
   const asset = await prisma.contentAsset.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
-      originGenerationGroupId: group.id,
+      contentWorkspaceId: workspaceId,
+      source: 'upload',
       assetKey: `test:${randomUUID()}`,
       url,
       assetType: 'image',
@@ -369,12 +362,9 @@ async function createWorkspaceAsset(
     },
   });
   if (options.current) {
-    const selection = await prisma.contentWorkspaceThumbnailSelection.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspaceId, contentAssetId: asset.id },
-    });
     await prisma.contentWorkspace.update({
       where: { id: workspaceId },
-      data: { currentThumbnailSelectionId: selection.id },
+      data: { currentThumbnailAssetId: asset.id },
     });
   }
   return asset.id;
