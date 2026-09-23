@@ -28,22 +28,10 @@ existing KID is preserved; an initially confirmed singleton may reuse the source
 KID. External sellerSku, provider identifiers and frozen execution evidence are
 not rewritten.
 
-After 020, `022_registration_target_cutover` creates the minimal catalog shape if
-it never existed, then links saved registration preparations to selling products.
-It uses only explicit stored names, priced variants and option values; missing
-prices, conflicting common definitions, ambiguous option mappings or cross-organization
-references abort the transaction. Existing preparation UUIDs, settings, external
-identifiers and frozen execution rows/hashes remain unchanged. Already linked
-settings are not overwritten. Successful legacy preparations become reusable;
-explicitly cancelled or deleted settings retain their archive time.
-
-Legacy account overrides become registration targets with the same UUID. The old
-base-plus-extra and explicit-price-before-rate behavior is materialized once as
-final selected-option prices. No persistent price ratio or independent cost
-source is created. Prisma adds the remaining nullable/defaulted catalog columns
-and owner relations after this backfill. An abort keeps writers stopped; correct
-the ambiguous input with an explicit decision before retrying. This procedure
-was approved on 2026-09-22; it does not authorize running it on Office here.
+The follow-on registration-target, draft and content-workspace cutovers
+(`022`–`024`) were removed with KID-313 before promotion: Office's candidate,
+draft and workspace rows are discarded under the data-loss policy (ADR-0010)
+and collected again into source records and drafts.
 
 ## Execution and verification
 
@@ -68,93 +56,8 @@ Do not call migration modules manually against an operating database.
 The focused Testcontainers suite is
 `apps/server/src/channels/__tests__/selling-catalog-cutover.pg.integration.spec.ts`.
 It checks final-price conversion, repeatability, source-table removal ordering
-and rollback when an exact source mapping is missing. The companion
-`registration-target-cutover.pg.integration.spec.ts` covers saved preparation
-bootstrap, override conversion, frozen execution preservation and repeatability. Follow the shared cutover
+and rollback when an exact source mapping is missing. Follow the shared cutover
 runbook for the disposable local QA database and wider application checks.
-
-## Draft cutover (`023_sales_product_draft_cutover`, KID-310)
-
-Collected products and selling products no longer coexist. `023` runs pre-schema,
-after `022` has created the registration targets it tidies, and moves every
-candidate edit onto one selling-product draft:
-
-0. Expand first, the way `022` does: add the draft columns with
-   `ADD COLUMN IF NOT EXISTS` and drop the `NOT NULL` that `022` left on
-   `sales_products.code`, `sales_product_options.option_code` and
-   `sales_product_options.sale_price`. A draft exists without a KID and without
-   a price. If the columns are still missing afterwards the migration stops
-   before any mutation.
-1. Stop if one candidate already has two selling products. Nobody can say which
-   one is canonical, so the whole migration rolls back before any mutation.
-2. Keep one active registration target per selling product and channel account:
-   the most recently updated row stays, the rest are archived with `archived_at`.
-   The count lands in the run details as `archivedDuplicateTargets` — this is an
-   accepted data discard under
-   [ADR-0010](../adr/0010-schema-cleanup-may-discard-office-data.md).
-3. Create one draft per live candidate without a selling product. Columns are
-   projected in priority order: the registration target's `registrationInput`,
-   then the candidate's `rawData.manualBasics`, then the raw payload. Options
-   come from the collected option names (one axis) or a single option, and the
-   image list is thumbnail → representative → `candidate_images` order. A value
-   wider than its column is cut to that width and counted in `truncatedValues` —
-   a collected name routinely exceeds 255 characters, and refusing one would stop
-   the whole cutover. A rejected candidate's draft is `unused`, the same state
-   the runtime puts it in when somebody rejects the candidate.
-4. A candidate that already has a draft only gets its **empty** columns filled;
-   a value a person typed, including its status, is never overwritten.
-5. `mallRegisterValues` merge into that mall's registration target, creating the
-   one setting when the product and account has none, because the owner typed
-   those values for that mall. A mall with no account row has nowhere to put
-   them and is reported as `discardedMallValues`. Two active settings for one
-   product and account stop the migration. `mallRegisterShared` becomes the
-   draft's `registrationDefaults` (`movedDefaults`).
-6. Once every draft exists, link each `channel_listings` row that still names a
-   candidate to that candidate's draft (`linkedListings`) — including the drafts
-   this run just made. The listing's own candidate column goes away in the schema
-   step, and a mall product with no draft would lose its KC evidence for good.
-7. The live candidate's `rawData` keeps the raw payload only: `manualBasics`,
-   `registrationInput`, `mallRegisterValues` and `mallRegisterShared` are
-   removed. A deleted candidate keeps its payload — nothing projected it.
-
-KID codes are **not** issued here. A draft carries no `code` until somebody
-decides to sell it — the first registration target or the mall workbook file
-issues it (`ensureSalesProductCodes`). Re-running `023` changes nothing.
-
-Generation-start receipts (`sourcing_owner_idempotency_receipts`,
-`capabilityKey = 'sourcing.quick_process'`) are not migrated. Their `result` is
-now `{ salesProductId }` and the request hash covers the selling product, so a
-receipt written before the cutover no longer matches and its key is refused as a
-conflict rather than replayed. Writers are stopped during the cutover, so no
-in-flight key can be replayed across it; leave the old rows in place.
-
-The run details report the move: `createdDrafts`, `filledDrafts`,
-`movedMallValues`, `movedDefaults`, `createdTargets`, `discardedMallValues`,
-`strippedCandidates`, `truncatedValues`, `archivedDuplicateTargets` and
-`linkedListings`. `truncatedValues` counts source values wider than their column,
-which 023 cuts rather than refusing — a collected name routinely exceeds 255
-characters and refusing one would stop the whole cutover.
-
-## Content workspace cutover (`024_content_workspace_owner_cutover`, KID-310)
-
-After 023, `024_content_workspace_owner_cutover` moves each candidate-owned
-content workspace onto that candidate's sales-product draft and flips its
-`owner_type` to `sales_product`. It adds `content_workspaces.sales_product_id`
-itself so the move happens before the schema push drops `source_candidate_id`
-from the workspace and from the thumbnail, content-generation and render-intent
-ledgers. A candidate with no draft, a ledger row naming a candidate its
-workspace does not, or a draft that would end up with two active workspaces
-aborts the whole transaction and names what to fix. Only live workspaces need a
-draft: a deleted candidate leaves an archived workspace with no draft to move,
-so those rows keep their archived state and lose only the candidate column under
-the data-loss policy. Those archived rows therefore keep
-`owner_type = 'sourcing_candidate'`, a legacy value no live workspace carries;
-reads name the owner types they want rather than excluding `sales_product`, so
-the rows stay out of the direct-workspace list. Re-running after the push writes nothing. `ContentGenerationSource.source_candidate_id` and
-`ThumbnailGenerationInputImage.candidate_image_id` stay as provenance.
-
-The focused Testcontainers suite is
-`apps/server/src/__tests__/sales-product-draft-cutover.pg.integration.spec.ts`.
 
 ## Recovery
 

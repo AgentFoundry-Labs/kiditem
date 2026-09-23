@@ -10,7 +10,7 @@ import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,
 } from '../apps/server/src/sourcing/domain/supplier-source-url-policy';
-import { canonicalSourcingCandidateIdentity } from '../apps/server/src/sourcing/domain/sourcing-candidate-identity';
+import { canonicalSourceRecordIdentity } from '../apps/server/src/sourcing/domain/source-record-identity';
 import {
   freezeProductRegistrationPayload,
   type RegistrationSubmissionJson,
@@ -1542,7 +1542,7 @@ function createBrowserQaSourcingCandidate(
     sourceUrl: supplier.sourceUrl,
     sourcePlatform: 'ALIBABA_1688',
     externalOfferId: supplier.externalOfferId,
-    sourceIdentityHash: canonicalSourcingCandidateIdentity({
+    sourceIdentityHash: canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA_1688',
       sourceUrl: supplier.sourceUrl,
       validatedExternalOfferId: supplier.externalOfferId,

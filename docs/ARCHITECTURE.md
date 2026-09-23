@@ -934,17 +934,8 @@ account has received anything yet, so those paths return their current result
 without storing an observation or opening an execution. A path that starts
 submitting to an account enters the fence first.
 
-The pre-schema `022_registration_target_cutover` replaces the unpromoted
-018/021 steps. After 020 it preserves legacy submission evidence, maps priced
-products and selected options, moves approval evidence to its exact execution,
-and renames registration target tables in place. Conflicting or ambiguous
-facts abort the transaction. Per-target display names and prices remain overrides.
-If targets for one candidate disagree on canonical product metadata and no
-canonical product already exists, reconcile the source data before cutover; the
-migration does not guess a shared name, image set or detail body. Successful targets remain reusable; explicitly
-archived targets retain their archive time. Uncertain provider attempts remain
-reconciliation work and are never restarted as fresh creates. Listing deletion
-rows are not converted by this migration. Listing deletion
+The unpromoted `022_registration_target_cutover` was removed with KID-313; Office's
+registration rows are discarded under ADR-0010. Listing deletion
 authorization and uncertainty live in `ChannelListingDeletionOperation`; an
 extension-observed success alone remains `reconciling/uncertain` and cannot
 deactivate the listing until an independent provider verifier confirms it.
