@@ -816,6 +816,48 @@ describe('registration target execution repository (PostgreSQL)', () => {
     });
   });
 
+  it('swaps every confirmed composition link in place with one generation bump', async () => {
+    const change = await prepareTwoOptionCompositionChange(prisma, targets, repository);
+    const generationBefore = await readGeneration(prisma);
+
+    await expect(repository.reportTarget(change.confirmedReport()))
+      .resolves.toMatchObject({ status: 'succeeded', providerOutcome: 'succeeded' });
+
+    expect(await readGeneration(prisma)).toBe(generationBefore + 1n);
+    await expect(readChannelOptions(prisma, change.channelOptionIds)).resolves.toEqual([
+      { id: change.channelOptionIds[0], externalOptionId: 'provider-option-1', salesProductOptionId: change.newOptionIds[0], kidItemCode: 'KID00000003',
+        inventoryComponents: [{ masterProductId: change.masterProductId, quantity: 3 }] },
+      { id: change.channelOptionIds[1], externalOptionId: 'provider-option-2', salesProductOptionId: change.newOptionIds[1], kidItemCode: 'KID00000004',
+        inventoryComponents: [{ masterProductId: change.masterProductId, quantity: 4 }] },
+    ].sort((left, right) => left.id.localeCompare(right.id)));
+    await expect(prisma.salesProductOption.count({ where: { id: { in: change.oldOptionIds } } })).resolves.toBe(2);
+  });
+
+  it('leaves every link, KID, recipe and the generation unchanged when a later transition mismatches', async () => {
+    const change = await prepareTwoOptionCompositionChange(prisma, targets, repository);
+    const generationBefore = await readGeneration(prisma);
+    const before = await readChannelOptions(prisma, change.channelOptionIds);
+    await prisma.salesProductOptionComponent.updateMany({
+      where: { salesProductOptionId: change.newOptionIds[1] },
+      data: { quantity: 99 },
+    });
+
+    await expect(repository.reportTarget(change.confirmedReport())).rejects.toBeInstanceOf(BadRequestException);
+
+    await expect(readChannelOptions(prisma, change.channelOptionIds)).resolves.toEqual(before);
+    expect(await readGeneration(prisma)).toBe(generationBefore);
+  });
+
+  it('refuses a composition confirmation for an option whose KID was never issued', async () => {
+    const change = await prepareTwoOptionCompositionChange(prisma, targets, repository, { unissuedSecondCode: true });
+    const before = await readChannelOptions(prisma, change.channelOptionIds);
+
+    await expect(repository.reportTarget(change.confirmedReport())).rejects.toThrow(ConflictException);
+    await expect(repository.reportTarget(change.confirmedReport())).rejects.toThrow('KID');
+
+    await expect(readChannelOptions(prisma, change.channelOptionIds)).resolves.toEqual(before);
+  });
+
   it('leaves an existing link and recipe untouched when the provider result is unresolved', async () => {
     const fixture = await createFixture(prisma, targets, {
       listing: true,
@@ -1548,5 +1590,140 @@ async function addSecondSelectedOption(
         { salesProductOptionId: secondOptionId, supplyPrice: null },
       ],
     },
+  };
+}
+
+async function readGeneration(prisma: PrismaClient): Promise<bigint> {
+  const state = await prisma.masterProductAbcFormulaState.findUnique({
+    where: { organizationId: TEST_ORGANIZATION_ID },
+    select: { mappingGeneration: true },
+  });
+  return state?.mappingGeneration ?? 0n;
+}
+
+function readChannelOptions(prisma: PrismaClient, ids: readonly string[]) {
+  return prisma.channelListingOption.findMany({
+    where: { id: { in: [...ids] } },
+    select: {
+      id: true, externalOptionId: true, salesProductOptionId: true, kidItemCode: true,
+      inventoryComponents: { select: { masterProductId: true, quantity: true }, orderBy: { masterProductId: 'asc' } },
+    },
+    orderBy: { id: 'asc' },
+  });
+}
+
+/**
+ * One listing with two linked channel options whose confirmed recipes move to two
+ * new SalesProductOptions (quantities 3 and 4) through one composition change.
+ */
+async function prepareTwoOptionCompositionChange(
+  prisma: PrismaClient,
+  targets: RegistrationTargetRepositoryAdapter,
+  repository: RegistrationExecutionRepositoryAdapter,
+  input: { unissuedSecondCode?: boolean } = {},
+) {
+  const fixture = await createFixture(prisma, targets, { listing: true, component: true });
+  const firstChannelOptionId = fixture.listingOptionId!;
+  const oldSecondId = randomUUID();
+  const secondChannelOptionId = randomUUID();
+  const newIds = [randomUUID(), randomUUID()] as const;
+  const newCodes = ['KID00000003', input.unissuedSecondCode ? null : 'KID00000004'] as const;
+  await prisma.salesProductOption.create({
+    data: {
+      id: oldSecondId, organizationId: TEST_ORGANIZATION_ID, salesProductId: fixture.productId,
+      optionCode: 'KID00000002', optionKey: '빨강', values: ['빨강'], salePrice: 3_000, normalPrice: 5_000,
+      supplyStatus: 'selling', sortOrder: 1,
+      components: { create: { masterProductId: fixture.masterProductId, quantity: 2 } },
+    },
+  });
+  await prisma.channelListingOption.update({ where: { id: firstChannelOptionId }, data: { kidItemCode: 'KID00000001' } });
+  await prisma.channelListingOption.create({
+    data: {
+      id: secondChannelOptionId, organizationId: TEST_ORGANIZATION_ID, listingId: fixture.listingId!,
+      externalOptionId: 'provider-option-2', salesProductOptionId: oldSecondId, kidItemCode: 'KID00000002', isActive: true,
+    },
+  });
+  await prisma.channelListingOptionInventoryComponent.createMany({
+    data: [
+      { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: firstChannelOptionId, masterProductId: fixture.masterProductId, quantity: 1 },
+      { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: secondChannelOptionId, masterProductId: fixture.masterProductId, quantity: 2 },
+    ],
+  });
+  for (const [index, id] of newIds.entries()) {
+    await prisma.salesProductOption.create({
+      data: {
+        id, organizationId: TEST_ORGANIZATION_ID, salesProductId: fixture.productId,
+        optionCode: newCodes[index], optionKey: `새 구성 ${index}`, values: [`새 구성 ${index}`],
+        salePrice: 3_000, normalPrice: 5_000, supplyStatus: 'selling', sortOrder: 2 + index,
+        components: { create: { masterProductId: fixture.masterProductId, quantity: 3 + index } },
+      },
+    });
+  }
+  await targets.update(TEST_ORGANIZATION_ID, fixture.targetId, {
+    expectedVersion: 1,
+    displayName: null,
+    registrationInput: fixture.snapshot.registrationInput,
+    selectedOptions: newIds.map(salesProductOptionId => ({
+      salesProductOptionId, salePrice: null, normalPrice: null, supplyPrice: null,
+    })),
+  });
+  const template = fixture.snapshot.product.options[0];
+  const optionTransitions = [
+    { channelListingOptionId: firstChannelOptionId, salesProductOptionId: newIds[0] },
+    { channelListingOptionId: secondChannelOptionId, salesProductOptionId: newIds[1] },
+  ];
+  const snapshot: TargetExecutionSnapshot = {
+    ...fixture.snapshot,
+    targetVersion: 2,
+    kind: 'composition_change',
+    channelListingId: fixture.listingId,
+    optionTransitions,
+    product: {
+      ...fixture.snapshot.product,
+      options: newIds.map((id, index) => ({
+        ...template,
+        id,
+        optionCode: newCodes[index],
+        optionKey: `새 구성 ${index}`,
+        values: [`새 구성 ${index}`],
+        sortOrder: 2 + index,
+        components: [{ ...template.components[0]!, quantity: 3 + index }],
+      })),
+    },
+    supplyPrices: newIds.map(salesProductOptionId => ({ salesProductOptionId, supplyPrice: null })),
+  };
+  const prepared = await repository.prepareTarget({
+    organizationId: TEST_ORGANIZATION_ID,
+    requestedByUserId: TEST_USER_ID,
+    request: { ...requestFor(`two-option-composition-${randomUUID()}`), expectedVersion: 2, kind: 'composition_change', channelListingId: fixture.listingId!, optionTransitions },
+    snapshot,
+  });
+  const started = await repository.startTarget({
+    organizationId: TEST_ORGANIZATION_ID, executionId: prepared.executionId, requestedByUserId: TEST_USER_ID,
+  });
+  return {
+    masterProductId: fixture.masterProductId,
+    channelOptionIds: [firstChannelOptionId, secondChannelOptionId],
+    oldOptionIds: [fixture.optionId, oldSecondId],
+    newOptionIds: newIds,
+    confirmedReport: () => ({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed' as const,
+        evidence: {
+          channelAccountId: fixture.accountId,
+          externalListingId: 'provider-listing-1',
+          providerAccountId: 'vendor-1',
+          options: [
+            { salesProductOptionId: newIds[0], externalOptionId: 'provider-option-1' },
+            { salesProductOptionId: newIds[1], externalOptionId: 'provider-option-2' },
+          ],
+        },
+      },
+    }),
   };
 }

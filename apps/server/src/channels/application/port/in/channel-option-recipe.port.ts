@@ -12,6 +12,14 @@ export type ChannelOptionRecipeMutation = Readonly<{
   components: readonly ChannelRecipeComponentInput[];
 }>;
 
+/** One frozen channel option moving to its confirmed SalesProductOption and KID. */
+export type ConfirmedCompositionTransition = Readonly<{
+  channelListingOptionId: string;
+  salesProductOptionId: string;
+  kidItemCode: string;
+  components: readonly ChannelRecipeComponentInput[];
+}>;
+
 export type ChannelRecipeMutationResult = Readonly<{
   changedOptionCount: number;
   matchedListingCount: number;
@@ -30,10 +38,12 @@ export interface ChannelRecipeFactQueries {
 }
 
 export interface ChannelOptionRecipePort extends ChannelRecipeFactQueries {
-  /** Called only by the execution owner after a confirmed external composition transition. */
-  replaceConfirmedCompositionInTransaction(transaction: OwnerTransaction, input: {
-    organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
-    kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
+  /**
+   * Called only by the execution owner after a confirmed external composition change.
+   * Every transition applies or none does; the mapping generation advances at most once.
+   */
+  replaceConfirmedCompositionsInTransaction(transaction: OwnerTransaction, input: {
+    organizationId: string; transitions: readonly ConfirmedCompositionTransition[];
   }): Promise<void>;
   replaceRecipe(input: {
     organizationId: string;
