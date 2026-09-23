@@ -287,13 +287,15 @@ push drops `thumbnail_registration_attempts`. Each attempt becomes one
 `product_registration_executions` row with `execution_kind='thumbnail_update'`
 and idempotency key `thumbnail_update:legacy:<attempt id>`: `uploaded` becomes
 `succeeded`, `failed` becomes a `definitive_failure`, and anything else an
-`uncertain` execution left `reconciling`. The frozen payload comes from the
+`uncertain` execution left `reconciling`. The listing stays in the frozen payload
+only (`channel_listing_id` is NULL), so a moved row never takes a listing's live
+slot or stockout check. The frozen payload comes from the
 generation, its workspace and its selected image (`sha256: 'legacy'`); the account
 is the workspace listing's, else the organization's single active Coupang
 account; owner key, request hash and timestamps are kept. Attempts without a
-generation or workspace, an image or an account, an older live attempt of a
-generation that has a newer one, and a live attempt whose listing already has a
-live execution are counted in `skippedBy` and left for the table drop
+generation or workspace, an image or an account, and an older live attempt of a
+generation that has a newer one are counted in `skippedBy` and left for the table
+drop
 (ADR-0010). A rerun reports them as `alreadyMoved` and inserts nothing.
 
 Before cutover, reconcile conflicting common product metadata for targets of the

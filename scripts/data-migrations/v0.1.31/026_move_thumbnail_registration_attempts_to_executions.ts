@@ -16,10 +16,13 @@ import type { DataMigration } from '../types';
  * workspace listing's account, else the organization's single active Coupang
  * account.
  *
- * An attempt without a generation/workspace, an image or an account, an older
- * live attempt of a generation that has a newer one, and one whose listing already
- * has a live execution are counted as skipped and left behind for the table drop
- * (ADR-0010). Nothing aborts the run.
+ * The listing stays in the frozen payload only; the row's `channel_listing_id` is
+ * NULL, like every thumbnail_update execution, so a moved attempt never takes a
+ * listing's live-execution slot or its stockout check.
+ *
+ * An attempt without a generation/workspace, an image or an account, and an older
+ * live attempt of a generation that has a newer one are counted as skipped and left
+ * behind for the table drop (ADR-0010). Nothing aborts the run.
  */
 export const moveThumbnailRegistrationAttemptsToExecutionsMigration: DataMigration = {
   id: 'v0.1.31:026_move_thumbnail_registration_attempts_to_executions',
@@ -32,7 +35,7 @@ export const moveThumbnailRegistrationAttemptsToExecutionsMigration: DataMigrati
     }
 
     const attempts = await readAttempts(tx);
-    const skipped = { workspace: 0, image: 0, account: 0, supersededLive: 0, liveConflict: 0 };
+    const skipped = { workspace: 0, image: 0, account: 0, supersededLive: 0 };
     let alreadyMoved = 0;
     let moved = 0;
     const byStatus = { succeeded: 0, failed: 0, reconciling: 0 };
@@ -84,7 +87,7 @@ export const moveThumbnailRegistrationAttemptsToExecutionsMigration: DataMigrati
           started_at, completed_at, created_at, updated_at
         ) VALUES (
           gen_random_uuid(), ${attempt.organizationId}::uuid, ${account.channelAccountId}::uuid,
-          ${account.channelListingId}::uuid, 'thumbnail_update',
+          NULL, 'thumbnail_update',
           ${`thumbnail_update:legacy:${attempt.id}`}, ${attempt.requestHash ?? payloadHash}, ${attempt.ownerIdempotencyKey},
           ${JSON.stringify(payload)}::jsonb, ${payloadHash},
           ${transition.status}, ${transition.providerOutcome}, ${JSON.stringify(resultJson)}::jsonb,
@@ -95,7 +98,8 @@ export const moveThumbnailRegistrationAttemptsToExecutionsMigration: DataMigrati
         ON CONFLICT DO NOTHING
         RETURNING id::text AS id
       `;
-      if (inserted.length === 0) { skipped.liveConflict += 1; continue; }
+      // 행은 listing 을 적지 않으므로 남은 unique 는 멱등 키뿐이다 — 이미 옮긴 것이다.
+      if (inserted.length === 0) { alreadyMoved += 1; continue; }
       moved += 1;
       byStatus[transition.status] += 1;
     }

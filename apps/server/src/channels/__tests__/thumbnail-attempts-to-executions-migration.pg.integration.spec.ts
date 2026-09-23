@@ -121,14 +121,14 @@ describe('v0.1.31:026 thumbnail registration attempts → thumbnail_update execu
       affectedRows: 3,
       details: {
         outcome: 'moved', attempts: 3, moved: 3, movedByStatus: { succeeded: 1, failed: 1, reconciling: 1 },
-        alreadyMoved: 0, skipped: 0, skippedBy: { workspace: 0, image: 0, account: 0, supersededLive: 0, liveConflict: 0 },
+        alreadyMoved: 0, skipped: 0, skippedBy: { workspace: 0, image: 0, account: 0, supersededLive: 0 },
       },
     });
     const [uploaded, failed, running] = result.rows;
     expect(uploaded).toMatchObject({
       organizationId: ORG,
       channelAccountId: result.listed.account.id,
-      channelListingId: result.listed.listing.id,
+      channelListingId: null,
       idempotencyKey: `thumbnail_update:legacy:${result.uploaded}`,
       status: 'succeeded', providerOutcome: 'succeeded', lastErrorCode: null, lastErrorMessage: null,
       ownerIdempotencyKey: null,
@@ -165,6 +165,22 @@ describe('v0.1.31:026 thumbnail registration attempts → thumbnail_update execu
       const theirs = await listingGeneration(tx, { organizationId: OTHER_ORGANIZATION_ID });
       await attempt(tx, { organizationId: OTHER_ORGANIZATION_ID, generationId: theirs.generation.id, status: 'running', createdAt: '2026-09-01T00:00:00Z' });
       await attempt(tx, { organizationId: OTHER_ORGANIZATION_ID, generationId: theirs.generation.id, status: 'running', createdAt: '2026-09-02T00:00:00Z' });
+      await account(tx);
+      await account(tx);
+      return { run: await migration.run(tx, { target: 'office' }), rows: await executions(tx) };
+    });
+
+    expect(result.run.details).toMatchObject({
+      attempts: 5, moved: 1, alreadyMoved: 0, skipped: 4,
+      skippedBy: { workspace: 1, image: 1, account: 1, supersededLive: 1 },
+    });
+    expect(result.run.details).toMatchObject({ movedByStatus: { reconciling: 1 } });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ organizationId: OTHER_ORGANIZATION_ID, status: 'reconciling', createdAt: new Date('2026-09-02T00:00:00Z') });
+  }, 60_000);
+
+  it('keeps the listing in the payload only, so a moved attempt never takes the listing slot of a live execution', async () => {
+    const result = await withLegacyAttempts(async (tx) => {
       const busy = await listingGeneration(tx);
       await tx.productRegistrationExecution.create({
         data: {
@@ -172,19 +188,16 @@ describe('v0.1.31:026 thumbnail registration attempts → thumbnail_update execu
           idempotencyKey: randomUUID(), requestHash: 'b'.repeat(64), status: 'executing', providerOutcome: 'uncertain',
         },
       });
-      await attempt(tx, { generationId: busy.generation.id, status: 'running' });
-      await account(tx);
-      await account(tx);
-      return { run: await migration.run(tx, { target: 'office' }), rows: await executions(tx) };
+      await attempt(tx, { generationId: busy.generation.id, status: 'running', ownerKey: 'capability-invocation:busy', requestHash: 'c'.repeat(64) });
+      const run = await migration.run(tx, { target: 'office' });
+      const [moved] = await executions(tx);
+      return { run, moved, busy };
     });
-
-    expect(result.run.details).toMatchObject({
-      attempts: 6, moved: 1, alreadyMoved: 0, skipped: 5,
-      skippedBy: { workspace: 1, image: 1, account: 1, supersededLive: 1, liveConflict: 1 },
+    expect(result.run).toMatchObject({ affectedRows: 1, details: { moved: 1, skipped: 0 } });
+    expect(result.moved).toMatchObject({
+      status: 'reconciling', channelListingId: null,
+      submissionPayloadJson: expect.objectContaining({ channelListingId: result.busy.listing.id }),
     });
-    expect(result.run.details).toMatchObject({ movedByStatus: { reconciling: 1 } });
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toMatchObject({ organizationId: OTHER_ORGANIZATION_ID, status: 'reconciling', createdAt: new Date('2026-09-02T00:00:00Z') });
   }, 60_000);
 
   it('moves nothing twice and reports the earlier move on a rerun', async () => {
