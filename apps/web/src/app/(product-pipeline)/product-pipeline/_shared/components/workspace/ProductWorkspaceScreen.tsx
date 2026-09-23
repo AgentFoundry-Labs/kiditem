@@ -24,9 +24,11 @@ import {
   buildGenerationHistoryHtml,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/generated-detail-html';
 import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
+import { salesProductApi } from '@/lib/sales-product-api';
 import {
-  candidatesApi,
+  applyBasicsPriceToSalesProduct,
   registrationStateFromPreparation,
+  salesProductUpdateInputFromBasics,
   type UpdateProductBasicsInput,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import { useSourcingThumbnailGenerations } from '../../hooks/useGenerateSourcingThumbnail';
@@ -151,11 +153,10 @@ export function ProductWorkspaceScreen({
    */
   const registrationState = product?.registrationState
     ?? registrationStateFromPreparation(registrationTarget?.status ?? null);
-  // 초안이 살아 있다는 사실은 초안 행이, 아직 보내지 않았다는 사실은 울타리가 답한다.
-  const editablePreparationId = registrationTarget?.status === 'draft'
-    && registrationState === 'none'
-    ? registrationTarget.id
-    : null;
+  // 편집 정본은 판매상품 초안이다(KID-310 · ADR-0022) — 수집 시점부터 있으므로
+  // 등록 설정(RegistrationTarget) 유무와 무관하게 늘 이 id 로 저장한다.
+  const salesProductId = product?.salesProductId ?? null;
+  const salesProductVersion = product?.salesProductVersion ?? null;
   const detailGenerationProductId = productId;
   // 후보가 이미 소유한 워크스페이스까지 본다. 수집상품 상세 라우트는 워크스페이스 id 를
   // prop 으로 넘길 수 없고(후보 id 만 안다), preparation 이 없으면
@@ -230,44 +231,29 @@ export function ProductWorkspaceScreen({
       : '상품 정보를 불러올 수 없습니다.'
     : null;
 
-  const selectThumbnailMutation = useMutation({
-    mutationFn: (option: RegistrationThumbnailOption) => {
-      if (!editablePreparationId) {
-        throw new Error('먼저 채널 등록 준비를 만들어 주세요.');
-      }
-      return candidatesApi.selectThumbnail(editablePreparationId, {
-        selectedThumbnailUrl: option.url,
-        selectedThumbnailGenerationId: option.generatedGenerationId ?? null,
-        selectedThumbnailGenerationCandidateId: option.generatedCandidateId ?? null,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-    },
-  });
-
+  /**
+   * 기본정보 저장 = 판매상품 초안 저장이다(KID-310 · ADR-0022). 초안은 수집 시점부터
+   * 있으므로 등록 설정(RegistrationTarget) 유무와 무관하게 이 하나의 경로만 있다.
+   * 가격은 옵션에 있어 별도로(`applyBasicsPriceToSalesProduct`) 싣는다.
+   */
   const updateBasicInfoMutation = useMutation({
-    mutationFn: (input: UpdateProductBasicsInput) => {
-      if (!editablePreparationId) {
-        throw new Error('먼저 채널 등록 준비를 만들어 주세요.');
+    mutationFn: async (input: UpdateProductBasicsInput) => {
+      if (!salesProductId || salesProductVersion == null) {
+        throw new Error('이 후보에 연결된 판매상품 초안을 찾지 못했습니다.');
       }
-      return candidatesApi.updateBasicInfo(editablePreparationId, {
-        ...input,
-        basePreparationUpdatedAt: registrationTarget?.updatedAt ?? null,
-      });
+      const updated = await salesProductApi.update(
+        salesProductId,
+        salesProductUpdateInputFromBasics(input, salesProductVersion),
+      );
+      if (input.salePrice !== undefined || input.originalPrice !== undefined) {
+        await applyBasicsPriceToSalesProduct(
+          salesProductId,
+          input.salePrice ?? 0,
+          input.originalPrice ?? 0,
+        );
+      }
+      return updated;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-    },
-  });
-
-  // 준비(RegistrationTarget)가 없는 후보는 후보 자체에 저장한다. 채널 계정 선택을
-  // 강제하지 않고도 기본정보를 편집·저장할 수 있게 한다.
-  const updateCandidateBasicInfoMutation = useMutation({
-    mutationFn: (input: UpdateProductBasicsInput) =>
-      candidatesApi.updateCandidateBasicInfo(productId, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
@@ -275,18 +261,7 @@ export function ProductWorkspaceScreen({
   });
 
   const handleCommitBasicInfo = async (input: UpdateProductBasicsInput) => {
-    if (editablePreparationId) {
-      await updateBasicInfoMutation.mutateAsync(input);
-    } else {
-      await updateCandidateBasicInfoMutation.mutateAsync(input);
-    }
-  };
-
-  // 몰 등록 값(`mallRegisterValues/Shared`)은 준비가 있어도 후보에만 저장한다. 송신 전 점검과
-  // 폼 채우기가 후보 `manualBasics` 를 읽기 때문이다 — 준비에 넣으면 점검이 그 값을 못 보고,
-  // 준비의 깊은 병합 때문에 지운 칸도 빠지지 않는다.
-  const handleCommitMallRegisterValues = async (input: UpdateProductBasicsInput) => {
-    await updateCandidateBasicInfoMutation.mutateAsync(input);
+    await updateBasicInfoMutation.mutateAsync(input);
   };
 
   const kcAutoFilledRef = useRef<string | null>(null);
@@ -308,7 +283,7 @@ export function ProductWorkspaceScreen({
   }, [contentWorkspaceId, productId, thumbnailSourceCandidateId]);
 
   useEffect(() => {
-    if (!editablePreparationId) return;
+    if (!salesProductId) return;
     const basicInfo = fetchedData?.product?.basicInfo;
     if (!basicInfo) return;
     const status = basicInfo.kcCertificationStatus;
@@ -329,7 +304,7 @@ export function ProductWorkspaceScreen({
     );
     // mutation 객체는 매 렌더 새 identity 라서 ref 로 중복 호출을 막는다.
   }, [
-    editablePreparationId,
+    salesProductId,
     fetchedData?.product?.basicInfo?.kcCertificationStatus,
     kidsPlayfulEntries,
     boldEntries,
@@ -351,16 +326,11 @@ export function ProductWorkspaceScreen({
       );
     }
     try {
-      if (editablePreparationId) {
-        await updateBasicInfoMutation.mutateAsync({ thumbnailUrls });
-        if (input.selectedThumbnail) {
-          await selectThumbnailMutation.mutateAsync(input.selectedThumbnail);
-        }
-      } else if (effectiveContentWorkspaceId) {
-        // 준비(RegistrationTarget)가 없으면 `registrationInput.thumbnailUrls` 에 쓸 수 없다.
-        // 예전에는 이 분기에서 대표 1장만 저장하고 목록을 조용히 버렸는데, 성공 토스트는
-        // 그대로 떠서 저장된 것처럼 보였다. 목록은 워크스페이스 썸네일 갤러리
-        // (= ContentAsset role='thumbnail')로 저장한다 — 쿠팡 WING 추가이미지가 읽는 곳이다.
+      if (effectiveContentWorkspaceId) {
+        // 썸네일 미리보기 목록·대표 선택은 늘 콘텐츠 작업공간이 갖는다(KID-310) —
+        // 등록 설정(RegistrationTarget) 유무와 무관한 하나의 경로다. 목록은 워크스페이스
+        // 썸네일 갤러리(= ContentAsset role='thumbnail')로 저장한다 — 쿠팡 WING
+        // 추가이미지가 읽는 곳이다.
         await contentWorkspacesApi.replaceThumbnailGallery(
           effectiveContentWorkspaceId,
           thumbnailUrls,
@@ -404,16 +374,20 @@ export function ProductWorkspaceScreen({
     }
   };
 
+  // 등록용 상세페이지 선택도 콘텐츠 작업공간이 갖는다 — 썸네일과 같은 이유다(KID-310).
   const selectDetailPageMutation = useMutation({
     mutationFn: (input: {
       selectedDetailPageGenerationId: string;
       selectedDetailPageArtifactId?: string | null;
       selectedDetailPageRevisionId?: string | null;
     }) => {
-      if (!editablePreparationId) {
-        throw new Error('먼저 채널 등록 준비를 만들어 주세요.');
+      if (!effectiveContentWorkspaceId) {
+        throw new Error('저장할 콘텐츠 작업공간이 아직 없습니다. 먼저 AI 생성을 한 번 실행해 주세요.');
       }
-      return candidatesApi.selectDetailPage(editablePreparationId, input);
+      return contentWorkspacesApi.selectCurrentDetailPage(
+        effectiveContentWorkspaceId,
+        input.selectedDetailPageGenerationId,
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
@@ -625,6 +599,7 @@ export function ProductWorkspaceScreen({
       <ProductEditHeader
         productName={editData.name || '(상품명 없음)'}
         productId={productId}
+        salesProductId={salesProductId}
         status={product?.status}
         registrationTarget={registrationTarget}
         registrationState={registrationState}
@@ -674,11 +649,9 @@ export function ProductWorkspaceScreen({
               basicInfo={product?.basicInfo ?? null}
               costCny={product?.cost_cny ?? null}
               updateField={updateField}
-              // 준비가 있으면 준비에, 없어도 후보 워크스페이스(수집상품)면 후보에 저장한다.
-              // 등록상품(showCandidateActions=false)은 후보가 아니라 저장 대상이 없어 읽기 전용.
-              onCommitBasicInfo={editablePreparationId || showCandidateActions ? handleCommitBasicInfo : undefined}
-              // 몰 등록 값은 후보에만 담는다. 후보 워크스페이스(수집상품)가 아니면 저장할 후보가 없다.
-              onCommitMallRegisterValues={showCandidateActions ? handleCommitMallRegisterValues : undefined}
+              // 판매상품 초안이 있으면 저장할 수 있다 — 등록상품(showCandidateActions=false)은
+              // 후보 워크스페이스가 아니라 읽기 전용이다.
+              onCommitBasicInfo={salesProductId && showCandidateActions ? handleCommitBasicInfo : undefined}
               nameLength={nameLength}
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}
@@ -722,7 +695,7 @@ export function ProductWorkspaceScreen({
                   setSelectedBoldVerticalId(null);
                 }
               }}
-              onApplyRegistrationDetailPage={editablePreparationId
+              onApplyRegistrationDetailPage={effectiveContentWorkspaceId
                 ? (input) => selectDetailPageMutation.mutateAsync(input).then(() => undefined)
                 : undefined}
               selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
@@ -732,11 +705,8 @@ export function ProductWorkspaceScreen({
               onPreviewThumbnail={setThumbnailPreviewUrl}
               onThumbnailPreviewImagesChange={setThumbnailPreviewImages}
               onSaveThumbnailConfiguration={handleSaveThumbnailConfiguration}
-              // 준비가 없어도 워크스페이스가 있으면 갤러리로 저장할 수 있다.
-              // 둘 다 없을 때만 감춘다 — 눌러서 에러 나는 버튼보다 낫다.
-              canSaveThumbnailConfiguration={Boolean(
-                editablePreparationId || effectiveContentWorkspaceId,
-              )}
+              // 콘텐츠 작업공간이 아직 없으면(첫 AI 생성 전) 저장할 곳이 없다.
+              canSaveThumbnailConfiguration={Boolean(effectiveContentWorkspaceId)}
               thumbnailGenerationReturnHref={thumbnailWorkspaceReturnHref}
               selectedDetailPageSummary={selectedDetailPageSummary}
               onDetailPreviewHtmlChange={setDetailWorkspacePreviewHtml}

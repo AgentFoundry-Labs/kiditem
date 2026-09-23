@@ -8,6 +8,7 @@ import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
 import { PLACEHOLDER_DATA } from '../../lib/product-workspace-types';
 
 const {
+  apiClientGetParsedMock,
   apiClientPatchMock,
   apiClientPutMock,
   mobilePreviewProps,
@@ -16,6 +17,7 @@ const {
   useGenerationHistoryMock,
   useProductDetailMock,
 } = vi.hoisted(() => ({
+  apiClientGetParsedMock: vi.fn(),
   apiClientPatchMock: vi.fn(),
   apiClientPutMock: vi.fn(),
   mobilePreviewProps: [] as Array<{ detailHtml?: string | null }>,
@@ -28,10 +30,79 @@ const {
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: vi.fn(async () => ({ html: null, savedAt: null })),
+    getParsed: (...args: unknown[]) => apiClientGetParsedMock(...args),
     patch: (...args: unknown[]) => apiClientPatchMock(...args),
     put: (...args: unknown[]) => apiClientPutMock(...args),
   },
 }));
+
+/** `SalesProductSchema.parse` 를 통과하는 최소 판매상품 초안. */
+function salesProductFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '10000000-0000-4000-8000-000000000001',
+    code: null,
+    ownCode: null,
+    sabangnetGoodsNo: null,
+    sourceCandidateId: '20000000-0000-4000-8000-000000000001',
+    sourcePlatform: 'ALIBABA_1688',
+    sourceUrl: null,
+    name: '테스트 상품',
+    shortName: null,
+    englishName: null,
+    printName: null,
+    modelName: null,
+    modelNo: null,
+    brand: null,
+    manufacturer: null,
+    originCountry: null,
+    originRegion: null,
+    keywords: [],
+    standardCategory: null,
+    description: '',
+    targetAudience: null,
+    ageGroup: null,
+    productSize: null,
+    colorVariantNames: [],
+    boxSetQuantity: null,
+    registrationDefaults: null,
+    status: 'draft',
+    taxType: 'taxable',
+    deliveryFeeType: null,
+    deliveryFee: null,
+    optionAxes: [],
+    stockManaged: false,
+    imageUrls: [],
+    detailHtml: null,
+    extraDetailHtml: [],
+    noticeCategory: null,
+    noticeValues: [],
+    certifications: [],
+    kcStatus: 'unknown',
+    importDeclarationNo: null,
+    adminMemo: null,
+    version: 1,
+    createdAt: '2026-05-16T00:00:00.000Z',
+    updatedAt: '2026-05-16T00:00:00.000Z',
+    options: [{
+      id: '30000000-0000-4000-8000-000000000001',
+      optionCode: null,
+      values: [],
+      optionKey: '',
+      alias: null,
+      barcode: null,
+      salePrice: null,
+      normalPrice: null,
+      supplyStatus: 'selling',
+      safetyStock: null,
+      sortOrder: 0,
+      components: [],
+      linkedChannelOptionCount: 0,
+    }],
+    channelOverrides: [],
+    channelListings: [],
+    ...overrides,
+  };
+}
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/product-pipeline/collected-products/candidate-1',
@@ -214,6 +285,8 @@ const workspaceData: ProductWorkspaceData = {
     thumbnail_url: null,
     status: 'sourced',
     contentWorkspaceId: null,
+    salesProductId: 'sales-product-1',
+    salesProductVersion: 1,
   } as ProductWorkspaceData['product'],
   detailPageData: placeholderDetailPageData,
   editedHtml: null,
@@ -227,9 +300,14 @@ const workspaceData: ProductWorkspaceData = {
 
 describe('ProductWorkspaceScreen', () => {
   beforeEach(() => {
+    apiClientGetParsedMock.mockReset();
+    apiClientGetParsedMock.mockResolvedValue(salesProductFixture());
     apiClientPatchMock.mockReset();
+    apiClientPatchMock.mockResolvedValue(salesProductFixture());
     apiClientPutMock.mockReset();
-    apiClientPutMock.mockResolvedValue({ thumbnailUrls: [] });
+    // 기본값은 `salesProductApi.replaceOptions` 응답 모양(Zod 파싱을 통과해야 한다).
+    // 썸네일 갤러리 PUT(`/thumbnail-gallery`)은 이 값을 쓰지 않으므로 함께 써도 안전하다.
+    apiClientPutMock.mockResolvedValue(salesProductFixture());
     mobilePreviewProps.length = 0;
     productEditHeaderProps.length = 0;
     productTabContentProps.length = 0;
@@ -323,33 +401,9 @@ describe('ProductWorkspaceScreen', () => {
     expect(productEditHeaderProps.at(-1)).not.toHaveProperty('promotedMasterId');
   });
 
-  it('saves basic information through the canonical preparation endpoint', async () => {
-    useProductDetailMock.mockReturnValue({
-      data: {
-        ...workspaceData,
-        product: {
-          ...workspaceData.product,
-          registrationTarget: {
-            id: 'prep-1',
-            sourceCandidateId: 'candidate-1',
-            channelAccountId: null,
-            sourceContentWorkspaceId: null,
-            channelListingId: null,
-            status: 'draft',
-            selectedThumbnailUrl: null,
-            selectedThumbnailGenerationId: null,
-            selectedThumbnailGenerationCandidateId: null,
-            selectedDetailPageGenerationId: null,
-            selectedDetailPageArtifactId: null,
-            selectedDetailPageRevisionId: null,
-            updatedAt: '2026-05-20T01:02:03.000Z',
-          },
-        } as ProductWorkspaceData['product'],
-      },
-      error: null,
-      isLoading: false,
-    });
-    apiClientPatchMock.mockResolvedValue({ id: 'prep-1' });
+  it('판매상품 초안 저장 경로로 기본정보를 저장한다', async () => {
+    apiClientPutMock.mockResolvedValue(salesProductFixture({ version: 2 }));
+    useProductDetailMock.mockReturnValue({ data: workspaceData, error: null, isLoading: false });
 
     renderWithQueryClient(
       <ProductWorkspaceScreen
@@ -362,50 +416,35 @@ describe('ProductWorkspaceScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'mock-save-basic' }));
 
     await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
-      '/api/sourcing/preparations/prep-1',
-      {
-        displayName: '수정 상품명',
-        registrationInput: {
-          name: '수정 상품명',
-          salePrice: 13900,
-        },
-        basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
-      },
+      '/api/products/sales-products/sales-product-1',
+      { expectedVersion: 1, name: '수정 상품명' },
+    ));
+    // salePrice 는 옵션에 있다 — 기존 옵션을 다시 읽어(getParsed) 새 값을 싣는다.
+    await waitFor(() => expect(apiClientGetParsedMock).toHaveBeenCalledWith(
+      '/api/products/sales-products/sales-product-1', expect.anything(),
+    ));
+    await waitFor(() => expect(apiClientPutMock).toHaveBeenCalledWith(
+      '/api/products/sales-products/sales-product-1/options',
+      expect.objectContaining({
+        options: [expect.objectContaining({ salePrice: 13900 })],
+      }),
     ));
   });
 
-  /**
-   * 초안 행의 `status` 는 거울이다. 울타리가 이미 등록됐다고 하면 그 초안은 더 고칠 것이
-   * 아니다 — 거울을 믿고 계속 고치면 이미 마켓에 보낸 등록의 입력을 뒤에서 바꾼다.
-   */
-  it('⭐ stops editing a draft the registration fence already calls registered', async () => {
+  it('등록이 이미 시작된 뒤에도 초안은 계속 고칠 수 있다', async () => {
+    // 등록 동결(RegistrationExecution)은 준비 시점 스냅샷이라, 그 뒤 초안을 고쳐도
+    // 이미 보낸 실행을 바꾸지 않는다 — 초안 저장 경로를 막을 이유가 없다.
     useProductDetailMock.mockReturnValue({
       data: {
         ...workspaceData,
         product: {
           ...workspaceData.product,
           registrationState: 'registered',
-          registrationTarget: {
-            id: 'prep-1',
-            sourceCandidateId: 'candidate-1',
-            channelAccountId: null,
-            sourceContentWorkspaceId: null,
-            channelListingId: null,
-            status: 'draft',
-            selectedThumbnailUrl: null,
-            selectedThumbnailGenerationId: null,
-            selectedThumbnailGenerationCandidateId: null,
-            selectedDetailPageGenerationId: null,
-            selectedDetailPageArtifactId: null,
-            selectedDetailPageRevisionId: null,
-            updatedAt: '2026-05-20T01:02:03.000Z',
-          },
         } as ProductWorkspaceData['product'],
       },
       error: null,
       isLoading: false,
     });
-    apiClientPatchMock.mockResolvedValue({ ok: true });
 
     renderWithQueryClient(
       <ProductWorkspaceScreen
@@ -417,98 +456,17 @@ describe('ProductWorkspaceScreen', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'mock-save-basic' }));
 
-    // 후보 자체에 저장한다. 보낸 등록의 준비 행은 건드리지 않는다.
     await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
-      '/api/sourcing/candidates/candidate-1/basic-info',
-      { name: '수정 상품명', salePrice: 13900 },
+      '/api/products/sales-products/sales-product-1',
+      expect.objectContaining({ name: '수정 상품명' }),
     ));
-    expect(apiClientPatchMock).not.toHaveBeenCalledWith(
-      '/api/sourcing/preparations/prep-1',
-      expect.anything(),
-    );
   });
 
-  it('⭐ saves mall register values on the candidate even while a draft preparation exists', async () => {
-    // 송신 전 점검과 폼 채우기는 후보 manualBasics 를 읽는다. 준비에 넣으면 점검이 그 값을 못 본다.
-    useProductDetailMock.mockReturnValue({
-      data: {
-        ...workspaceData,
-        product: {
-          ...workspaceData.product,
-          registrationTarget: {
-            id: 'prep-1',
-            sourceCandidateId: 'candidate-1',
-            channelAccountId: null,
-            sourceContentWorkspaceId: null,
-            channelListingId: null,
-            status: 'draft',
-            selectedThumbnailUrl: null,
-            selectedThumbnailGenerationId: null,
-            selectedThumbnailGenerationCandidateId: null,
-            selectedDetailPageGenerationId: null,
-            selectedDetailPageArtifactId: null,
-            selectedDetailPageRevisionId: null,
-            updatedAt: '2026-05-20T01:02:03.000Z',
-          },
-        } as ProductWorkspaceData['product'],
-      },
-      error: null,
-      isLoading: false,
-    });
-    apiClientPatchMock.mockResolvedValue({ ok: true });
-
-    renderWithQueryClient(
-      <ProductWorkspaceScreen
-        productId="candidate-1"
-        backHref="/product-pipeline/collected-products"
-        selfHref="/product-pipeline/collected-products/candidate-1"
-      />,
-    );
-
-    fireEvent.click(await screen.findByRole('button', { name: 'mock-save-mall-values' }));
-
-    await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
-      '/api/sourcing/candidates/candidate-1/basic-info',
-      {
-        mallRegisterValues: { '11st': { categoryPath: '문구>팬시' } },
-        mallRegisterShared: { certNumber: 'CB065R1579-2008' },
-      },
-    ));
-    expect(apiClientPatchMock).not.toHaveBeenCalledWith(
-      '/api/sourcing/preparations/prep-1',
-      expect.anything(),
-    );
-  });
-
-  it('keeps consecutive basic saves on the same preparation identity', async () => {
-    useProductDetailMock.mockReturnValue({
-      data: {
-        ...workspaceData,
-        product: {
-          ...workspaceData.product,
-          registrationTarget: {
-            id: 'prep-1',
-            sourceCandidateId: 'candidate-1',
-            channelAccountId: null,
-            sourceContentWorkspaceId: null,
-            channelListingId: null,
-            status: 'draft',
-            selectedThumbnailUrl: null,
-            selectedThumbnailGenerationId: null,
-            selectedThumbnailGenerationCandidateId: null,
-            selectedDetailPageGenerationId: null,
-            selectedDetailPageArtifactId: null,
-            selectedDetailPageRevisionId: null,
-            updatedAt: '2026-05-20T01:02:03.000Z',
-          },
-        } as ProductWorkspaceData['product'],
-      },
-      error: null,
-      isLoading: false,
-    });
+  it('keeps consecutive basic saves on the same sales-product identity', async () => {
     apiClientPatchMock
-      .mockResolvedValueOnce({ id: 'prep-1', updatedAt: '2026-05-20T01:02:04.000Z' })
-      .mockResolvedValueOnce({ id: 'prep-1', updatedAt: '2026-05-20T01:02:05.000Z' });
+      .mockResolvedValueOnce(salesProductFixture({ version: 2 }))
+      .mockResolvedValueOnce(salesProductFixture({ version: 3 }));
+    useProductDetailMock.mockReturnValue({ data: workspaceData, error: null, isLoading: false });
 
     renderWithQueryClient(
       <ProductWorkspaceScreen
@@ -526,19 +484,12 @@ describe('ProductWorkspaceScreen', () => {
     await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledTimes(2));
 
     expect(apiClientPatchMock.mock.calls[1]).toEqual([
-      '/api/sourcing/preparations/prep-1',
-      {
-        displayName: '수정 상품명',
-        registrationInput: {
-          name: '수정 상품명',
-          salePrice: 13900,
-        },
-        basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
-      },
+      '/api/products/sales-products/sales-product-1',
+      { expectedVersion: 1, name: '수정 상품명' },
     ]);
   });
 
-  it('does not expose preparation-only basic or detail persistence without a preparation', async () => {
+  it('읽기 전용 목록/등록상품 화면(showCandidateActions=false)은 기본정보 저장을 열지 않는다', async () => {
     renderWithQueryClient(
       <ProductWorkspaceScreen
         productId="listing-1"
@@ -552,7 +503,8 @@ describe('ProductWorkspaceScreen', () => {
 
     await screen.findByTestId('product-tab-content');
     expect(productTabContentProps.at(-1)?.onCommitBasicInfo).toBeUndefined();
-    expect(productTabContentProps.at(-1)?.onApplyRegistrationDetailPage).toBeUndefined();
+    // 상세페이지 선택은 콘텐츠 작업공간이 갖는다 — 등록상품 보기에도 작업공간이 있으면 연다.
+    expect(productTabContentProps.at(-1)?.onApplyRegistrationDetailPage).toBeDefined();
   });
 
   it('persists a registered representative thumbnail through the content workspace', async () => {
@@ -667,11 +619,11 @@ describe('ProductWorkspaceScreen', () => {
       ));
     });
 
-    it('saves basic information to the candidate itself when no preparation exists', async () => {
-      // 회귀: 준비(RegistrationTarget)가 0행인 후보는 예전에 `수정` 저장 콜백이
+    it('saves basic information to the sales-product draft when no registration target exists', async () => {
+      // 회귀: 등록 설정(RegistrationTarget)이 0행인 후보는 예전에 `수정` 저장 콜백이
       // 아예 제공되지 않아 기본정보가 읽기 전용이었다. 이제 채널 계정 선택 없이도
-      // 후보 자체(PATCH /api/sourcing/candidates/:id/basic-info)에 저장한다.
-      apiClientPatchMock.mockResolvedValue({ ok: true });
+      // 판매상품 초안(PATCH /api/products/sales-products/:id)에 저장한다.
+      apiClientPutMock.mockResolvedValue(salesProductFixture({ version: 2 }));
 
       renderWithQueryClient(
         <ProductWorkspaceScreen
@@ -689,8 +641,8 @@ describe('ProductWorkspaceScreen', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'mock-save-basic' }));
 
       await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
-        '/api/sourcing/candidates/candidate-1/basic-info',
-        { name: '수정 상품명', salePrice: 13900 },
+        '/api/products/sales-products/sales-product-1',
+        { expectedVersion: 1, name: '수정 상품명' },
       ));
     });
 
@@ -886,15 +838,16 @@ describe('ProductWorkspaceScreen', () => {
     expect(mobilePreviewProps.at(-1)?.detailHtml).toContain('<!DOCTYPE html>');
   });
 
-  it('waits for thumbnail preview order persistence before registering the representative', async () => {
-    let resolveBasicInfo!: (value: unknown) => void;
-    const basicInfoPromise = new Promise((resolve) => {
-      resolveBasicInfo = resolve;
+  it('waits for the thumbnail gallery to persist before registering the representative', async () => {
+    let resolveGallery!: (value: unknown) => void;
+    const galleryPromise = new Promise((resolve) => {
+      resolveGallery = resolve;
     });
-    apiClientPatchMock.mockImplementation((_url: string, body: Record<string, unknown>) => {
-      if ('registrationInput' in body) return basicInfoPromise;
+    apiClientPutMock.mockImplementation((url: string) => {
+      if (url.endsWith('/thumbnail-gallery')) return galleryPromise;
       return Promise.resolve({});
     });
+    apiClientPatchMock.mockResolvedValue({});
     useProductDetailMock.mockReturnValue({
       data: {
         ...workspaceData,
@@ -932,23 +885,24 @@ describe('ProductWorkspaceScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'mock-save-thumbnail' }));
 
     await waitFor(() => {
-      expect(apiClientPatchMock).toHaveBeenCalledTimes(1);
+      expect(apiClientPutMock).toHaveBeenCalledWith(
+        '/api/ai/content-workspaces/workspace-1/thumbnail-gallery',
+        { thumbnailUrls: ['https://cdn.example.com/generated.jpg'] },
+      );
     });
-    expect(apiClientPatchMock.mock.calls[0]).toEqual([
-      '/api/sourcing/preparations/prep-1',
-      expect.objectContaining({ registrationInput: expect.any(Object) }),
-    ]);
+    // 목록이 아직 저장 중이면 대표 선택은 시작하지 않는다.
+    expect(apiClientPatchMock).not.toHaveBeenCalled();
 
-    resolveBasicInfo({});
+    resolveGallery({ thumbnailUrls: ['https://cdn.example.com/generated.jpg'] });
 
     await waitFor(() => {
-      expect(apiClientPatchMock).toHaveBeenCalledTimes(2);
-    });
-    expect(apiClientPatchMock.mock.calls[1][0]).toBe('/api/sourcing/preparations/prep-1');
-    expect(apiClientPatchMock.mock.calls[1][1]).toEqual({
-      selectedThumbnailUrl: 'https://cdn.example.com/generated.jpg',
-      selectedThumbnailGenerationId: 'thumbnail-generation-1',
-      selectedThumbnailGenerationCandidateId: 'thumbnail-candidate-1',
+      expect(apiClientPatchMock).toHaveBeenCalledWith(
+        '/api/ai/content-workspaces/workspace-1/current-thumbnail',
+        {
+          sourceThumbnailGenerationId: 'thumbnail-generation-1',
+          sourceThumbnailCandidateId: 'thumbnail-candidate-1',
+        },
+      );
     });
   });
 });

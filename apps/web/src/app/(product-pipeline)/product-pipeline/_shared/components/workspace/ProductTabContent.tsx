@@ -18,7 +18,6 @@ import ProductBasicsTab, {
   type BasicDraft,
   type SelectedDetailPageSummary,
 } from './basic/ProductBasicsTab';
-import { MallRegisterValuesSection } from './basic/MallRegisterValuesSection';
 import type { EditTabType } from './detail/ProductEditTabs';
 import type { ProductEditState } from '../../lib/product-workspace-types';
 import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
@@ -31,8 +30,6 @@ interface Props {
   costCny?: number | null;
   updateField: <K extends keyof ProductEditState>(field: K, value: ProductEditState[K]) => void;
   onCommitBasicInfo?: (input: UpdateProductBasicsInput) => Promise<void> | void;
-  /** 몰 등록 값 저장. 준비가 있어도 후보에만 저장한다. */
-  onCommitMallRegisterValues?: (input: UpdateProductBasicsInput) => Promise<void> | void;
   nameLength: number;
   productId: string;
   detailPreviewHtml: string;
@@ -90,7 +87,6 @@ export default function ProductTabContent({
   costCny = null,
   updateField,
   onCommitBasicInfo,
-  onCommitMallRegisterValues,
   nameLength,
   productId,
   detailPreviewHtml,
@@ -254,16 +250,6 @@ export default function ProductTabContent({
             selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
             selectedDetailPageGenerationId={savedDetailPageGenerationId}
             selectedDetailPageSummary={selectedDetailPageSummary}
-          />
-          {/* 몰별 등록 칸은 제 저장 버튼을 따로 가진다 — 등록 직전에 자주 고치는
-              값이라, 기본정보 `수정` 을 열어야만 고칠 수 있으면 손대지 않은
-              상품명·가격까지 함께 덮어쓰게 된다. */}
-          <MallRegisterValuesSection
-            basicInfo={basicInfo}
-            productName={editData.name}
-            salePrice={editData.salePrice}
-            onCommit={onCommitMallRegisterValues}
-            readOnly={!onCommitMallRegisterValues}
           />
         </div>
       );
