@@ -14,6 +14,7 @@ import type {
 import {
   canTransitionDetailPage,
   decideRevisionPointer,
+  decideWorkspacePointer,
   DETAIL_PAGE_SOURCES,
   DETAIL_PAGE_STATUSES,
   initialDetailPageStatus,
@@ -112,8 +113,9 @@ export class DetailPageRepositoryAdapter implements DetailPageRepositoryPort {
       currentRevisionType: page.currentRevision ? parseRevisionType(page.currentRevision.revisionType) : null,
       incomingRevisionType: input.revisionType,
     });
-    const workspacePointer = decideRevisionPointer({
-      currentRevisionType: workspaceCurrentType,
+    const workspacePointer = decideWorkspacePointer({
+      pageAdvanced: pagePointer.advancePointer,
+      workspaceCurrentRevisionType: workspaceCurrentType,
       incomingRevisionType: input.revisionType,
     });
 

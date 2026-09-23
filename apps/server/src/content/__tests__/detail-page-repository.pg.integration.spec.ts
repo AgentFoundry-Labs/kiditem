@@ -165,6 +165,41 @@ describe('detail page repository (PG integration)', () => {
     expect(await workspaceCurrent(workspaceId)).toBe(human.id);
   });
 
+  it('keeps a re-import on a human-edited page off the workspace pointer the operator chose on another page', async () => {
+    const workspaceId = await workspace();
+    const imported = await create(workspaceId, { source: 'imported', status: 'ready', templateId: null });
+    await append(imported.id, { revisionType: 'imported', html: '<p>r1 가져옴</p>' });
+    const r2 = await append(imported.id, { revisionType: 'manual_edit', html: '<p>r2 사람</p>' });
+    const generated = await create(workspaceId);
+    await setStatus(generated.id, 'processing');
+    const r3 = await append(generated.id, { revisionType: 'generated', html: '<p>r3 생성</p>' });
+    await prisma.$transaction((tx) => pages.setCurrentRevision(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspaceId, revisionId: r3.id,
+    }));
+
+    const r4 = await append(imported.id, { revisionType: 'imported', html: '<p>r4 재가져옴</p>' });
+
+    expect(r4).toMatchObject({ becamePageCurrent: false, becameWorkspaceCurrent: false });
+    await expect(pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: imported.id }))
+      .resolves.toMatchObject({ currentRevisionId: r2.id });
+    expect(await workspaceCurrent(workspaceId)).toBe(r3.id);
+  });
+
+  it('advances both pointers when a re-import lands on an unedited page while the workspace shows another page\'s machine revision', async () => {
+    const workspaceId = await workspace();
+    const imported = await create(workspaceId, { source: 'imported', status: 'ready', templateId: null });
+    await append(imported.id, { revisionType: 'imported', html: '<p>r1 가져옴</p>' });
+    const generated = await create(workspaceId);
+    await setStatus(generated.id, 'processing');
+    const r2 = await append(generated.id, { revisionType: 'generated', html: '<p>r2 생성</p>' });
+    expect(await workspaceCurrent(workspaceId)).toBe(r2.id);
+
+    const r3 = await append(imported.id, { revisionType: 'imported', html: '<p>r3 재가져옴</p>' });
+
+    expect(r3).toMatchObject({ becamePageCurrent: true, becameWorkspaceCurrent: true });
+    expect(await workspaceCurrent(workspaceId)).toBe(r3.id);
+  });
+
   it('lets an operator pick any revision of the workspace as current, and rejects another workspace\'s revision', async () => {
     const workspaceId = await workspace();
     const foreignWorkspaceId = await workspace();
