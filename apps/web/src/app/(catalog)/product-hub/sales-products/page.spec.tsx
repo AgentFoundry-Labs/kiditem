@@ -38,6 +38,7 @@ function listItem(overrides: Record<string, unknown> = {}) {
     unlinkedOptionCount: 0,
     channelListingCount: 0,
     channelOverrideCount: 0,
+    registrationAccounts: [],
     updatedAt: '2026-09-22T00:00:00.000Z',
     ...overrides,
   };
@@ -104,6 +105,38 @@ describe('판매상품 목록 화면', () => {
     renderPage();
     expect(await screen.findByText('미발급')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '초안(미발급)' })).toBeInTheDocument();
+  });
+
+  it('몰 등록 칸은 등록 상태 reader 의 계정별 상태를 한 배지로 줄이고, 계정별 줄은 배지에 올리면 보인다', async () => {
+    const account = (name: string, state: string, changedSinceRegistration = false) => ({
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      channel: 'mall-a',
+      channelAccountName: name,
+      registrationTargetId: null,
+      channelListingId: null,
+      externalListingId: null,
+      state,
+      soldOut: false,
+      changedSinceRegistration,
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      lastExecution: null,
+    });
+    listQuery.mockResolvedValue({
+      items: [listItem({
+        channelOverrideCount: 3,
+        registrationAccounts: [account('몰 A', 'registered', true), account('몰 B', 'registered'), account('몰 C', 'failed')],
+      })],
+      total: 1,
+      page: 1,
+      limit: 50,
+      summary: { total: 1, withOptions: 0, withUnlinkedOptions: 0, unregistered: 0, draft: 0 },
+    });
+    renderPage();
+
+    const badge = await screen.findByText('실패 · 2몰 등록 · 1 변경됨');
+    expect(badge).toHaveAttribute('title', '몰 A: 등록됨 · 변경됨 · 재전송 필요\n몰 B: 등록됨\n몰 C: 실패');
+    expect(screen.queryByText('3몰')).toBeNull();
   });
 
   it('주소의 미등록 조건을 그대로 서버에 묻는다', async () => {

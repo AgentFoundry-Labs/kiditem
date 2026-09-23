@@ -27,6 +27,7 @@ import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/produ
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
   applyBasicsPriceToSalesProduct,
+  basicsPriceChange,
   salesProductUpdateInputFromBasics,
   type UpdateProductBasicsInput,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
@@ -226,13 +227,14 @@ export function ProductWorkspaceScreen({
         salesProductId,
         salesProductUpdateInputFromBasics(input, salesProductVersion),
       );
-      if (input.salePrice !== undefined || input.originalPrice !== undefined) {
-        await applyBasicsPriceToSalesProduct(
-          salesProductId,
-          input.salePrice ?? 0,
-          input.originalPrice ?? 0,
-        );
-      }
+      // 바뀐 가격만 싣는다 — 판매가만 고쳤으면 정상가는 옵션 값 그대로다(KID-310 b).
+      await applyBasicsPriceToSalesProduct(
+        salesProductId,
+        basicsPriceChange(input, {
+          salePrice: product?.basicInfo.salePrice ?? null,
+          originalPrice: product?.basicInfo.originalPrice ?? null,
+        }),
+      );
       return updated;
     },
     onSuccess: () => {
@@ -387,7 +389,7 @@ export function ProductWorkspaceScreen({
           ...fetchedData.editState,
           name: basicInfo.name || fetchedData.editState.name,
           category: basicInfo.category,
-          originalPrice: basicInfo.originalPrice,
+          originalPrice: basicInfo.originalPrice ?? 0, // 미리보기 값 — 저장하지 않는다
           salePrice: basicInfo.salePrice || fetchedData.editState.salePrice,
           discountRate: basicInfo.discountRate,
           thumbnails: basicInfo.thumbnailUrls.length > 0

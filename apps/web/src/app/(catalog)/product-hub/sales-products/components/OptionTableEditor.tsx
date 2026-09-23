@@ -245,7 +245,7 @@ export function OptionTableEditor({
                   <td className="px-2 py-1.5">
                     <input
                       type="number"
-                      value={optionExtraPrice(row, value)}
+                      value={optionExtraPrice(row, value) ?? ''}
                       onChange={(event) => onChange(setOptionExtraPrice(
                         value,
                         row.rowKey,
@@ -256,7 +256,7 @@ export function OptionTableEditor({
                     />
                   </td>
                   <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">
-                    {row.salePrice.toLocaleString('ko-KR')}원
+                    {row.salePrice === null ? '미정' : `${row.salePrice.toLocaleString('ko-KR')}원`}
                   </td>
                   <td className="px-2 py-1.5">
                     <input

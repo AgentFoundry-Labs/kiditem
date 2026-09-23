@@ -11,6 +11,7 @@ import {
   type SalesProduct,
 } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
+import { KC_STATUS_SELECT_OPTIONS, kcStatusFromSelectValue, kcStatusSelectValue } from '@/lib/kc-status';
 import { cn } from '@/lib/utils';
 import { ChannelListingsSection } from '../components/ChannelListingsSection';
 import { ChannelOverridesSection } from '../components/ChannelOverridesSection';
@@ -304,6 +305,19 @@ function Editor({ product }: { product: SalesProduct }) {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="고시 분류코드(사방넷 속성분류)">
             <input value={basics.noticeCategory ?? ''} onChange={(event) => set('noticeCategory', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="KC 인증 상태">
+            {/* 수집상품 기본 정보와 같은 고르기 칸이다(KID-310 c). 저장 값 unknown 은 '확인 필요'. */}
+            <select
+              aria-label="KC 인증 상태"
+              value={kcStatusSelectValue(basics.kcStatus)}
+              onChange={(event) => set('kcStatus', kcStatusFromSelectValue(event.target.value))}
+              className={inputClass}
+            >
+              {KC_STATUS_SELECT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
           </Field>
           <Field label="인증">
             <p className="py-1.5 text-sm text-slate-700">

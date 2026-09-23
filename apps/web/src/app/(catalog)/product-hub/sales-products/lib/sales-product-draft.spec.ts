@@ -185,6 +185,45 @@ describe('sales product editor draft', () => {
       .toEqual([[0, 9000], [5900, null]]);
   });
 
+  it('keeps an undecided (null) sale price as null — opening the editor never turns 미정 into 0원', () => {
+    const current = product({
+      options: [
+        option({ salePrice: null }),
+        option({
+          id: '33333333-3333-4333-8333-333333333333',
+          optionCode: '100300-0002',
+          values: ['노랑'],
+          optionKey: '노랑',
+          salePrice: 5900,
+          linkedChannelOptionCount: 0,
+          components: [],
+        }),
+      ],
+    });
+    const table = optionsFromProduct(current);
+
+    expect(table.baseSalePrice).toBe(5900);
+    expect(table.rows.map((row) => row.salePrice)).toEqual([null, 5900]);
+    expect(optionsChanged(current, table)).toBe(false);
+    expect(optionsPayload(table, current.version).options.map((row) => row.salePrice)).toEqual([null, 5900]);
+  });
+
+  it('prices an undecided row at the base only when the operator edits the base', () => {
+    const current = product({ options: [option({ salePrice: null })] });
+    const table = optionsFromProduct(current);
+    expect(table.baseSalePrice).toBe(0);
+
+    const changed = setBaseSalePrice(table, 7900);
+    expect(changed.rows.map((row) => row.salePrice)).toEqual([7900]);
+  });
+
+  it('lets the hub edit the KC status like the workspace basics', () => {
+    expect(BASIC_FIELDS).toContain('kcStatus');
+    const current = product({ kcStatus: 'unknown' });
+    const draft = { ...basicsFromProduct(current), kcStatus: 'exists' as const };
+    expect(basicsPatch(current, draft)).toEqual({ kcStatus: 'exists' });
+  });
+
   it('uses a zero base when every option is unused and preserves those final prices', () => {
     const current = product({ options: [option({ salePrice: 250, supplyStatus: 'unused' })] });
     const table = optionsFromProduct(current);

@@ -100,7 +100,7 @@ function editStateFor(data: ProductDetailResponse): ProductEditState {
     ...processedEditState,
     name: basicInfo.name || data.name,
     category: basicInfo.category,
-    originalPrice: basicInfo.originalPrice,
+    originalPrice: basicInfo.originalPrice ?? 0, // 미리보기 값 — 저장하지 않는다
     salePrice: basicInfo.salePrice || data.price_krw || processedEditState.salePrice,
     discountRate: basicInfo.discountRate,
     thumbnails: thumbnailInputs,

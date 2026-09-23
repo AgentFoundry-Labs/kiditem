@@ -13,6 +13,7 @@ import { MallPriceAdoptionNotice } from './components/MallPriceAdoptionNotice';
 import { MallSheetDialog } from '@/components/mall-sheet/MallSheetDialog';
 import { SabangnetImportDialog } from './components/SabangnetImportDialog';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
+import { RegistrationStateBadge } from '@/app/(channels)/_shared/components/RegistrationStateBadge';
 import { formatWon, SALES_PRODUCT_STATUS_LABEL, SALES_PRODUCT_STATUS_TONE } from './lib/sales-product-labels';
 
 type Focus = SalesProductListQuery['focus'];
@@ -216,7 +217,7 @@ function SalesProductsContent() {
                   <th className="px-2 py-2.5 text-left font-semibold">상품명</th>
                   <th className="w-40 px-2 py-2.5 text-left font-semibold">옵션</th>
                   <th className="w-28 px-2 py-2.5 text-center font-semibold">셀피아 연결</th>
-                  <th className="w-20 px-2 py-2.5 text-center font-semibold">몰별 값</th>
+                  <th className="w-40 px-2 py-2.5 text-center font-semibold">몰 등록</th>
                   <th className="w-24 px-2 py-2.5 text-right font-semibold">판매가</th>
                   <th className="w-24 px-4 py-2.5 text-center font-semibold">상태</th>
                 </tr>
@@ -258,8 +259,11 @@ function SalesProductsContent() {
                           {linked}/{item.optionCount}
                         </span>
                       </td>
-                      <td className="px-2 py-2 text-center tabular-nums text-slate-600">
-                        {item.channelOverrideCount > 0 ? `${item.channelOverrideCount}몰` : '—'}
+                      <td className="px-2 py-2 text-center text-slate-600">
+                        {/* 몰 계정별 등록 상태는 등록 상태 reader 가 목록에 싣는다(KID-320). 배지에 올리면 계정별 줄이 보인다. */}
+                        {item.registrationAccounts.length > 0
+                          ? <RegistrationStateBadge accounts={item.registrationAccounts} />
+                          : <span className="text-slate-400">—</span>}
                       </td>
                       <td className="px-2 py-2 text-right tabular-nums text-slate-800">{formatWon(item.salePrice)}</td>
                       <td className="px-4 py-2 text-center">

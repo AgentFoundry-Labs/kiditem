@@ -26,6 +26,8 @@ const executionBase = (executionId: string) =>
 
 export const registrationExecutionKeys = {
   targetHistory: (targetId: string) => ['registration-target-executions', 'history', targetId] as const,
+  /** 실행 하나. 등록 상태 reader 가 살아 있다고 가리킨 실행만 읽는다(KID-320). */
+  execution: (executionId: string) => ['registration-executions', 'detail', executionId] as const,
 };
 
 const TargetExecutionResultListSchema = z.array(TargetExecutionResultSchema);

@@ -24,8 +24,11 @@ vi.mock('@/lib/registration-target-api', () => ({
 }));
 
 vi.mock('@/lib/sales-product-api', () => ({
-  salesProductKeys: { mallAccounts: () => ['sales-products', 'mall-accounts'] },
-  salesProductApi: { mallAccounts: vi.fn() },
+  salesProductKeys: {
+    mallAccounts: () => ['sales-products', 'mall-accounts'],
+    registrationState: (id: string) => ['sales-products', 'registration-state', id],
+  },
+  salesProductApi: { mallAccounts: vi.fn(), registrationState: vi.fn() },
 }));
 
 vi.mock('@/app/(channels)/_shared/target-registration-execution', () => ({
@@ -35,9 +38,10 @@ vi.mock('@/app/(channels)/_shared/target-registration-execution', () => ({
 
 vi.mock('@/app/(channels)/_shared/registration-execution-api', () => ({
   listRegistrationTargetExecutions: vi.fn(),
-  targetRegistrationExecutionApi: { prepare: vi.fn(), start: vi.fn(), report: vi.fn() },
+  targetRegistrationExecutionApi: { prepare: vi.fn(), start: vi.fn(), report: vi.fn(), get: vi.fn() },
   registrationExecutionKeys: {
     targetHistory: (targetId: string) => ['registration-target-executions', 'history', targetId],
+    execution: (executionId: string) => ['registration-executions', 'detail', executionId],
   },
 }));
 
@@ -96,6 +100,29 @@ const compositionProduct = {
   }],
 } as unknown as SalesProduct;
 
+/** 등록 상태 reader 가 주는 계정 한 줄(KID-320). */
+function accountState(overrides: Record<string, unknown> = {}) {
+  return {
+    channelAccountId: ACCOUNT_ID,
+    channel: 'smartstore',
+    channelAccountName: '스마트스토어 본계정',
+    registrationTargetId: TARGET_ID,
+    channelListingId: null,
+    externalListingId: null,
+    state: 'unregistered',
+    soldOut: false,
+    changedSinceRegistration: false,
+    selectedThumbnailAssetId: null,
+    selectedDetailPageRevisionId: null,
+    lastExecution: null,
+    ...overrides,
+  };
+}
+
+function serveRegistrationState(...accounts: ReturnType<typeof accountState>[]) {
+  vi.mocked(salesProductApi.registrationState).mockResolvedValue({ accounts } as never);
+}
+
 function renderSection(value: SalesProduct = product, openAdvanced = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rendered = render(
@@ -108,7 +135,102 @@ function renderSection(value: SalesProduct = product, openAdvanced = false) {
 }
 
 describe('<ChannelOverridesSection />', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    serveRegistrationState();
+  });
+
+  it('shows each mall account\'s state from the one reader and reads no execution history', async () => {
+    vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
+    vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
+      channelAccountId: ACCOUNT_ID, mallKey: 'smartstore', mallName: '스마트스토어 본계정',
+    }]);
+    serveRegistrationState(accountState({
+      state: 'registered',
+      changedSinceRegistration: true,
+      lastExecution: {
+        id: EXECUTION_ID, kind: 'register', status: 'succeeded', providerOutcome: 'succeeded',
+        createdAt: '2026-09-22T01:02:03.000Z', completedAt: '2026-09-22T01:05:00.000Z',
+      },
+    }));
+
+    renderSection(product, true);
+
+    expect((await screen.findAllByText('등록됨')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('변경됨 · 재전송 필요').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/등록 · 등록 결과 확인됨/).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: '몰에 올라간 상품에서 다시 보내기' })[0]).toHaveAttribute('href', '#listings');
+    expect(listRegistrationTargetExecutions).not.toHaveBeenCalled();
+    expect(targetRegistrationExecutionApi.get).not.toHaveBeenCalled();
+  });
+
+  it('does not offer a second register send for an account the reader says is registered', async () => {
+    vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
+    vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
+      channelAccountId: ACCOUNT_ID, mallKey: 'smartstore', mallName: '스마트스토어 본계정',
+    }]);
+    serveRegistrationState(accountState({ state: 'registered' }));
+
+    renderSection(product, true);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '등록됨' })).toBeDisabled());
+    expect(screen.queryByRole('button', { name: '외부 송신' })).toBeNull();
+  });
+
+  it('edits the other mall values with fields and key/value rows instead of a JSON document', async () => {
+    const configured = {
+      ...target,
+      registrationInput: {
+        mallCategory: { key: '001', label: null },
+        mallFields: { supplyPrice: '4700', deliveryTemplate: 'T1' },
+        adapter: { coupang: { wingCategoryKey: 'toy' } },
+      },
+    } satisfies RegistrationTarget;
+    vi.mocked(registrationTargetApi.list).mockResolvedValue([configured]);
+    vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
+      channelAccountId: ACCOUNT_ID, mallKey: 'coupang', mallName: '쿠팡 본계정',
+    }]);
+    vi.mocked(registrationTargetApi.update).mockResolvedValue(configured);
+
+    renderSection(product, true);
+    await waitFor(() => expect(screen.getAllByText('쿠팡 본계정')[0]).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '1 / 2' }));
+
+    expect(screen.queryByLabelText('provider document')).toBeNull();
+    expect(screen.getByLabelText('몰 공급가')).toHaveValue('4700');
+    expect(screen.getByLabelText('몰 칸 1 이름')).toHaveValue('deliveryTemplate');
+    fireEvent.change(screen.getByLabelText('몰 홍보문'), { target: { value: '오늘 출발' } });
+    fireEvent.change(screen.getByLabelText('몰 재고 비율'), { target: { value: '80' } });
+    fireEvent.click(screen.getByRole('button', { name: '몰 칸 더하기' }));
+    fireEvent.change(screen.getByLabelText('몰 칸 2 이름'), { target: { value: 'returnCode' } });
+    fireEvent.change(screen.getByLabelText('몰 칸 2 값'), { target: { value: 'R1' } });
+    fireEvent.click(screen.getByRole('button', { name: '등록 대상 저장' }));
+
+    await waitFor(() => expect(registrationTargetApi.update).toHaveBeenCalledWith(TARGET_ID, expect.objectContaining({
+      registrationInput: {
+        mallCategory: { key: '001', label: null },
+        mallFields: { supplyPrice: '4700', promoText: '오늘 출발', stockPercent: 80, deliveryTemplate: 'T1', returnCode: 'R1' },
+        adapter: { coupang: { wingCategoryKey: 'toy' } },
+      },
+    })));
+  });
+
+  it('blocks saving a product fact typed as a mall value', async () => {
+    vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
+    vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
+      channelAccountId: ACCOUNT_ID, mallKey: 'coupang', mallName: '쿠팡 본계정',
+    }]);
+
+    renderSection(product, true);
+    await waitFor(() => expect(screen.getAllByText('쿠팡 본계정')[0]).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '1 / 2' }));
+    fireEvent.click(screen.getByRole('button', { name: '몰 칸 더하기' }));
+    fireEvent.change(screen.getByLabelText('몰 칸 1 이름'), { target: { value: 'salePrice' } });
+    fireEvent.change(screen.getByLabelText('몰 칸 1 값'), { target: { value: '1000' } });
+
+    expect(screen.getByText(/판매상품에서 고치세요/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '등록 대상 저장' })).toBeDisabled();
+  });
 
   it('keeps common values usable without creating a target or showing technical settings', async () => {
     vi.mocked(registrationTargetApi.list).mockResolvedValue([]);
@@ -170,7 +292,6 @@ describe('<ChannelOverridesSection />', () => {
 
   it('edits a persistent target\'s mall values and option selection without any price input', async () => {
     vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
-    vi.mocked(listRegistrationTargetExecutions).mockResolvedValue([]);
     vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
       channelAccountId: ACCOUNT_ID,
       mallKey: 'coupang',
@@ -183,7 +304,6 @@ describe('<ChannelOverridesSection />', () => {
     await waitFor(() => expect(screen.getAllByText('쿠팡 본계정')[0]).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '1 / 2' }));
 
-    expect(screen.getByDisplayValue(/"wingCategoryKey"/)).toBeInTheDocument();
     expect(screen.queryByLabelText('100-0001 판매가 override')).toBeNull();
     expect(screen.getByText('판매가 5,900원 · 정상가 9,000원')).toBeInTheDocument();
 
@@ -199,7 +319,6 @@ describe('<ChannelOverridesSection />', () => {
 
   it('reuses the target intent key while the saved target version is unchanged', async () => {
     vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
-    vi.mocked(listRegistrationTargetExecutions).mockResolvedValue([]);
     vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
       channelAccountId: ACCOUNT_ID,
       mallKey: 'smartstore',
@@ -225,7 +344,7 @@ describe('<ChannelOverridesSection />', () => {
     expect(second?.idempotencyKey).toBe(first?.idempotencyKey);
   });
 
-  it('shows the latest active history row and resumes it without creating a new intent', async () => {
+  it('reads the live execution the reader names and resumes it without creating a new intent', async () => {
     const activeExecution = {
       executionId: '66666666-6666-4666-8666-666666666666',
       targetId: TARGET_ID,
@@ -260,7 +379,14 @@ describe('<ChannelOverridesSection />', () => {
       mallKey: 'smartstore',
       mallName: '스마트스토어 본계정',
     }]);
-    vi.mocked(listRegistrationTargetExecutions).mockResolvedValue([activeExecution]);
+    serveRegistrationState(accountState({
+      state: 'confirming',
+      lastExecution: {
+        id: '66666666-6666-4666-8666-666666666666', kind: 'register', status: 'reconciling', providerOutcome: 'uncertain',
+        createdAt: '2026-09-22T01:02:03.000Z', completedAt: null,
+      },
+    }));
+    vi.mocked(targetRegistrationExecutionApi.get).mockResolvedValue(activeExecution);
     vi.mocked(executeTargetRegistration).mockResolvedValue({
       execution: activeExecution,
       outcome: { ok: false, confirmed: false, manualSteps: [], warnings: ['재조정 대기'] },
@@ -270,7 +396,10 @@ describe('<ChannelOverridesSection />', () => {
 
     renderSection(product, true);
     await waitFor(() => expect(screen.getByRole('button', { name: '상태 확인' })).toBeEnabled());
-    expect(screen.getByText('결과 확인 중 · 재송신하지 않음')).toBeInTheDocument();
+    expect(screen.getAllByText('확인 대기').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/등록 · 결과 확인 중 · 재송신하지 않음/).length).toBeGreaterThan(0);
+    expect(targetRegistrationExecutionApi.get).toHaveBeenCalledWith('66666666-6666-4666-8666-666666666666');
+    expect(listRegistrationTargetExecutions).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '상태 확인' }));
 
     await waitFor(() => expect(executeTargetRegistration).toHaveBeenCalledWith(expect.objectContaining({
@@ -285,7 +414,6 @@ describe('<ChannelOverridesSection />', () => {
       mallKey: 'smartstore',
       mallName: '스마트스토어 본계정',
     }]);
-    vi.mocked(listRegistrationTargetExecutions).mockResolvedValue([]);
     vi.mocked(targetRegistrationExecutionApi.prepare).mockResolvedValue({ executionId: EXECUTION_ID } as never);
     vi.mocked(targetRegistrationExecutionApi.start).mockResolvedValue({
       executionId: EXECUTION_ID,
@@ -324,7 +452,6 @@ describe('<ChannelOverridesSection />', () => {
       mallKey: 'smartstore',
       mallName: '스마트스토어 본계정',
     }]);
-    vi.mocked(listRegistrationTargetExecutions).mockResolvedValue([]);
     vi.mocked(targetRegistrationExecutionApi.prepare).mockReturnValue(pendingPrepare as never);
     vi.mocked(targetRegistrationExecutionApi.start).mockResolvedValue({ executionId: EXECUTION_ID, status: 'executing' } as never);
 
@@ -341,7 +468,7 @@ describe('<ChannelOverridesSection />', () => {
     await waitFor(() => expect(targetRegistrationExecutionApi.start).toHaveBeenCalledTimes(1));
   });
 
-  it('starts a prepared composition execution from history without preparing or sending again', async () => {
+  it('starts the prepared composition execution the reader names without preparing or sending again', async () => {
     const prepared = {
       executionId: EXECUTION_ID,
       targetId: TARGET_ID,
@@ -356,7 +483,14 @@ describe('<ChannelOverridesSection />', () => {
       mallKey: 'smartstore',
       mallName: '스마트스토어 본계정',
     }]);
-    vi.mocked(listRegistrationTargetExecutions).mockResolvedValue([prepared]);
+    serveRegistrationState(accountState({
+      state: 'preparing',
+      lastExecution: {
+        id: EXECUTION_ID, kind: 'composition_change', status: 'prepared', providerOutcome: 'not_attempted',
+        createdAt: '2026-09-22T01:02:03.000Z', completedAt: null,
+      },
+    }));
+    vi.mocked(targetRegistrationExecutionApi.get).mockResolvedValue(prepared);
     vi.mocked(targetRegistrationExecutionApi.start).mockResolvedValue({ executionId: EXECUTION_ID, status: 'executing' } as never);
 
     renderSection(compositionProduct, true);
@@ -375,7 +509,6 @@ describe('<ChannelOverridesSection />', () => {
       mallKey: 'smartstore',
       mallName: '스마트스토어 본계정',
     }]);
-    vi.mocked(listRegistrationTargetExecutions).mockResolvedValue([]);
     vi.mocked(targetRegistrationExecutionApi.prepare).mockRejectedValue(new Error('구성 변경 실행이 거절됐습니다.'));
 
     renderSection(compositionProduct, true);
@@ -396,7 +529,6 @@ describe('<ChannelOverridesSection />', () => {
       mallKey: 'smartstore',
       mallName: '스마트스토어 본계정',
     }]);
-    vi.mocked(listRegistrationTargetExecutions).mockResolvedValue([]);
     vi.mocked(targetRegistrationExecutionApi.prepare).mockResolvedValue({ executionId: EXECUTION_ID } as never);
     vi.mocked(targetRegistrationExecutionApi.start).mockRejectedValue(new Error('구성 변경 실행을 시작하지 못했습니다.'));
 

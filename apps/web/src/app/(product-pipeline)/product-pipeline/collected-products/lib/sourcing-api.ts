@@ -1,5 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { kcStatusFromSelectValue, kcStatusSelectValue } from '@/lib/kc-status';
 import { salesProductApi } from '@/lib/sales-product-api';
 import {
   contentWorkspacesApi,
@@ -100,12 +101,14 @@ export interface ProductBasics {
   colorVariantNames: string;
   boxSetStatus: string;
   boxSetQuantity: string;
-  originalPrice: number;
-  salePrice: number;
+  /** 정상가. 정하지 않았으면 null(미정) — 0원이 아니다. */
+  originalPrice: number | null;
+  /** 판매가. 정하지 않았으면 null(미정) — 0원이 아니다. */
+  salePrice: number | null;
   /**
    * `salePrice` 출처. 서버 파생 값이라 읽기 전용이다(수정 API 로 보내지 않는다).
    *   - `input`:   수기 입력값
-   *   - `none`:    입력값 없음. `salePrice` 는 0이다.
+   *   - `none`:    입력값 없음. `salePrice` 는 null(미정)이다.
    * 구버전 응답에는 없을 수 있다.
    */
   salePriceSource?: SalePriceSource;
@@ -375,7 +378,7 @@ function normalizeStringMap(value: unknown): Record<string, string> {
  * `replaceOptions` 로 초안에 직접 간다.
  *
  * 판매가·정상가는 `unused` 가 아닌 옵션 중 가장 싼 값을 쓴다 — 목록 칸(`salePrice`)과
- * 같은 규칙이다. 아직 하나도 가격이 없으면(= draft) 0 이다.
+ * 같은 규칙이다. 아직 하나도 가격이 없으면(= draft) null(미정)이다.
  */
 function productBasicsFromSalesProduct(
   product: SalesProduct,
@@ -401,7 +404,7 @@ function productBasicsFromSalesProduct(
     optionNames: sellingOptions.length > 1
       ? sellingOptions.map((option) => option.values.join(' / ')).filter(Boolean)
       : [],
-    kcCertificationStatus: product.kcStatus === 'unknown' ? '' : product.kcStatus,
+    kcCertificationStatus: kcStatusSelectValue(product.kcStatus),
     kcCertificationNumber: certification?.number ?? '',
     kcCertificationImageUrl: certification?.imageUrl ?? '',
     productSize: product.productSize ?? '',
@@ -409,8 +412,8 @@ function productBasicsFromSalesProduct(
     colorVariantNames: product.colorVariantNames.join(', '),
     boxSetStatus: product.boxSetQuantity ? 'set' : '',
     boxSetQuantity: product.boxSetQuantity != null ? String(product.boxSetQuantity) : '',
-    originalPrice: cheapest?.normalPrice ?? 0,
-    salePrice: cheapest?.salePrice ?? 0,
+    originalPrice: cheapest?.normalPrice ?? null,
+    salePrice: cheapest?.salePrice ?? null,
     salePriceSource: cheapest ? 'input' : 'none',
     discountRate: 0,
     costPrice: 0,
@@ -651,9 +654,7 @@ export function salesProductUpdateInputFromBasics(
   input: UpdateProductBasicsInput,
   expectedVersion: number,
 ): SalesProductUpdateInput {
-  const kcStatus = input.kcCertificationStatus === 'exists' || input.kcCertificationStatus === 'none'
-    ? input.kcCertificationStatus
-    : 'unknown';
+  const kcStatus = kcStatusFromSelectValue(input.kcCertificationStatus);
   const certificationNumber = input.kcCertificationNumber?.trim();
   return {
     expectedVersion,
@@ -706,8 +707,32 @@ function normalizeDeliveryFeeType(value: string): SalesProductUpdateInput['deliv
   return types.find((type) => type === value) ?? null;
 }
 
+/** basics 폼에서 바뀐 가격. 칸이 없으면 그 가격은 손대지 않는다. null 은 '미정으로 되돌림'이다. */
+export interface BasicsPriceChange {
+  salePrice?: number | null;
+  normalPrice?: number | null;
+}
+
 /**
- * basics 폼의 판매가·정상가를 초안의 판매(selling) 옵션 전체에 싣는다.
+ * 폼 가격 중 불러온 값과 다른 것만 바뀐 가격으로 본다(KID-310 b). 폼의 빈 칸(0)은 미정(null)과 같다 —
+ * 판매가만 고쳤는데 정상가까지 보내 null 로 지우지 않게 한다.
+ */
+export function basicsPriceChange(
+  input: Pick<UpdateProductBasicsInput, 'salePrice' | 'originalPrice'>,
+  current: { salePrice: number | null; originalPrice: number | null },
+): BasicsPriceChange {
+  const change: BasicsPriceChange = {};
+  if (input.salePrice !== undefined && (input.salePrice || null) !== current.salePrice) {
+    change.salePrice = input.salePrice || null;
+  }
+  if (input.originalPrice !== undefined && (input.originalPrice || null) !== current.originalPrice) {
+    change.normalPrice = input.originalPrice || null;
+  }
+  return change;
+}
+
+/**
+ * basics 폼에서 바뀐 가격만 초안의 판매(selling) 옵션 전체에 싣는다. 바꾸지 않은 가격은 옵션 값 그대로다.
  *
  * 옵션마다 다른 가격을 매기는 것은 옵션 표의 일이다 — 이 폼은 "옵션이 아직 하나"인
  * 상품(대개 수집 직후)을 위한 빠른 저장이라 모든 판매 옵션에 같은 값을 적용한다.
@@ -715,12 +740,18 @@ function normalizeDeliveryFeeType(value: string): SalesProductUpdateInput['deliv
  */
 export async function applyBasicsPriceToSalesProduct(
   salesProductId: string,
-  salePrice: number,
-  normalPrice: number,
+  change: BasicsPriceChange,
 ): Promise<void> {
+  if (change.salePrice === undefined && change.normalPrice === undefined) return;
   const product = await salesProductApi.get(salesProductId);
-  const unchanged = product.options.every((option) => option.supplyStatus === 'unused'
-    || (option.salePrice === (salePrice || null) && option.normalPrice === (normalPrice || null)));
+  const next = (option: SalesProduct['options'][number]) => ({
+    salePrice: option.supplyStatus === 'unused' || change.salePrice === undefined ? option.salePrice : change.salePrice,
+    normalPrice: option.supplyStatus === 'unused' || change.normalPrice === undefined ? option.normalPrice : change.normalPrice,
+  });
+  const unchanged = product.options.every((option) => {
+    const prices = next(option);
+    return option.salePrice === prices.salePrice && option.normalPrice === prices.normalPrice;
+  });
   if (unchanged) return;
   await salesProductApi.replaceOptions(salesProductId, {
     expectedVersion: product.version,
@@ -731,8 +762,7 @@ export async function applyBasicsPriceToSalesProduct(
       values: option.values,
       alias: option.alias,
       barcode: option.barcode,
-      salePrice: option.supplyStatus === 'unused' ? option.salePrice : (salePrice || null),
-      normalPrice: option.supplyStatus === 'unused' ? option.normalPrice : (normalPrice || null),
+      ...next(option),
       supplyStatus: option.supplyStatus,
       safetyStock: option.safetyStock,
       components: option.components.map((component) => ({

@@ -28,7 +28,8 @@ export interface OptionRowDraft {
   values: string[];
   alias: string;
   barcode: string;
-  salePrice: number;
+  /** 판매가. 아직 정하지 않은 초안 옵션은 null(미정)이고, 편집기를 열었다고 0원이 되지 않는다. */
+  salePrice: number | null;
   normalPrice: number | null;
   supplyStatus: SalesProductOptionSupplyStatus;
   safetyStock: number | null;
@@ -46,7 +47,7 @@ export interface OptionTableDraft {
 export const BASIC_FIELDS = [
   'name', 'shortName', 'ownCode', 'modelName', 'modelNo', 'brand', 'manufacturer', 'originCountry',
   'taxType', 'deliveryFeeType', 'deliveryFee', 'keywords', 'imageUrls',
-  'noticeCategory', 'noticeValues', 'certifications', 'adminMemo',
+  'noticeCategory', 'noticeValues', 'certifications', 'kcStatus', 'adminMemo',
   // KID-310: 수집·직접 작성 초안이 채우는 칸(전에는 후보에만 있었다).
   'description', 'targetAudience', 'ageGroup', 'productSize', 'colorVariantNames', 'boxSetQuantity',
 ] as const;
@@ -65,10 +66,9 @@ export function basicsFromProduct(product: SalesProduct): BasicsDraft {
 
 export function optionsFromProduct(product: SalesProduct): OptionTableDraft {
   const activeOptions = product.options.filter((option) => option.supplyStatus !== 'unused');
-  // 판매가를 아직 정하지 않은 초안 옵션(null)은 0으로 편집을 시작한다 — 입력칸의 빈 값과 같은 뜻이다.
-  const baseSalePrice = activeOptions.length > 0
-    ? Math.min(...activeOptions.map((option) => option.salePrice ?? 0))
-    : 0;
+  // 기준가는 가격을 정한 판매 옵션 중 가장 싼 값이다. 아직 정하지 않은 옵션(null)은 기준에 넣지 않고 null 로 둔다.
+  const pricedActive = activeOptions.flatMap((option) => option.salePrice === null ? [] : [option.salePrice]);
+  const baseSalePrice = pricedActive.length > 0 ? Math.min(...pricedActive) : 0;
   return {
     axes: [...product.optionAxes],
     baseSalePrice,
@@ -79,7 +79,7 @@ export function optionsFromProduct(product: SalesProduct): OptionTableDraft {
       values: [...option.values],
       alias: option.alias ?? '',
       barcode: option.barcode ?? '',
-      salePrice: option.salePrice ?? 0,
+      salePrice: option.salePrice,
       normalPrice: option.normalPrice,
       supplyStatus: option.supplyStatus,
       safetyStock: option.safetyStock,
@@ -98,7 +98,8 @@ export function setBaseSalePrice(draft: OptionTableDraft, nextBase: number): Opt
     baseSalePrice: base,
     rows: draft.rows.map((row) => row.supplyStatus === 'unused'
       ? row
-      : { ...row, salePrice: Math.max(0, row.salePrice + delta) }),
+      // 미정(null) 줄은 사람이 기준가를 정할 때 그 기준가로 정해진다.
+      : { ...row, salePrice: row.salePrice === null ? base : Math.max(0, row.salePrice + delta) }),
   };
 }
 
@@ -115,8 +116,9 @@ export function setOptionExtraPrice(
   };
 }
 
-export function optionExtraPrice(row: OptionRowDraft, draft: OptionTableDraft): number {
-  return row.salePrice - draft.baseSalePrice;
+/** 기준가 대비 추가금액. 판매가가 미정(null)인 줄은 추가금액도 없다(null). */
+export function optionExtraPrice(row: OptionRowDraft, draft: OptionTableDraft): number | null {
+  return row.salePrice === null ? null : row.salePrice - draft.baseSalePrice;
 }
 
 export function commonNormalPrice(draft: OptionTableDraft): { value: number | null; mixed: boolean } {
@@ -222,7 +224,7 @@ export function emptyRow(
     values,
     alias: '',
     barcode: '',
-    salePrice: defaults.salePrice ?? 0,
+    salePrice: defaults.salePrice ?? null,
     normalPrice: defaults.normalPrice ?? null,
     supplyStatus: 'selling',
     safetyStock: null,

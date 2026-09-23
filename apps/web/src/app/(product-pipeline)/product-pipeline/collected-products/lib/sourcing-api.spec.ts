@@ -4,6 +4,7 @@ import { ApiError } from '@/lib/api-error';
 import { SalesProductSchema } from '@kiditem/shared/sales-product';
 import {
   applyBasicsPriceToSalesProduct,
+  basicsPriceChange,
   composeProductDetail,
   salesProductGenerationApi,
   productsApi,
@@ -268,7 +269,7 @@ describe('sourcing API', () => {
 
       const detail = await productsApi.getDetail(DRAFT_ID);
 
-      expect(detail.basicInfo.salePrice).toBe(0);
+      expect(detail.basicInfo.salePrice).toBeNull();
       expect(detail.basicInfo.salePriceSource).toBe('none');
     });
 
@@ -349,6 +350,47 @@ describe('sourcing API', () => {
     });
   });
 
+  it('판매가만 고치면 정상가는 그대로 둔다 — 고치지 않은 가격을 null 로 지우지 않는다(KID-310 b)', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture({
+      version: 2,
+      options: [{
+        id: '30000000-0000-4000-8000-000000000001', optionCode: null, values: [], optionKey: '', alias: null, barcode: null,
+        salePrice: 5000, normalPrice: 12900, supplyStatus: 'selling', safetyStock: null,
+        sortOrder: 0, components: [], linkedChannelOptionCount: 0,
+      }],
+    }));
+    vi.mocked(apiClient.put).mockResolvedValueOnce(salesProductDraftFixture({ version: 3 }));
+
+    await applyBasicsPriceToSalesProduct('sp-1', { salePrice: 9900 });
+
+    expect(apiClient.put).toHaveBeenCalledWith('/api/products/sales-products/sp-1/options', expect.objectContaining({
+      options: [expect.objectContaining({ salePrice: 9900, normalPrice: 12900 })],
+    }));
+  });
+
+  it('폼 가격 중 불러온 값과 다른 것만 바뀐 가격으로 본다', () => {
+    expect(basicsPriceChange({ salePrice: 9900, originalPrice: 12900 }, { salePrice: 5000, originalPrice: 12900 }))
+      .toEqual({ salePrice: 9900 });
+    expect(basicsPriceChange({ salePrice: 0, originalPrice: 0 }, { salePrice: null, originalPrice: null })).toEqual({});
+    expect(basicsPriceChange({ salePrice: 0 }, { salePrice: 5000, originalPrice: null })).toEqual({ salePrice: null });
+  });
+
+  it('정해지지 않은 판매가는 0원이 아니라 비어 있다(미정)', () => {
+    const detail = composeProductDetail(
+      SalesProductSchema.parse(salesProductDraftFixture({
+        options: [{
+          id: '30000000-0000-4000-8000-000000000001', optionCode: null, values: [], optionKey: '', alias: null, barcode: null,
+          salePrice: null, normalPrice: null, supplyStatus: 'selling', safetyStock: null,
+          sortOrder: 0, components: [], linkedChannelOptionCount: 0,
+        }],
+      })),
+      null,
+      { registrationImages: { primary: [], thumbnail: [], detail: [] }, currentThumbnail: null },
+    );
+    expect(detail.basicInfo.salePrice).toBeNull();
+    expect(detail.basicInfo.originalPrice).toBeNull();
+  });
+
   it('가격이 같으면 옵션을 다시 쓰지 않는다', async () => {
     vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture({
       version: 2,
@@ -359,7 +401,7 @@ describe('sourcing API', () => {
       }],
     }));
 
-    await applyBasicsPriceToSalesProduct('sp-1', 9900, 0);
+    await applyBasicsPriceToSalesProduct('sp-1', { salePrice: 9900 });
 
     expect(apiClient.put).not.toHaveBeenCalled();
   });
@@ -375,7 +417,7 @@ describe('sourcing API', () => {
     }));
     vi.mocked(apiClient.put).mockResolvedValueOnce(salesProductDraftFixture({ version: 3 }));
 
-    await applyBasicsPriceToSalesProduct('sp-1', 9900, 12900);
+    await applyBasicsPriceToSalesProduct('sp-1', { salePrice: 9900, normalPrice: 12900 });
 
     expect(apiClient.put).toHaveBeenCalledWith('/api/products/sales-products/sp-1/options', {
       expectedVersion: 2,
