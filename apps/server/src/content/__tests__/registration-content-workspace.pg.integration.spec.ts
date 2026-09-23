@@ -304,6 +304,19 @@ describe('registration content workspace (PG integration)', () => {
     })).rejects.toThrow('Selected detail revision is not source-owned.');
   });
 
+  it('rejects a detail-page photo of the source workspace as the selected thumbnail', async () => {
+    const own = await ensureWorkspace();
+    const detailPhoto = await prisma.contentAsset.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: own.workspaceId, source: 'upload',
+      assetKey: `test:${randomUUID()}`, url: 'https://cdn.example.com/detail.jpg', assetType: 'image', role: 'detail_image',
+    } });
+
+    await expect(content.validateSourceSelections(null, {
+      organizationId: TEST_ORGANIZATION_ID, sourceWorkspaceId: own.workspaceId,
+      selectedThumbnailAssetId: detailPhoto.id, selectedDetailPageRevisionId: null,
+    })).rejects.toThrow('Selected thumbnail asset is not source-owned.');
+  });
+
   it('waits for the selected asset lock and rejects an asset deleted meanwhile', async () => {
     const { workspaceId } = await ensureWorkspace();
     const assetId = await createWorkspaceAsset(prisma, workspaceId, 'https://cdn.example.com/selected.jpg');

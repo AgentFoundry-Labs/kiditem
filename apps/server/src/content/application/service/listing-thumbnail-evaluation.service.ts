@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { ImageSpec } from '@kiditem/shared/ai';
 import type { ListingThumbnailEvaluationSummary } from '@kiditem/shared/product-content';
 import type {
@@ -44,7 +44,9 @@ export class ListingThumbnailEvaluationService implements ListingThumbnailEvalua
       { model: modelId },
     );
     const quality = results.get(input.channelListingId);
-    const score = clampScore(quality?.overallScore ?? 0);
+    // 점수 없는 응답을 0점(F)으로 적으면 (리스팅, URL) 열쇠 때문에 다시 평가되지 않는다 — 적지 않고 다시 시도하게 한다.
+    if (!quality) throw new ServiceUnavailableException('The vision model returned no score for this image. Try again.');
+    const score = clampScore(quality.overallScore);
     return this.repository.insert({
       organizationId: input.organizationId,
       channelListingId: input.channelListingId,
@@ -52,9 +54,9 @@ export class ListingThumbnailEvaluationService implements ListingThumbnailEvalua
       grade: gradeForScore(score),
       score,
       details: {
-        scores: quality?.scores ?? null,
-        issues: quality?.issues ?? [],
-        suggestions: quality?.suggestions ?? [],
+        scores: quality.scores ?? null,
+        issues: quality.issues ?? [],
+        suggestions: quality.suggestions ?? [],
       },
       method: 'vision_model',
       modelId,

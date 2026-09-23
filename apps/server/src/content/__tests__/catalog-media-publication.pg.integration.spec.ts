@@ -709,7 +709,9 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         },
       },
     });
-    await adopt(workspace.id, detail.id);
+    // 운영자는 이제 상세 사진을 대표이미지로 고를 수 없다(W3 리뷰 S3) — 이 테스트가 보는 것은 고른 자산이 원천에서
+    // 빠져도 옵션 remap 을 받는지이므로, 그 포인터만 직접 둔다.
+    await prisma.contentWorkspace.update({ where: { id: workspace.id }, data: { currentThumbnailAssetId: detail.id } });
     const manual = await prisma.contentAsset.create({
       data: {
         organizationId: ORG,

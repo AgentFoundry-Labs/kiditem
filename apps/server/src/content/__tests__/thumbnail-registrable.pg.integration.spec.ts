@@ -91,6 +91,18 @@ describe('registrable thumbnail (PostgreSQL)', () => {
       .resolves.toBeNull();
   });
 
+  it('refuses a detail-page photo of the same workspace as the representative image', async () => {
+    const { salesProductId, workspace } = await productWorkspace();
+    for (const role of ['detail_source', 'detail_image']) {
+      const detail = await prisma.contentAsset.create({ data: {
+        organizationId: ORG, contentWorkspaceId: workspace.id, source: 'upload', assetKey: `${role}:${randomUUID()}`,
+        url: 'https://storage.example.com/detail.png', role,
+      } });
+      await expect(service.readRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: detail.id }))
+        .rejects.toBeInstanceOf(BadRequestException);
+    }
+  });
+
   it('keeps the read inside one organization', async () => {
     const { salesProductId, workspace, asset } = await productWorkspace(OTHER_ORGANIZATION_ID);
     const upload = await asset('upload', PNG_DATA_URL);

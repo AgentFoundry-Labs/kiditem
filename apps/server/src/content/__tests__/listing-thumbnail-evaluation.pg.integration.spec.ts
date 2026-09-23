@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -90,6 +90,19 @@ describe('listing thumbnail evaluation (PG integration)', () => {
     expect(again).toEqual(first);
     expect(vision.calls).toEqual([{ model: 'vision-model-x', parts: 2 }]);
     await expect(prisma.listingThumbnailEvaluation.count()).resolves.toBe(1);
+  });
+
+  it('stores nothing and answers 503 when the provider returns no score for the image', async () => {
+    const silent = fakeVisionProvider(() => 85);
+    silent.provider.callVisionForJsonArray = async <T,>() => [] as T[];
+    const empty = new ListingThumbnailEvaluationService(
+      new ListingThumbnailEvaluationRepositoryAdapter(prisma as unknown as PrismaService),
+      new ThumbnailVisionAiService(silent.provider, { complianceParts: () => [] } as never, {} as never),
+    );
+
+    await expect(empty.evaluate({ organizationId: ORG, channelListingId: randomUUID(), imageUrl: 'https://mall/a.jpg', modelId: 'vision-model-x' }))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+    await expect(prisma.listingThumbnailEvaluation.count()).resolves.toBe(0);
   });
 
   it('writes a new row when the mall shows a new image and keeps the old evaluation', async () => {

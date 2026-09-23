@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { representativeAssetWhere } from './representative-asset';
 import type { RegistrableThumbnailRepositoryPort } from '../../../application/port/out/repository/registrable-thumbnail.repository.port';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class RegistrableThumbnailRepositoryAdapter implements RegistrableThumbna
       },
       select: {
         id: true,
+        ownerType: true,
         currentThumbnailAsset: { select: { id: true, url: true, isDeleted: true } },
       },
     });
@@ -27,6 +29,7 @@ export class RegistrableThumbnailRepositoryAdapter implements RegistrableThumbna
           organizationId: input.organizationId,
           contentWorkspaceId: workspace.id,
           isDeleted: false,
+          ...representativeAssetWhere(workspace.ownerType),
         },
         select: { id: true, url: true },
       });

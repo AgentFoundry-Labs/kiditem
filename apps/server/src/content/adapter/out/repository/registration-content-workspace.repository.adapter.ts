@@ -1,3 +1,4 @@
+import { isRepresentativeAsset } from './representative-asset';
 import {
   BadRequestException,
   ConflictException,
@@ -377,9 +378,11 @@ async function assertOwnedThumbnailAsset(
 ): Promise<void> {
   const asset = await tx.contentAsset.findFirst({
     where: { id: assetId, organizationId, contentWorkspaceId: workspaceId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, role: true, source: true, contentWorkspace: { select: { ownerType: true } } },
   });
-  if (!asset) throw new BadRequestException('Selected thumbnail asset is not source-owned.');
+  if (!asset || !isRepresentativeAsset(asset.contentWorkspace.ownerType, asset)) {
+    throw new BadRequestException('Selected thumbnail asset is not source-owned.');
+  }
 }
 
 async function findOwnedRevision(

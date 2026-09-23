@@ -1,3 +1,4 @@
+import { isRepresentativeAsset } from './representative-asset';
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { ContentAssetSource } from '@kiditem/shared/product-content';
@@ -232,8 +233,8 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       if (!await lockActiveWorkspace(tx, input.organizationId, input.contentWorkspaceId)) {
         throw new NotFoundException('Content workspace not found.');
       }
-      const owned = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT id
+      const owned = await tx.$queryRaw<Array<{ id: string; role: string | null; source: string }>>(Prisma.sql`
+        SELECT id, role, source
         FROM content_assets
         WHERE id = ${input.assetId}::uuid
           AND organization_id = ${input.organizationId}::uuid
@@ -241,7 +242,11 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
           AND is_deleted = false
         FOR UPDATE
       `);
-      if (owned.length !== 1) {
+      const workspace = await tx.contentWorkspace.findFirstOrThrow({
+        where: { id: input.contentWorkspaceId, organizationId: input.organizationId },
+        select: { ownerType: true },
+      });
+      if (owned.length !== 1 || !isRepresentativeAsset(workspace.ownerType, owned[0]!)) {
         throw new BadRequestException('The asset is not an image of this content workspace.');
       }
       await tx.contentWorkspace.updateMany({

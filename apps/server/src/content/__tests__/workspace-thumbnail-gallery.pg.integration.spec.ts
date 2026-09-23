@@ -181,6 +181,29 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     expect(workspaces.map((row) => row.currentThumbnailAssetId)).toEqual([null, null]);
   });
 
+  it('adopts only thumbnail assets, plus the catalog primary photo of a listing workspace', async () => {
+    const own = await seedDraftWorkspace();
+    const listingWorkspace = await prisma.contentWorkspace.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, ownerType: 'channel_listing', channelListingId: randomUUID() },
+    });
+    const photo = (contentWorkspaceId: string, role: string, source = 'upload') => prisma.contentAsset.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId, source, assetKey: `${role}:${randomUUID()}`,
+      url: `https://cdn.example.com/${role}.png`, role,
+    } });
+    const adopt = (contentWorkspaceId: string, assetId: string) => service.adoptCurrentThumbnail({
+      organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId, assetId,
+    });
+
+    for (const role of ['detail_source', 'detail_image']) {
+      await expect(adopt(own.workspaceId, (await photo(own.workspaceId, role)).id)).rejects.toBeInstanceOf(BadRequestException);
+    }
+    await expect(adopt(own.workspaceId, (await photo(own.workspaceId, 'primary', 'catalog')).id)).rejects.toBeInstanceOf(BadRequestException);
+    const catalogPrimary = await photo(listingWorkspace.id, 'primary', 'catalog');
+    await expect(adopt(listingWorkspace.id, catalogPrimary.id)).resolves.toMatchObject({ id: catalogPrimary.id });
+    await expect(adopt(listingWorkspace.id, (await photo(listingWorkspace.id, 'detail', 'catalog')).id)).rejects.toBeInstanceOf(BadRequestException);
+    expect((await prisma.contentWorkspace.findUniqueOrThrow({ where: { id: own.workspaceId } })).currentThumbnailAssetId).toBeNull();
+  });
+
   it('reads the saved preview list back in order and replaces rather than appends', async () => {
     const { salesProductId, workspaceId } = await seedDraftWorkspace();
     await saveGallery(workspaceId, [
