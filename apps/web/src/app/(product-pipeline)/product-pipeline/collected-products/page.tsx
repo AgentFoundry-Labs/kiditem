@@ -32,25 +32,22 @@ import {
   useStartedGenerationProgress,
   type StartedGeneration,
 } from './hooks/useStartedGenerationProgress';
-import { useWingRegistrationPreparation } from './hooks/useWingRegistrationPreparation';
-import { registrationExecutionApi } from '../../../(channels)/_shared/registration-execution-api';
 import {
   searchSellpiaInventorySkus,
   salesProductGenerationApi,
   type SalesProductGenerationTask,
 } from './lib/sourcing-api';
-import WingRegistrationConfirmDialog from './components/wing/WingRegistrationConfirmDialog';
+import { getMallPublishAdapter } from '../../../(channels)/_shared/adapters';
 import {
   downloadWingExcel,
   generateWingExcelForSalesProducts,
-  isConfirmedWingRegistration,
-  submitWingRegistration,
-  translateWingError,
-  waitForRegisteredListing,
-  type WingRegistrationDraft,
-  type WingRegistrationOverrides,
-  type WingSellpiaSelection,
-} from './lib/wing-registration-flow';
+} from '../../../(channels)/_shared/adapters/coupang-wing/wing-excel-export';
+import {
+  RegistrationConfirmDialog,
+  type RegistrationConfirmation,
+} from '../../../(channels)/_shared/RegistrationConfirmDialog';
+import { useMallPublishRun } from '../../../(channels)/_shared/use-mall-publish-run';
+import { registrationRunNotice } from './lib/registration-run-notice';
 import { MallQuickRegisterRows } from './components/MallQuickRegisterRows';
 import { useMallQuickRegister } from './hooks/useMallQuickRegister';
 import {
@@ -78,18 +75,12 @@ export default function SourcingPage() {
   const [startedGenerations, setStartedGenerations] = useState<StartedGeneration[]>([]);
   const startedProgress = useStartedGenerationProgress(startedGenerations);
   const [wingGenerating, setWingGenerating] = useState(false);
-  // 등록 확인 모달의 초안. `null` 이면 모달이 닫혀 있다. 초안이 있다는 것은
-  // 카테고리 추론과 상세설명 렌더가 이미 성공했다는 뜻이다.
-  const [wingDraft, setWingDraft] = useState<WingRegistrationDraft | null>(null);
-  const [wingSubmitting, setWingSubmitting] = useState(false);
-  const [wingSubmissionError, setWingSubmissionError] = useState<string | null>(null);
-  const wingPreparation = useWingRegistrationPreparation({
-    onReady: (draft) => {
-      setWingSubmissionError(null);
-      setWingDraft(draft);
-    },
-    onError: (message) => toast.error(message),
-  });
+  // 확인 창이 필요한 몰(어댑터 `confirmation`)의 확인 창. `null` 이면 닫혀 있다.
+  const [confirmMallKey, setConfirmMallKey] = useState<string | null>(null);
+  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  // 등록 실행은 등록 마법사와 같은 실행 훅을 쓴다 — 준비 → 시작 → 어댑터 → 결과(KID-321).
+  const publishRun = useMallPublishRun();
 
   // 몰 대량등록: 고른 카드가 곧 판매상품 초안이라 만들 것 없이 그 id 로 창을 연다.
   const [mallSheetSalesProductIds, setMallSheetSalesProductIds] = useState<string[] | null>(null);
@@ -265,123 +256,69 @@ export default function SourcingPage() {
     }
   };
 
-  const wingErrorMessage = (err: unknown, fallback: string): string =>
-    translateWingError(isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback);
+  const errorMessage = (err: unknown, fallback: string): string =>
+    isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback;
 
-  // 모달(단일 작업) = 엑셀이 아니라 WING 상품등록 페이지를 열어 직접 채우는 방식.
-  //
-  // 확장으로 넘기기 전에 등록 확인 모달을 한 번 거친다. 노출상품명·옵션·가격·재고는
-  // WING 폼이 열린 뒤에는 고치기 어려우므로 여기서 확정받는다.
-  const handleModalWingRegister = () => {
-    const ids = [...quickProcessTargetIds];
-    if (ids.length === 0 || wingGenerating || wingPreparation.isPreparing) return;
-    setWingSubmissionError(null);
-    wingPreparation.start(ids[0]);
+  const closeConfirmation = () => {
+    if (confirmSubmitting) return;
+    setConfirmMallKey(null);
+    setConfirmError(null);
   };
 
-  // 사용자가 고친 값(`overrides`)을 그대로 넘긴다. 초안의 원본 payload 를 보내면
-  // 모달이 장식이 된다 — `submitWingRegistration` 이 override 를 반영해 전송한다.
-  const handleWingConfirm = async (
-    overrides: WingRegistrationOverrides,
-    autoSubmit: boolean,
-    channelAccountId: string,
-    sellpiaSelection: WingSellpiaSelection,
-  ) => {
-    if (!wingDraft || wingSubmitting) return;
-    // 등록 실행 울타리는 판매상품 id 로 연다(ADR-0022, KID-310) — 후보 id 가 아니다.
-    const salesProductId = wingDraft.salesProductId;
-    setWingSubmissionError(null);
-    setWingSubmitting(true);
+  // 확인 창의 결정: 폼 채우기는 빠른 등록 훅이, 등록 실행은 등록 마법사와 같은 실행 훅이 맡는다.
+  const handleConfirmation = async (confirmation: RegistrationConfirmation) => {
+    const mallKey = confirmMallKey;
+    const adapter = mallKey ? getMallPublishAdapter(mallKey) : null;
+    if (!mallKey || !adapter || confirmSubmitting) return;
+    setConfirmError(null);
+    setConfirmSubmitting(true);
     try {
-      const result = await submitWingRegistration(
-        wingDraft,
-        overrides,
-        autoSubmit,
-        channelAccountId,
-        sellpiaSelection,
-      );
-      const executionId = result.submission.executionId;
-      if (!executionId) throw new Error('WING 등록 실행 ID를 확인하지 못했습니다.');
-
-      // 신규 등록은 확장이 확인한 WING 계정 증거로 확정한다. 준비 단계에서 이미
-      // 동기화된 리스팅을 찾았다면 서버가 frozen한 내부 리스팅으로 확정한다.
-      if (isConfirmedWingRegistration(result.submission)) {
-        const externalListingId = result.submission.externalListingId;
-        try {
-          await completeExternalWingRegistration({
-            salesProductId,
-            executionId,
-            externalListingId,
-            evidence: result.submission.evidence,
-          });
-        } catch (err) {
-          await registrationExecutionApi.markUnresolved(
-            salesProductId,
-            executionId,
-            { reason: 'completion_failed', message: wingErrorMessage(err, '알 수 없는 오류') },
-          ).catch(() => undefined);
-          toast.warning('쿠팡 등록은 됐지만 등록상품 목록 반영에 실패했어요', {
-            description: `등록상품ID ${externalListingId} — 쿠팡 WING에서 등록 상태를 확인해 주세요. (${wingErrorMessage(err, '알 수 없는 오류')})`,
-          });
-        }
-      } else if (result.submission.attempted) {
-        toast.warning('상품등록 결과를 확인하지 못했어요', {
-          description:
-            result.submission.error
-            ?? '열린 WING 탭에서 등록 여부를 직접 확인해 주세요.',
+      if (!confirmation.submit) {
+        await mallRegister.fillConfirmed(mallKey, {
+          values: confirmation.values,
+          channelAccount: confirmation.channelAccount,
         });
-      } else {
-        toast.success('쿠팡 WING 상품등록 페이지를 열고 자동 입력을 시작했어요', {
-          description:
-            quickProcessTargetIds.length > 1
-              ? '단일 직접 등록은 1개씩 진행됩니다 (첫 상품). 열린 WING 탭에서 확인 후 등록하세요.'
-              : '확인한 값으로 자동 입력됩니다. 열린 WING 탭에서 최종 확인 후 등록하세요.',
-        });
+        setConfirmMallKey(null);
+        return;
       }
-      setWingDraft(null);
-      setWingSubmissionError(null);
+      const item = mallRegister.item;
+      if (!item) throw new Error('보낼 상품을 아직 읽지 못했습니다.');
+      const [task] = await publishRun.start([{
+        id: `${mallKey}#0`,
+        mallKey,
+        mallName: adapter.mallName,
+        channelAccountId: confirmation.channelAccount.id,
+        items: [item],
+        values: confirmation.values,
+        adapterValues: confirmation.adapterValues,
+        status: 'pending',
+        outcome: null,
+        error: null,
+      }]);
+      if (!task) return;
+      const notice = registrationRunNotice(task);
+      const toastOptions = notice.description ? { description: notice.description } : {};
+      if (notice.tone === 'success') toast.success(notice.title, toastOptions);
+      else if (notice.tone === 'warning') toast.warning(notice.title, toastOptions);
+      else toast.error(notice.title, toastOptions);
+      if (notice.tone === 'error') {
+        setConfirmError(notice.description ?? notice.title);
+        return;
+      }
+      setConfirmMallKey(null);
       setQuickProcessModalOpen(false);
       setQuickProcessTargetIds([]);
+      if (notice.registered) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+        router.push(REGISTERED_PRODUCTS_ROOT);
+      }
     } catch (err) {
-      const message = wingErrorMessage(err, '쿠팡 WING 직접 등록에 실패했습니다.');
-      setWingSubmissionError(message);
+      const message = adapter.describeError?.(errorMessage(err, '등록에 실패했습니다.')) ?? errorMessage(err, '등록에 실패했습니다.');
+      setConfirmError(message);
       toast.error(message);
     } finally {
-      setWingSubmitting(false);
+      setConfirmSubmitting(false);
     }
-  };
-
-  const completeExternalWingRegistration = async ({
-    salesProductId,
-    executionId,
-    externalListingId,
-    evidence,
-  }: {
-    salesProductId: string;
-    executionId: string;
-    externalListingId: string;
-    evidence?: Record<string, unknown>;
-  }) => {
-    await registrationExecutionApi.confirm(salesProductId, {
-      executionId,
-      externalListingId,
-      evidence,
-    });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
-    const listed = await waitForRegisteredListing(externalListingId);
-    if (listed) {
-      toast.success('쿠팡에 등록하고 등록상품 목록에 올렸어요', {
-        description: `등록상품ID ${externalListingId} — 등록상품 화면으로 이동합니다.`,
-      });
-      router.push(REGISTERED_PRODUCTS_ROOT);
-    } else {
-      toast.warning('등록은 됐지만 등록상품 목록에서 아직 확인되지 않아요', {
-        description: `등록상품ID ${externalListingId} — 등록상품 화면에서 새로고침해 주세요.`,
-      });
-    }
-    setWingDraft(null);
-    setQuickProcessModalOpen(false);
-    setQuickProcessTargetIds([]);
   };
 
   const setItemSelected = (id: string, isSelected: boolean) => {
@@ -417,7 +354,6 @@ export default function SourcingPage() {
 
   const closeQuickProcessModal = () => {
     if (quickProcessMutation.isPending) return;
-    wingPreparation.cancel();
     setQuickProcessModalOpen(false);
     setQuickProcessTargetIds([]);
   };
@@ -547,11 +483,12 @@ export default function SourcingPage() {
         targetCount={quickProcessTargetIds.length}
         targetProducts={quickProcessTargetProducts}
         isSubmitting={quickProcessMutation.isPending}
-        wingRegistering={wingGenerating || wingPreparation.isPreparing}
-        wingRegisteringMessage={wingPreparation.message}
         onClose={closeQuickProcessModal}
         onConfirm={(task) => quickProcessMutation.mutate({ ids: quickProcessTargetIds, task })}
-        onWingRegister={handleModalWingRegister}
+        onOpenConfirmation={(mallKey) => {
+          setConfirmError(null);
+          setConfirmMallKey(mallKey);
+        }}
         mallRegister={mallRegister}
         mallDetailHref={
           quickProcessTargetIds[0]
@@ -568,16 +505,13 @@ export default function SourcingPage() {
         />
       )}
 
-      <WingRegistrationConfirmDialog
-        draft={wingDraft}
-        isSubmitting={wingSubmitting}
-        submissionError={wingSubmissionError}
-        onCancel={() => {
-          if (wingSubmitting) return;
-          setWingDraft(null);
-          setWingSubmissionError(null);
-        }}
-        onConfirm={handleWingConfirm}
+      <RegistrationConfirmDialog
+        adapter={confirmMallKey ? getMallPublishAdapter(confirmMallKey) : null}
+        salesProductId={quickProcessTargetIds[0] ?? null}
+        isSubmitting={confirmSubmitting}
+        submissionError={confirmError}
+        onCancel={closeConfirmation}
+        onConfirm={(confirmation) => { void handleConfirmation(confirmation); }}
         onSearchSellpia={searchSellpiaInventorySkus}
       />
     </div>
@@ -590,11 +524,9 @@ function QuickProcessSelectedDialog({
   targetCount,
   targetProducts,
   isSubmitting,
-  wingRegistering,
-  wingRegisteringMessage,
   onClose,
   onConfirm,
-  onWingRegister,
+  onOpenConfirmation,
   mallRegister,
   mallDetailHref,
 }: {
@@ -602,11 +534,10 @@ function QuickProcessSelectedDialog({
   targetCount: number;
   targetProducts: Array<{ id: string; name: string; thumbnailUrl: string | null }>;
   isSubmitting: boolean;
-  wingRegistering: boolean;
-  wingRegisteringMessage: string | null;
   onClose: () => void;
   onConfirm: (task: SalesProductGenerationTask) => void;
-  onWingRegister: () => void;
+  /** 확인 창이 필요한 몰을 눌렀다. 화면이 그 몰의 확인 창을 연다. */
+  onOpenConfirmation: (mallKey: string) => void;
   mallRegister: ReturnType<typeof useMallQuickRegister>;
   mallDetailHref: string | null;
 }) {
@@ -702,9 +633,7 @@ function QuickProcessSelectedDialog({
           </div>
 
           <div className="mt-3 border-t border-slate-100 pt-3">
-            {/* 쿠팡 WING 도 같은 줄로 선다. 예전에는 혼자 주황색 큰 버튼이었는데
-                실제로 다른 것은 마지막 확인 한 단계뿐이라, 그 사실만 줄 안에 적고
-                생김새는 나머지 몰과 같게 뒀다. */}
+            {/* 확인 창이 필요한 몰(쿠팡 WING)도 같은 줄로 선다. 다른 것은 누르면 확인 창이 뜬다는 것뿐이다. */}
             <MallQuickRegisterRows
               readiness={mallRegister.readiness}
               results={mallRegister.results}
@@ -713,22 +642,17 @@ function QuickProcessSelectedDialog({
               disabled={targetCount === 0 || isSubmitting}
               detailHref={mallDetailHref}
               targetCount={targetCount}
-              wing={{
-                row: mallRegister.wingReadiness,
-                busy: wingRegistering,
-                busyLabel: wingRegisteringMessage ?? '등록 준비 중',
-                result: null,
-              }}
+              confirmationMallKeys={mallRegister.confirmationMallKeys}
               onRunOne={(mallKey) => {
-                if (mallKey === mallRegister.wingReadiness.mallKey) onWingRegister();
+                if (mallRegister.confirmationMallKeys.includes(mallKey)) onOpenConfirmation(mallKey);
                 else void mallRegister.runMalls([mallKey]);
               }}
               onRunSelected={async (mallKeys) => {
-                // 폼 몰을 먼저 다 채우고 쿠팡을 마지막에 연다. 확인 창이 떠 있는 채로
+                // 폼 몰을 먼저 다 채우고 확인 창을 마지막에 연다. 확인 창이 떠 있는 채로
                 // 뒤에서 탭이 열리면 사람이 어느 창을 보는지 알 수 없다.
-                const wingKey = mallRegister.wingReadiness.mallKey;
-                await mallRegister.runMalls(mallKeys.filter((key) => key !== wingKey));
-                if (mallKeys.includes(wingKey)) onWingRegister();
+                const confirmKeys = mallKeys.filter((key) => mallRegister.confirmationMallKeys.includes(key));
+                await mallRegister.runMalls(mallKeys.filter((key) => !confirmKeys.includes(key)));
+                if (confirmKeys[0]) onOpenConfirmation(confirmKeys[0]);
               }}
             />
           </div>

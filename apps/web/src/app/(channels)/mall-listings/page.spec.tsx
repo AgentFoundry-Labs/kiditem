@@ -143,7 +143,7 @@ vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registra
   fillKidsnoteRegistrationForm: fillKidsnoteMock,
 }));
 
-vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow', () => ({
+vi.mock('../_shared/adapters/coupang-wing/wing-excel-export', () => ({
   generateWingExcelForSalesProducts: generateWingExcelMock,
   downloadWingExcel: downloadWingExcelMock,
 }));
@@ -194,7 +194,7 @@ function publishTarget(key: string, name: string, channelAccountId: string | nul
 }
 
 const publishTargets = [
-  publishTarget('coupang', '쿠팡(마켓플레이스)', null),
+  publishTarget('coupang', '쿠팡(마켓플레이스)', '99999999-9999-4999-8999-999999999999'),
   publishTarget('kidsnote', '키즈노트', '11111111-1111-4111-8111-111111111111'),
 ];
 
@@ -206,6 +206,12 @@ function goToWizard(source: 'candidate' | 'sales_product' = 'candidate') {
 
 function selectProduct(name: string) {
   fireEvent.click(screen.getByRole('checkbox', { name: `${name} 선택` }));
+}
+
+/** 쿠팡 WING 은 카테고리를 골라야 보낼 수 있다 — 값 단계에서 그 몰을 열어 고른다. */
+function pickWingCategory() {
+  fireEvent.click(screen.getByRole('button', { name: /^쿠팡 WING/ }));
+  fireEvent.change(screen.getByDisplayValue('카테고리를 선택하세요'), { target: { value: '64687' } });
 }
 
 function goNext() {
@@ -320,18 +326,17 @@ describe('상품 등록 (N × M)', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
+    pickWingCategory();
 
-    fireEvent.click(screen.getByRole('button', { name: /4건 보내기/ }));
+    fireEvent.click(screen.getByRole('button', { name: /4건 등록 실행/ }));
 
+    // 쿠팡 WING 도 폼 몰이다(KID-321) — 몰마다 상품 1건씩, 모두 등록 대상 실행을 지난다. 엑셀을 만들지 않는다.
     await waitFor(() => {
-      expect(executeTargetMock).toHaveBeenCalledTimes(2);
+      expect(executeTargetMock).toHaveBeenCalledTimes(4);
     });
-    // 엑셀은 파일 하나에 2건, 폼은 1건씩 2번. 작업은 3개다.
-    expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
-    // 수집상품 항목도 판매상품 초안 id 로 엑셀을 만든다(KID-310).
-    expect(generateWingExcelMock).toHaveBeenCalledWith(['sp-c1', 'sp-c2'], expect.anything());
-    expect(downloadWingExcelMock).toHaveBeenCalledTimes(1);
-    expect(resolveTargetMock).toHaveBeenCalledTimes(2);
+    expect(generateWingExcelMock).not.toHaveBeenCalled();
+    expect(downloadWingExcelMock).not.toHaveBeenCalled();
+    expect(resolveTargetMock).toHaveBeenCalledTimes(4);
   });
 
   it('보냈다고 등록됐다고 말하지 않는다', async () => {
@@ -341,7 +346,7 @@ describe('상품 등록 (N × M)', () => {
     goNext();
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
-    fireEvent.click(screen.getByRole('button', { name: /1건 보내기/ }));
+    fireEvent.click(screen.getByRole('button', { name: /1건 등록 실행/ }));
 
     await waitFor(() => {
       expect(screen.getByText('결과 확인 필요')).toBeInTheDocument();
@@ -364,12 +369,14 @@ describe('상품 등록 (N × M)', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
-    fireEvent.click(screen.getByRole('button', { name: /2건 보내기/ }));
+    pickWingCategory();
+    fireEvent.click(screen.getByRole('button', { name: /2건 등록 실행/ }));
 
+    // 두 몰 모두 같은 실패를 보이고, 첫 몰의 실패가 둘째 몰을 멈추지 않는다.
     await waitFor(() => {
-      expect(screen.getByText('확장을 새로고침하세요')).toBeInTheDocument();
+      expect(screen.getAllByText('확장을 새로고침하세요')).toHaveLength(2);
     });
-    expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
+    expect(executeTargetMock).toHaveBeenCalledTimes(2);
     // 요약 카드 라벨과 작업 줄의 상태, 둘 다 '실패' 로 나온다.
     expect(screen.getAllByText('실패').length).toBeGreaterThanOrEqual(2);
   });

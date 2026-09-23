@@ -4,65 +4,20 @@ import type { CapabilityDefinition } from "../../../common/capability-definition
 
 const Uuid = z.string().uuid();
 const Identifier = z.string().trim().min(1).max(256);
-const RegistrationReferenceInput = z
-  .object({
-    registrationExecutionId: Uuid,
-    preparationId: Uuid,
-  })
-  .strict();
-const ListingOutput = z
-  .object({
-    preparationId: Uuid,
-    listingId: Uuid.nullable(),
-    status: z.enum(["registered", "failed"]),
-  })
-  .strict();
-
-/** Channels owns browser-confirmed ChannelListing mutation. */
+/** Channels Agent capabilities: target execution and representative-image upload (KID-321). */
 export const CHANNELS_CAPABILITIES = [
   {
-    key: "channels.register_confirmed_listing",
+    key: "channels.submit_representative_image",
     ownerDomain: "channels",
-    ownerInputPort: "channels.registerConfirmedListing",
-    description:
-      "Resolve one frozen registration execution into a local ChannelListing after the marketplace confirmed it. " +
-      "The input names the execution and preparation, the external listing id the mall assigned, and the Wing vendor " +
-      "evidence that proves which account confirmed it; the result is the listing id and registered/failed status. " +
-      "Use it only after channels.report_target_execution recorded a confirmed outcome; it never submits anything " +
-      "and rejects evidence from another vendor or an execution that is not confirmed.",
-    resultSummary: "확정된 판매 상품 등록을 반영했습니다.",
-    inputSchema: RegistrationReferenceInput.extend({
-      externalListingId: Identifier,
-      confirmationEvidence: z
-        .object({
-          wingVendorId: z.string().trim().min(1).max(80),
-          wingIdentitySource: z.enum([
-            "dom:data-vendor-id",
-            "meta:vendor-id",
-            "url:vendorId",
-            "dom:vendor-code-label",
-            "dom:inline-script",
-          ]),
-        })
-        .strict(),
-    }).strict(),
-    outputSchema: ListingOutput,
-    effects: ["db_write"],
-    approvalRisk: "medium",
-    idempotency: "required",
-  },
-  {
-    key: "channels.submit_wing_thumbnail",
-    ownerDomain: "channels",
-    ownerInputPort: "channels.submitWingThumbnail",
+    ownerInputPort: "channels.submitRepresentativeImage",
     description:
       "Put one approved generated thumbnail (by generationId) into the representative-image slot of the product's " +
-      "Coupang Wing edit form. It does not press save: the result is success=false with status " +
-      "awaiting_operator_confirmation and a screenshot path until the operator saves it in Wing and confirms it in " +
-      "the KidItem web app, after which a replay returns success=true with status succeeded. Use it only for a " +
-      "thumbnail the operator already approved; it does not generate images, does not touch other malls, and a " +
-      "rejected or unknown Wing result is not success.",
-    resultSummary: "대표 이미지를 쿠팡 윙 수정 화면에 올렸습니다 — 운영자가 Wing 저장을 확인하면 반영됩니다.",
+      "listing edit form on a channel that supports representative images. It does not press save: the result is " +
+      "success=false with status awaiting_operator_confirmation and a screenshot path until the operator saves it in " +
+      "the mall admin and confirms it in the KidItem web app, after which a replay returns success=true with status " +
+      "succeeded. Use it only for a thumbnail the operator already approved; it does not generate images, and a " +
+      "rejected or unknown mall result is not success.",
+    resultSummary: "대표 이미지를 몰 상품 수정 화면에 올렸습니다 — 운영자가 몰에서 저장을 확인하면 반영됩니다.",
     inputSchema: z.object({ generationId: Identifier }).strict(),
     outputSchema: z
       .object({
@@ -116,8 +71,9 @@ export const CHANNELS_CAPABILITIES = [
     description:
       'Record what the browser observed for one execution: the provider outcome, the external ids it saw, and the ' +
       'frozen payload hash and lease that prove the evidence belongs to this submission. The result is the updated ' +
-      'execution status. A filled form, a timeout or an unknown result is reported as such, not as confirmation; ' +
-      'evidence with a stale hash or lease is refused.',
+      'execution status. A confirmed outcome with the mall\'s evidence (account, admin URL, listing id) is the only ' +
+      'registration confirmation: it links or creates the channel listing. A filled form, a timeout or an unknown ' +
+      'result is reported as such, not as confirmation; evidence with a stale hash or lease is refused.',
     resultSummary: '쇼핑몰의 확인 근거를 실행 기록에 반영했습니다.',
     inputSchema: ReportTargetExecutionInputSchema.extend({ executionId: Uuid }).strict(),
     outputSchema: TargetExecutionResultSchema, effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required',

@@ -235,7 +235,7 @@ describe('v0.1.31:009 backfill capability approval decision (PostgreSQL)', () =>
         gen_random_uuid(),
         ${TEST_ORGANIZATION_ID}::uuid,
         ${TEST_USER_ID}::uuid,
-        'channels.register_confirmed_listing',
+        'channels.report_target_execution',
         'channel_operations',
         ${row.key},
         '{"preparationId":"00000000-0000-4000-8000-000000000004"}'::jsonb,

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { StockoutCheckService } from './stockout-check.service';
+import { ChannelAdapterRegistryAdapter } from '../../../adapter/out/channel/channel-adapter-registry.adapter';
+import { CoupangChannelAdapter } from '../../../adapter/out/channel/coupang/coupang-channel.adapter';
 import type { StockoutSubject } from '../../port/out/persistence/stockout-check.persistence.port';
 import type { ListingAvailabilityExecution, ListingAvailabilitySnapshot } from '@kiditem/shared/sales-product';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
@@ -7,11 +9,12 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 const POLICY = 'capacity_at_or_below_safety_stock' as const;
 const option = (id: string, capacity: number | null = 0) => ({ id, externalOptionId: id, status: 'active', registrationType: 'NORMAL', capacity, safetyStock: 0, compositionUnconfirmed: false });
 const subject = (patch: Partial<StockoutSubject> = {}): StockoutSubject => ({ listingId: 'listing', channelAccountId: 'account', externalListingId: 'external', channel: 'coupang', status: 'active', salesProduct: null, activeExecutions: [], options: [option('a')], ...patch });
+const adapters = new ChannelAdapterRegistryAdapter(new CoupangChannelAdapter({ preflightExternalProductRegistration: vi.fn() }, { isBlocked: () => true, upload: vi.fn() }));
 function fixture(row: StockoutSubject) {
   const readSubjects = vi.fn(async () => [row]);
   const prepareListingAvailability = vi.fn(async () => ({}) as ListingAvailabilityExecution);
   const findListingAvailabilityByKey = vi.fn(async (): Promise<ListingAvailabilityExecution | null> => null);
-  return { service: new StockoutCheckService({ readSubjects }, { prepareListingAvailability, findListingAvailabilityByKey }), readSubjects, prepareListingAvailability, findListingAvailabilityByKey };
+  return { service: new StockoutCheckService({ readSubjects }, { prepareListingAvailability, findListingAvailabilityByKey }, adapters), readSubjects, prepareListingAvailability, findListingAvailabilityByKey };
 }
 function snapshot(row: StockoutSubject, codes = row.options.map(option => option.externalOptionId)): ListingAvailabilitySnapshot {
   return { subject: 'channel_listing', channelListingId: row.listingId, channelAccountId: row.channelAccountId, mallKey: row.channel, externalListingId: row.externalListingId, kind: 'sold_out', stockoutPolicy: POLICY, optionCodes: codes };

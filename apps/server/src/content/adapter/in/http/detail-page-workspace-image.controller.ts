@@ -16,11 +16,12 @@ import { DetailPageClientRenderService } from '../../../application/service/deta
 import {
   FailDetailPageClientRenderDto,
   FinalizeDetailPageClientRenderDto,
+  PrepareDetailPageServerRenderDto,
 } from './dto';
 
 /**
- * 작업공간의 저장된 revision을 서버 Chromium으로 렌더하고 확정 이미지 artifact로 연결한다.
- * Wing 폼 확장은 완성된 이미지 URL만 소비하며 상세페이지 캡처에는 관여하지 않는다.
+ * 작업공간의 저장된 revision(또는 등록 대상이 고른 revision)을 서버 Chromium으로 렌더하고 확정 이미지
+ * artifact로 연결한다. 몰 폼 확장은 완성된 이미지 URL만 소비하며 상세페이지 캡처에는 관여하지 않는다.
  */
 @Controller('ai/detail-page-image')
 export class DetailPageWorkspaceImageController {
@@ -33,11 +34,13 @@ export class DetailPageWorkspaceImageController {
     @Param('contentWorkspaceId', new ParseUUIDPipe()) contentWorkspaceId: string,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
+    @Body() body: PrepareDetailPageServerRenderDto = {},
   ) {
     return this.service.prepare({
       organizationId,
       userId: user.id,
       contentWorkspaceId,
+      detailPageRevisionId: body?.detailPageRevisionId ?? null,
     });
   }
 

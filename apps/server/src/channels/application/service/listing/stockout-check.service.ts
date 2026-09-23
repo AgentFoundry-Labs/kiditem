@@ -1,6 +1,7 @@
 import type { StockoutCheckPort, StockoutCheckResult } from '../../port/in/listing/stockout-check.port';
 import type { StockoutCheckPersistencePort, StockoutSubject } from '../../port/out/persistence/stockout-check.persistence.port';
 import type { RegistrationExecutionRepositoryPort } from '../../port/out/repository/registration-execution.repository.port';
+import type { ChannelAdapter, ChannelAdapterRegistryPort } from '../../port/out/channel/channel-adapter.port';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { ListingAvailabilitySnapshot } from '@kiditem/shared/sales-product';
 import { FactConflictError, FactNotFoundError } from '../../../../common/errors/fact-errors';
@@ -14,10 +15,12 @@ const POLICY = 'capacity_at_or_below_safety_stock' as const;
 /** Explicit stockout coordination; collection and stock recovery do not invoke this service. */
 export class StockoutCheckService implements StockoutCheckPort {
   constructor(private readonly persistence: StockoutCheckPersistencePort,
-    private readonly executions: Pick<RegistrationExecutionRepositoryPort, 'prepareListingAvailability' | 'findListingAvailabilityByKey'>) {}
+    private readonly executions: Pick<RegistrationExecutionRepositoryPort, 'prepareListingAvailability' | 'findListingAvailabilityByKey'>,
+    /** 옵션 단위 몰이 어느 옵션에 판매자 재고를 받는지는 채널 어댑터가 답한다(KID-321). */
+    private readonly adapters: ChannelAdapterRegistryPort) {}
 
   async preview(organizationId: string, listingIds: readonly string[]): Promise<StockoutCheckResult[]> {
-    return (await this.persistence.readSubjects(organizationId, listingIds)).map(subject => evaluate(subject));
+    return (await this.persistence.readSubjects(organizationId, listingIds)).map(subject => evaluate(subject, this.adapters.get(subject.channel)));
   }
 
   async prepare(organizationId: string, userId: string | null, input: { listingId: string; idempotencyKey: string }) {
@@ -33,7 +36,7 @@ export class StockoutCheckService implements StockoutCheckPort {
     }
     const [subject] = await this.persistence.readSubjects(organizationId, [input.listingId]);
     if (!subject) throw new FactNotFoundError('Active channel listing not found.');
-    const result = evaluate(subject);
+    const result = evaluate(subject, this.adapters.get(subject.channel));
     requireEligible(result);
     return this.executions.prepareListingAvailability({
       organizationId,
@@ -55,7 +58,7 @@ export class StockoutCheckService implements StockoutCheckPort {
     }
     const [subject] = await this.persistence.readSubjects(organizationId, [snapshot.channelListingId], transaction);
     if (!subject) throw new FactNotFoundError('Active channel listing not found.');
-    const result = evaluate(subject, executionId);
+    const result = evaluate(subject, this.adapters.get(subject.channel), executionId);
     requireEligible(result);
     if (result.channelAccountId !== snapshot.channelAccountId
       || result.externalListingId !== snapshot.externalListingId
@@ -93,7 +96,7 @@ function confirmedDraftPrice(subject: StockoutSubject): boolean {
   }
 }
 
-function evaluate(subject: StockoutSubject, ownExecutionId?: string): StockoutCheckResult {
+function evaluate(subject: StockoutSubject, adapter: ChannelAdapter, ownExecutionId?: string): StockoutCheckResult {
   const result: StockoutCheckResult = {
     listingId: subject.listingId, channelAccountId: subject.channelAccountId,
     externalListingId: subject.externalListingId, channel: subject.channel,
@@ -118,10 +121,10 @@ function evaluate(subject: StockoutSubject, ownExecutionId?: string): StockoutCh
   }
   const eligible = decisions.filter(({ option, decision }) => decision === 'out_of_stock'
     && !alreadyStopped(option.status) && option.externalOptionId.trim()
-    && (subject.channel !== 'coupang' || option.registrationType === 'NORMAL'));
+    && adapter.availabilityOption(option) === 'sendable');
   if (eligible.length > 0) return { ...result, decision: 'eligible', optionCodes: eligible.map(({ option }) => option.externalOptionId).sort() };
   if (decisions.some(({ option, decision }) => decision === 'unknown' || !option.externalOptionId.trim()
-    || (subject.channel === 'coupang' && option.registrationType === null))) return result;
+    || adapter.availabilityOption(option) === 'unknown')) return result;
   if (decisions.some(({ decision }) => decision === 'in_stock')) return { ...result, decision: 'in_stock' };
   return { ...result, decision: 'unsupported' };
 }

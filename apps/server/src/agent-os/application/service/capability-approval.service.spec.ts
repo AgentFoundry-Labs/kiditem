@@ -139,7 +139,7 @@ function receipt(input: { approvalDecision: 'approved' | 'rejected' | null }) {
     id: INVOCATION_ID,
     organizationId: ORGANIZATION_ID,
     initiatingUserId: USER_ID,
-    capabilityKey: 'channels.register_confirmed_listing',
+    capabilityKey: 'channels.report_target_execution',
     actingAgentKey: 'channel_operations',
     requestKey: 'request-1',
     canonicalInput: { preparationId: '00000000-0000-4000-8000-000000000004' },

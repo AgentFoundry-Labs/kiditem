@@ -203,8 +203,8 @@ describe('domeggookFormFromDraft', () => {
     expect(form.fields[DOMEGGOOK_CHILD_NOTICE_FIELD.색상]).toBe('블루');
   });
 
-  it('제출은 사람이 한다고 항상 알린다', () => {
-    expect(domeggookFormFromDraft(draft()).manualSteps.some((s) => s.includes('자동 제출하지 않습니다')))
+  it('폼만 채웠고 [등록]은 누르지 않았다고 알린다(KID-322)', () => {
+    expect(domeggookFormFromDraft(draft()).manualSteps.some((s) => s.includes('[등록]은 누르지 않았습니다')))
       .toBe(true);
   });
 

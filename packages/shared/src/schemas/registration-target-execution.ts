@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { TARGET_EXECUTION_KINDS } from '../registration-execution.js';
 import { zIsoDate } from './common.js';
 import { SalesProductSchema } from './sales-product.js';
 
-export const TargetExecutionKindSchema = z.enum(['register', 'update', 'sold_out', 'resume', 'composition_change']);
+export const TargetExecutionKindSchema = z.enum(TARGET_EXECUTION_KINDS);
 const OptionTransitionSchema = z.object({
   channelListingOptionId: z.string().uuid(),
   salesProductOptionId: z.string().uuid(),
@@ -48,6 +49,12 @@ export const TargetExecutionSnapshotSchema = z.object({
   }).strict().nullable(),
   /** 등록 대상의 몰 전용 값(`RegistrationMallInputSchema`). 몰 공급가는 `mallFields.supplyPrice` 다. */
   registrationInput: z.record(z.string(), z.unknown()),
+  /**
+   * 준비 순간 채널 어댑터가 얼려 넣는 실행 시점 몰 사실(KID-321) — 쿠팡: 해석된 `wingProduct` ·
+   * Sellpia 매칭 · 기존 몰 상품 · vendorItemCode. 등록 대상에는 저장하지 않는다(대상에 남는 몰 값은
+   * `registrationInput.adapter[channel]` 뿐). 어댑터가 얼릴 것이 없으면 `{}`.
+   */
+  adapterPayload: z.record(z.string(), z.unknown()),
 });
 export type TargetExecutionSnapshot = z.infer<typeof TargetExecutionSnapshotSchema>;
 export const TargetExecutionResultSchema = z.object({

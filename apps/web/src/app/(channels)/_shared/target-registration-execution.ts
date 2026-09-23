@@ -6,6 +6,7 @@ import {
   type MallSendOutcome,
 } from './mall-publish-adapter';
 import { targetRegistrationExecutionApi } from './registration-execution-api';
+import { isApiError } from '@/lib/api-error';
 import type {
   PrepareTargetExecutionInput,
   TargetExecutionResult,
@@ -131,7 +132,7 @@ export function valuesForTargetExecution(
 
 export function itemForTargetExecution(
   snapshot: TargetExecutionSnapshot,
-  execution: Pick<TargetExecutionResult, 'executionId' | 'payloadHash' | 'leaseToken'>,
+  execution: Pick<TargetExecutionResult, 'executionId' | 'payloadHash' | 'leaseToken' | 'expectedProviderAccountId'>,
 ): MallPublishItem {
   const firstOption = snapshot.product.options[0];
   if (!execution.leaseToken) throw new Error('등록 실행 lease가 없습니다. 외부 송신을 시작하지 않았습니다.');
@@ -147,6 +148,7 @@ export function itemForTargetExecution(
       payloadHash: execution.payloadHash,
       leaseToken: execution.leaseToken,
       snapshot,
+      expectedProviderAccountId: execution.expectedProviderAccountId ?? null,
     },
   };
 }
@@ -203,9 +205,11 @@ function reportOutcome(
   adapter: MallPublishAdapter,
   sent: MallSendOutcome,
 ): {
-  outcome: 'not_submitted' | 'uncertain' | 'submitted' | 'awaiting_approval';
+  outcome: 'not_submitted' | 'uncertain' | 'submitted' | 'awaiting_approval' | 'confirmed';
   evidence: {
     externalListingId?: string;
+    providerAccountId?: string;
+    observedUrl?: string;
     observedStatus: string;
     message?: string;
   };
@@ -232,6 +236,18 @@ function reportOutcome(
         observedStatus: 'submission_rejected',
         ...(sent.productNo ? { externalListingId: sent.productNo } : {}),
         ...(sent.error ? { message: sent.error } : {}),
+      },
+    };
+  }
+  // 몰 화면이 새 상품번호와 몰 계정을 보여 줬으면 확인으로 보고한다. 맞는 증거인지는 서버가 판정한다.
+  if (sent.providerEvidence) {
+    return {
+      outcome: 'confirmed',
+      evidence: {
+        externalListingId: sent.providerEvidence.externalListingId,
+        providerAccountId: sent.providerEvidence.providerAccountId,
+        ...(sent.providerEvidence.observedUrl ? { observedUrl: sent.providerEvidence.observedUrl } : {}),
+        observedStatus: 'confirmed',
       },
     };
   }
@@ -328,14 +344,38 @@ export async function executeTargetRegistration(
 
   const sentForDisplay: MallSendOutcome = { ...sent, confirmed: false };
   const report = reportOutcome(input.adapter, sentForDisplay);
-  const reported = await client.report(started.executionId, {
-    leaseToken: started.leaseToken!,
-    payloadHash: started.payloadHash,
-    outcome: report.outcome,
-    evidence: {
-      channelAccountId: started.payload.channelAccountId,
+  const reportWith = (outcome: typeof report.outcome, evidence: typeof report.evidence) =>
+    client.report(started.executionId, {
+      leaseToken: started.leaseToken!,
+      payloadHash: started.payloadHash,
+      outcome,
+      evidence: {
+        channelAccountId: started.payload.channelAccountId,
+        ...evidence,
+      },
+    });
+  try {
+    const reported = await reportWith(report.outcome, report.evidence);
+    return { execution: reported, outcome: sentForDisplay, adapterCalled: true };
+  } catch (error) {
+    // 몰은 받았는데 서버가 자동 확인을 거절하면(409) 같은 증거로 `submitted` 를 다시 보고해
+    // 실행을 재조정 대기로 옮긴다. 몰 상품 id 가 남아 확인 창에서 마무리할 수 있다. 전송 오류는 그대로 던진다.
+    if (report.outcome !== 'confirmed' || !isApiError(error) || error.status !== 409) throw error;
+    const reported = await reportWith('submitted', {
       ...report.evidence,
-    },
-  });
-  return { execution: reported, outcome: sentForDisplay, adapterCalled: true };
+      observedStatus: 'submitted',
+      message: error.detail,
+    });
+    return {
+      execution: reported,
+      outcome: {
+        ...sentForDisplay,
+        ok: false,
+        warnings: [...sentForDisplay.warnings, CONFIRMATION_REJECTED_WARNING],
+      },
+      adapterCalled: true,
+    };
+  }
 }
+
+const CONFIRMATION_REJECTED_WARNING = '몰에는 올라갔지만 확인이 거절됐습니다 — 확인 창에서 마무리하세요';

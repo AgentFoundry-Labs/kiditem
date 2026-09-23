@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type ProductRegistrationExecution } from '@prisma/client';
 import type { OperationStatus, ProviderOutcome } from '@kiditem/shared/registration-execution';
+import { CHANNEL_REGISTRY } from '@kiditem/shared/channel-registry';
 import { THUMBNAIL_UPDATE_EXECUTION_KIND } from '@kiditem/shared/thumbnail-execution';
 import { FactConflictError, FactInputError, FactNotFoundError } from '../../../../common/errors/fact-errors';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -14,7 +15,8 @@ import {
   type ThumbnailUpdatePayload,
 } from '../../../domain/registration/thumbnail-update';
 
-const COUPANG_CHANNEL = 'coupang';
+/** 대표이미지 반영을 지원하는 채널(registry `representativeImage`). 채널 키를 여기 적지 않는다. */
+const REPRESENTATIVE_IMAGE_CHANNELS = CHANNEL_REGISTRY.filter((entry) => entry.representativeImage).map((entry) => entry.key);
 const LIVE_STATUSES = ['prepared', 'executing', 'reconciling'] as const;
 
 /**
@@ -32,26 +34,31 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     salesProductId: string | null;
   }) {
     const activeAccounts = await this.prisma.channelAccount.findMany({
-      where: { organizationId: input.organizationId, channel: COUPANG_CHANNEL, status: 'active' },
-      select: { id: true },
+      where: { organizationId: input.organizationId, channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
+      select: { id: true, channel: true },
       orderBy: { createdAt: 'asc' },
     });
-    const activeCoupangAccountIds = activeAccounts.map((account) => account.id);
+    const activeAccountIds = activeAccounts.map((account) => account.id);
     const listingWhere = {
       organizationId: input.organizationId,
       isActive: true,
-      channelAccount: { channel: COUPANG_CHANNEL, status: 'active' },
+      channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
     } satisfies Prisma.ChannelListingWhereInput;
-    const select = { id: true, channelAccountId: true, salesProductId: true, channelName: true } as const;
+    const select = { id: true, channelAccountId: true, salesProductId: true, channelName: true, externalId: true, channelAccount: { select: { channel: true } } } as const;
     const evidence = (
-      listing: { id: string; channelAccountId: string; channelName: string | null } | null,
+      listing: { id: string; channelAccountId: string; channelName: string | null; externalId: string | null; channelAccount: { channel: string } } | null,
       productListingCount = listing ? 1 : 0,
     ) => ({
       listingAccountId: listing?.channelAccountId ?? null,
       channelListingId: listing?.id ?? null,
       listingChannelName: listing?.channelName ?? null,
+      listingExternalId: listing?.externalId ?? null,
       productListingCount,
-      activeCoupangAccountIds,
+      activeAccountIds,
+      channelByAccountId: Object.fromEntries([
+        ...activeAccounts.map((account) => [account.id, account.channel] as const),
+        ...(listing ? [[listing.channelAccountId, listing.channelAccount.channel] as const] : []),
+      ]),
     });
 
     if (input.pickedListingId) {
@@ -59,12 +66,12 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       const belongs = listing
         && (listing.id === input.workspaceListingId
           || (input.salesProductId !== null && listing.salesProductId === input.salesProductId));
-      if (!listing || !belongs) throw new FactInputError('고른 listing 은 이 상품의 쿠팡 listing 이 아닙니다');
+      if (!listing || !belongs) throw new FactInputError('고른 listing 은 이 상품의 대표이미지 반영 listing 이 아닙니다');
       return evidence(listing);
     }
     if (input.workspaceListingId) {
       const listing = await this.prisma.channelListing.findFirst({ where: { ...listingWhere, id: input.workspaceListingId }, select });
-      if (!listing) throw new FactNotFoundError('쿠팡 listing 을 찾을 수 없습니다');
+      if (!listing) throw new FactNotFoundError('대표이미지를 반영할 listing 을 찾을 수 없습니다');
       return evidence(listing);
     }
     if (input.salesProductId) {
@@ -85,7 +92,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       : input.workspaceListingId ? { id: input.workspaceListingId } : null;
     if (!scope) return [];
     const listings = await this.prisma.channelListing.findMany({
-      where: { organizationId: input.organizationId, isActive: true, channelAccount: { channel: COUPANG_CHANNEL, status: 'active' }, ...scope },
+      where: { organizationId: input.organizationId, isActive: true, channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' }, ...scope },
       select: { id: true, channelName: true, externalId: true, channelAccount: { select: { name: true } } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: 50,
@@ -288,7 +295,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       || existing.ownerIdempotencyKey !== input.ownerIdempotencyKey
       || existing.requestHash !== input.requestHash
       || payloadGenerationId(existing.submissionPayloadJson) !== input.payload.generationId) {
-      throw new FactConflictError('Wing registration owner idempotency key conflicted.', { code: 'owner_idempotency_key_conflict' });
+      throw new FactConflictError('Representative image owner idempotency key conflicted.', { code: 'owner_idempotency_key_conflict' });
     }
     return { mode: 'replay', execution: toRow(existing) };
   }

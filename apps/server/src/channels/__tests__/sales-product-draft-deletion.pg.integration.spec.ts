@@ -238,7 +238,7 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     } });
     await prisma.productRegistrationExecution.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, registrationTargetId: target.id, channelAccountId: account.id,
-      idempotencyKey: randomUUID(), requestHash: 'hash', status: 'executing',
+      executionKind: 'register', idempotencyKey: randomUUID(), requestHash: 'hash', status: 'executing',
     } });
 
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId)).rejects.toMatchObject({

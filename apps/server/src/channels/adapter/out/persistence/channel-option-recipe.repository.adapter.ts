@@ -294,7 +294,7 @@ implements ChannelOptionRecipeRepositoryPort {
         const historicalRegistration = facts.some((fact) => {
           if (fact.channelListingId !== option.listingId || !fact.submissionPayloadJson) return false;
           const hash = hashRegistrationSubmissionPayload(fact.submissionPayloadJson, channelIntegrity.sha256);
-          if (hash !== fact.submissionPayloadHash || hash !== fact.requestHash) return false;
+          if (hash !== fact.submissionPayloadHash) return false;
           const recipe = preparedRegistrationRecipe(fact.submissionPayloadJson);
           return recipe !== null
             && recipe.kidItemCode === mutation.preparedKidItemCode

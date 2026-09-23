@@ -14,8 +14,7 @@ import {
 
 const expectedKeys = [
   'analytics.readOverview',
-  'channels.register_confirmed_listing',
-  'channels.submit_wing_thumbnail',
+  'channels.submit_representative_image',
   'products.create_listing_generation_package',
   'sourcing.createReviewBatch',
   'sourcing.duplicateCheck',
@@ -30,8 +29,7 @@ const expectedKeys = [
 
 const expectedOwnerInputPorts = {
   'analytics.readOverview': 'analytics.readOverview',
-  'channels.register_confirmed_listing': 'channels.registerConfirmedListing',
-  'channels.submit_wing_thumbnail': 'channels.submitWingThumbnail',
+  'channels.submit_representative_image': 'channels.submitRepresentativeImage',
   'products.create_listing_generation_package':
     'products.createListingGenerationPackage',
   'sourcing.createReviewBatch': 'sourcing.createReviewBatch',

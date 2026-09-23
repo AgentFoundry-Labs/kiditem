@@ -277,7 +277,7 @@ export function icecreamFormFromDraft(
     );
   }
   manualSteps.push('분류는 팝업으로 고르는 칸이라 값이 틀어졌으면 화면에서 다시 고르세요.');
-  manualSteps.push('값이 맞는지 확인한 뒤 화면에서 직접 등록하세요. 자동 등록하지 않습니다.');
+  manualSteps.push('값이 맞는지 확인하세요. 폼만 채웠고 [등록]은 누르지 않았습니다.');
   manualSteps.push('등록 후 `승인요청` 까지 해야 합니다. 이건 사람이 눌러야 합니다.');
 
   return {

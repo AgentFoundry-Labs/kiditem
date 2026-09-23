@@ -48,14 +48,6 @@ export function blockedRowMessage(row: Pick<MallReadiness, 'reasons' | 'missingF
   ].join(' ');
 }
 
-export interface WingQuickRegisterRow {
-  row: MallReadiness;
-  busy: boolean;
-  /** 준비 단계 문구(상세페이지 렌더 등). 없으면 기본 배지 글자를 쓴다. */
-  busyLabel: string | null;
-  result: MallRunOutcome | null;
-}
-
 interface MallQuickRegisterRowsProps {
   /** 몰마다 "지금 보낼 수 있느냐"와 "왜 못 보내느냐". 판정은 어댑터가 한다. */
   readiness: readonly MallReadiness[];
@@ -76,10 +68,10 @@ interface MallQuickRegisterRowsProps {
   /** 모달이 고른 상품 수. 폼 방식은 화면 하나에 상품 하나다. */
   targetCount: number;
   /**
-   * 쿠팡 WING 줄. 폼 몰과 달리 앱 안에서 확인 창을 한 번 거치므로 따로 받는다.
-   * 없으면 줄을 세우지 않는다.
+   * 확인 창이 필요한 몰(`adapter.confirmation`, 쿠팡 WING). 줄은 다른 몰과 같고, 누르면 화면이 확인 창을 연다.
+   * 몰 이름을 여기서 박지 않는다.
    */
-  wing: WingQuickRegisterRow | null;
+  confirmationMallKeys: readonly string[];
   /** 고른 몰만 보낸다. 묶음으로 동시에 연다. */
   onRunSelected: (mallKeys: string[]) => void;
   /** 그 몰 하나만 보낸다. 선택과 무관하다. */
@@ -104,16 +96,14 @@ export function MallQuickRegisterRows({
   disabled,
   detailHref,
   targetCount,
-  wing,
+  confirmationMallKeys,
   onRunSelected,
   onRunOne,
 }: MallQuickRegisterRowsProps) {
-  // 쿠팡을 맨 위에 둔다. 매출이 가장 큰 채널이라 먼저 보이는 편이 낫다.
-  const rows = useMemo(
-    () => (wing ? [wing.row, ...readiness] : [...readiness]),
-    [wing, readiness],
-  );
-  const running = runningMallKeys.length > 0 || (wing?.busy ?? false);
+  // 줄 순서는 훅이 정한다(확인 창 몰이 맨 위).
+  const rows = readiness;
+  const confirmKeys = useMemo(() => new Set(confirmationMallKeys), [confirmationMallKeys]);
+  const running = runningMallKeys.length > 0;
   const readyKeys = useMemo(
     () => rows.filter((row) => row.ready).map((row) => row.mallKey),
     [rows],
@@ -146,9 +136,8 @@ export function MallQuickRegisterRows({
 
   const statusOf = (row: MallReadiness): RowStatus => {
     if (!row.ready) return 'blocked';
-    const isWing = wing?.row.mallKey === row.mallKey;
-    if (isWing ? wing.busy : runningMallKeys.includes(row.mallKey)) return 'running';
-    const result = isWing ? wing.result : results[row.mallKey] ?? null;
+    if (runningMallKeys.includes(row.mallKey)) return 'running';
+    const result = results[row.mallKey] ?? null;
     if (!result) return 'idle';
     return result.status === 'filled' ? 'filled' : 'failed';
   };
@@ -190,10 +179,9 @@ export function MallQuickRegisterRows({
         <div className="divide-y divide-slate-100">
           {rows.map((row) => {
             const status = statusOf(row);
-            const isWing = wing?.row.mallKey === row.mallKey;
-            const result = isWing ? wing.result : results[row.mallKey] ?? null;
+            const needsConfirmation = confirmKeys.has(row.mallKey);
+            const result = results[row.mallKey] ?? null;
             const badge = STATUS_STYLE[status];
-            const busyLabel = isWing && wing.busyLabel ? wing.busyLabel : badge.label;
             return (
               <div key={row.mallKey} className={status === 'blocked' ? 'bg-slate-50/60' : ''}>
                 <div className="flex items-center gap-2 px-3 py-2">
@@ -218,8 +206,8 @@ export function MallQuickRegisterRows({
                     <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-slate-500">
                       {row.summary.length > 0
                         ? row.summary.map((cell) => `${cell.label} ${cell.value}`).join(' · ')
-                        : isWing
-                          ? '확인 창에서 검토 후 등록'
+                        : needsConfirmation
+                          ? '확인 창에서 계정 · 값을 정한 뒤 보냅니다'
                           : ''}
                     </span>
                   </label>
@@ -227,19 +215,21 @@ export function MallQuickRegisterRows({
                     className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black ring-1 ${badge.className}`}
                   >
                     {status === 'running' ? <Loader2 size={9} className="animate-spin" /> : null}
-                    {status === 'running' ? busyLabel : badge.label}
+                    {badge.label}
                   </span>
                   {/* 이 몰만 보내는 버튼. 아래 일괄 버튼이 주인공이라 조용하게 둔다 —
                       여기서 목소리를 키우면 예전처럼 같은 버튼 여덟 개가 된다. */}
                   <button
                     type="button"
-                    aria-label={`${row.mallName}만 등록`}
-                    title={`${row.mallName}만 등록합니다`}
+                    aria-label={needsConfirmation ? `${row.mallName} 확인 창 열기` : `${row.mallName} 폼 채우기`}
+                    title={needsConfirmation
+                      ? `${row.mallName} 확인 창에서 폼 채우기와 등록 실행 중 고릅니다`
+                      : `${row.mallName} 폼만 채웁니다`}
                     onClick={() => onRunOne(row.mallKey)}
                     disabled={disabled || running || !row.ready}
                     className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-black text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    {status === 'filled' || status === 'failed' ? '다시' : '등록'}
+                    {status === 'filled' || status === 'failed' ? '다시' : needsConfirmation ? '확인 창' : '폼 채우기'}
                   </button>
                 </div>
                 {status === 'blocked' ? (
@@ -282,12 +272,12 @@ export function MallQuickRegisterRows({
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-3 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? <Loader2 size={15} className="animate-spin" /> : <Rocket size={15} />}
-          {running ? '몰을 열어 채우는 중' : `선택한 ${selected.length}개 몰에 등록`}
+          {running ? '몰을 열어 채우는 중' : `선택한 ${selected.length}개 몰 폼 채우기`}
         </button>
 
         <p className="mt-1.5 text-center text-[11px] font-semibold text-slate-400">
-          폼만 채웁니다 · 한 몰이 막혀도 나머지는 계속합니다
-          {wing ? ' · 쿠팡 WING 은 맨 마지막에 확인 창이 뜹니다' : ''}
+          폼만 채웁니다 · [등록]은 누르지 않습니다 · 한 몰이 막혀도 나머지는 계속합니다
+          {confirmKeys.size > 0 ? ' · 확인 창이 필요한 몰은 맨 마지막에 확인 창이 뜹니다' : ''}
           {targetCount > 1 ? ` · 고른 ${targetCount}개 중 첫 상품만 엽니다` : ''}
         </p>
       </div>

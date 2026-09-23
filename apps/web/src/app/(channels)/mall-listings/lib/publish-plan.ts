@@ -4,6 +4,7 @@ import {
   type MallPublishItem,
   type MallSendOutcome,
 } from '../../_shared/mall-publish-adapter';
+import type { PublishTask, PublishTaskStatus } from '../../_shared/use-mall-publish-run';
 
 /**
  * 송신 계획.
@@ -15,24 +16,6 @@ import {
  * 우리 경우 쪼개는 이유가 더 분명하다. 폼 자동채움은 브라우저 탭 하나를 점유하고
  * 최대 3분이 걸린다. 동시에 두 탭을 몰면 둘 다 깨진다.
  */
-
-export type PublishTaskStatus = 'pending' | 'running' | 'reconciling' | 'succeeded' | 'failed' | 'cancelled';
-
-export interface PublishTask {
-  id: string;
-  mallKey: string;
-  mallName: string;
-  /** Exact ChannelAccount used to freeze a target execution. Null means the mall has no configured account. */
-  channelAccountId: string | null;
-  items: MallPublishItem[];
-  /** 이 몰의 값 묶음. 실행기가 화면 상태를 다시 읽지 않도록 작업이 들고 간다. */
-  values: Record<string, string>;
-  /** 실제로 편집한 값만 실행 target에 override로 보낸다. */
-  adapterValues: Record<string, string>;
-  status: PublishTaskStatus;
-  outcome: MallSendOutcome | null;
-  error: string | null;
-}
 
 /** 몰 기준으로 막힌 상품 한 건. 계획에 들어가지 않고 이유만 보여준다. */
 export interface PublishBlock {

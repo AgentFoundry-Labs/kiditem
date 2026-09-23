@@ -18,7 +18,10 @@ import { RegistrableThumbnailAdapter } from '../adapter/out/content/registrable-
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { ThumbnailExecutionPersistenceAdapter } from '../adapter/out/persistence/thumbnail-execution.persistence.adapter';
 import { ThumbnailExecutionService } from '../application/service/registration/thumbnail-execution.service';
-import type { WingThumbnailRunnerPort } from '../application/port/out/automation/wing-thumbnail-runner.port';
+import { ChannelAdapterRegistryAdapter } from '../adapter/out/channel/channel-adapter-registry.adapter';
+import { channelAdapters } from './channel-adapters';
+import { CoupangChannelAdapter } from '../adapter/out/channel/coupang/coupang-channel.adapter';
+import type { RepresentativeImageRunnerPort } from '../application/port/out/automation/representative-image-runner.port';
 import { ChannelBusinessError } from '../domain/exception/channel-business-error';
 import { THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE as AWAITING } from '../domain/registration/thumbnail-update';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
@@ -33,9 +36,9 @@ function fakeRunner() {
   const runner = {
     blocked: false,
     calls: 0,
-    next: (): ReturnType<WingThumbnailRunnerPort['upload']> => Promise.resolve({ outcome: 'uploaded_pending_save', screenshotPath: '/tmp/wing.png' }),
+    next: (): ReturnType<RepresentativeImageRunnerPort['upload']> => Promise.resolve({ outcome: 'uploaded_pending_save', screenshotPath: '/tmp/wing.png' }),
     isBlocked: () => runner.blocked,
-    upload: (_input: Parameters<WingThumbnailRunnerPort['upload']>[0]) => { runner.calls += 1; return runner.next(); },
+    upload: (_input: Parameters<RepresentativeImageRunnerPort['upload']>[0]) => { runner.calls += 1; return runner.next(); },
   };
   return runner;
 }
@@ -71,7 +74,8 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     service = new ThumbnailExecutionService(
       new RegistrableThumbnailAdapter(content),
       new ThumbnailExecutionPersistenceAdapter(db),
-      runner,
+      // 대표이미지 runner 는 그 채널 어댑터가 들고 있다(KID-321). Sellpia 사전검사는 이 경로에서 부르지 않는다.
+      new ChannelAdapterRegistryAdapter(new CoupangChannelAdapter({ preflightExternalProductRegistration: () => Promise.reject(new Error('unused')) }, runner)),
       new ChannelIntegrityAdapter(),
     );
   });
@@ -296,7 +300,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     await expect(service.runOnServer(input)).rejects.toThrow('playwriter exited');
     await expect(service.listLatest({ organizationId: ORG, generationIds: [generation.id] }))
       .resolves.toMatchObject([{ status: 'reconciling', providerOutcome: 'uncertain', error: 'playwriter exited' }]);
-    expect(await rejection(service.runOnServer(input))).toEqual({ kind: 'unavailable', message: 'wing_registration_reconciliation_pending' });
+    expect(await rejection(service.runOnServer(input))).toEqual({ kind: 'unavailable', message: 'representative_image_reconciliation_pending' });
     expect(runner.calls).toBe(1);
   });
 
@@ -308,7 +312,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
 
     runner.blocked = true;
     expect(await rejection(service.runOnServer({ organizationId: ORG, requestedByUserId: null, generationId: generation.id, owner: null })))
-      .toEqual({ kind: 'unavailable', message: '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.' });
+      .toEqual({ kind: 'unavailable', message: '스테이징/운영에서는 대표이미지를 Chrome 확장 프로그램으로만 반영할 수 있습니다.' });
     expect(runner.calls).toBe(1);
   });
 
@@ -338,7 +342,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     const db = prisma as PrismaService;
     const [subject] = await new StockoutCheckPersistenceAdapter(db, new ProductTransactionalReadRepositoryAdapter()).readSubjects(ORG, [listing.id]);
     expect(subject?.activeExecutions).toEqual([]);
-    await expect(new RegistrationExecutionRepositoryAdapter(db, {} as never).prepareListingAvailability({
+    await expect(new RegistrationExecutionRepositoryAdapter(db, {} as never, channelAdapters()).prepareListingAvailability({
       organizationId: ORG, requestedByUserId: USER,
       request: { channelAccountId: account.id, externalListingId: listing.externalId, kind: 'sold_out', optionCodes: ['option-1'], idempotencyKey: randomUUID() },
     })).resolves.toMatchObject({ status: 'prepared' });
@@ -407,7 +411,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
 
       const many = await salesProductGeneration({ listings: 2 });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: many.generation.id })))
-        .toEqual({ kind: 'invalid', message: '쿠팡 listing 이 여럿입니다 — listing을 고르세요' });
+        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 listing 이 여럿입니다 — listing을 고르세요' });
       const picked = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: many.generation.id, channelListingId: many.listings[1]!.id });
       expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: picked.executionId } }))
         .toMatchObject({ channelAccountId: many.listings[1]!.channelAccountId, channelListingId: null, submissionPayloadJson: expect.objectContaining({ channelListingId: many.listings[1]!.id }) });
@@ -427,7 +431,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       await prisma.channelListing.update({ where: { id: unnamed.listing.id }, data: { channelName: null } });
       await prisma.contentWorkspace.update({ where: { id: unnamed.workspace.id }, data: { displayName: '  ' } });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: unnamed.generation.id })))
-        .toEqual({ kind: 'invalid', message: '쿠팡 등록 상품명을 찾을 수 없습니다' });
+        .toEqual({ kind: 'invalid', message: '몰 등록 상품명을 찾을 수 없습니다' });
     });
 
     it('names the choice with a machine code and lists the product Coupang listings the operator can pick', async () => {
@@ -438,7 +442,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       });
 
       await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: product.generation.id }))
-        .rejects.toMatchObject({ kind: 'invalid', details: { code: 'ambiguous_coupang_listing' } });
+        .rejects.toMatchObject({ kind: 'invalid', details: { code: 'ambiguous_listing' } });
       const choices = await service.listingChoices({ organizationId: ORG, generationId: product.generation.id });
       expect(choices.map((choice) => choice.channelListingId).sort()).toEqual(product.listings.map((listing) => listing.id).sort());
       expect(choices.find((choice) => choice.channelListingId === product.listings[0]!.id)).toMatchObject({
@@ -453,20 +457,20 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
         data: { organizationId: ORG, channelAccountId: product.listings[0]!.channelAccountId, externalId: randomUUID(), salesProductId: product.product.id },
       });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: product.generation.id })))
-        .toEqual({ kind: 'invalid', message: '쿠팡 listing 이 여럿입니다 — listing을 고르세요' });
+        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 listing 이 여럿입니다 — listing을 고르세요' });
       expect(await prisma.productRegistrationExecution.count({ where: { executionKind: 'thumbnail_update' } })).toBe(0);
     });
 
     it('falls back to the single active Coupang account and refuses none or several', async () => {
       const none = await salesProductGeneration();
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: none.generation.id })))
-        .toEqual({ kind: 'invalid', message: '쿠팡 계정이 없습니다' });
+        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 수 있는 계정이 없습니다' });
 
       await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'coupang', name: 'inactive', status: 'inactive' } });
       await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'rocket', name: 'rocket', status: 'active' } });
       await coupangAccount(OTHER_ORGANIZATION_ID);
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: none.generation.id })))
-        .toEqual({ kind: 'invalid', message: '쿠팡 계정이 없습니다' });
+        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 수 있는 계정이 없습니다' });
 
       const only = await coupangAccount();
       const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: none.generation.id });
@@ -476,7 +480,26 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
 
       await coupangAccount();
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: none.generation.id })))
-        .toEqual({ kind: 'invalid', message: '쿠팡 계정이 여럿입니다 — listing을 고르세요' });
+        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 수 있는 계정이 여럿입니다 — listing을 고르세요' });
+    });
+
+    /** KID-321: 계정 결정은 채널 키가 아니라 registry `representativeImage` 능력을 읽는다. */
+    it('counts only listings and accounts of channels that support representative images', async () => {
+      const product = await salesProductGeneration({ listings: 1 });
+      const kakao = await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'kakao', name: 'kakao', status: 'active' } });
+      await prisma.channelListing.create({
+        data: { organizationId: ORG, channelAccountId: kakao.id, externalId: randomUUID(), salesProductId: product.product.id },
+      });
+      const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: product.generation.id });
+      expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } }))
+        .toMatchObject({ channelAccountId: product.listings[0]!.channelAccountId });
+      const choices = await service.listingChoices({ organizationId: ORG, generationId: product.generation.id });
+      expect(choices.map((choice) => choice.channelListingId)).toEqual([product.listings[0]!.id]);
+
+      const bare = await salesProductGeneration();
+      await prisma.channelAccount.updateMany({ where: { organizationId: ORG, channel: 'coupang' }, data: { status: 'inactive' } });
+      await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: bare.generation.id }))
+        .rejects.toMatchObject({ kind: 'invalid', message: '대표이미지를 반영할 수 있는 계정이 없습니다', details: { code: 'no_account' } });
     });
 
     it('accepts a picked listing only when it is an active Coupang listing of this product or the workspace itself', async () => {

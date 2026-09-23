@@ -29,7 +29,7 @@ function setup() {
     importFromSource: vi.fn(),
   };
   const service = new RegistrationExecutionService(executions as unknown as RegistrationExecutionRepositoryPort,
-    {} as never, {} as never, products as unknown as SalesProductPort, targets as unknown as RegistrationTargetPort,
+    products as unknown as SalesProductPort, targets as unknown as RegistrationTargetPort,
     { preview: vi.fn(), prepare: vi.fn(), assertEligible: vi.fn() }, detailPages);
   return { service, executions, product, target, targets, products, detailPages };
 }
@@ -98,7 +98,7 @@ describe('registration target execution public capability', () => {
     expect(executions.prepareTarget).not.toHaveBeenCalled();
   });
   it('freezes the explicit price-only intent and the selling product price for the actual listing option', async () => {
-    const { service, product, executions } = setup();
+    const { service, product, executions, detailPages } = setup();
     product.channelListings = [{ id: 'listing', channelAccountId: 'account', mallKey: 'kakao',
       options: [{ salesProductOptionId: 'b', salePrice: 3500 }] }] as SalesProduct['channelListings'];
     await service.prepareTargetExecution('org', 'target', 'actor', {
@@ -107,7 +107,10 @@ describe('registration target execution public capability', () => {
     expect(executions.prepareTarget.mock.calls[0][0].snapshot).toMatchObject({
       kind: 'update', channelListingId: 'listing', updateFields: ['salePrice'],
       product: { options: [{ id: 'b', salePrice: 4000 }, { id: 'a', salePrice: 3000 }] },
+      // 가격 수정은 상세를 보내지 않는다 — 읽지도 얼리지도 않는다(KID-321).
+      detailPage: null,
     });
+    expect(detailPages.read).not.toHaveBeenCalled();
   });
 
   it('rejects missing update fields, a foreign listing, and an unsupported provider before creating intent', async () => {

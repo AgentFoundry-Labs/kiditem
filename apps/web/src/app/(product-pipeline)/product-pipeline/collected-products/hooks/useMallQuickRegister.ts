@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
+  FORM_MALL_ADAPTERS,
   mallRegisterReadiness,
   mallRegisterValuesWithDefaults,
   normalizeMallRegisterValues,
@@ -10,14 +11,29 @@ import {
   type MallReadiness,
   type MallRegisterValues,
 } from '@/app/(channels)/_shared/mall-register-values';
-import { coupangWingAdapter } from '@/app/(channels)/_shared/adapters';
-import type { MallPublishItem } from '@/app/(channels)/_shared/mall-publish-adapter';
+import { MALL_REGISTRATION_ADAPTERS } from '@/app/(channels)/_shared/adapters';
+import type { MallPublishAdapter, MallPublishItem } from '@/app/(channels)/_shared/mall-publish-adapter';
 import { useProductDetail } from '../../_shared/hooks/useProductDetail';
 import {
   runMallRegistrations,
+  runOneMallRegistration,
   summarizeMallRun,
+  type ConfirmedMallInput,
   type MallRunOutcome,
 } from '../lib/mall-quick-register-run';
+
+/**
+ * 확인 창이 필요한 폼 몰(`adapter.confirmation`). 몰 줄에 함께 서되 누르면 화면이 확인 창을 연다 —
+ * 계정과 몰 값을 사람이 정해야 폼을 채울 수 있다. 맨 위에 둔다.
+ */
+const CONFIRMATION_ADAPTERS: readonly MallPublishAdapter[] = MALL_REGISTRATION_ADAPTERS.filter(
+  (adapter) => adapter.mode === 'form' && Boolean(adapter.confirmation),
+);
+const QUICK_REGISTER_READINESS_ADAPTERS: readonly MallPublishAdapter[] = [
+  ...CONFIRMATION_ADAPTERS,
+  ...FORM_MALL_ADAPTERS.filter((adapter) => !adapter.confirmation),
+];
+const CONFIRMATION_MALL_KEYS: readonly string[] = CONFIRMATION_ADAPTERS.map((adapter) => adapter.mallKey);
 
 /**
  * 목록 모달의 몰 등록.
@@ -88,25 +104,13 @@ export function useMallQuickRegister(input: {
   }, [detail, basicInfo, salesProductId]);
 
   const readiness: MallReadiness[] = useMemo(
-    () => mallRegisterReadiness(item, values),
+    () => mallRegisterReadiness(item, values, QUICK_REGISTER_READINESS_ADAPTERS),
     [item, values],
   );
 
   const readyMallKeys = useMemo(
     () => readiness.filter((row) => row.ready).map((row) => row.mallKey),
     [readiness],
-  );
-
-  /**
-   * 쿠팡 WING 줄.
-   *
-   * 폼 몰과 같은 모양으로 그리되 실행 경로는 다르다 — 이 몰만 앱 안에서 확인 창을
-   * 거친다(셀피아 SKU 매칭·값 확정). 그래도 "왜 못 보내는가" 는 여기서 다시 적지
-   * 않고 어댑터에게 묻는다. 화면이 조건을 따로 적으면 어댑터와 어긋난다.
-   */
-  const wingReadiness: MallReadiness = useMemo(
-    () => mallRegisterReadiness(item, values, [coupangWingAdapter])[0]!,
-    [item, values],
   );
 
   const run = useCallback(async (mallKeys: readonly string[]) => {
@@ -137,17 +141,41 @@ export function useMallQuickRegister(input: {
     }
   }, [item, values]);
 
+  /**
+   * 확인 창에서 정한 값 · 계정으로 그 몰 폼만 채운다(`submit: false`). 등록 실행을 열지 않는다 — [등록]까지
+   * 누르는 등록 실행은 화면이 등록 실행 훅으로 따로 돌린다.
+   */
+  const fillConfirmed = useCallback(async (mallKey: string, confirmed: ConfirmedMallInput) => {
+    if (running.current) return null;
+    running.current = true;
+    setRunningMallKeys([mallKey]);
+    try {
+      const outcome = await runOneMallRegistration(mallKey, item, values, confirmed);
+      setResults((current) => ({ ...current, [mallKey]: outcome }));
+      const summary = summarizeMallRun([outcome]);
+      if (outcome.status === 'filled') toast.success(summary.title, { description: summary.description });
+      else toast.error(summary.title, { description: summary.description });
+      return outcome;
+    } finally {
+      running.current = false;
+      setRunningMallKeys([]);
+    }
+  }, [item, values]);
+
   return {
     values,
+    item,
     readiness,
     readyMallKeys,
-    wingReadiness,
+    /** 누르면 확인 창을 여는 몰. */
+    confirmationMallKeys: CONFIRMATION_MALL_KEYS,
     results,
+    fillConfirmed,
     runningMallKeys,
     /** 저장된 값을 아직 못 읽었다. 이 동안은 버튼을 열지 않는다. */
     isLoading: detailQuery.isLoading,
     loadError: detailQuery.isError,
-    // 고른 몰만 묶음으로. 기다릴 수 있게 프라미스를 돌려준다 — 쿠팡 WING 은 폼 몰이
+    // 고른 몰만 묶음으로. 기다릴 수 있게 프라미스를 돌려준다 — 확인 창이 필요한 몰은 폼 몰이
     // 다 끝난 뒤에 확인 창을 띄워야 해서 호출부가 순서를 잡는다.
     runMalls: useCallback((mallKeys: readonly string[]) => run(mallKeys), [run]),
   };

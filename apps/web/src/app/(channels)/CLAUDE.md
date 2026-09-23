@@ -99,12 +99,17 @@
   적으면 버튼은 열려 있는데 보내면 막히는(또는 그 반대의) 화면이 된다.
 - 승인제 몰(`requiresOperatorApproval`)은 확장이 제출하지 않는다. 폼만 채우고
   사람이 누른다.
+- 쿠팡 WING 도 폼 어댑터 하나다(`_shared/adapters/coupang-wing/`, KID-321). 사람이 계정 · 몰
+  값을 정해야 하는 어댑터는 `confirmation` 을 선언하고, 화면은 공통 `RegistrationConfirmDialog`
+  로만 묻는다. 몰 전용 값은 `adapterTargetInput` 으로 등록 대상에 저장한다.
+- [등록]은 등록 실행(`_shared/use-mall-publish-run.ts`) 안에서만 누른다(KID-322). 빠른 등록은
+  폼 채우기이고 등록됐다고 말하지 않는다.
 
 ## 경계 규칙
 
 - 이 그룹의 서버 호출은 `_shared/mall-publishing-api.ts` 를 통한다.
 - 채널 계정에 상품을 제출하는 호출만 예외로 `_shared/registration-execution-api.ts`
-  하나를 쓴다. 수집상품 화면의 WING 자동 제출도 이 파일을 지난다 — 등록 실행 울타리는
+  하나를 쓴다. 등록 마법사와 수집상품 화면의 등록 실행이 모두 이 파일을 지난다 — 등록 실행 울타리는
   Channels 것이고 길이 하나여야 중복 제출을 막는다(ADR-0014). 폼만 채운 것은 울타리가
   아니라 현재 실행 결과다.
 - 파괴적 동작(완전품절, 삭제)은 매니페스트가 허용한 경우에만 버튼이 활성화되고,

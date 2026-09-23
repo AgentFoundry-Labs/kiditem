@@ -19,7 +19,7 @@ import { buildPublishPlan, summarizePublishRun } from '../lib/publish-plan';
 import {
   detectMallFormSubmitMalls,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
-import { useMallPublishRun } from '../hooks/use-mall-publish-run';
+import { useMallPublishRun } from '../../_shared/use-mall-publish-run';
 import { StepProducts } from './StepProducts';
 import { StepMalls } from './StepMalls';
 import { StepValues } from './StepValues';
@@ -442,7 +442,7 @@ function ActionBar({
               className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send size={14} />
-              {formatNumber(sendCount)}건 보내기
+              {formatNumber(sendCount)}건 등록 실행
             </button>
           ) : null}
 

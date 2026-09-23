@@ -19,7 +19,7 @@ interface StepMallsProps {
 const MODE_META: Record<MallPublishAdapter['mode'], { label: string; icon: typeof Plug }> = {
   api: { label: '공식 API', icon: Plug },
   form: { label: '어드민 폼', icon: MousePointerClick },
-  excel: { label: '엑셀 일괄', icon: FileSpreadsheet },
+  sheet: { label: '양식 파일', icon: FileSpreadsheet },
 };
 
 /** 이 몰이 상품 N개를 어떻게 나눠 처리하는지 한 줄로. */

@@ -106,7 +106,7 @@ export function alwayzFormFromDraft(
     manualSteps.push('상세설명 이미지가 없습니다. 상품 생성에서 상세페이지를 먼저 확정하세요.');
   }
   manualSteps.push('재고·배송비·반품 안내는 화면 기본값입니다. 상품마다 다르면 바꾸세요.');
-  manualSteps.push('값이 맞는지 확인한 뒤 화면에서 직접 등록하세요. 자동 제출하지 않습니다.');
+  manualSteps.push('값이 맞는지 확인하세요. 폼만 채웠고 [등록]은 누르지 않았습니다.');
 
   return {
     url: ALWAYZ_REGISTER_URL,

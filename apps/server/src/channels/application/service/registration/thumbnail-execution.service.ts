@@ -4,9 +4,11 @@ import type {
   ThumbnailExecutionReportRequest,
   ThumbnailExecutionResult,
   ThumbnailExecutionStatus,
+  ThumbnailAccountResolutionReason,
 } from '@kiditem/shared/thumbnail-execution';
 import type { ChannelsThumbnailExecutionPort } from '../../port/in/thumbnail-execution.port';
-import type { WingThumbnailRunnerPort } from '../../port/out/automation/wing-thumbnail-runner.port';
+import type { RepresentativeImageRunnerPort } from '../../port/out/automation/representative-image-runner.port';
+import type { ChannelAdapterRegistryPort } from '../../port/out/channel/channel-adapter.port';
 import type {
   ChannelRegistrableThumbnailPort,
   RegistrableThumbnail,
@@ -36,16 +38,17 @@ import {
   type ThumbnailUpdatePayload,
 } from '../../../domain/registration/thumbnail-update';
 
-export const SERVER_AUTOMATION_BLOCKED_MESSAGE = '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.';
-const RECONCILIATION_PENDING = 'wing_registration_reconciliation_pending';
+export const SERVER_AUTOMATION_BLOCKED_MESSAGE = '스테이징/운영에서는 대표이미지를 Chrome 확장 프로그램으로만 반영할 수 있습니다.';
+const RECONCILIATION_PENDING = 'representative_image_reconciliation_pending';
+const UPLOAD_FAILED = 'representative image upload failed';
 const LISTING_BUSY_MESSAGE = '이 listing 에 반영 중인 대표이미지가 있습니다';
 export const OPERATOR_NOT_APPLIED_MESSAGE = '운영자가 반영되지 않았다고 표시함';
 
 const ACCOUNT_MESSAGES = {
-  no_coupang_account: '쿠팡 계정이 없습니다',
-  ambiguous_coupang_account: '쿠팡 계정이 여럿입니다 — listing을 고르세요',
-  ambiguous_coupang_listing: '쿠팡 listing 이 여럿입니다 — listing을 고르세요',
-} as const;
+  no_account: '대표이미지를 반영할 수 있는 계정이 없습니다',
+  ambiguous_account: '대표이미지를 반영할 수 있는 계정이 여럿입니다 — listing을 고르세요',
+  ambiguous_listing: '대표이미지를 반영할 listing 이 여럿입니다 — listing을 고르세요',
+} as const satisfies Record<ThumbnailAccountResolutionReason, string>;
 
 /**
  * 대표이미지 몰 반영의 소유자. Content 에서 승인 사진을 받아 실행 하나를 동결하고, 확장
@@ -55,7 +58,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
   constructor(
     private readonly content: ChannelRegistrableThumbnailPort,
     private readonly persistence: ThumbnailExecutionPersistencePort,
-    private readonly runner: WingThumbnailRunnerPort,
+    private readonly adapters: ChannelAdapterRegistryPort,
     private readonly integrity: ChannelIntegrityPort,
   ) {}
 
@@ -103,7 +106,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     });
   }
 
-  /** 운영자의 "반영됨으로 표시" — Wing 에서 저장한 것을 확인했다. 성공으로 가는 유일한 길이다. */
+  /** 운영자의 "반영됨으로 표시" — 몰 관리자에서 저장한 것을 확인했다. 성공으로 가는 유일한 길이다. */
   confirmApplied(input: { organizationId: string; requestedByUserId: string | null; executionId: string }): Promise<ThumbnailExecutionResult> {
     return this.settle({
       organizationId: input.organizationId,
@@ -140,8 +143,10 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       }));
       if (recorded) return replayReceipt(recorded);
     }
-    if (this.runner.isBlocked()) throw new ChannelUnavailableError(SERVER_AUTOMATION_BLOCKED_MESSAGE);
     const intent = await this.freezeIntent(input.organizationId, input.generationId, null);
+    // runner 는 그 계정 채널의 어댑터가 들고 있다. 없거나 운영에서 막혔으면 실행을 만들지 않는다.
+    const runner = this.adapters.get(intent.channel).representativeImage;
+    if (!runner || runner.isBlocked()) throw new ChannelUnavailableError(SERVER_AUTOMATION_BLOCKED_MESSAGE);
     const created = await owned(() => this.persistence.createExecuting({
       organizationId: input.organizationId,
       requestedByUserId: input.requestedByUserId,
@@ -160,10 +165,10 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     if (created.mode === 'listing_conflict') throw new ChannelConflictError(LISTING_BUSY_MESSAGE);
     if (created.mode === 'replay') return replayReceipt(created.execution);
 
-    let outcome: Awaited<ReturnType<WingThumbnailRunnerPort['upload']>>;
+    let outcome: Awaited<ReturnType<RepresentativeImageRunnerPort['upload']>>;
     try {
-      outcome = await this.runner.upload({
-        productName: intent.payload.productName,
+      outcome = await runner.upload({
+        listing: { externalListingId: intent.listingExternalId, productName: intent.payload.productName },
         image: { dataUrl: intent.image.dataUrl, filename: intent.image.filename },
       });
     } catch (error) {
@@ -171,7 +176,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       await this.persistence.applyReport({
         organizationId: input.organizationId,
         executionId: created.executionId,
-        transition: thumbnailReportTransition({ outcome: 'uncertain', error: message.slice(0, 2_000) || 'Wing upload failed' }),
+        transition: thumbnailReportTransition({ outcome: 'uncertain', error: message.slice(0, 2_000) || UPLOAD_FAILED }),
         acceptFrom: THUMBNAIL_REPORTABLE_STATUSES,
         screenshotPath: null,
         externalId: null,
@@ -188,7 +193,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       screenshotPath: outcome.outcome === 'uploaded_pending_save' ? outcome.screenshotPath : null,
       externalId: null,
     });
-    if (applied.mode !== 'applied') throw new ChannelConflictError('Wing registration execution changed.');
+    if (applied.mode !== 'applied') throw new ChannelConflictError('representative image execution changed.');
     return toResult(applied.execution);
   }
 
@@ -247,6 +252,8 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
 
   private async freezeIntent(organizationId: string, generationId: string, requestedListingId: string | null): Promise<{
     channelAccountId: string;
+    channel: string;
+    listingExternalId: string | null;
     payload: ThumbnailUpdatePayload;
     payloadHash: string;
     image: ThumbnailImagePayload;
@@ -261,7 +268,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     const account = resolveThumbnailAccount(evidence);
     if (!account.ok) throw new ChannelInputError({ message: ACCOUNT_MESSAGES[account.reason], code: account.reason });
     const productName = thumbnailProductName(evidence.listingChannelName, thumbnail.workspaceDisplayName);
-    if (!productName) throw new ChannelInputError('쿠팡 등록 상품명을 찾을 수 없습니다');
+    if (!productName) throw new ChannelInputError('몰 등록 상품명을 찾을 수 없습니다');
     const image = await this.content.loadImage({ organizationId, generationId, url: thumbnail.image.url });
     const frozen = freezeProductRegistrationPayload({
       kind: 'thumbnail_update',
@@ -274,6 +281,8 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     } satisfies ThumbnailUpdatePayload as unknown as RegistrationSubmissionJson, (value) => this.integrity.sha256(value));
     return {
       channelAccountId: account.channelAccountId,
+      channel: evidence.channelByAccountId[account.channelAccountId]!,
+      listingExternalId: evidence.listingExternalId,
       payload: frozen.payload as unknown as ThumbnailUpdatePayload,
       payloadHash: frozen.hash,
       image,
@@ -298,7 +307,7 @@ function toResult(row: ThumbnailExecutionRow): ThumbnailExecutionResult {
     success,
     status: row.status,
     screenshotPath: row.screenshotPath,
-    ...(success ? {} : { error: row.lastErrorMessage ?? 'Wing upload failed' }),
+    ...(success ? {} : { error: row.lastErrorMessage ?? UPLOAD_FAILED }),
   };
 }
 

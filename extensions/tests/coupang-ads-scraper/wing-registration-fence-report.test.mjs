@@ -16,10 +16,19 @@ const workerSource = await readFile(
   new URL('../../kiditem-os/background/coupang/worker.js', import.meta.url), 'utf8',
 );
 
+const gateSource = await readFile(
+  new URL('../../kiditem-os/shared/mall-form-submit-gate.js', import.meta.url), 'utf8',
+);
+function loadSubmitGate() {
+  const self = {};
+  new Function('self', gateSource)(self);
+  return self.KidItemMallFormSubmitGate;
+}
+
 function extractRegisterToWingForm() {
   const normalized = workerSource.replace(/\r\n?/g, '\n');
   const start = normalized.indexOf('async function registerToWingForm(message)');
-  const end = normalized.indexOf('\n}\n\n/**', start) + 2;
+  const end = normalized.indexOf('\n}\n', start) + 2;
   assert.ok(start >= 0 && end > start, 'registerToWingForm source must be extractable');
   return normalized.slice(start, end);
 }
@@ -43,25 +52,32 @@ function workerHarness(fillResult) {
     chrome: { tabs: { sendMessage: async () => fillResult } },
     setTimeout(callback) { callback(); return 0; },
   });
+  context.KidItemMallFormSubmitGate = loadSubmitGate();
   vm.runInContext(extractRegisterToWingForm(), context, {
     filename: 'service-worker.registerToWingForm.js',
   });
   return { context, openedTabs };
 }
 
-test('refuses an auto-submit without the server-issued execution identity, before opening a tab', async () => {
-  const { context, openedTabs } = workerHarness({ ok: true, submission: { attempted: false } });
+const EXECUTION_CONTEXT = {
+  executionId: '33333333-3333-4333-8333-333333333333',
+  payloadHash: 'a'.repeat(64),
+  leaseToken: '44444444-4444-4444-8444-444444444444',
+};
+
+test('fills without pressing [상품등록] when the execution context is incomplete (KID-322)', async () => {
+  const { context } = workerHarness({ ok: true, submission: { attempted: false } });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
-    autoSubmit: true,
-    executionId: 'not-a-uuid',
+    submit: true,
+    executionContext: { executionId: EXECUTION_CONTEXT.executionId },
     expectedVendorId: 'A00012345',
   });
 
-  assert.equal(result.ok, false);
-  assert.match(result.error, /등록 실행 ID/);
-  assert.deepEqual(openedTabs, []);
+  assert.equal(result.ok, true);
+  assert.equal(result.submitSkipped, 'execution_context_required');
+  assert.deepEqual(result.submission, { attempted: false });
 });
 
 test('refuses any fill without an approved WING seller identity', async () => {
@@ -85,8 +101,8 @@ test('reports a fill failure without claiming a submission, so the fence can be 
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
-    autoSubmit: true,
-    executionId: '33333333-3333-4333-8333-333333333333',
+    submit: true,
+    executionContext: EXECUTION_CONTEXT,
     expectedVendorId: 'A00012345',
   });
 
@@ -106,8 +122,8 @@ test('passes an unconfirmed submit result through untouched, so the fence stays 
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
-    autoSubmit: true,
-    executionId: '33333333-3333-4333-8333-333333333333',
+    submit: true,
+    executionContext: EXECUTION_CONTEXT,
     expectedVendorId: 'A00012345',
   });
 
@@ -128,8 +144,8 @@ test('reports a confirmed registration with the external listing id the fence wi
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
-    autoSubmit: true,
-    executionId: '33333333-3333-4333-8333-333333333333',
+    submit: true,
+    executionContext: EXECUTION_CONTEXT,
     expectedVendorId: 'A00012345',
   });
 
@@ -141,7 +157,7 @@ test('reports a confirmed registration with the external listing id the fence wi
 test('never posts the result itself — the web owns the fence call', () => {
   const normalized = workerSource.replace(/\r\n?/g, '\n');
   const start = normalized.indexOf('async function registerToWingForm(message)');
-  const end = normalized.indexOf('\n}\n\n/**', start) + 2;
+  const end = normalized.indexOf('\n}\n', start) + 2;
   const body = normalized.slice(start, end);
 
   // 확장은 마켓 화면만 만진다. 울타리에 쓰는 것은 웹 하나뿐이라, 실행 상태를 두

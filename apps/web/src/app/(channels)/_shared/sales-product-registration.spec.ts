@@ -208,6 +208,7 @@ describe('sales product → mall draft', () => {
           product: targetProduct,
           detailPage: { revisionId: '88888888-8888-4888-8888-888888888888', html: DETAIL_HTML },
           registrationInput: {},
+          adapterPayload: {},
         },
       },
     }, 'smartstore');

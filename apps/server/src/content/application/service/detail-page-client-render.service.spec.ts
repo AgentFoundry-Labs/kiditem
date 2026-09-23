@@ -88,6 +88,7 @@ function imageArtifact(overrides: Record<string, unknown> = {}) {
 describe('DetailPageClientRenderService', () => {
   const detailPages = {
     findWorkspaceCurrentDetailPageHtml: vi.fn(),
+    findWorkspaceDetailPageRevisionHtml: vi.fn(),
     findDetailPageRevisionHtml: vi.fn(),
   };
   const images = {
@@ -165,6 +166,35 @@ describe('DetailPageClientRenderService', () => {
       revisionId: REVISION_ID,
       outputWidth: 780,
     });
+    expect(images.createIntent).not.toHaveBeenCalled();
+    expect(rasterization.render).not.toHaveBeenCalled();
+  });
+
+  /** KID-321: 등록 대상이 고른 revision 을 렌더한다 — 그 작업공간의 revision 일 때만. */
+  it('고른 revision이 있으면 현재 revision 대신 그 revision의 확정 artifact를 쓴다', async () => {
+    const chosen = '99999999-9999-4999-8999-999999999999';
+    detailPages.findWorkspaceDetailPageRevisionHtml.mockResolvedValue({ ...savedDetailPage(), revisionId: chosen });
+    images.findArtifact.mockResolvedValue(imageArtifact({
+      variant: 'wing-server-jpeg-v1', objectKey: SERVER_OBJECT_KEY,
+      imageUrl: `https://cdn.example.com/${SERVER_OBJECT_KEY}`, rendererKind: 'server-puppeteer',
+    }));
+
+    await expect(service.prepare({
+      organizationId: ORG_ID, userId: USER_ID, contentWorkspaceId: WORKSPACE_ID, detailPageRevisionId: chosen,
+    })).resolves.toMatchObject({ status: 'ready' });
+    expect(detailPages.findWorkspaceDetailPageRevisionHtml).toHaveBeenCalledWith({
+      organizationId: ORG_ID, contentWorkspaceId: WORKSPACE_ID, revisionId: chosen,
+    });
+    expect(detailPages.findWorkspaceCurrentDetailPageHtml).not.toHaveBeenCalled();
+    expect(images.findArtifact).toHaveBeenCalledWith(expect.objectContaining({ revisionId: chosen }));
+  });
+
+  it('고른 revision이 이 작업공간의 것이 아니면 400으로 거절하고 렌더하지 않는다', async () => {
+    detailPages.findWorkspaceDetailPageRevisionHtml.mockResolvedValue(null);
+    await expect(service.prepare({
+      organizationId: ORG_ID, userId: USER_ID, contentWorkspaceId: WORKSPACE_ID,
+      detailPageRevisionId: '99999999-9999-4999-8999-999999999999',
+    })).rejects.toBeInstanceOf(BadRequestException);
     expect(images.createIntent).not.toHaveBeenCalled();
     expect(rasterization.render).not.toHaveBeenCalled();
   });

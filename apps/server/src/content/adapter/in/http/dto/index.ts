@@ -10,6 +10,7 @@ export {
 export {
   FailDetailPageClientRenderDto,
   FinalizeDetailPageClientRenderDto,
+  PrepareDetailPageServerRenderDto,
 } from './detail-page-client-render.dto';
 export {
   RenameDetailPageVersionDto,

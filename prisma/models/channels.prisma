@@ -300,7 +300,8 @@ model ProductRegistrationExecution {
   channelAccountId     String  @map("channel_account_id") @db.Uuid
   channelListingId     String? @map("channel_listing_id") @db.Uuid
 
-  executionKind             String  @default("create") @map("execution_kind")
+  /// 몰 중립 실행 kind(KID-321): register·update·sold_out·resume·composition_change·thumbnail_update. 기본값 없음 — 쓰는 쪽이 늘 명시한다.
+  executionKind             String  @map("execution_kind")
   expectedProviderAccountId String? @map("expected_provider_account_id")
   idempotencyKey            String  @map("idempotency_key")
   requestHash               String  @map("request_hash")

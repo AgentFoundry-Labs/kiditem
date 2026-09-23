@@ -12,14 +12,14 @@ import {
   type ThumbnailRegistrationFields,
 } from '../lib/thumbnail-registration';
 import {
-  confirmWingThumbnailApplied,
-  markWingThumbnailNotApplied,
-  registerWingThumbnailViaExtension,
-  resendWingThumbnailViaExtension,
-  WingListingChoiceRequiredError,
-  wingUploadReached,
-  type WingRegistrationResult,
-} from '../lib/wing-registration';
+  confirmRepresentativeImageApplied,
+  markRepresentativeImageNotApplied,
+  submitRepresentativeImageViaExtension,
+  resendRepresentativeImageViaExtension,
+  ListingChoiceRequiredError,
+  representativeImageUploadReached,
+  type RepresentativeImageExecutionResult,
+} from '../lib/representative-image-execution';
 
 /** 생성 한 건과 그 생성의 몰 반영 상태(Channels 실행에서 읽는다). */
 export type ThumbnailGenerationListItem = ThumbnailGenerationItem & ThumbnailRegistrationFields;
@@ -376,8 +376,8 @@ export function useWingRegister() {
   return useMutation({
     mutationFn: (input: string | { generationId: string; channelListingId: string }) =>
       typeof input === 'string'
-        ? registerWingThumbnailViaExtension(input)
-        : registerWingThumbnailViaExtension(input.generationId, { channelListingId: input.channelListingId }),
+        ? submitRepresentativeImageViaExtension(input)
+        : submitRepresentativeImageViaExtension(input.generationId, { channelListingId: input.channelListingId }),
     onSettled: () => invalidateThumbnailRegistration(queryClient),
   });
 }
@@ -398,9 +398,9 @@ export function useBatchWingRegister() {
       const results: WingBatchItemResult[] = [];
       for (const id of generationIds) {
         try {
-          const result: WingRegistrationResult = await registerWingThumbnailViaExtension(id);
+          const result: RepresentativeImageExecutionResult = await submitRepresentativeImageViaExtension(id);
           // 배치의 성공은 "Wing 수정 화면에 올렸다" 이다. 반영은 운영자가 저장 뒤 확인한다.
-          const uploaded = wingUploadReached(result);
+          const uploaded = representativeImageUploadReached(result);
           results.push({
             id,
             success: uploaded,
@@ -413,7 +413,7 @@ export function useBatchWingRegister() {
             success: false,
             screenshotPath: null,
             error: error instanceof Error ? error.message : String(error),
-            ...(error instanceof WingListingChoiceRequiredError ? { needsListingChoice: true } : {}),
+            ...(error instanceof ListingChoiceRequiredError ? { needsListingChoice: true } : {}),
           });
         }
       }
@@ -431,8 +431,8 @@ export function useWingUploadAndApply() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (generationId: string) => {
-      const result = await registerWingThumbnailViaExtension(generationId);
-      if (wingUploadReached(result)) {
+      const result = await submitRepresentativeImageViaExtension(generationId);
+      if (representativeImageUploadReached(result)) {
         await apiClient.put(`/api/thumbnail-analysis/generations/${generationId}/apply`, {});
       }
       return result;
@@ -445,7 +445,7 @@ export function useWingUploadAndApply() {
 export function useResendWingRegistration() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (executionId: string) => resendWingThumbnailViaExtension(executionId),
+    mutationFn: (executionId: string) => resendRepresentativeImageViaExtension(executionId),
     onSettled: () => invalidateThumbnailRegistration(queryClient),
   });
 }
@@ -454,7 +454,7 @@ export function useResendWingRegistration() {
 export function useConfirmRegistrationApplied() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (executionId: string) => confirmWingThumbnailApplied(executionId),
+    mutationFn: (executionId: string) => confirmRepresentativeImageApplied(executionId),
     onSettled: () => invalidateThumbnailRegistration(queryClient),
   });
 }
@@ -463,7 +463,7 @@ export function useConfirmRegistrationApplied() {
 export function useMarkRegistrationNotApplied() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (executionId: string) => markWingThumbnailNotApplied(executionId),
+    mutationFn: (executionId: string) => markRepresentativeImageNotApplied(executionId),
     onSettled: () => invalidateThumbnailRegistration(queryClient),
   });
 }

@@ -1,5 +1,5 @@
 import type { OperationStatus, ProviderOutcome } from '@kiditem/shared/registration-execution';
-import type { ThumbnailExecutionReportRequest } from '@kiditem/shared/thumbnail-execution';
+import type { ThumbnailAccountResolutionReason, ThumbnailExecutionReportRequest } from '@kiditem/shared/thumbnail-execution';
 
 /**
  * 대표이미지 몰 반영 실행의 동결 내용. 실행이 만들어질 때 한 번 정해지고 바뀌지 않는다.
@@ -16,7 +16,7 @@ export type ThumbnailUpdatePayload = Readonly<{
 }>;
 
 /**
- * Wing 에서 상품을 찾는 이름. 쿠팡 listing 이름이 있으면 그 이름(URL 인코딩은 두 번까지 푼다),
+ * 몰 관리자에서 상품을 찾는 이름. listing 이름이 있으면 그 이름(URL 인코딩은 두 번까지 푼다),
  * 없으면 작업공간 이름이다. 둘 다 비면 빈 문자열이고 호출자가 거절한다.
  */
 export function thumbnailProductName(listingChannelName: string | null, workspaceDisplayName: string | null): string {
@@ -40,25 +40,27 @@ function decodeProductName(value: string): string {
 }
 
 /**
- * 어느 쿠팡 계정의 실행인지. listing 이 있으면 그 계정이다. 판매상품에 쿠팡 listing 이 여럿이면
- * 고르지 않고 거절한다(운영자가 listing 을 고른다). listing 이 하나도 없을 때만 조직의 활성 쿠팡
- * 계정이 하나인지 본다 — 둘 이상이면 역시 listing 을 골라야 한다.
+ * 어느 계정의 실행인지(KID-321, 몰 중립). listing 이 있으면 그 계정이다. 판매상품에 대표이미지 반영을
+ * 지원하는 채널의 listing 이 여럿이면 고르지 않고 거절한다(운영자가 listing 을 고른다). listing 이
+ * 하나도 없을 때만 조직의 활성 계정 중 그 능력(registry `representativeImage`)이 있는 계정이 하나인지
+ * 본다 — 둘 이상이면 역시 listing 을 골라야 한다. 채널 키는 여기 들어오지 않는다.
  */
 export type ThumbnailAccountResolution =
   | Readonly<{ ok: true; channelAccountId: string }>
-  | Readonly<{ ok: false; reason: 'no_coupang_account' | 'ambiguous_coupang_account' | 'ambiguous_coupang_listing' }>;
+  | Readonly<{ ok: false; reason: ThumbnailAccountResolutionReason }>;
 
 export function resolveThumbnailAccount(input: {
   listingAccountId: string | null;
-  /** 고르지 않았을 때 판매상품의 살아 있는 쿠팡 listing 수. 모르면 0 으로 본다. */
+  /** 고르지 않았을 때 판매상품의 살아 있는 listing 수(대표이미지 반영을 지원하는 채널만 셈). 모르면 0 으로 본다. */
   productListingCount?: number;
-  activeCoupangAccountIds: readonly string[];
+  /** 대표이미지 반영을 지원하는 채널의 활성 계정 id 들. */
+  activeAccountIds: readonly string[];
 }): ThumbnailAccountResolution {
   if (input.listingAccountId) return { ok: true, channelAccountId: input.listingAccountId };
-  if ((input.productListingCount ?? 0) > 1) return { ok: false, reason: 'ambiguous_coupang_listing' };
-  const accounts = [...new Set(input.activeCoupangAccountIds)];
-  if (accounts.length === 0) return { ok: false, reason: 'no_coupang_account' };
-  if (accounts.length > 1) return { ok: false, reason: 'ambiguous_coupang_account' };
+  if ((input.productListingCount ?? 0) > 1) return { ok: false, reason: 'ambiguous_listing' };
+  const accounts = [...new Set(input.activeAccountIds)];
+  if (accounts.length === 0) return { ok: false, reason: 'no_account' };
+  if (accounts.length > 1) return { ok: false, reason: 'ambiguous_account' };
   return { ok: true, channelAccountId: accounts[0]! };
 }
 
@@ -94,7 +96,7 @@ export type ThumbnailReportTransition = Readonly<{
   errorMessage: string | null;
 }>;
 
-export const THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE = 'Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요';
+export const THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE = '몰 수정 화면에 올렸습니다 — 몰에서 저장한 뒤 반영됨으로 표시하세요';
 
 /**
  * 확장 · runner 보고의 전이. 올린 것은 저장이 아니므로 성공이 아니다 — 운영자 확인을 기다리는

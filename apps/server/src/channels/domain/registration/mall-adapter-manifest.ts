@@ -15,6 +15,7 @@ import {
   channelCollectsOrders,
   channelCollectsViaExtension,
   channelRegistersListings,
+  channelSoldOutScope,
   channelUploadsTracking,
   type ChannelRegistryEntry,
   type MallChannelKey,
@@ -208,10 +209,9 @@ const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
   'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore', 'thirtymall',
 ]);
 const SUSPENSION_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore', 'thirtymall']);
-const OPTION_LEVEL_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['coupang']);
-
+/** 옵션 단위로 품절 · 재개를 보내는 채널인가. 단위는 채널 레지스트리의 `soldOutScope` 가 답한다. */
 export function soldOutSendsByOption(key: string): boolean {
-  return OPTION_LEVEL_SOLD_OUT_KEYS.has(key);
+  return channelSoldOutScope(key) === 'option';
 }
 
 function soldOutRouteFor(key: string, applicable: boolean): 'mall_admin' | null {
@@ -239,10 +239,10 @@ interface ManifestSeed {
   note: string;
 }
 
-const MANIFEST_KIND: Record<ChannelRegistryEntry['register'], MallAdapterKind> = {
+const MANIFEST_KIND: Record<ChannelRegistryEntry['delivery'], MallAdapterKind> = {
   api: 'api',
   form: 'extension_form',
-  excel: 'extension_excel',
+  sheet: 'extension_excel',
   // 등록 경로를 아직 모르는 몰과 등록 개념이 없는 채널이 함께 여기 온다. 둘은
   // `applicable` 이 가른다.
   none: 'unknown',
@@ -266,7 +266,7 @@ function manifest(entry: ChannelRegistryEntry, seed: ManifestSeed): MallAdapterM
   return {
     key: entry.key,
     name: entry.name,
-    kind: MANIFEST_KIND[entry.register],
+    kind: MANIFEST_KIND[entry.delivery],
     difficulty: seed.difficulty ?? 'unknown',
     unverified,
     applicable,

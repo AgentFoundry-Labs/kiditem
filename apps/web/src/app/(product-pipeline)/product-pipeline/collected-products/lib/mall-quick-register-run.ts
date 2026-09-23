@@ -3,7 +3,7 @@ import {
   valuesForMall,
   type MallRegisterValues,
 } from '@/app/(channels)/_shared/mall-register-values';
-import type { MallPublishItem } from '@/app/(channels)/_shared/mall-publish-adapter';
+import type { MallPublishItem, MallSendChannelAccount } from '@/app/(channels)/_shared/mall-publish-adapter';
 import { isApiError } from '@/lib/api-error';
 
 /**
@@ -19,7 +19,8 @@ import { isApiError } from '@/lib/api-error';
  *  2. **막힌 몰에서 멈추지 않는다.** 한 몰이 실패해도 나머지를 계속 채운다. 하나
  *     때문에 전부 못 하면 '한번에 등록하기' 는 쓸모가 없다.
  *
- * 제출은 하지 않는다. 폼을 채운 것은 등록이 아니다.
+ * 제출은 하지 않는다(`mallFormExecutionOptions` → `submit: false`, KID-322). 폼을 채운 것은 등록이 아니고,
+ * 결과도 등록됐다고 말하지 않는다. [등록]은 등록 실행(`useMallPublishRun`) 안에서만 누른다.
  */
 
 export type MallRunStatus = 'filled' | 'blocked' | 'failed';
@@ -51,11 +52,18 @@ interface RunOptions {
   onOutcome?: (outcome: MallRunOutcome) => void;
 }
 
+/** 확인 창(`adapter.confirmation`)에서 사람이 정한 값과 계정. 폼만 채울 때 어댑터에 그대로 넘긴다. */
+export interface ConfirmedMallInput {
+  values: Readonly<Record<string, string>>;
+  channelAccount: MallSendChannelAccount;
+}
+
 /** 몰 하나. 던지지 않는다 — 실패도 결과의 한 줄이다. */
 export async function runOneMallRegistration(
   mallKey: string,
   item: MallPublishItem | null,
   values: MallRegisterValues,
+  confirmed: ConfirmedMallInput | null = null,
 ): Promise<MallRunOutcome> {
   const adapter = getFormMallAdapter(mallKey);
   if (!adapter) {
@@ -68,11 +76,19 @@ export async function runOneMallRegistration(
     };
   }
   const base = { mallKey, mallName: adapter.mallName };
+  if (adapter.confirmation && !confirmed) {
+    return {
+      ...base,
+      status: 'blocked',
+      message: `${adapter.mallName}는 확인 창에서 계정과 값을 정한 뒤 보냅니다.`,
+      manualSteps: [],
+    };
+  }
   if (!item) {
     return { ...base, status: 'blocked', message: '보낼 상품이 없습니다.', manualSteps: [] };
   }
 
-  const merged = valuesForMall(values, mallKey);
+  const merged = { ...valuesForMall(values, mallKey), ...(confirmed?.values ?? {}) };
   // 어댑터가 막으면 확장을 부르지 않는다. 반쯤 빈 폼이 열리면 사람이 그대로
   // 제출할 수 있고, 그건 우리가 만든 사고다.
   const blocked = adapter.validate(item, merged);
@@ -81,7 +97,11 @@ export async function runOneMallRegistration(
   }
 
   try {
-    const outcome = await adapter.send({ items: [item], values: merged });
+    const outcome = await adapter.send({
+      items: [item],
+      values: merged,
+      ...(confirmed ? { channelAccount: confirmed.channelAccount } : {}),
+    });
     if (!outcome.ok) {
       return {
         ...base,
@@ -93,7 +113,7 @@ export async function runOneMallRegistration(
     return {
       ...base,
       status: 'filled',
-      message: '폼을 채웠습니다. 열린 탭에서 확인하고 직접 등록하세요.',
+      message: '폼을 채웠습니다. [등록]은 누르지 않았습니다 — 열린 탭에서 값을 확인하세요.',
       manualSteps: [...outcome.warnings, ...outcome.manualSteps],
     };
   } catch (error) {
@@ -168,6 +188,6 @@ export function summarizeMallRun(outcomes: readonly MallRunOutcome[]): {
       : `${filled.length}개 몰은 채우고 ${failed.length}개는 못 채웠어요`;
   const description = failed.length > 0
     ? failed.map((outcome) => `${outcome.mallName}: ${outcome.message}`).join(' / ')
-    : '열린 탭에서 확인하고 직접 등록하세요. 제출은 하지 않았습니다.';
+    : '폼만 채웠고 [등록]은 누르지 않았습니다. 등록은 확인 창의 등록 실행이나 몰 등록 마법사에서 합니다.';
   return { filled: filled.length, failed, title, description };
 }

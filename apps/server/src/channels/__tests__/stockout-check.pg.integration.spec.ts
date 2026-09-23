@@ -1,3 +1,4 @@
+import { channelAdapters } from './channel-adapters';
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -19,8 +20,8 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma(); await prisma.$connect();
     persistence = new StockoutCheckPersistenceAdapter(prisma as PrismaService, new ProductTransactionalReadRepositoryAdapter());
-    executions = new RegistrationExecutionRepositoryAdapter(prisma as PrismaService, {} as never);
-    service = new StockoutCheckService(persistence, executions);
+    executions = new RegistrationExecutionRepositoryAdapter(prisma as PrismaService, {} as never, channelAdapters());
+    service = new StockoutCheckService(persistence, executions, channelAdapters());
   });
   afterAll(async () => prisma?.$disconnect());
   beforeEach(async () => { await resetDb(prisma); await seedBaseFixture(prisma); });

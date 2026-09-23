@@ -43,7 +43,7 @@ export async function applyRegisteredOptionRecipes(
   for (const fact of facts) {
     if (!fact.channelListingId || !fact.submissionPayloadJson) continue;
     const frozen = freezeProductRegistrationPayload(fact.submissionPayloadJson as RegistrationSubmissionJson, channelIntegrity.sha256);
-    if (frozen.hash !== fact.submissionPayloadHash || frozen.hash !== fact.requestHash) {
+    if (frozen.hash !== fact.submissionPayloadHash) {
       throw new Error('Registered option recipe payload hash does not match its immutable execution');
     }
     const recipe = preparedRegistrationRecipe(frozen.payload);

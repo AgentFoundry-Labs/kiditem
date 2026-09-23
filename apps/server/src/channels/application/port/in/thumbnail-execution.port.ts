@@ -15,7 +15,7 @@ export const CHANNELS_THUMBNAIL_EXECUTION_PORT = Symbol('CHANNELS_THUMBNAIL_EXEC
  * - `prepare` 는 확장 경로다: 실행을 `executing` 으로 만들고 확장에 넘길 사진을 돌려준다.
  *   같은 생성에 살아 있는 실행(`prepared` · `executing` · `reconciling`)이 있으면 409.
  * - `report` 는 확장 결과를 받는다. 끝난 실행에 온 보고는 409, `reconciling` 은 한 번 더 받는다.
- *   Wing 수정 화면에 올린 보고(`uploaded_pending_save`)도 성공이 아니라 `reconciling` 이다.
+ *   몰 수정 화면에 올린 보고(`uploaded_pending_save`)도 성공이 아니라 `reconciling` 이다.
  * - `confirmApplied` 는 운영자의 "반영됨으로 표시" 다. `reconciling` 에서만 받고 성공으로 가는 유일한 길이다.
  * - `runOnServer` 는 Agent 경로다(개발 서버 전용 Playwright, 운영에서는 503). 올린 결과는 운영자
  *   확인을 기다리는 영수증(`status: 'reconciling'`)이다. owner 키가 같으면 기록된 결과를 다시 돌려준다.

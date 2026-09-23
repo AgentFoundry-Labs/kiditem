@@ -12,11 +12,20 @@ Login checks and registration form fills return current browser results without
 persisting an observation history. Actual submissions and provider outcomes use
 the registration execution ledger.
 
-The channel registry (`@kiditem/shared/channel-registry`) owns channel identity.
-Use the implemented operation capability when admitting provider work: Wing
-supports its explicit registration and option availability paths; Rocket PO is
-Orders-owned and does not support general listing registration or stockout.
-Unsupported operations fail before an execution intent or external IO.
+The channel registry (`@kiditem/shared/channel-registry`) owns channel identity,
+the registration `delivery` (form · api · sheet · none) and `representativeImage`
+support. Use the implemented operation capability when admitting provider work;
+Rocket PO is Orders-owned and does not support general listing registration or
+stockout. Unsupported operations fail before an execution intent or external IO.
+
+Execution kinds, the fence, evidence and state transitions are mall-neutral
+(KID-321). What differs per mall — provider account identity, confirmation
+evidence (admin origin, listing id format), prepare-time mall facts frozen as
+`adapterPayload`, option availability rules and the representative-image runner —
+lives only behind `ChannelAdapterPort` in `adapter/out/channel/<key>/` (Coupang
+Wing) or the generic mall adapter. `npm run check:mall-neutral` fails a channel
+name in Channels domain/application or the shared lifecycle contracts outside its
+reasoned allowlist.
 
 Channels owns all account mutations through its account capability, including
 the existing Orders account-editor route. Mall publishing reads the account's
@@ -66,9 +75,13 @@ sync, registration, matching, and capacity behavior is executable in
 - Selected accounts must exist and be active. `ChannelAccount` stores the Wing
   vendor identity used to fence browser evidence; Open API credentials are not
   accepted or resolved.
-- `register_confirmed_listing` is the supported registration mutation. It
-  validates server-frozen provenance and Wing confirmation evidence before the
-  final listing resolution transaction.
+- Registration on every mall, Coupang Wing included, is a target `register`
+  execution (prepare → start → provider IO → `result`). `report_target_execution`
+  with `outcome: confirmed` is the only registration confirmation: the channel
+  adapter validates the evidence, a new first listing gets the product's content
+  workspace, and a frozen Sellpia match becomes the option recipe in the same
+  transaction. The extension presses a form's [등록] only with the execution's
+  context (KID-322).
 - New Open API submission is an explicit unsupported path with no external IO
   or database intent. Listing deletion has no ledger or route; a mall delete
   will be a registration execution kind once an adapter can delete (KID-321).

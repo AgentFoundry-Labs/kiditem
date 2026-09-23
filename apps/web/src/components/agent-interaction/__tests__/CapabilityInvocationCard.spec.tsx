@@ -64,6 +64,26 @@ describe('CapabilityInvocationCard', () => {
     expect(await screen.findByText('승인되어 업무를 처리하고 있습니다.')).toBeVisible();
   });
 
+  it.each([
+    ['channels.report_target_execution', '몰 등록 실행 결과', '몰에 보낸 등록 실행 결과를 기록합니다.'],
+    ['channels.submit_representative_image', '몰 대표이미지', '대표이미지를 몰 상품 수정 화면에 올립니다.'],
+  ])('presents the mall-neutral channels capability %s', async (capabilityKey, target, effect) => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      id: '00000000-0000-4000-8000-000000000009',
+      capabilityKey,
+      actingAgentKey: 'channel_operations',
+      canonicalInput: {},
+      approvalStatus: 'pending',
+      approvalExpiresAt: null,
+      approvalRisk: 'high',
+      result: null,
+    } as never);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CapabilityInvocationCard identity={IDENTITY} invocationId="00000000-0000-4000-8000-000000000009" /></QueryClientProvider>);
+
+    expect(await screen.findByText(target)).toBeVisible();
+    expect(screen.getByText(effect)).toBeVisible();
+  });
+
   it('keeps a rejected receipt distinct from an approved work acknowledgement', async () => {
     const invocationId = '00000000-0000-4000-8000-000000000002';
     vi.mocked(apiClient.get).mockResolvedValue({

@@ -24,7 +24,9 @@ tests.
 
 ## Current case suite
 
-The 12 versioned cases cover all six user-visible conversation profiles:
+The 11 versioned cases cover five of the six user-visible conversation
+profiles; Channel Operations has no live case until a target-execution fixture
+exists (its confirmed-listing case was retired with KID-321):
 
 - grounded recommendation and evidence reads;
 - approved candidate ingestion;
@@ -34,7 +36,6 @@ The 12 versioned cases cover all six user-visible conversation profiles:
 - Sourcing-to-Products owner delegation;
 - direct Merchandising listing-generation work;
 - providerless purchase-order submission with approval;
-- Channel Operations confirmed-listing registration;
 - an Advertising operating overview through a permitted cross-domain read;
 - ordinary general chat without a KidItem business capability; and
 - same-Conversation two-turn continuity across an explicit restart.

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DRAFT_ID,
@@ -14,6 +14,7 @@ vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
 import { useMallQuickRegister } from './useMallQuickRegister';
+import { coupangWingAdapter } from '@/app/(channels)/_shared/adapters';
 
 const routes = draftRoutes();
 
@@ -85,6 +86,35 @@ describe('useMallQuickRegister', () => {
     for (const row of hook.result.current.readiness) {
       expect(row.reasons.some((reason) => reason.includes('판매가가 0원'))).toBe(false);
     }
+  });
+
+  it('확인 창이 필요한 몰은 맨 위 줄로 서고, 화면이 확인 창을 열도록 따로 알린다', async () => {
+    serveDraft(3500);
+    const hook = render(client());
+
+    await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
+    expect(hook.result.current.readiness[0]?.mallKey).toBe('coupang');
+    expect(hook.result.current.confirmationMallKeys).toEqual(['coupang']);
+    expect(hook.result.current).not.toHaveProperty('wingReadiness');
+  });
+
+  it('확인 창에서 정한 값과 계정으로 폼만 채우고 그 줄에 결과를 남긴다', async () => {
+    serveDraft(3500);
+    const send = vi.spyOn(coupangWingAdapter, 'send').mockResolvedValue({
+      ok: true, confirmed: false, submitted: false, manualSteps: ['열린 탭에서 확인하세요.'], warnings: [],
+    });
+    const hook = render(client());
+    await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
+
+    const account = { id: 'account-1', channel: 'coupang', name: '본점', externalAccountId: null, vendorId: 'A00012345', sellerId: null, isPrimary: true };
+    await act(async () => {
+      await hook.result.current.fillConfirmed('coupang', { values: { productName: '이름' }, channelAccount: account });
+    });
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ channelAccount: account }));
+    expect(send.mock.calls[0]![0].items[0]).not.toHaveProperty('targetExecution');
+    expect(hook.result.current.results.coupang?.status).toBe('filled');
+    send.mockRestore();
   });
 
   it('상세를 못 읽는 동안에는 버튼을 열지 않는다', () => {

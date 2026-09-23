@@ -1,13 +1,12 @@
 import { REGISTRATION_TARGET_PORT } from './application/port/in/registration-target.port';
 import { SALES_PRODUCT_PORT } from './application/port/in/sales-product.port';
 import { REGISTRATION_DRAFT_PORT } from './application/port/out/persistence/registration-draft.port';
-import { CHANNEL_REGISTRATION_PORT } from './application/port/in/registration/channel-registration.port';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { StockoutCheckController } from './adapter/in/web/stockout-check.controller';
 import { StockoutCheckService } from './application/service/listing/stockout-check.service';
 import { StockoutCheckPersistenceAdapter } from './adapter/out/persistence/stockout-check.persistence.adapter';
 import { STOCKOUT_CHECK_PORT } from './application/port/in/listing/stockout-check.port';
-import { STOCKOUT_CHECK_PERSISTENCE_PORT, type StockoutCheckPersistencePort } from './application/port/out/persistence/stockout-check.persistence.port';
+import { STOCKOUT_CHECK_PERSISTENCE_PORT } from './application/port/out/persistence/stockout-check.persistence.port';
 import { Module } from '@nestjs/common';
 import { SalesProductModule } from './sales-product.module';
 import { ChannelCatalogModule } from './channel-catalog.module';
@@ -19,11 +18,12 @@ import { ChannelRegistrationExecutionController } from './adapter/in/web/channel
 import { RegistrationExecutionRepositoryAdapter } from './adapter/out/repository/registration-execution.repository.adapter';
 import { RegistrationExecutionService } from './application/service/registration/registration-execution.service';
 import { REGISTRATION_EXECUTION_PORT } from './application/port/in/capability/registration-execution.port';
-import { REGISTRATION_EXECUTION_REPOSITORY_PORT, type RegistrationExecutionRepositoryPort } from './application/port/out/repository/registration-execution.repository.port';
+import { REGISTRATION_EXECUTION_REPOSITORY_PORT } from './application/port/out/repository/registration-execution.repository.port';
 import { RegistrationDraftAdapter } from './adapter/out/persistence/registration-draft.adapter';
 import { RegistrationStateRepositoryAdapter } from './adapter/out/persistence/registration-state.repository.adapter';
 import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
 import { CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT } from './application/port/out/content/registrable-detail-page.port';
+import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/channel-adapter.port';
 
 /**
  * 등록 실행 울타리([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
@@ -40,10 +40,10 @@ import { CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT } from './application/port/out/con
   providers: [
     StockoutCheckPersistenceAdapter,
     { provide: STOCKOUT_CHECK_PERSISTENCE_PORT, useExisting: StockoutCheckPersistenceAdapter },
-    { provide: StockoutCheckService, useFactory: (persistence: StockoutCheckPersistencePort, executions: RegistrationExecutionRepositoryPort) => new StockoutCheckService(persistence, executions), inject: [STOCKOUT_CHECK_PERSISTENCE_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT] },
+    { provide: StockoutCheckService, useFactory: (...dependencies: ConstructorParameters<typeof StockoutCheckService>) => new StockoutCheckService(...dependencies), inject: [STOCKOUT_CHECK_PERSISTENCE_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT, CHANNEL_ADAPTER_REGISTRY_PORT] },
     { provide: STOCKOUT_CHECK_PORT, useExisting: StockoutCheckService },
     RegistrationExecutionRepositoryAdapter,
-    { provide: RegistrationExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof RegistrationExecutionService>) => new RegistrationExecutionService(...dependencies), inject: [REGISTRATION_EXECUTION_REPOSITORY_PORT, CHANNEL_REGISTRATION_PORT, REGISTRATION_DRAFT_PORT, SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT, STOCKOUT_CHECK_PORT, CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT] },
+    { provide: RegistrationExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof RegistrationExecutionService>) => new RegistrationExecutionService(...dependencies), inject: [REGISTRATION_EXECUTION_REPOSITORY_PORT, SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT, STOCKOUT_CHECK_PORT, CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT] },
     {
       provide: REGISTRATION_EXECUTION_REPOSITORY_PORT,
       useExisting: RegistrationExecutionRepositoryAdapter,

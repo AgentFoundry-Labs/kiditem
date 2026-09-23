@@ -1,6 +1,8 @@
 import {
   Equals,
   IsInt,
+  IsOptional,
+  IsUUID,
   IsString,
   Matches,
   Max,
@@ -43,4 +45,11 @@ export class FailDetailPageClientRenderDto {
   @MinLength(1)
   @MaxLength(300)
   message!: string;
+}
+
+/** 서버 렌더 요청(KID-321). `detailPageRevisionId` 를 주면 그 revision 을, 없으면 작업공간의 현재 revision 을 렌더한다. */
+export class PrepareDetailPageServerRenderDto {
+  @IsOptional()
+  @IsUUID()
+  detailPageRevisionId?: string;
 }

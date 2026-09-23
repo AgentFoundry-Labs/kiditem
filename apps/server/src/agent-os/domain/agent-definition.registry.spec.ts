@@ -74,8 +74,7 @@ describe("AGENT_DEFINITIONS", () => {
         "supply.submit_purchase_order",
       ],
       channel_operations: [
-        "channels.register_confirmed_listing",
-        "channels.submit_wing_thumbnail",
+        "channels.submit_representative_image",
       ],
       advertising: [],
     });
