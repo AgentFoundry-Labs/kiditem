@@ -334,6 +334,5 @@ function toRow(row: ProductRegistrationExecution): ThumbnailExecutionRow {
     screenshotPath: typeof result.screenshotPath === 'string' ? result.screenshotPath : null,
     completedAt: row.completedAt,
     updatedAt: row.updatedAt,
-    dismissedAt: typeof result.dismissedAt === 'string' ? new Date(result.dismissedAt) : null,
   };
 }

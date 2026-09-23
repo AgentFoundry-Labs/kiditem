@@ -13,7 +13,6 @@ export type ThumbnailExecutionRow = Readonly<{
   screenshotPath: string | null;
   completedAt: Date | null;
   updatedAt: Date;
-  dismissedAt: Date | null;
 }>;
 
 /**
