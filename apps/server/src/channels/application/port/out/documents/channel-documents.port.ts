@@ -1,4 +1,5 @@
-import type { ParsedWingCatalogWorkbook, ParsedRocketSellpiaMatchingCsv, ParsedSabangnetWorkbook } from './channel-document.models';
+import type { ParsedWingCatalogWorkbook, ParsedRocketSellpiaMatchingCsv, ParsedSabangnetWorkbook, SabangnetProductRow } from './channel-document.models';
+import type { SabangnetDetailDigests } from '../../../../domain/sales-product/sales-product-reimport-merge';
 import type { CoupangCatalogEdit, CoupangCatalogEditResult, CoupangCatalogSheet } from '../../../../domain/registration/bulk-sheet/coupang-catalog-edit';
 export const CHANNEL_DOCUMENTS_PORT = Symbol('CHANNEL_DOCUMENTS_PORT');
 export interface GeneratedChannelFile {
@@ -13,6 +14,11 @@ export interface ChannelDocumentsPort {
   parseWingWorkbook(bytes: Uint8Array): ParsedWingCatalogWorkbook;
   parseRocketMatchingCsv(bytes: Uint8Array): ParsedRocketSellpiaMatchingCsv;
   parseSabangnetWorkbook(bytes: Uint8Array, name: string): ParsedSabangnetWorkbook;
+  /**
+   * 저장된 사방넷 상품 원문을 그 줄을 읽었던 매핑으로 다시 읽는다(다시 가져오기의 기준값). 상세는 원문에
+   * 디지스트로만 있고, 디지스트를 남기기 전 원문이면 `detailDigests` 가 null 이다. 읽을 수 없으면 null.
+   */
+  readSabangnetProductSource(sourceRaw: unknown): { row: SabangnetProductRow; detailDigests: SabangnetDetailDigests | null } | null;
   exportWingRegistration(template: Uint8Array, products: unknown, fileName?: string): GeneratedChannelFile & { productCount: number };
   exportWingInventory(products: unknown, now: Date, fileName?: string): GeneratedChannelFile & { columns: string[] };
 }

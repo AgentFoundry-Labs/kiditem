@@ -188,6 +188,8 @@ describe('SabangnetProductImportService', () => {
       sourceKey: SABANGNET_GOODS_NO,
       expectedVersion: 7,
       changed: true,
+      preserved: [],
+      updated: [],
     }]);
     expect(repository.readImportOptionStates).toHaveBeenCalledWith(ORGANIZATION_ID, [SABANGNET_GOODS_NO, 'OWN-100017']);
     expect(repository.importSabangnet).toHaveBeenCalledTimes(2);

@@ -34,6 +34,8 @@ function makePreview(dryRun: boolean): SabangnetImportPreview {
         sourceKey: '100101',
         expectedVersion: 4,
         changed: true,
+        preserved: ['noticeCategory', 'noticeValues', 'certifications', 'kcStatus'],
+        updated: ['detailHtml', 'extraDetailHtml'],
       },
       {
         salesProductId: PRODUCT_TWO,
@@ -42,6 +44,8 @@ function makePreview(dryRun: boolean): SabangnetImportPreview {
         sourceKey: '100102',
         expectedVersion: 2,
         changed: false,
+        preserved: [],
+        updated: [],
       },
     ],
     files: [{ name: 'products.xlsx', kind: 'products', rows: 2 }],
@@ -112,5 +116,14 @@ describe('<SabangnetImportDialog />', () => {
       salesProductId: PRODUCT_ONE,
       expectedVersion: 4,
     }]);
+  });
+
+  it('says which operator edits a reimport keeps and which fields it updates', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    await uploadAndPreview(user);
+
+    expect(screen.getByText('편집값 유지: 고시·KC · 갱신: 상세')).toBeInTheDocument();
+    expect(screen.getAllByText(/편집값 유지|갱신:/)).toHaveLength(1);
   });
 });

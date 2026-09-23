@@ -18,6 +18,9 @@ export const SABANGNET_WORKBOOK_ROW_LIMIT = 20_000;
 import type { SabangnetProductRow, SabangnetOptionRow, SabangnetChannelOverrideRow, SabangnetSendRecordRow, SabangnetMallCategoryRow, SabangnetMallTemplateRow, ParsedSabangnetWorkbook } from '../../../../application/port/out/documents/channel-document.models';
 export type { SabangnetProductRow, SabangnetOptionRow, SabangnetChannelOverrideRow, SabangnetSendRecordRow, SabangnetMallCategoryRow, SabangnetMallTemplateRow, ParsedSabangnetWorkbook } from '../../../../application/port/out/documents/channel-document.models';
 
+import { ChannelIntegrityAdapter } from '../../integrity/channel-integrity.adapter';
+import { sabangnetDetailDigests, type SabangnetDetailDigests } from '../../../../domain/sales-product/sales-product-reimport-merge';
+
 export class SabangnetWorkbookFormatError extends Error {}
 
 /** 머리 이름을 비교하기 좋게: '[수정불가]' 와 모든 공백을 뺀다. */
@@ -170,6 +173,17 @@ const IMAGE_COLUMNS: readonly (readonly string[])[] = [
 
 const EXCLUDED_RAW = new Set(['상품상세설명', '추가상품상세설명_1', '추가상품상세설명_2', '추가상품상세설명_3']);
 
+/**
+ * 원문에 상세 대신 남기는 디지스트 키. 머리 이름은 '#' 으로 시작하지 않아 사방넷 칸과 겹치지 않는다.
+ * 값은 `sabangnetDetailDigests` 가 만든다(빈 상세는 빈 문자열).
+ */
+export const SABANGNET_DETAIL_DIGEST_KEYS = {
+  detailHtml: '#digest:상품상세설명',
+  extraDetailHtml: '#digest:추가상품상세설명',
+} as const;
+
+const integrity = new ChannelIntegrityAdapter();
+
 function rawRecord(headers: readonly string[], cells: readonly unknown[]): Record<string, string> {
   const raw: Record<string, string> = {};
   headers.forEach((header, index) => {
@@ -182,10 +196,18 @@ function rawRecord(headers: readonly string[], cells: readonly unknown[]): Recor
   return raw;
 }
 
-function parseProducts(table: SheetTable): { rows: SabangnetProductRow[]; issues: SabangnetImportIssue[] } {
-  const { headers } = table;
+interface ProductColumnLayout {
+  col: ReturnType<typeof columnReader>;
+  title1: number;
+  title2: number;
+  value1: number;
+  value2: number;
+  imageIndexes: number[];
+  noticeIndexes: number[];
+}
+
+function productColumnLayout(headers: readonly string[]): ProductColumnLayout {
   const col = columnReader(headers);
-  const issues: SabangnetImportIssue[] = [];
   const title1 = col.index(['옵션제목(1)']);
   const title2 = col.index(['옵션제목(2)']);
   const value1 = col.index(['옵션상세명칭(1)']) >= 0
@@ -201,84 +223,134 @@ function parseProducts(table: SheetTable): { rows: SabangnetProductRow[]; issues
     return headers.findIndex((header) => names.some((name) => header.startsWith(`${name}(`)));
   });
   const noticeIndexes = Array.from({ length: 39 }, (_, offset) => col.index([`속성값${offset + 1}`]));
+  return { col, title1, title2, value1, value2, imageIndexes, noticeIndexes };
+}
 
+/** 한 줄 → 상품 줄. 상품명이나 열쇠(품번코드 · 자체상품코드)가 없으면 무엇이 없는지 말한다. */
+function productRowFromCells(
+  headers: readonly string[],
+  layout: ProductColumnLayout,
+  row: number,
+  cells: readonly unknown[],
+): SabangnetProductRow | { issue: SabangnetImportIssue } {
+  const { col, title1, title2, value1, value2, imageIndexes, noticeIndexes } = layout;
+  const get = (names: readonly string[]) => col.get(cells, names);
+  const goodsNo = textOrNull(get(['품번코드']));
+  const ownCode = textOrNull(get(['자체상품코드']));
+  const name = cellText(get(['상품명']));
+  if (!name) {
+    return { issue: { kind: 'products', row, code: goodsNo ?? ownCode, message: '상품명이 비어 있습니다.' } };
+  }
+  if (!goodsNo && !ownCode) {
+    return { issue: { kind: 'products', row, code: null, message: '품번코드도 자체상품코드도 없습니다.' } };
+  }
+  const optionTitles: string[] = [];
+  const optionValueLists: string[][] = [];
+  for (const [titleAt, valueAt] of [[title1, value1], [title2, value2]] as const) {
+    const title = titleAt >= 0 ? cellText(cells[titleAt]) : '';
+    const values = valueAt >= 0 ? splitList(cells[valueAt]) : [];
+    if (!title && values.length === 0) continue;
+    optionTitles.push(title);
+    optionValueLists.push(values);
+  }
+  const certNumber = textOrNull(get(['인증번호']));
+  return {
+    row,
+    goodsNo,
+    ownCode,
+    name,
+    shortName: textOrNull(get(['상품약어'])),
+    modelName: textOrNull(get(['모델명'])),
+    modelNo: textOrNull(get(['모델NO'])),
+    brand: textOrNull(get(['브랜드명'])),
+    keywords: splitList(get(['사이트검색어'])),
+    standardCategory: textOrNull(get(['표준카테고리'])),
+    manufacturer: textOrNull(get(['제조사'])),
+    originCountry: textOrNull(get(['원산지(제조국)'])),
+    originRegion: textOrNull(get(['원산지상세지역'])),
+    statusCode: textOrNull(get(['상품상태'])),
+    taxCode: textOrNull(get(['세금구분'])),
+    deliveryCode: textOrNull(get(['배송비구분'])),
+    deliveryFee: sabangnetNumber(get(['배송비'])),
+    costPrice: sabangnetNumber(get(['원가'])),
+    salePrice: sabangnetNumber(get(['판매가'])),
+    tagPrice: sabangnetNumber(get(['TAG가'])),
+    optionTitles,
+    optionValueLists,
+    stockManaged: cellText(get(['재고관리사용여부'])).toUpperCase() === 'Y',
+    imageUrls: [...new Set(imageIndexes
+      .map((at) => (at >= 0 ? cellText(cells[at]) : ''))
+      .filter((url) => /^https?:\/\//i.test(url)))],
+    detailHtml: textOrNull(get(['상품상세설명'])),
+    extraDetailHtml: ['추가상품상세설명_1', '추가상품상세설명_2', '추가상품상세설명_3']
+      .map((header) => cellText(get([header])))
+      .filter(Boolean),
+    certification: certNumber
+      ? {
+        number: certNumber,
+        issuer: textOrNull(get(['인증기관'])),
+        field: textOrNull(get(['인증분야'])),
+        validFrom: textOrNull(get(['인증유효시작일'])),
+        validTo: textOrNull(get(['인증유효마지막일'])),
+        issuedAt: textOrNull(get(['발급일자'])),
+        certifiedAt: textOrNull(get(['인증일자'])),
+        imageUrl: textOrNull(get(['인증서이미지'])),
+      }
+      : null,
+    noticeCategory: textOrNull(get(['속성정보(상품정보고시)분류코드', '속성분류코드'])),
+    noticeValues: trimTrailingBlanks(noticeIndexes.map((at) => (at >= 0 ? cellText(cells[at]) : ''))),
+    englishName: textOrNull(get(['영문상품명'])),
+    printName: textOrNull(get(['출력상품명'])),
+    importDeclarationNo: textOrNull(get(['수입신고번호'])),
+    adminMemo: textOrNull(get(['관리자메모'])),
+    raw: rawRecord(headers, cells),
+  };
+}
+
+function parseProducts(table: SheetTable): { rows: SabangnetProductRow[]; issues: SabangnetImportIssue[] } {
+  const layout = productColumnLayout(table.headers);
+  const issues: SabangnetImportIssue[] = [];
   const rows: SabangnetProductRow[] = [];
   for (const { row, cells } of table.dataRows) {
-    const get = (names: readonly string[]) => col.get(cells, names);
-    const goodsNo = textOrNull(get(['품번코드']));
-    const ownCode = textOrNull(get(['자체상품코드']));
-    const name = cellText(get(['상품명']));
-    if (!name) {
-      issues.push({ kind: 'products', row, code: goodsNo ?? ownCode, message: '상품명이 비어 있습니다.' });
+    const parsed = productRowFromCells(table.headers, layout, row, cells);
+    if ('issue' in parsed) {
+      issues.push(parsed.issue);
       continue;
     }
-    if (!goodsNo && !ownCode) {
-      issues.push({ kind: 'products', row, code: null, message: '품번코드도 자체상품코드도 없습니다.' });
-      continue;
-    }
-    const optionTitles: string[] = [];
-    const optionValueLists: string[][] = [];
-    for (const [titleAt, valueAt] of [[title1, value1], [title2, value2]] as const) {
-      const title = titleAt >= 0 ? cellText(cells[titleAt]) : '';
-      const values = valueAt >= 0 ? splitList(cells[valueAt]) : [];
-      if (!title && values.length === 0) continue;
-      optionTitles.push(title);
-      optionValueLists.push(values);
-    }
-    const certNumber = textOrNull(get(['인증번호']));
-    rows.push({
-      row,
-      goodsNo,
-      ownCode,
-      name,
-      shortName: textOrNull(get(['상품약어'])),
-      modelName: textOrNull(get(['모델명'])),
-      modelNo: textOrNull(get(['모델NO'])),
-      brand: textOrNull(get(['브랜드명'])),
-      keywords: splitList(get(['사이트검색어'])),
-      standardCategory: textOrNull(get(['표준카테고리'])),
-      manufacturer: textOrNull(get(['제조사'])),
-      originCountry: textOrNull(get(['원산지(제조국)'])),
-      originRegion: textOrNull(get(['원산지상세지역'])),
-      statusCode: textOrNull(get(['상품상태'])),
-      taxCode: textOrNull(get(['세금구분'])),
-      deliveryCode: textOrNull(get(['배송비구분'])),
-      deliveryFee: sabangnetNumber(get(['배송비'])),
-      costPrice: sabangnetNumber(get(['원가'])),
-      salePrice: sabangnetNumber(get(['판매가'])),
-      tagPrice: sabangnetNumber(get(['TAG가'])),
-      optionTitles,
-      optionValueLists,
-      stockManaged: cellText(get(['재고관리사용여부'])).toUpperCase() === 'Y',
-      imageUrls: [...new Set(imageIndexes
-        .map((at) => (at >= 0 ? cellText(cells[at]) : ''))
-        .filter((url) => /^https?:\/\//i.test(url)))],
-      detailHtml: textOrNull(get(['상품상세설명'])),
-      extraDetailHtml: ['추가상품상세설명_1', '추가상품상세설명_2', '추가상품상세설명_3']
-        .map((header) => cellText(get([header])))
-        .filter(Boolean),
-      certification: certNumber
-        ? {
-          number: certNumber,
-          issuer: textOrNull(get(['인증기관'])),
-          field: textOrNull(get(['인증분야'])),
-          validFrom: textOrNull(get(['인증유효시작일'])),
-          validTo: textOrNull(get(['인증유효마지막일'])),
-          issuedAt: textOrNull(get(['발급일자'])),
-          certifiedAt: textOrNull(get(['인증일자'])),
-          imageUrl: textOrNull(get(['인증서이미지'])),
-        }
-        : null,
-      noticeCategory: textOrNull(get(['속성정보(상품정보고시)분류코드', '속성분류코드'])),
-      noticeValues: trimTrailingBlanks(noticeIndexes.map((at) => (at >= 0 ? cellText(cells[at]) : ''))),
-      englishName: textOrNull(get(['영문상품명'])),
-      printName: textOrNull(get(['출력상품명'])),
-      importDeclarationNo: textOrNull(get(['수입신고번호'])),
-      adminMemo: textOrNull(get(['관리자메모'])),
-      raw: rawRecord(headers, cells),
-    });
+    // 상세 HTML 은 원문에 담지 않고 디지스트만 남긴다 — 다시 가져올 때 사람이 고쳤는지 가르는 기준값이다.
+    const digests = sabangnetDetailDigests(parsed, integrity.sha256);
+    parsed.raw[SABANGNET_DETAIL_DIGEST_KEYS.detailHtml] = digests.detailHtml;
+    parsed.raw[SABANGNET_DETAIL_DIGEST_KEYS.extraDetailHtml] = digests.extraDetailHtml;
+    rows.push(parsed);
   }
   return { rows, issues };
+}
+
+/**
+ * 저장된 상품 원문(`SalesProduct.sourceRaw`)을 그 줄을 읽었던 매핑 그대로 다시 읽는다. 원문 키는 머리
+ * 이름이고(같은 머리가 둘이면 뒤 것은 `머리#열번호`), 빈 칸은 없다. 상세는 원문에 없고 디지스트만 있다.
+ * 디지스트를 남기기 전에 가져온 원문이면 `detailDigests` 는 null 이다.
+ */
+export function readSabangnetProductSource(
+  sourceRaw: unknown,
+): { row: SabangnetProductRow; detailDigests: SabangnetDetailDigests | null } | null {
+  if (!sourceRaw || typeof sourceRaw !== 'object' || Array.isArray(sourceRaw)) return null;
+  const entries = Object.entries(sourceRaw as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string');
+  const digestKeys = new Set<string>(Object.values(SABANGNET_DETAIL_DIGEST_KEYS));
+  const columns = entries.filter(([key]) => !digestKeys.has(key));
+  const headers = columns.map(([key]) => key.replace(/#\d+$/, ''));
+  const parsed = productRowFromCells(headers, productColumnLayout(headers), 0, columns.map(([, value]) => value));
+  if ('issue' in parsed) return null;
+  const raw = sourceRaw as Record<string, unknown>;
+  const detailHtml = raw[SABANGNET_DETAIL_DIGEST_KEYS.detailHtml];
+  const extraDetailHtml = raw[SABANGNET_DETAIL_DIGEST_KEYS.extraDetailHtml];
+  return {
+    row: parsed,
+    detailDigests: typeof detailHtml === 'string' && typeof extraDetailHtml === 'string'
+      ? { detailHtml, extraDetailHtml }
+      : null,
+  };
 }
 
 function trimTrailingBlanks(values: string[]): string[] {

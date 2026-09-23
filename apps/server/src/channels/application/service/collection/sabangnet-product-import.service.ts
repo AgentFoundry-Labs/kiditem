@@ -33,8 +33,14 @@ import { mirroredImageKey, preferMirroredImageUrls } from '../../../domain/sales
 import {
   buildSabangnetImportPlan,
   planSabangnetMallValues,
+  sabangnetProductBasics,
   sabangnetShopMallKey,
 } from './sabangnet-product-import.plan';
+import {
+  mergeSabangnetReimport,
+  sameImportValue,
+  type SabangnetReimportBaseline,
+} from '../../../domain/sales-product/sales-product-reimport-merge';
 import type { SalesProductLinkPort } from '../../port/in/sales-product/sales-product-link.port';
 import type { SendRecordLink } from '../../../domain/sales-product/sales-product-links';
 import {
@@ -176,17 +182,22 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         .filter((code): code is string => !!code);
       const current = sourceKeys.map((key) => fingerprints.get(key)).find(Boolean);
       // 이미 우리 저장소로 옮긴 사진은 다시 가져와도 옮긴 주소를 지킨다.
-      const product = {
-        ...planned,
-        create: {
-          ...planned.create,
-          imageUrls: preferMirroredImageUrls({
-            incoming: planned.create.imageUrls,
-            current: current?.imageUrls ?? [],
-            mirroredUrl,
-          }),
-        },
-      };
+      const preferMirrored = (urls: readonly string[]) => preferMirroredImageUrls({
+        incoming: urls,
+        current: current?.imageUrls ?? [],
+        mirroredUrl,
+      });
+      const incoming = { ...planned.create, imageUrls: preferMirrored(planned.create.imageUrls) };
+      // 있는 상품이면 지난 가져오기 뒤 사람이 고친 칸을 지킨다(삼자 병합). 원문은 이번 파일 줄로 바꾼다.
+      const merge = current
+        ? mergeSabangnetReimport({
+          current: current.basics,
+          incoming,
+          baseline: this.reimportBaseline(current.sourceRaw, preferMirrored),
+          sha256: (value) => this.integrity.sha256(value),
+        })
+        : null;
+      const product = { ...planned, create: merge?.merged ?? incoming };
       const state = sourceKeys.map((key) => states.get(key)).find(Boolean);
       // 사방넷에서 옮긴 상품은 품번코드를 이미 들고 온다. 없으면 어느 줄이 문제인지 말한다.
       const importedCode = product.create.code;
@@ -211,7 +222,11 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         optionAxes: product.create.optionAxes,
         options: optionPlan.writes,
       });
+      // 지문에 없는 칸(KC 상태 · 초안 편집 칸)도 병합이 바꾸면 바뀐 것이다. 원문이 달라도 바뀐 것이다 —
+      // 고른 상품은 이번 파일 줄을 다음 가져오기의 기준값으로 남긴다.
       const same = state !== undefined && current?.fingerprint === fingerprint
+        && (merge?.updated.length ?? 0) === 0
+        && sameImportValue(current?.sourceRaw, product.create.sourceRaw)
         && optionPlan.retireIds.length === 0 && optionPlan.deleteIds.length === 0;
       if (state) {
         existingChangesByProductId.set(state.productId, {
@@ -221,6 +236,8 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
           sourceKey: sourceKeys.find((key) => states.get(key)?.productId === state.productId) ?? importedCode,
           expectedVersion: state.version,
           changed: !same,
+          preserved: merge?.preserved ?? [],
+          updated: merge?.updated ?? [],
         });
       }
       const selection = state ? selectionByProductId.get(state.productId) : undefined;
@@ -289,6 +306,23 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
       channelOverrides: { ...preview.channelOverrides, saved: result.overridesSaved },
       links,
       mallValues: savedMallValues,
+    };
+  }
+
+  /**
+   * 지난 가져오기가 만든 값: 저장된 원문을 같은 매핑으로 다시 읽는다. 사진은 지금 값과 같은 규칙으로 옮긴 주소를
+   * 적용해, 옮긴 것을 사람이 고친 것으로 보지 않는다. 원문이 없거나 읽을 수 없으면 기준값이 없다.
+   */
+  private reimportBaseline(
+    sourceRaw: unknown,
+    preferMirrored: (urls: readonly string[]) => string[],
+  ): SabangnetReimportBaseline | null {
+    const source = this.documents.readSabangnetProductSource(sourceRaw);
+    if (!source) return null;
+    const { detailHtml: _detailHtml, extraDetailHtml: _extraDetailHtml, ...basics } = sabangnetProductBasics(source.row);
+    return {
+      basics: { ...basics, imageUrls: preferMirrored(basics.imageUrls) },
+      detailDigests: source.detailDigests,
     };
   }
 }

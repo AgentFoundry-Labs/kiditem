@@ -73,6 +73,14 @@ export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
   sourceUrl?: string | null;
 }
 
+/** 다시 가져오기가 병합하는 지금 판매상품: 기본 칸과, 지난 가져오기의 원문(없으면 null). */
+export interface SalesProductImportCurrent {
+  fingerprint: string;
+  imageUrls: string[];
+  basics: SalesProductBasicsRecord;
+  sourceRaw: unknown;
+}
+
 export interface SalesProductOptionState {
   productId: string;
   productCode: string | null;
@@ -190,11 +198,11 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     plan: Pick<SalesProductLinkPlan, 'listingLinks' | 'optionLinks'>,
   ): Promise<{ listings: number; options: number }>;
-  /** 가져오기 미리보기: 코드별 내용 해시와 지금 사진 주소(이미 옮긴 사진을 알아보려고). */
+  /** 가져오기 미리보기: 코드별 내용 해시와 지금 값(이미 옮긴 사진 · 사람이 고친 칸을 알아보려고). */
   readImportFingerprints(
     organizationId: string,
     codes: readonly string[],
-  ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>>;
+  ): Promise<Map<string, SalesProductImportCurrent>>;
   /** 몰 가격 가져오기 후보: 판매상품(단품 추가금액 · 몰별 값)과 이어진 활성 몰 옵션의 가격. */
   readMallPriceCandidates(organizationId: string): Promise<{
     products: (MallPriceCandidateProduct & { code: string | null; name: string })[];
