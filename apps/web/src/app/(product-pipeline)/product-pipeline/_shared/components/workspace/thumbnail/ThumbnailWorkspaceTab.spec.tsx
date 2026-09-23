@@ -55,13 +55,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={{ ...editData, thumbnails: [] }}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={[]}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -74,13 +73,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -97,13 +95,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -122,13 +119,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={onPreviewThumbnail}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -149,13 +145,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={onPreviewThumbnail}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -171,13 +166,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={onPreviewThumbnail}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -195,13 +189,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -221,13 +214,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={onPreviewThumbnail}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -256,13 +248,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -288,13 +279,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -323,13 +313,12 @@ describe('ThumbnailWorkspaceTab', () => {
         }}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
         thumbnailPreviewImages={['https://cdn.example.com/source.jpg', 'https://cdn.example.com/other.jpg']}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
         onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -360,7 +349,6 @@ describe('ThumbnailWorkspaceTab', () => {
         }}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
         // 배지는 편집용 선택값이 아니라 **저장된 대표**만 근거로 삼는다.
         savedRepresentativeThumbnailUrl="https://cdn.example.com/source.jpg"
@@ -368,7 +356,7 @@ describe('ThumbnailWorkspaceTab', () => {
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -392,14 +380,13 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={{ ...editData, thumbnails: previewImages }}
         contentWorkspaceId={null}
         thumbnailUrl="https://cdn.example.com/other.jpg"
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         savedRepresentativeThumbnailUrl="https://cdn.example.com/source.jpg"
         thumbnailPreviewImages={previewImages}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -424,13 +411,12 @@ describe('ThumbnailWorkspaceTab', () => {
         }}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={['https://cdn.example.com/source.jpg']}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 

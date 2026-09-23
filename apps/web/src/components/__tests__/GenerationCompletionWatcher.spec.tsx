@@ -44,7 +44,6 @@ function makeGeneration(
   return {
     id: 'generation-245',
     productId: null,
-    sourceCandidateId: 'candidate-245',
     contentWorkspaceId: null,
     templateId: 'kids-playful',
     productName: '매직 큐브 퍼즐',

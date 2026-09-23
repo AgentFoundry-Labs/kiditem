@@ -82,8 +82,8 @@ describe('product-pipeline route construction', () => {
       thumbnailGenerationEditHref({
         productName: '쭉쭉붙이는터치등',
         imageUrl: 'https://cdn.example.com/source.jpg',
-        returnTo: '/product-pipeline/collected-products/candidate-1',
-        subjectParams: { sourceCandidateId: 'candidate-1' },
+        returnTo: '/product-pipeline/collected-products/sales-product-1',
+        subjectParams: { contentWorkspaceId: 'workspace-1' },
       }),
     ).toContain('/product-pipeline/thumbnail-generation/edit?');
 
@@ -128,7 +128,10 @@ describe('product-pipeline route construction', () => {
 
   it('converges workspace-bound thumbnail entry to its product workspace tab', () => {
     // 수집상품 화면은 판매상품 초안 id 로 연다 — 원천 기록 id 만으로는 그 화면을 만들지 않는다(KID-310).
-    expect(thumbnailWorkspaceHref({ sourceCandidateId: 'candidate-1', mode: 'edit' })).toBeNull();
+    expect(thumbnailWorkspaceHref({
+      ...({ sourceCandidateId: 'candidate-1' } as Record<string, string>),
+      mode: 'edit',
+    })).toBeNull();
     const collectedHref = thumbnailWorkspaceHref({
       returnTo: '/product-pipeline/collected-products/sales-product-1',
       imageUrl: 'https://cdn.example.com/source.jpg',
