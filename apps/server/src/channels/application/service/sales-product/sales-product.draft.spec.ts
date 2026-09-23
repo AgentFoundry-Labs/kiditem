@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SalesProductUseCase } from './sales-product.usecase';
+import { untouchedDraftDeletionPorts } from '../../../../test-helpers/sales-product-draft-port';
 import type { SalesProduct } from '@kiditem/shared/sales-product';
 import type { SalesProductOptionReplacementPlan } from '../../../domain/sales-product/sales-product';
 import type {
@@ -101,7 +102,7 @@ function setup(rows: Row[] = []) {
       return true;
     },
   } as unknown as SalesProductRepositoryPort;
-  return { rows, plans, repository, service: new SalesProductUseCase(repository) };
+  return { rows, plans, repository, service: new SalesProductUseCase(repository, ...untouchedDraftDeletionPorts) };
 }
 
 const source = {

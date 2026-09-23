@@ -58,9 +58,10 @@ export class SalesProductUseCase implements SalesProductPort {
   constructor(
 
     private readonly repository: SalesProductRepositoryPort,
-    private readonly workspaceArchive?: SalesProductWorkspaceArchivePort,
+    /** 초안 삭제가 콘텐츠 작업공간 보관과 원본 기록 삭제를 한 커밋에 묶는다 — 빠지면 삭제가 반쪽이 된다. */
+    private readonly workspaceArchive: SalesProductWorkspaceArchivePort,
+    private readonly sourceRecords: ChannelSourceRecordPort,
     private readonly thumbnails?: SalesProductThumbnailSourcePort,
-    private readonly sourceRecords?: ChannelSourceRecordPort,
   ) {}
 
   /** 목록 줄의 사진은 운영자가 저장한 대표 썸네일이 있으면 그것, 없으면 초안의 첫 사진이다. */
@@ -218,13 +219,13 @@ export class SalesProductUseCase implements SalesProductPort {
         throw new ConflictException({ message: DRAFT_DELETION_REFUSALS[decision.reason], reason: decision.reason });
       }
       await this.repository.deleteDraftRows(transaction, organizationId, salesProductId);
-      await this.workspaceArchive?.archiveSalesProductWorkspace(transaction, {
+      await this.workspaceArchive.archiveSalesProductWorkspace(transaction, {
         organizationId,
         salesProductId,
         archivedAt: new Date(),
       });
       if (facts.sourceRecordId) {
-        await this.sourceRecords?.deleteForDraft(transaction, { organizationId, sourceRecordId: facts.sourceRecordId });
+        await this.sourceRecords.deleteForDraft(transaction, { organizationId, sourceRecordId: facts.sourceRecordId });
       }
     });
     return { salesProductId, deleted: true };

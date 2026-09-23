@@ -112,7 +112,6 @@ describe('sales product draft deletion (PostgreSQL)', () => {
       new SalesProductWorkspaceArchiveAdapter(
         new SalesProductWorkspaceArchiveService(new SalesProductWorkspaceArchiveRepositoryAdapter()),
       ),
-      undefined,
       new SourceRecordAdapter(records),
     );
   });

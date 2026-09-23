@@ -6,6 +6,32 @@ import { SalesProductUseCase } from '../channels/application/service/sales-produ
 import { SalesProductDraftAdapter } from '../sourcing/adapter/out/channels/sales-product-draft.adapter';
 import { productTransactionalRead } from '../channels/__tests__/product-transactional-read.fake';
 import type { SalesProductDraftPort } from '../sourcing/application/port/out/cross-domain/sales-product-draft.port';
+import { SalesProductWorkspaceArchiveAdapter } from '../channels/adapter/out/repository/sales-product-workspace-archive.adapter';
+import { SourceRecordAdapter } from '../channels/adapter/out/sourcing/source-record.adapter';
+import { SalesProductWorkspaceArchiveService } from '../content/application/service/sales-product-workspace-archive.service';
+import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../content/adapter/out/repository/sales-product-workspace-archive.repository.adapter';
+import { SourceRecordRepositoryAdapter } from '../sourcing/adapter/out/repository/source-record.repository.adapter';
+import type { SalesProductWorkspaceArchivePort } from '../channels/application/port/out/ai/sales-product-workspace-archive.port';
+import type { ChannelSourceRecordPort } from '../channels/application/port/out/sourcing/source-record.port';
+
+/**
+ * 초안 삭제가 함께 부르는 두 owner 계약(콘텐츠 작업공간 보관 · 원본 기록 삭제)을 실제 어댑터로 엮는다.
+ * `SalesProductUseCase` 는 둘 다 요구한다 — 하나라도 빠지면 삭제가 반쪽이 되기 때문이다.
+ */
+export function realDraftDeletionPorts(prisma: PrismaClient): [SalesProductWorkspaceArchivePort, ChannelSourceRecordPort] {
+  return [
+    new SalesProductWorkspaceArchiveAdapter(
+      new SalesProductWorkspaceArchiveService(new SalesProductWorkspaceArchiveRepositoryAdapter()),
+    ),
+    new SourceRecordAdapter(new SourceRecordRepositoryAdapter(prisma as unknown as PrismaService)),
+  ];
+}
+
+/** 초안을 지우지 않는 단위 시험의 두 계약. 불리면 시험이 실패한다. */
+export const untouchedDraftDeletionPorts: [SalesProductWorkspaceArchivePort, ChannelSourceRecordPort] = [
+  { archiveSalesProductWorkspace: async () => { throw new Error('this test never deletes a draft'); } },
+  { deleteForDraft: async () => { throw new Error('this test never deletes a draft'); } },
+];
 
 /**
  * 수집은 원본 기록 한 줄과 그 판매상품 초안 한 줄을 한 커밋에 만든다(KID-313). 원본 기록
@@ -22,7 +48,7 @@ export function realSalesProductDraftPort(prisma: PrismaClient): SalesProductDra
     productTransactionalRead(),
     targets,
   );
-  return new SalesProductDraftAdapter(new SalesProductUseCase(repository));
+  return new SalesProductDraftAdapter(new SalesProductUseCase(repository, ...realDraftDeletionPorts(prisma)));
 }
 
 /**

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SalesProductUseCase } from './sales-product.usecase';
+import { untouchedDraftDeletionPorts } from '../../../../test-helpers/sales-product-draft-port';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 
@@ -18,7 +19,7 @@ describe('SalesProductUseCase.list representative image', () => {
       listGeneratedThumbnailUrls: vi.fn(),
       findRepresentativeThumbnailUrls: vi.fn().mockResolvedValue(new Map([['a', 'https://cdn.example.com/a-chosen.png']])),
     };
-    const useCase = new SalesProductUseCase(repository as never, undefined, thumbnails);
+    const useCase = new SalesProductUseCase(repository as never, ...untouchedDraftDeletionPorts, thumbnails);
 
     const result = await useCase.list(ORG, {});
 
@@ -34,7 +35,7 @@ describe('SalesProductUseCase.list representative image', () => {
   it('does not ask for thumbnails on an empty page', async () => {
     const repository = { list: vi.fn().mockResolvedValue(page([])) };
     const thumbnails = { listGeneratedThumbnailUrls: vi.fn(), findRepresentativeThumbnailUrls: vi.fn() };
-    await new SalesProductUseCase(repository as never, undefined, thumbnails).list(ORG, {});
+    await new SalesProductUseCase(repository as never, ...untouchedDraftDeletionPorts, thumbnails).list(ORG, {});
     expect(thumbnails.findRepresentativeThumbnailUrls).not.toHaveBeenCalled();
   });
 });
