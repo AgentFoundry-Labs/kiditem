@@ -38,8 +38,10 @@ import ProductPreparationDraftDialog from './ProductPreparationDraftDialog';
 interface ProductEditHeaderProps {
   productName: string;
   productId: string;
-  /** 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) — 등록 설정은 이 id 로 연다. */
+  /** 이 화면의 판매상품 초안 id(ADR-0022) — 등록 설정과 생성은 이 id 로 연다. */
   salesProductId?: string | null;
+  /** 초안의 원천 기록(수집상품). 반려는 원천 기록의 소싱 판단이라 이 id 로 한다. 없으면 반려가 없다. */
+  sourceCandidateId?: string | null;
   status?: SourcingCandidateStatus;
   registrationTarget?: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에서만 `null` 이다. */
@@ -67,6 +69,7 @@ export default function ProductEditHeader({
   productName,
   productId,
   salesProductId = null,
+  sourceCandidateId = null,
   status = 'sourced',
   registrationTarget = null,
   registrationState = null,
@@ -88,11 +91,12 @@ export default function ProductEditHeader({
   const [preparationDialogOpen, setPreparationDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectInputOpen, setRejectInputOpen] = useState(false);
-  const { mutate: runGenerate, isPending } = useGenerateDetailPage(productId);
+  const { mutate: runGenerate, isPending } = useGenerateDetailPage(salesProductId ?? '');
   const kp = useKidsPlayfulFromSourcing();
-  const kpInProgress = useKidsPlayfulInProgress(productId, {
-    enabled: detailGenerationEnabled && !onOpenDetailTemplateGeneration,
-    sourceCandidateId: detailGenerationContentWorkspaceId ? null : productId,
+  // 진행 중 생성은 이 초안의 작업공간 안에서만 찾는다. 작업공간이 없으면 찾을 것도 없다 —
+  // 후보 id 나 조직 전체 목록으로 대신 묻지 않는다(KID-310).
+  const kpInProgress = useKidsPlayfulInProgress(null, {
+    enabled: detailGenerationEnabled && !onOpenDetailTemplateGeneration && !!detailGenerationContentWorkspaceId,
     contentWorkspaceId: detailGenerationContentWorkspaceId,
   });
   const generateBusy = isPending || kp.isPending || !!kpInProgress;
@@ -122,8 +126,7 @@ export default function ProductEditHeader({
       toast.success('제품 등록 준비를 저장했습니다.', {
         description: `등록 설정 ID: ${target.id}`,
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(productId) });
       queryClient.invalidateQueries({ queryKey: registrationTargetKeys.all });
     },
     onError: (err) => {
@@ -134,24 +137,30 @@ export default function ProductEditHeader({
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (reason: string | undefined) =>
-      candidatesApi.reject(productId, reason && reason.trim() ? reason.trim() : undefined),
+    mutationFn: (reason: string | undefined) => {
+      if (!sourceCandidateId) throw new Error('원천 기록이 없는 초안은 반려할 수 없습니다.');
+      return candidatesApi.reject(sourceCandidateId, reason && reason.trim() ? reason.trim() : undefined);
+    },
     onSuccess: () => {
       toast.success('소싱 후보를 반려했습니다.');
       setRejectInputOpen(false);
       setRejectReason('');
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(productId) });
     },
     onError: (err) => {
       toast.error(isApiError(err) ? err.detail : '반려 처리에 실패했습니다.');
     },
   });
   const handleConfirm = (templateId: string, mode: GenerateMode) => {
+    if (!salesProductId) {
+      toast.error('판매상품 초안이 없어 상세페이지를 만들 수 없습니다.');
+      return;
+    }
     if (templateId === 'kids-playful' || templateId === 'bold-vertical') {
       kp.trigger({
-        sourceCandidateId: productId,
-        productId: null,
+        salesProductId,
+        sourceCandidateId,
         contentWorkspaceId: detailGenerationContentWorkspaceId,
         productName,
         rawData,
@@ -186,7 +195,7 @@ export default function ProductEditHeader({
     (preparationStatus === null || preparationStatus === 'cancelled') &&
     !createPreparationDraftMutation.isPending &&
     !rejectMutation.isPending;
-  const canReject = status === 'sourced' && !registrationStarted && preparationStatus === null &&
+  const canReject = !!sourceCandidateId && status === 'sourced' && !registrationStarted && preparationStatus === null &&
     !createPreparationDraftMutation.isPending && !rejectMutation.isPending;
   const registrationBadge = registrationStarted
     ? registrationStateLabel(fenceState)

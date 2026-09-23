@@ -32,6 +32,8 @@ export interface KidsPlayfulGenerateBody {
   kcCertificationNumber?: string;
   /** sourcing MasterProduct.id — generate 페이지 직접 생성 시 omit */
   productId?: string;
+  /** 판매상품 초안의 생성이면 그 초안 id. 작업공간이 없으면 서버가 초안의 작업공간을 만든다. */
+  salesProductId?: string;
   contentWorkspaceId?: string;
   templateId?: DetailPageTemplateId;
   generationMode?: 'draft' | 'image' | 'full';
