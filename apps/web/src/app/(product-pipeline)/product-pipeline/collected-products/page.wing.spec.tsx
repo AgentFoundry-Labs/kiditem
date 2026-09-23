@@ -73,7 +73,8 @@ vi.mock('sonner', () => ({
 }));
 
 vi.mock('./lib/sourcing-api', () => ({
-  candidatesApi: { delete: deleteCandidateMock, quickProcess: quickProcessMock },
+  candidatesApi: { delete: deleteCandidateMock },
+  salesProductGenerationApi: { start: quickProcessMock },
   productsApi: { getDetail: vi.fn(), getDraftWithSource: vi.fn() },
   // useQuery 를 통째로 바꿔 둔 spec 이라 모달 훅의 상세도 목록 값으로 온다 — 최소 모양만 준다.
   composeProductDetail: () => ({ name: '', processed_data: null, basicInfo: { thumbnailUrls: [], tags: [] } }),

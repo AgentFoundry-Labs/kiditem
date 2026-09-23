@@ -357,7 +357,6 @@ export const queryKeys = {
     intelligenceProcurementIntents: () =>
       [...queryKeys.sourcing.intelligence(), 'procurement-intents'] as const,
     list: (params: Record<string, string>) => [...queryKeys.sourcing.all, 'list', params] as const,
-    detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
     scrapeUrlStatus: (url: string) => [...queryKeys.sourcing.all, 'scrape-url-status', url] as const,
     liveNaverMarket: () => [...queryKeys.sourcing.all, 'market', 'naver-live'] as const,
@@ -416,8 +415,6 @@ export const queryKeys = {
       [...queryKeys.productContent.all, 'product-workspace', id, params] as const,
     groupWorkspace: (id: string, params?: Record<string, string>) =>
       [...queryKeys.productContent.all, 'group-workspace', id, params] as const,
-    sourcingLinks: (id: string, params?: Record<string, string>) =>
-      [...queryKeys.productContent.all, 'sourcing-links', id, params] as const,
     detail: (id: string) => [...queryKeys.productContent.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.productContent.all, 'preview', id] as const,
     editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,

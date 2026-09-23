@@ -37,7 +37,8 @@ import { registrationExecutionApi } from '../../../(channels)/_shared/registrati
 import {
   candidatesApi,
   searchSellpiaInventorySkus,
-  type QuickProcessTask,
+  salesProductGenerationApi,
+  type SalesProductGenerationTask,
 } from './lib/sourcing-api';
 import WingRegistrationConfirmDialog from './components/wing/WingRegistrationConfirmDialog';
 import {
@@ -175,7 +176,7 @@ export default function SourcingPage() {
   });
 
   const quickProcessMutation = useMutation({
-    mutationFn: async ({ ids, task }: { ids: string[]; task: QuickProcessTask }) => {
+    mutationFn: async ({ ids, task }: { ids: string[]; task: SalesProductGenerationTask }) => {
       const uniqueIds = [...new Set(ids)];
       const results = await Promise.allSettled(
         uniqueIds.map((id) => {
@@ -183,7 +184,7 @@ export default function SourcingPage() {
           const idempotencyKey = pendingQuickProcessKeys.current.get(requestKey)
             ?? createSecureRandomUuid();
           pendingQuickProcessKeys.current.set(requestKey, idempotencyKey);
-          return candidatesApi.quickProcess(id, task, idempotencyKey).then((response) => ({
+          return salesProductGenerationApi.start(id, task, idempotencyKey).then((response) => ({
             salesProductId: id,
             detailGenerationId: response.detailGenerationId,
             thumbnailGenerationId: response.thumbnailGenerationId,
@@ -604,7 +605,7 @@ function QuickProcessSelectedDialog({
   wingRegistering: boolean;
   wingRegisteringMessage: string | null;
   onClose: () => void;
-  onConfirm: (task: QuickProcessTask) => void;
+  onConfirm: (task: SalesProductGenerationTask) => void;
   onWingRegister: () => void;
   mallRegister: ReturnType<typeof useMallQuickRegister>;
   mallDetailHref: string | null;
@@ -766,7 +767,7 @@ function QuickProcessTaskButton({
   );
 }
 
-function quickProcessTaskLabel(task: QuickProcessTask): string {
+function quickProcessTaskLabel(task: SalesProductGenerationTask): string {
   if (task === 'detail') return '상세페이지 생성';
   if (task === 'thumbnail') return '썸네일 생성';
   return '상세페이지와 썸네일 생성';

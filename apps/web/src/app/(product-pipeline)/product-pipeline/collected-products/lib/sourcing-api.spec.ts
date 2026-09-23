@@ -4,6 +4,7 @@ import { ApiError } from '@/lib/api-error';
 import {
   applyBasicsPriceToSalesProduct,
   candidatesApi,
+  salesProductGenerationApi,
   productsApi,
   salesProductUpdateInputFromBasics,
   searchSellpiaInventorySkus,
@@ -109,7 +110,7 @@ describe('sourcing candidate API', () => {
       contentWorkspaceId: 'ws-1',
     });
 
-    await candidatesApi.quickProcess('sp-1', 'all', 'quick-process-key');
+    await salesProductGenerationApi.start('sp-1', 'all', 'quick-process-key');
 
     expect(apiClient.post).toHaveBeenCalledWith(
       '/api/products/sales-products/sp-1/generation',

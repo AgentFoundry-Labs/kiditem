@@ -844,7 +844,7 @@ export interface RejectCandidateResponse {
   draftWarning?: string;
 }
 
-export interface QuickProcessCandidateResponse {
+export interface SalesProductGenerationStartResponse {
   ok: true;
   /** 이 초안의 원천 후보. 후보 없이 직접 만든 초안이면 `null`. */
   candidateId: string | null;
@@ -855,20 +855,24 @@ export interface QuickProcessCandidateResponse {
   contentWorkspaceId: string | null;
 }
 
-export type QuickProcessTask = 'all' | 'detail' | 'thumbnail';
+export type SalesProductGenerationTask = 'all' | 'detail' | 'thumbnail';
 
-export const candidatesApi = {
-  /** 판매상품 초안의 AI 간편 처리 시작(썸네일·상세페이지). 대상은 초안이다(KID-310). */
-  quickProcess: (
+/** 판매상품 초안의 콘텐츠 생성(썸네일 · 상세페이지). 대상은 초안이다(KID-310). */
+export const salesProductGenerationApi = {
+  start: (
     salesProductId: string,
-    task: QuickProcessTask,
+    task: SalesProductGenerationTask,
     idempotencyKey: string,
   ) =>
-    apiClient.post<QuickProcessCandidateResponse>(
+    apiClient.post<SalesProductGenerationStartResponse>(
       `/api/products/sales-products/${encodeURIComponent(salesProductId)}/generation`,
       { task },
       { headers: { 'Idempotency-Key': idempotencyKey } },
     ),
+};
+
+/** 원천 기록(수집상품)의 소싱 판단 — 반려와 삭제. */
+export const candidatesApi = {
   reject: (id: string, reason?: string) =>
     apiClient.post<RejectCandidateResponse>(`/api/sourcing/candidates/${id}/reject`, { reason }),
   delete: (id: string) =>

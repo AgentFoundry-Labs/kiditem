@@ -41,10 +41,7 @@ export function useMallQuickRegister(input: {
   // 실행 중에 상태가 바뀌어도 두 번 돌지 않게 막는다.
   const running = useRef(false);
 
-  // ⚠️ 상세를 여기서 다시 `useQuery` 로 부르지 않는다. `queryKeys.sourcing.detail(id)` 은
-  // `useProductDetail` 이 **워크스페이스 모양**(`{ product, editState, … }`)으로 소유하는
-  // 키다. 같은 키에 다른 모양을 써 넣으면 이 모달을 연 뒤 상품 상세로 들어갔을 때
-  // `fetchedData.product` 가 undefined 가 되어 화면이 통째로 죽는다(라이브에서 잡음).
+  // 상세는 작업공간 화면과 같은 `useProductDetail` 로 읽는다 — 같은 조회를 따로 만들지 않는다.
   const detailQuery = useProductDetail(salesProductId ?? '', {
     enabled: enabled && Boolean(salesProductId),
   });
