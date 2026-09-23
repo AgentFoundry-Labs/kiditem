@@ -58,9 +58,9 @@ async function executeItem(
   const adapter = getMallPublishAdapter(task.mallKey);
   if (!adapter) throw new Error(`${task.mallName} 어댑터가 없습니다.`);
 
-  // The WING Excel path only creates a file for the operator. It has no selected
-  // account or provider submit, so retain its original grouped, ephemeral flow.
-  if (adapter.mode === 'excel') {
+  // A `sheet` delivery only creates a file for the operator. It has no selected
+  // account or provider submit, so it stays a grouped, ephemeral run.
+  if (adapter.mode === 'sheet') {
     const outcome = await adapter.send({ items: [item], values: task.values });
     return { status: outcome.ok ? 'succeeded' : 'failed', outcome };
   }
@@ -141,7 +141,7 @@ export function useMallPublishRun() {
           let finalStatus: PublishTaskStatus = 'succeeded';
           let errorMessage: string | null = null;
           try {
-            if (adapter.mode === 'excel') {
+            if (adapter.mode === 'sheet') {
               const outcome = await adapter.send({ items: task.items, values: task.values });
               itemOutcomes.push(outcome);
               finalStatus = outcome.ok ? 'succeeded' : 'failed';

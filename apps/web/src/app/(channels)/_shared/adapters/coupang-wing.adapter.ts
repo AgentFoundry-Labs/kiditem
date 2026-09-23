@@ -55,7 +55,7 @@ const FIELDS: readonly MallFieldSpec[] = [
 export const coupangWingAdapter: MallPublishAdapter = {
   mallKey: 'coupang',
   mallName: '쿠팡 WING',
-  mode: 'excel',
+  mode: 'sheet',
   acceptsSalesProducts: false,
   // 한 파일에 전부 담긴다. 화면이 작업을 쪼개지 않는다.
   batchSize: Number.POSITIVE_INFINITY,

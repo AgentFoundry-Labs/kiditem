@@ -1,5 +1,6 @@
 import type { MallProductDraft } from '../../(product-pipeline)/product-pipeline/_shared/lib/mall-product-draft';
 import type { TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
+import type { ChannelDelivery } from '@kiditem/shared/channel-registry';
 
 /**
  * 몰 등록 어댑터.
@@ -30,8 +31,11 @@ export const MALL_VALUE_ORIGIN_LABEL: Record<MallValueOrigin, string> = {
   override: '이번 송신',
 };
 
-/** 어댑터가 몰에 닿는 방식. 화면이 소요 시간과 사람 개입을 이 값으로 안내한다. */
-export type MallPublishMode = 'form' | 'excel' | 'api';
+/**
+ * 어댑터가 몰에 닿는 방식 — 채널 레지스트리 `delivery` 의 말을 그대로 쓴다(form · sheet · api, KID-321).
+ * 화면이 소요 시간과 사람 개입을 이 값으로 안내한다.
+ */
+export type MallPublishMode = Exclude<ChannelDelivery, 'none'>;
 
 /** 화면이 그려야 하는 입력칸 하나. 어댑터가 자기 것을 선언한다. */
 export interface MallFieldSpec {

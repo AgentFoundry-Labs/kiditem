@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { channelFormSpec, isChannelKey } from '@kiditem/shared/channel-registry';
 import {
   MALL_PUBLISH_ADAPTERS,
+  MALL_REGISTRATION_ADAPTERS,
   getMallPublishAdapter,
   hasMallPublishAdapter,
   registrationAdapterFor,
@@ -76,9 +77,10 @@ describe('몰 등록 어댑터 레지스트리', () => {
   });
 
   it('모든 어댑터가 필수 계약을 갖춘다', () => {
-    for (const adapter of MALL_PUBLISH_ADAPTERS) {
+    for (const adapter of MALL_REGISTRATION_ADAPTERS) {
       expect(adapter.mallName.length).toBeGreaterThan(0);
-      expect(['form', 'excel', 'api']).toContain(adapter.mode);
+      // 전달 방식은 채널 레지스트리 `delivery` 의 말(form · sheet · api)을 쓴다.
+      expect(['form', 'sheet', 'api']).toContain(adapter.mode);
       expect(typeof adapter.preview).toBe('function');
       expect(typeof adapter.validate).toBe('function');
       expect(typeof adapter.send).toBe('function');

@@ -136,3 +136,22 @@ describe('useMallPublishRun target execution', () => {
     expect(result.current.tasks[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('계정 식별자') });
   });
 });
+
+describe('useMallPublishRun sheet delivery', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('builds a `sheet` mall file for the whole task without opening a registration execution', async () => {
+    const send = vi.fn(async () => ({ ok: true, confirmed: false, manualSteps: ['양식을 올리세요'], warnings: [] }));
+    mocks.getAdapter.mockReturnValue({ ...adapter, mallKey: 'sheet-mall', mode: 'sheet', batchSize: Number.POSITIVE_INFINITY, send });
+    const { result } = renderHook(() => useMallPublishRun());
+
+    await act(async () => {
+      await result.current.start([task({ mallKey: 'sheet-mall', items: [item(), item()] })]);
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.tasks[0]?.status).toBe('succeeded'));
+  });
+});

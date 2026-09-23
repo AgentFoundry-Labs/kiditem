@@ -112,7 +112,7 @@ const STATE_HINT: Record<CapabilityKey, Record<CapabilityState, string>> = {
     unavailable: SUPPLY_CHANNEL,
   },
   register: {
-    ready: '이 몰의 상품등록 폼을 채울 수 있습니다.',
+    ready: '이 몰로 상품을 등록할 수 있습니다 — 폼 채우기 · 양식 파일 · 등록 실행은 몰의 전달 방식을 따릅니다.',
     pending: '상품등록 경로가 아직 없습니다.',
     unavailable: '이 채널에는 상품등록 개념이 없습니다(발주를 받는 사입 채널).',
   },
