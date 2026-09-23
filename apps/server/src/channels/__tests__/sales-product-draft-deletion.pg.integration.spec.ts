@@ -20,9 +20,49 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 
 const SOURCE_URL = 'https://detail.1688.com/offer/5550001.html';
+
+const hash = () => randomUUID().replace(/-/g, '').padEnd(64, '0');
+
+/** 원본 기록을 근거로 든 출시 후보 하나. 공급 제안 스냅숏 · 증거 관측 · 수집 실행을 최소 칸으로 만든다. */
+async function seedLaunchCandidate(prisma: PrismaClient, sourceRecordId: string): Promise<string> {
+  const capturedAt = new Date('2026-09-01T00:00:00.000Z');
+  const run = await prisma.sourcingEvidenceIngestionRun.create({ data: {
+    organizationId: TEST_ORGANIZATION_ID, sourceKey: '1688.offer', scopeKey: 'default', targetKey: 'toys',
+    idempotencyKey: randomUUID(), requestHash: hash(), collectorKey: 'draft-deletion-test', collectorVersion: 'v1',
+    triggerKind: 'manual', triggeredByUserId: TEST_USER_ID, status: 'COMPLETE', isCurrentComplete: true,
+    generation: 1, discoveredCount: 1, acceptedCount: 1, coverageNumerator: 1, coverageDenominator: 1, completedAt: capturedAt,
+  } });
+  const observation = await prisma.sourcingEvidenceObservation.create({ data: {
+    organizationId: TEST_ORGANIZATION_ID, ingestionRunId: run.id, sourceKey: '1688.offer', platform: '1688',
+    evidenceFamily: 'supplier_offer', signalRole: 'supply', conceptKey: 'toys', supportsCandidate: true,
+    observationKey: hash(), revision: 1, sourceEntityType: 'supplier_offer_sku', sourceEntityKey: 'sku-1',
+    observationType: 'offer_snapshot', schemaVersion: '1688-offer/v1', evidenceClass: 'measured',
+    eventAt: capturedAt, observedAt: capturedAt, availableAt: capturedAt, sourceUrl: SOURCE_URL,
+    payloadHash: hash(), envelopeHash: hash(), payload: {}, ingestedAt: capturedAt,
+  } });
+  const snapshot = await prisma.supplierOfferSkuSnapshot.create({ data: {
+    organizationId: TEST_ORGANIZATION_ID, evidenceObservationId: observation.id, identityStatus: 'exact_variant',
+    sourcePlatform: '1688', externalOfferId: '5550001', productName: '지울 초안', currency: 'CNY',
+    capturedAt, snapshotHash: hash(),
+  } });
+  const account = await prisma.channelAccount.create({ data: {
+    organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', externalAccountId: randomUUID(), name: '출시 계정', status: 'active',
+  } });
+  const candidate = await prisma.sourcingLaunchCandidate.create({ data: {
+    organizationId: TEST_ORGANIZATION_ID, sourceRecordId, supplierOfferSkuSnapshotId: snapshot.id,
+    targetChannelAccountId: account.id, candidateSeriesKey: hash(), revision: 1, identityHash: hash(), name: '출시 후보',
+    productConceptVersionKey: 'concept-v1', koreanSellableBundleVersionKey: 'bundle-v1', launchPlanVersionKey: 'launch-v1',
+    complianceAssessmentVersionKey: 'compliance-v1', ipClearanceVersionKey: 'ip-v1', qualitySpecVersionKey: 'quality-v1',
+    intendedUse: 'kids toy', materialProfileKey: 'material-v1', labelingProfileKey: 'label-v1',
+    unitsPerSellableBundle: 1, initialOrderQuantity: 10, targetSalePriceKrw: 19_900, fulfillmentMode: 'rocket',
+    createdByUserId: TEST_USER_ID,
+  } });
+  return candidate.id;
+}
 
 function sourceRecord(organizationId = TEST_ORGANIZATION_ID): SourceRecordWrite {
   return {
@@ -161,6 +201,22 @@ describe('sales product draft deletion (PostgreSQL)', () => {
 
     expect(await prisma.salesProduct.count()).toBe(2);
     expect(await prisma.sourceRecord.count()).toBe(1);
+  });
+
+  it('refuses with 409 while a launch candidate holds the source record, and leaves the draft whole', async () => {
+    const admitted = await records.admit(sourceRecord(), drafts());
+    const candidateId = await seedLaunchCandidate(prisma, admitted.sourceRecordId);
+
+    await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId)).rejects.toMatchObject({
+      status: 409, message: '출시 후보가 이 원본 기록을 근거로 들고 있어 초안을 지울 수 없습니다.',
+    });
+
+    expect(await prisma.salesProduct.findUniqueOrThrow({ where: { id: admitted.salesProductId } }))
+      .toMatchObject({ status: 'draft', sourceRecordId: admitted.sourceRecordId });
+    expect(await prisma.salesProductOption.count({ where: { salesProductId: admitted.salesProductId } })).toBeGreaterThan(0);
+    expect(await prisma.sourceRecord.count()).toBe(1);
+    expect(await prisma.sourcingLaunchCandidate.findUniqueOrThrow({ where: { id: candidateId } }))
+      .toMatchObject({ sourceRecordId: admitted.sourceRecordId });
   });
 
   it('never deletes another organization draft or its source record', async () => {
