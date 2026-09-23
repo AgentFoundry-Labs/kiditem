@@ -42,11 +42,11 @@ import {
 
 const VERSION_CONFLICT = '다른 곳에서 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장하세요.';
 
-/** 초안 삭제를 막는 이유마다 운영자에게 보이는 문장. 몰 · 실행 문장은 예전 삭제 화면과 같다. */
+/** 초안 삭제를 막는 이유마다 운영자에게 보이는 문장. 판매 상품은 지우지 않고 보관한다(KID-313). */
 const DRAFT_DELETION_REFUSALS: Record<DraftDeletionBlock, string> = {
-  not_draft: '판매 상품은 삭제하지 않고 보관합니다',
-  active_listing: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
-  live_execution: '등록 실행이 남아 있어 판매상품을 미사용으로 내리지 않았습니다.',
+  not_draft: '판매 중인 상품이라 지우지 않고 보관합니다.',
+  active_listing: '몰에 올라가 있어 초안을 지우지 않았습니다.',
+  live_execution: '등록 실행이 남아 있어 초안을 지우지 않았습니다.',
 };
 
 /**
