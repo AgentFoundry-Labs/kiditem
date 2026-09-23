@@ -54,8 +54,10 @@ export interface ChannelListingProviderDetail {
 export interface ChannelListingSummary {
   id: string;
   listingName: string;
+  /** 우리 작업공간의 현재 대표이미지 자산(Content). */
   thumbnailUrl: string | null;
-  detailPageArtifactId: string | null;
+  /** 몰이 보고한 대표이미지(`ChannelListing.imageUrl`, 수집마다 갱신). 리스팅 대표이미지 평가는 이것을 본다(KID-313 결정, 2026-09-23 14:46). */
+  imageUrl: string | null;
   detailPageRevisionId: string | null;
   channel: string;
   channelAccountId: string | null;
