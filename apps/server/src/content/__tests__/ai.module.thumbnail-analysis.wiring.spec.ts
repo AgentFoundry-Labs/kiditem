@@ -5,7 +5,6 @@ import { AiModule } from '../ai.module';
 import { ThumbnailAnalysisController } from '../adapter/in/http/thumbnail-analysis.controller';
 import { ThumbnailAnalysisEditJobsController } from '../adapter/in/http/thumbnail-analysis-edit-jobs.controller';
 import { ThumbnailAnalysisGenerationReviewController } from '../adapter/in/http/thumbnail-analysis-generation-review.controller';
-import { ThumbnailAnalysisWingController } from '../adapter/in/http/thumbnail-analysis-wing.controller';
 
 const CONTROLLERS_KEY = 'controllers';
 const PATH_KEY = 'path';
@@ -27,14 +26,13 @@ describe('AiModule thumbnail-analysis route-family wiring', () => {
       ThumbnailAnalysisController,
       ThumbnailAnalysisEditJobsController,
       ThumbnailAnalysisGenerationReviewController,
-      ThumbnailAnalysisWingController,
     ]) {
       expect(controllers).toContain(controller);
       expect(Reflect.getMetadata(PATH_KEY, controller)).toBe('thumbnail-analysis');
     }
   });
 
-  it('preserves moved generation, edit-job, and Wing route URLs', () => {
+  it('preserves moved generation and edit-job route URLs', () => {
     expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'listGenerations')).toEqual({
       method: RequestMethod.GET,
       path: 'generations',
@@ -80,34 +78,14 @@ describe('AiModule thumbnail-analysis route-family wiring', () => {
       method: RequestMethod.POST,
       path: 'generations/:id/re-edit',
     });
+  });
 
-    expect(routeFor(ThumbnailAnalysisWingController.prototype, 'checkPlaywriterStatus')).toEqual({
-      method: RequestMethod.GET,
-      path: 'playwriter-status',
-    });
-    expect(routeFor(ThumbnailAnalysisWingController.prototype, 'wingRegisterPrepare')).toEqual({
-      method: RequestMethod.POST,
-      path: 'generations/:id/wing-register/prepare',
-    });
-    expect(routeFor(ThumbnailAnalysisWingController.prototype, 'wingRegisterComplete')).toEqual({
-      method: RequestMethod.POST,
-      path: 'generations/:id/wing-register/complete',
-    });
-    expect(routeFor(ThumbnailAnalysisWingController.prototype, 'wingRegister')).toEqual({
-      method: RequestMethod.POST,
-      path: 'generations/:id/wing-register',
-    });
-    expect(routeFor(ThumbnailAnalysisWingController.prototype, 'wingRegisterBatch')).toEqual({
-      method: RequestMethod.POST,
-      path: 'generations/wing-register/batch',
-    });
-    expect(routeFor(ThumbnailAnalysisWingController.prototype, 'clearRegistrationError')).toEqual({
-      method: RequestMethod.DELETE,
-      path: 'generations/:id/registration-error',
-    });
-    expect(routeFor(ThumbnailAnalysisWingController.prototype, 'verifyRegistration')).toEqual({
-      method: RequestMethod.POST,
-      path: 'generations/:id/verify-registration',
-    });
+  it('leaves mall submission to Channels: no Content route registers, verifies or clears a Wing upload', () => {
+    const controllers: Array<{ prototype: object }> = Reflect.getMetadata(CONTROLLERS_KEY, AiModule) ?? [];
+    const paths = controllers.flatMap((controller) =>
+      Object.getOwnPropertyNames(controller.prototype)
+        .map((name) => Reflect.getMetadata(PATH_KEY, Reflect.get(controller.prototype, name) as object) as string | undefined)
+        .filter((path): path is string => typeof path === 'string'));
+    expect(paths.filter((path) => /wing-register|registration-error|verify-registration|playwriter-status/.test(path))).toEqual([]);
   });
 });

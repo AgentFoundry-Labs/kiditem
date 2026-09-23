@@ -31,6 +31,7 @@ import { registrationTargetCutoverMigration } from './v0.1.31/022_registration_t
 import { salesProductDraftCutoverMigration } from './v0.1.31/023_sales_product_draft_cutover';
 import { contentWorkspaceOwnerCutoverMigration } from './v0.1.31/024_content_workspace_owner_cutover';
 import { promoteEditedHtmlToDetailPageRevisionsMigration } from './v0.1.31/025_promote_edited_html_to_detail_page_revisions';
+import { moveThumbnailRegistrationAttemptsToExecutionsMigration } from './v0.1.31/026_move_thumbnail_registration_attempts_to_executions';
 import { sellingCatalogCutoverMigration } from './v0.1.31/020_selling_catalog_cutover';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
@@ -82,6 +83,9 @@ export const dataMigrations: readonly DataMigration[] = [
   // 025 moves content_generations.edited_html into detail-page revisions before
   // the schema push drops the column.
   promoteEditedHtmlToDetailPageRevisionsMigration,
+  // 026 moves thumbnail registration attempts into Channels executions before the
+  // schema push drops the attempt table; it reads the workspace 024 moved.
+  moveThumbnailRegistrationAttemptsToExecutionsMigration,
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
   activateAdFreeProductAbcFormula,

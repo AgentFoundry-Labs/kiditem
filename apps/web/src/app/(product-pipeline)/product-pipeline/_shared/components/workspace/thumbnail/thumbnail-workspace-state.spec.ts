@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildThumbnailSourceOptions,
-  classifyProductWingStatus,
   getGeneratedThumbnailOptions,
+  thumbnailRegistrationState,
   type ThumbnailWorkspaceGeneration,
 } from './thumbnail-workspace-state';
 
@@ -57,54 +57,14 @@ describe('thumbnail workspace state', () => {
     ]);
   });
 
-  it('classifies single-product Wing status from applied generation rows', () => {
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: false,
-      generations: [readyGeneration],
-    })).toEqual({ kind: 'disabled', label: '상품 등록 후 Wing 업로드 가능' });
-
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-applied',
-        phase: 'applied',
-        registrationStatus: null,
-      }],
-    })).toEqual({
-      kind: 'pending',
-      label: 'Wing 등록 대기',
-      generationId: 'generation-applied',
-    });
-
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-failed',
-        phase: 'applied',
-        registrationStatus: 'failed',
-        registrationError: 'image upload failed',
-      }],
-    })).toEqual({
-      kind: 'failed',
-      label: 'Wing 등록 실패',
-      generationId: 'generation-failed',
-      error: 'image upload failed',
-    });
-
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-registered',
-        phase: 'applied',
-        registrationStatus: 'registered',
-      }],
-    })).toEqual({
-      kind: 'registered',
-      label: 'Wing 등록 완료',
-      generationId: 'generation-registered',
-    });
+  it('maps the Channels execution status to the screen registration state', () => {
+    expect(thumbnailRegistrationState('succeeded')).toBe('registered');
+    expect(thumbnailRegistrationState('failed')).toBe('failed');
+    expect(thumbnailRegistrationState('executing')).toBe('checking');
+    expect(thumbnailRegistrationState('reconciling')).toBe('checking');
+    expect(thumbnailRegistrationState('prepared')).toBe('checking');
+    expect(thumbnailRegistrationState('cancelled')).toBeNull();
+    expect(thumbnailRegistrationState(null)).toBeNull();
+    expect(thumbnailRegistrationState(undefined)).toBeNull();
   });
 });

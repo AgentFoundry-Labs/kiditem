@@ -1,6 +1,5 @@
 import {
   IsArray,
-  IsBoolean,
   IsEmpty,
   IsIn,
   IsOptional,
@@ -57,30 +56,4 @@ export class CancelThumbnailGenerationDto {
   @IsString()
   @MaxLength(500)
   reason?: string;
-}
-
-export class WingRegisterBatchDto {
-  @IsArray()
-  @IsString({ each: true })
-  generationIds!: string[];
-}
-
-export class WingRegisterCompleteDto {
-  @IsString()
-  attemptId!: string;
-
-  @IsBoolean()
-  success!: boolean;
-
-  @IsOptional()
-  @IsString()
-  error?: string;
-
-  @IsOptional()
-  @IsString()
-  externalId?: string;
-
-  @IsOptional()
-  @IsString()
-  screenshotUrl?: string;
 }

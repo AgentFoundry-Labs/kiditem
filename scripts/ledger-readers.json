@@ -807,6 +807,10 @@
         {
           "path": "apps/server/src/channels/adapter/out/repository/registration-execution.repository.adapter.ts",
           "reason": "Channels owns the submission fence: it creates, leases, reconciles and finalizes one execution per draft and channel account, and re-reads the rows it just wrote inside that transaction (ADR-0014)."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/persistence/thumbnail-execution.persistence.adapter.ts",
+          "reason": "KID-305: Channels owns the Wing representative-image upload; it creates, reports and dismisses only `thumbnail_update` executions under a per-generation advisory lock."
         }
       ],
       "legacyReaders": [

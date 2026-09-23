@@ -190,6 +190,24 @@ describe('registration execution reader (PostgreSQL)', () => {
     ]);
   });
 
+  it('does not count a failed thumbnail upload as a registration failure', async () => {
+    await prisma.productRegistrationExecution.createMany({
+      data: [
+        execution(EXECUTION_IDS[0], '50000000-0000-4000-8000-000000000004', SECOND_ACCOUNT_ID, 'failed', '2026-09-01T00:00:00.000Z'),
+        {
+          id: EXECUTION_IDS[1], organizationId: TEST_ORGANIZATION_ID, channelAccountId: SECOND_ACCOUNT_ID,
+          executionKind: 'thumbnail_update', idempotencyKey: 'reader-thumbnail', requestHash: 'a'.repeat(64),
+          submissionPayloadJson: { kind: 'thumbnail_update', generationId: '60000000-0000-4000-8000-000000000001' },
+          status: 'failed', providerOutcome: 'definitive_failure',
+        },
+      ],
+    });
+
+    await expect(
+      prisma.$transaction((tx) => readRegistrationFailureCounts(tx, { organizationId: TEST_ORGANIZATION_ID })),
+    ).resolves.toEqual([{ channel: 'coupang', mallName: '쿠팡 WING', count: 1 }]);
+  });
+
   it('holds only live uncertain composition transitions and releases them after success or failure', async () => {
     const executionRows = [
       compositionExecution(

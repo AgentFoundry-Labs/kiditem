@@ -6,7 +6,6 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { StorageModule } from '../../common/storage/storage.module';
 import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import { AiAgentRuntimeModule, AiModule, AiProductGenerationRuntimeModule } from '../ai.module';
-import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing-registration-capability.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direct-job.repository.adapter';
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../../channels/application/port/out/cross-domain/catalog-media-publication.port';
@@ -30,16 +29,15 @@ import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../adapter/out/re
 import { ThumbnailAnalysisRepositoryAdapter } from '../adapter/out/repository/thumbnail-analysis.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { ThumbnailTrackingRepositoryAdapter } from '../adapter/out/repository/thumbnail-tracking.repository.adapter';
-import { ThumbnailWingRepositoryAdapter } from '../adapter/out/repository/thumbnail-wing.repository.adapter';
+import { RegistrableThumbnailRepositoryAdapter } from '../adapter/out/repository/registrable-thumbnail.repository.adapter';
+import { RegistrableThumbnailService } from '../application/service/registrable-thumbnail.service';
 import { AiGenerationCancellationService } from '../application/service/ai-generation-cancellation.service';
 import { ContentAssetService } from '../application/service/content-asset.service';
 import { ContentWorkspaceThumbnailSelectionService } from '../application/service/content-workspace-thumbnail-selection.service';
 import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
 import { ProductGenerationAiService } from '../application/service/product-generation-ai.service';
 import { SalesProductWorkspaceArchiveService } from '../application/service/sales-product-workspace-archive.service';
-import {
-  AI_WING_REGISTRATION_CAPABILITY_PORT,
-} from '../application/port/in/capability/wing-registration.port';
+import { REGISTRABLE_THUMBNAIL_PORT } from '../application/port/in/workspace/registrable-thumbnail.port';
 import {
   AI_GENERATION_CANCELLATION_PORT,
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
@@ -68,7 +66,7 @@ import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   THUMBNAIL_TRACKING_REPOSITORY_PORT,
-  THUMBNAIL_WING_REPOSITORY_PORT,
+  REGISTRABLE_THUMBNAIL_REPOSITORY_PORT,
 } from '../application/port/out/repository';
 import {
   DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
@@ -166,8 +164,8 @@ describe('AiModule hexagonal wiring contract', () => {
     });
     expectExistingBinding(
       runtimeProviders,
-      THUMBNAIL_WING_REPOSITORY_PORT,
-      ThumbnailWingRepositoryAdapter,
+      REGISTRABLE_THUMBNAIL_REPOSITORY_PORT,
+      RegistrableThumbnailRepositoryAdapter,
     );
     [
       [DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT, DetailPageContentGenerationSinkAdapter],
@@ -206,9 +204,8 @@ describe('AiModule hexagonal wiring contract', () => {
     const apiExports: unknown[] =
       Reflect.getMetadata(EXPORTS_KEY, AiModule) ?? [];
 
-    [[AI_WING_REGISTRATION_CAPABILITY_PORT, AiWingRegistrationCapabilityAdapter]].forEach(([token, adapter]) => {
-      expectExistingBinding(runtimeProviders, token as symbol, adapter);
-    });
+    expectExistingBinding(runtimeProviders, REGISTRABLE_THUMBNAIL_PORT, RegistrableThumbnailService);
+    expect(runtimeExports).toContain(REGISTRABLE_THUMBNAIL_PORT);
     expectExistingBinding(
       productGenerationProviders,
       PRODUCT_GENERATION_AI_TRIGGER_PORT,

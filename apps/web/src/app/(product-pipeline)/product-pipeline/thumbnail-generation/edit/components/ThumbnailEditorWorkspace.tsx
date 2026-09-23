@@ -13,7 +13,7 @@ import {
   useCreateEditJobs,
   useGenerationList,
   useSelectCandidate,
-  useWingRegister,
+  useWingUploadAndApply,
   useDeleteCandidate,
 } from '../../../_shared/hooks/useThumbnailGenerations';
 import {
@@ -21,6 +21,7 @@ import {
   normalizeProductPipelineReturnTo,
 } from '../../../_shared/lib/product-pipeline-routes';
 import { thumbnailSubjectFromParams } from '../../../_shared/lib/thumbnail-subject';
+import { wingUploadReached } from '../../../_shared/lib/wing-registration';
 import { useAnalysisList } from '../../../thumbnail-ai/hooks/useThumbnailAnalysis';
 import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { resolveImageUrl } from '@/lib/resolve-url';
@@ -288,7 +289,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
 
   const generateMutation = useGenerateThumbnail();
   const selectCandidateMutation = useSelectCandidate();
-  const wingRegisterMutation = useWingRegister();
+  const wingRegisterMutation = useWingUploadAndApply();
   const deleteCandidateMutation = useDeleteCandidate();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -486,8 +487,8 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
     try {
       const wingResult = await wingRegisterMutation.mutateAsync(generationId);
       if (!mountedRef.current) return;
-      if (wingResult.success) {
-        toast.success('Wing 대표이미지 업로드 완료 — 열린 Wing 화면 확인 후 저장하세요');
+      if (wingUploadReached(wingResult)) {
+        toast.success('Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요');
         setResult([]);
         setGenerationId(null);
         setSelectedCandidateUrl(null);

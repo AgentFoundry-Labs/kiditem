@@ -296,6 +296,31 @@ dropped under ADR-0010 (the edit remains as a revision on the artifact). The
 details report `editedGenerations`, `promotedRevisions`, `alreadyPresent`,
 `currentRevisionsSet`, `withoutArtifact` and `skippedNonRenderable`. A second run writes nothing; once the
 column is gone it reports `already_contracted`.
+`026_move_thumbnail_registration_attempts_to_executions` runs before the schema
+push drops `thumbnail_registration_attempts`. Each attempt becomes one
+`product_registration_executions` row with `execution_kind='thumbnail_update'`:
+
+- Idempotency key: `thumbnail_update:<owner key>` for an Agent attempt, so the
+  same owner-key replay finds it, else `thumbnail_update:legacy:<attempt id>`.
+- Status: every `uploaded` or `registered` attempt, with or without an owner key,
+  becomes `succeeded` — that is what the old screen showed. The rule that a Wing
+  upload succeeds only after the operator confirms the save applies only to
+  executions created after the cutover. `failed` becomes a `definitive_failure`.
+  A live attempt with an owner key becomes `reconciling`/`uncertain`; a live
+  attempt without one (an old browser prepare the old screen showed as not
+  registered) becomes a `definitive_failure` with
+  `이관: 결과를 보고받지 못한 이전 화면 시도`.
+- Payload: the generation, its workspace and its selected image
+  (`sha256: 'legacy'`). The listing stays in the payload only
+  (`channel_listing_id` is NULL), so a moved row never takes a listing's live
+  slot or stockout check.
+- Account: the workspace listing's, else the organization's single active
+  Coupang account. Owner key, request hash and timestamps are kept.
+
+Attempts without a generation or workspace, an image or an account, and an
+owner-keyed live attempt older than a newer one of the same generation are
+counted in `skippedBy` and left for the table drop (ADR-0010). A rerun reports
+the moved ones as `alreadyMoved` and inserts nothing.
 
 Before cutover, reconcile conflicting common product metadata for targets of the
 same candidate that have no existing canonical selling product. Per-target

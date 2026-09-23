@@ -28,7 +28,6 @@
 | ThumbnailGenerationCandidate | `thumbnail_generation_candidates` | 썸네일 생성 후보 이미지. 바이너리는 object storage 에 저장하고 DB 는 URL/key 메타데이터만 보관한다. |
 | ThumbnailGenerationEvent | `thumbnail_generation_events` | ThumbnailGeneration 의 status/phase/attempt/error 전이 audit ledger. row 누적, 덮어쓰기 X. |
 | ThumbnailGenerationInputImage | `thumbnail_generation_input_images` | 썸네일 편집/생성 입력 이미지. base64 원문 대신 object storage 참조와 역할 메타데이터만 저장한다. |
-| ThumbnailRegistrationAttempt | `thumbnail_registration_attempts` | Wing 등 외부 채널 등록 시도 이력. 마지막 상태만 덮어쓰지 않고 재시도/실패 원인을 보존한다. |
 | ThumbnailTracking | `thumbnail_trackings` | - |
 | ThumbnailTrackingDailySnapshot | `thumbnail_tracking_daily_snapshots` | 적용된 썸네일의 30일 매출/판매량 시계열 — playwriter 로 Wing vendor-inventory 검색해서 매일 한 row 씩 적재. |
 
@@ -352,23 +351,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  ThumbnailRegistrationAttempt {
-    String id PK
-    String organizationId FK
-    String generationId FK
-    String status
-    String ownerIdempotencyKey
-    String requestHash
-    String providerOutcome
-    Json resultJson
-    String errorMessage
-    String screenshotUrl
-    String externalId
-    DateTime startedAt
-    DateTime finishedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   ThumbnailTracking {
     String id PK
     String organizationId FK
@@ -434,7 +416,6 @@ erDiagram
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
-  ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
   ThumbnailGenerationCandidate o|--o{ ContentWorkspaceThumbnailSelection : "sourceCandidate"
   ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
@@ -475,6 +456,5 @@ erDiagram
 | ThumbnailGenerationEvent | actor | references external | Core | User |
 | ThumbnailGenerationEvent | organization | references external | Core | Organization |
 | ThumbnailGenerationInputImage | organization | references external | Core | Organization |
-| ThumbnailRegistrationAttempt | organization | references external | Core | Organization |
 | ThumbnailTracking | organization | references external | Core | Organization |
 | ThumbnailTrackingDailySnapshot | organization | references external | Core | Organization |

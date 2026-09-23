@@ -26,11 +26,6 @@ export function generationInclude(organizationId: string): Prisma.ThumbnailGener
       where: { organizationId },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     },
-    registrationAttempts: {
-      where: { organizationId },
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 1,
-    },
   };
 }
 

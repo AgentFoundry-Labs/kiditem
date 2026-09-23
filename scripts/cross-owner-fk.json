@@ -132,7 +132,6 @@
     "ThumbnailGenerationCandidate": "content",
     "ThumbnailGenerationEvent": "content",
     "ThumbnailGenerationInputImage": "content",
-    "ThumbnailRegistrationAttempt": "content",
     "ThumbnailTracking": "content",
     "ThumbnailTrackingDailySnapshot": "content",
     "TiktokCreativeTrendDailySnapshot": "sourcing",

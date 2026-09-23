@@ -63,6 +63,65 @@ describe('registration target execution repository (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
+  it('treats a thumbnail_update execution id as unknown on the target routes and leaves the row alone', async () => {
+    const account = await prisma.channelAccount.create({ data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Wing', status: 'active' } });
+    const thumbnail = await prisma.productRegistrationExecution.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.id, executionKind: 'thumbnail_update',
+        idempotencyKey: `thumbnail_update:${randomUUID()}`, requestHash: 'a'.repeat(64), requestedByUserId: TEST_USER_ID,
+        submissionPayloadJson: { kind: 'thumbnail_update', generationId: randomUUID() }, submissionPayloadHash: 'a'.repeat(64),
+        status: 'executing', providerOutcome: 'uncertain',
+      },
+    });
+    const before = await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: thumbnail.id } });
+    const ids = { organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: thumbnail.id };
+
+    await expect(repository.getTarget(ids)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.startTarget(ids)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.reportTarget({ ...ids, report: { payloadHash: 'a'.repeat(64) } as unknown as ReportTargetExecutionInput }))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: thumbnail.id } })).toEqual(before);
+  });
+
+  it('refuses a listing availability idempotency key in the thumbnail_update namespace, for prepare and for the key lookup', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true });
+    const listing = await prisma.channelListing.findUniqueOrThrow({ where: { id: fixture.listingId! } });
+    await expect(repository.prepareListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
+      request: { channelAccountId: fixture.accountId, externalListingId: listing.externalId, kind: 'sold_out', optionCodes: ['option-1'], idempotencyKey: 'thumbnail_update:capability-invocation:x' },
+    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(repository.findListingAvailabilityByKey({
+      organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, idempotencyKey: 'thumbnail_update:capability-invocation:x',
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(await prisma.productRegistrationExecution.count()).toBe(0);
+  });
+
+  it('treats a thumbnail_update execution id as unknown on the listing availability routes', async () => {
+    const account = await prisma.channelAccount.create({ data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Wing 2', status: 'active' } });
+    const thumbnail = await prisma.productRegistrationExecution.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.id, executionKind: 'thumbnail_update',
+        idempotencyKey: `thumbnail_update:${randomUUID()}`, requestHash: 'a'.repeat(64), requestedByUserId: TEST_USER_ID,
+        submissionPayloadJson: { kind: 'thumbnail_update', generationId: randomUUID() }, status: 'reconciling', providerOutcome: 'uncertain',
+      },
+    });
+    const before = await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: thumbnail.id } });
+    const ids = { organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: thumbnail.id };
+    await expect(repository.startListingAvailability(ids)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.reportListingAvailability({ ...ids, report: {} as never })).rejects.toBeInstanceOf(NotFoundException);
+    expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: thumbnail.id } })).toEqual(before);
+  });
+
+  it('refuses a target idempotency key in the thumbnail_update namespace', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true });
+    await expect(repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
+      request: { ...requestFor('ignored'), idempotencyKey: 'thumbnail_update:capability-invocation:x', channelListingId: fixture.listingId! },
+      snapshot: fixture.snapshot,
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(await prisma.productRegistrationExecution.count()).toBe(0);
+  });
+
   it.each([
     'inactive account', 'provider identity', 'archived target', 'target version',
     'product version', 'product status', 'option supply status', 'selected membership', 'inactive listing',
@@ -1098,7 +1157,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toBeInstanceOf(NotFoundException);
 
     await expect(repository.prepareListingAvailability({
       organizationId: TEST_ORGANIZATION_ID,

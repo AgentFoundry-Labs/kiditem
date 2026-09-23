@@ -1,10 +1,28 @@
 'use client';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import type { ThumbnailExecutionStatus } from '@kiditem/shared/thumbnail-execution';
 import { isActive } from '../lib/thumbnail-status';
-import { registerWingThumbnailViaExtension, type WingRegistrationResult } from '../lib/wing-registration';
+import {
+  mergeThumbnailRegistration,
+  thumbnailExecutionIdChunks,
+  type ThumbnailRegistrationFields,
+} from '../lib/thumbnail-registration';
+import {
+  confirmWingThumbnailApplied,
+  markWingThumbnailNotApplied,
+  registerWingThumbnailViaExtension,
+  resendWingThumbnailViaExtension,
+  WingListingChoiceRequiredError,
+  wingUploadReached,
+  type WingRegistrationResult,
+} from '../lib/wing-registration';
+
+/** 생성 한 건과 그 생성의 몰 반영 상태(Channels 실행에서 읽는다). */
+export type ThumbnailGenerationListItem = ThumbnailGenerationItem & ThumbnailRegistrationFields;
 
 export type ThumbnailGenerationListScope = 'workspace-bound' | 'direct-upload' | 'all';
 
@@ -23,7 +41,7 @@ export function useGenerationList(
   if (params.scope && params.scope !== 'workspace-bound') queryParams.scope = params.scope;
   if (params.limit) queryParams.limit = String(params.limit);
   const query = new URLSearchParams(queryParams).toString();
-  return useQuery({
+  const generations = useQuery({
     queryKey: queryKeys.thumbnailAnalysis.generations(Object.keys(queryParams).length > 0 ? queryParams : undefined),
     queryFn: async () => {
       const href = query ? `/api/thumbnail-analysis/generations?${query}` : '/api/thumbnail-analysis/generations';
@@ -41,6 +59,54 @@ export function useGenerationList(
       return data.some(isActive) ? 3000 : false;
     },
   });
+  // 몰 반영 상태는 목록의 모든 생성에 대해 읽는다 — Content 단계와 관계없이(Agent 가 올린 생성도)
+  // 살아 있는 실행은 화면에 출구가 있어야 한다. 목록 하나에 조회 한 번(100 개씩)이다.
+  const listedIds = useMemo(() => (generations.data ?? []).map((generation) => generation.id), [generations.data]);
+  const executions = useThumbnailExecutionStatuses(listedIds);
+  const data = useMemo(
+    () => (generations.data ? mergeThumbnailRegistration(generations.data, executions.data ?? []) : undefined),
+    [generations.data, executions.data],
+  );
+  // 몰 반영 상태가 오기 전에는 "등록 안 됨" 처럼 보이지 않게 로딩으로 본다.
+  const statusLoading = listedIds.length > 0 && executions.isLoading;
+  const refetch = useCallback(async () => {
+    const result = await generations.refetch();
+    await executions.refetch();
+    return result;
+  }, [generations, executions]);
+  return {
+    data,
+    isLoading: generations.isLoading || statusLoading,
+    isError: generations.isError || executions.isError,
+    error: generations.error ?? executions.error,
+    refetch,
+  };
+}
+
+/** 생성마다 가장 최근 대표이미지 몰 반영 실행(`GET /api/channels/thumbnail-executions`). */
+export function useThumbnailExecutionStatuses(generationIds: readonly string[]) {
+  return useQuery({
+    queryKey: queryKeys.thumbnailExecutions.latest(generationIds),
+    enabled: generationIds.length > 0,
+    queryFn: async () => {
+      const pages = await Promise.all(
+        thumbnailExecutionIdChunks(generationIds).map((ids) =>
+          apiClient.get<{ items: ThumbnailExecutionStatus[] }>(
+            `/api/channels/thumbnail-executions?generationIds=${ids.map(encodeURIComponent).join(',')}`,
+          ),
+        ),
+      );
+      return pages.flatMap((page) => page?.items ?? []);
+    },
+    staleTime: 1000,
+  });
+}
+
+function invalidateThumbnailRegistration(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailExecutions.all }),
+  ]);
 }
 
 export function useSelectCandidate() {
@@ -308,12 +374,11 @@ export function useCreateEditJobs() {
 export function useWingRegister() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => registerWingThumbnailViaExtension(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.thumbnailAnalysis.generations(),
-      });
-    },
+    mutationFn: (input: string | { generationId: string; channelListingId: string }) =>
+      typeof input === 'string'
+        ? registerWingThumbnailViaExtension(input)
+        : registerWingThumbnailViaExtension(input.generationId, { channelListingId: input.channelListingId }),
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
   });
 }
 
@@ -322,6 +387,8 @@ export interface WingBatchItemResult {
   success: boolean;
   screenshotPath: string | null;
   error?: string;
+  /** 판매상품에 쿠팡 listing 이 여럿이라 운영자가 골라야 올릴 수 있다. */
+  needsListingChoice?: boolean;
 }
 
 export function useBatchWingRegister() {
@@ -332,52 +399,83 @@ export function useBatchWingRegister() {
       for (const id of generationIds) {
         try {
           const result: WingRegistrationResult = await registerWingThumbnailViaExtension(id);
-          results.push({ id, ...result });
+          // 배치의 성공은 "Wing 수정 화면에 올렸다" 이다. 반영은 운영자가 저장 뒤 확인한다.
+          const uploaded = wingUploadReached(result);
+          results.push({
+            id,
+            success: uploaded,
+            screenshotPath: result.screenshotPath,
+            ...(!uploaded && result.error ? { error: result.error } : {}),
+          });
         } catch (error) {
           results.push({
             id,
             success: false,
             screenshotPath: null,
             error: error instanceof Error ? error.message : String(error),
+            ...(error instanceof WingListingChoiceRequiredError ? { needsListingChoice: true } : {}),
           });
         }
       }
       return { results };
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.thumbnailAnalysis.generations(),
-      });
-    },
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
   });
 }
 
+/**
+ * 편집 화면의 Wing 올리기. Wing 수정 화면에 닿으면 생성을 적용해(썸네일 분석의 openCoupangEdit 와
+ * 같이) 등록 대기에서 그 실행과 출구가 보이게 한다.
+ */
+export function useWingUploadAndApply() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (generationId: string) => {
+      const result = await registerWingThumbnailViaExtension(generationId);
+      if (wingUploadReached(result)) {
+        await apiClient.put(`/api/thumbnail-analysis/generations/${generationId}/apply`, {});
+      }
+      return result;
+    },
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
+  });
+}
+
+/** "확인 중" 인 같은 실행을 확장에 다시 보낸다(`executionId` 는 `registrationExecutionId`). */
+export function useResendWingRegistration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (executionId: string) => resendWingThumbnailViaExtension(executionId),
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
+  });
+}
+
+/** "반영됨으로 표시" — 운영자가 Wing 에서 저장한 것을 확인했다. 성공으로 가는 유일한 길이다. */
+export function useConfirmRegistrationApplied() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (executionId: string) => confirmWingThumbnailApplied(executionId),
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
+  });
+}
+
+/** "반영 안 됨으로 표시" — 결과를 모르는 실행을 끝내 새 등록을 연다. */
+export function useMarkRegistrationNotApplied() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (executionId: string) => markWingThumbnailNotApplied(executionId),
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
+  });
+}
+
+/** 운영자가 치운 실패는 최근 실행 목록에서 빠진다(행은 Channels 에 남는다). */
 export function useClearRegistrationError() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.delete<{ ok: true }>(`/api/thumbnail-analysis/generations/${id}/registration-error`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.thumbnailAnalysis.generations(),
-      });
-    },
-  });
-}
-
-export function useVerifyRegistration() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.post<{
-        registered: boolean;
-        detectedUrl: string | null;
-        error?: string;
-      }>(`/api/thumbnail-analysis/generations/${id}/verify-registration`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.thumbnailAnalysis.generations(),
-      });
-    },
+      apiClient.delete<{ dismissed: boolean }>(
+        `/api/channels/thumbnail-executions/failed/${encodeURIComponent(id)}`,
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailExecutions.all }),
   });
 }

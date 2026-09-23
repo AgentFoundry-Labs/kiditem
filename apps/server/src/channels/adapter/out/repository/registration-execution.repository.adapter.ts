@@ -1,6 +1,7 @@
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { randomUUID } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -15,6 +16,7 @@ import {
   type ListingAvailabilityExecution,
   type ListingAvailabilitySnapshot,
   type ReportListingAvailabilityInput,
+  TargetExecutionKindSchema,
   TargetExecutionSnapshotSchema,
   type PrepareTargetExecutionInput,
   type ReportTargetExecutionInput,
@@ -24,6 +26,7 @@ import {
 import { MALL_ADMIN_LISTING_READERS } from '@kiditem/shared/mall-admin-listings';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
+import { isReservedExecutionIdempotencyKey } from '../../../domain/registration/thumbnail-update';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration/registration-item-code';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -64,6 +67,21 @@ const channelIntegrity = new ChannelIntegrityAdapter();
 const TARGET_EXECUTION_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 /**
+ * 등록 대상 실행 행. 같은 표의 대표이미지 반영(`thumbnail_update`)이나 listing 가용성 실행 id 가
+ * 이 경로에 오면 없는 실행으로 답한다.
+ */
+/** listing 가용성(품절 · 재개) 실행 행. 다른 종류의 id 는 없는 실행으로 답한다. */
+const LISTING_AVAILABILITY_ROW = {
+  registrationTargetId: null,
+  executionKind: { in: ['sold_out', 'resume'] },
+} satisfies Prisma.ProductRegistrationExecutionWhereInput;
+
+const TARGET_EXECUTION_ROW = {
+  registrationTargetId: { not: null },
+  executionKind: { in: [...TargetExecutionKindSchema.options] },
+} satisfies Prisma.ProductRegistrationExecutionWhereInput;
+
+/**
  * 등록 실행 울타리의 저장소 어댑터.
  *
  * 울타리는 트랜잭션을 연다. 실행 행은 여기서 직접 쓰고, 같은 트랜잭션 안의 초안
@@ -88,6 +106,7 @@ export class RegistrationExecutionRepositoryAdapter
     requestedByUserId: string | null;
     idempotencyKey: string;
   }): Promise<ListingAvailabilityExecution | null> {
+    assertClientIdempotencyKey(input.idempotencyKey);
     const execution = await this.prisma.productRegistrationExecution.findFirst({
       where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
     });
@@ -103,6 +122,7 @@ export class RegistrationExecutionRepositoryAdapter
     requestedByUserId: string | null;
     request: PrepareListingAvailabilityInput;
   }): Promise<ListingAvailabilityExecution> {
+    assertClientIdempotencyKey(input.request.idempotencyKey);
     const parsedRequest = PrepareListingAvailabilityInputSchema.safeParse(input.request);
     if (!parsedRequest.success) throw new ConflictException('Listing availability request is invalid.');
     const request = parsedRequest.data;
@@ -275,7 +295,7 @@ export class RegistrationExecutionRepositoryAdapter
     return this.prisma.$transaction(async (tx) => {
       await lockExecution(tx, input.organizationId, input.executionId);
       const execution = await tx.productRegistrationExecution.findFirst({
-        where: { id: input.executionId, organizationId: input.organizationId },
+        where: { id: input.executionId, organizationId: input.organizationId, ...LISTING_AVAILABILITY_ROW },
       });
       if (!execution) throw new NotFoundException('Listing availability execution not found.');
       if (execution.requestedByUserId !== input.requestedByUserId) {
@@ -330,7 +350,7 @@ export class RegistrationExecutionRepositoryAdapter
     return this.prisma.$transaction(async (tx) => {
       await lockExecution(tx, input.organizationId, input.executionId);
       const execution = await tx.productRegistrationExecution.findFirst({
-        where: { id: input.executionId, organizationId: input.organizationId },
+        where: { id: input.executionId, organizationId: input.organizationId, ...LISTING_AVAILABILITY_ROW },
       });
       if (!execution) throw new NotFoundException('Listing availability execution not found.');
       if (execution.requestedByUserId !== input.requestedByUserId) {
@@ -447,6 +467,7 @@ export class RegistrationExecutionRepositoryAdapter
     request: PrepareTargetExecutionInput;
     snapshot: TargetExecutionSnapshot;
   }): Promise<TargetExecutionResult> {
+    assertClientIdempotencyKey(input.request.idempotencyKey);
     const intentHash = targetExecutionIntentHash(input.snapshot.targetId, input.request);
 
     try {
@@ -638,7 +659,7 @@ export class RegistrationExecutionRepositoryAdapter
     return this.prisma.$transaction(async (tx) => {
       await lockExecution(tx, input.organizationId, input.executionId);
       const execution = await tx.productRegistrationExecution.findFirst({
-        where: { id: input.executionId, organizationId: input.organizationId },
+        where: { id: input.executionId, organizationId: input.organizationId, ...TARGET_EXECUTION_ROW },
       });
       if (!execution) throw new NotFoundException('Registration execution not found.');
       assertTargetExecutionRow(execution);
@@ -806,6 +827,7 @@ export class RegistrationExecutionRepositoryAdapter
         id: input.executionId,
         organizationId: input.organizationId,
         requestedByUserId: input.requestedByUserId,
+        ...TARGET_EXECUTION_ROW,
       },
     });
     if (!execution) throw new NotFoundException('Registration execution not found.');
@@ -822,7 +844,7 @@ export class RegistrationExecutionRepositoryAdapter
     return this.prisma.$transaction(async (tx) => {
       await lockExecution(tx, input.organizationId, input.executionId);
       const execution = await tx.productRegistrationExecution.findFirst({
-        where: { id: input.executionId, organizationId: input.organizationId },
+        where: { id: input.executionId, organizationId: input.organizationId, ...TARGET_EXECUTION_ROW },
       });
       if (!execution) throw new NotFoundException('Registration execution not found.');
       assertTargetExecutionRow(execution);
@@ -1036,6 +1058,7 @@ export class RegistrationExecutionRepositoryAdapter
   async prepare(
     input: PrepareRegistrationExecutionInput,
   ): Promise<RegistrationExecutionResult> {
+    assertClientIdempotencyKey(input.idempotencyKey);
     const requested = freezeProductRegistrationPayload({
       channelAccountId: input.channelAccountId,
       displayName: input.displayName,
@@ -2166,6 +2189,13 @@ function listingAvailabilityTerminalReplayMatches(
   return execution.status === 'failed'
     && execution.providerOutcome === 'definitive_failure'
     && report.outcome === 'not_submitted';
+}
+
+/** 클라이언트가 보낸 멱등 키. 대표이미지 반영의 이름공간은 받지 않는다. */
+function assertClientIdempotencyKey(idempotencyKey: string): void {
+  if (isReservedExecutionIdempotencyKey(idempotencyKey)) {
+    throw new BadRequestException('Registration idempotency key uses a reserved prefix.');
+  }
 }
 
 function assertTargetExecutionRow(execution: ProductRegistrationExecution): void {

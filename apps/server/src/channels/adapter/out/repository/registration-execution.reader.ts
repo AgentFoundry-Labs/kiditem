@@ -150,7 +150,8 @@ export async function readRegistrationFailureCounts(
   input: { organizationId: string },
 ): Promise<Array<{ channel: string; mallName: string; count: number }>> {
   const failed = await tx.productRegistrationExecution.findMany({
-    where: { organizationId: input.organizationId, status: 'failed' },
+    // 대표이미지 반영(thumbnail_update)은 상품 등록이 아니라 등록 실패로 세지 않는다.
+    where: { organizationId: input.organizationId, status: 'failed', executionKind: { not: 'thumbnail_update' } },
     select: { channelAccountId: true },
   });
   if (failed.length === 0) return [];

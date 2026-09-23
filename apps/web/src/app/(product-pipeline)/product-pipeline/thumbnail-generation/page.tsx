@@ -84,7 +84,7 @@ function ThumbnailGenerationHubContent() {
 
   const hasActiveGeneration = generations.some((g) => g.status === 'pending' || g.status === 'running');
   const hasRegistrationPending = generations.some(
-    (g) => g.phase === 'applied' && (g.registrationStatus == null || g.registrationStatus === 'failed'),
+    (g) => g.registrationStatus === 'checking' || (g.phase === 'applied' && g.registrationStatus !== 'registered'),
   );
   const hasNeedsFix = (analysis?.allResults ?? []).some(
     (r) =>

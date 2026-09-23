@@ -1,0 +1,142 @@
+import type { ReactNode } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { RegistrationPendingSection } from './RegistrationPendingSection';
+
+// 서버 API 와 확장은 웹의 외부 경계라 그 둘만 바꾼다.
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
+vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+
+const G1 = '00000000-0000-4000-8000-000000000001';
+const EXECUTION = '00000000-0000-4000-8000-0000000000e1';
+const generation = {
+  id: G1, contentWorkspaceId: 'w', originalUrl: null, candidates: [], selectedUrl: 'http://storage.local/a.png', status: 'succeeded',
+  phase: 'applied', grade: 'A', score: 90, method: 'edit', editAnalysis: null, createdAt: '2026-09-23T00:00:00.000Z',
+  contentWorkspace: { id: 'w', name: '곰돌이 우산', imageUrl: null, coupangProductId: null, category: null },
+};
+
+function renderSection() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return render(<RegistrationPendingSection />, { wrapper });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+    if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
+    return { items: [{ generationId: G1, executionId: EXECUTION, status: 'reconciling', providerOutcome: 'uncertain', checkedAt: null, error: 'port closed', screenshotPath: null }] };
+  });
+});
+afterEach(cleanup);
+
+describe('RegistrationPendingSection checking actions', () => {
+  it('shows a failed sibling and a checking sibling of one product side by side', async () => {
+    const G2 = '00000000-0000-4000-8000-000000000002';
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.startsWith('/api/thumbnail-analysis/generations')) {
+        return { items: [generation, { ...generation, id: G2, createdAt: '2026-09-22T00:00:00.000Z' }], total: 2 };
+      }
+      return {
+        items: [
+          { generationId: G1, executionId: EXECUTION, status: 'reconciling', providerOutcome: 'uncertain', checkedAt: null, error: null, screenshotPath: null },
+          { generationId: G2, executionId: '00000000-0000-4000-8000-0000000000e2', status: 'failed', providerOutcome: 'definitive_failure', checkedAt: null, error: '로그인 필요', screenshotPath: null },
+        ],
+      };
+    });
+    renderSection();
+
+    expect(await screen.findByText('등록 실패')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '반영됨으로 표시' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '다시 보내기' })).toBeTruthy();
+  });
+
+  it('offers resend and not-applied but no confirmation while the upload itself is still running', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
+      return { items: [{ generationId: G1, executionId: EXECUTION, status: 'executing', providerOutcome: 'uncertain', checkedAt: null, error: null, screenshotPath: null }] };
+    });
+    renderSection();
+
+    expect(await screen.findByRole('button', { name: '다시 보내기' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '반영 안 됨으로 표시' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '반영됨으로 표시' })).toBeNull();
+  });
+
+  it('marks an unknown outcome as not applied on the same execution', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ generationId: G1, executionId: EXECUTION, success: false, screenshotPath: null });
+    renderSection();
+
+    fireEvent.click(await screen.findByRole('button', { name: '반영 안 됨으로 표시' }));
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/not-applied`, {}));
+  });
+
+  it('resends the same execution to the extension and reports on it', async () => {
+    vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+    vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href.endsWith('/resend')
+      ? { executionId: EXECUTION, generationId: G1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
+      : { generationId: G1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null }));
+    renderSection();
+
+    fireEvent.click(await screen.findByRole('button', { name: '다시 보내기' }));
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/report`, { outcome: 'uploaded_pending_save' }));
+    expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/resend`, {});
+    expect(apiClient.post).not.toHaveBeenCalledWith('/api/channels/thumbnail-executions', expect.anything());
+  });
+
+  it('records success only when the operator confirms the Wing save', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ generationId: G1, executionId: EXECUTION, success: true, status: 'succeeded', screenshotPath: null });
+    renderSection();
+
+    expect(await screen.findByText('Wing 저장 확인 필요')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '반영됨으로 표시' }));
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/applied`, {}));
+  });
+
+  it('lets the operator pick one of several Coupang listings in the batch result and upload with it', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
+      if (href.includes('listing-choices')) return { items: [{ channelListingId: '00000000-0000-4000-8000-0000000000a2', channelName: 'B', channelAccountName: 'Wing', externalId: '2' }] };
+      return { items: [] };
+    });
+    vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError(400, 'Bad Request', '쿠팡 listing 이 여럿입니다 — listing을 고르세요', { code: 'ambiguous_coupang_listing' }));
+    renderSection();
+
+    fireEvent.click(await screen.findByRole('button', { name: '쿠팡 등록 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 1장 쿠팡 등록/ }));
+
+    expect(await screen.findByRole('combobox', { name: '쿠팡 listing' })).toBeTruthy();
+    expect(sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('counts a batch upload as uploaded, never as success', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
+      return { items: [] };
+    });
+    vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+    vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href === '/api/channels/thumbnail-executions'
+      ? { executionId: EXECUTION, generationId: G1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
+      : { generationId: G1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null }));
+    renderSection();
+
+    fireEvent.click(await screen.findByRole('button', { name: '쿠팡 등록 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 1장 쿠팡 등록/ }));
+
+    const title = await screen.findByText(/배치 완료/);
+    expect(title.textContent).toContain('올림 1');
+    expect(title.textContent).not.toContain('성공');
+  });
+});

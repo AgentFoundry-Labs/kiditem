@@ -34,14 +34,6 @@ export interface ThumbnailGenerationInputImageRow {
   source: string | null;
 }
 
-export interface ThumbnailGenerationRegistrationAttemptRow {
-  status: string;
-  errorMessage: string | null;
-  finishedAt: Date | null;
-  updatedAt: Date;
-  createdAt: Date;
-}
-
 export interface ThumbnailGenerationLedgerRow {
   id: string;
   createdAt: Date;
@@ -60,16 +52,10 @@ export interface ThumbnailGenerationLedgerRow {
   attemptCount: number;
   triggeredByUserId: string | null;
   candidates: ThumbnailGenerationCandidateRow[];
-  registrationAttempts: ThumbnailGenerationRegistrationAttemptRow[];
   contentWorkspace?: ThumbnailGenerationWorkspaceSummary | null;
 }
 
-export interface ThumbnailGenerationWithCandidatesRow extends Omit<
-  ThumbnailGenerationLedgerRow,
-  'registrationAttempts'
-> {
-  registrationAttempts?: ThumbnailGenerationRegistrationAttemptRow[];
-}
+export type ThumbnailGenerationWithCandidatesRow = ThumbnailGenerationLedgerRow;
 
 export interface ThumbnailGenerationWithInputImagesRow {
   id: string;
