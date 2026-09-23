@@ -6,11 +6,12 @@ import { ApiError } from '@/lib/api-error';
 import {
   DRAFT_CANDIDATE_ID,
   DRAFT_ID,
+  salesProductDraft,
   salesProductDraftListItem,
 } from '@/test/fixtures/sales-product-draft';
 import SourcingPage from './page';
 
-const { api, push, toastError, toastSuccess, createRequestId } = vi.hoisted(() => ({
+const { api, push, toastError, toastSuccess, toastWarning, createRequestId } = vi.hoisted(() => ({
   api: {
     get: vi.fn(),
     getParsed: vi.fn(),
@@ -22,6 +23,7 @@ const { api, push, toastError, toastSuccess, createRequestId } = vi.hoisted(() =
   push: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  toastWarning: vi.fn(),
   createRequestId: vi.fn(),
 }));
 
@@ -33,7 +35,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock('sonner', () => ({
-  toast: { error: toastError, success: toastSuccess, warning: vi.fn(), info: vi.fn() },
+  toast: { error: toastError, success: toastSuccess, warning: toastWarning, info: vi.fn() },
 }));
 
 const SECOND_DRAFT_ID = '10000000-0000-4000-8000-000000000002';
@@ -55,6 +57,9 @@ function serveDraftPages(pages: Record<number, ReturnType<typeof listResponse>>)
     const parsed = new URL(url, 'http://kiditem.local');
     if (parsed.pathname === '/api/products/sales-products') {
       return pages[Number(parsed.searchParams.get('page') ?? '1')] ?? listResponse([]);
+    }
+    if (parsed.pathname.startsWith('/api/products/sales-products/')) {
+      return salesProductDraft({ id: parsed.pathname.split('/').pop()!, sourceCandidateId: null, version: 3 });
     }
     throw new Error(`unexpected getParsed ${url}`);
   });
@@ -225,5 +230,46 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
       .map(([url]) => String(url))
       .filter((url) => url.startsWith('/api/ai/detail-page') || url.startsWith('/api/thumbnail-analysis'));
     expect(new Set(progressUrls)).toEqual(new Set(['/api/ai/detail-page', '/api/thumbnail-analysis/generations?limit=100']));
+  });
+
+  it('archives a draft without a source record instead of deleting a candidate (S1)', async () => {
+    serveDraftPages({ 1: listResponse([salesProductDraftListItem({ sourceCandidateId: null, sourcePlatform: null })]) });
+    api.patch.mockResolvedValue(salesProductDraft({ sourceCandidateId: null, status: 'archived', version: 4 }));
+    renderPage();
+
+    const card = (await screen.findByText('자석 다트게임')).closest('article')!;
+    fireEvent.click(within(card).getByTitle('수집상품 삭제'));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+      `/api/products/sales-products/${DRAFT_ID}`,
+      { expectedVersion: 3, status: 'archived' },
+    ));
+    expect(api.delete).not.toHaveBeenCalled();
+  });
+
+  it('says whether deleting the source record also retired its draft (S1)', async () => {
+    serveDraftPages({
+      1: listResponse([
+        salesProductDraftListItem(),
+        salesProductDraftListItem({ id: SECOND_DRAFT_ID, sourceCandidateId: SECOND_CANDIDATE_ID, name: '두 번째 초안' }),
+      ]),
+    });
+    api.delete.mockImplementation(async (url: string) => (
+      url.endsWith(DRAFT_CANDIDATE_ID)
+        ? { ok: true, draftRetired: true }
+        : { ok: true, draftRetired: false, draftWarning: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.' }
+    ));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '자석 다트게임 선택' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '두 번째 초안 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 삭제 2/ }));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('2개 수집상품을 지웠습니다.', {
+      description: '판매상품 초안 1개도 함께 내렸습니다.',
+    }));
+    expect(toastWarning).toHaveBeenCalledWith('판매상품 초안을 내리지 못한 상품이 있습니다.', {
+      description: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    });
   });
 });

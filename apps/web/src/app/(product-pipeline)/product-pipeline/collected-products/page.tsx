@@ -125,18 +125,18 @@ export default function SourcingPage() {
   const deleteMutation = useMutation({
     mutationFn: async (items: SalesProductListItem[]) => {
       const ids = items.map((item) => item.id);
-      const results = await Promise.allSettled(
-        items.map((item) => deleteCollectedDraft(item).then(() => item.id)),
-      );
-      const succeededIds = results
-        .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+      const results = await Promise.allSettled(items.map(deleteCollectedDraft));
+      const deleted = results
+        .filter((result): result is PromiseFulfilledResult<CollectedDraftDeletion> => result.status === 'fulfilled')
         .map((result) => result.value);
+      const succeededIds = deleted.map((result) => result.salesProductId);
       const failures = results.flatMap((result, index) =>
         result.status === 'rejected'
           ? [{ id: ids[index]!, reason: result.reason as unknown }]
           : [],
       );
       return {
+        deleted,
         succeededIds,
         failedIds: failures.map((failure) => failure.id),
         firstFailure: failures[0]?.reason,
@@ -145,7 +145,8 @@ export default function SourcingPage() {
     onMutate: (items) => {
       setDeletingIds((prev) => new Set([...prev, ...items.map((item) => item.id)]));
     },
-    onSuccess: ({ succeededIds, failedIds, firstFailure }) => {
+    onSuccess: ({ deleted, succeededIds, failedIds, firstFailure }) => {
+      reportCollectedDraftDeletions(deleted);
       setSelected((prev) => {
         const next = new Map(prev);
         succeededIds.forEach((id) => next.delete(id));
@@ -768,17 +769,45 @@ function quickProcessTaskLabel(task: QuickProcessTask): string {
   return '상세페이지와 썸네일 생성';
 }
 
+interface CollectedDraftDeletion {
+  salesProductId: string;
+  /** 원천 기록을 지웠을 때 서버가 그 초안도 내렸는가. 초안을 직접 보관했으면 `true`. */
+  draftRetired: boolean;
+  /** 초안을 내리지 못한 이유(몰에 올라가 있다 등). 원천 기록 삭제는 막지 않는다. */
+  draftWarning: string | null;
+}
+
 /**
  * 수집상품 카드 하나를 지운다.
  *
- * 원천 기록(수집상품)이 있는 초안은 원천을 지운다 — 서버가 그 초안을 함께 내린다. 원천이 없는
- * 초안은 item 5 에서 초안 보관으로 지운다.
+ * 원천 기록(수집상품)이 있는 초안은 원천을 지운다 — 초안을 함께 내릴지는 서버가 정해
+ * `draftRetired` · `draftWarning` 으로 알려 준다(다시 판단하지 않는다). 원천이 없는 초안(직접 작성 ·
+ * 사방넷)은 지울 원천이 없으니 초안을 보관(`archived`)한다.
  */
-async function deleteCollectedDraft(item: SalesProductListItem): Promise<void> {
-  if (!item.sourceCandidateId) {
-    throw new Error('원천 기록이 없는 초안은 판매상품 화면에서 정리해 주세요.');
+async function deleteCollectedDraft(item: SalesProductListItem): Promise<CollectedDraftDeletion> {
+  if (item.sourceCandidateId) {
+    const result = await candidatesApi.delete(item.sourceCandidateId);
+    return {
+      salesProductId: item.id,
+      draftRetired: result.draftRetired === true,
+      draftWarning: result.draftWarning ?? null,
+    };
   }
-  await candidatesApi.delete(item.sourceCandidateId);
+  const draft = await salesProductApi.get(item.id);
+  await salesProductApi.update(item.id, { expectedVersion: draft.version, status: 'archived' });
+  return { salesProductId: item.id, draftRetired: true, draftWarning: null };
+}
+
+function reportCollectedDraftDeletions(deleted: readonly CollectedDraftDeletion[]): void {
+  if (deleted.length === 0) return;
+  const retired = deleted.filter((item) => item.draftRetired).length;
+  toast.success(`${deleted.length}개 수집상품을 지웠습니다.`, {
+    description: retired > 0 ? `판매상품 초안 ${retired}개도 함께 내렸습니다.` : undefined,
+  });
+  const warnings = [...new Set(deleted.flatMap((item) => (item.draftWarning ? [item.draftWarning] : [])))];
+  if (warnings.length > 0) {
+    toast.warning('판매상품 초안을 내리지 못한 상품이 있습니다.', { description: warnings.join(' ') });
+  }
 }
 
 /** 이 화면이 시작한 AI 작업 진행 한 줄. */
