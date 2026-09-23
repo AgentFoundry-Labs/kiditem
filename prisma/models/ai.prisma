@@ -160,7 +160,7 @@ model DetailPage {
 }
 
 /// @namespace AI
-/// @describe Append-only detail-page HTML revision. AI 결과(generated) · 편집(manual_edit) · 복제(duplicate) · 가져오기(imported)가 한 이력에 쌓이고, DetailPage.current_revision_id 와 ContentWorkspace.current_detail_page_revision_id 가 현재를 고른다.
+/// @describe Detail-page HTML revision history. AI 결과(generated) · 편집(manual_edit) · 복제(duplicate) · 가져오기(imported)가 한 이력에 쌓이고, DetailPage.current_revision_id 와 ContentWorkspace.current_detail_page_revision_id 가 현재를 고른다. 행은 지우지 않으며, 가져온(imported) revision 의 사진 주소만 사진 옮기기(KID-319)가 우리 저장소 주소로 바꿔 쓴다(source_digest 는 원문 것 그대로).
 model DetailPageRevision {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid
@@ -196,7 +196,7 @@ model DetailPageRevision {
 }
 
 /// @namespace AI
-/// @describe Durable single-JPEG marketplace rendition for one immutable detail-page revision and renderer variant.
+/// @describe Durable single-JPEG marketplace rendition for one detail-page revision and renderer variant; the revision's HTML at render time is what the JPEG shows.
 model DetailPageImageArtifact {
   id              String  @id @default(uuid()) @db.Uuid
   organizationId  String  @map("organization_id") @db.Uuid

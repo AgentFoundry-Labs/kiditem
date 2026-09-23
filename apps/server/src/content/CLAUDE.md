@@ -12,9 +12,9 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
   (catalog import), or one direct detail page. A selling product has exactly one
   active workspace, created in the product's own transaction; a product
   workspace never carries a listing id (listings reach it through the product).
-  Content models are nine: workspace, asset, listing thumbnail evaluation,
+  Content models are ten: workspace, asset, listing thumbnail evaluation,
   thumbnail job, detail page, revision, detail image artifact, render intent,
-  direct job (KID-313 W3).
+  direct job, usage record (KID-313 W3; the usage record stays by 결정 16).
 - `ContentAsset` is the one table for uploads, AI thumbnail candidates, detail
   images and catalog photos; `source` says where a row came from and
   `thumbnailGenerationId` links an AI candidate to its job. The workspace's
