@@ -1,10 +1,4 @@
-import type {
-  SalesProductCertification,
-  SalesProductDeliveryFeeType,
-  SalesProductKcStatus,
-  SalesProductStatus,
-  SalesProductTaxType,
-} from '@kiditem/shared/sales-product';
+import type { SalesProductBasicsRecord } from './sales-product-basics';
 
 /**
  * 사방넷 엑셀을 다시 가져올 때 사람이 고친 값을 지키는 삼자 병합(KID-304) — 순수 함수.
@@ -18,42 +12,8 @@ import type {
  * 때만 파일 값으로 채운다.
  */
 
-export interface SabangnetReimportBasics {
-  name: string;
-  ownCode: string | null;
-  shortName: string | null;
-  englishName: string | null;
-  printName: string | null;
-  modelName: string | null;
-  modelNo: string | null;
-  brand: string | null;
-  manufacturer: string | null;
-  originCountry: string | null;
-  originRegion: string | null;
-  keywords: string[];
-  standardCategory: string | null;
-  description: string;
-  targetAudience: string | null;
-  ageGroup: string | null;
-  productSize: string | null;
-  colorVariantNames: string[];
-  boxSetQuantity: number | null;
-  registrationDefaults: Record<string, unknown> | null;
-  status: SalesProductStatus;
-  taxType: SalesProductTaxType;
-  deliveryFeeType: SalesProductDeliveryFeeType | null;
-  deliveryFee: number | null;
-  stockManaged: boolean;
-  imageUrls: string[];
-  detailHtml: string | null;
-  extraDetailHtml: string[];
-  noticeCategory: string | null;
-  noticeValues: string[];
-  certifications: SalesProductCertification[];
-  kcStatus: SalesProductKcStatus;
-  importDeclarationNo: string | null;
-  adminMemo: string | null;
-}
+/** 병합하는 판매상품 기본 칸 — 저장소가 쓰는 기본 칸 그 자체다. */
+export type SabangnetReimportBasics = SalesProductBasicsRecord;
 
 type DetailField = 'detailHtml' | 'extraDetailHtml';
 
@@ -67,6 +27,14 @@ export const SABANGNET_REIMPORT_MERGED_FIELDS = [
 ] as const satisfies readonly Exclude<keyof SabangnetReimportBasics, 'ownCode'>[];
 
 export type SabangnetReimportField = (typeof SABANGNET_REIMPORT_MERGED_FIELDS)[number];
+
+/**
+ * 기본 칸에 새 칸이 생기면 병합 목록에도 넣어야 한다 — 빠지면 여기서 컴파일이 멈춘다. 새 칸을 병합하지 않으려면
+ * `ownCode` 처럼 여기서 명시적으로 뺀다.
+ */
+type UnmergedBasicsField = Exclude<keyof SabangnetReimportBasics, SabangnetReimportField | 'ownCode'>;
+const everyBasicsFieldIsMerged: [UnmergedBasicsField] extends [never] ? true : UnmergedBasicsField = true;
+void everyBasicsFieldIsMerged;
 
 /** 상세 HTML 디지스트. 빈 상세는 빈 문자열이다. 추가 상세는 칸마다의 디지스트를 쉼표로 잇는다. */
 export interface SabangnetDetailDigests {
