@@ -234,19 +234,38 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
     expect(new Set(progressUrls)).toEqual(new Set(['/api/ai/detail-page', '/api/thumbnail-analysis/generations?limit=100']));
   });
 
-  it('archives a draft without a source record instead of deleting a candidate (S1)', async () => {
+  it('retires a draft without a source record through the sales-product route (S1)', async () => {
     serveDraftPages({ 1: listResponse([salesProductDraftListItem({ sourceCandidateId: null, sourcePlatform: null })]) });
-    api.patch.mockResolvedValue(salesProductDraft({ sourceCandidateId: null, status: 'archived', version: 4 }));
+    api.delete.mockResolvedValue({ salesProductId: DRAFT_ID, retired: true, blockedReason: null });
     renderPage();
 
     const card = (await screen.findByText('자석 다트게임')).closest('article')!;
     fireEvent.click(within(card).getByTitle('수집상품 삭제'));
 
-    await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
-      `/api/products/sales-products/${DRAFT_ID}`,
-      { expectedVersion: 3, status: 'archived' },
-    ));
-    expect(api.delete).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith(`/api/products/sales-products/${DRAFT_ID}`));
+    expect(api.patch).not.toHaveBeenCalled();
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('1개 수집상품을 지웠습니다.', {
+      description: '판매상품 초안 1개도 함께 내렸습니다.',
+    }));
+  });
+
+  it('shows why a draft without a source record was not retired', async () => {
+    serveDraftPages({ 1: listResponse([salesProductDraftListItem({ sourceCandidateId: null, sourcePlatform: null })]) });
+    api.delete.mockResolvedValue({
+      salesProductId: DRAFT_ID,
+      retired: false,
+      blockedReason: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    });
+    renderPage();
+
+    const card = (await screen.findByText('자석 다트게임')).closest('article')!;
+    fireEvent.click(within(card).getByTitle('수집상품 삭제'));
+
+    await waitFor(() => expect(toastWarning).toHaveBeenCalledWith('판매상품 초안을 내리지 못한 상품이 있습니다.', {
+      description: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
+    }));
+    // 내리지 못했으면 지웠다고 말하지 않는다.
+    expect(toastSuccess).not.toHaveBeenCalled();
   });
 
   it('says whether deleting the source record also retired its draft (S1)', async () => {

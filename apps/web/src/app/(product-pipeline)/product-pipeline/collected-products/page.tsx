@@ -131,7 +131,7 @@ export default function SourcingPage() {
       const deleted = results
         .filter((result): result is PromiseFulfilledResult<CollectedDraftDeletion> => result.status === 'fulfilled')
         .map((result) => result.value);
-      const succeededIds = deleted.map((result) => result.salesProductId);
+      const succeededIds = deleted.filter((result) => result.removed).map((result) => result.salesProductId);
       const failures = results.flatMap((result, index) =>
         result.status === 'rejected'
           ? [{ id: ids[index]!, reason: result.reason as unknown }]
@@ -774,7 +774,9 @@ function quickProcessTaskLabel(task: QuickProcessTask): string {
 
 interface CollectedDraftDeletion {
   salesProductId: string;
-  /** 원천 기록을 지웠을 때 서버가 그 초안도 내렸는가. 초안을 직접 보관했으면 `true`. */
+  /** 카드가 목록에서 빠졌는가 — 원천 기록을 지웠거나 원천이 없는 초안을 내렸다. */
+  removed: boolean;
+  /** 서버가 그 초안도 내렸는가. */
   draftRetired: boolean;
   /** 초안을 내리지 못한 이유(몰에 올라가 있다 등). 원천 기록 삭제는 막지 않는다. */
   draftWarning: string | null;
@@ -785,28 +787,35 @@ interface CollectedDraftDeletion {
  *
  * 원천 기록(수집상품)이 있는 초안은 원천을 지운다 — 초안을 함께 내릴지는 서버가 정해
  * `draftRetired` · `draftWarning` 으로 알려 준다(다시 판단하지 않는다). 원천이 없는 초안(직접 작성 ·
- * 사방넷)은 지울 원천이 없으니 초안을 보관(`archived`)한다.
+ * 사방넷)은 같은 규칙으로 초안을 내린다(`DELETE /api/products/sales-products/:id`) — 못 내리면 이유를 알린다.
  */
 async function deleteCollectedDraft(item: SalesProductListItem): Promise<CollectedDraftDeletion> {
   if (item.sourceCandidateId) {
     const result = await candidatesApi.delete(item.sourceCandidateId);
     return {
       salesProductId: item.id,
+      removed: true,
       draftRetired: result.draftRetired === true,
       draftWarning: result.draftWarning ?? null,
     };
   }
-  const draft = await salesProductApi.get(item.id);
-  await salesProductApi.update(item.id, { expectedVersion: draft.version, status: 'archived' });
-  return { salesProductId: item.id, draftRetired: true, draftWarning: null };
+  const result = await salesProductApi.retireDraft(item.id);
+  return {
+    salesProductId: item.id,
+    removed: result.retired,
+    draftRetired: result.retired,
+    draftWarning: result.blockedReason,
+  };
 }
 
 function reportCollectedDraftDeletions(deleted: readonly CollectedDraftDeletion[]): void {
-  if (deleted.length === 0) return;
-  const retired = deleted.filter((item) => item.draftRetired).length;
-  toast.success(`${deleted.length}개 수집상품을 지웠습니다.`, {
-    description: retired > 0 ? `판매상품 초안 ${retired}개도 함께 내렸습니다.` : undefined,
-  });
+  const removed = deleted.filter((item) => item.removed);
+  const retired = removed.filter((item) => item.draftRetired).length;
+  if (removed.length > 0) {
+    toast.success(`${removed.length}개 수집상품을 지웠습니다.`, {
+      description: retired > 0 ? `판매상품 초안 ${retired}개도 함께 내렸습니다.` : undefined,
+    });
+  }
   const warnings = [...new Set(deleted.flatMap((item) => (item.draftWarning ? [item.draftWarning] : [])))];
   if (warnings.length > 0) {
     toast.warning('판매상품 초안을 내리지 못한 상품이 있습니다.', { description: warnings.join(' ') });

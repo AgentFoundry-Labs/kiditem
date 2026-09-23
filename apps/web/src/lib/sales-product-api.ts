@@ -84,6 +84,12 @@ export const salesProductApi = {
     apiClient.getParsed(`${BASE}/${id}`, SalesProductSchema),
   update: async (id: string, body: SalesProductUpdateInput): Promise<SalesProduct> =>
     SalesProductSchema.parse(await apiClient.patch<unknown>(`${BASE}/${id}`, body)),
+  /**
+   * 원천 기록이 없는 초안을 내린다(`unused`, 작업공간 보관). 몰에 있거나 등록 실행이 살아 있으면
+   * 내리지 않고 `blockedReason` 만 돌려준다.
+   */
+  retireDraft: (id: string): Promise<{ salesProductId: string; retired: boolean; blockedReason: string | null }> =>
+    apiClient.delete(`${BASE}/${encodeURIComponent(id)}`),
   replaceOptions: async (id: string, body: SalesProductOptionsReplaceInput): Promise<SalesProduct> =>
     SalesProductSchema.parse(await apiClient.put<unknown>(`${BASE}/${id}/options`, body)),
   importSabangnet: (
