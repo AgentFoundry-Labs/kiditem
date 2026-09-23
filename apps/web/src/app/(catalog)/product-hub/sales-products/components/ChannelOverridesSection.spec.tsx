@@ -247,7 +247,6 @@ describe('<ChannelOverridesSection />', () => {
         },
         detailPage: null,
         registrationInput: {},
-        supplyPrices: [],
       },
       leaseToken: '77777777-7777-4777-8777-777777777777',
       maySubmit: false,

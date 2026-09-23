@@ -108,12 +108,10 @@ function targetRegistrationValues(
   };
 }
 
+/** 몰 공급가는 등록 대상의 몰 전용 값 `mallFields.supplyPrice` 하나다(KID-313). */
 function frozenSupplyPrice(snapshot: TargetExecutionSnapshot): string | undefined {
-  const prices = snapshot.supplyPrices
-    .map((entry) => entry.supplyPrice)
-    .filter((price): price is number => price !== null);
-  if (prices.length === 0 || new Set(prices).size !== 1) return undefined;
-  return String(prices[0]);
+  const price = recordValue(snapshot.registrationInput.mallFields).supplyPrice;
+  return typeof price === 'number' || (typeof price === 'string' && price.trim()) ? String(price) : undefined;
 }
 
 /**

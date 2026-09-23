@@ -30,7 +30,6 @@ function snapshot(): TargetExecutionSnapshot {
     } as unknown as TargetExecutionSnapshot['product'],
     detailPage: null,
     registrationInput: { smartstoreCategory: '50004643:기타감각발달완구' },
-    supplyPrices: [{ salesProductOptionId: OPTION_ID, supplyPrice: 4000 }],
   };
 }
 
@@ -328,14 +327,14 @@ describe('valuesForTargetExecution', () => {
     expect(frozen.registrationInput).toEqual({ quantity: '3', certNumber: 'saved' });
   });
 
-  it('maps frozen #554 saved values and one frozen supply price into adapter input', () => {
+  it('maps frozen #554 saved values and the frozen mall supply price (mallFields.supplyPrice) into adapter input', () => {
     const target = snapshot();
     target.registrationInput = {
       mallRegisterShared: { certNumber: 'CB-FROZEN-1' },
       mallRegisterValues: { smartstore: { smartstoreCategory: '50000001:Frozen' } },
       smartstore: { quantity: 3 },
+      mallFields: { supplyPrice: 4700 },
     };
-    target.supplyPrices = [{ salesProductOptionId: OPTION_ID, supplyPrice: 4700 }];
     target.adapterDefaults = { quantity: '1', smartstoreCategory: '', certNumber: '', supplyPrice: '' };
     const values = valuesForTargetExecution(target, 'smartstore', adapter(vi.fn(), [
       { key: 'quantity', label: '수량', origin: 'override', control: 'text', defaultValue: '1', required: true },

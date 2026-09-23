@@ -24,7 +24,7 @@ function setup() {
   const products = { get: vi.fn().mockImplementation(async () => structuredClone(product)) };
   // 상세는 Content revision 에서 온다 — 경계 밖이라 읽은 값만 정해 준다.
   const detailPages = {
-    read: vi.fn().mockResolvedValue({ revisionId: 'revision-chosen', html: '<p>상세</p>', extraHtml: [], imageUrls: [] }),
+    read: vi.fn().mockResolvedValue({ revisionId: 'revision-chosen', html: '<p>상세</p>', imageUrls: [] }),
     readMany: vi.fn(),
     importFromSource: vi.fn(),
   };
@@ -45,9 +45,8 @@ describe('registration target execution public capability', () => {
     ] });
     expect(frozen.product.channelOverrides).toEqual([]);
     expect(frozen.registrationInput).toEqual({ mallCategory: { key: 'provider-category', label: null }, mallFields: {}, adapter: {} });
-    expect(frozen.supplyPrices).toEqual([
-      { salesProductOptionId: 'b', supplyPrice: null }, { salesProductOptionId: 'a', supplyPrice: null },
-    ]);
+    // 몰 공급가는 mallFields.supplyPrice 가 말한다 — 옵션마다 늘 null 이던 공급가 목록은 동결하지 않는다.
+    expect(frozen).not.toHaveProperty('supplyPrices');
     product.options[0]!.salePrice = 9999;
     expect(frozen.product.options[1].salePrice).toBe(3000);
     expect(executions.prepareTarget.mock.calls[0][0]).toMatchObject({ organizationId: 'org', requestedByUserId: 'actor' });
@@ -61,7 +60,7 @@ describe('registration target execution public capability', () => {
       organizationId: 'org', salesProductId: 'product', selectedDetailPageRevisionId: 'revision-chosen',
     });
     expect(executions.prepareTarget.mock.calls[0][0].snapshot.detailPage)
-      .toEqual({ revisionId: 'revision-chosen', html: '<p>상세</p>', extraHtml: [] });
+      .toEqual({ revisionId: 'revision-chosen', html: '<p>상세</p>' });
 
     target.selectedDetailPageRevisionId = null;
     detailPages.read.mockResolvedValue(null);

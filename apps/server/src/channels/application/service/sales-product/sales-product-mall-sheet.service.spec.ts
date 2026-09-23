@@ -41,7 +41,7 @@ function setup(
     importFromSource: vi.fn(),
     readMany: vi.fn().mockResolvedValue(new Map(detailHtml === null
       ? []
-      : [[PRODUCT, { revisionId: 'revision-1', html: detailHtml, extraHtml: [], imageUrls: [] }]])),
+      : [[PRODUCT, { revisionId: 'revision-1', html: detailHtml, imageUrls: [] }]])),
   };
   return {
     service: new SalesProductMallSheetService(repository as unknown as SalesProductRepositoryPort, files, activity, detailPages),

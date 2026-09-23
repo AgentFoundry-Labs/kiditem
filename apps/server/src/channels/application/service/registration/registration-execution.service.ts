@@ -128,9 +128,8 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
           return option;
         }),
       },
-      detailPage: detail ? { revisionId: detail.revisionId, html: detail.html, extraHtml: [...detail.extraHtml] } : null,
+      detailPage: detail ? { revisionId: detail.revisionId, html: detail.html } : null,
       registrationInput: target.registrationInput,
-      supplyPrices: target.selectedOptions.map(selection => ({ salesProductOptionId: selection.salesProductOptionId, supplyPrice: null })),
     };
     return this.executions.prepareTarget({ organizationId, requestedByUserId: userId, request: input, snapshot });
   }

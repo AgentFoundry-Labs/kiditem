@@ -143,7 +143,6 @@ const targetExecutionResult = {
     },
     detailPage: null,
     registrationInput: {},
-    supplyPrices: [{ salesProductOptionId: SALES_PRODUCT_OPTION_ID, supplyPrice: null }],
   },
   leaseToken: null,
   maySubmit: false,

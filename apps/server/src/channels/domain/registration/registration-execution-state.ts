@@ -76,9 +76,8 @@ export type RegistrationExecutionOptionSnapshotRow = Readonly<{
 /**
  * Count option identities retained by immutable target execution snapshots.
  *
- * A target snapshot carries the selected options under `product.options` and
- * repeats their identities under `supplyPrices`. Count an option once per
- * execution, even when both fields contain it. Older external-registration
+ * A target snapshot carries the selected options under `product.options`.
+ * Count an option once per execution, even when it repeats. Older external-registration
  * payloads do not have a product snapshot and therefore contribute no option
  * reference.
  */
@@ -99,22 +98,12 @@ function frozenSalesProductOptionIds(value: unknown): readonly string[] {
   const payload = record(value);
   if (!payload) return [];
   const product = record(payload.product);
-  const ids = [
-    ...(Array.isArray(product?.options)
-      ? product.options.flatMap((option) => {
-        const optionRecord = record(option);
-        return typeof optionRecord?.id === 'string' ? [optionRecord.id] : [];
-      })
-      : []),
-    ...(Array.isArray(payload.supplyPrices)
-      ? payload.supplyPrices.flatMap((price) => {
-        const priceRecord = record(price);
-        return typeof priceRecord?.salesProductOptionId === 'string'
-          ? [priceRecord.salesProductOptionId]
-          : [];
-      })
-      : []),
-  ];
+  const ids = Array.isArray(product?.options)
+    ? product.options.flatMap((option) => {
+      const optionRecord = record(option);
+      return typeof optionRecord?.id === 'string' ? [optionRecord.id] : [];
+    })
+    : [];
   return [...new Set(ids)];
 }
 

@@ -223,7 +223,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
 
   it('freezes the detail revision html and id in the execution payload, unchanged by later content edits', async () => {
     const fixture = await createFixture(prisma, targets);
-    const detailPage = { revisionId: randomUUID(), html: '<p>동결한 상세</p>', extraHtml: ['<p>추가</p>'] };
+    const detailPage = { revisionId: randomUUID(), html: '<p>동결한 상세</p>' };
     const request = requestFor('target-detail-freeze-1');
     const prepared = await repository.prepareTarget({
       organizationId: TEST_ORGANIZATION_ID,
@@ -1653,7 +1653,6 @@ async function createFixture(
     },
     detailPage: null,
     registrationInput: { mallCategory: { key: 'category-1', label: null }, mallFields: {}, adapter: {} },
-    supplyPrices: [{ salesProductOptionId: optionId, supplyPrice: null }],
   };
   return {
     accountId,
@@ -1715,10 +1714,6 @@ async function addSecondSelectedOption(
         ...fixture.snapshot.product,
         options: [firstOption, secondOption],
       },
-      supplyPrices: [
-        ...fixture.snapshot.supplyPrices,
-        { salesProductOptionId: secondOptionId, supplyPrice: null },
-      ],
     },
   };
 }
@@ -1819,7 +1814,6 @@ async function prepareTwoOptionCompositionChange(
         components: [{ ...template.components[0]!, quantity: 3 + index }],
       })),
     },
-    supplyPrices: newIds.map(salesProductOptionId => ({ salesProductOptionId, supplyPrice: null })),
   };
   const prepared = await repository.prepareTarget({
     organizationId: TEST_ORGANIZATION_ID,

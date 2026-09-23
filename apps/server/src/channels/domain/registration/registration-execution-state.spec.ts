@@ -85,17 +85,12 @@ describe('registration execution state', () => {
       const counts = countFrozenSalesProductOptionReferences([
         {
           submissionPayloadJson: {
-            product: { options: [{ id: 'option-1' }, { id: 'option-2' }] },
-            supplyPrices: [
-              { salesProductOptionId: 'option-1', supplyPrice: 1_000 },
-              { salesProductOptionId: 'option-2', supplyPrice: null },
-            ],
+            product: { options: [{ id: 'option-1' }, { id: 'option-2' }, { id: 'option-1' }] },
           },
         },
         {
           submissionPayloadJson: {
             product: { options: [{ id: 'option-1' }] },
-            supplyPrices: [{ salesProductOptionId: 'option-1', supplyPrice: 1_200 }],
           },
         },
         { submissionPayloadJson: { registrationInput: { optionLinks: [] } } },
@@ -111,7 +106,8 @@ describe('registration execution state', () => {
       const counts = countFrozenSalesProductOptionReferences([
         { submissionPayloadJson: null },
         { submissionPayloadJson: { product: { options: [{ id: 7 }, {}] } } },
-        { submissionPayloadJson: { supplyPrices: [{ salesProductOptionId: 9 }] } },
+        // 공급가 목록은 snapshot 에서 빠졌다 — 그 모양의 옛 payload 는 옵션을 붙들지 않는다.
+        { submissionPayloadJson: { supplyPrices: [{ salesProductOptionId: 'option-3' }] } },
       ]);
 
       expect([...counts.entries()]).toEqual([]);

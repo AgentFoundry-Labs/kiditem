@@ -191,12 +191,8 @@ describe('sales product → mall draft', () => {
           channelListingId: null,
           applyCompositionTemplate: false,
           product: targetProduct,
-          detailPage: { revisionId: '88888888-8888-4888-8888-888888888888', html: DETAIL_HTML, extraHtml: [] },
+          detailPage: { revisionId: '88888888-8888-4888-8888-888888888888', html: DETAIL_HTML },
           registrationInput: {},
-          supplyPrices: targetProduct.options.map((option) => ({
-            salesProductOptionId: option.id,
-            supplyPrice: null,
-          })),
         },
       },
     }, 'smartstore');

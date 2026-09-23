@@ -93,7 +93,6 @@ const TARGET_RESULT = {
     },
     detailPage: null,
     registrationInput: {},
-    supplyPrices: [{ salesProductOptionId: '77777777-7777-4777-8777-777777777777', supplyPrice: null }],
   },
   leaseToken: null,
   maySubmit: false,
