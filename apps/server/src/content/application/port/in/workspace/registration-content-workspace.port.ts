@@ -1,4 +1,5 @@
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
+import type { DetailPageRevisionType } from '../../../../domain/detail-page/detail-page-revision-type';
 export const REGISTRATION_CONTENT_WORKSPACE_PORT = Symbol(
   'REGISTRATION_CONTENT_WORKSPACE_PORT',
 );
@@ -31,7 +32,7 @@ export type ResolvedRegistrationContentSelections = Pick<
 export interface RegistrableDetailPage {
   workspaceId: string;
   revisionId: string;
-  revisionType: 'manual_edit' | 'duplicate' | 'legacy_edited_html_backfill' | 'imported';
+  revisionType: DetailPageRevisionType;
   html: string;
   /** 몰이 따로 받는 추가 상세(사방넷 추가상품상세설명). 없으면 빈 배열. */
   extraHtml: readonly string[];
@@ -76,7 +77,8 @@ export interface RegistrationContentWorkspacePort {
     revisionId: string | null;
   }): Promise<RegistrableDetailPage | null>;
   /**
-   * 가져온 상세 HTML 을 `imported` revision 으로 쌓는다. 워크스페이스가 없으면 만든다.
+   * 가져온 상세 HTML 을 `imported` revision 으로 쌓는다. 워크스페이스는 상품과 같은 트랜잭션에서
+   * `ensureSalesProductWorkspace` 로 이미 만들어져 있어야 한다(이름을 Content 가 모르므로 여기서 만들지 않는다).
    * 현재 포인터 이동은 `detail-page-import-rule` 이 정한다(사람이 고친 revision 은 덮지 않음).
    * caller 의 트랜잭션 안에서 실행된다 — 사방넷 가져오기가 상품 저장과 함께 커밋한다.
    */
@@ -92,11 +94,8 @@ export interface RegistrationContentWorkspacePort {
     input: FindSalesProductContentWorkspaceInput,
   ): Promise<string | null>;
   /**
-   * Fills in what the operator left implicit (an artifact's current revision, a
-   * generation's artifact) and adopts a plain thumbnail URL into managed
-   * content. Channels owns the draft's image list, so it — not AI — is the
-   * authority for whether a plain URL belongs to the draft; AI only enforces
-   * that every id-bearing selection is owned by this workspace.
+   * 등록 대상이 비워 둔 선택을 워크스페이스의 현재 값(현재 썸네일 자산 · 현재 상세 revision)으로
+   * 채우고, 고른 자산 · revision 이 이 워크스페이스의 것인지 본다. 동결에 쓰는 자산은 잠근다.
    */
   resolveSourceSelections(
     transaction: OwnerTransaction,

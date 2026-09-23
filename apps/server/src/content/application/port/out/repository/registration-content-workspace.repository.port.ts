@@ -3,6 +3,9 @@ import type {
   AttachContentWorkspaceToListingInput,
   EnsureSalesProductContentWorkspaceInput,
   FindSalesProductContentWorkspaceInput,
+  ImportDetailPageInput,
+  ImportDetailPageResult,
+  RegistrableDetailPage,
   RegistrationContentSelectionInput,
   ResolvedRegistrationContentSelections,
 } from '../../in/workspace/registration-content-workspace.port';
@@ -33,6 +36,15 @@ export interface RegistrationContentWorkspaceRepositoryPort {
     input: EnsureSalesProductContentWorkspaceInput &
       RegistrationContentWorkspaceOwnerInput,
   ): Promise<{ workspaceId: string }>;
+  readRegistrableDetailPage(input: {
+    organizationId: string;
+    salesProductId: string;
+    revisionId: string | null;
+  }): Promise<RegistrableDetailPage | null>;
+  importDetailPage(
+    transaction: OwnerTransaction,
+    input: ImportDetailPageInput & { imageUrls: readonly string[] },
+  ): Promise<ImportDetailPageResult>;
   attachToListing(
     transaction: OwnerTransaction,
     input: AttachContentWorkspaceToListingInput,

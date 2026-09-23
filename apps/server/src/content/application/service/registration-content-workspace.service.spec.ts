@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ownerTransaction } from '../../../prisma/owner-transaction';
 import { RegistrationContentWorkspaceService } from './registration-content-workspace.service';
@@ -9,12 +8,8 @@ const TX = ownerTransaction({} as never);
 describe('RegistrationContentWorkspaceService', () => {
   it('resolves exact source selections through the caller transaction', async () => {
     const resolved = {
-      selectedThumbnailUrl: null,
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageArtifactId: 'artifact-1',
+      selectedThumbnailAssetId: null,
       selectedDetailPageRevisionId: 'revision-1',
-      selectedDetailPageGenerationId: 'generation-1',
     };
     const repository = {
       ensureSalesProductWorkspace: vi.fn(),
@@ -26,12 +21,8 @@ describe('RegistrationContentWorkspaceService', () => {
     const input = {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
-      selectedThumbnailUrl: null,
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageArtifactId: null,
+      selectedThumbnailAssetId: null,
       selectedDetailPageRevisionId: null,
-      selectedDetailPageGenerationId: 'generation-1',
     };
 
     await expect(service.resolveSourceSelections(TX, input)).resolves.toEqual(resolved);
@@ -93,12 +84,8 @@ describe('RegistrationContentWorkspaceService', () => {
     const input = {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
-      selectedThumbnailUrl: 'https://cdn.example.com/thumb.png',
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageArtifactId: 'artifact-1',
+      selectedThumbnailAssetId: 'asset-1',
       selectedDetailPageRevisionId: 'revision-1',
-      selectedDetailPageGenerationId: 'detail-generation-1',
     };
 
     await expect(service.validateSourceSelections(TX, input)).resolves.toBeUndefined();
@@ -115,12 +102,8 @@ describe('RegistrationContentWorkspaceService', () => {
     const input = {
       organizationId: 'org-1',
       sourceWorkspaceId: 'source-workspace-1',
-      selectedThumbnailUrl: null,
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageArtifactId: null,
+      selectedThumbnailAssetId: null,
       selectedDetailPageRevisionId: null,
-      selectedDetailPageGenerationId: null,
     };
 
     await expect(service.validateSourceSelections(null, input)).resolves.toBeUndefined();

@@ -1,3 +1,4 @@
+import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
@@ -104,8 +105,9 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     const repository = new SalesProductRepositoryAdapter(
       service,
       productTransactionalRead(),
-      new RegistrationTargetRepositoryAdapter(service, productTransactionalRead()),
-    );
+      new RegistrationTargetRepositoryAdapter(service, productTransactionalRead(), realRegistrationContentWorkspace(service)),
+    realRegistrationContentWorkspace(service),
+  );
     records = new SourceRecordRepositoryAdapter(service);
     useCase = new SalesProductUseCase(
       repository,

@@ -1,3 +1,4 @@
+import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -39,12 +40,13 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead());
+    targets = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead(), realRegistrationContentWorkspace(prisma));
     repository = new SalesProductRepositoryAdapter(
       prisma as unknown as PrismaService,
       undefined as never,
       targets,
-    );
+    realRegistrationContentWorkspace(prisma),
+  );
   });
 
   afterAll(async () => {
@@ -634,8 +636,9 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     repository = new SalesProductRepositoryAdapter(
       prisma as unknown as PrismaService,
       productsRead,
-      new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead()),
-    );
+      new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead(), realRegistrationContentWorkspace(prisma)),
+    realRegistrationContentWorkspace(prisma),
+  );
     service = new SalesProductUseCase(repository, ...realDraftDeletionPorts(prisma));
   });
 
@@ -768,7 +771,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       options: [{ values: ['빨강'], salePrice: 4_000 }, { values: ['파랑'], salePrice: 4_500 }],
     });
     const before = await repository.readOptionState(TEST_ORGANIZATION_ID, created.id);
-    const targetId = await new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead())
+    const targetId = await new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead(), realRegistrationContentWorkspace(prisma))
       .create(TEST_ORGANIZATION_ID, {
         salesProductId: created.id,
         channelAccountId: accountId,
@@ -912,8 +915,9 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     const repository = new SalesProductRepositoryAdapter(
       prismaService,
       productTransactionalRead(),
-      new RegistrationTargetRepositoryAdapter(prismaService, productTransactionalRead()),
-    );
+      new RegistrationTargetRepositoryAdapter(prismaService, productTransactionalRead(), realRegistrationContentWorkspace(prismaService)),
+    realRegistrationContentWorkspace(prismaService),
+  );
     const logger = { log() {}, warn() {} };
     // 사진 저장소는 바깥 경계다 — 옮긴 주소만 정해 준다.
     const images: SalesProductImageMirrorPort = {
@@ -1136,8 +1140,9 @@ describe('sales product reference cost (PostgreSQL)', () => {
     repository = new SalesProductRepositoryAdapter(
       prisma as unknown as PrismaService,
       new ProductTransactionalReadRepositoryAdapter() as unknown as ConstructorParameters<typeof SalesProductRepositoryAdapter>[1],
-      new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead()),
-    );
+      new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService, productTransactionalRead(), realRegistrationContentWorkspace(prisma)),
+    realRegistrationContentWorkspace(prisma),
+  );
   });
 
   afterAll(async () => {

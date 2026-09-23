@@ -5,6 +5,9 @@ import {
   type AttachContentWorkspaceToListingInput,
   type EnsureSalesProductContentWorkspaceInput,
   type FindSalesProductContentWorkspaceInput,
+  type ImportDetailPageInput,
+  type ImportDetailPageResult,
+  type RegistrableDetailPage,
   type RegistrationContentSelectionInput,
   type RegistrationContentWorkspacePort,
   type ResolvedRegistrationContentSelections,
@@ -14,6 +17,7 @@ import {
   type RegistrationContentWorkspaceRepositoryPort,
 } from '../port/out/repository/registration-content-workspace.repository.port';
 import { normalizeContentTitle } from './content-workspace.service';
+import { extractImageSrcs } from './detail-page-query.service';
 
 @Injectable()
 export class RegistrationContentWorkspaceService
@@ -55,6 +59,21 @@ export class RegistrationContentWorkspaceService
       ...input,
       displayName,
       normalizedTitle: normalizeContentTitle(displayName),
+    });
+  }
+
+  readRegistrableDetailPage(input: {
+    organizationId: string;
+    salesProductId: string;
+    revisionId: string | null;
+  }): Promise<RegistrableDetailPage | null> {
+    return this.repository.readRegistrableDetailPage(input);
+  }
+
+  importDetailPage(transaction: OwnerTransaction, input: ImportDetailPageInput): Promise<ImportDetailPageResult> {
+    return this.repository.importDetailPage(transaction, {
+      ...input,
+      imageUrls: extractImageSrcs([input.html, ...input.extraHtml].join('\n')),
     });
   }
 

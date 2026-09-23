@@ -43,6 +43,10 @@ import type {
 import type { CoupangCatalogFacts } from '../../../domain/registration/bulk-sheet/coupang-catalog-edit';
 import type { MallSheetSourceProduct } from '../../../domain/registration/bulk-sheet/mall-sheet-product';
 import {
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+  type RegistrationContentWorkspacePort,
+} from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
+import {
   REGISTRATION_TARGET_REPOSITORY_PORT,
   type RegistrationTargetRepositoryPort,
 } from '../../../application/port/out/persistence/registration-target.repository.port';
@@ -142,6 +146,9 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     private readonly productTransactionalRead: ProductTransactionalReadPort,
     @Inject(REGISTRATION_TARGET_REPOSITORY_PORT)
     private readonly registrationTargets: RegistrationTargetRepositoryPort,
+    /** 판매 상품마다 활성 콘텐츠 작업공간은 하나이고 상품과 같은 트랜잭션에서 생긴다(KID-313 W2). */
+    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
+    private readonly contentWorkspaces: RegistrationContentWorkspacePort,
   ) {}
 
   async allocateCode(_organizationId: string): Promise<string> {
@@ -371,6 +378,12 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         select: { id: true },
       });
       await writeOptions(tx, organizationId, product.id, plan.writes);
+      await this.contentWorkspaces.ensureSalesProductWorkspace(ownerTransaction(tx), {
+        organizationId,
+        salesProductId: product.id,
+        displayName: record.name,
+        createdByUserId: null,
+      });
       return product.id;
     };
     try {
