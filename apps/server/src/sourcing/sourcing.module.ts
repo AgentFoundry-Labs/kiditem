@@ -27,8 +27,6 @@ import {
   SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT,
   SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
 } from "./application/port/in/capability/sourcing-agent-workspace-capability.port";
-import { SOURCE_RECORD_PORT } from "./application/port/in/source-record.port";
-import { SOURCE_RECORD_REPOSITORY_PORT } from "./application/port/out/repository/source-record.repository.port";
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-interest-target.repository.port";
 import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-recommendation.repository.port";
 import { SOURCING_REVIEW_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-review.repository.port";
@@ -407,8 +405,8 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT,
     SourcingAgentCommandService,
     SOURCING_AGENT_GATEWAY_PORT,
-    SOURCE_RECORD_PORT,
-    SOURCE_RECORD_REPOSITORY_PORT,
+    // 원본 기록 owner 는 작은 모듈이 가진다 — 그 모듈을 다시 내보낸다(KID-313).
+    SourcingSourceRecordModule,
     SourcingReviewService,
     SourcingValidationService,
     SOURCING_INTEREST_TARGET_REPOSITORY_PORT,
