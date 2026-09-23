@@ -45,12 +45,24 @@ const FIELD_ORDER = [
   'formSpec',
   'collector',
   'uploadTracking',
-  'register',
+  'delivery',
+  'representativeImage',
   'verified',
   'logo',
 ];
 
+/** 원본 행에 FIELD_ORDER 밖의 칸이 있으면 생성물이 그 칸을 조용히 버린다 — 여기서 막는다. */
+function assertKnownFields(rows) {
+  for (const row of rows) {
+    const unknown = Object.keys(row).filter((field) => !FIELD_ORDER.includes(field));
+    if (unknown.length > 0) {
+      throw new Error(`channel-registry row ${JSON.stringify(row.key)} has fields not in FIELD_ORDER: ${unknown.join(', ')}`);
+    }
+  }
+}
+
 function renderRow(row) {
+  assertKnownFields([row]);
   const parts = FIELD_ORDER
     .filter((field) => row[field] !== undefined)
     .map((field) => `${JSON.stringify(field)}: ${JSON.stringify(row[field])}`);

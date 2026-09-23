@@ -6,6 +6,17 @@ import {
 } from './operation-lifecycle.js';
 import { zIsoDate } from './schemas/common.js';
 
+/**
+ * 등록 대상 실행 kind — 운영자가 어느 몰 계정을 고르든 같은 집합이다(KID-321). 몰마다 다른 것
+ * (폼 채우기 · API · 엑셀 · 확인 증거)은 채널 registry 의 `delivery` 와 채널 어댑터가 맡는다.
+ * `delete` 는 실제로 지울 수 있는 어댑터가 생길 때 더한다(지금은 없다 — KID-317 결정).
+ */
+export const TARGET_EXECUTION_KINDS = ['register', 'update', 'sold_out', 'resume', 'composition_change'] as const;
+export type TargetExecutionKind = (typeof TARGET_EXECUTION_KINDS)[number];
+/** 대표이미지 반영(`thumbnail_update`)까지 포함한, `product_registration_executions.execution_kind` 의 전체 집합. */
+export const REGISTRATION_EXECUTION_KINDS = [...TARGET_EXECUTION_KINDS, 'thumbnail_update'] as const;
+export type RegistrationExecutionKind = (typeof REGISTRATION_EXECUTION_KINDS)[number];
+
 export {
   OPERATION_STATUSES,
   PROVIDER_OUTCOMES,
@@ -27,8 +38,8 @@ export const ProductRegistrationExecutionSchema = z.object({
   registrationTargetId: z.string().uuid(),
   channelAccountId: z.string().uuid(),
   channelListingId: z.string().uuid().nullable(),
-  /** 몰 등록 실행은 명시한 실행 id 로 움직이는 외부(WING) 실행뿐이다 — 옛 `create` 종류는 없다(KID-313). */
-  executionKind: z.enum(['external_wing']),
+  /** 몰 중립 실행 kind 하나의 집합(KID-321). 옛 `create`·`external_wing` 은 없다 — Wing 등록은 `register` + `delivery: form`. */
+  executionKind: z.enum(REGISTRATION_EXECUTION_KINDS),
   expectedProviderAccountId: z.string().trim().min(1).max(80).nullable(),
   idempotencyKey: z.string().trim().min(1),
   requestHash: z.string().trim().min(1),

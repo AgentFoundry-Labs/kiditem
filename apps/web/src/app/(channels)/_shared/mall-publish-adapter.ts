@@ -108,7 +108,6 @@ export interface MallSendInput {
   values: Readonly<Record<string, string>>;
 }
 
-/** Keep the target lease alongside the explicit #554 submit intent. */
 /**
  * 이 항목의 판매상품 초안 id. 수집상품 항목은 초안 id 를 `salesProductId` 에, 판매상품 항목은
  * `candidateId` 자리에 싣는다(P2 가 이 둘을 하나로 모은다). 수집상품 쪽 준비 경로도 초안 id 로
@@ -120,19 +119,24 @@ export function publishItemSalesProductId(item: MallPublishItem): string {
   return salesProductId;
 }
 
-export function mallFormExecutionOptions(item: MallPublishItem): {
-  submit: true;
-  executionContext?: { executionId: string; payloadHash: string; leaseToken: string };
-} {
+/**
+ * 확장 폼 채우기의 제출 관문(KID-322). [등록] 은 등록 대상 실행이 살아 있을 때만 — `submit: true` 는
+ * 실행 컨텍스트와 함께만 나간다. 실행이 없는 빠른 등록은 폼만 채운다(`submit: false`). 확장도 같은
+ * 규칙으로 컨텍스트 없는 `submit` 을 무시한다.
+ */
+export type MallFormExecutionOptions =
+  | { submit: false }
+  | { submit: true; executionContext: { executionId: string; payloadHash: string; leaseToken: string } };
+
+export function mallFormExecutionOptions(item: MallPublishItem): MallFormExecutionOptions {
+  if (!item.targetExecution) return { submit: false };
   return {
     submit: true,
-    ...(item.targetExecution ? {
-      executionContext: {
-        executionId: item.targetExecution.executionId,
-        payloadHash: item.targetExecution.payloadHash,
-        leaseToken: item.targetExecution.leaseToken,
-      },
-    } : {}),
+    executionContext: {
+      executionId: item.targetExecution.executionId,
+      payloadHash: item.targetExecution.payloadHash,
+      leaseToken: item.targetExecution.leaseToken,
+    },
   };
 }
 

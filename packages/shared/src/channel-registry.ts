@@ -30,10 +30,16 @@ type ChannelKind = 'mall' | 'marketplace';
 export type ChannelCollector = 'extension' | 'sellpia' | 'none';
 
 /**
- * 상품등록을 어떻게 보내는가. `none` 은 두 가지를 겸한다 — `verified` 가 가른다.
- * `none` + 확인됨 = 등록 개념 자체가 없는 채널(발주 전용), `none` + 확인 전 = 경로 미조사.
+ * 상품등록 실행(`register` kind)을 몰에 어떻게 전달하는가(KID-321). 실행 fence 는 몰과 무관하게
+ * 하나이고, 이 값이 어댑터가 하는 일을 가른다.
+ *
+ *  - `form`: 확장이 몰 관리자 폼을 채우고 실행 컨텍스트가 있을 때만 [등록]을 누른다(쿠팡 WING 포함).
+ *  - `api`: 서버 어댑터가 몰 API 로 보낸다.
+ *  - `sheet`: 대량등록 엑셀을 만들어 운영자가 몰에 올린다(옛 `excel`).
+ *  - `none`: 두 가지를 겸한다 — `verified` 가 가른다. `none` + 확인됨 = 등록 개념 자체가 없는
+ *    채널(발주 전용), `none` + 확인 전 = 경로 미조사.
  */
-export type ChannelRegisterPath = 'form' | 'excel' | 'api' | 'none';
+export type ChannelDelivery = 'form' | 'api' | 'sheet' | 'none';
 
 export interface ChannelRegistryEntry {
   readonly key: string;
@@ -46,7 +52,12 @@ export interface ChannelRegistryEntry {
   readonly collector: ChannelCollector;
   /** 확장에 발송처리(송장 등록) 경로가 실제로 있는 채널. */
   readonly uploadTracking: boolean;
-  readonly register: ChannelRegisterPath;
+  readonly delivery: ChannelDelivery;
+  /**
+   * 대표이미지 반영 실행(`thumbnail_update`)을 이 채널의 어댑터가 지원하는가. 지금은 쿠팡 WING
+   * (상품 수정 화면의 대표이미지 칸)뿐이다. 계정 결정 규칙은 이 값을 읽지 채널 키를 읽지 않는다.
+   */
+  readonly representativeImage: boolean;
   /** 채널의 방식이 문서 · 실측으로 확인됐는가. 확인 전이면 송신 능력을 열지 않는다. */
   readonly verified: boolean;
   /**
@@ -72,37 +83,37 @@ export interface ChannelRegistryEntry {
  * 몰의 순서는 주문수집 카탈로그 순서다 — 쇼핑몰 계정 화면의 기본 정렬이 이 순서를 쓴다.
  */
 const REGISTRY_ROWS = [
-  { key: 'one-polaris', name: '원폴라리스', kind: 'mall', collector: 'none', uploadTracking: false, register: 'none', verified: false, logo: null },
-  { key: 'icecream-mall', name: '아이스크림몰', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'none', verified: false, logo: '/mall-logos/icecream-mall.png' },
-  { key: 'kidkids', name: '키드키즈', kind: 'mall', collector: 'extension', uploadTracking: true, register: 'form', verified: false, logo: '/mall-logos/kidkids.ico' },
-  { key: 'kidsnote', name: '키즈노트', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'excel', verified: true, logo: '/mall-logos/kidsnote.png' },
-  { key: 'haebub-mall', name: '해법몰', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'excel', verified: true, logo: '/mall-logos/haebub-mall.ico' },
-  { key: 'onch', name: '온채널', kind: 'mall', collector: 'extension', uploadTracking: true, register: 'excel', verified: true, logo: '/mall-logos/onch.ico' },
-  { key: 'kkomangse', name: '꼬망세', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'form', verified: false, logo: '/mall-logos/kkomangse.ico' },
-  { key: 'art09', name: '아트공구', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'excel', verified: false, logo: '/mall-logos/art09.ico' },
-  { key: 'tekville-edu', name: '테크빌교육', kind: 'mall', collector: 'none', uploadTracking: false, register: 'none', verified: false, logo: '/mall-logos/tekville-edu.ico' },
-  { key: 'benepia-mul', name: '베네피아물', kind: 'mall', collector: 'none', uploadTracking: false, register: 'none', verified: false, logo: '/mall-logos/benepia-mul.png' },
-  { key: 'domeggook', name: '도매꾹', kind: 'mall', collector: 'extension', uploadTracking: true, register: 'none', verified: false, logo: '/mall-logos/domeggook.ico' },
-  { key: 'lotte-on', name: '롯데ON', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'api', verified: true, logo: '/mall-logos/lotte-on.png' },
-  { key: 'boribori', name: '보리보리', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'api', verified: false, logo: '/mall-logos/boribori.ico' },
-  { key: 'always', name: '올웨이즈', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'none', verified: false, logo: '/mall-logos/always.png' },
-  { key: 'woongjin-class', name: '웅진클래스몰', kind: 'mall', collector: 'none', uploadTracking: false, register: 'none', verified: false, logo: '/mall-logos/woongjin-class.ico' },
-  { key: 'kakao', name: '카카오 톡스토어', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'api', verified: true, logo: '/mall-logos/kakao.ico' },
-  { key: 'toss', name: '토스쇼핑', kind: 'mall', collector: 'none', uploadTracking: false, register: 'api', verified: true, logo: '/mall-logos/toss.ico' },
-  { key: 'teacher-mall', name: '티쳐몰', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'form', verified: true, logo: '/mall-logos/teacher-mall.ico' },
-  { key: 'gs-shop', name: 'GS샵', kind: 'mall', collector: 'extension', uploadTracking: false, register: 'form', verified: false, logo: '/mall-logos/gs-shop.ico' },
-  { key: 'coupang-direct', name: '쿠팡직배송', kind: 'mall', sharedAccountChannel: 'rocket', collector: 'extension', uploadTracking: false, register: 'none', verified: true, logo: '/mall-logos/coupang-direct.ico' },
-  { key: 'gmarket', name: '지마켓', kind: 'mall', collector: 'sellpia', uploadTracking: false, register: 'api', verified: false, logo: '/mall-logos/gmarket.ico' },
-  { key: 'auction', name: '옥션', kind: 'mall', formSpec: 'gmarket', collector: 'sellpia', uploadTracking: false, register: 'api', verified: false, logo: '/mall-logos/auction.png' },
-  { key: '11st', name: '11번가', kind: 'mall', collector: 'sellpia', uploadTracking: false, register: 'api', verified: false, logo: '/mall-logos/11st.ico' },
-  { key: 'smartstore', name: '스마트스토어', kind: 'mall', collector: 'sellpia', uploadTracking: false, register: 'api', verified: false, logo: '/mall-logos/smartstore.ico' },
-  { key: 'ssg', name: '신세계(SSG)', kind: 'mall', collector: 'sellpia', uploadTracking: false, register: 'api', verified: false, logo: '/mall-logos/ssg.ico' },
-  { key: 'thirtymall', name: '떠리몰', kind: 'mall', collector: 'none', uploadTracking: false, register: 'api', verified: false, logo: '/mall-logos/thirtymall.ico' },
-  { key: 'yoons', name: '윤선생', kind: 'mall', collector: 'none', uploadTracking: false, register: 'none', verified: false, logo: '/mall-logos/yoons.ico' },
+  { key: 'one-polaris', name: '원폴라리스', kind: 'mall', collector: 'none', uploadTracking: false, delivery: 'none', representativeImage: false, verified: false, logo: null },
+  { key: 'icecream-mall', name: '아이스크림몰', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'none', representativeImage: false, verified: false, logo: '/mall-logos/icecream-mall.png' },
+  { key: 'kidkids', name: '키드키즈', kind: 'mall', collector: 'extension', uploadTracking: true, delivery: 'form', representativeImage: false, verified: false, logo: '/mall-logos/kidkids.ico' },
+  { key: 'kidsnote', name: '키즈노트', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'sheet', representativeImage: false, verified: true, logo: '/mall-logos/kidsnote.png' },
+  { key: 'haebub-mall', name: '해법몰', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'sheet', representativeImage: false, verified: true, logo: '/mall-logos/haebub-mall.ico' },
+  { key: 'onch', name: '온채널', kind: 'mall', collector: 'extension', uploadTracking: true, delivery: 'sheet', representativeImage: false, verified: true, logo: '/mall-logos/onch.ico' },
+  { key: 'kkomangse', name: '꼬망세', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'form', representativeImage: false, verified: false, logo: '/mall-logos/kkomangse.ico' },
+  { key: 'art09', name: '아트공구', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'sheet', representativeImage: false, verified: false, logo: '/mall-logos/art09.ico' },
+  { key: 'tekville-edu', name: '테크빌교육', kind: 'mall', collector: 'none', uploadTracking: false, delivery: 'none', representativeImage: false, verified: false, logo: '/mall-logos/tekville-edu.ico' },
+  { key: 'benepia-mul', name: '베네피아물', kind: 'mall', collector: 'none', uploadTracking: false, delivery: 'none', representativeImage: false, verified: false, logo: '/mall-logos/benepia-mul.png' },
+  { key: 'domeggook', name: '도매꾹', kind: 'mall', collector: 'extension', uploadTracking: true, delivery: 'none', representativeImage: false, verified: false, logo: '/mall-logos/domeggook.ico' },
+  { key: 'lotte-on', name: '롯데ON', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'api', representativeImage: false, verified: true, logo: '/mall-logos/lotte-on.png' },
+  { key: 'boribori', name: '보리보리', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'api', representativeImage: false, verified: false, logo: '/mall-logos/boribori.ico' },
+  { key: 'always', name: '올웨이즈', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'none', representativeImage: false, verified: false, logo: '/mall-logos/always.png' },
+  { key: 'woongjin-class', name: '웅진클래스몰', kind: 'mall', collector: 'none', uploadTracking: false, delivery: 'none', representativeImage: false, verified: false, logo: '/mall-logos/woongjin-class.ico' },
+  { key: 'kakao', name: '카카오 톡스토어', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'api', representativeImage: false, verified: true, logo: '/mall-logos/kakao.ico' },
+  { key: 'toss', name: '토스쇼핑', kind: 'mall', collector: 'none', uploadTracking: false, delivery: 'api', representativeImage: false, verified: true, logo: '/mall-logos/toss.ico' },
+  { key: 'teacher-mall', name: '티쳐몰', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'form', representativeImage: false, verified: true, logo: '/mall-logos/teacher-mall.ico' },
+  { key: 'gs-shop', name: 'GS샵', kind: 'mall', collector: 'extension', uploadTracking: false, delivery: 'form', representativeImage: false, verified: false, logo: '/mall-logos/gs-shop.ico' },
+  { key: 'coupang-direct', name: '쿠팡직배송', kind: 'mall', sharedAccountChannel: 'rocket', collector: 'extension', uploadTracking: false, delivery: 'none', representativeImage: false, verified: true, logo: '/mall-logos/coupang-direct.ico' },
+  { key: 'gmarket', name: '지마켓', kind: 'mall', collector: 'sellpia', uploadTracking: false, delivery: 'api', representativeImage: false, verified: false, logo: '/mall-logos/gmarket.ico' },
+  { key: 'auction', name: '옥션', kind: 'mall', formSpec: 'gmarket', collector: 'sellpia', uploadTracking: false, delivery: 'api', representativeImage: false, verified: false, logo: '/mall-logos/auction.png' },
+  { key: '11st', name: '11번가', kind: 'mall', collector: 'sellpia', uploadTracking: false, delivery: 'api', representativeImage: false, verified: false, logo: '/mall-logos/11st.ico' },
+  { key: 'smartstore', name: '스마트스토어', kind: 'mall', collector: 'sellpia', uploadTracking: false, delivery: 'api', representativeImage: false, verified: false, logo: '/mall-logos/smartstore.ico' },
+  { key: 'ssg', name: '신세계(SSG)', kind: 'mall', collector: 'sellpia', uploadTracking: false, delivery: 'api', representativeImage: false, verified: false, logo: '/mall-logos/ssg.ico' },
+  { key: 'thirtymall', name: '떠리몰', kind: 'mall', collector: 'none', uploadTracking: false, delivery: 'api', representativeImage: false, verified: false, logo: '/mall-logos/thirtymall.ico' },
+  { key: 'yoons', name: '윤선생', kind: 'mall', collector: 'none', uploadTracking: false, delivery: 'none', representativeImage: false, verified: false, logo: '/mall-logos/yoons.ico' },
 
   // ── 마켓 판매자 시스템 — 몰 등록 마법사에 서지 않는다 ──────────────────────
-  { key: 'coupang', name: '쿠팡 WING', kind: 'marketplace', collector: 'sellpia', uploadTracking: false, register: 'api', verified: true, logo: '/mall-logos/coupang.ico' },
-  { key: 'rocket', name: '쿠팡 로켓', kind: 'marketplace', collector: 'extension', uploadTracking: false, register: 'none', verified: true, logo: '/mall-logos/rocket.ico' },
+  { key: 'coupang', name: '쿠팡 WING', kind: 'marketplace', collector: 'sellpia', uploadTracking: false, delivery: 'form', representativeImage: true, verified: true, logo: '/mall-logos/coupang.ico' },
+  { key: 'rocket', name: '쿠팡 로켓', kind: 'marketplace', collector: 'extension', uploadTracking: false, delivery: 'none', representativeImage: false, verified: true, logo: '/mall-logos/rocket.ico' },
 ] as const satisfies readonly ChannelRegistryEntry[];
 
 /**
@@ -190,14 +201,24 @@ export function channelUploadsTracking(key: string): boolean {
 /**
  * 이 채널에 상품등록 · 품절 개념이 있는가.
  *
- * `register: 'none'` 이 곧 '없다'는 아니다. 확인 전이라 경로를 모르는 채널과, 쿠팡이 발주하고
+ * `delivery: 'none'` 이 곧 '없다'는 아니다. 확인 전이라 경로를 모르는 채널과, 쿠팡이 발주하고
  * 우리가 납품해서 애초에 등록할 것이 없는 채널은 화면에서 다르게 말해야 한다 — 앞은 '아직',
  * 뒤는 '그 일이 없다'다. 확인된 `none` 만 없는 일이다.
  */
 export function channelRegistersListings(
-  entry: Pick<ChannelRegistryEntry, 'register' | 'verified'>,
+  entry: Pick<ChannelRegistryEntry, 'delivery' | 'verified'>,
 ): boolean {
-  return !(entry.register === 'none' && entry.verified);
+  return !(entry.delivery === 'none' && entry.verified);
+}
+
+/** 이 채널의 `register` 실행을 몰에 전달하는 방식. 모르는 키는 `none`. */
+export function channelDelivery(key: string): ChannelDelivery {
+  return findChannel(key)?.delivery ?? 'none';
+}
+
+/** 대표이미지 반영 실행을 어댑터가 지원하는 채널. */
+export function channelSupportsRepresentativeImage(key: string): boolean {
+  return findChannel(key)?.representativeImage === true;
 }
 
 /** 공식 파비콘 경로. 없으면 null. */

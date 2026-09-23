@@ -11,23 +11,23 @@ import {
 } from './thumbnail-update';
 
 describe('resolveThumbnailAccount', () => {
-  it('uses the listing account when the workspace or product has a Coupang listing', () => {
-    expect(resolveThumbnailAccount({ listingAccountId: 'a1', activeCoupangAccountIds: ['a2', 'a3'] }))
+  it('uses the listing account when the workspace or product has a listing', () => {
+    expect(resolveThumbnailAccount({ listingAccountId: 'a1', activeAccountIds: ['a2', 'a3'] }))
       .toEqual({ ok: true, channelAccountId: 'a1' });
   });
-  it('falls back to the single active Coupang account', () => {
-    expect(resolveThumbnailAccount({ listingAccountId: null, activeCoupangAccountIds: ['a2', 'a2'] }))
+  it('falls back to the single active account that supports representative images', () => {
+    expect(resolveThumbnailAccount({ listingAccountId: null, activeAccountIds: ['a2', 'a2'] }))
       .toEqual({ ok: true, channelAccountId: 'a2' });
   });
-  it('refuses to guess among several Coupang listings of the product', () => {
-    expect(resolveThumbnailAccount({ listingAccountId: null, productListingCount: 2, activeCoupangAccountIds: ['a2'] }))
-      .toEqual({ ok: false, reason: 'ambiguous_coupang_listing' });
+  it('refuses to guess among several listings of the product', () => {
+    expect(resolveThumbnailAccount({ listingAccountId: null, productListingCount: 2, activeAccountIds: ['a2'] }))
+      .toEqual({ ok: false, reason: 'ambiguous_listing' });
   });
-  it('refuses when there is no or more than one Coupang account', () => {
-    expect(resolveThumbnailAccount({ listingAccountId: null, activeCoupangAccountIds: [] }))
-      .toEqual({ ok: false, reason: 'no_coupang_account' });
-    expect(resolveThumbnailAccount({ listingAccountId: null, activeCoupangAccountIds: ['a2', 'a3'] }))
-      .toEqual({ ok: false, reason: 'ambiguous_coupang_account' });
+  it('refuses when there is no or more than one supporting account', () => {
+    expect(resolveThumbnailAccount({ listingAccountId: null, activeAccountIds: [] }))
+      .toEqual({ ok: false, reason: 'no_account' });
+    expect(resolveThumbnailAccount({ listingAccountId: null, activeAccountIds: ['a2', 'a3'] }))
+      .toEqual({ ok: false, reason: 'ambiguous_account' });
   });
 });
 

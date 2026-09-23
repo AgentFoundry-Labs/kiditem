@@ -65,10 +65,13 @@ export const ThumbnailExecutionResultSchema = z.object({
 export type ThumbnailExecutionResult = z.infer<typeof ThumbnailExecutionResultSchema>;
 
 /**
- * 판매상품에 쿠팡 listing 이 여럿이면 준비가 `code: 'ambiguous_coupang_listing'` 400 으로 답한다.
- * 화면은 이 목록에서 하나를 골라 `channelListingId` 와 함께 다시 준비한다.
+ * 판매상품에 대표이미지 반영을 지원하는 채널의 listing 이 여럿이면 준비가 `code: 'ambiguous_listing'`
+ * 400 으로 답한다(KID-321, 몰 중립). 화면은 이 목록에서 하나를 골라 `channelListingId` 와 함께 다시 준비한다.
  */
-export const THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE = 'ambiguous_coupang_listing' as const;
+export const THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE = 'ambiguous_listing' as const;
+/** 대표이미지 반영 계정을 정하지 못한 까닭 — 채널 이름이 들어가지 않는다. */
+export const THUMBNAIL_ACCOUNT_RESOLUTION_REASONS = ['no_account', 'ambiguous_account', 'ambiguous_listing'] as const;
+export type ThumbnailAccountResolutionReason = (typeof THUMBNAIL_ACCOUNT_RESOLUTION_REASONS)[number];
 
 export const ThumbnailExecutionListingChoiceSchema = z.object({
   channelListingId: z.string().uuid(),
