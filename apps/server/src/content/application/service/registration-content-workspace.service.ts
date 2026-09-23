@@ -70,6 +70,13 @@ export class RegistrationContentWorkspaceService
     return this.repository.readRegistrableDetailPage(input);
   }
 
+  readRegistrableDetailPages(input: {
+    organizationId: string;
+    requests: ReadonlyArray<{ salesProductId: string; revisionId: string | null }>;
+  }): Promise<ReadonlyMap<string, RegistrableDetailPage>> {
+    return this.repository.readRegistrableDetailPages(input);
+  }
+
   importDetailPage(transaction: OwnerTransaction, input: ImportDetailPageInput): Promise<ImportDetailPageResult> {
     return this.repository.importDetailPage(transaction, {
       ...input,

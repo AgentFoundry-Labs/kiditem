@@ -88,14 +88,52 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     const revision = input.revisionId
       ? await findOwnedRevision(this.prisma, input.organizationId, workspace.id, input.revisionId)
       : await readCurrentRevision(this.prisma, input.organizationId, workspace.id);
-    if (!revision) return null;
-    return {
-      workspaceId: workspace.id,
-      revisionId: revision.id,
-      revisionType: DetailPageRevisionTypeSchema.parse(revision.revisionType),
-      html: revision.html,
-      imageUrls: stringArray(revision.imageUrls),
-    };
+    return revision ? toRegistrableDetailPage(workspace.id, revision) : null;
+  }
+
+  /**
+   * 여러 상품의 상세를 쿼리 몇 개로 읽는다(워크스페이스와 현재 revision, 고른 revision) — 상품 수만큼 읽지
+   * 않는다. 고른 revision 이 그 상품 워크스페이스의 것이 아니면 한 건 읽기와 같이 거절한다.
+   */
+  async readRegistrableDetailPages(input: {
+    organizationId: string;
+    requests: ReadonlyArray<{ salesProductId: string; revisionId: string | null }>;
+  }): Promise<ReadonlyMap<string, RegistrableDetailPage>> {
+    if (input.requests.length === 0) return new Map();
+    const { organizationId } = input;
+    const workspaces = await this.prisma.contentWorkspace.findMany({
+      where: {
+        organizationId,
+        ownerType: 'sales_product',
+        salesProductId: { in: [...new Set(input.requests.map((request) => request.salesProductId))] },
+        status: 'active',
+        isDeleted: false,
+      },
+      select: { id: true, salesProductId: true, ...currentRevisionSelect(organizationId) },
+    });
+    const workspaceByProduct = new Map(workspaces.map((workspace) => [workspace.salesProductId, workspace]));
+    const chosenIds = [...new Set(input.requests.flatMap((request) => request.revisionId ? [request.revisionId] : []))];
+    const chosen = chosenIds.length === 0 ? [] : await this.prisma.detailPageRevision.findMany({
+      where: { id: { in: chosenIds }, organizationId, artifact: { organizationId, isDeleted: false } },
+      select: { ...REVISION_SELECT, artifact: { select: { contentWorkspaceId: true } } },
+    });
+    const chosenById = new Map(chosen.map((revision) => [revision.id, revision]));
+
+    const pages = new Map<string, RegistrableDetailPage>();
+    for (const request of input.requests) {
+      const workspace = workspaceByProduct.get(request.salesProductId);
+      if (request.revisionId) {
+        const revision = chosenById.get(request.revisionId);
+        if (!workspace || !revision || revision.artifact.contentWorkspaceId !== workspace.id) {
+          throw new BadRequestException('Selected detail revision is not source-owned.');
+        }
+        pages.set(request.salesProductId, toRegistrableDetailPage(workspace.id, revision));
+        continue;
+      }
+      const revision = workspace ? pickCurrentRevision(workspace) : null;
+      if (workspace && revision) pages.set(request.salesProductId, toRegistrableDetailPage(workspace.id, revision));
+    }
+    return pages;
   }
 
   /**
@@ -430,22 +468,43 @@ async function readCurrentRevision(
 ): Promise<RevisionRow | null> {
   const workspace = await tx.contentWorkspace.findFirst({
     where: { id: workspaceId, organizationId, isDeleted: false },
-    select: {
-      currentDetailPageRevision: { select: REVISION_SELECT },
-      currentDetailPageArtifact: { select: { isDeleted: true, currentRevision: { select: REVISION_SELECT } } },
-      detailPageArtifacts: {
-        where: { organizationId, isDeleted: false, currentRevisionId: { not: null } },
-        orderBy: { updatedAt: 'desc' },
-        take: 1,
-        select: { currentRevision: { select: REVISION_SELECT } },
-      },
-    },
+    select: currentRevisionSelect(organizationId),
   });
-  if (!workspace) return null;
+  return workspace ? pickCurrentRevision(workspace) : null;
+}
+
+function currentRevisionSelect(organizationId: string) {
+  return {
+    currentDetailPageRevision: { select: REVISION_SELECT },
+    currentDetailPageArtifact: { select: { isDeleted: true, currentRevision: { select: REVISION_SELECT } } },
+    detailPageArtifacts: {
+      where: { organizationId, isDeleted: false, currentRevisionId: { not: null } },
+      orderBy: { updatedAt: 'desc' },
+      take: 1,
+      select: { currentRevision: { select: REVISION_SELECT } },
+    },
+  } satisfies Prisma.ContentWorkspaceSelect;
+}
+
+function pickCurrentRevision(workspace: {
+  currentDetailPageRevision: RevisionRow | null;
+  currentDetailPageArtifact: { isDeleted: boolean; currentRevision: RevisionRow | null } | null;
+  detailPageArtifacts: Array<{ currentRevision: RevisionRow | null }>;
+}): RevisionRow | null {
   return workspace.currentDetailPageRevision
     ?? (workspace.currentDetailPageArtifact?.isDeleted ? null : workspace.currentDetailPageArtifact?.currentRevision)
     ?? workspace.detailPageArtifacts[0]?.currentRevision
     ?? null;
+}
+
+function toRegistrableDetailPage(workspaceId: string, revision: RevisionRow): RegistrableDetailPage {
+  return {
+    workspaceId,
+    revisionId: revision.id,
+    revisionType: DetailPageRevisionTypeSchema.parse(revision.revisionType),
+    html: revision.html,
+    imageUrls: stringArray(revision.imageUrls),
+  };
 }
 
 /** 가져오기 전용 아티팩트의 표지(`metadata.source`). 무엇을 가져왔는지는 revision 행이 말한다. */

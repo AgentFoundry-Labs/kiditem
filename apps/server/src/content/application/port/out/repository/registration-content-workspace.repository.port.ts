@@ -41,6 +41,10 @@ export interface RegistrationContentWorkspaceRepositoryPort {
     salesProductId: string;
     revisionId: string | null;
   }): Promise<RegistrableDetailPage | null>;
+  readRegistrableDetailPages(input: {
+    organizationId: string;
+    requests: ReadonlyArray<{ salesProductId: string; revisionId: string | null }>;
+  }): Promise<ReadonlyMap<string, RegistrableDetailPage>>;
   importDetailPage(
     transaction: OwnerTransaction,
     input: ImportDetailPageInput & { imageUrls: readonly string[] },

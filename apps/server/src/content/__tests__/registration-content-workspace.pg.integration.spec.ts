@@ -186,6 +186,52 @@ describe('registration content workspace (PG integration)', () => {
     })).resolves.toMatchObject({ html: '<p>새 상세</p>' });
   });
 
+  it('reads many products\' details in one call — a chosen revision, the current one, and none for a product without a workspace', async () => {
+    const chosen = await ensureWorkspace();
+    const current = await ensureWorkspace();
+    const withoutWorkspace = randomUUID();
+    const first = await importDetail(importInput(chosen.salesProductId, { html: '<p>고른 상세</p>', digest: 'digest-a' }));
+    await importDetail(importInput(chosen.salesProductId, { html: '<p>새 상세</p>', digest: 'digest-b' }));
+    await importDetail(importInput(current.salesProductId, { html: '<p>현재 상세</p>' }));
+    const chosenRevisionId = first.kind === 'appended' ? first.revisionId : '';
+
+    const pages = await content.readRegistrableDetailPages({
+      organizationId: TEST_ORGANIZATION_ID,
+      requests: [
+        { salesProductId: chosen.salesProductId, revisionId: chosenRevisionId },
+        { salesProductId: current.salesProductId, revisionId: null },
+        { salesProductId: withoutWorkspace, revisionId: null },
+      ],
+    });
+
+    expect([...pages.keys()].sort()).toEqual([chosen.salesProductId, current.salesProductId].sort());
+    expect(pages.get(chosen.salesProductId)).toMatchObject({
+      workspaceId: chosen.workspaceId, revisionId: chosenRevisionId, revisionType: 'imported', html: '<p>고른 상세</p>',
+    });
+    expect(pages.get(current.salesProductId)).toMatchObject({ workspaceId: current.workspaceId, html: '<p>현재 상세</p>' });
+    await expect(content.readRegistrableDetailPages({ organizationId: TEST_ORGANIZATION_ID, requests: [] }))
+      .resolves.toEqual(new Map());
+  });
+
+  it('rejects a batch that names another product\'s revision, like the single read does', async () => {
+    const own = await ensureWorkspace();
+    const foreign = await ensureWorkspace();
+    const foreignImport = await importDetail(importInput(foreign.salesProductId));
+    const foreignRevisionId = foreignImport.kind === 'appended' ? foreignImport.revisionId : '';
+
+    await expect(content.readRegistrableDetailPages({
+      organizationId: TEST_ORGANIZATION_ID,
+      requests: [
+        { salesProductId: foreign.salesProductId, revisionId: null },
+        { salesProductId: own.salesProductId, revisionId: foreignRevisionId },
+      ],
+    })).rejects.toThrow('Selected detail revision is not source-owned.');
+    await expect(content.readRegistrableDetailPages({
+      organizationId: TEST_ORGANIZATION_ID,
+      requests: [{ salesProductId: randomUUID(), revisionId: foreignRevisionId }],
+    })).rejects.toThrow('Selected detail revision is not source-owned.');
+  });
+
   it('has no detail for a product without a revision', async () => {
     const { salesProductId } = await ensureWorkspace();
 

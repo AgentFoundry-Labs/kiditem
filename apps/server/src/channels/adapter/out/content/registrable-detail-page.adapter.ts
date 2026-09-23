@@ -34,11 +34,14 @@ export class RegistrableDetailPageAdapter implements ChannelRegistrableDetailPag
     organizationId: string;
     products: ReadonlyArray<{ salesProductId: string; selectedDetailPageRevisionId: string | null }>;
   }): Promise<ReadonlyMap<string, RegistrableDetailHtml>> {
-    const entries = await Promise.all(input.products.map(async (product) => [
-      product.salesProductId,
-      await this.read({ organizationId: input.organizationId, ...product }),
-    ] as const));
-    return new Map(entries.filter((entry): entry is readonly [string, RegistrableDetailHtml] => entry[1] !== null));
+    const pages = await this.content.readRegistrableDetailPages({
+      organizationId: input.organizationId,
+      requests: input.products.map((product) => ({
+        salesProductId: product.salesProductId,
+        revisionId: product.selectedDetailPageRevisionId,
+      })),
+    });
+    return new Map([...pages].map(([salesProductId, page]) => [salesProductId, toDetailHtml(page)]));
   }
 
   async importFromSource(
