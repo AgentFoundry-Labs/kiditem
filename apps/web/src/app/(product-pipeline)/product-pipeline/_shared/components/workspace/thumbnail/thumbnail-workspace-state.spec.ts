@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildThumbnailSourceOptions,
-  classifyProductWingStatus,
   getGeneratedThumbnailOptions,
   thumbnailRegistrationState,
   type ThumbnailWorkspaceGeneration,
@@ -56,73 +55,6 @@ describe('thumbnail workspace state', () => {
         generatedCandidateId: 'candidate-1',
       },
     ]);
-  });
-
-  it('classifies single-product Wing status from applied generation rows', () => {
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: false,
-      generations: [readyGeneration],
-    })).toEqual({ kind: 'disabled', label: '상품 등록 후 Wing 업로드 가능' });
-
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-applied',
-        phase: 'applied',
-        registrationStatus: null,
-      }],
-    })).toEqual({
-      kind: 'pending',
-      label: 'Wing 등록 대기',
-      generationId: 'generation-applied',
-    });
-
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-failed',
-        phase: 'applied',
-        registrationStatus: 'failed',
-        registrationError: 'image upload failed',
-      }],
-    })).toEqual({
-      kind: 'failed',
-      label: 'Wing 등록 실패',
-      generationId: 'generation-failed',
-      error: 'image upload failed',
-    });
-
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-registered',
-        phase: 'applied',
-        registrationStatus: 'registered',
-      }],
-    })).toEqual({
-      kind: 'registered',
-      label: 'Wing 등록 완료',
-      generationId: 'generation-registered',
-    });
-  });
-
-  it('shows a mall execution whose outcome is not known yet as its own checking state', () => {
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-checking',
-        phase: 'applied',
-        registrationStatus: 'checking',
-      }],
-    })).toEqual({
-      kind: 'checking',
-      label: 'Wing 반영 확인 중',
-      generationId: 'generation-checking',
-    });
   });
 
   it('maps the Channels execution status to the screen registration state', () => {

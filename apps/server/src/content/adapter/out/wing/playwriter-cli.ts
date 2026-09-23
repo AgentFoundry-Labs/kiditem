@@ -27,29 +27,6 @@ export function spawnPlaywriter(args: string[], options: SpawnOptions = {}): Chi
   return spawn(resolved.command, resolved.args, options);
 }
 
-export function parsePlaywriterSessionIds(stdout: string): string[] {
-  return stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line &&
-        !/^no active sessions/i.test(line) &&
-        !/^ID\b/i.test(line) &&
-        !/^-+$/.test(line),
-    )
-    .map((line) => line.split(/\s+/)[0])
-    .filter((id) => /^[A-Za-z0-9_-]+$/.test(id));
-}
-
-export function parseCreatedPlaywriterSessionId(stdout: string): string | null {
-  return stdout.match(/\bSession\s+([A-Za-z0-9_-]+)\s+created\b/)?.[1] ?? null;
-}
-
-export function isPlaywriterConnectionError(message: string): boolean {
-  return /connectOverCDP|ECONNREFUSED|websocket error|browser closed|connection issue/i.test(message);
-}
-
 function resolveLocalPlaywriterBin(): string | null {
   try {
     const packageJson = requireFromHere.resolve('playwriter/package.json');

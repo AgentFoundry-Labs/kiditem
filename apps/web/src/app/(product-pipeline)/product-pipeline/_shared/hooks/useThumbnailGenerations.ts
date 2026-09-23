@@ -443,11 +443,3 @@ export function useClearRegistrationError() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailExecutions.all }),
   });
 }
-
-/** 확인은 Channels 의 최근 실행을 다시 읽는 것이다. */
-export function useVerifyRegistration() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => queryClient.refetchQueries({ queryKey: queryKeys.thumbnailExecutions.all }),
-  });
-}
