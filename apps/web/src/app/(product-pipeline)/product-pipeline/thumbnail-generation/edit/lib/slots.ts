@@ -249,7 +249,6 @@ export function pickCaseFromSlots(slots: Slot[]): 'compose' | 'color-variants' |
 export type LayoutKindLite = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
 
 interface SlotsDtoExtras {
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   productName?: string | null;
   supplementaryLabel?: string;
@@ -266,7 +265,6 @@ interface SlotsDtoExtras {
 }
 
 interface GenerateDto {
-  sourceCandidateId?: string;
   contentWorkspaceId?: string;
   productName?: string;
   productImage?: string;
@@ -292,7 +290,6 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
   const {
     mode,
     purpose,
-    sourceCandidateId,
     contentWorkspaceId,
     productName,
     supplementaryLabel,
@@ -316,8 +313,8 @@ export function slotsToDto(slots: Slot[], editCase: EditCaseLite, extras: SlotsD
   const isBundle = editCase === 'bundle';
 
   return {
-    sourceCandidateId: sourceCandidateId ?? undefined,
-    contentWorkspaceId: sourceCandidateId ? undefined : ((isBundle ? bundleOwner : contentWorkspaceId) ?? undefined),
+    // 결과는 작업공간에 붙는다 — 원천 기록(수집상품) id 는 싣지 않는다(B4, KID-310).
+    contentWorkspaceId: (isBundle ? bundleOwner : contentWorkspaceId) ?? undefined,
     productName: productName?.trim() || undefined,
     productImage: isBundle ? undefined : (productValue ?? undefined),
     packagingImage: isBundle ? undefined : (packagingValue ?? undefined),

@@ -40,28 +40,16 @@ export function useGenerateSourcingThumbnail() {
   });
 }
 
-export function useSourcingThumbnailGenerations(params: {
-  sourceCandidateId?: string | null;
-  contentWorkspaceId?: string | null;
-}) {
-  const sourceCandidateId = params.sourceCandidateId ?? null;
-  const contentWorkspaceId = params.contentWorkspaceId ?? null;
-  const filterParams: Record<string, string> = contentWorkspaceId
-    ? { contentWorkspaceId }
-    : sourceCandidateId
-      ? { sourceCandidateId }
-      : { sourceCandidateId: '' };
+/**
+ * 이 작업공간의 썸네일 생성 이력. 작업공간이 없으면(첫 생성 전) 읽지 않는다 — 원천 기록 id 로
+ * 묻지 않는다(서버는 그 필터를 400 으로 거절한다).
+ */
+export function useSourcingThumbnailGenerations(contentWorkspaceId: string | null | undefined) {
   return useQuery({
-    queryKey: queryKeys.thumbnailAnalysis.generations(filterParams),
-    enabled: !!contentWorkspaceId || !!sourceCandidateId,
+    queryKey: queryKeys.thumbnailAnalysis.generations({ contentWorkspaceId: contentWorkspaceId ?? '' }),
+    enabled: !!contentWorkspaceId,
     queryFn: async (): Promise<ThumbnailGenerationItem[]> => {
-      if (!contentWorkspaceId && !sourceCandidateId) return [];
-      const searchParams = new URLSearchParams({ limit: '20' });
-      if (contentWorkspaceId) {
-        searchParams.set('contentWorkspaceId', contentWorkspaceId);
-      } else if (sourceCandidateId) {
-        searchParams.set('sourceCandidateId', sourceCandidateId);
-      }
+      const searchParams = new URLSearchParams({ limit: '20', contentWorkspaceId: contentWorkspaceId! });
       const result = await apiClient.get<ThumbnailGenerationListResponse>(
         `/api/thumbnail-analysis/generations?${searchParams}`,
       );

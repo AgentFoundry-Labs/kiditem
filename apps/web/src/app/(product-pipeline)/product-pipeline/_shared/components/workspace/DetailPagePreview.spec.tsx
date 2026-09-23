@@ -20,17 +20,6 @@ vi.mock('@/lib/api-client', () => ({
   },
 }));
 
-vi.mock('../../hooks/useGenerationHistory', () => ({
-  useGenerationHistory: (
-    _productId: string,
-    initialAgentHistory: unknown[] = [],
-  ) => ({
-    data: initialAgentHistory,
-    isLoading: false,
-    error: null,
-  }),
-}));
-
 vi.mock(
   '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate',
   () => ({
@@ -108,7 +97,7 @@ describe('DetailPagePreview', () => {
         editedHtml={null}
         templateCss="/* compiled template css */"
         hasSavedDetailPage={false}
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '이력에는 있지만 저장 선택은 아님',
@@ -124,7 +113,6 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
         detailEditorReturnHref="/product-pipeline/registered-products/workspace-1"
         mobilePreviewData={mobilePreviewData}
       />,
@@ -141,7 +129,7 @@ describe('DetailPagePreview', () => {
         detailPreviewHtml="<html><body>깨진 placeholder</body></html>"
         editedHtml={null}
         templateCss="/* compiled template css */"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'older-generation',
             generatedTitle: '오래된 상세페이지',
@@ -171,7 +159,6 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
         detailEditorSalesProductId="sales-product-1"
         detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
@@ -193,7 +180,7 @@ describe('DetailPagePreview', () => {
         templateCss="/* compiled template css */"
         hasSavedDetailPage
         savedDetailPageGenerationId="generation-1"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '캐릭터 문어발 비눗방울',
@@ -209,7 +196,6 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
         detailEditorReturnHref="/product-pipeline/registered-products/workspace-1"
         mobilePreviewData={mobilePreviewData}
       />,
@@ -235,7 +221,7 @@ describe('DetailPagePreview', () => {
         templateCss="/* compiled template css */"
         hasSavedDetailPage
         savedDetailPageGenerationId="generation-1"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '캐릭터 문어발 비눗방울',
@@ -251,7 +237,6 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
         detailEditorReturnHref="/product-pipeline/registered-products/workspace-1"
         mobilePreviewData={mobilePreviewData}
       />,
@@ -272,7 +257,7 @@ describe('DetailPagePreview', () => {
         detailPreviewHtml="<html><body>placeholder template</body></html>"
         editedHtml={null}
         templateCss="/* compiled template css */"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '자체 수집 생성물',
@@ -288,7 +273,6 @@ describe('DetailPagePreview', () => {
             createdAt: '2026-05-15T12:00:00.000Z',
           },
         ]}
-        generationHistoryQueryEnabled={false}
         detailEditorSalesProductId="sales-product-1"
         detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
@@ -314,8 +298,7 @@ describe('DetailPagePreview', () => {
         templateCss=""
         hasSavedDetailPage
         savedDetailPageGenerationId={null}
-        initialAgentHistory={[]}
-        generationHistoryQueryEnabled={false}
+        agentHistory={[]}
         detailEditorSalesProductId="sales-product-1"
         detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
@@ -345,8 +328,7 @@ describe('DetailPagePreview', () => {
         editedHtml={null}
         templateCss=""
         hasSavedDetailPage
-        initialAgentHistory={[]}
-        generationHistoryQueryEnabled={false}
+        agentHistory={[]}
         detailEditorSalesProductId="sales-product-1"
         detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
@@ -372,8 +354,7 @@ describe('DetailPagePreview', () => {
         editedHtml={null}
         templateCss=""
         hasSavedDetailPage
-        initialAgentHistory={[]}
-        generationHistoryQueryEnabled={false}
+        agentHistory={[]}
         detailEditorSalesProductId="sales-product-1"
         detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}

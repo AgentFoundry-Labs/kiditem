@@ -23,7 +23,6 @@ function ThumbnailEditorWorkspaceRoute() {
   const workspaceHref = forceFullPage
     ? null
     : thumbnailWorkspaceHref({
-        sourceCandidateId: searchParams.get('sourceCandidateId'),
         contentWorkspaceId: searchParams.get('contentWorkspaceId'),
         returnTo: searchParams.get('returnTo'),
         generationId: searchParams.get('generationId'),

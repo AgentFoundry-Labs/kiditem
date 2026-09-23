@@ -3,7 +3,6 @@ import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 
 interface GenerateRequest {
-  sourceCandidateId?: string;
   contentWorkspaceId?: string;
   productName?: string;
   productImage?: string;

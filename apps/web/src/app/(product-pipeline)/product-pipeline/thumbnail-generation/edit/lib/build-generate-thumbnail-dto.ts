@@ -9,7 +9,6 @@ interface BuildGenerateThumbnailDtoParams {
   slots: Slot[];
   subject?: ThumbnailSubject;
   contentWorkspaceId: string | null;
-  sourceCandidateId?: string | null;
   supplementaryLabel: SupplementaryLabel;
   pieceCount: number | null;
   imageOnly: boolean;
@@ -27,7 +26,6 @@ export function buildGenerateThumbnailDto({
   slots,
   subject,
   contentWorkspaceId,
-  sourceCandidateId,
   supplementaryLabel,
   pieceCount,
   imageOnly,
@@ -42,10 +40,9 @@ export function buildGenerateThumbnailDto({
   const resolvedCase: EditUseCase | null = mode === 'creative' ? null : pickCaseFromSlots(slots);
   const identity = subject
     ? thumbnailSubjectToDtoIdentity(subject)
-    : { contentWorkspaceId, sourceCandidateId: sourceCandidateId ?? null };
+    : { contentWorkspaceId };
 
   return slotsToDto(slots, resolvedCase, {
-    sourceCandidateId: identity.sourceCandidateId,
     contentWorkspaceId: identity.contentWorkspaceId,
     supplementaryLabel,
     pieceCount,

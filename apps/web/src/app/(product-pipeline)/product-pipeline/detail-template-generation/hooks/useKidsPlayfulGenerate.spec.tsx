@@ -71,18 +71,15 @@ describe('useKidsPlayfulGenerationList', () => {
     });
   });
 
-  it('queries unpromoted sourcing detail generations by source candidate scope', async () => {
+  it('scopes the detail list to a content workspace and never sends a candidate or product filter', async () => {
     renderHook(
-      () =>
-        useKidsPlayfulGenerationList('candidate-1', {
-          sourceCandidateId: 'candidate-1',
-        }),
+      () => useKidsPlayfulGenerationList('product-1', { contentWorkspaceId: 'workspace-1' }),
       { wrapper },
     );
 
     await waitFor(() => {
       expect(apiClient.get).toHaveBeenCalledWith(
-        '/api/ai/detail-page?templateId=kids-playful&sourceCandidateId=candidate-1',
+        '/api/ai/detail-page?templateId=kids-playful&contentWorkspaceId=workspace-1',
       );
     });
   });

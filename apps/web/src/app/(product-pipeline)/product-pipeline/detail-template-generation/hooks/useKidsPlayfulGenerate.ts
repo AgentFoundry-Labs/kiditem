@@ -50,7 +50,6 @@ export interface KidsPlayfulGenerateBody {
 export interface KidsPlayfulGenerationItem {
   id: string;
   productId: string | null;
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   templateId: string;
   productName: string;
@@ -70,26 +69,19 @@ const detailGenerationsAllKey = queryKeys.productContent.detailGenerationsAll;
 
 export interface DetailGenerationListScope {
   productId?: string | null;
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }
 
-function firstSourcingCandidateId(
-  refs?: KidsPlayfulGenerateBody['sourceReferences'],
-): string | null {
-  return refs?.find((ref) => ref.sourceType === 'sourcing_candidate')?.sourceCandidateId ?? null;
-}
-
+/**
+ * 상세페이지 목록은 작업공간으로만 좁힌다. 좁히지 않으면 조직 전체의 최근 목록이다 — 원천 기록 ·
+ * 상품 id 는 서버가 걸러 주지 않으므로 싣지 않는다(KID-310).
+ */
 function buildDetailPageListUrl(input: {
   templateId: DetailPageTemplateId;
-  productId?: string | null;
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }): string {
   const params = new URLSearchParams({ templateId: input.templateId });
   if (input.contentWorkspaceId) params.set('contentWorkspaceId', input.contentWorkspaceId);
-  else if (input.sourceCandidateId) params.set('sourceCandidateId', input.sourceCandidateId);
-  else if (input.productId) params.set('productId', input.productId);
   return `/api/ai/detail-page?${params.toString()}`;
 }
 
@@ -109,10 +101,8 @@ export function useKidsPlayfulGenerate() {
     onMutate: async (vars) => {
       const tplId = vars.templateId ?? 'kids-playful';
       const isBoldVertical = tplId === 'bold-vertical';
-      const sourceCandidateId = firstSourcingCandidateId(vars.sourceReferences);
       const scope = {
         productId: vars.productId ?? null,
-        sourceCandidateId,
         contentWorkspaceId: vars.contentWorkspaceId ?? null,
       };
       const listKey = isBoldVertical
@@ -132,7 +122,6 @@ export function useKidsPlayfulGenerate() {
       const placeholder: KidsPlayfulGenerationItem = {
         id: optimisticId,
         productId: vars.productId ?? null,
-        sourceCandidateId,
         contentWorkspaceId: vars.contentWorkspaceId ?? null,
         templateId: tplId,
         productName: vars.rawTitle,
@@ -205,11 +194,10 @@ export function useKidsPlayfulOne(id?: string | null) {
  */
 export function useKidsPlayfulGenerationList(
   productId?: string | null,
-  options: { enabled?: boolean; sourceCandidateId?: string | null; contentWorkspaceId?: string | null } = {},
+  options: { enabled?: boolean; contentWorkspaceId?: string | null } = {},
 ) {
   const scope = {
     productId,
-    sourceCandidateId: options.sourceCandidateId ?? null,
     contentWorkspaceId: options.contentWorkspaceId ?? null,
   };
   return useQuery({
@@ -219,7 +207,7 @@ export function useKidsPlayfulGenerationList(
       apiClient.get<KidsPlayfulGenerationItem[]>(
         buildDetailPageListUrl({
           templateId: 'kids-playful',
-          ...scope,
+          contentWorkspaceId: scope.contentWorkspaceId,
         }),
       ),
     refetchInterval: (query) => {
@@ -244,11 +232,10 @@ export function useKidsPlayfulGenerationList(
  */
 export function useBoldVerticalGenerationList(
   productId?: string | null,
-  options: { enabled?: boolean; sourceCandidateId?: string | null; contentWorkspaceId?: string | null } = {},
+  options: { enabled?: boolean; contentWorkspaceId?: string | null } = {},
 ) {
   const scope = {
     productId,
-    sourceCandidateId: options.sourceCandidateId ?? null,
     contentWorkspaceId: options.contentWorkspaceId ?? null,
   };
   return useQuery({
@@ -258,7 +245,7 @@ export function useBoldVerticalGenerationList(
       apiClient.get<KidsPlayfulGenerationItem[]>(
         buildDetailPageListUrl({
           templateId: 'bold-vertical',
-          ...scope,
+          contentWorkspaceId: scope.contentWorkspaceId,
         }),
       ),
     refetchInterval: (query) => {
@@ -344,7 +331,7 @@ export function rowToRendererData(item: KidsPlayfulGenerationItem): KidsPlayfulD
  */
 export function useKidsPlayfulInProgress(
   productId?: string | null,
-  options: { enabled?: boolean; sourceCandidateId?: string | null; contentWorkspaceId?: string | null } = {},
+  options: { enabled?: boolean; contentWorkspaceId?: string | null } = {},
 ) {
   const all = useAllGenerationsInProgress(productId, options);
   return all[0] ?? null;
@@ -359,7 +346,7 @@ export function useKidsPlayfulInProgress(
  */
 export function useAllGenerationsInProgress(
   productId?: string | null,
-  options: { enabled?: boolean; sourceCandidateId?: string | null; contentWorkspaceId?: string | null } = {},
+  options: { enabled?: boolean; contentWorkspaceId?: string | null } = {},
 ): KidsPlayfulGenerationItem[] {
   const { data: kpData = [] } = useKidsPlayfulGenerationList(productId, options);
   const { data: boldData = [] } = useBoldVerticalGenerationList(productId, options);

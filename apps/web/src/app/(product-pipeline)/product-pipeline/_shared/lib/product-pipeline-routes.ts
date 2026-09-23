@@ -31,7 +31,6 @@ export function collectedProductWorkspaceTabHref({
   productDescription,
   editCase,
   productId,
-  sourceCandidateId,
   contentWorkspaceId,
 }: {
   salesProductId: string;
@@ -44,7 +43,6 @@ export function collectedProductWorkspaceTabHref({
   productDescription?: string | null;
   editCase?: string | null;
   productId?: string | null;
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }): string {
   return buildProductWorkspaceTabUrl({
@@ -58,7 +56,6 @@ export function collectedProductWorkspaceTabHref({
     productDescription,
     editCase,
     productId,
-    sourceCandidateId,
     contentWorkspaceId,
   });
 }
@@ -74,7 +71,6 @@ export function registeredProductWorkspaceTabHref({
   productDescription,
   editCase,
   productId,
-  sourceCandidateId,
   contentWorkspaceId,
 }: {
   workspaceId: string;
@@ -87,7 +83,6 @@ export function registeredProductWorkspaceTabHref({
   productDescription?: string | null;
   editCase?: string | null;
   productId?: string | null;
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }): string {
   return buildProductWorkspaceTabUrl({
@@ -101,13 +96,11 @@ export function registeredProductWorkspaceTabHref({
     productDescription,
     editCase,
     productId,
-    sourceCandidateId,
     contentWorkspaceId,
   });
 }
 
 export function thumbnailWorkspaceHref({
-  sourceCandidateId,
   contentWorkspaceId,
   returnTo,
   generationId,
@@ -118,7 +111,6 @@ export function thumbnailWorkspaceHref({
   editCase,
   mode,
 }: {
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   returnTo?: string | null;
   generationId?: string | null;
@@ -144,7 +136,6 @@ export function thumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      sourceCandidateId,
       contentWorkspaceId,
     });
   }
@@ -161,7 +152,6 @@ export function thumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      sourceCandidateId,
       contentWorkspaceId,
     });
   }
@@ -176,7 +166,6 @@ export function thumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      sourceCandidateId,
       contentWorkspaceId,
     });
   }
@@ -277,9 +266,6 @@ export function thumbnailGenerationHubHref({
   if (subjectParams?.contentWorkspaceId) {
     params.set('contentWorkspaceId', subjectParams.contentWorkspaceId);
   }
-  if (!subjectParams?.contentWorkspaceId && subjectParams?.sourceCandidateId) {
-    params.set('sourceCandidateId', subjectParams.sourceCandidateId);
-  }
   if (imageUrl) params.set('imageUrl', imageUrl);
   if (productName) params.set('productName', productName);
   if (productDescription) params.set('productDescription', productDescription);
@@ -319,9 +305,6 @@ export function thumbnailGenerationEditHref({
   if (editCase) params.set('editCase', editCase);
   if (subjectParams?.contentWorkspaceId) {
     params.set('contentWorkspaceId', subjectParams.contentWorkspaceId);
-  }
-  if (!subjectParams?.contentWorkspaceId && subjectParams?.sourceCandidateId) {
-    params.set('sourceCandidateId', subjectParams.sourceCandidateId);
   }
   if (generationId) params.set('generationId', generationId);
   if (imageUrl) params.set('imageUrl', imageUrl);

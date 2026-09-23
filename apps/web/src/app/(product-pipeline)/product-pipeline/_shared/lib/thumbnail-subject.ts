@@ -1,38 +1,30 @@
+/**
+ * 썸네일 생성의 주인. 콘텐츠 작업공간(판매상품 초안 · 리스팅의 것)에 붙거나 주인 없이 올린다.
+ *
+ * 원천 기록(수집상품) id 는 주인이 아니다 — 수집상품 화면의 썸네일은 그 판매상품 초안의 작업공간에
+ * 붙는다(KID-310). 서버는 `sourceCandidateId` 필터와 주인을 거절한다.
+ */
 export type ThumbnailSubject =
-  | { kind: 'collected-product'; sourceCandidateId: string }
   | { kind: 'content-workspace'; contentWorkspaceId: string }
   | { kind: 'direct-upload' };
 
 export interface ThumbnailSubjectParams {
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }
 
 export function thumbnailSubjectQueryParams(subject: ThumbnailSubject): Record<string, string> {
   const identity = thumbnailSubjectToDtoIdentity(subject);
-  const params: Record<string, string> = {};
-  if (identity.contentWorkspaceId) params.contentWorkspaceId = identity.contentWorkspaceId;
-  if (identity.sourceCandidateId) params.sourceCandidateId = identity.sourceCandidateId;
-  return params;
+  return identity.contentWorkspaceId ? { contentWorkspaceId: identity.contentWorkspaceId } : {};
 }
 
 export function thumbnailSubjectToDtoIdentity(subject: ThumbnailSubject): {
-  sourceCandidateId: string | null;
   contentWorkspaceId: string | null;
 } {
   switch (subject.kind) {
-    case 'collected-product':
-      return {
-        sourceCandidateId: subject.sourceCandidateId,
-        contentWorkspaceId: null,
-      };
     case 'content-workspace':
-      return {
-        contentWorkspaceId: subject.contentWorkspaceId,
-        sourceCandidateId: null,
-      };
+      return { contentWorkspaceId: subject.contentWorkspaceId };
     case 'direct-upload':
-      return { sourceCandidateId: null, contentWorkspaceId: null };
+      return { contentWorkspaceId: null };
   }
 }
 
@@ -43,10 +35,5 @@ export function thumbnailSubjectFromParams(params: ThumbnailSubjectParams): Thum
       contentWorkspaceId: params.contentWorkspaceId,
     };
   }
-  if (params.sourceCandidateId)
-    return {
-      kind: 'collected-product',
-      sourceCandidateId: params.sourceCandidateId,
-    };
   return { kind: 'direct-upload' };
 }

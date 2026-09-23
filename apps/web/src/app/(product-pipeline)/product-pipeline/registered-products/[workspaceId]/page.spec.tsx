@@ -139,10 +139,8 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     };
     expect(props).toEqual(expect.objectContaining({
       productId: 'listing-1',
-      contentWorkspaceId: 'listing-workspace-1',
+      listingContentWorkspaceId: 'listing-workspace-1',
       detailGenerationEnabled: true,
-      showCandidateActions: false,
-      thumbnailSourceCandidateId: null,
     }));
     // 리스팅에서 만든 값에는 원천 기록이 없다 — 소싱 판단을 지어내지 않는다.
     expect(initialWorkspaceData.product.status).toBeNull();

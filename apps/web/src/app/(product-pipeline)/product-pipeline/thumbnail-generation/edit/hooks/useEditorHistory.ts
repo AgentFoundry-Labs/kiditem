@@ -7,7 +7,6 @@ import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import type { EditorMode, HistoryCandidate } from '../lib/edit-page-types';
 
 interface Args {
-  sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   mode: EditorMode;
   result: Array<{ url: string; filename: string }>;
@@ -18,7 +17,6 @@ interface Args {
 }
 
 export function useEditorHistory({
-  sourceCandidateId,
   contentWorkspaceId,
   mode,
   result,
@@ -87,7 +85,6 @@ export function useEditorHistory({
   }, [
     allGenerations,
     hasOwnerScope,
-    sourceCandidateId,
     contentWorkspaceId,
     result,
     mode,
@@ -108,7 +105,7 @@ export function useEditorHistory({
     const pick = best.selectedUrl ?? best.candidates?.[0]?.url ?? null;
     if (!pick) return null;
     return resolveImageUrl(pick) ?? pick;
-  }, [allGenerations, contentWorkspaceId, sourceCandidateId]);
+  }, [allGenerations, contentWorkspaceId]);
 
   useEffect(() => {
     if (historyCandidates.length === 0) {

@@ -18,7 +18,6 @@ interface ThumbnailWorkspaceTabProps {
   editData: ProductEditState;
   contentWorkspaceId?: string | null;
   thumbnailUrl?: string | null;
-  thumbnailSourceCandidateId?: string | null;
   selectedRegistrationThumbnailUrl: string | null;
   /** 실제로 저장된 대표 썸네일. `등록 대표` 배지의 유일한 근거다(폴백 없음). */
   savedRepresentativeThumbnailUrl?: string | null;
@@ -37,7 +36,6 @@ export default function ThumbnailWorkspaceTab({
   editData,
   contentWorkspaceId = null,
   thumbnailUrl = null,
-  thumbnailSourceCandidateId = null,
   selectedRegistrationThumbnailUrl,
   savedRepresentativeThumbnailUrl = null,
   thumbnailPreviewImages,
@@ -68,10 +66,8 @@ export default function ThumbnailWorkspaceTab({
       editData.thumbnails[0] ??
       null,
   );
-  const thumbnailGenerations = useSourcingThumbnailGenerations({
-    sourceCandidateId: thumbnailSourceCandidateId,
-    contentWorkspaceId,
-  });
+  // 썸네일 이력은 이 작업공간의 것만 읽는다(B3). 작업공간이 없으면 읽지 않는다.
+  const thumbnailGenerations = useSourcingThumbnailGenerations(contentWorkspaceId);
   const sourceOptions = useMemo(
     () =>
       buildThumbnailSourceOptions({
@@ -153,7 +149,6 @@ export default function ThumbnailWorkspaceTab({
       productDescription: editData.name,
       extraParams: {
         uploadKey,
-        sourceCandidateId: thumbnailSourceCandidateId,
         contentWorkspaceId,
         fullPage: '1',
       },

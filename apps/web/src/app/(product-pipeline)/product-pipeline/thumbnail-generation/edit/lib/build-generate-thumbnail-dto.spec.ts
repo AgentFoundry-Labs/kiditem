@@ -89,7 +89,7 @@ describe('buildGenerateThumbnailDto', () => {
     expect(dto.sceneType).toBeUndefined();
   });
 
-  it('passes sourceCandidateId for candidate-owned thumbnail work', () => {
+  it('attaches collected-product thumbnail work to the draft’s content workspace, never a candidate id (B4)', () => {
     const slots: Slot[] = [
       {
         id: 'slot-product',
@@ -101,28 +101,27 @@ describe('buildGenerateThumbnailDto', () => {
       },
     ];
 
-    expect(
-      buildGenerateThumbnailDto({
-        mode: 'edit',
-        slots,
-        contentWorkspaceId: null,
-        sourceCandidateId: 'candidate-123',
-        supplementaryLabel: '박스',
-        pieceCount: null,
-        imageOnly: true,
-        userPrompt: 'ignored when imageOnly',
-        sceneType: 'white-studio',
-        styleType: 'minimal',
-        productDescription: 'ignored when imageOnly',
-        productName: '쭉쭉붙이는터치등',
-        effectiveProductImage: null,
-        layout: 'auto',
-      }),
-    ).toMatchObject({
-      sourceCandidateId: 'candidate-123',
-      contentWorkspaceId: undefined,
+    const dto = buildGenerateThumbnailDto({
+      mode: 'edit',
+      slots,
+      contentWorkspaceId: 'workspace-1',
+      supplementaryLabel: '박스',
+      pieceCount: null,
+      imageOnly: true,
+      userPrompt: 'ignored when imageOnly',
+      sceneType: 'white-studio',
+      styleType: 'minimal',
+      productDescription: 'ignored when imageOnly',
+      productName: '쭉쭉붙이는터치등',
+      effectiveProductImage: null,
+      layout: 'auto',
+    });
+
+    expect(dto).toMatchObject({
+      contentWorkspaceId: 'workspace-1',
       productImage: 'https://cdn.example.com/source.jpg',
     });
+    expect(dto).not.toHaveProperty('sourceCandidateId');
   });
 
   it('accepts ThumbnailSubject as the identity Interface', () => {
@@ -148,7 +147,6 @@ describe('buildGenerateThumbnailDto', () => {
         slots,
         subject,
         contentWorkspaceId: 'workspace-1',
-        sourceCandidateId: null,
         supplementaryLabel: '박스',
         pieceCount: null,
         imageOnly: true,
@@ -161,7 +159,6 @@ describe('buildGenerateThumbnailDto', () => {
         layout: 'auto',
       }),
     ).toMatchObject({
-      sourceCandidateId: undefined,
       contentWorkspaceId: 'workspace-1',
     });
   });

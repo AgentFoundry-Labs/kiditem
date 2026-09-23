@@ -429,16 +429,12 @@ export const queryKeys = {
       templateId: 'kids-playful' | 'bold-vertical',
       scope?: {
         productId?: string | null;
-        sourceCandidateId?: string | null;
         contentWorkspaceId?: string | null;
       },
     ) => {
       const root = templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations';
       if (scope?.contentWorkspaceId) {
         return [root, { contentWorkspaceId: scope.contentWorkspaceId }] as const;
-      }
-      if (scope?.sourceCandidateId) {
-        return [root, { sourceCandidateId: scope.sourceCandidateId }] as const;
       }
       if (templateId === 'kids-playful' && scope?.productId) {
         return [root, { productId: scope.productId }] as const;

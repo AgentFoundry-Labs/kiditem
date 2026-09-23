@@ -56,7 +56,7 @@ import {
   withDetailPreviewBridge,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/preview-sandbox';
 import { detailPageEditorHref } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
-import { useGenerationHistory, type GenerationHistoryItem } from '../../hooks/useGenerationHistory';
+import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import type { ProductRegistrationPreviewData } from './preview/product-registration-preview';
@@ -68,14 +68,15 @@ interface Props {
   templateCss: string;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
-  initialAgentHistory?: GenerationHistoryItem[];
-  generationHistoryQueryEnabled?: boolean;
+  /** 작업공간 이력(에이전트 생성). 화면이 작업공간에서 읽어 넘긴다. */
+  agentHistory?: GenerationHistoryItem[];
   detailEditorSalesProductId?: string | null;
   detailEditorReturnHref: string;
   mobilePreviewData: ProductRegistrationPreviewData;
   onPreviewHtmlChange?: (html: string | null) => void;
 }
 
+const EMPTY_AGENT_HISTORY: GenerationHistoryItem[] = [];
 const MAX_MINIMAP_WIDTH = 200; // px — 우선 가로 200px 시도, 페이지가 길면 더 좁게
 const FULL_PREVIEW_WIDTH = 720; // px — 쿠팡 상세페이지 기준 미리보기 폭
 const VIEWPORT_HEIGHT_VH = 82; // vh — 우측 iframe 높이
@@ -156,8 +157,7 @@ export default function DetailPagePreview({
   templateCss,
   hasSavedDetailPage,
   savedDetailPageGenerationId = null,
-  initialAgentHistory,
-  generationHistoryQueryEnabled = true,
+  agentHistory = EMPTY_AGENT_HISTORY,
   detailEditorSalesProductId,
   detailEditorReturnHref,
   onPreviewHtmlChange,
@@ -171,12 +171,6 @@ export default function DetailPagePreview({
   );
   const [downloadContentHeight, setDownloadContentHeight] = useState(
     INITIAL_PREVIEW_LAYOUT.contentHeight,
-  );
-
-  const { data: agentHistory = [] } = useGenerationHistory(
-    productId,
-    initialAgentHistory,
-    { enabled: generationHistoryQueryEnabled },
   );
 
   const latestCompletedAgentEntry = useMemo(

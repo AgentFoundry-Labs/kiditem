@@ -39,11 +39,9 @@ function ThumbnailGenerationHubContent() {
   const uploadKey = searchParams.get('uploadKey');
   const productName = searchParams.get('productName')?.trim() ?? '';
   const productDescription = searchParams.get('productDescription')?.trim() ?? '';
-  const sourceCandidateId = searchParams.get('sourceCandidateId');
   const contentWorkspaceId = searchParams.get('contentWorkspaceId');
-  const hasWorkspaceInput = Boolean(imageUrl || uploadKey || productName || sourceCandidateId || contentWorkspaceId);
+  const hasWorkspaceInput = Boolean(imageUrl || uploadKey || productName || contentWorkspaceId);
   const workspaceHref = thumbnailWorkspaceHref({
-    sourceCandidateId,
     contentWorkspaceId,
     returnTo,
     imageUrl,
@@ -75,7 +73,6 @@ function ThumbnailGenerationHubContent() {
           productName,
           returnTo,
           subjectParams: {
-            sourceCandidateId,
             contentWorkspaceId,
           },
         }),

@@ -44,15 +44,12 @@ interface Props {
   selectedBoldVerticalId: string | null;
   /** 사용자가 생성 이력에서 고른 ContentAgent entry id. */
   selectedAgentId: string | null;
+  /** 이 화면의 콘텐츠 작업공간. 없으면(첫 생성 전) 콘텐츠를 읽지 않는다. */
   contentWorkspaceId?: string | null;
-  generationQueryProductId?: string | null;
-  generationQuerySourceCandidateId?: string | null;
-  generationQueryContentWorkspaceId?: string | null;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
-  initialAgentHistory?: GenerationHistoryItem[];
+  agentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
-  thumbnailSourceCandidateId?: string | null;
   detailEditorSalesProductId?: string | null;
   detailEditorReturnHref?: string;
   onSelectKidsPlayful: (id: string | null) => void;
@@ -99,14 +96,10 @@ export default function ProductTabContent({
   selectedBoldVerticalId,
   selectedAgentId,
   contentWorkspaceId,
-  generationQueryProductId,
-  generationQuerySourceCandidateId,
-  generationQueryContentWorkspaceId,
   hasSavedDetailPage,
   savedDetailPageGenerationId,
-  initialAgentHistory,
+  agentHistory,
   generationHistoryQueryEnabled = true,
-  thumbnailSourceCandidateId,
   detailEditorSalesProductId,
   detailEditorReturnHref,
   onSelectKidsPlayful,
@@ -125,8 +118,6 @@ export default function ProductTabContent({
   selectedDetailPageSummary = null,
   onDetailPreviewHtmlChange,
 }: Props) {
-  const effectiveThumbnailSourceCandidateId =
-    thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
   const initialBasicDraft = useMemo(
     () => basicDraftFrom({ basicInfo, editData, costCny }),
     [
@@ -273,7 +264,6 @@ export default function ProductTabContent({
           editData={editData}
           contentWorkspaceId={contentWorkspaceId}
           thumbnailUrl={thumbnailUrl}
-          thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
           selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
           savedRepresentativeThumbnailUrl={savedRepresentativeThumbnailUrl}
           thumbnailPreviewImages={thumbnailPreviewImages}
@@ -294,14 +284,11 @@ export default function ProductTabContent({
           templateCss={templateCss}
           hasSavedDetailPage={hasSavedDetailPage}
           savedDetailPageGenerationId={savedDetailPageGenerationId}
-          initialAgentHistory={initialAgentHistory}
+          agentHistory={agentHistory}
           generationHistoryQueryEnabled={generationHistoryQueryEnabled}
           detailEditorSalesProductId={detailEditorSalesProductId}
           detailEditorReturnHref={detailEditorReturnHref ?? thumbnailGenerationReturnHref}
           contentWorkspaceId={contentWorkspaceId}
-          generationQueryProductId={generationQueryProductId}
-          generationQuerySourceCandidateId={generationQuerySourceCandidateId}
-          generationQueryContentWorkspaceId={generationQueryContentWorkspaceId}
           selectedKidsPlayfulId={selectedKidsPlayfulId}
           selectedBoldVerticalId={selectedBoldVerticalId}
           selectedAgentId={selectedAgentId}

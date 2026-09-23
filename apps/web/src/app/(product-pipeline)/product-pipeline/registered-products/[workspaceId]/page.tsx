@@ -76,12 +76,10 @@ export default function RegisteredWorkspaceDetailPage() {
         initialWorkspaceData={listingWorkspaceData}
         initialAgentHistory={initialAgentHistory}
         generationHistoryQueryEnabled={false}
-        showCandidateActions={false}
-        contentWorkspaceId={listing.contentWorkspaceId}
+        listingContentWorkspaceId={listing.contentWorkspaceId}
         hasSavedDetailPage={Boolean(contentWorkspace?.currentDetailPageGenerationId)}
         savedDetailPageGenerationId={contentWorkspace?.currentDetailPageGenerationId ?? null}
         detailGenerationEnabled={Boolean(listing.contentWorkspaceId)}
-        thumbnailSourceCandidateId={null}
         onOpenDetailTemplateGeneration={listing.contentWorkspaceId
           ? () => router.push(detailTemplateGenerationHref({
               contentWorkspaceId: listing.contentWorkspaceId!,
@@ -223,7 +221,7 @@ function channelListingToProductWorkspaceData(
     }),
     registrationTarget: null,
     // 이 화면은 후보가 아니라 이미 등록된 리스팅이다 — 후보 울타리를 들고 오지 않는다
-    // (`showCandidateActions={false}`). 상태를 지어내지 않고 모른다고 둔다.
+    // (초안이 없어 편집 · 등록 준비 · 반려가 열리지 않는다). 상태를 지어내지 않고 모른다고 둔다.
     registrationState: null,
     // 이 화면은 판매상품 초안이 아니라 리스팅에서 값을 만든다 — 초안 id 로 이어지지 않는다.
     salesProductId: null,

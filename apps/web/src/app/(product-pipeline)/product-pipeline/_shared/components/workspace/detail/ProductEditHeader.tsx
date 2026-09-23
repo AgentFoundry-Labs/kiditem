@@ -56,7 +56,6 @@ interface ProductEditHeaderProps {
   selectedDetailPageGenerationId?: string | null;
   detailGenerationContentWorkspaceId?: string | null;
   detailGenerationEnabled?: boolean;
-  showCandidateActions?: boolean;
   onOpenDetailTemplateGeneration?: () => void;
   onToggleEditComplete: () => void;
   onToggleLocked: () => void;
@@ -80,7 +79,6 @@ export default function ProductEditHeader({
   selectedDetailPageGenerationId = null,
   detailGenerationContentWorkspaceId = null,
   detailGenerationEnabled = true,
-  showCandidateActions = true,
   onOpenDetailTemplateGeneration,
   onBack,
   rawData = null,
@@ -334,7 +332,8 @@ export default function ProductEditHeader({
           </>
         )}
 
-        {showCandidateActions && status === 'sourced' && (
+        {/* 등록 준비 · 반려는 판매상품 초안 화면에만 있다 — 등록상품(리스팅) 화면에는 초안이 없다. */}
+        {salesProductId && status === 'sourced' && (
           <>
             {!registrationStarted
               && (preparationStatus === null || preparationStatus === 'cancelled') && (
