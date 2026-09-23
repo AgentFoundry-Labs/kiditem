@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient } from "@/lib/api-client";
 import { ApiError } from "@/lib/api-error";
@@ -50,7 +50,7 @@ function renderEditor(options?: {
       />
     </QueryClientProvider>,
   );
-  return { invalidate };
+  return { invalidate, client };
 }
 
 describe("<RocketInlineRecipeEditor />", () => {
@@ -278,6 +278,69 @@ describe("<RocketInlineRecipeEditor />", () => {
       },
     ));
     expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the recipe it loaded even after a refetch replaced it under a touched draft", async () => {
+    let currentQuantity = 2;
+    vi.mocked(apiClient.getParsed).mockImplementation(async (url) => {
+      if (String(url).includes("/api/products/masters/")) {
+        return {
+          channelListings: [{
+            options: [{
+              id: "55555555-5555-4555-8555-555555555555",
+              inventoryComponents: [{
+                id: "77777777-7777-4777-8777-777777777777",
+                masterProductId: "88888888-8888-4888-8888-888888888888",
+                code: "SP-OLD",
+                name: "잘못 연결된 상품",
+                optionName: null,
+                currentStock: 5,
+                availableStock: 5,
+                isActive: true,
+                quantity: currentQuantity,
+              }],
+            }],
+          }],
+        } as never;
+      }
+      return { items: [candidate] } as never;
+    });
+    vi.mocked(apiClient.put).mockResolvedValue({ id: "variant" });
+    const { client } = renderEditor({
+      existingComponents: [{
+        masterProductId: "88888888-8888-4888-8888-888888888888",
+        code: "SP-OLD",
+        name: "잘못 연결된 상품",
+        optionName: null,
+        currentStock: 5,
+        quantity: 2,
+        isActive: true,
+      }],
+    });
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Sellpia 상품 코드 또는 상품명 검색" }),
+      { target: { value: "9633-1" } },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "9633-1 재고 추가" }));
+    currentQuantity = 5;
+    await act(() => client.refetchQueries({ queryKey: ["products", "operations"] }));
+    expect(client.getQueryData<{ channelListings: Array<{ options: Array<{ inventoryComponents: Array<{ quantity: number }> }> }> }>(
+      ["products", "operations", "detail", "44444444-4444-4444-8444-444444444444"],
+    )?.channelListings[0]!.options[0]!.inventoryComponents[0]!.quantity).toBe(5);
+    // Let the query notification re-render the editor with the refetched recipe.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    fireEvent.click(screen.getByRole("button", { name: "재고 수정하고 다시 계산" }));
+
+    await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith(
+      "/api/channels/options/55555555-5555-4555-8555-555555555555/inventory-components",
+      expect.objectContaining({
+        expectedComponents: [{
+          masterProductId: "88888888-8888-4888-8888-888888888888",
+          quantity: 2,
+        }],
+      }),
+    ));
   });
 
   it("asks the operator to refresh when the recipe changed elsewhere", async () => {

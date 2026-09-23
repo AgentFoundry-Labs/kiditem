@@ -35,13 +35,18 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
   const [activeOptionId, setActiveOptionId] = useState<string | null>(options[0]?.option.id ?? null);
   const [inventorySearch, setInventorySearch] = useState('');
   const [includeOutOfStock, setIncludeOutOfStock] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, DraftComponent[]>>(() => draftsFrom(options));
+  const [drafts, setDrafts] = useState<Record<string, DraftComponent[]>>(() => draftsFrom(options).drafts);
+  // The recipes this dialog loaded. A refetch while it is open must not replace them, or a save
+  // would pass the server's conflict check against another writer's newer recipe.
+  const [loaded, setLoaded] = useState<Record<string, LoadedComponent[]>>(() => draftsFrom(options).loaded);
   const optionResetKey = options.map(({ option }) => `${option.id}:${option.updatedAt}`).join('|');
 
   useEffect(() => {
     if (!open) return;
     const firstAttention = options.find(({ option }) => option.inventoryComponents.length === 0) ?? options[0];
-    setDrafts(draftsFrom(options));
+    const next = draftsFrom(options);
+    setDrafts(next.drafts);
+    setLoaded(next.loaded);
     setActiveOptionId(firstAttention?.option.id ?? null);
     setInventorySearch(optionSearch(firstAttention));
     setIncludeOutOfStock(false);
@@ -59,16 +64,17 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
 
   const changedOptions = useMemo(() => options.flatMap((optionRow) => {
     const draft = drafts[optionRow.option.id] ?? [];
-    if (recipeSignature(draft) === recipeSignature(optionRow.option.inventoryComponents)) return [];
+    const expectedComponents = loaded[optionRow.option.id] ?? [];
+    if (recipeSignature(draft) === recipeSignature(expectedComponents)) return [];
     return [{
       channelListingOptionId: optionRow.option.id,
-      expectedComponents: loadedRecipe(optionRow),
+      expectedComponents,
       components: draft.map((component) => ({
         masterProductId: component.masterProductId,
         quantity: component.quantity!,
       })),
     }];
-  }), [drafts, options]);
+  }), [drafts, loaded, options]);
   const hasInvalidQuantity = Object.values(drafts).some((components) => components.some(
     ({ quantity }) => quantity === null || !Number.isSafeInteger(quantity) || quantity <= 0,
   ));
@@ -121,9 +127,9 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
     try {
       await saveMutation.mutateAsync({
         channelListingId: row.listing.id,
-        options: options.map((optionRow) => ({
-          channelListingOptionId: optionRow.option.id,
-          expectedComponents: loadedRecipe(optionRow),
+        options: options.map(({ option }) => ({
+          channelListingOptionId: option.id,
+          expectedComponents: loaded[option.id] ?? [],
           components: [],
         })),
       });
@@ -225,8 +231,17 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
   );
 }
 
-function draftsFrom(options: ChannelOptionMatchingQueueRow[]): Record<string, DraftComponent[]> {
-  return Object.fromEntries(options.map(({ option }) => [
+type LoadedComponent = { masterProductId: string; quantity: number };
+
+function draftsFrom(options: ChannelOptionMatchingQueueRow[]): {
+  drafts: Record<string, DraftComponent[]>;
+  loaded: Record<string, LoadedComponent[]>;
+} {
+  const loaded = Object.fromEntries(options.map(({ option }) => [
+    option.id,
+    option.inventoryComponents.map(({ masterProductId, quantity }) => ({ masterProductId, quantity })),
+  ]));
+  const drafts = Object.fromEntries(options.map(({ option }) => [
     option.id,
     option.inventoryComponents.map((component) => ({
       masterProductId: component.masterProductId,
@@ -237,10 +252,7 @@ function draftsFrom(options: ChannelOptionMatchingQueueRow[]): Record<string, Dr
       quantity: component.quantity,
     })),
   ]));
-}
-
-function loadedRecipe({ option }: ChannelOptionMatchingQueueRow) {
-  return option.inventoryComponents.map(({ masterProductId, quantity }) => ({ masterProductId, quantity }));
+  return { drafts, loaded };
 }
 
 function saveErrorMessage(error: unknown): string | null {

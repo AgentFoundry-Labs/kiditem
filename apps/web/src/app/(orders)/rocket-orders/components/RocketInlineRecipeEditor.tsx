@@ -50,6 +50,9 @@ export function RocketInlineRecipeEditor({
     })),
   );
   const [draftTouched, setDraftTouched] = useState(false);
+  // The recipe this editor loaded. A refetch after the operator started editing must not replace
+  // it, or the save would pass the server's conflict check against another writer's newer recipe.
+  const [loadedRecipe, setLoadedRecipe] = useState(() => recipeOf(existingComponents));
   const candidateParams = useMemo(
     () =>
       new URLSearchParams({
@@ -88,6 +91,7 @@ export function RocketInlineRecipeEditor({
 
   useEffect(() => {
     if (!currentOption || draftTouched) return;
+    setLoadedRecipe(recipeOf(currentOption.inventoryComponents));
     setDraft(
       currentOption.inventoryComponents.map((component) => ({
         masterProductId: component.masterProductId,
@@ -106,12 +110,9 @@ export function RocketInlineRecipeEditor({
         masterProductId,
         quantity,
       }));
-      // The recipe this editor loaded; the server answers 409 when it changed since.
-      const expectedComponents = (currentOption?.inventoryComponents ?? existingComponents)
-        .map(({ masterProductId, quantity }) => ({ masterProductId, quantity }));
       await apiClient.put(
         `/api/channels/options/${channelListingOptionId}/inventory-components`,
-        { expectedComponents, components },
+        { expectedComponents: loadedRecipe, components },
       );
       return { mode: hasExistingRecipe ? ("replaced" as const) : ("created" as const) };
     },
@@ -409,4 +410,8 @@ export function RocketInlineRecipeEditor({
       </form>
     </section>
   );
+}
+
+function recipeOf(components: ReadonlyArray<{ masterProductId: string; quantity: number }>) {
+  return components.map(({ masterProductId, quantity }) => ({ masterProductId, quantity }));
 }
