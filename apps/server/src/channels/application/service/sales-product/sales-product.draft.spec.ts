@@ -46,8 +46,6 @@ function setup(rows: Row[] = []) {
     readMasterProductCodes: async () => new Map(),
     findInvalidMasterProductIds: async () => [],
     listCodesWithPrefix: async () => [],
-    findIdBySourceCandidate: async (_org: string, candidateId: string) =>
-      rows.find((row) => row.sourceRecordId === candidateId)?.id ?? null,
     get: async (_org: string, id: string) => {
       const row = rows.find((candidate) => candidate.id === id);
       return row ? (row as unknown as SalesProduct) : null;
