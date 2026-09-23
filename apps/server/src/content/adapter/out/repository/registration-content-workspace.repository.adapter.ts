@@ -94,7 +94,6 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       revisionId: revision.id,
       revisionType: DetailPageRevisionTypeSchema.parse(revision.revisionType),
       html: revision.html,
-      extraHtml: importMetadata(revision.artifact.metadata)?.extraHtml ?? [],
       imageUrls: stringArray(revision.imageUrls),
     };
   }
@@ -102,8 +101,9 @@ export class RegistrationContentWorkspaceRepositoryAdapter
   /**
    * 가져온 상세를 `imported` revision 으로 쌓는다. 원천마다 가져오기 전용 상세페이지 버전(생성 · 아티팩트)
    * 하나를 두고 거기에 revision 을 잇는다 — 올린 상세페이지와 같은 자리라 편집기 · 몰 등록 · 대량등록
-   * 엑셀이 그대로 읽는다. 마지막으로 가져온 digest 와 추가 상세는 그 아티팩트의 metadata 에 둔다.
-   * 현재 포인터는 `decideDetailPageImport` 가 정한다.
+   * 엑셀이 그대로 읽는다. 무엇을 가져왔는지는 revision 행의 `source` · `source_digest` 가 말한다: 마지막으로
+   * 가져온 digest 는 이 워크스페이스에서 같은 원천의 가장 새 revision 의 것이다. 현재 포인터는
+   * `decideDetailPageImport` 가 정한다.
    */
   async importDetailPage(
     transaction: OwnerTransaction,
@@ -123,32 +123,40 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     const workspace = locked[0];
     if (!workspace) throw new NotFoundException('Sales product content workspace not found.');
 
-    const source = importArtifactSource(input.source);
+    const artifactSource = importArtifactSource(input.source);
     const current = await readCurrentRevision(tx, input.organizationId, workspace.id);
-    const existing = await tx.detailPageArtifact.findFirst({
+    const lastImported = await tx.detailPageRevision.findFirst({
       where: {
         organizationId: input.organizationId,
-        contentWorkspaceId: workspace.id,
-        isDeleted: false,
-        metadata: { path: ['source'], equals: source },
+        source: input.source,
+        artifact: { organizationId: input.organizationId, contentWorkspaceId: workspace.id },
       },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, sourceContentGenerationId: true, metadata: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { sourceDigest: true },
     });
-    const previous = existing ? importMetadata(existing.metadata) : null;
     const decision = decideDetailPageImport({
       currentRevisionType: current ? DetailPageRevisionTypeSchema.parse(current.revisionType) : null,
-      lastImportedDigest: previous?.lastImportedDigest ?? null,
+      lastImportedDigest: lastImported?.sourceDigest ?? null,
       incomingDigest: input.digest,
     });
     if (decision.kind === 'skip') {
       return { kind: 'skipped', reason: 'unchanged', workspaceId: workspace.id, currentRevisionId: current?.id ?? null };
     }
 
+    const existing = await tx.detailPageArtifact.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        contentWorkspaceId: workspace.id,
+        isDeleted: false,
+        metadata: { path: ['source'], equals: artifactSource },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, sourceContentGenerationId: true },
+    });
     const artifact = existing ?? await createImportArtifact(tx, {
       organizationId: input.organizationId,
       workspaceId: workspace.id,
-      source,
+      source: artifactSource,
       title: workspace.displayName,
       createdByUserId: input.createdByUserId,
     });
@@ -160,25 +168,20 @@ export class RegistrationContentWorkspaceRepositoryAdapter
         revisionType: DETAIL_PAGE_REVISION_TYPE.imported,
         html: input.html,
         imageUrls: [...input.imageUrls],
+        source: input.source,
+        sourceDigest: input.digest,
         createdByUserId: input.createdByUserId,
       },
       select: { id: true },
     });
     // 새로 만든 가져오기 버전은 이 revision 말고는 가진 것이 없어 그 버전의 현재가 된다. 워크스페이스
     // 포인터는 규칙이 허락할 때만 옮긴다.
-    const ownsPointer = decision.advancePointer || !existing;
-    const metadata: ImportArtifactMetadata = {
-      source,
-      lastImportedDigest: input.digest,
-      extraHtml: ownsPointer ? [...input.extraHtml] : previous?.extraHtml ?? [],
-    };
-    await tx.detailPageArtifact.updateMany({
-      where: { id: artifact.id, organizationId: input.organizationId },
-      data: {
-        metadata: metadata as unknown as Prisma.InputJsonValue,
-        ...(ownsPointer ? { currentRevisionId: revision.id } : {}),
-      },
-    });
+    if (decision.advancePointer || !existing) {
+      await tx.detailPageArtifact.updateMany({
+        where: { id: artifact.id, organizationId: input.organizationId },
+        data: { currentRevisionId: revision.id },
+      });
+    }
     if (decision.advancePointer) {
       await tx.contentWorkspace.updateMany({
         where: { id: workspace.id, organizationId: input.organizationId },
@@ -372,7 +375,6 @@ const REVISION_SELECT = {
   revisionType: true,
   html: true,
   imageUrls: true,
-  artifact: { select: { metadata: true } },
 } satisfies Prisma.DetailPageRevisionSelect;
 
 type RevisionRow = Prisma.DetailPageRevisionGetPayload<{ select: typeof REVISION_SELECT }>;
@@ -446,25 +448,9 @@ async function readCurrentRevision(
     ?? null;
 }
 
-interface ImportArtifactMetadata {
-  source: string;
-  lastImportedDigest: string | null;
-  extraHtml: string[];
-}
-
+/** 가져오기 전용 아티팩트의 표지(`metadata.source`). 무엇을 가져왔는지는 revision 행이 말한다. */
 function importArtifactSource(source: ImportDetailPageInput['source']): string {
   return `${source}_import`;
-}
-
-function importMetadata(value: Prisma.JsonValue): ImportArtifactMetadata | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (typeof record.source !== 'string' || !record.source.endsWith('_import')) return null;
-  return {
-    source: record.source,
-    lastImportedDigest: typeof record.lastImportedDigest === 'string' ? record.lastImportedDigest : null,
-    extraHtml: stringArray(record.extraHtml as Prisma.JsonValue),
-  };
 }
 
 function stringArray(value: Prisma.JsonValue | undefined): string[] {
@@ -475,7 +461,7 @@ function stringArray(value: Prisma.JsonValue | undefined): string[] {
 async function createImportArtifact(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; workspaceId: string; source: string; title: string; createdByUserId: string | null },
-): Promise<{ id: string; sourceContentGenerationId: string | null; metadata: Prisma.JsonValue }> {
+): Promise<{ id: string; sourceContentGenerationId: string | null }> {
   const title = input.title.trim().slice(0, 80) || '상세페이지';
   const group = await tx.contentGenerationGroup.create({
     data: {
@@ -511,9 +497,9 @@ async function createImportArtifact(
       title,
       status: 'draft',
       createdByUserId: input.createdByUserId,
-      metadata: { source: input.source, lastImportedDigest: null, extraHtml: [] },
+      metadata: { source: input.source },
     },
-    select: { id: true, sourceContentGenerationId: true, metadata: true },
+    select: { id: true, sourceContentGenerationId: true },
   });
   await tx.contentGeneration.updateMany({
     where: { id: generation.id, organizationId: input.organizationId },

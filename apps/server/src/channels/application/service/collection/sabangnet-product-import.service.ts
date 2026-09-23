@@ -332,26 +332,25 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
     sourceRaw: unknown,
     preferMirrored: (urls: readonly string[]) => string[],
   ): SabangnetReimportBaseline | null {
-    const source = this.documents.readSabangnetProductSource(sourceRaw);
-    if (!source) return null;
-    const basics = sabangnetProductBasics(source.row);
+    const row = this.documents.readSabangnetProductSource(sourceRaw);
+    if (!row) return null;
+    const basics = sabangnetProductBasics(row);
     return { basics: { ...basics, imageUrls: preferMirrored(basics.imageUrls) } };
   }
 
   /**
    * 상세는 Content 의 `imported` revision 으로 간다(KID-313 W2). digest 는 원문에 남기는 KID-304 디지스트
-   * 두 칸(`#digest:상품상세설명` · `#digest:추가상품상세설명`)과 같은 값이다 — 같은 내용을 다시 가져오면
-   * revision 이 생기지 않는다.
+   * `#digest:상품상세설명` 과 같은 값이다 — 같은 상세를 다시 가져오면 revision 이 생기지 않는다.
    */
   private importedDetail(
-    detail: { html: string; extraHtml: string[] } | null,
+    detail: { html: string } | null,
   ): SabangnetImportProductWrite['detail'] {
     if (!detail) return null;
     const digests = sabangnetDetailDigests(
-      { detailHtml: detail.html || null, extraDetailHtml: detail.extraHtml },
+      { detailHtml: detail.html, extraDetailHtml: [] },
       (value) => this.integrity.sha256(value),
     );
-    return { ...detail, digest: `${digests.detailHtml}|${digests.extraDetailHtml}` };
+    return { html: detail.html, digest: digests.detailHtml };
   }
 }
 

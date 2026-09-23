@@ -904,6 +904,8 @@ erDiagram
     String html
     Json assetUrlMap
     Json imageUrls
+    String source
+    String sourceDigest
     String createdByUserId FK
     DateTime createdAt
   }

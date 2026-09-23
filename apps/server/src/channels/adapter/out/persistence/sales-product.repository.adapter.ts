@@ -1348,7 +1348,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                 salesProductId: productId,
                 source: 'sabangnet',
                 html: write.detail.html,
-                extraHtml: write.detail.extraHtml,
                 digest: write.detail.digest,
                 createdByUserId: null,
               });

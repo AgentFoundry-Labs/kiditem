@@ -389,7 +389,7 @@ describe('registration target repository (PostgreSQL)', () => {
       });
       return content.importDetailPage(ownerTransaction(tx), {
         organizationId: TEST_ORGANIZATION_ID, salesProductId, source: 'sabangnet',
-        html: '<p>상세</p>', extraHtml: [], digest: `digest-${salesProductId}`, createdByUserId: null,
+        html: '<p>상세</p>', digest: `digest-${salesProductId}`, createdByUserId: null,
       });
     });
     const own = await importDetail(productId);

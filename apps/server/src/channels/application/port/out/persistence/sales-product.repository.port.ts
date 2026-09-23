@@ -77,9 +77,10 @@ export interface SabangnetImportProductWrite {
   }[];
   /**
    * 상품 상세. 상품과 같은 트랜잭션에서 Content 의 `imported` revision 으로 넘긴다(KID-313 W2).
-   * `digest` 는 원문에 남기는 상세 디지스트(KID-304) — 같으면 revision 을 만들지 않는다.
+   * `digest` 는 원문에 남기는 상세설명 디지스트(KID-304 `#digest:상품상세설명`) — 같으면 revision 을 만들지 않는다.
+   * 추가상품상세설명은 보내는 곳이 없어 가져오지 않는다.
    */
-  detail: { html: string; extraHtml: string[]; digest: string } | null;
+  detail: { html: string; digest: string } | null;
 }
 
 /**

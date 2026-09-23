@@ -686,7 +686,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
   const IMAGE_C = 'https://pic.sabangnet.co.kr/product_image/100017_3.jpg';
   const HEADERS = [
     '품번코드', '상품명', '자체상품코드', '브랜드명', '판매가', '옵션제목(1)', '옵션상세명칭(1)', '대표이미지', '부가이미지2',
-    '부가이미지3', '상품상세설명', '속성분류코드', '속성값1', '속성값2', '인증번호', '인증기관', '관리자메모',
+    '부가이미지3', '상품상세설명', '추가상품상세설명_1', '속성분류코드', '속성값1', '속성값2', '인증번호', '인증기관', '관리자메모',
   ];
   const integrity = new ChannelIntegrityAdapter();
   let prisma: PrismaClient;
@@ -878,6 +878,29 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     await expect(detail()).resolves.toMatchObject({ html: '<p>상세 2</p>' });
   });
 
+  it('records the source and the 상품상세설명 digest on the imported revision, and imports nothing from a row with only the extra detail', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({ 상품상세설명: '<p>상세 1</p>', 추가상품상세설명_1: '<p>추가 1</p>' }), false);
+    const imported = await product();
+    await expect(prisma.detailPageRevision.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, artifact: { contentWorkspace: { salesProductId: imported.id } } },
+      select: { source: true, sourceDigest: true, html: true },
+    })).resolves.toEqual([{ source: 'sabangnet', sourceDigest: integrity.sha256('<p>상세 1</p>'), html: '<p>상세 1</p>' }]);
+    expect(imported.sourceRaw).toMatchObject({ '#digest:상품상세설명': integrity.sha256('<p>상세 1</p>') });
+
+    // 추가 상세만 바뀐 파일은 같은 상세다.
+    await reimport({ 상품상세설명: '<p>상세 1</p>', 추가상품상세설명_1: '<p>추가 2</p>', 관리자메모: '사방넷 메모 2' });
+    await expect(revisions()).resolves.toHaveLength(1);
+
+    await service.import(TEST_ORGANIZATION_ID, file({ 품번코드: '100018', 자체상품코드: 'OWN-100018', 상품상세설명: '', 추가상품상세설명_1: '<p>추가만</p>' }), false);
+    const onlyExtra = await prisma.salesProduct.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID, sabangnetGoodsNo: '100018' } });
+    await expect(prisma.detailPageRevision.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, artifact: { contentWorkspace: { salesProductId: onlyExtra.id } } },
+    })).resolves.toBe(0);
+    await expect(detailPages.read({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: onlyExtra.id, selectedDetailPageRevisionId: null,
+    })).resolves.toBeNull();
+  });
+
   it('keeps an operator-edited detail current across a reimport — the new file detail only joins the history', async () => {
     await service.import(TEST_ORGANIZATION_ID, file({}), false);
     const generation = await prisma.contentGeneration.findFirstOrThrow({
@@ -1005,7 +1028,7 @@ describe('mall sheets read the detail from the product\'s content revision (Post
 
   it('puts the current revision into the mall sheet and blocks a product whose content has none', async () => {
     const withDetail = importWrite(await createAccount(prisma, TEST_ORGANIZATION_ID));
-    withDetail.detail = { html: '<p>콘텐츠 상세</p>', extraHtml: [], digest: 'digest-1' };
+    withDetail.detail = { html: '<p>콘텐츠 상세</p>', digest: 'digest-1' };
     const withoutDetail = importWrite(await createAccount(prisma, TEST_ORGANIZATION_ID));
     await repository.importSabangnet(TEST_ORGANIZATION_ID, [withDetail, withoutDetail]);
     const ids = await repository.readProductIdsByCodes(TEST_ORGANIZATION_ID, [withDetail.create.code!, withoutDetail.create.code!]);

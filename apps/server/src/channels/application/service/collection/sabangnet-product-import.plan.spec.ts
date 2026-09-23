@@ -126,7 +126,13 @@ describe('Sabangnet workbook import', () => {
   it('carries the product detail to the content revision instead of the product', () => {
     const plan = buildSabangnetImportPlan({ products, options, overrides: [], skus: [], accounts: [] });
     expect(plan.products[0]!.create).not.toHaveProperty('detailHtml');
-    expect(plan.products[0]!.detail).toEqual({ html: products[0]!.detailHtml, extraHtml: products[0]!.extraDetailHtml });
+    expect(plan.products[0]!.detail).toEqual({ html: products[0]!.detailHtml });
+  });
+
+  it('imports no detail for a row that carries only the extra detail — nothing sends 추가상품상세설명', () => {
+    const onlyExtra = { ...products[0]!, detailHtml: null, extraDetailHtml: ['<p>추가 상세</p>'] };
+    const plan = buildSabangnetImportPlan({ products: [onlyExtra], options, overrides: [], skus: [], accounts: [] });
+    expect(plan.products[0]!.detail).toBeNull();
   });
 
   it('reads the Sabangnet percentage rate into basis points', () => {

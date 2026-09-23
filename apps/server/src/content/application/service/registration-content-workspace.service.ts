@@ -73,7 +73,7 @@ export class RegistrationContentWorkspaceService
   importDetailPage(transaction: OwnerTransaction, input: ImportDetailPageInput): Promise<ImportDetailPageResult> {
     return this.repository.importDetailPage(transaction, {
       ...input,
-      imageUrls: extractImageSrcs([input.html, ...input.extraHtml].join('\n')),
+      imageUrls: extractImageSrcs(input.html),
     });
   }
 

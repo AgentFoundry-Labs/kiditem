@@ -62,7 +62,6 @@ describe('registration content workspace (PG integration)', () => {
       salesProductId,
       source: 'sabangnet',
       html: '<p>사방넷 상세</p>',
-      extraHtml: ['<p>추가 상세</p>'],
       digest: 'digest-1',
       createdByUserId: null,
       ...overrides,
@@ -96,9 +95,38 @@ describe('registration content workspace (PG integration)', () => {
       workspaceId,
       revisionType: 'imported',
       html: '<p>사방넷 상세</p>',
-      extraHtml: ['<p>추가 상세</p>'],
     });
+    expect(read).not.toHaveProperty('extraHtml');
     expect(read?.revisionId).toBe(result.kind === 'appended' ? result.revisionId : null);
+  });
+
+  it('keeps the import bookkeeping on the revision row itself, not on the artifact', async () => {
+    const { salesProductId } = await ensureWorkspace();
+
+    const result = await importDetail(importInput(salesProductId));
+
+    const revision = await prisma.detailPageRevision.findUniqueOrThrow({
+      where: { id: result.kind === 'appended' ? result.revisionId : '' },
+      select: { source: true, sourceDigest: true, revisionType: true, artifact: { select: { metadata: true } } },
+    });
+    expect(revision).toMatchObject({ source: 'sabangnet', sourceDigest: 'digest-1', revisionType: 'imported' });
+    expect(revision.artifact.metadata).toEqual({ source: 'sabangnet_import' });
+  });
+
+  it('compares a re-import with the newest imported revision of that source — an older digest coming back appends', async () => {
+    const { salesProductId } = await ensureWorkspace();
+    await importDetail(importInput(salesProductId));
+    await importDetail(importInput(salesProductId, { html: '<p>두 번째</p>', digest: 'digest-2' }));
+
+    await expect(importDetail(importInput(salesProductId, { html: '<p>사방넷 상세</p>', digest: 'digest-1' })))
+      .resolves.toMatchObject({ kind: 'appended', becameCurrent: true });
+    await expect(importDetail(importInput(salesProductId, { html: '<p>사방넷 상세</p>', digest: 'digest-1' })))
+      .resolves.toMatchObject({ kind: 'skipped', reason: 'unchanged' });
+    await expect(prisma.detailPageRevision.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      orderBy: { createdAt: 'asc' },
+      select: { sourceDigest: true },
+    })).resolves.toEqual([{ sourceDigest: 'digest-1' }, { sourceDigest: 'digest-2' }, { sourceDigest: 'digest-1' }]);
   });
 
   it('does not add a revision when the same content is imported again', async () => {
@@ -133,6 +161,12 @@ describe('registration content workspace (PG integration)', () => {
     await expect(content.readRegistrableDetailPage({
       organizationId: TEST_ORGANIZATION_ID, salesProductId, revisionId: null,
     })).resolves.toMatchObject({ revisionId: edited.revisionId, revisionType: 'manual_edit', html: '<p>사람이 고친 상세</p>' });
+    await expect(prisma.detailPageRevision.findUniqueOrThrow({
+      where: { id: edited.revisionId }, select: { source: true, sourceDigest: true },
+    })).resolves.toEqual({ source: null, sourceDigest: null });
+    await expect(prisma.detailPageRevision.findUniqueOrThrow({
+      where: { id: third.kind === 'appended' ? third.revisionId : '' }, select: { source: true, sourceDigest: true },
+    })).resolves.toEqual({ source: 'sabangnet', sourceDigest: 'digest-3' });
     await expect(prisma.detailPageRevision.count({
       where: { organizationId: TEST_ORGANIZATION_ID, revisionType: 'imported' },
     })).resolves.toBe(3);

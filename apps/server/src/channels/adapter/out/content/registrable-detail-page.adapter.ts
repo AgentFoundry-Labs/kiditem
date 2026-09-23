@@ -48,7 +48,6 @@ export class RegistrableDetailPageAdapter implements ChannelRegistrableDetailPag
       salesProductId: string;
       source: 'sabangnet';
       html: string;
-      extraHtml: readonly string[];
       digest: string;
       createdByUserId: string | null;
     },
@@ -61,5 +60,5 @@ export class RegistrableDetailPageAdapter implements ChannelRegistrableDetailPag
 }
 
 function toDetailHtml(page: RegistrableDetailPage): RegistrableDetailHtml {
-  return { revisionId: page.revisionId, html: page.html, extraHtml: page.extraHtml, imageUrls: page.imageUrls };
+  return { revisionId: page.revisionId, html: page.html, imageUrls: page.imageUrls };
 }

@@ -64,10 +64,10 @@ export interface PlannedSabangnetProduct {
   options: SalesProductOptionDraft[];
   overrides: { channelAccountId: string; shopCode: string; data: SalesProductChannelOverrideRecord }[];
   /**
-   * 상품 상세설명 · 추가상품상세설명. 판매 상품 칸이 아니라 Content 의 `imported` revision 으로 들어간다
-   * (KID-313 W2). 둘 다 비었으면 null.
+   * 상품 상세설명. 판매 상품 칸이 아니라 Content 의 `imported` revision 으로 들어간다(KID-313 W2). 비었으면
+   * null — 추가상품상세설명은 몰 시트 · 등록 payload 어느 곳도 보내지 않아 가져오지 않는다.
    */
-  detail: { html: string; extraHtml: string[] } | null;
+  detail: { html: string } | null;
 }
 
 export interface SabangnetImportPlan {
@@ -335,9 +335,7 @@ function linkOption(
 
 /** 상품 줄의 상세. 판매 상품이 아니라 Content revision 으로 간다. */
 function sabangnetDetail(row: SabangnetProductRow): PlannedSabangnetProduct['detail'] {
-  const extraHtml = row.extraDetailHtml.slice(0, 3);
-  if (!row.detailHtml && extraHtml.length === 0) return null;
-  return { html: row.detailHtml ?? '', extraHtml };
+  return row.detailHtml ? { html: row.detailHtml } : null;
 }
 
 /**

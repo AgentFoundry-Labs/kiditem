@@ -65,19 +65,14 @@ describe('Channels document boundary', () => {
       const source = documents.readSabangnetProductSource(JSON.parse(JSON.stringify(row.raw)));
 
       const { raw: _raw, row: _line, detailHtml: _detail, extraDetailHtml: _extra, ...facts } = row;
-      expect(source?.row).toMatchObject(facts);
-      expect(source?.detailDigests).toEqual({
-        detailHtml: sha256('<p>상세</p>'),
-        extraDetailHtml: sha256('<p>추가</p>'),
-      });
+      expect(source).toMatchObject(facts);
     });
 
-    it('knows no detail baseline for a raw row stored before detail digests, and no row for a non-record', () => {
+    it('reads a raw row stored before detail digests the same way, and no row for a non-record', () => {
       const row = parse(cells);
       const legacy = Object.fromEntries(Object.entries(row.raw).filter(([key]) => !key.startsWith('#digest:')));
 
-      expect(documents.readSabangnetProductSource(legacy)?.detailDigests).toBeNull();
-      expect(documents.readSabangnetProductSource(legacy)?.row).toMatchObject({ name: '투명우산 그리기', brand: '키드아이템' });
+      expect(documents.readSabangnetProductSource(legacy)).toMatchObject({ name: '투명우산 그리기', brand: '키드아이템' });
       expect(documents.readSabangnetProductSource(null)).toBeNull();
       expect(documents.readSabangnetProductSource(['a'])).toBeNull();
     });

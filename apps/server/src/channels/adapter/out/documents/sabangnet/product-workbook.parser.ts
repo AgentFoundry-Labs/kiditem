@@ -19,7 +19,7 @@ import type { SabangnetProductRow, SabangnetOptionRow, SabangnetChannelOverrideR
 export type { SabangnetProductRow, SabangnetOptionRow, SabangnetChannelOverrideRow, SabangnetSendRecordRow, SabangnetMallCategoryRow, SabangnetMallTemplateRow, ParsedSabangnetWorkbook } from '../../../../application/port/out/documents/channel-document.models';
 
 import { ChannelIntegrityAdapter } from '../../integrity/channel-integrity.adapter';
-import { sabangnetDetailDigests, type SabangnetDetailDigests } from '../../../../domain/sales-product/sales-product-reimport-merge';
+import { sabangnetDetailDigests } from '../../../../domain/sales-product/sales-product-reimport-merge';
 
 export class SabangnetWorkbookFormatError extends Error {}
 
@@ -328,12 +328,10 @@ function parseProducts(table: SheetTable): { rows: SabangnetProductRow[]; issues
 
 /**
  * 저장된 상품 원문(`SalesProduct.sourceRaw`)을 그 줄을 읽었던 매핑 그대로 다시 읽는다. 원문 키는 머리
- * 이름이고(같은 머리가 둘이면 뒤 것은 `머리#열번호`), 빈 칸은 없다. 상세는 원문에 없고 디지스트만 있다.
- * 디지스트를 남기기 전에 가져온 원문이면 `detailDigests` 는 null 이다.
+ * 이름이고(같은 머리가 둘이면 뒤 것은 `머리#열번호`), 빈 칸은 없다. 상세는 원문에 없고 디지스트만 있으며,
+ * 다시 읽을 때 디지스트 칸은 건너뛴다(상세의 장부는 Content revision 의 `source_digest` 다).
  */
-export function readSabangnetProductSource(
-  sourceRaw: unknown,
-): { row: SabangnetProductRow; detailDigests: SabangnetDetailDigests | null } | null {
+export function readSabangnetProductSource(sourceRaw: unknown): SabangnetProductRow | null {
   if (!sourceRaw || typeof sourceRaw !== 'object' || Array.isArray(sourceRaw)) return null;
   const entries = Object.entries(sourceRaw as Record<string, unknown>)
     .filter((entry): entry is [string, string] => typeof entry[1] === 'string');
@@ -341,16 +339,7 @@ export function readSabangnetProductSource(
   const columns = entries.filter(([key]) => !digestKeys.has(key));
   const headers = columns.map(([key]) => key.replace(/#\d+$/, ''));
   const parsed = productRowFromCells(headers, productColumnLayout(headers), 0, columns.map(([, value]) => value));
-  if ('issue' in parsed) return null;
-  const raw = sourceRaw as Record<string, unknown>;
-  const detailHtml = raw[SABANGNET_DETAIL_DIGEST_KEYS.detailHtml];
-  const extraDetailHtml = raw[SABANGNET_DETAIL_DIGEST_KEYS.extraDetailHtml];
-  return {
-    row: parsed,
-    detailDigests: typeof detailHtml === 'string' && typeof extraDetailHtml === 'string'
-      ? { detailHtml, extraDetailHtml }
-      : null,
-  };
+  return 'issue' in parsed ? null : parsed;
 }
 
 function trimTrailingBlanks(values: string[]): string[] {
