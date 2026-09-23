@@ -173,8 +173,8 @@ describe('v0.1.31:026 thumbnail registration attempts → thumbnail_update execu
       const noAccount = await productGeneration(tx);
       await attempt(tx, { generationId: noAccount.generation.id, status: 'failed' });
       const theirs = await listingGeneration(tx, { organizationId: OTHER_ORGANIZATION_ID });
-      await attempt(tx, { organizationId: OTHER_ORGANIZATION_ID, generationId: theirs.generation.id, status: 'running', createdAt: '2026-09-01T00:00:00Z' });
-      await attempt(tx, { organizationId: OTHER_ORGANIZATION_ID, generationId: theirs.generation.id, status: 'running', createdAt: '2026-09-02T00:00:00Z' });
+      await attempt(tx, { organizationId: OTHER_ORGANIZATION_ID, generationId: theirs.generation.id, status: 'running', ownerKey: 'capability-invocation:old', createdAt: '2026-09-01T00:00:00Z' });
+      await attempt(tx, { organizationId: OTHER_ORGANIZATION_ID, generationId: theirs.generation.id, status: 'running', ownerKey: 'capability-invocation:new', createdAt: '2026-09-02T00:00:00Z' });
       await account(tx);
       await account(tx);
       return { run: await migration.run(tx, { target: 'office' }), rows: await executions(tx) };
@@ -187,6 +187,26 @@ describe('v0.1.31:026 thumbnail registration attempts → thumbnail_update execu
     expect(result.run.details).toMatchObject({ movedByStatus: { reconciling: 1 } });
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]).toMatchObject({ organizationId: OTHER_ORGANIZATION_ID, status: 'reconciling', createdAt: new Date('2026-09-02T00:00:00Z') });
+  }, 60_000);
+
+  it('ends an unreported browser attempt as failed and keeps only owner-keyed live attempts reconciling', async () => {
+    const result = await withLegacyAttempts(async (tx) => {
+      const listed = await listingGeneration(tx);
+      const browser = await attempt(tx, { generationId: listed.generation.id, status: 'running', finishedAt: null, createdAt: '2026-09-01T00:00:00Z' });
+      const other = await listingGeneration(tx);
+      const agent = await attempt(tx, { generationId: other.generation.id, status: 'running', ownerKey: 'capability-invocation:a', requestHash: 'd'.repeat(64), finishedAt: null });
+      const run = await migration.run(tx, { target: 'office' });
+      const rows = await executions(tx);
+      return { run, rows, browser, agent };
+    });
+    expect(result.run.details).toMatchObject({ moved: 2, movedByStatus: { failed: 1, reconciling: 1, succeeded: 0 } });
+    expect(result.rows.find((row) => row.idempotencyKey === `thumbnail_update:legacy:${result.browser}`)).toMatchObject({
+      status: 'failed', providerOutcome: 'definitive_failure', lastErrorCode: 'thumbnail_rejected',
+      lastErrorMessage: '이관: 결과를 보고받지 못한 이전 화면 시도', completedAt: new Date('2026-09-01T00:02:00Z'),
+    });
+    expect(result.rows.find((row) => row.idempotencyKey === 'thumbnail_update:capability-invocation:a')).toMatchObject({
+      status: 'reconciling', providerOutcome: 'uncertain', completedAt: null,
+    });
   }, 60_000);
 
   it('keeps the listing in the payload only, so a moved attempt never takes the listing slot of a live execution', async () => {

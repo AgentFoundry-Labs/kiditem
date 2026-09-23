@@ -10,8 +10,10 @@ import type { DataMigration } from '../types';
  *
  * Each attempt becomes one execution. An Agent attempt keeps the runtime key
  * `thumbnail_update:<owner key>`, so the same owner-key replay finds it; a browser
- * attempt is keyed `thumbnail_update:legacy:<attempt id>`. A rerun inserts nothing. `uploaded` is a success, `failed` a definitive
- * failure, and anything else is an unknown outcome left `reconciling`. The frozen
+ * attempt is keyed `thumbnail_update:legacy:<attempt id>`. A rerun inserts nothing. `uploaded` is a success and
+ * `failed` a definitive failure. A live attempt with an owner key (Agent) is an
+ * unknown outcome left `reconciling`; one without (an old browser prepare the old
+ * screen showed as not registered) ends as a definitive failure. The frozen
  * payload is rebuilt from the generation, its workspace and its selected image
  * (`sha256: 'legacy'` — the bytes were never hashed). The account is the
  * workspace listing's account, else the organization's single active Coupang
@@ -57,7 +59,7 @@ export const moveThumbnailRegistrationAttemptsToExecutionsMigration: DataMigrati
           : null;
       if (!account) { skipped.account += 1; continue; }
 
-      const transition = legacyTransition(attempt.status);
+      const transition = legacyTransition(attempt);
       if (transition.status === 'reconciling' && newestLiveByGeneration.get(attempt.generationId) !== attempt.id) {
         skipped.supersededLive += 1;
         continue;
@@ -92,7 +94,7 @@ export const moveThumbnailRegistrationAttemptsToExecutionsMigration: DataMigrati
           ${executionIdempotencyKey(attempt)}, ${attempt.requestHash ?? payloadHash}, ${attempt.ownerIdempotencyKey},
           ${JSON.stringify(payload)}::jsonb, ${payloadHash},
           ${transition.status}, ${transition.providerOutcome}, ${JSON.stringify(resultJson)}::jsonb,
-          ${transition.errorCode}, ${transition.status === 'succeeded' ? null : attempt.errorMessage},
+          ${transition.errorCode}, ${transition.errorMessage},
           ${attempt.startedAt}, ${transition.status === 'reconciling' ? null : (attempt.finishedAt ?? attempt.updatedAt)},
           ${attempt.createdAt}, ${attempt.updatedAt}
         )
@@ -210,21 +212,33 @@ function executionIdempotencyKey(attempt: LegacyAttempt): string {
     : `thumbnail_update:legacy:${attempt.id}`;
 }
 
-function legacyTransition(status: string): {
+export const UNREPORTED_BROWSER_ATTEMPT_MESSAGE = '이관: 결과를 보고받지 못한 이전 화면 시도';
+
+/**
+ * 살아 있던 시도 중 owner 키가 없는 것은 옛 화면의 prepare 다. 옛 화면은 그것을 "등록 안 됨" 으로
+ * 보였으므로 끝난 실패로 옮긴다. owner 키가 있는(Agent) 살아 있는 시도만 `reconciling` 이다.
+ */
+function legacyTransition(attempt: Pick<LegacyAttempt, 'status' | 'ownerIdempotencyKey' | 'errorMessage'>): {
   status: 'succeeded' | 'failed' | 'reconciling';
   providerOutcome: 'succeeded' | 'definitive_failure' | 'uncertain';
   errorCode: 'thumbnail_rejected' | 'thumbnail_outcome_unknown' | null;
+  errorMessage: string | null;
 } {
-  if (status === 'uploaded') return { status: 'succeeded', providerOutcome: 'succeeded', errorCode: null };
-  if (status === 'failed') return { status: 'failed', providerOutcome: 'definitive_failure', errorCode: 'thumbnail_rejected' };
-  return { status: 'reconciling', providerOutcome: 'uncertain', errorCode: 'thumbnail_outcome_unknown' };
+  if (attempt.status === 'uploaded') return { status: 'succeeded', providerOutcome: 'succeeded', errorCode: null, errorMessage: null };
+  if (attempt.status === 'failed') {
+    return { status: 'failed', providerOutcome: 'definitive_failure', errorCode: 'thumbnail_rejected', errorMessage: attempt.errorMessage };
+  }
+  if (!attempt.ownerIdempotencyKey) {
+    return { status: 'failed', providerOutcome: 'definitive_failure', errorCode: 'thumbnail_rejected', errorMessage: UNREPORTED_BROWSER_ATTEMPT_MESSAGE };
+  }
+  return { status: 'reconciling', providerOutcome: 'uncertain', errorCode: 'thumbnail_outcome_unknown', errorMessage: attempt.errorMessage };
 }
 
 /** 살아 있는 실행은 생성마다 하나다 — 가장 최근 live attempt 만 `reconciling` 으로 옮긴다. */
 function newestLiveAttempts(attempts: readonly LegacyAttempt[]): Map<string, string> {
   const newest = new Map<string, LegacyAttempt>();
   for (const attempt of attempts) {
-    if (legacyTransition(attempt.status).status !== 'reconciling') continue;
+    if (legacyTransition(attempt).status !== 'reconciling') continue;
     const key = `${attempt.organizationId}:${attempt.generationId}`;
     const current = newest.get(key);
     if (!current || attempt.createdAt > current.createdAt || (attempt.createdAt.getTime() === current.createdAt.getTime() && attempt.id > current.id)) {

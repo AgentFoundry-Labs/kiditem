@@ -287,8 +287,11 @@ push drops `thumbnail_registration_attempts`. Each attempt becomes one
 `product_registration_executions` row with `execution_kind='thumbnail_update'`
 and idempotency key `thumbnail_update:<owner key>` for an Agent attempt (so the
 same owner-key replay finds it) or `thumbnail_update:legacy:<attempt id>`: `uploaded` becomes
-`succeeded`, `failed` becomes a `definitive_failure`, and anything else an
-`uncertain` execution left `reconciling`. The listing stays in the frozen payload
+`succeeded`, `failed` becomes a `definitive_failure`, a live attempt with an owner
+key (Agent) becomes an `uncertain` execution left `reconciling`, and a live attempt
+without one (an old browser prepare the old screen showed as not registered)
+becomes a `definitive_failure` with `이관: 결과를 보고받지 못한 이전 화면 시도`.
+Only owner-keyed live attempts compete for the newest-live slot. The listing stays in the frozen payload
 only (`channel_listing_id` is NULL), so a moved row never takes a listing's live
 slot or stockout check. The frozen payload comes from the
 generation, its workspace and its selected image (`sha256: 'legacy'`); the account
