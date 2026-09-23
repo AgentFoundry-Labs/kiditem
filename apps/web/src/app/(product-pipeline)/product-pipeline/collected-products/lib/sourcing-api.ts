@@ -19,13 +19,6 @@ export interface SellpiaInventorySearchItem {
   currentStock: number;
 }
 
-export interface ExternalWingSellpiaMatchPreview {
-  status: 'matched' | 'selection_required';
-  reason: string;
-  sellpiaMatch: (SellpiaInventorySearchItem & { quantity: number }) | null;
-  proposals: Array<SellpiaInventorySearchItem & { recommendedQuantity: number | null }>;
-}
-
 /**
  * 수집후보 하나의 등록 상태. **울타리**(`ProductRegistrationExecution`)가 근거다.
  *

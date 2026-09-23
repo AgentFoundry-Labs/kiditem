@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { ProductDetailResponse } from '../../collected-products/lib/sourcing-api';
 import {
-  candidateToWingProduct,
-} from '../../collected-products/lib/wing-registration-flow';
-import {
   WING_PRODUCT_DRAFT_DEFAULTS,
 } from '../../../../(channels)/_shared/adapters/coupang-wing/wing-registration-excel';
-import { WING_NOTICE_ORDER, wingProductFromDraft } from '../../collected-products/lib/wing-product-from-draft';
 import {
   candidateToMallProductDraft,
+  type MallNoticeField,
   mallProductDraftGaps,
   noticeFieldsFromBasics,
   type MallProductDraftDefaults,
 } from './mall-product-draft';
+
+/** 쿠팡 '어린이제품' 고시 칸 순서 — 기본 고시 문구를 우리 고시 항목 이름으로 옮기는 데만 쓴다. */
+const NOTICE_ORDER: readonly MallNoticeField[] = [
+  '품명및모델명', 'KC인증', '사용연령', '제조자', '제조국', '취급방법및주의사항', '품질보증기준',
+];
 
 const NEUTRAL_DEFAULTS: MallProductDraftDefaults = {
   brand: WING_PRODUCT_DRAFT_DEFAULTS.defaultBrand,
@@ -20,7 +22,7 @@ const NEUTRAL_DEFAULTS: MallProductDraftDefaults = {
   noticeCategory: WING_PRODUCT_DRAFT_DEFAULTS.noticeCategory,
   // WING 엑셀의 위치 배열을 우리 고시 항목 이름으로 옮긴다.
   noticeFields: Object.fromEntries(
-    WING_NOTICE_ORDER.map((field, index) => [field, WING_PRODUCT_DRAFT_DEFAULTS.defaultNoticeValues[index] ?? '']),
+    NOTICE_ORDER.map((field, index) => [field, WING_PRODUCT_DRAFT_DEFAULTS.defaultNoticeValues[index] ?? '']),
   ),
   defaultStock: 999,
 };
@@ -113,22 +115,6 @@ describe('mallProductDraftGaps', () => {
       detail: detail(), defaults: NEUTRAL_DEFAULTS, detailImageUrl: 'https://cdn/detail.jpg',
     });
     expect(mallProductDraftGaps(draft)).toEqual([]);
-  });
-});
-
-describe('wingProductFromDraft', () => {
-  it('reproduces candidateToWingProduct exactly — the seam does not change WING', () => {
-    const source = detail();
-    const legacy = candidateToWingProduct(
-      source, WING_PRODUCT_DRAFT_DEFAULTS, '[77390] 완구/취미>스포츠/야외완구>물총', 'https://cdn/detail.jpg',
-    );
-    const viaDraft = wingProductFromDraft(
-      candidateToMallProductDraft({
-        detail: source, defaults: NEUTRAL_DEFAULTS, detailImageUrl: 'https://cdn/detail.jpg',
-      }),
-      { categoryCell: '[77390] 완구/취미>스포츠/야외완구>물총' },
-    );
-    expect(viaDraft).toEqual(legacy);
   });
 });
 

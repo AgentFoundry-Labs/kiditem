@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  coupangWingAdapter,
   domeggookAdapter,
   elevenStAdapter,
   kidsnoteAdapter,
@@ -95,6 +96,26 @@ describe('몰 하나 실행', () => {
     const outcome = await runOneMallRegistration('coupang', item, filled());
     expect(outcome.status).toBe('blocked');
     expect(outcome.message).toContain('확인 창');
+  });
+});
+
+describe('확인 창을 거친 몰 하나 실행', () => {
+  const account = { id: 'account-1', channel: 'coupang', name: '본점', externalAccountId: null, vendorId: 'A00012345', sellerId: null, isPrimary: true };
+
+  it('확인 창의 값과 계정으로 폼만 채운다 — 등록 실행을 열지 않는다', async () => {
+    const send = vi.spyOn(coupangWingAdapter, 'send').mockResolvedValue(ok());
+    const outcome = await runOneMallRegistration('coupang', item, filled(), {
+      values: { wingCategoryKey: '64687', productName: '고친 이름' },
+      channelAccount: account,
+    });
+
+    expect(outcome.status).toBe('filled');
+    expect(send).toHaveBeenCalledWith({
+      items: [item],
+      values: expect.objectContaining({ wingCategoryKey: '64687', productName: '고친 이름' }),
+      channelAccount: account,
+    });
+    expect(send.mock.calls[0]![0].items[0]).not.toHaveProperty('targetExecution');
   });
 });
 

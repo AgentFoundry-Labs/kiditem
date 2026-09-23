@@ -209,6 +209,10 @@ describe('coupangWingAdapter', () => {
     expect(coupangWingAdapter.validate(executionItem(FROZEN), {})).toEqual([]);
   });
 
+  it('says the Coupang adapter’s own rejections in the operator’s words', () => {
+    expect(coupangWingAdapter.describeError?.('A Wing registration registers exactly one option.')).toContain('옵션 하나');
+  });
+
   it('stores only WING values on the registration target, never product facts', () => {
     const stored = coupangWingAdapter.adapterTargetInput?.({
       wingCategoryKey: '64687', productName: '이름', sellerProductName: '관리명', colorValue: '단일', quantityValue: '1', stock: '10',

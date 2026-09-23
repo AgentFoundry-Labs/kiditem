@@ -19,7 +19,7 @@ import { buildPublishPlan, summarizePublishRun } from '../lib/publish-plan';
 import {
   detectMallFormSubmitMalls,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
-import { useMallPublishRun } from '../hooks/use-mall-publish-run';
+import { useMallPublishRun } from '../../_shared/use-mall-publish-run';
 import { StepProducts } from './StepProducts';
 import { StepMalls } from './StepMalls';
 import { StepValues } from './StepValues';

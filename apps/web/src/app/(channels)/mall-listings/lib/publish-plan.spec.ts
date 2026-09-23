@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  buildPublishPlan,
-  collectManualSteps,
-  summarizePublishRun,
-  type PublishTask,
-} from './publish-plan';
+import { buildPublishPlan, collectManualSteps, summarizePublishRun } from './publish-plan';
+import type { PublishTask } from '../../_shared/use-mall-publish-run';
 import type {
   MallPublishAdapter,
   MallPublishItem,

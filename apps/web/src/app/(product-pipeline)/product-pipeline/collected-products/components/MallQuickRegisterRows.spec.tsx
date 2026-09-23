@@ -29,19 +29,19 @@ describe('MallQuickRegisterRows', () => {
   /** 값이 다 찬 상태 — 폼 몰 전부가 준비됨. */
   const allReady = () => mallRegisterReadiness(item, values('문구>팬시', '1800'));
 
-  const wingRow = (overrides: Partial<MallReadiness> = {}) => ({
-    row: {
-      mallKey: 'coupang',
-      mallName: '쿠팡 WING',
-      ready: true,
-      reasons: [],
-      missingFieldLabels: [],
-      summary: [],
-      ...overrides,
-    } as MallReadiness,
-    busy: false,
-    busyLabel: null,
-    result: null,
+  /** 확인 창이 필요한 몰(쿠팡 WING) 줄 — 훅이 다른 몰 줄 앞에 세운다. */
+  const confirmRow = (overrides: Partial<MallReadiness> = {}): MallReadiness => ({
+    mallKey: 'coupang',
+    mallName: '쿠팡 WING',
+    ready: true,
+    reasons: [],
+    missingFieldLabels: [],
+    summary: [],
+    ...overrides,
+  });
+  const withConfirmRow = () => ({
+    readiness: [confirmRow(), ...allReady()],
+    confirmationMallKeys: ['coupang'],
   });
 
   function renderRows(overrides: Partial<Parameters<typeof MallQuickRegisterRows>[0]> = {}) {
@@ -53,7 +53,7 @@ describe('MallQuickRegisterRows', () => {
       disabled: false,
       detailHref: '/product-pipeline/collected-products/c1',
       targetCount: 1,
-      wing: null,
+      confirmationMallKeys: [] as string[],
       onRunSelected: vi.fn(),
       onRunOne: vi.fn(),
       ...overrides,
@@ -131,11 +131,6 @@ describe('MallQuickRegisterRows', () => {
       expect(screen.getByRole('button', { name: '도매꾹만 등록' })).toHaveTextContent('등록');
     });
 
-    it('쿠팡 WING 도 혼자 보낼 수 있다', () => {
-      const props = renderRows({ wing: wingRow() });
-      fireEvent.click(screen.getByRole('button', { name: '쿠팡 WING만 등록' }));
-      expect(props.onRunOne).toHaveBeenCalledWith('coupang');
-    });
   });
 
   it('값을 묻는 칸이 없다 — 값은 상품 상세에 있다', () => {
@@ -253,42 +248,42 @@ describe('MallQuickRegisterRows', () => {
     });
   });
 
-  describe('쿠팡 WING 줄', () => {
-    it('다른 몰과 같은 줄로 서고 맨 위에 온다', () => {
-      renderRows({ wing: wingRow() });
+  describe('확인 창이 필요한 몰 줄', () => {
+    it('다른 몰과 같은 줄로 서고, 훅이 준 순서대로 맨 위에 온다', () => {
+      renderRows(withConfirmRow());
       const boxes = screen.getAllByRole('checkbox');
       // [0] 은 전체 선택이라 그 다음이 첫 줄이다.
       expect(boxes[1]).toHaveAttribute('aria-label', '쿠팡 WING');
     });
 
-    it('이 몰만 다른 점을 줄 안에 적는다', () => {
-      renderRows({ wing: wingRow() });
-      expect(screen.getByText('확인 창에서 검토 후 등록')).toBeInTheDocument();
-      expect(screen.getByText(/쿠팡 WING 은 맨 마지막에 확인 창이 뜹니다/)).toBeInTheDocument();
+    it('이 몰만 다른 점(확인 창)을 줄 안에 적는다 — 몰 이름을 박지 않는다', () => {
+      renderRows(withConfirmRow());
+      expect(within(rowOf('쿠팡 WING')).getByText('확인 창에서 계정 · 값을 정한 뒤 보냅니다')).toBeInTheDocument();
+      expect(screen.getByText(/확인 창이 필요한 몰은 맨 마지막에 확인 창이 뜹니다/)).toBeInTheDocument();
     });
 
-    it('선택 개수에 포함되고 보낼 때 함께 넘어간다', () => {
+    it('선택 개수에 포함되고 보낼 때 함께 넘어간다 — 확인 창은 화면이 연다', () => {
       const before = renderRows();
       const base = before.readiness.filter((row) => row.ready).length;
       cleanup();
 
-      const props = renderRows({ wing: wingRow() });
+      const props = renderRows(withConfirmRow());
       expect(screen.getByText(`${base + 1}/${base + 1}개 몰 선택`)).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: /몰에 등록/ }));
       expect(props.sentMallKeys()).toContain('coupang');
     });
 
     it('빼고 보낼 수 있다 — 쿠팡만 나중에 하고 싶을 때', () => {
-      const props = renderRows({ wing: wingRow() });
+      const props = renderRows(withConfirmRow());
       fireEvent.click(screen.getByLabelText('쿠팡 WING'));
       fireEvent.click(screen.getByRole('button', { name: /몰에 등록/ }));
       expect(props.sentMallKeys()).not.toContain('coupang');
     });
 
-    it('준비 중에는 제 문구를 배지에 쓴다', () => {
-      renderRows({ wing: { ...wingRow(), busy: true, busyLabel: '상세페이지 생성 중' } });
-      expect(screen.getByText('상세페이지 생성 중')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '몰을 열어 채우는 중' })).toBeDisabled();
+    it('혼자 보낼 수 있다 — 그 몰키만 넘긴다', () => {
+      const props = renderRows(withConfirmRow());
+      fireEvent.click(within(rowOf('쿠팡 WING')).getByRole('button'));
+      expect(props.onRunOne).toHaveBeenCalledWith('coupang');
     });
   });
 

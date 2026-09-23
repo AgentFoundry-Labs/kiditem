@@ -1,12 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registrationTargetApi } from '@/lib/registration-target-api';
-import { getMallPublishAdapter } from '../../_shared/adapters';
-import { executeTargetRegistration } from '../../_shared/target-registration-execution';
-import { listRegistrationTargetExecutions } from '../../_shared/registration-execution-api';
-import { useMallPublishRun } from './use-mall-publish-run';
-import type { MallPublishAdapter, MallPublishItem } from '../../_shared/mall-publish-adapter';
-import type { PublishTask } from '../lib/publish-plan';
+import { getMallPublishAdapter } from './adapters';
+import { executeTargetRegistration } from './target-registration-execution';
+import { listRegistrationTargetExecutions } from './registration-execution-api';
+import { useMallPublishRun, type PublishTask } from './use-mall-publish-run';
+import type { MallPublishAdapter, MallPublishItem } from './mall-publish-adapter';
 import type { TargetExecutionResult } from '@kiditem/shared/sales-product';
 
 const mocks = vi.hoisted(() => ({
@@ -14,17 +13,18 @@ const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   history: vi.fn(),
   resolve: vi.fn(),
+  update: vi.fn(),
 }));
 
-vi.mock('../../_shared/adapters', () => ({ getMallPublishAdapter: mocks.getAdapter }));
-vi.mock('../../_shared/target-registration-execution', () => ({
+vi.mock('./adapters', () => ({ getMallPublishAdapter: mocks.getAdapter }));
+vi.mock('./target-registration-execution', () => ({
   executeTargetRegistration: mocks.execute,
   isActiveTargetExecution: (execution: { status: string }) => ['prepared', 'executing', 'reconciling'].includes(execution.status),
 }));
-vi.mock('../../_shared/registration-execution-api', () => ({
+vi.mock('./registration-execution-api', () => ({
   listRegistrationTargetExecutions: mocks.history,
 }));
-vi.mock('@/lib/registration-target-api', () => ({ registrationTargetApi: { resolve: mocks.resolve } }));
+vi.mock('@/lib/registration-target-api', () => ({ registrationTargetApi: { resolve: mocks.resolve, update: mocks.update } }));
 
 const ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
 const TARGET_ID = '33333333-3333-4333-8333-333333333333';
@@ -134,6 +134,71 @@ describe('useMallPublishRun target execution', () => {
     expect(mocks.resolve).not.toHaveBeenCalled();
     expect(adapter.send).not.toHaveBeenCalled();
     expect(result.current.tasks[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('계정 식별자') });
+  });
+});
+
+describe('useMallPublishRun adapter values on the registration target', () => {
+  const savedTarget = {
+    id: TARGET_ID, salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID, version: 4,
+    registrationInput: { mallCategory: null, mallFields: { returnFee: '3000' }, adapter: { kidsnote: { keep: 'me' }, other: { x: 1 } } },
+    selectedThumbnailAssetId: null,
+    selectedDetailPageRevisionId: null,
+    selectedOptions: [{ salesProductOptionId: '77777777-7777-4777-8777-777777777777' }],
+  } as unknown as Awaited<ReturnType<typeof registrationTargetApi.resolve>>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolve.mockResolvedValue(savedTarget);
+    mocks.update.mockResolvedValue({ ...savedTarget, version: 5 });
+    mocks.history.mockResolvedValue([]);
+    mocks.execute.mockResolvedValue({
+      execution: { status: 'succeeded' },
+      outcome: { ok: true, submitted: true, confirmed: false, manualSteps: [], warnings: [] },
+      adapterCalled: true,
+    });
+  });
+
+  it('stores the adapter’s mall values on the target before the fenced run and executes the saved version', async () => {
+    mocks.getAdapter.mockReturnValue({ ...adapter, adapterTargetInput: (values: Record<string, string>) => ({ category: values.category }) });
+    const { result } = renderHook(() => useMallPublishRun());
+
+    let finished: Awaited<ReturnType<typeof result.current.start>> = [];
+    await act(async () => { finished = await result.current.start([task({ values: { category: 'toy' } })]); });
+
+    expect(mocks.update).toHaveBeenCalledWith(TARGET_ID, {
+      expectedVersion: 4,
+      registrationInput: {
+        mallCategory: null,
+        mallFields: { returnFee: '3000' },
+        adapter: { kidsnote: { keep: 'me', category: 'toy' }, other: { x: 1 } },
+      },
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      selectedOptions: [{ salesProductOptionId: '77777777-7777-4777-8777-777777777777' }],
+    });
+    expect(mocks.execute).toHaveBeenCalledWith(expect.objectContaining({ targetId: TARGET_ID, expectedVersion: 5 }));
+    expect(mocks.update.mock.invocationCallOrder[0]).toBeLessThan(mocks.execute.mock.invocationCallOrder[0]!);
+    expect(finished[0]).toMatchObject({ mallKey: 'kidsnote', status: 'succeeded' });
+  });
+
+  it('leaves the target alone when the adapter has nothing to store', async () => {
+    mocks.getAdapter.mockReturnValue({ ...adapter, adapterTargetInput: () => null });
+    const { result } = renderHook(() => useMallPublishRun());
+
+    await act(async () => { await result.current.start([task()]); });
+
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 4 }));
+  });
+
+  it('lets the adapter say a provider rejection in the operator’s words', async () => {
+    mocks.getAdapter.mockReturnValue({ ...adapter, describeError: (message: string) => `번역: ${message}` });
+    mocks.execute.mockRejectedValue(new Error('A registration registers exactly one option.'));
+    const { result } = renderHook(() => useMallPublishRun());
+
+    await act(async () => { await result.current.start([task()]); });
+
+    expect(result.current.tasks[0]).toMatchObject({ status: 'failed', error: '번역: A registration registers exactly one option.' });
   });
 });
 

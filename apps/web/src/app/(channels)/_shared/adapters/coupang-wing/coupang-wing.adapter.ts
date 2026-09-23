@@ -17,6 +17,7 @@ import type {
   MallSendOutcome,
 } from '../../mall-publish-adapter';
 import { getWingCategoryDefinition, WING_CATEGORY_DEFINITIONS } from './wing-category-presets';
+import { translateWingError } from './wing-error-message';
 import { sendWingForm, WingFormNotReachedError, wingFormOutcome } from './wing-form';
 import {
   defaultWingMallValues,
@@ -229,6 +230,7 @@ export const coupangWingAdapter: MallPublishAdapter = {
   fields: FIELDS,
   confirmation,
   adapterTargetInput: wingTargetInput,
+  describeError: translateWingError,
 
   preview(item, values): MallPreviewRow[] {
     const category = getWingCategoryDefinition(values.wingCategoryKey ?? '');

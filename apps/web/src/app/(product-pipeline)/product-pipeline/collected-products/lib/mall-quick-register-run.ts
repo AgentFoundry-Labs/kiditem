@@ -3,7 +3,7 @@ import {
   valuesForMall,
   type MallRegisterValues,
 } from '@/app/(channels)/_shared/mall-register-values';
-import type { MallPublishItem } from '@/app/(channels)/_shared/mall-publish-adapter';
+import type { MallPublishItem, MallSendChannelAccount } from '@/app/(channels)/_shared/mall-publish-adapter';
 import { isApiError } from '@/lib/api-error';
 
 /**
@@ -51,11 +51,18 @@ interface RunOptions {
   onOutcome?: (outcome: MallRunOutcome) => void;
 }
 
+/** 확인 창(`adapter.confirmation`)에서 사람이 정한 값과 계정. 폼만 채울 때 어댑터에 그대로 넘긴다. */
+export interface ConfirmedMallInput {
+  values: Readonly<Record<string, string>>;
+  channelAccount: MallSendChannelAccount;
+}
+
 /** 몰 하나. 던지지 않는다 — 실패도 결과의 한 줄이다. */
 export async function runOneMallRegistration(
   mallKey: string,
   item: MallPublishItem | null,
   values: MallRegisterValues,
+  confirmed: ConfirmedMallInput | null = null,
 ): Promise<MallRunOutcome> {
   const adapter = getFormMallAdapter(mallKey);
   if (!adapter) {
@@ -68,7 +75,7 @@ export async function runOneMallRegistration(
     };
   }
   const base = { mallKey, mallName: adapter.mallName };
-  if (adapter.confirmation) {
+  if (adapter.confirmation && !confirmed) {
     return {
       ...base,
       status: 'blocked',
@@ -80,7 +87,7 @@ export async function runOneMallRegistration(
     return { ...base, status: 'blocked', message: '보낼 상품이 없습니다.', manualSteps: [] };
   }
 
-  const merged = valuesForMall(values, mallKey);
+  const merged = { ...valuesForMall(values, mallKey), ...(confirmed?.values ?? {}) };
   // 어댑터가 막으면 확장을 부르지 않는다. 반쯤 빈 폼이 열리면 사람이 그대로
   // 제출할 수 있고, 그건 우리가 만든 사고다.
   const blocked = adapter.validate(item, merged);
@@ -89,7 +96,11 @@ export async function runOneMallRegistration(
   }
 
   try {
-    const outcome = await adapter.send({ items: [item], values: merged });
+    const outcome = await adapter.send({
+      items: [item],
+      values: merged,
+      ...(confirmed ? { channelAccount: confirmed.channelAccount } : {}),
+    });
     if (!outcome.ok) {
       return {
         ...base,

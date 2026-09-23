@@ -2,11 +2,34 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { registrationTargetApi } from '@/lib/registration-target-api';
-import { executeTargetRegistration, isActiveTargetExecution } from '../../_shared/target-registration-execution';
-import { listRegistrationTargetExecutions } from '../../_shared/registration-execution-api';
-import { getMallPublishAdapter } from '../../_shared/adapters';
-import type { MallPublishItem, MallSendOutcome } from '../../_shared/mall-publish-adapter';
-import type { PublishTask, PublishTaskStatus } from '../lib/publish-plan';
+import { executeTargetRegistration, isActiveTargetExecution } from './target-registration-execution';
+import { listRegistrationTargetExecutions } from './registration-execution-api';
+import { getMallPublishAdapter } from './adapters';
+import type { MallPublishAdapter, MallPublishItem, MallSendOutcome } from './mall-publish-adapter';
+
+/**
+ * 몰 등록 실행(등록 마법사 · 수집상품 화면이 같은 것을 쓴다, KID-321). 작업 하나 = 몰 하나 × 상품 묶음.
+ * 폼 · API 몰은 상품마다 등록 대상 실행(준비 → 시작 → 어댑터 → 결과)을 지나고, 양식 파일(`sheet`) 몰은
+ * 등록 실행 없이 파일만 만든다.
+ */
+export type PublishTaskStatus = 'pending' | 'running' | 'reconciling' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface PublishTask {
+  id: string;
+  mallKey: string;
+  mallName: string;
+  /** Exact ChannelAccount used to freeze a target execution. Null means the mall has no configured account. */
+  channelAccountId: string | null;
+  items: MallPublishItem[];
+  /** 이 몰의 값 묶음. 실행기가 화면 상태를 다시 읽지 않도록 작업이 들고 간다. */
+  values: Record<string, string>;
+  /** 실제로 편집한 값만 실행 target에 override로 보낸다. */
+  adapterValues: Record<string, string>;
+  status: PublishTaskStatus;
+  outcome: MallSendOutcome | null;
+  error: string | null;
+}
+
 
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -51,6 +74,36 @@ function latestActive(history: Awaited<ReturnType<typeof listRegistrationTargetE
     .find(isActiveTargetExecution);
 }
 
+type RegistrationTarget = Awaited<ReturnType<typeof registrationTargetApi.resolve>>;
+
+/**
+ * 어댑터가 등록 대상에 남길 이 몰 값(ADR-0020)을 실행 전에 저장한다. 등록 실행 준비가 그 값을 얼린다 —
+ * 저장하지 않고 실행하면 서버는 옛 값을 얼린다. 다른 몰의 값과 이 몰의 다른 칸은 그대로 둔다.
+ */
+async function saveAdapterTargetInput(
+  target: RegistrationTarget,
+  adapter: MallPublishAdapter,
+  mallKey: string,
+  values: Readonly<Record<string, string>>,
+): Promise<RegistrationTarget> {
+  const input = adapter.adapterTargetInput?.(values);
+  if (!input) return target;
+  const registrationInput = target.registrationInput;
+  return registrationTargetApi.update(target.id, {
+    expectedVersion: target.version,
+    registrationInput: {
+      ...registrationInput,
+      adapter: {
+        ...registrationInput.adapter,
+        [mallKey]: { ...(registrationInput.adapter[mallKey] ?? {}), ...input },
+      },
+    },
+    selectedThumbnailAssetId: target.selectedThumbnailAssetId,
+    selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
+    selectedOptions: target.selectedOptions,
+  });
+}
+
 async function executeItem(
   task: PublishTask,
   item: MallPublishItem,
@@ -73,10 +126,11 @@ async function executeItem(
   if (!salesProductId) {
     throw new Error('이 수집상품에 연결된 판매상품 초안이 없습니다.');
   }
-  const target = await registrationTargetApi.resolve({
+  const resolved = await registrationTargetApi.resolve({
     salesProductId,
     channelAccountId: task.channelAccountId,
   });
+  const target = await saveAdapterTargetInput(resolved, adapter, task.mallKey, task.values);
   const history = await listRegistrationTargetExecutions(target.id);
   const activeExecution = latestActive(history);
   const adapterValues = task.adapterValues;
@@ -118,8 +172,10 @@ export function useMallPublishRun() {
   }, []);
 
   const start = useCallback(
-    async (queue: readonly PublishTask[]) => {
-      if (runningRef.current || queue.length === 0) return;
+    /** 끝난 작업들을 돌려준다(실행 중이면 빈 배열). 화면은 이 값이나 `tasks` 로 결과를 읽는다. */
+    async (queue: readonly PublishTask[]): Promise<PublishTask[]> => {
+      if (runningRef.current || queue.length === 0) return [];
+      const finished: PublishTask[] = [];
       runningRef.current = true;
       cancelledRef.current = false;
       setTasks(queue.map((task) => ({ ...task, status: 'pending', outcome: null, error: null })));
@@ -129,11 +185,14 @@ export function useMallPublishRun() {
         for (const task of queue) {
           if (cancelledRef.current) {
             patch(task.id, { status: 'cancelled' });
+            finished.push({ ...task, status: 'cancelled' });
             continue;
           }
           const adapter = getMallPublishAdapter(task.mallKey);
           if (!adapter) {
-            patch(task.id, { status: 'failed', error: `${task.mallName} 어댑터가 없습니다.` });
+            const error = `${task.mallName} 어댑터가 없습니다.`;
+            patch(task.id, { status: 'failed', error });
+            finished.push({ ...task, status: 'failed', error });
             continue;
           }
           patch(task.id, { status: 'running', error: null });
@@ -159,18 +218,22 @@ export function useMallPublishRun() {
             }
           } catch (error) {
             finalStatus = 'failed';
-            errorMessage = toMessage(error);
+            const message = toMessage(error);
+            errorMessage = adapter.describeError?.(message) ?? message;
           }
-          patch(task.id, {
+          const result = {
             status: finalStatus,
             outcome: itemOutcomes.length > 0 ? combineOutcomes(itemOutcomes) : null,
             error: errorMessage,
-          });
+          };
+          patch(task.id, result);
+          finished.push({ ...task, ...result });
         }
       } finally {
         runningRef.current = false;
         setRunning(false);
       }
+      return finished;
     },
     [patch],
   );

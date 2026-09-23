@@ -253,6 +253,8 @@ export interface MallPublishAdapter {
    * 몰 전용 값만 담는다 — 상품 사실은 판매상품이 정본이다. 저장할 것이 없으면 null.
    */
   adapterTargetInput?(values: Readonly<Record<string, string>>): Record<string, unknown> | null;
+  /** 이 몰(어댑터)이 돌려받은 영어 거절을 사람 말로 옮긴다. 모르는 문구는 그대로 둔다. */
+  describeError?(message: string): string;
 }
 
 /** 어댑터 기본값으로 채운 값 묶음. 화면 진입 시 한 번 만든다. */
