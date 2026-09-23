@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type ProductRegistrationExecution } from '@prisma/client';
 import type { OperationStatus, ProviderOutcome } from '@kiditem/shared/registration-execution';
 import { THUMBNAIL_UPDATE_EXECUTION_KIND } from '@kiditem/shared/thumbnail-execution';
-import { FactConflictError, FactNotFoundError } from '../../../../common/errors/fact-errors';
+import { FactConflictError, FactInputError, FactNotFoundError } from '../../../../common/errors/fact-errors';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ThumbnailExecutionPersistencePort,
@@ -25,7 +25,12 @@ const LIVE_STATUSES = ['prepared', 'executing', 'reconciling'] as const;
 export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionPersistencePort {
   constructor(private readonly prisma: PrismaService) {}
 
-  async readAccountEvidence(input: { organizationId: string; channelListingId: string | null; salesProductId: string | null }) {
+  async readAccountEvidence(input: {
+    organizationId: string;
+    pickedListingId: string | null;
+    workspaceListingId: string | null;
+    salesProductId: string | null;
+  }) {
     const activeAccounts = await this.prisma.channelAccount.findMany({
       where: { organizationId: input.organizationId, channel: COUPANG_CHANNEL, status: 'active' },
       select: { id: true },
@@ -37,26 +42,35 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       isActive: true,
       channelAccount: { channel: COUPANG_CHANNEL, status: 'active' },
     } satisfies Prisma.ChannelListingWhereInput;
+    const select = { id: true, channelAccountId: true, salesProductId: true } as const;
+    const evidence = (listing: { id: string; channelAccountId: string } | null) => ({
+      listingAccountId: listing?.channelAccountId ?? null,
+      channelListingId: listing?.id ?? null,
+      activeCoupangAccountIds,
+    });
 
-    if (input.channelListingId) {
-      const listing = await this.prisma.channelListing.findFirst({
-        where: { ...listingWhere, id: input.channelListingId },
-        select: { id: true, channelAccountId: true },
-      });
+    if (input.pickedListingId) {
+      const listing = await this.prisma.channelListing.findFirst({ where: { ...listingWhere, id: input.pickedListingId }, select });
+      const belongs = listing
+        && (listing.id === input.workspaceListingId
+          || (input.salesProductId !== null && listing.salesProductId === input.salesProductId));
+      if (!listing || !belongs) throw new FactInputError('고른 listing 은 이 상품의 쿠팡 listing 이 아닙니다');
+      return evidence(listing);
+    }
+    if (input.workspaceListingId) {
+      const listing = await this.prisma.channelListing.findFirst({ where: { ...listingWhere, id: input.workspaceListingId }, select });
       if (!listing) throw new FactNotFoundError('쿠팡 listing 을 찾을 수 없습니다');
-      return { listingAccountId: listing.channelAccountId, channelListingId: listing.id, activeCoupangAccountIds };
+      return evidence(listing);
     }
     if (input.salesProductId) {
       const listings = await this.prisma.channelListing.findMany({
         where: { ...listingWhere, salesProductId: input.salesProductId },
-        select: { id: true, channelAccountId: true },
+        select,
         take: 2,
       });
-      if (listings.length === 1) {
-        return { listingAccountId: listings[0]!.channelAccountId, channelListingId: listings[0]!.id, activeCoupangAccountIds };
-      }
+      if (listings.length === 1) return evidence(listings[0]!);
     }
-    return { listingAccountId: null, channelListingId: null, activeCoupangAccountIds };
+    return evidence(null);
   }
 
   async createExecuting(input: {

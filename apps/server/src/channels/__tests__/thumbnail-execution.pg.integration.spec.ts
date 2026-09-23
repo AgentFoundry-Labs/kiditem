@@ -416,11 +416,24 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
         .toEqual({ kind: 'invalid', message: '쿠팡 계정이 여럿입니다 — listing을 고르세요' });
     });
 
-    it('refuses a picked listing that is not an active Coupang listing of the organization', async () => {
-      const product = await salesProductGeneration();
+    it('accepts a picked listing only when it is an active Coupang listing of this product or the workspace itself', async () => {
+      const product = await salesProductGeneration({ listings: 1 });
+      const other = await salesProductGeneration({ listings: 1 });
       const theirs = await listingGeneration(OTHER_ORGANIZATION_ID);
-      expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: product.generation.id, channelListingId: theirs.listing.id })))
-        .toMatchObject({ kind: 'not_found' });
+      const inactive = await prisma.channelListing.create({
+        data: { organizationId: ORG, channelAccountId: product.listings[0]!.channelAccountId, externalId: randomUUID(), salesProductId: product.product.id, isActive: false },
+      });
+      const pick = (generationId: string, channelListingId: string) =>
+        rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId, channelListingId }));
+
+      expect(await pick(product.generation.id, other.listings[0]!.id)).toMatchObject({ kind: 'invalid' });
+      expect(await pick(product.generation.id, theirs.listing.id)).toMatchObject({ kind: 'invalid' });
+      expect(await pick(product.generation.id, inactive.id)).toMatchObject({ kind: 'invalid' });
+
+      const workspace = await listingGeneration();
+      await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: workspace.generation.id, channelListingId: workspace.listing.id }))
+        .resolves.toMatchObject({ generationId: workspace.generation.id });
+      expect(await pick(workspace.generation.id, product.listings[0]!.id)).toMatchObject({ kind: 'invalid' });
     });
   });
 });

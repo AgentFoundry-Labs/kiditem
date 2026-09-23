@@ -233,7 +233,8 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     const thumbnail: RegistrableThumbnail = await this.content.read({ organizationId, generationId });
     const evidence = await owned(() => this.persistence.readAccountEvidence({
       organizationId,
-      channelListingId: requestedListingId ?? thumbnail.channelListingId,
+      pickedListingId: requestedListingId,
+      workspaceListingId: thumbnail.channelListingId,
       salesProductId: thumbnail.salesProductId,
     }));
     const account = resolveThumbnailAccount(evidence);

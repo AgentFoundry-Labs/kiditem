@@ -22,10 +22,15 @@ export type ThumbnailExecutionRow = Readonly<{
  * 생성 id 로 잡은 advisory lock 안에서 한다.
  */
 export interface ThumbnailExecutionPersistencePort {
-  /** 조직의 활성 쿠팡 계정과, listing 이 주어지면 그 listing 의 계정(조직 범위 확인 포함). */
+  /**
+   * 조직의 활성 쿠팡 계정과 반영할 listing. 운영자가 고른 listing 은 이 조직의 살아 있는 쿠팡
+   * listing 이면서 이 판매상품의 것이거나 작업공간 자신의 listing 이어야 한다(아니면 입력 오류).
+   * 고르지 않았으면 작업공간 listing(살아 있지 않으면 없음 오류), 없으면 판매상품의 쿠팡 listing 이다.
+   */
   readAccountEvidence(input: {
     organizationId: string;
-    channelListingId: string | null;
+    pickedListingId: string | null;
+    workspaceListingId: string | null;
     salesProductId: string | null;
   }): Promise<{ listingAccountId: string | null; channelListingId: string | null; activeCoupangAccountIds: string[] }>;
   /** 새 실행을 `executing` 으로 만든다. owner 키가 이미 있으면 그 실행을 `replay` 로 돌려준다. */
