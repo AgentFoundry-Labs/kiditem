@@ -36,6 +36,12 @@ export interface SalesProductDraftBasics {
   modelName?: string | null;
   keywords?: string[];
   kcStatus?: 'unknown' | 'exists' | 'none';
+  ownCode?: string | null;
+  taxType?: 'taxable' | 'tax_free';
+  deliveryFeeType?: 'free' | 'collect' | 'prepay' | 'collect_or_prepay' | null;
+  deliveryFee?: number | null;
+  /** 사람이 적은 KC 인증. 번호가 있을 때만 넘긴다. */
+  certifications?: { number: string; issuer: string | null; field: string | null }[];
 }
 
 /**

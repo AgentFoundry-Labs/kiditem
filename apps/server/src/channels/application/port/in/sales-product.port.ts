@@ -42,6 +42,11 @@ export interface SalesProductDraftSource {
     modelName?: string | null;
     keywords?: string[];
     kcStatus?: 'unknown' | 'exists' | 'none';
+    ownCode?: string | null;
+    taxType?: 'taxable' | 'tax_free';
+    deliveryFeeType?: 'free' | 'collect' | 'prepay' | 'collect_or_prepay' | null;
+    deliveryFee?: number | null;
+    certifications?: { number: string; issuer: string | null; field: string | null }[];
   };
   /** 직접 작성이 받은 판매가 · 정상가. 모든 옵션에 같은 값으로 들어간다. */
   salePrice?: number | null;

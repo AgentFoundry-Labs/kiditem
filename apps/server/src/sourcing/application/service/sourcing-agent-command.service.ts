@@ -181,9 +181,12 @@ function manualDraftFacts(data: RegisterManualProductCommand): SalesProductDraft
   const primaryFirst = imageUrls.includes(thumbnailUrl!)
     ? [thumbnailUrl!, ...imageUrls.filter((url) => url !== thumbnailUrl)]
     : imageUrls;
-  const kcStatus = data.kcCertificationStatus === 'exists' || data.kcCertificationStatus === 'none'
-    ? data.kcCertificationStatus
-    : 'unknown';
+  const kcNumber = trimmedOrNull(data.kcCertificationNumber);
+  // 인증 번호를 적었으면 인증이 있는 것이다 — 번호 없이 '있음'만 고른 경우도 그대로 둔다.
+  const kcStatus = kcNumber ? 'exists'
+    : data.kcCertificationStatus === 'exists' || data.kcCertificationStatus === 'none'
+      ? data.kcCertificationStatus
+      : 'unknown';
   return {
     sourceRecordId: null,
     name: title,
@@ -205,6 +208,15 @@ function manualDraftFacts(data: RegisterManualProductCommand): SalesProductDraft
       modelName: trimmedOrNull(data.modelName),
       keywords: uniqueNonEmptyStrings(data.keywords ?? []).slice(0, 10),
       kcStatus,
+      ownCode: trimmedOrNull(data.ownCode),
+      taxType: data.taxType === 'tax_free' ? 'tax_free' : 'taxable',
+      deliveryFeeType: deliveryFeeTypeOrNull(data.deliveryFeeType),
+      deliveryFee: typeof data.deliveryFee === 'number' && Number.isFinite(data.deliveryFee) && data.deliveryFee >= 0
+        ? Math.round(data.deliveryFee)
+        : null,
+      certifications: kcNumber
+        ? [{ number: kcNumber, issuer: trimmedOrNull(data.certificationIssuer), field: trimmedOrNull(data.certificationField) }]
+        : [],
     },
     salePrice: positiveOrNull(data.salePrice),
     normalPrice: positiveOrNull(data.tagPrice),
@@ -214,6 +226,15 @@ function manualDraftFacts(data: RegisterManualProductCommand): SalesProductDraft
 /** 0 이하 · 숫자가 아니면 null. 사방넷 가격 칸은 "안 적음"과 0원을 구분한다. */
 function positiveOrNull(value: number | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+}
+
+const DELIVERY_FEE_TYPES = ['free', 'collect', 'prepay', 'collect_or_prepay'] as const;
+
+function deliveryFeeTypeOrNull(value: string | undefined): (typeof DELIVERY_FEE_TYPES)[number] | null {
+  const text = value?.trim();
+  return (DELIVERY_FEE_TYPES as readonly string[]).includes(text ?? '')
+    ? text as (typeof DELIVERY_FEE_TYPES)[number]
+    : null;
 }
 
 function trimmedOrNull(value: string | undefined): string | null {

@@ -192,6 +192,57 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
     expect(draft.options.map((option) => option.salePrice)).toEqual([12_000]);
     await expect(prisma.salesProduct.count()).resolves.toBe(1);
   });
+  it('⭐ 직접 작성 폼에 적은 칸이 초안에 그대로 남는다 — 자체코드 · 과세 · 배송비 · 인증 · 가격', async () => {
+    const gateway = {
+      registerUploadedDetailPage: async (input: { salesProductId: string }) => ({
+        salesProductId: input.salesProductId, detailGenerationId: 'uploaded', contentWorkspaceId: null, href: '/x',
+      }),
+      startProductGeneration: async () => { throw new Error('not used'); },
+    };
+    const commands = new SourcingAgentCommandService(candidates, gateway as never, realSalesProductDraftPort(prisma));
+
+    const { salesProductId } = await commands.createProductGeneration({
+      title: '폼을 다 채운 상품',
+      imageUrls: ['https://cdn.example.com/1.jpg'],
+      detailPageImageUrls: ['https://cdn.example.com/detail.jpg'],
+      category: '완구',
+      target: '초등학생',
+      ageGroup: 'age-8-plus',
+      productSize: '30cm',
+      optionNames: ['빨강', '파랑'],
+      keywords: ['다트'],
+      salePrice: 12_000,
+      tagPrice: 15_000,
+      brand: '키드아이템',
+      manufacturer: '키드공장',
+      originCountry: '중국',
+      modelName: 'KD-1',
+      ownCode: 'OWN-FORM-1',
+      taxType: 'tax_free',
+      deliveryFeeType: 'prepay',
+      deliveryFee: 3000,
+      kcCertificationStatus: 'exists',
+      kcCertificationNumber: 'CB061R1234-1001',
+      certificationIssuer: 'KTR',
+      certificationField: '어린이제품',
+    }, TEST_ORGANIZATION_ID, TEST_USER_ID, { idempotencyKey: 'full-form', requestHash: 'f'.repeat(64) });
+
+    const draft = await prisma.salesProduct.findUniqueOrThrow({
+      where: { id: salesProductId },
+      include: { options: { orderBy: { sortOrder: 'asc' } } },
+    });
+    expect(draft).toMatchObject({
+      status: 'draft', code: null, sourceRecordId: null, name: '폼을 다 채운 상품',
+      standardCategory: '완구', targetAudience: '초등학생', ageGroup: 'age-8-plus', productSize: '30cm',
+      keywords: ['다트'], brand: '키드아이템', manufacturer: '키드공장', originCountry: '중국', modelName: 'KD-1',
+      ownCode: 'OWN-FORM-1', taxType: 'tax_free', deliveryFeeType: 'prepay', deliveryFee: 3000, kcStatus: 'exists',
+      certifications: [{ number: 'CB061R1234-1001', issuer: 'KTR', field: '어린이제품' }],
+    });
+    expect(draft.options.map((option) => [option.values, option.salePrice, option.normalPrice])).toEqual([
+      [['빨강'], 12_000, 15_000],
+      [['파랑'], 12_000, 15_000],
+    ]);
+  });
 });
 
 function receiptInput() {
