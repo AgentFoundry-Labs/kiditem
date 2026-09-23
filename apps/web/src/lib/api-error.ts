@@ -8,6 +8,8 @@ export type ApiErrorDetails = Readonly<{
   retryAfterMs?: number;
   /** The sales product a duplicate refusal collides with, from its `existing.salesProductId`. */
   existingSalesProductId?: string;
+  /** That product's status (`existing.salesProductStatus`), so the link can say what it opens. */
+  existingSalesProductStatus?: string;
 }>;
 
 export class ApiError extends Error {

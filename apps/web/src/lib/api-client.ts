@@ -413,8 +413,14 @@ export const apiClient = {
 };
 
 /** 중복 거절(409)이 가리키는 기존 판매 상품. 화면이 그 초안으로 가는 링크를 낸다(KID-313). */
-function existingSalesProductDetail(existing: unknown): { existingSalesProductId?: string } {
+function existingSalesProductDetail(
+  existing: unknown,
+): { existingSalesProductId?: string; existingSalesProductStatus?: string } {
   if (!existing || typeof existing !== 'object') return {};
-  const salesProductId = (existing as Record<string, unknown>).salesProductId;
-  return typeof salesProductId === 'string' && salesProductId ? { existingSalesProductId: salesProductId } : {};
+  const { salesProductId, salesProductStatus } = existing as Record<string, unknown>;
+  if (typeof salesProductId !== 'string' || !salesProductId) return {};
+  return {
+    existingSalesProductId: salesProductId,
+    ...(typeof salesProductStatus === 'string' && salesProductStatus ? { existingSalesProductStatus: salesProductStatus } : {}),
+  };
 }

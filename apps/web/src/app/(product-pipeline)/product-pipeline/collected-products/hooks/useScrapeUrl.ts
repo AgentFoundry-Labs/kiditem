@@ -39,7 +39,7 @@ export function useScrapeUrl() {
   const [scrapeUrl, setScrapeUrl] = useState('');
   const [statusUrl, setStatusUrl] = useState('');
   const [scrapeError, setScrapeError] = useState<string | null>(null);
-  const [scrapeErrorHref, setScrapeErrorHref] = useState<string | null>(null);
+  const [scrapeErrorLink, setScrapeErrorLink] = useState<ScrapeErrorLink | null>(null);
   const [scrapeSuccess, setScrapeSuccess] = useState<string | null>(null);
   const scrapeInputRef = useRef<HTMLInputElement>(null);
   const trimmedScrapeUrl = scrapeUrl.trim();
@@ -105,7 +105,10 @@ export function useScrapeUrl() {
       setScrapeError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
       // 같은 원본을 이미 수집했으면 서버가 그 초안을 알려 준다 — 거기로 가는 링크를 붙인다.
       const existing = isApiError(err) && err.status === 409 ? err.details.existingSalesProductId : undefined;
-      setScrapeErrorHref(existing ? `/product-pipeline/collected-products/${encodeURIComponent(existing)}` : null);
+      setScrapeErrorLink(existing ? {
+        href: `/product-pipeline/collected-products/${encodeURIComponent(existing)}`,
+        label: existingProductLinkLabel(isApiError(err) ? err.details.existingSalesProductStatus : undefined),
+      } : null);
     },
   });
 
@@ -116,14 +119,14 @@ export function useScrapeUrl() {
     setScrapeUrl('');
     setStatusUrl('');
     setScrapeError(null);
-    setScrapeErrorHref(null);
+    setScrapeErrorLink(null);
     setScrapeSuccess(null);
   };
 
   const handleSubmit = () => {
     if (!trimmedScrapeUrl || duplicate || scrapeMutation.isPending || ownerStatus?.latestAttempt?.state === 'RUNNING') return;
     setScrapeError(null);
-    setScrapeErrorHref(null);
+    setScrapeErrorLink(null);
     setScrapeSuccess(null);
     const prior = requestIdentity.current;
     const latest = ownerStatus?.latestAttempt;
@@ -149,7 +152,7 @@ export function useScrapeUrl() {
     scrapeUrl,
     setScrapeUrl,
     scrapeError: ownerStatus?.errorMessage ?? scrapeError,
-    scrapeErrorHref: ownerStatus?.errorMessage ? null : scrapeErrorHref,
+    scrapeErrorLink: ownerStatus?.errorMessage ? null : scrapeErrorLink,
     scrapeSuccess,
     ownerStatus,
     duplicate,
@@ -160,6 +163,18 @@ export function useScrapeUrl() {
     handleKeyDown,
     resetInput,
   };
+}
+
+export interface ScrapeErrorLink {
+  href: string;
+  label: string;
+}
+
+/** 중복 거절이 가리키는 상품이 무엇인지 링크가 말한다 — 초안 · 판매 중 · 보관(KID-313). */
+function existingProductLinkLabel(status: string | undefined): string {
+  if (status === 'draft') return '기존 초안 열기';
+  if (status === 'archived') return '보관된 판매 상품 열기';
+  return '기존 판매 상품 열기';
 }
 
 function looksLikeSupportedScrapeUrl(value: string): boolean {

@@ -46,10 +46,13 @@ describe('ScrapeUrlInput', () => {
   });
 
   it('links a duplicate refusal to the draft that already holds the source', () => {
-    renderInput({ error: '이미 수집한 원본입니다.', errorHref: '/product-pipeline/collected-products/draft-1' });
+    renderInput({
+      error: '이미 수집한 원본입니다.',
+      errorLink: { href: '/product-pipeline/collected-products/draft-1', label: '기존 판매 상품 열기' },
+    });
 
     expect(screen.getByText('이미 수집한 원본입니다.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '기존 초안 열기' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '기존 판매 상품 열기' })).toHaveAttribute(
       'href',
       '/product-pipeline/collected-products/draft-1',
     );

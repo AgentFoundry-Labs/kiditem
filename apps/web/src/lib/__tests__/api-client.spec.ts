@@ -237,7 +237,7 @@ describe('apiClient HTTP method envelopes', () => {
     await expect(apiClient.post('/api/sourcing/scrape-url', {})).rejects.toMatchObject({
       status: 409,
       detail: '이미 수집한 원본입니다.',
-      details: { existingSalesProductId: 'draft-1' },
+      details: { existingSalesProductId: 'draft-1', existingSalesProductStatus: 'draft' },
     });
   });
 
