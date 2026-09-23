@@ -100,7 +100,7 @@ export class ListingThumbnailEvaluationService implements ListingThumbnailEvalua
       return row ? [row] : [];
     });
     const byGrade = Object.fromEntries(LISTING_THUMBNAIL_GRADES.map((grade) => [grade, 0])) as ListingThumbnailEvaluationSummary['byGrade'];
-    for (const row of evaluations) byGrade[row.grade] += 1;
+    for (const row of evaluations) byGrade[row.grade] = (byGrade[row.grade] ?? 0) + 1;
     return {
       evaluations,
       summary: { evaluated: evaluations.length, unevaluated: withImage.length - evaluations.length, byGrade },

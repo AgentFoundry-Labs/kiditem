@@ -213,7 +213,7 @@ export class ThumbnailGenerationJobService {
             sortOrder: 0,
             source: 'workspace_image',
           }];
-      const validSeedRows = seedRows.filter((row): row is typeof row & { url: string } => Boolean(row.url));
+      const validSeedRows = seedRows.flatMap((row) => (row.url ? [{ ...row, url: row.url }] : []));
       if (validSeedRows.length === 0) {
         throw new BadRequestException('재편집할 원본 이미지가 없습니다');
       }
@@ -249,7 +249,7 @@ export class ThumbnailGenerationJobService {
           productName,
           category: workspace.category,
           promptOverride,
-          editSuggestions: [],
+          editSuggestions: null,
           referenceMode: 'edit-image',
         },
       );
