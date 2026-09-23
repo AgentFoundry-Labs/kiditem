@@ -273,7 +273,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
     });
   });
 
-  it('lists only registered-product workspaces, excluding sales product workspaces', async () => {
+  it('lists only the workspace kinds this list owns, by name rather than by exclusion', async () => {
     const prisma = {
       contentWorkspace: {
         count: vi.fn().mockResolvedValue(0),
@@ -295,7 +295,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         organizationId: 'org-1',
         status: 'active',
         isDeleted: false,
-        ownerType: { not: 'sales_product' },
+        ownerType: { in: ['channel_listing', 'direct_detail_page'] },
       },
       skip: 10,
       take: 10,

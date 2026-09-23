@@ -3,7 +3,6 @@ import {
   ConflictException,
   Injectable,
   Inject,
-  Optional,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -62,8 +61,8 @@ export class ProductPreparationRepositoryAdapter
     @Inject(REGISTRATION_SOURCE_PORT) private readonly source: RegistrationSourcePort,
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly contentWorkspaces: RegistrationContentWorkspacePort,
-    @Optional() @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
-    private readonly thumbnailSources?: SalesProductThumbnailSourcePort) {}
+    @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
+    private readonly thumbnailSources: SalesProductThumbnailSourcePort) {}
 
   /**
    * 몰에 나갈 대표 사진은 그 판매상품의 사진이어야 한다(KID-310). 손으로 적은 주소나 다른 상품의

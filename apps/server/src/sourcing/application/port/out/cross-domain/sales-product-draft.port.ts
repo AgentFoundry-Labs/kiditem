@@ -22,8 +22,16 @@ export interface SalesProductDraftSourceFacts {
  * 쓰지 않고 이 계약으로만 부탁한다.
  */
 export interface SalesProductDraftPort {
-  /** 후보당 초안 하나. 같은 후보를 다시 담아도 초안은 늘지 않는다. */
-  createFromSource(organizationId: string, input: SalesProductDraftSourceFacts): Promise<{ salesProductId: string }>;
+  /**
+   * 후보당 초안 하나. 같은 후보를 다시 담아도 초안은 늘지 않는다.
+   *
+   * 후보를 담는 트랜잭션을 주면 그 안에서 만든다 — 초안을 만들지 못하면 후보도 롤백된다.
+   */
+  createFromSource(
+    organizationId: string,
+    input: SalesProductDraftSourceFacts,
+    transaction?: OwnerTransaction,
+  ): Promise<{ salesProductId: string }>;
   /** 그 후보에서 만든 초안 id. 없으면 null. */
   findDraftIdForSource(organizationId: string, candidateId: string): Promise<string | null>;
   /** 배치판. 목록 한 쪽의 후보를 한 번에 초안으로 옮긴다. 초안이 없는 후보는 맵에 없다. */

@@ -53,12 +53,13 @@ describe('registration execution fence (PG integration)', () => {
       prisma as unknown as PrismaService,
       registrationSource,
       workspaceFake(),
+      thumbnailSourceFake(),
     );
     // 울타리는 실행 행만 쓰고 초안은 Sourcing 어댑터를 통해 만진다(ADR-0014).
     // 실제 두 어댑터를 그대로 엮어야 한 트랜잭션 계약이 여기서 검증된다.
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(registrationSource, workspaceFake()),
+      new RegistrationDraftAdapter(registrationSource, workspaceFake(), thumbnailSourceFake()),
     );
     targets = new RegistrationTargetRepositoryAdapter(
       prisma as unknown as PrismaService,
@@ -152,6 +153,30 @@ describe('registration execution fence (PG integration)', () => {
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
     })).rejects.toThrow('아직 판매가를 정하지 않은 초안');
+  });
+
+  /**
+   * 등록 설정을 만드는 문은 `channels/registration-targets` 하나다(KID-310 · ADR-0022).
+   * 제출 동결이 설정을 대신 만들면 그 자리에서 KID 발급을 건너뛰어, 코드 없는 상품이 몰로 나간다.
+   */
+  it('refuses to freeze a product with no registration setting and issues its KID when one is made', async () => {
+    await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { code: null } });
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId: SALES_PRODUCT_ID,
+      requestedByUserId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      displayName: 'Kids rain boots',
+      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
+      idempotencyKey: randomUUID(),
+    };
+    await expect(repository.prepare(input)).rejects.toThrow('등록 설정');
+    expect(await prisma.registrationTarget.count({ where: { salesProductId: SALES_PRODUCT_ID } })).toBe(0);
+
+    await createTarget(ACCOUNT_ID);
+    await expect(repository.prepare(input)).resolves.toMatchObject({ status: 'prepared' });
+    const product = await prisma.salesProduct.findUniqueOrThrow({ where: { id: SALES_PRODUCT_ID } });
+    expect(product.code).toMatch(/^KID[0-9]{8}$/);
   });
 
   it('returns one draft under concurrent same-account creation', async () => {
@@ -683,6 +708,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('cancels an unstarted external WING intent before a candidate terminal transition', async () => {
+    await createTarget(ACCOUNT_ID);
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -726,6 +752,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('keeps a started external WING execution as a candidate deletion blocker', async () => {
+    await createTarget(ACCOUNT_ID);
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -769,6 +796,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('durably prepares, starts, reconciles, and finalizes one external WING execution', async () => {
+    await createTarget(ACCOUNT_ID);
     const idempotencyKey = randomUUID();
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
@@ -877,6 +905,7 @@ describe('registration execution fence (PG integration)', () => {
 
   it('runs the same fence for a directly authored product that has no source candidate', async () => {
     await createDirectlyAuthoredProduct();
+    await createTarget(ACCOUNT_ID, DIRECT_SALES_PRODUCT_ID);
 
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
@@ -931,6 +960,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('keeps the source candidate as execution provenance and still refuses a rejected source', async () => {
+    await createTarget(ACCOUNT_ID);
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -967,6 +997,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('does not downgrade provider success when an unresolved report was waiting on the execution lock', async () => {
+    await createTarget(ACCOUNT_ID);
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -1046,6 +1077,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('replays a concurrent same-hash external preparation after the candidate lock', async () => {
+    await createTarget(ACCOUNT_ID);
     const idempotencyKey = randomUUID();
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
@@ -1067,6 +1099,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('resumes the same prepared manual execution after the browser page is reopened', async () => {
+    await createTarget(ACCOUNT_ID);
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -1092,6 +1125,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('allocates a bundle KID in the candidate-locked transaction and freezes its full payload hash', async () => {
+    await createTarget(ACCOUNT_ID);
     const input = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
     const prepared = await repository.prepare(input);
     if (!prepared.kidItemCode) throw new Error('bundle preparation did not return an assigned KID');
@@ -1123,6 +1157,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('replays a bundle preparation by key and rejects a changed request under that key', async () => {
+    await createTarget(ACCOUNT_ID);
     const idempotencyKey = randomUUID();
     const input = createExternalRegistrationInput(idempotencyKey, { quantity: 2 });
     const first = await repository.prepare(input);
@@ -1146,6 +1181,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('serializes concurrent bundle preparations with distinct keys and reuses one assigned KID', async () => {
+    await createTarget(ACCOUNT_ID);
     const firstInput = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
     const secondInput = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
     const [first, second] = await Promise.all([
@@ -1162,6 +1198,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('resumes a prepared bundle under a new key without changing its assigned KID', async () => {
+    await createTarget(ACCOUNT_ID);
     const first = await repository.prepare(createExternalRegistrationInput(randomUUID(), { quantity: 2 }));
     const resumed = await repository.prepare(createExternalRegistrationInput(randomUUID(), { quantity: 2 }));
 
@@ -1177,6 +1214,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('reuses the bundle KID after a definitive pre-provider failure', async () => {
+    await createTarget(ACCOUNT_ID);
     const sourceInput = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
     const first = await repository.prepare(sourceInput);
     const firstFrozen = await repository.loadFrozenSubmission(
@@ -1230,6 +1268,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('uses the source Master KID for a singleton instead of allocating a bundle code', async () => {
+    await createTarget(ACCOUNT_ID);
     const sourceCode = 'KID00000007';
     const prepared = await repository.prepare(createExternalRegistrationInput(randomUUID(), {
       quantity: 1,
@@ -1255,7 +1294,9 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('rolls back a failed bundle allocation without leaving an execution or preparation', async () => {
-    const failingDrafts = new RegistrationDraftAdapter(new RegistrationSourceAdapter(), workspaceFake());
+    const failingDrafts = new RegistrationDraftAdapter(
+      new RegistrationSourceAdapter(), workspaceFake(), thumbnailSourceFake(),
+    );
     vi.spyOn(failingDrafts, 'freezeForSubmission').mockRejectedValueOnce(
       new Error('forced transaction rollback after allocation'),
     );
@@ -1263,6 +1304,7 @@ describe('registration execution fence (PG integration)', () => {
       prisma as unknown as PrismaService,
       failingDrafts,
     );
+    await createTarget(ACCOUNT_ID);
     const input = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
 
     await expect(failingRepository.prepare(input)).rejects.toThrow(
@@ -1271,9 +1313,10 @@ describe('registration execution fence (PG integration)', () => {
     expect(await prisma.productRegistrationExecution.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).toBe(0);
+    // 설정은 이 트랜잭션이 만든 것이 아니라 그대로 남고, 실행만 사라진다.
     expect(await prisma.registrationTarget.count({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: SALES_PRODUCT_ID },
-    })).toBe(0);
+    })).toBe(1);
 
     await expect(repository.prepare({
       ...input,
@@ -1282,6 +1325,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('abandons a never-submitted execution and reuses its target for a changed payload', async () => {
+    await createTarget(ACCOUNT_ID);
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -1407,6 +1451,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('restarts a reconciled unknown WING attempt only after the channel absence was verified', async () => {
+    await createTarget(ACCOUNT_ID);
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -1473,6 +1518,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('restarts a started unknown attempt only after the channel absence was verified', async () => {
+    await createTarget(ACCOUNT_ID);
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -1513,6 +1559,7 @@ describe('registration execution fence (PG integration)', () => {
   });
 
   it('serializes start behind a concurrent supersede and never resurrects the stale execution', async () => {
+    await createTarget(ACCOUNT_ID);
     const base = {
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -1554,7 +1601,7 @@ describe('registration execution fence (PG integration)', () => {
     };
     const pausedRepository = new RegistrationExecutionRepositoryAdapter(
       pausedPrisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(new RegistrationSourceAdapter(), workspaceFake()),
+      new RegistrationDraftAdapter(new RegistrationSourceAdapter(), workspaceFake(), thumbnailSourceFake()),
     );
     const supersede = pausedRepository.prepare({
       ...base,
@@ -1724,6 +1771,16 @@ describe('registration execution fence (PG integration)', () => {
     return {
       preparationId: await targets.resolve(TEST_ORGANIZATION_ID, { salesProductId, channelAccountId }),
       status: 'draft' as const,
+    };
+  }
+
+  /**
+   * AI 가 이 판매상품을 위해 만든 생성 썸네일 목록. 대표 사진 울타리가 초안의 사진 목록과
+   * 합쳐서 본다 — 정본으로 바뀌는 주소도 이 목록에서 온 사진이다.
+   */
+  function thumbnailSourceFake() {
+    return {
+      listGeneratedThumbnailUrls: async () => (canonicalThumbnailUrl ? [canonicalThumbnailUrl] : []),
     };
   }
 

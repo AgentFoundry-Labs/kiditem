@@ -120,7 +120,7 @@ function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {
     },
   } as unknown as SalesProductRepositoryPort;
   const workspaceArchive = { archiveSalesProductWorkspace: vi.fn().mockResolvedValue(undefined) };
-  return { rows, plans, workspaceArchive, service: new SalesProductUseCase(repository, workspaceArchive) };
+  return { rows, plans, repository, workspaceArchive, service: new SalesProductUseCase(repository, workspaceArchive) };
 }
 
 /** 부르는 쪽(Sourcing)이 넘기는 불투명한 트랜잭션 손잡이. 안을 들여다보지 않는다. */
@@ -181,6 +181,39 @@ describe('SalesProductUseCase.createFromSource', () => {
   it('다른 요청이 같은 후보로 먼저 만들었으면 그 초안을 돌려준다', async () => {
     const { service } = setup([], { raceOn: CANDIDATE });
     await expect(service.createFromSource(ORG, source)).resolves.toMatchObject({ id: 'raced' });
+  });
+
+  /**
+   * 원천은 칸 너비를 지킨 적이 없다(1688 이름은 흔히 255 자를 넘는다). 거절하면 수집이 막히므로
+   * 이관과 같은 규칙으로 잘라서 받는다.
+   */
+  /**
+   * 수집은 후보와 초안을 한 커밋에 넣는다. 초안 만들기가 실패하면 부르는 쪽 트랜잭션은 이미
+   * 중단돼 있어 더 읽을 수 없으므로, 여기서 기존 초안을 찾아보지 않고 그대로 올린다.
+   */
+  it('부르는 쪽 트랜잭션이면 초안을 만들다 난 오류를 그대로 올린다', async () => {
+    const { repository, service } = setup([], { raceOn: CANDIDATE });
+    const lookups: (unknown)[] = [];
+    const findId = repository.findIdBySourceCandidate.bind(repository);
+    repository.findIdBySourceCandidate = async (org: string, candidateId: string, tx?: unknown) => {
+      lookups.push(tx);
+      return findId(org, candidateId, tx as never);
+    };
+
+    await expect(service.createFromSource(ORG, source, TX)).rejects.toThrow('unique violation');
+    // 트랜잭션 없이 부를 때만 다시 찾는다 — 중단된 트랜잭션에서는 더 읽을 수 없다.
+    expect(lookups).toEqual([TX]);
+  });
+
+  it('칸보다 긴 원천 이름 · 장터는 칸 너비로 잘라서 담는다', async () => {
+    const { rows, service } = setup();
+    await service.createFromSource(ORG, {
+      ...source,
+      name: '가'.repeat(300),
+      sourcePlatform: '1688'.repeat(20),
+    });
+    expect(rows[0]!.name).toBe('가'.repeat(255));
+    expect(rows[0]!.sourcePlatform).toBe('1688'.repeat(20).slice(0, 40));
   });
 });
 

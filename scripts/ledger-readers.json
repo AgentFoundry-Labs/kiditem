@@ -253,7 +253,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -278,7 +278,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -307,7 +307,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -332,7 +332,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -357,7 +357,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -382,7 +382,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -407,7 +407,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -430,7 +430,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -453,7 +453,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -476,7 +476,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -499,7 +499,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -522,7 +522,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -545,7 +545,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -571,7 +571,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/launch-candidate.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -595,7 +595,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/recommendation-publication.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -620,7 +620,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/validation-publication.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -645,7 +645,7 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/decision-publication.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     },
@@ -813,7 +813,7 @@
         {
           "path": "apps/server/src/channels/adapter/out/repository/registration-execution.reader.ts",
           "removeWith": "KID-309",
-          "reason": "KID-310: absorbed from the retired owner read/ lane into the permanent adapter/out/repository lane; read-only, no mutation rights."
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
     }

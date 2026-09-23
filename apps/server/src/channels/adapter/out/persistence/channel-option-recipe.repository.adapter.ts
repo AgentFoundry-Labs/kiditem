@@ -44,13 +44,8 @@ implements ChannelOptionRecipeRepositoryPort {
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly productTransactionalRead: ProductTransactionalReadPort,
     @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
-    private readonly productMapping?: ChannelsProductMappingGenerationPort,
+    private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
-  private requireProductMapping(): ChannelsProductMappingGenerationPort {
-    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
-    return this.productMapping;
-  }
-
 
   readListingProductSummaries(transaction: Parameters<ChannelRecipeFactQueries['readListingProductSummaries']>[0], input: Parameters<ChannelRecipeFactQueries['readListingProductSummaries']>[1]) {
     return readListingProductIds(ownerTransactionClient(transaction), input);
@@ -121,7 +116,7 @@ implements ChannelOptionRecipeRepositoryPort {
       where: { id: input.channelListingOptionId, organizationId: input.organizationId },
       data: { salesProductOptionId: input.salesProductOptionId, kidItemCode: input.kidItemCode },
     });
-    await this.requireProductMapping().advance(tx, input.organizationId);
+    await this.productMapping.advance(tx, input.organizationId);
   }
 
   replaceRecipe(input: {
@@ -178,7 +173,7 @@ implements ChannelOptionRecipeRepositoryPort {
         organizationId: input.organizationId, listingIds: [option.listingId],
       })).get(option.listingId) ?? null;
       if (recipeChanged || codeChanged) {
-        await this.requireProductMapping().advance(tx, input.organizationId);
+        await this.productMapping.advance(tx, input.organizationId);
       }
       return { masterProductId };
     }, TRANSACTION_OPTIONS);
@@ -369,7 +364,7 @@ implements ChannelOptionRecipeRepositoryPort {
       previousProducts.get(id) == null && currentProducts.get(id) != null).length;
     const mappingChanged = applied.length > 0 || codeChanged;
     if (mappingChanged) {
-      await this.requireProductMapping().advance(tx, input.organizationId);
+      await this.productMapping.advance(tx, input.organizationId);
     }
     return {
       changedOptionCount: applied.length,
@@ -455,7 +450,7 @@ implements ChannelOptionRecipeRepositoryPort {
     }
     const mappingChanged = changedOptionIds.length > 0;
     if (mappingChanged) {
-      await this.requireProductMapping().advance(tx, input.organizationId);
+      await this.productMapping.advance(tx, input.organizationId);
     }
     return {
       changedOptionCount: changedOptionIds.length,

@@ -16,8 +16,8 @@ throughout.
 - Approving an action of a `MANUAL_AD_ACTION_TYPES` type
   (`domain/execution-task-lifecycle.ts`) records the operator's confirmation,
   and the operator applies the change in the ad center. The server refuses
-  every executor claim for those types; extension builds since #515 (KID-90)
-  write to Coupang only after an accepted claim.
+  every executor claim for those types; the extension writes to Coupang only
+  after an accepted claim.
 - Raw scrape evidence and daily fact projections remain organization-scoped and
   auditable. Advertising is the canonical writer for its own facts; consumers
   use its read contracts rather than mutating channel tables directly.

@@ -71,7 +71,7 @@ registrations, and supports explicit Wing page automation.
   sessionStorage, so a large account completes across several runs.
 - Ad action execution stays on `advertising.coupang.com` and applies only
   `create_campaign`. Write to Coupang only after the server accepts the
-  action's claim (its running report), as builds since #515 (KID-90) do. The
+  action's claim (its running report). The
   server refuses every claim for the actions the operator applies by hand with
   `EXECUTION_REPORT_MANUAL_ACTION` (`MANUAL_AD_ACTION_TYPES` in
   `apps/server/src/advertising/domain/execution-task-lifecycle.ts`).

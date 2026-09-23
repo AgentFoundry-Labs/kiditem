@@ -89,6 +89,49 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
       .toEqual([['빨강', null, null], ['파랑', null, null]]);
   }, 60_000);
 
+  it('cuts a source value that is wider than its column and reports how many it cut', async () => {
+    const result = await withPost022Schema(async (tx) => {
+      // 원천(1688)은 칸 너비를 지킨 적이 없다. 자르지 않으면 INSERT 가 터져 이관 전체가 멈춘다.
+      await seedCandidate(tx, {
+        id: CANDIDATE_ID,
+        name: '가'.repeat(300),
+        rawData: { manualBasics: { targetAudience: '나'.repeat(260), noticeCategory: '01234567890123' } },
+      });
+
+      const run = await salesProductDraftCutoverMigration.run(tx, { target: 'office' });
+      const [draft] = await tx.$queryRaw<Array<{ name: string; target_audience: string | null; notice_category: string | null }>>`
+        SELECT name, target_audience, notice_category FROM sales_products
+        WHERE source_candidate_id = ${CANDIDATE_ID}::uuid
+      `;
+      return { run, draft };
+    });
+
+    expect(result.run.details).toMatchObject({ createdDrafts: 1, truncatedValues: 3 });
+    expect(result.draft!.name).toBe('가'.repeat(255));
+    expect(result.draft!.target_audience).toBe('나'.repeat(200));
+    expect(result.draft!.notice_category).toBe('0123456789');
+  }, 60_000);
+
+  /** 023 이 만드는 칸은 Prisma 와 같은 너비여야 한다 — text 로 만들면 push 가 뒤늦게 터진다. */
+  it('adds the draft columns at the width Prisma will contract them to', async () => {
+    const widths = await withPost022Schema(async (tx) => {
+      await salesProductDraftCutoverMigration.run(tx, { target: 'office' });
+      return tx.$queryRaw<Array<{ column: string; width: number | null }>>`
+        SELECT attname AS "column", information_schema._pg_char_max_length(atttypid, atttypmod) AS width
+        FROM pg_attribute
+        WHERE attrelid = 'pg_temp.sales_products'::regclass
+          AND attname IN ('target_audience', 'age_group', 'product_size', 'notice_category',
+            'standard_category', 'brand', 'model_name', 'source_platform', 'kc_status')
+        ORDER BY attname ASC
+      `;
+    });
+
+    expect(Object.fromEntries(widths.map((row) => [row.column, row.width]))).toEqual({
+      age_group: 100, brand: 50, kc_status: 20, model_name: 60, notice_category: 10,
+      product_size: 200, source_platform: 40, standard_category: 40, target_audience: 200,
+    });
+  }, 60_000);
+
   it('fills only the empty columns of a draft a person already edited', async () => {
     const result = await withPost022Schema(async (tx) => {
       await seedCandidate(tx, {
@@ -184,6 +227,30 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
     expect(result.listing!.sales_product_id).toBe(PRODUCT_ID);
   }, 60_000);
 
+  it('links a mall product to the draft this run makes for its candidate', async () => {
+    const result = await withPost022Schema(async (tx) => {
+      // 초안이 아직 없는 후보다. 이 이관이 초안을 만들고, 그 초안에 몰 상품이 이어져야 한다 —
+      // 잇지 못하면 push 가 후보 열을 지운 뒤 몰 상품이 원천에 닿을 길이 없다.
+      await seedCandidate(tx, { id: CANDIDATE_ID });
+      await tx.$executeRaw`
+        INSERT INTO channel_listings (id, organization_id, channel_account_id, source_candidate_id, sales_product_id, external_id)
+        VALUES (${LISTING_ID}::uuid, ${ORGANIZATION_ID}::uuid, ${ACCOUNT_ID}::uuid, ${CANDIDATE_ID}::uuid, NULL, 'EXT-2')
+      `;
+
+      const run = await salesProductDraftCutoverMigration.run(tx, { target: 'office' });
+      const [listing] = await tx.$queryRaw<Array<{ sales_product_id: string | null }>>`
+        SELECT sales_product_id::text AS sales_product_id FROM channel_listings WHERE id = ${LISTING_ID}::uuid
+      `;
+      const [draft] = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id::text AS id FROM sales_products WHERE source_candidate_id = ${CANDIDATE_ID}::uuid
+      `;
+      return { run, listing, draft };
+    });
+
+    expect(result.run.details).toMatchObject({ createdDrafts: 1, linkedListings: 1 });
+    expect(result.listing!.sales_product_id).toBe(result.draft!.id);
+  }, 60_000);
+
   it('strips the edit keys of a live candidate, leaves a deleted one alone and gives it no draft', async () => {
     const result = await withPost022Schema(async (tx) => {
       await seedCandidate(tx, { id: CANDIDATE_ID, rawData: { title: '원문', manualBasics: { ageGroup: '5세 이상' } } });
@@ -209,6 +276,27 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
     expect(result.rows.find((row) => row.id === DELETED_CANDIDATE_ID)!.raw_data)
       .toEqual({ title: '지운 원문', manualBasics: { ageGroup: '3세 이상' } });
     expect(result.deletedDrafts).toBe(0);
+  }, 60_000);
+
+  /** 런타임은 후보를 거절하면 그 초안을 `unused` 로 내린다(sourcing/CLAUDE.md). 이관도 같다. */
+  it('gives a rejected candidate an unused draft, not one that looks sellable', async () => {
+    const result = await withPost022Schema(async (tx) => {
+      await seedCandidate(tx, { id: CANDIDATE_ID, status: 'rejected', rawData: { salePrice: '9900' } });
+      await seedCandidate(tx, { id: SECOND_CANDIDATE_ID, status: 'sourced', rawData: { salePrice: '9900' } });
+
+      const run = await salesProductDraftCutoverMigration.run(tx, { target: 'office' });
+      const drafts = await tx.$queryRaw<Array<{ source_candidate_id: string; status: string }>>`
+        SELECT source_candidate_id::text AS source_candidate_id, status FROM sales_products
+        ORDER BY source_candidate_id ASC
+      `;
+      return { run, drafts };
+    });
+
+    expect(result.run.details).toMatchObject({ createdDrafts: 2 });
+    expect(result.drafts).toEqual([
+      { source_candidate_id: CANDIDATE_ID, status: 'unused' },
+      { source_candidate_id: SECOND_CANDIDATE_ID, status: 'active' },
+    ]);
   }, 60_000);
 
   it('changes nothing on a second run', async () => {
@@ -298,7 +386,8 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
     await tx.$executeRaw`CREATE TEMP TABLE sourcing_candidates (
       id uuid PRIMARY KEY, organization_id uuid NOT NULL, name text NOT NULL, description text,
       source_platform text, source_url text, cost_cny numeric, thumbnail_url text, image_url text,
-      raw_data jsonb NOT NULL DEFAULT '{}', is_deleted boolean NOT NULL DEFAULT false
+      raw_data jsonb NOT NULL DEFAULT '{}', status text NOT NULL DEFAULT 'sourced',
+      is_deleted boolean NOT NULL DEFAULT false
     ) ON COMMIT DROP`;
     await tx.$executeRaw`CREATE TEMP TABLE candidate_images (
       id uuid PRIMARY KEY, organization_id uuid NOT NULL, candidate_id uuid NOT NULL, image_url text NOT NULL,
@@ -343,12 +432,14 @@ describe('v0.1.31:023 sales-product draft cutover (disposable PostgreSQL schema)
     name?: string;
     rawData?: Record<string, unknown>;
     isDeleted?: boolean;
+    status?: string;
     organizationId?: string;
   }): Promise<void> {
     await tx.$executeRaw`
-      INSERT INTO sourcing_candidates (id, organization_id, name, raw_data, is_deleted, source_platform, source_url)
+      INSERT INTO sourcing_candidates (id, organization_id, name, raw_data, status, is_deleted, source_platform, source_url)
       VALUES (${input.id}::uuid, ${input.organizationId ?? ORGANIZATION_ID}::uuid,
         ${input.name ?? '수집 상품'}, ${JSON.stringify(input.rawData ?? {})}::jsonb,
+        ${input.status ?? 'sourced'},
         ${input.isDeleted ?? false}, '1688', ${`https://detail.1688.com/offer/${input.id}.html`})
     `;
   }

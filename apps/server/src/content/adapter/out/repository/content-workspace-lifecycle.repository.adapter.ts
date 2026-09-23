@@ -126,7 +126,9 @@ implements ContentWorkspaceLifecycleRepositoryPort {
       organizationId: input.organizationId,
       status: input.status,
       isDeleted: false,
-      ownerType: { not: 'sales_product' },
+      // 이 목록은 초안이 아닌 작업공간이다. 빼는 목록이 아니라 넣는 목록이라야
+      // 024 가 옮기지 못한 보관 줄(legacy `sourcing_candidate`)이 섞이지 않는다.
+      ownerType: { in: ['channel_listing', 'direct_detail_page'] },
       ...(input.normalizedTitle ? { normalizedTitle: input.normalizedTitle } : {}),
     };
     const [total, rows] = await Promise.all([

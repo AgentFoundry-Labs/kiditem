@@ -37,11 +37,11 @@ export interface ConfirmRegistrationExecutionInput {
  *
  * 울타리의 정체성은 `{organizationId, salesProductId, channelAccountId}` 다 — 수집에서
  * 온 상품이든 직접 작성한 상품이든 같은 문을 지난다
- * ([ADR-0022](../../../../../../../docs/adr/0022-sales-product-draft-exists-from-collection.md)).
+ * ([ADR-0022](../../../../../../../../docs/adr/0022-sales-product-draft-exists-from-collection.md)).
  * 원천 기록(`sourceCandidateId`)은 이력에만 남는 출처 표시이지 열쇠가 아니다.
  *
  * Wing autoSubmit, 스프레드시트, API 몰 — 계정에 제출하는 모든 경로가 이 한 인터페이스를
- * 지난다([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
+ * 지난다([ADR-0014](../../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
  * 제출 없이 폼만 채운 것은 울타리가 아니라 관찰 기록이다.
  */
 export interface RegistrationExecutionPort {

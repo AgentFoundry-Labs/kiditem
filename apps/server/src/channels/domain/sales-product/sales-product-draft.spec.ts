@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SALES_PRODUCT_TEXT_LIMITS,
   SalesProductDraftError,
+  clampDraftText,
   planDraftOptions,
   requireConfirmedPrice,
   resolveSalesProductStatus,
@@ -121,5 +123,29 @@ describe('planDraftOptions', () => {
 
   it('지우고 나서 남는 이름이 없으면 옵션 없는 단품으로 떨어진다', () => {
     expect(planDraftOptions([':', '|'])).toEqual({ optionAxes: [], optionValues: [[]] });
+  });
+});
+
+describe('clampDraftText', () => {
+  it('칸 너비를 넘는 원문은 그 너비로 자른다', () => {
+    expect(clampDraftText('name', 'ㄱ'.repeat(300)))
+      .toEqual({ value: 'ㄱ'.repeat(255), truncated: true });
+    expect(clampDraftText('noticeCategory', '01234567890123'))
+      .toEqual({ value: '0123456789', truncated: true });
+  });
+
+  it('너비 안의 값 · 빈 값은 그대로 둔다', () => {
+    expect(clampDraftText('name', '수집 상품')).toEqual({ value: '수집 상품', truncated: false });
+    expect(clampDraftText('brand', null)).toEqual({ value: null, truncated: false });
+    expect(clampDraftText('brand', undefined)).toEqual({ value: null, truncated: false });
+  });
+
+  it('Prisma 가 잡아 둔 너비를 그대로 쓴다', () => {
+    expect(SALES_PRODUCT_TEXT_LIMITS).toMatchObject({
+      name: 255, brand: 50, manufacturer: 50, originCountry: 50,
+      modelName: 60, modelNo: 60, importDeclarationNo: 60,
+      standardCategory: 40, noticeCategory: 10, sourcePlatform: 40,
+      targetAudience: 200, ageGroup: 100, productSize: 200,
+    });
   });
 });

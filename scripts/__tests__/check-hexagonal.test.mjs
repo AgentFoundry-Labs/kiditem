@@ -62,3 +62,36 @@ test('rejects the retired top-level read/, mapper/ and service/ lanes per domain
   assert.deepEqual(hexagonalBoundaryViolations('apps/server/src/sourcing/application/service/a.ts', ''), []);
   assert.deepEqual(hexagonalBoundaryViolations('apps/server/src/content/application/service/a.ts', ''), []);
 });
+
+// KID-310 applied three rules to all three domains. Each needs its own fixture:
+// the rules that stayed channels-only are covered above, so a fixture that
+// passes in sourcing/content is as load-bearing as one that fails.
+test('the adapter→port direction holds in sourcing and content too (KID-310)', () => {
+  assert.ok(hexagonalBoundaryViolations(
+    'apps/server/src/sourcing/application/service/sourcing-collected-draft.service.ts',
+    "import { x } from '../../adapter/out/repository/sourcing-candidate.repository.adapter';",
+  ).length);
+  assert.ok(hexagonalBoundaryViolations(
+    'apps/server/src/content/domain/thumbnail-analysis.ts',
+    "import { x } from '../adapter/out/storage/asset.adapter';",
+  ).length);
+});
+
+test('@nestjs stays permitted in sourcing and content (pre-existing debt, not a layout question)', () => {
+  assert.deepEqual(hexagonalBoundaryViolations(
+    'apps/server/src/sourcing/application/service/sourcing.service.ts',
+    "import { Injectable } from '@nestjs/common';",
+  ), []);
+  assert.deepEqual(hexagonalBoundaryViolations(
+    'apps/server/src/content/application/service/thumbnail-generation.service.ts',
+    "import { Injectable } from '@nestjs/common';",
+  ), []);
+});
+
+test('a marketplace/ business domain is refused in every domain (KID-310)', () => {
+  for (const owner of ['channels', 'sourcing', 'content']) {
+    assert.ok(hexagonalBoundaryViolations(
+      `apps/server/src/${owner}/domain/marketplace/wing.ts`, '',
+    ).length);
+  }
+});

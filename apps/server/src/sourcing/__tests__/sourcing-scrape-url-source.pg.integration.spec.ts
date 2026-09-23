@@ -219,6 +219,37 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     })).id).toBe(draftId);
   });
 
+  /**
+   * 초안 없는 수집상품은 편집 · 등록 · 몰 엑셀이 갈 곳을 잃는다. 후보만 남고 초안이 없는
+   * 중간 상태를 만들지 않으려면 둘이 한 커밋이어야 한다.
+   */
+  it('⭐ 초안을 만들지 못하면 그 후보도 남기지 않는다', async () => {
+    const refusing = new SourcingCandidateRepositoryAdapter(prisma as never, {
+      ...realSalesProductDraftPort(prisma),
+      createFromSource: async () => { throw new Error('draft owner refused'); },
+    });
+
+    await expect(refusing.upsertSourced({
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceUrl,
+      sourcePlatform: 'ALIBABA_1688',
+      rawData: {},
+      name: '실리콘 식판',
+      description: '',
+      category: null,
+      tags: [],
+      thumbnailUrl: null,
+      imageUrl: null,
+      costCny: null,
+      triggeredByUserId: null,
+      images: [],
+    })).rejects.toThrow('draft owner refused');
+
+    expect(await prisma.sourcingCandidate.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceUrl },
+    })).toBe(0);
+  });
+
   it('reads fixed expiry without mutation and rejects the old provider result after a new explicit attempt', async () => {
     let release!: () => void;
     let entered!: () => void;

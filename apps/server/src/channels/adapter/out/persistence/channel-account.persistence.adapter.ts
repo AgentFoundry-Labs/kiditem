@@ -87,13 +87,8 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
-    private readonly productMapping?: ChannelsProductMappingGenerationPort,
+    private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
-  private requireProductMapping(): ChannelsProductMappingGenerationPort {
-    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
-    return this.productMapping;
-  }
-
 
   async readProviderIdentities(
     transaction: OwnerTransaction,
@@ -206,7 +201,7 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
     }
 
     if (input.channel === 'coupang') {
-      await this.requireProductMapping().advance(tx, input.organizationId);
+      await this.productMapping.advance(tx, input.organizationId);
     }
   }
 
@@ -366,7 +361,7 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
 
       const mappingAfter = await readCoupangAccountMappingBasis(tx, organizationId);
       if (mappingBasisChanged(mappingBefore, mappingAfter)) {
-        await this.requireProductMapping().advance(tx, organizationId);
+        await this.productMapping.advance(tx, organizationId);
       }
     });
     return this.getCoupangSettings(organizationId);

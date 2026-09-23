@@ -49,7 +49,11 @@ export interface SalesProductPort {
    * 원천 한 줄에서 초안을 만든다. 같은 후보를 두 번 부르면 이미 만든 초안을 돌려준다(멱등) —
    * 수집이 같은 상품을 다시 담아도 초안은 하나다.
    */
-  createFromSource(organizationId: string, input: SalesProductDraftSource): Promise<SalesProduct>;
+  createFromSource(
+    organizationId: string,
+    input: SalesProductDraftSource,
+    transaction?: OwnerTransaction,
+  ): Promise<SalesProduct>;
   /** 원천 기록(수집상품)에서 만든 초안 id. 없으면 null. 수집 화면이 초안으로 넘어갈 때 쓴다. */
   findDraftIdForSource(organizationId: string, candidateId: string): Promise<string | null>;
   /** 배치판. 수집상품 목록 한 쪽을 한 번에 옮긴다 — 후보마다 부르면 N+1 이다. */

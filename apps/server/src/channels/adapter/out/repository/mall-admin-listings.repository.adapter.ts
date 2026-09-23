@@ -62,13 +62,8 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
     @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
-    private readonly productMapping?: ChannelsProductMappingGenerationPort,
+    private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
-  private requireProductMapping(): ChannelsProductMappingGenerationPort {
-    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
-    return this.productMapping;
-  }
-
 
   begin(input: Parameters<MallAdminListingsRepositoryPort['begin']>[0]) {
     const request = MallAdminListingsBeginSchema.parse(input.request);
@@ -244,7 +239,7 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
         presentExternalOptionIds: present,
       });
       mappingChanged ||= deactivated.listings > 0 || deactivated.options > 0;
-      if (mappingChanged) await this.requireProductMapping().advance(tx, input.organizationId);
+      if (mappingChanged) await this.productMapping.advance(tx, input.organizationId);
 
       const publication: MallAdminListingsPublication = {
         listings: products.length,

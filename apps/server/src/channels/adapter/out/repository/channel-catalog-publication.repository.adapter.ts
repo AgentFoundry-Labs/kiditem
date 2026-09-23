@@ -78,13 +78,8 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly recipes: ChannelOptionRecipePort,
     @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
-    private readonly productMapping?: ChannelsProductMappingGenerationPort,
+    private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
-  private requireProductMapping(): ChannelsProductMappingGenerationPort {
-    if (!this.productMapping) throw new Error('Products mapping generation owner is unavailable');
-    return this.productMapping;
-  }
-
 
   async publishDetailChunk(input: DetailChunkInput): Promise<ChannelCatalogPublicationResult> {
     const tx = transactionClient(input.transaction);
@@ -362,7 +357,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           presentExternalOptionIds: upserted.externalOptionIds,
         });
         if (upserted.mappingIdentityChanged || absence.listings > 0 || absence.options > 0) {
-          await this.requireProductMapping().advance(tx, input.organizationId);
+          await this.productMapping.advance(tx, input.organizationId);
         }
         result = {
           sourceImportRunId: sourceRun.id,

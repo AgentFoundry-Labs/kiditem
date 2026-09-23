@@ -138,13 +138,15 @@ export interface SalesProductRepositoryPort {
   ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number>;
   readMasterProductCodes(organizationId: string, ids: readonly string[]): Promise<Map<string, string>>;
   list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse>;
-  get(organizationId: string, salesProductId: string): Promise<SalesProduct | null>;
+  get(organizationId: string, salesProductId: string, transaction?: OwnerTransaction): Promise<SalesProduct | null>;
   /** 이 조직에서 쓴 판매상품코드 중 `K` 다음 번호를 고를 때 쓴다. */
   listCodesWithPrefix(organizationId: string, prefix: string): Promise<string[]>;
+  /** `transaction` 을 주면 그 트랜잭션에서 쓴다 — 수집은 후보와 초안이 한 커밋이다. */
   create(
     organizationId: string,
     record: SalesProductCreateRecord,
     plan: SalesProductOptionReplacementPlan,
+    transaction?: OwnerTransaction,
   ): Promise<string>;
   /** 버전이 다르면 false. 없는 상품이면 NotFound. */
   updateBasics(
@@ -254,7 +256,11 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]>;
   /** 원천 기록 id → 그 후보에서 만든 초안 id(있으면). 초안은 후보당 하나다. */
-  findIdBySourceCandidate(organizationId: string, candidateId: string): Promise<string | null>;
+  findIdBySourceCandidate(
+    organizationId: string,
+    candidateId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<string | null>;
   /** 배치판. 수집상품 목록이 후보마다 초안을 되읽으면 N+1 이다. 초안이 없는 후보는 맵에 없다. */
   findIdsBySourceCandidates(
     organizationId: string,

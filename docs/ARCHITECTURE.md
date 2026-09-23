@@ -900,14 +900,15 @@ immutable source record whose id the draft carries. A product has at most one
 active target per channel account, and a promotional listing is a separate sales
 product sharing the same source stock. A target references a priced selling
 product and active account. Archiving sets `archivedAt`; successful submission
-leaves the target reusable ([ADR-0022](adr/0022-sales-product-drafts-exist-from-collection.md)).
+leaves the target reusable ([ADR-0022](adr/0022-sales-product-draft-exists-from-collection.md)).
 
 `ProductRegistrationExecution` freezes each intent's payload, hash, approval,
 actor, account, idempotency key, lease and provider outcome. Changing a target
 cannot change an existing execution. Only one unresolved execution may hold a
 target or actual listing's active fence. Sourcing provides candidate eligibility
-through its public contract; AI owns content workspaces and assets, and one
-workspace belongs to one sales-product draft or channel-listing branch.
+through its public contract; Content(AI) — the `content` directory — owns content
+workspaces and assets, and one workspace belongs to one sales-product draft or
+channel-listing branch.
 Neither owner writes Channels targets or executions, and registration never
 creates a source `MasterProduct`.
 
@@ -923,7 +924,8 @@ optional SourcingCandidate provenance
 
 Actual listings collected from a mall need no fabricated selling product or
 registration target. Listing-only availability operations use the same execution
-ledger. Registered views preserve these listings even without an AI workspace.
+ledger. Registered views preserve these listings even without a Content(AI)
+workspace.
 Unregistered candidate views exclude provenance already represented by an active
 listing, including provenance through the linked selling product.
 
@@ -953,9 +955,7 @@ preview, start, status, unresolved, not-submitted, confirm — is Channels' own
 route family, `/api/channels/candidates/:id/registration-executions/*`, and the
 product-pipeline Wing flow and the mall wizard reach it through the one web
 client `(channels)/_shared/registration-execution-api.ts`.
-In 0.1.8, `POST /api/sourcing/candidates/:id/promote` is a
-deprecated alias for draft creation and returns only
-`{ preparationId, status: 'draft' }`. Active preparation uniqueness is scoped
+Active preparation uniqueness is scoped
 to organization, candidate, and selected channel account. The same candidate
 may therefore have one active draft per account, while duplicate active drafts
 for the same account are rejected deterministically.

@@ -250,6 +250,26 @@ uncertain submissions remain reconciliation work. Successful targets remain
 reusable while explicit archival is preserved. A second run detects the new
 shape and performs no writes. Run only through the writer-stopped cutover and
 verify recorded counts; recovery follows the deployment data-loss policy.
+`023_sales_product_draft_cutover` runs after 022 and makes the collected product
+and the selling product one row (KID-310, ADR-0022). It expands the draft columns
+itself at the widths Prisma will contract them to and drops the `NOT NULL` 022 left
+on `sales_products.code` and on the option code and sale price, because a draft
+exists without a KID and without a price. It then projects each live candidate's
+edits onto one draft in registration-input → `rawData.manualBasics` → raw-payload
+order, cutting any value wider than its column; a candidate that already has a
+draft only gets its empty columns filled. A rejected candidate gets an `unused`
+draft, the way the runtime retires one. `mallRegisterValues` move onto that mall's
+registration target (created when the product and account has none) and
+`mallRegisterShared` becomes the draft's `registrationDefaults`; the live
+candidate's `rawData` then keeps the raw payload only. Every `channel_listings`
+row that still names a candidate is linked to that candidate's draft after the
+drafts exist. KID codes are **not** issued here — the first registration target
+or the mall workbook issues them. Two selling products for one candidate, or two
+active settings for one product and account, abort before any mutation. The run
+details report `createdDrafts`, `filledDrafts`, `movedMallValues`, `movedDefaults`,
+`createdTargets`, `discardedMallValues`, `strippedCandidates`, `truncatedValues`,
+`archivedDuplicateTargets` and `linkedListings`. A second run writes nothing.
+
 `024_content_workspace_owner_cutover` runs after `023_sales_product_draft_cutover`
 and moves every `owner_type='sourcing_candidate'` content workspace onto the
 sales-product draft 023 created for that candidate, adding

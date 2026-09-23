@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { planDraftOptions } from '../../../apps/server/src/channels/domain/sales-product/sales-product-draft';
+import {
+  clampDraftText,
+  planDraftOptions,
+  type SalesProductTextField,
+} from '../../../apps/server/src/channels/domain/sales-product/sales-product-draft';
 import { salesProductOptionKey } from '@kiditem/shared/sales-product';
 import type { DataMigration } from '../types';
 
@@ -17,6 +21,7 @@ type CandidateRow = {
   thumbnail_url: string | null;
   image_url: string | null;
   raw_data: unknown;
+  status: string;
   sales_product_id: string | null;
   sales_product_status: string | null;
 };
@@ -53,7 +58,6 @@ export const salesProductDraftCutoverMigration: DataMigration = {
     if (!(await readShape(tx)).draft_columns) {
       throw new Error('The draft columns are still missing after expand; the draft cutover stopped before mutation.');
     }
-    const linkedListings = shape.listings ? await backfillListingDrafts(tx) : 0;
     const archivedDuplicateTargets = shape.targets ? await archiveDuplicateTargets(tx) : 0;
 
     const candidates = await readCandidates(tx, shape);
@@ -63,11 +67,13 @@ export const salesProductDraftCutoverMigration: DataMigration = {
     let movedDefaults = 0;
     let createdTargets = 0;
     let discardedMallValues = 0;
+    let truncatedValues = 0;
     for (const candidate of candidates) {
       const raw = asRecord(candidate.raw_data);
       const manual = asRecord(raw.manualBasics);
       const registrationInput = shape.targets ? await readTargetInput(tx, candidate) : {};
       const projected = projectDraft(candidate, manual, registrationInput);
+      truncatedValues += projected.truncated;
       if (candidate.sales_product_id) {
         filledDrafts += await fillEmptyColumns(tx, candidate.sales_product_id, candidate.organization_id, projected);
       } else {
@@ -82,6 +88,9 @@ export const salesProductDraftCutoverMigration: DataMigration = {
         discardedMallValues += moved.discarded;
       }
     }
+    // 초안을 다 만든 뒤에 잇는다. 이 이관이 만든 초안도 몰 상품의 원천이라, 먼저 이으면
+    // 그 상품만 `sales_product_id` 가 빈 채로 push 를 맞고 후보 열과 함께 원천을 잃는다.
+    const linkedListings = shape.listings ? await backfillListingDrafts(tx) : 0;
     const strippedCandidates = await stripCandidateEdits(tx);
 
     return {
@@ -95,6 +104,7 @@ export const salesProductDraftCutoverMigration: DataMigration = {
         createdTargets,
         discardedMallValues,
         strippedCandidates,
+        truncatedValues,
         archivedDuplicateTargets,
         linkedListings,
         outcome: 'moved',
@@ -113,6 +123,7 @@ const DRAFT_COLUMNS = [
 type ProjectedDraft = {
   name: string;
   columns: Record<(typeof DRAFT_COLUMNS)[number], string | null>;
+  sourcePlatform: string | null;
   keywords: string[];
   colorVariantNames: string[];
   boxSetQuantity: number | null;
@@ -122,14 +133,26 @@ type ProjectedDraft = {
   registrationDefaults: Json | null;
   salePrice: number | null;
   optionNames: string[];
+  /** 칸 너비를 넘어 잘라낸 값의 수. 이관 보고에 쌓인다. */
+  truncated: number;
 };
 
 /**
  * 컬럼 투영 우선순위: 등록 설정 입력값 → 후보의 수기 편집값(manualBasics) → 원문.
  * 프리젠터가 하던 3단 권위를 여기서 한 번만 적용하고 끝낸다.
+ *
+ * 원천 값은 판매상품 칸보다 길 수 있다 — 1688 이름은 흔히 255 자를 넘는다. 거절하면 그 후보만
+ * 못 옮기는 게 아니라 이관 전체가 멈추므로, 런타임과 같은 규칙(`clampDraftText`)으로 자르고
+ * 자른 건수를 보고한다.
  */
 function projectDraft(candidate: CandidateRow, manual: Json, registrationInput: Json): ProjectedDraft {
   const raw = asRecord(candidate.raw_data);
+  let truncated = 0;
+  const clamp = (field: SalesProductTextField, value: string | null): string | null => {
+    const cut = clampDraftText(field, value);
+    if (cut.truncated) truncated += 1;
+    return cut.value;
+  };
   const pick = (...keys: string[]): string | null => {
     for (const source of [registrationInput, manual, raw]) {
       for (const key of keys) {
@@ -157,23 +180,28 @@ function projectDraft(candidate: CandidateRow, manual: Json, registrationInput: 
     const parsed = value === null ? Number.NaN : Number(value.replace(/[^\d.-]/g, ''));
     return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
   };
+  const name = clamp('name', pick('name', 'productName', 'title') ?? candidate.name) ?? candidate.name;
+  const columns: ProjectedDraft['columns'] = {
+    description: pick('description', 'productDescription') ?? candidate.description ?? null,
+    target_audience: clamp('targetAudience', pick('targetAudience', 'target')),
+    age_group: clamp('ageGroup', pick('ageGroup', 'age')),
+    product_size: clamp('productSize', pick('productSize', 'size')),
+    brand: clamp('brand', pick('brand')),
+    manufacturer: clamp('manufacturer', pick('manufacturer', 'maker')),
+    model_name: clamp('modelName', pick('modelName')),
+    model_no: clamp('modelNo', pick('modelNo', 'modelNumber')),
+    origin_country: clamp('originCountry', pick('originCountry', 'origin')),
+    standard_category: clamp('standardCategory', pick('standardCategory')),
+    notice_category: clamp('noticeCategory', pick('noticeCategory')),
+    import_declaration_no: clamp('importDeclarationNo', pick('importDeclarationNo')),
+    admin_memo: pick('adminMemo', 'memo'),
+  };
+  const sourcePlatform = clamp('sourcePlatform', candidate.source_platform);
   return {
-    name: pick('name', 'productName', 'title') ?? candidate.name,
-    columns: {
-      description: pick('description', 'productDescription') ?? candidate.description ?? null,
-      target_audience: pick('targetAudience', 'target'),
-      age_group: pick('ageGroup', 'age'),
-      product_size: pick('productSize', 'size'),
-      brand: pick('brand'),
-      manufacturer: pick('manufacturer', 'maker'),
-      model_name: pick('modelName'),
-      model_no: pick('modelNo', 'modelNumber'),
-      origin_country: pick('originCountry', 'origin'),
-      standard_category: pick('standardCategory'),
-      notice_category: pick('noticeCategory'),
-      import_declaration_no: pick('importDeclarationNo'),
-      admin_memo: pick('adminMemo', 'memo'),
-    },
+    name,
+    columns,
+    sourcePlatform,
+    truncated,
     keywords: list('keywords', 'tags'),
     colorVariantNames: list('colorVariantNames', 'colors'),
     boxSetQuantity: number('boxSetQuantity', 'boxQuantity'),
@@ -239,23 +267,26 @@ async function readShape(tx: Prisma.TransactionClient) {
  * 022 가 NOT NULL 로 세워 둔 코드 · 판매가도 여기서 푼다.
  */
 async function expandDraftColumns(tx: Prisma.TransactionClient): Promise<void> {
+  // 너비는 Prisma 와 같아야 한다. text 로 만들어 두면 push 가 좁힐 때 넘치는 줄에서 터진다.
   const columns: Array<[string, string]> = [
     ['description', `text NOT NULL DEFAULT ''`],
-    ['target_audience', 'text'],
-    ['age_group', 'text'],
-    ['product_size', 'text'],
+    ['target_audience', 'varchar(200)'],
+    ['age_group', 'varchar(100)'],
+    ['product_size', 'varchar(200)'],
     ['color_variant_names', `text[] NOT NULL DEFAULT '{}'`],
     ['box_set_quantity', 'integer'],
     ['registration_defaults', 'jsonb'],
     ['keywords', `text[] NOT NULL DEFAULT '{}'`],
     ['notice_values', `text[] NOT NULL DEFAULT '{}'`],
     ['certifications', 'jsonb'],
-    ['kc_status', `text NOT NULL DEFAULT 'unknown'`],
-    ['brand', 'text'], ['manufacturer', 'text'], ['model_name', 'text'], ['model_no', 'text'],
-    ['origin_country', 'text'], ['standard_category', 'text'], ['notice_category', 'text'],
-    ['import_declaration_no', 'text'], ['admin_memo', 'text'],
+    ['kc_status', `varchar(20) NOT NULL DEFAULT 'unknown'`],
+    ['brand', 'varchar(50)'], ['manufacturer', 'varchar(50)'],
+    ['model_name', 'varchar(60)'], ['model_no', 'varchar(60)'],
+    ['origin_country', 'varchar(50)'], ['standard_category', 'varchar(40)'],
+    ['notice_category', 'varchar(10)'],
+    ['import_declaration_no', 'varchar(60)'], ['admin_memo', 'text'],
     ['tax_type', `text NOT NULL DEFAULT 'taxable'`],
-    ['source_platform', 'text'], ['source_url', 'text'],
+    ['source_platform', 'varchar(40)'], ['source_url', 'text'],
   ];
   for (const [column, definition] of columns) {
     await tx.$executeRawUnsafe(
@@ -338,6 +369,7 @@ async function readCandidates(
            candidate.thumbnail_url,
            candidate.image_url,
            candidate.raw_data,
+           candidate.status,
            product.id::text AS sales_product_id,
            product.status AS sales_product_status
     FROM sourcing_candidates AS candidate
@@ -384,8 +416,11 @@ async function createDraft(
 ): Promise<void> {
   const id = randomUUID();
   const { optionAxes, optionValues } = planDraftOptions(draft.optionNames);
-  // 팔 옵션에 값이 다 차야 active 다. 옮겨 온 값이 없으면 초안으로 둔다.
-  const status = draft.salePrice === null ? 'draft' : 'active';
+  // 거절한 후보의 초안은 팔 물건이 아니다 — 런타임이 거절에서 `unused` 로 내리는 것과 같다
+  // (`sourcing/CLAUDE.md`). 팔 옵션에 값이 다 차야 active 고, 옮겨 온 값이 없으면 초안이다.
+  const status = candidate.status === 'rejected'
+    ? 'unused'
+    : draft.salePrice === null ? 'draft' : 'active';
   await tx.$executeRaw`
     INSERT INTO sales_products (
       id, organization_id, code, name, description, target_audience, age_group, product_size,
@@ -406,7 +441,7 @@ async function createDraft(
       ${draft.columns.origin_country}, ${draft.columns.standard_category},
       ${draft.columns.notice_category}, ${draft.columns.import_declaration_no}, ${draft.columns.admin_memo},
       ${status}, 'taxable', ${optionAxes}::text[], ${imageUrls}::text[],
-      ${candidate.id}::uuid, ${candidate.source_platform}, ${candidate.source_url}, 1, NOW(), NOW()
+      ${candidate.id}::uuid, ${draft.sourcePlatform}, ${candidate.source_url}, 1, NOW(), NOW()
     )
   `;
   for (const [index, values] of optionValues.entries()) {

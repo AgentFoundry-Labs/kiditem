@@ -34,7 +34,7 @@ in Supply, but the backend capability owner is finance.
   `Order.shippingPrice` defaults to 0, so a collector that never fills it reads
   as measured zero shipping; a nullable column or collector provenance belongs
   to a schema cutover.
-- Profit cost inputs (KID-114): purchase cost is the option recipe × mapped
+- Profit cost inputs: purchase cost is the option recipe × mapped
   `SellpiaInventorySku.purchasePrice`. A sales commission and other per-sale
   cost apply by the order's channel account through `channelAccountSalesCosts`:
   Rocket direct purchase applies neither (Not applied, 0); any other account
@@ -57,8 +57,8 @@ in Supply, but the backend capability owner is finance.
   by supply.
 - The manual settlement ledger (list, create, deposit confirmation) reads and
   writes the Orders-namespace `Settlement` table through finance services.
-  Reconciliation against order facts was removed (KID-113) until a settlement
-  source exists (KID-115).
+  Profit is not reconciled against order facts; reconciliation waits for a
+  settlement source.
 - Product profitability evidence is assembled here from Analytics' exact-period
   Sellpia facts and Advertising's listing-daily spend facts for identical dates.
   Keep partial-period totals intact rather than allocating monthly sums to days.

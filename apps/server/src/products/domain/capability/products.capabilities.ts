@@ -6,7 +6,12 @@ const Uuid = z.string().uuid();
 export const PRODUCTS_CAPABILITIES = [
   {
     key: 'products.create_listing_generation_package', ownerDomain: 'products', ownerInputPort: 'products.createListingGenerationPackage',
-    description: 'Start deterministic listing generation for an existing sales-product draft.',
+    description:
+      'Start listing-content generation (detail page and/or thumbnail, per task) for an existing selling-product ' +
+      'draft; optional fields override the brief the draft already holds (name, category, target, options, age ' +
+      'group, KC status, size, colours, box set, template). The result is the generation ids, the content ' +
+      'workspace id and the editor href. It enqueues work and returns immediately; it does not register the ' +
+      'product on any mall and a draft that does not exist is refused.',
     resultSummary: '상품 등록용 생성 작업을 시작했습니다.',
     inputSchema: z.object({
       salesProductId: Uuid,
