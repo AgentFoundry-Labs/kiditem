@@ -43,8 +43,14 @@ function setup(options: {
       ? { ok: false, reason: '빈 파일' }
       : { ok: true, url: `http://storage.local/${key}` }),
   };
-  return { rows, service: new SalesProductImageService(repository, mirror, { log() {}, warn() {} }, channelIntegrity) };
+  return { rows, service: new SalesProductImageService(repository, mirror, { log() {}, warn() {} }, channelIntegrity, noImportedDetails) };
 }
+
+/** 가져온 상세가 없는 조직 — 상세 사진 옮기기는 sales-product.repository.pg 가 실제 Content 로 본다. */
+const noImportedDetails = {
+  readImportedImageUrls: async () => new Map<string, readonly string[]>(),
+  rewriteImportedImageUrls: async () => ({ revisionsUpdated: 0 }),
+} as never;
 
 describe('SalesProductImageService', () => {
   it('moves Sabangnet photos batch by batch and skips a photo it cannot move', async () => {

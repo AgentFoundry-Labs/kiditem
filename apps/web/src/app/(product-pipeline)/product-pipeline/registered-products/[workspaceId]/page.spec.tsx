@@ -52,17 +52,14 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     ownerType: 'channel_listing',
     sourceRecordId: 'candidate-1',
     channelListingId: 'listing-1',
-    originWorkspaceId: 'candidate-workspace-1',
-    displayName: '자석 다트게임 콘텐츠',
-    normalizedTitle: '자석다트게임콘텐츠',
+    normalizedTitle: null,
     status: 'active',
     href: '/product-pipeline/registered-products/listing-1',
-    generationCount: 1,
-    latestGenerationId: 'generation-1',
-    latestStatus: 'completed',
-    currentDetailPageArtifactId: 'artifact-1',
+    detailPageCount: 1,
+    latestDetailPageId: 'generation-1',
+    latestStatus: 'ready',
+    currentDetailPageId: 'generation-1',
     currentDetailPageRevisionId: 'revision-1',
-    currentDetailPageGenerationId: 'generation-1',
     currentThumbnailSelection: {
       id: 'selection-1',
       contentAssetId: 'asset-1',
@@ -72,15 +69,16 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     updatedAt: '2026-07-13T01:00:00.000Z',
     history: [{
       id: 'generation-1',
-      contentType: 'detail_page',
-      status: 'completed',
-      generatedTitle: '자석 다트게임',
+      source: 'generated',
+      status: 'ready',
+      title: '자석 다트게임',
       templateId: 'kids-playful',
       generationInput: {},
       detailPageData: null,
       imageUrls: ['https://cdn.example.com/detail.png'],
       processedImages: {},
-      detailPageArtifactId: 'artifact-1',
+      currentRevisionId: 'revision-1',
+      errorMessage: null,
       href: '/product-pipeline/detail-pages/generation-1/editor',
       createdAt: '2026-07-13T00:00:00.000Z',
       updatedAt: '2026-07-13T01:00:00.000Z',
@@ -171,7 +169,6 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     expect(props?.initialAgentHistory).toEqual([
       expect.objectContaining({
         id: 'generation-1',
-        detailPageArtifactId: 'artifact-1',
         detailPageRevisionId: 'revision-1',
         detailPageData: expect.objectContaining({
           title: '저장된 자석 다트게임 상세페이지',
@@ -180,7 +177,7 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     ]);
     expect(initialWorkspaceData.product.basicInfo).toEqual(expect.objectContaining({
       selectedDetailPageGenerationId: 'generation-1',
-      selectedDetailPageArtifactId: 'artifact-1',
+      selectedDetailPageArtifactId: null,
       selectedDetailPageRevisionId: 'revision-1',
     }));
     expect(screen.getByText('저장된 자석 다트게임 상세페이지')).toBeInTheDocument();

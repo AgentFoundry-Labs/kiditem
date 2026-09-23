@@ -75,7 +75,7 @@ export class CreateManualDetailPageDto {
 
 export class SelectContentWorkspaceDetailPageDto {
   @IsUUID()
-  contentGenerationId!: string;
+  detailPageId!: string;
 }
 
 @ValidatorConstraint({ name: 'exactlyOneWorkspaceThumbnailSource', async: false })

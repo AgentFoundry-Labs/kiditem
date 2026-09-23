@@ -17,7 +17,7 @@ export class AiGenerationCancellationService
     private readonly imageAi: ImageAiService,
   ) {}
 
-  cancelContentGeneration(input: {
+  cancelDetailPageGeneration(input: {
     organizationId: string;
     generationId: string;
     actorUserId: string | null;

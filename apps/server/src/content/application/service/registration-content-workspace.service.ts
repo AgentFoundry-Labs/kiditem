@@ -2,7 +2,6 @@ import type { OwnerTransaction } from '../../../common/owner-transaction';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
-  type AttachContentWorkspaceToListingInput,
   type CreateManualDetailPageInput,
   type CreateManualDetailPageResult,
   type EnsureSalesProductContentWorkspaceInput,
@@ -18,7 +17,6 @@ import {
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
   type RegistrationContentWorkspaceRepositoryPort,
 } from '../port/out/repository/registration-content-workspace.repository.port';
-import { normalizeContentTitle } from './content-workspace.service';
 import { extractImageSrcs } from './detail-page-query.service';
 
 @Injectable()
@@ -56,12 +54,7 @@ export class RegistrationContentWorkspaceService
     transaction: OwnerTransaction,
     input: EnsureSalesProductContentWorkspaceInput,
   ): Promise<{ workspaceId: string }> {
-    const displayName = normalizedDisplayName(input.displayName);
-    return this.repository.ensureSalesProductWorkspace(transaction, {
-      ...input,
-      displayName,
-      normalizedTitle: normalizeContentTitle(displayName),
-    });
+    return this.repository.ensureSalesProductWorkspace(transaction, input);
   }
 
   readRegistrableDetailPage(input: {
@@ -86,21 +79,22 @@ export class RegistrationContentWorkspaceService
     });
   }
 
+  readImportedDetailImageUrls(input: { organizationId: string }): Promise<ReadonlyMap<string, readonly string[]>> {
+    return this.repository.readImportedDetailImageUrls(input);
+  }
+
+  rewriteImportedDetailImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    replacements: ReadonlyMap<string, string>;
+  }): Promise<{ revisionsUpdated: number }> {
+    return this.repository.rewriteImportedDetailImageUrls(input);
+  }
+
   createManualDetailPage(input: CreateManualDetailPageInput): Promise<CreateManualDetailPageResult> {
     if (!input.html.trim()) throw new BadRequestException('상세 HTML 을 넣어 주세요.');
     return this.repository.createManualDetailPage({ ...input, imageUrls: extractImageSrcs(input.html) });
   }
 
-  attachToListing(
-    transaction: OwnerTransaction,
-    input: AttachContentWorkspaceToListingInput,
-  ): Promise<{ workspaceId: string }> {
-    return this.repository.attachToListing(transaction, input);
-  }
 }
 
-function normalizedDisplayName(value: string): string {
-  const normalized = value.trim().replace(/\s+/g, ' ').slice(0, 120);
-  if (!normalized) throw new BadRequestException('Content workspace display name is required.');
-  return normalized;
-}

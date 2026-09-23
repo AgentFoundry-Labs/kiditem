@@ -405,7 +405,7 @@ describe('registration target repository (PostgreSQL)', () => {
     const content = realRegistrationContentWorkspace(prisma);
     const importDetail = (salesProductId: string) => prisma.$transaction(async (tx) => {
       await content.ensureSalesProductWorkspace(ownerTransaction(tx), {
-        organizationId: TEST_ORGANIZATION_ID, salesProductId, displayName: '공통 상품', createdByUserId: null,
+        organizationId: TEST_ORGANIZATION_ID, salesProductId, createdByUserId: null,
       });
       return content.importDetailPage(ownerTransaction(tx), {
         organizationId: TEST_ORGANIZATION_ID, salesProductId, source: 'sabangnet',

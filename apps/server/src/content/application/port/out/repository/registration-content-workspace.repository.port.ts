@@ -1,6 +1,5 @@
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
-  AttachContentWorkspaceToListingInput,
   CreateManualDetailPageInput,
   CreateManualDetailPageResult,
   EnsureSalesProductContentWorkspaceInput,
@@ -16,11 +15,6 @@ export const REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT = Symbol(
   'REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT',
 );
 
-export interface RegistrationContentWorkspaceOwnerInput {
-  displayName: string;
-  normalizedTitle: string;
-}
-
 export interface RegistrationContentWorkspaceRepositoryPort {
   findSalesProductWorkspaceId(
     input: FindSalesProductContentWorkspaceInput,
@@ -35,8 +29,7 @@ export interface RegistrationContentWorkspaceRepositoryPort {
   ): Promise<void>;
   ensureSalesProductWorkspace(
     transaction: OwnerTransaction,
-    input: EnsureSalesProductContentWorkspaceInput &
-      RegistrationContentWorkspaceOwnerInput,
+    input: EnsureSalesProductContentWorkspaceInput,
   ): Promise<{ workspaceId: string }>;
   readRegistrableDetailPage(input: {
     organizationId: string;
@@ -54,8 +47,10 @@ export interface RegistrationContentWorkspaceRepositoryPort {
   createManualDetailPage(
     input: CreateManualDetailPageInput & { imageUrls: readonly string[] },
   ): Promise<CreateManualDetailPageResult>;
-  attachToListing(
-    transaction: OwnerTransaction,
-    input: AttachContentWorkspaceToListingInput,
-  ): Promise<{ workspaceId: string }>;
+  readImportedDetailImageUrls(input: { organizationId: string }): Promise<ReadonlyMap<string, readonly string[]>>;
+  rewriteImportedDetailImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    replacements: ReadonlyMap<string, string>;
+  }): Promise<{ revisionsUpdated: number }>;
 }

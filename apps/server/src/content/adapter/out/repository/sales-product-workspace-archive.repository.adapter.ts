@@ -7,6 +7,11 @@ import type {
 } from '../../../application/port/in/workspace/sales-product-workspace-archive.port';
 import type { SalesProductWorkspaceArchiveRepositoryPort } from '../../../application/port/out/repository/sales-product-workspace-archive.repository.port';
 
+/**
+ * 초안을 내리면 그 작업공간이 가진 것을 모두 보관한다(KID-313 W3). 작업공간이 자산 · 상세 페이지 · 썸네일 job 의
+ * 유일한 소유자이므로 작업공간 id 로 따라간다. revision 은 지우지 않는다 — 실행이 얼린 revision 은 그대로 읽힌다.
+ * 두 현재 포인터(상세 revision · 대표이미지 자산)는 비운다.
+ */
 @Injectable()
 export class SalesProductWorkspaceArchiveRepositoryAdapter
 implements SalesProductWorkspaceArchiveRepositoryPort {
@@ -15,109 +20,26 @@ implements SalesProductWorkspaceArchiveRepositoryPort {
     input: ArchiveSalesProductWorkspaceInput,
   ): Promise<ArchiveSalesProductWorkspaceResult> {
     const tx = scope as unknown as Prisma.TransactionClient;
-    await lockSalesProductContentWorkspaces(tx, input.organizationId, input.salesProductId);
+    const workspaceIds = await lockSalesProductContentWorkspaces(tx, input.organizationId, input.salesProductId);
+    if (workspaceIds.length === 0) {
+      return { archivedDetailPages: 0, archivedContentAssets: 0, archivedThumbnailGenerations: 0 };
+    }
+    const archived = archiveData(input.archivedAt);
     await scope.contentWorkspace.updateMany({
-      where: {
-        organizationId: input.organizationId,
-        salesProductId: input.salesProductId,
-        status: 'active',
-        isDeleted: false,
-      },
+      where: { organizationId: input.organizationId, id: { in: workspaceIds } },
       data: {
         status: 'archived',
-        currentThumbnailSelectionId: null,
-        ...archiveData(input.archivedAt),
+        currentDetailPageRevisionId: null,
+        currentThumbnailAssetId: null,
+        ...archived,
       },
     });
-
-    const generationRows = await scope.contentGeneration.findMany({
-      where: workspaceGenerationWhere(input),
-      select: { id: true },
-    });
-    const generationIds = generationRows.map((row) => row.id);
-    await lockContentGenerations(tx, input.organizationId, generationIds);
-    await lockThumbnailGenerations(tx, input.organizationId, input.salesProductId);
-
-    const detailPageArtifacts = await scope.detailPageArtifact.updateMany({
-      where: {
-        organizationId: input.organizationId,
-        isDeleted: false,
-        OR: [
-          { contentWorkspace: { salesProductId: input.salesProductId } },
-          ...(generationIds.length > 0
-            ? [{ sourceContentGenerationId: { in: generationIds } }]
-            : []),
-        ],
-      },
-      data: archiveData(input.archivedAt),
-    });
-
-    const assetWhere = {
-      organizationId: input.organizationId,
-      isDeleted: false,
-      usages: {
-        some: { contentGenerationId: { in: generationIds } },
-        none: {
-          contentGeneration: {
-            organizationId: input.organizationId,
-            isDeleted: false,
-            id: { notIn: generationIds },
-          },
-        },
-      },
-      thumbnailSelections: {
-        none: {
-          currentForWorkspace: {
-            is: {
-              organizationId: input.organizationId,
-              status: 'active',
-              isDeleted: false,
-            },
-          },
-        },
-      },
-    } satisfies Prisma.ContentAssetWhereInput;
-    const lockedAssetIds = generationIds.length > 0
-      ? await lockContentAssets(
-          tx,
-          input.organizationId,
-          assetWhere,
-        )
-      : [];
-    const contentAssets = lockedAssetIds.length > 0
-      ? await scope.contentAsset.updateMany({
-          where: {
-            ...assetWhere,
-            id: { in: lockedAssetIds },
-          },
-          data: archiveData(input.archivedAt),
-        })
-      : { count: 0 };
-
-    const contentGenerations = generationIds.length > 0
-      ? await scope.contentGeneration.updateMany({
-        where: {
-          organizationId: input.organizationId,
-          isDeleted: false,
-          id: { in: generationIds },
-        },
-        data: archiveData(input.archivedAt),
-      })
-      : { count: 0 };
-
-    const thumbnailGenerations = await scope.thumbnailGeneration.updateMany({
-      where: {
-        organizationId: input.organizationId,
-        contentWorkspace: { salesProductId: input.salesProductId },
-        isDeleted: false,
-        thumbnailSelections: { none: {} },
-      },
-      data: archiveData(input.archivedAt),
-    });
-
+    const owned = { organizationId: input.organizationId, contentWorkspaceId: { in: workspaceIds }, isDeleted: false };
+    const detailPages = await scope.detailPage.updateMany({ where: owned, data: archived });
+    const contentAssets = await scope.contentAsset.updateMany({ where: owned, data: archived });
+    const thumbnailGenerations = await scope.thumbnailGeneration.updateMany({ where: owned, data: archived });
     return {
-      archivedContentGenerations: contentGenerations.count,
-      archivedDetailPageArtifacts: detailPageArtifacts.count,
+      archivedDetailPages: detailPages.count,
       archivedContentAssets: contentAssets.count,
       archivedThumbnailGenerations: thumbnailGenerations.count,
     };
@@ -128,8 +50,8 @@ async function lockSalesProductContentWorkspaces(
   tx: Prisma.TransactionClient,
   organizationId: string,
   salesProductId: string,
-): Promise<void> {
-  await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+): Promise<string[]> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT id
     FROM content_workspaces
     WHERE organization_id = ${organizationId}::uuid
@@ -139,79 +61,9 @@ async function lockSalesProductContentWorkspaces(
     ORDER BY id
     FOR UPDATE
   `);
-}
-
-async function lockContentGenerations(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  generationIds: string[],
-): Promise<void> {
-  if (generationIds.length === 0) return;
-  await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id
-    FROM content_generations
-    WHERE organization_id = ${organizationId}::uuid
-      AND id IN (${Prisma.join(generationIds.map((id) => Prisma.sql`${id}::uuid`))})
-      AND is_deleted = false
-    ORDER BY id
-    FOR UPDATE
-  `);
-}
-
-async function lockThumbnailGenerations(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  salesProductId: string,
-): Promise<void> {
-  await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT g.id
-    FROM thumbnail_generations g
-    JOIN content_workspaces w
-      ON w.id = g.content_workspace_id
-     AND w.organization_id = g.organization_id
-    WHERE g.organization_id = ${organizationId}::uuid
-      AND w.sales_product_id = ${salesProductId}::uuid
-      AND g.is_deleted = false
-    ORDER BY g.id
-    FOR UPDATE OF g
-  `);
-}
-
-/**
- * The workspace is the only owner a generation has now, so archiving follows
- * the workspace instead of the three-way candidate fan-out it replaced.
- */
-function workspaceGenerationWhere(input: ArchiveSalesProductWorkspaceInput) {
-  return {
-    organizationId: input.organizationId,
-    isDeleted: false,
-    contentWorkspace: { salesProductId: input.salesProductId },
-  };
+  return rows.map(({ id }) => id);
 }
 
 function archiveData(archivedAt: Date) {
   return { isDeleted: true, deletedAt: archivedAt };
-}
-
-async function lockContentAssets(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  where: Prisma.ContentAssetWhereInput,
-): Promise<string[]> {
-  const candidates = await tx.contentAsset.findMany({
-    where,
-    orderBy: { id: 'asc' },
-    select: { id: true },
-  });
-  if (candidates.length === 0) return [];
-  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id
-    FROM content_assets
-    WHERE organization_id = ${organizationId}::uuid
-      AND id IN (${Prisma.join(candidates.map(({ id }) => Prisma.sql`${id}::uuid`))})
-      AND is_deleted = false
-    ORDER BY id
-    FOR UPDATE
-  `);
-  return rows.map(({ id }) => id);
 }

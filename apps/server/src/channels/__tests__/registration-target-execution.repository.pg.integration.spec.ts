@@ -28,7 +28,6 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { productTransactionalRead } from './product-transactional-read.fake';
 import { channelAdapters, realRegistrationPreflight } from './channel-adapters';
 import { ownerTransaction } from '../../prisma/owner-transaction';
-import { RegistrationDraftAdapter } from '../adapter/out/persistence/registration-draft.adapter';
 import type { TargetExecutionIntent } from '../application/port/out/repository/registration-execution.repository.port';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import {
@@ -57,8 +56,6 @@ describe('registration target execution repository (PostgreSQL)', () => {
     );
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
-      // 등록 확인이 판매 상품의 콘텐츠 작업공간을 몰 상품에 붙인다 — 실제 Content 어댑터로 엮는다.
-      new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
       channelAdapters({ registration: realRegistrationPreflight(prisma) }),
       recipes,
     );
@@ -1482,7 +1479,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
     /** 판매 상품의 콘텐츠 작업공간 — 상품을 만드는 길이 만들어 두는 것을 여기서 직접 만든다. */
     async function withWorkspace<T extends { productId: string }>(fixture: T): Promise<T> {
       await prisma.$transaction((tx) => realRegistrationContentWorkspace(prisma).ensureSalesProductWorkspace(ownerTransaction(tx), {
-        organizationId: TEST_ORGANIZATION_ID, salesProductId: fixture.productId, displayName: '공통 상품', createdByUserId: null,
+        organizationId: TEST_ORGANIZATION_ID, salesProductId: fixture.productId, createdByUserId: null,
       }));
       return fixture;
     }
@@ -1506,7 +1503,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       return { prepared, started };
     }
 
-    it('registers on Coupang Wing end to end: freezes the adapter payload, confirms by vendor and Wing URL, attaches content and applies the Sellpia recipe', async () => {
+    it('registers on Coupang Wing end to end: freezes the adapter payload, confirms by vendor and Wing URL, leaves the product workspace to the product and applies the Sellpia recipe', async () => {
       const { fixture, request, snapshot } = await wingFixture();
       const { prepared, started } = await prepareAndStart(request, snapshot);
 
@@ -1551,7 +1548,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       await expect(prisma.contentWorkspace.findFirstOrThrow({
         where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: fixture.productId, status: 'active', isDeleted: false },
         select: { channelListingId: true },
-      })).resolves.toEqual({ channelListingId: listing.id });
+      })).resolves.toEqual({ channelListingId: null });
     });
 
     it('refuses Wing confirmation from a foreign vendor, a non-Wing URL or a non-numeric listing id and writes no listing', async () => {
@@ -1579,7 +1576,6 @@ describe('registration target execution repository (PostgreSQL)', () => {
       const preflight = vi.fn(real.preflightExternalProductRegistration.bind(real));
       const counted = new RegistrationExecutionRepositoryAdapter(
         prisma as unknown as PrismaService,
-        new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
         channelAdapters({ registration: { preflightExternalProductRegistration: preflight } }),
         recipes,
       );
@@ -1604,12 +1600,14 @@ describe('registration target execution repository (PostgreSQL)', () => {
           evidence: { channelAccountId: fixture.accountId, providerAccountId: 'vendor-1', observedUrl: 'https://partner.kidkids.net/goods/kk-1', externalListingId: 'kk-1' },
         },
       })).resolves.toMatchObject({ status: 'succeeded' });
-      const listing = await prisma.channelListing.findFirstOrThrow({ where: { channelAccountId: fixture.accountId, externalId: 'kk-1' }, select: { id: true } });
+      await expect(prisma.channelListing.findFirstOrThrow({ where: { channelAccountId: fixture.accountId, externalId: 'kk-1' }, select: { salesProductId: true } }))
+        .resolves.toEqual({ salesProductId: fixture.productId });
+      // 판매 상품 작업공간은 리스팅 id 를 갖지 않는다 — 리스팅은 상품을 거쳐 작업공간에 닿는다(KID-313 W3).
       await expect(prisma.contentWorkspace.findFirstOrThrow({ where: { salesProductId: fixture.productId }, select: { channelListingId: true } }))
-        .resolves.toEqual({ channelListingId: listing.id });
+        .resolves.toEqual({ channelListingId: null });
     });
 
-    it('keeps the content workspace on its first listing when the same product is registered on a second mall', async () => {
+    it('reaches the one product workspace from both listings when the same product is registered on a second mall', async () => {
       const first = await withWorkspace(await createFixture(prisma, targets, { channel: 'kidkids' }));
       const confirm = async (accountId: string, executionId: string, lease: string, hash: string, externalListingId: string, origin: string) =>
         repository.reportTarget({
@@ -1619,7 +1617,6 @@ describe('registration target execution repository (PostgreSQL)', () => {
         });
       const one = await prepareAndStart(requestFor('first-mall-1'), first.snapshot);
       await confirm(first.accountId, one.prepared.executionId, one.started.leaseToken!, one.started.payloadHash, 'kk-1', 'https://partner.kidkids.net');
-      const firstListing = await prisma.channelListing.findFirstOrThrow({ where: { externalId: 'kk-1' }, select: { id: true } });
 
       const secondAccount = await prisma.channelAccount.create({ data: { organizationId: TEST_ORGANIZATION_ID, channel: 'smartstore', name: 'second mall', externalAccountId: 'vendor-1', status: 'active' } });
       const secondTarget = await targets.create(TEST_ORGANIZATION_ID, {
@@ -1630,8 +1627,10 @@ describe('registration target execution repository (PostgreSQL)', () => {
       const two = await prepareAndStart(requestFor('second-mall-1'), { ...first.snapshot, targetId: secondTarget, channelAccountId: secondAccount.id });
       await expect(confirm(secondAccount.id, two.prepared.executionId, two.started.leaseToken!, two.started.payloadHash, 'ss-1', 'https://sell.smartstore.naver.com'))
         .resolves.toMatchObject({ status: 'succeeded' });
-      await expect(prisma.contentWorkspace.findFirstOrThrow({ where: { salesProductId: first.productId }, select: { channelListingId: true } }))
-        .resolves.toEqual({ channelListingId: firstListing.id });
+      await expect(prisma.channelListing.findMany({ where: { externalId: { in: ['kk-1', 'ss-1'] } }, select: { salesProductId: true } }))
+        .resolves.toEqual([{ salesProductId: first.productId }, { salesProductId: first.productId }]);
+      await expect(prisma.contentWorkspace.findMany({ where: { salesProductId: first.productId }, select: { channelListingId: true } }))
+        .resolves.toEqual([{ channelListingId: null }]);
     });
 
     it('freezes the detail page only for register and composition change', async () => {

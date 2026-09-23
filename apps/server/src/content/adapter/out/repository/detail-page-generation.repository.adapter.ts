@@ -1,47 +1,32 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import {
-  CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
-  type ContentAssetLibraryRepositoryPort,
-} from '../../../application/port/out/repository/content-asset-library.repository.port';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import {
   AI_DIRECT_JOB_REPOSITORY_PORT,
   type AiDirectJobRepositoryPort,
 } from '../../../application/port/out/repository/ai-direct-job.repository.port';
-import type { Prisma } from '@prisma/client';
+import {
+  DETAIL_PAGE_REPOSITORY_PORT,
+  type DetailPageRepositoryPort,
+} from '../../../application/port/out/repository/detail-page.repository.port';
 import type {
-  DetailPageCancellableGenerationSnapshot,
   DetailPageContentWorkspaceSnapshot,
+  DetailPageDirectGenerationCancellation,
   DetailPageGenerationRepositoryPort,
   DetailPageImageOnlyBaseCandidateSnapshot,
-  DetailPageRerunBaseSnapshot,
+  DetailPageOpenGenerationResult,
 } from '../../../application/port/out/repository/detail-page-generation.repository.port';
-import type { DetailPageGenerationSnapshot } from '../../../application/port/out/repository/detail-page-query.repository.port';
+import { recordDetailPageAssets } from './detail-page-assets';
 
-const detailPageGenerationInclude = {
-  generationGroup: {
-    select: {
-      id: true,
-      contentWorkspaceId: true,
-    },
-  },
-} satisfies Prisma.ContentGenerationInclude;
-
-const DETAIL_PAGE_ACTIVE_STATUSES = [
-  'PENDING',
-  'PROCESSING',
-  'generating',
-  'pending',
-  'processing',
-];
-const DETAIL_PAGE_PRESERVED_STATUSES = new Set(['READY', 'completed']);
+const DETAIL_PAGE_ACTIVE_STATUSES = ['pending', 'processing'];
 
 @Injectable()
 export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerationRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(CONTENT_ASSET_LIBRARY_REPOSITORY_PORT)
-    private readonly contentAssets: ContentAssetLibraryRepositoryPort,
+    @Inject(DETAIL_PAGE_REPOSITORY_PORT)
+    private readonly detailPages: DetailPageRepositoryPort,
     @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
     private readonly directJobs: AiDirectJobRepositoryPort,
   ) {}
@@ -57,210 +42,76 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
         status: 'active',
         isDeleted: false,
       },
-      select: {
-        id: true,
-        salesProductId: true,
-        displayName: true,
-        normalizedTitle: true,
-      },
+      select: { id: true, salesProductId: true },
     });
   }
 
-  private async createInputGenerationGroup(scope: Prisma.TransactionClient, input: {
-    organizationId: string;
-    contentWorkspaceId: string;
-    triggeredByUserId: string | null;
-    rawTitle: string;
-    templateId: Parameters<DetailPageGenerationRepositoryPort['openProcessingGenerationLedger']>[0]['templateId'];
-  }): Promise<string> {
-    const group = await scope.contentGenerationGroup.create({
-      data: {
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.contentWorkspaceId,
-        groupType: 'input_variation',
-        title: input.rawTitle.slice(0, 80),
-        createdByUserId: input.triggeredByUserId,
-        metadata: {
-          source: 'detail_page_generation',
-          templateId: input.templateId,
-        },
-      },
-      select: { id: true },
-    });
-    return group.id;
-  }
-
-  async ensureRerunGenerationGroup(input: {
-    organizationId: string;
-    baseGenerationId: string;
-    existingGroupId: string | null;
-    contentWorkspaceId: string;
-    title: string;
-    triggeredByUserId: string | null;
-  }): Promise<string> {
-    if (input.existingGroupId) return input.existingGroupId;
-    const group = await this.prisma.contentGenerationGroup.create({
-      data: {
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.contentWorkspaceId,
-        groupType: 'input_variation',
-        baseContentGenerationId: input.baseGenerationId,
-        title: input.title.slice(0, 80),
-        createdByUserId: input.triggeredByUserId,
-        metadata: { source: 'same_input_rerun' },
-      },
-      select: { id: true },
-    });
-    await this.prisma.contentGeneration.updateMany({
-      where: { id: input.baseGenerationId, organizationId: input.organizationId },
-      data: { generationGroupId: group.id },
-    });
-    return group.id;
-  }
-
-  async openProcessingGenerationLedger(
-    input: Parameters<DetailPageGenerationRepositoryPort['openProcessingGenerationLedger']>[0],
-  ): ReturnType<DetailPageGenerationRepositoryPort['openProcessingGenerationLedger']> {
+  async openGeneration(
+    input: Parameters<DetailPageGenerationRepositoryPort['openGeneration']>[0],
+  ): Promise<DetailPageOpenGenerationResult> {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const existing = await this.findExistingProductGenerationLedger(tx, input);
+        const existing = await this.findExistingProductGeneration(tx, input);
         if (existing) return existing;
 
-        const generationGroupId = input.generationGroupId ??
-          await this.createInputGenerationGroup(tx, {
-            organizationId: input.organizationId,
-            contentWorkspaceId: input.contentWorkspaceId,
-            triggeredByUserId: input.triggeredByUserId,
-            rawTitle: input.rawTitle,
-            templateId: input.templateId,
-          });
-        const row = await tx.contentGeneration.create({
-          data: {
-            id: input.productGenerationIdentity?.generationId,
-            organizationId: input.organizationId,
-            contentType: 'detail_page',
-            generationGroupId,
-            contentWorkspaceId: input.contentWorkspaceId,
-            triggeredByUserId: input.triggeredByUserId,
-            templateId: input.templateId,
-            generationInput: input.rawInput as unknown as Prisma.InputJsonValue,
-            generationResult: {
-              templateId: input.templateId,
-              result: {},
-              imageUrls: input.imageUrls,
-              processedImages: {},
-            },
-            generatedTitle: input.rawTitle.slice(0, 80),
-            status: 'PROCESSING',
-          },
-          include: detailPageGenerationInclude,
-        });
-        const inputAssets = await this.contentAssets.recordDetailPageInputAssetsInScope(tx, {
+        const page = await this.detailPages.create(ownerTransaction(tx), {
+          id: input.productGenerationIdentity?.generationId,
           organizationId: input.organizationId,
-          generationGroupId,
+          contentWorkspaceId: input.contentWorkspaceId,
+          source: 'generated',
+          templateId: input.templateId,
+          title: input.title.slice(0, 80),
+          status: 'pending',
+          generationInput: input.rawInput as unknown as Record<string, unknown>,
+          triggeredByUserId: input.triggeredByUserId,
+        });
+        await recordDetailPageAssets(tx, {
+          organizationId: input.organizationId,
+          contentWorkspaceId: input.contentWorkspaceId,
+          detailPageId: page.id,
           createdByUserId: input.triggeredByUserId,
-          imageUrls: input.imageUrls,
-        });
-        await this.recordGenerationSources(tx, {
-          organizationId: input.organizationId,
-          contentGenerationId: row.id,
-          sourceReferences: input.sourceReferences,
-          inputAssets,
+          role: 'detail_source',
+          images: input.imageUrls.map((url) => ({ url })),
         });
         const directJob = await this.directJobs.createInScope(tx, {
           ...input.directJob,
           organizationId: input.organizationId,
-          sourceResourceId: row.id,
+          sourceResourceId: page.id,
         });
-        return {
-          status: 'created' as const,
-          row: row as DetailPageGenerationSnapshot,
-          directJobId: directJob.id,
-          releaseRequired: true,
-        };
+        return { status: 'created' as const, page, directJobId: directJob.id, releaseRequired: true };
       });
     } catch (error) {
       if (!input.productGenerationIdentity || !isUniqueConstraint(error)) throw error;
-      // P2002 aborts the failed transaction. Read the committed deterministic
-      // child through a fresh Prisma scope before treating it as a replay.
-      const winner = await this.findExistingProductGenerationLedger(this.prisma, input);
+      // P2002 는 실패한 트랜잭션을 끝낸다. 먼저 커밋한 결정적 자식을 새 스코프에서 읽어 재요청으로 다룬다.
+      const winner = await this.findExistingProductGeneration(this.prisma, input);
       if (winner) return winner;
       throw error;
     }
   }
 
-  private async findExistingProductGenerationLedger(
+  private async findExistingProductGeneration(
     scope: Prisma.TransactionClient | PrismaService,
-    input: Parameters<DetailPageGenerationRepositoryPort['openProcessingGenerationLedger']>[0],
-  ): Promise<{
-    status: 'created' | 'existing';
-    row: DetailPageGenerationSnapshot;
-    directJobId: string;
-    releaseRequired: boolean;
-  } | null> {
+    input: Parameters<DetailPageGenerationRepositoryPort['openGeneration']>[0],
+  ): Promise<DetailPageOpenGenerationResult | null> {
     if (!input.productGenerationIdentity) return null;
-    const existing = await scope.contentGeneration.findFirst({
-      where: {
-        id: input.productGenerationIdentity.generationId,
-        organizationId: input.organizationId,
-      },
-      include: detailPageGenerationInclude,
+    const existing = await scope.detailPage.findFirst({
+      where: { id: input.productGenerationIdentity.generationId, organizationId: input.organizationId },
+      select: { id: true, isDeleted: true, generationInput: true },
     });
     if (!existing) return null;
     if (
       existing.isDeleted ||
-      readProductGenerationRequestHash(existing.generationInput) !==
-        input.productGenerationIdentity.requestHash
+      readProductGenerationRequestHash(existing.generationInput) !== input.productGenerationIdentity.requestHash
     ) {
       throw new ConflictException('product_generation_idempotency_conflict');
     }
+    const page = await this.detailPages.findById({ organizationId: input.organizationId, detailPageId: existing.id });
     const directJob = await scope.aiDirectJob.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        jobType: 'detail_page_generate',
-        sourceResourceId: existing.id,
-      },
+      where: { organizationId: input.organizationId, jobType: 'detail_page_generate', sourceResourceId: existing.id },
       select: { id: true, status: true },
     });
-    if (!directJob) {
-      throw new Error(`Missing detail-page AI direct job for ${existing.id}.`);
-    }
-    return {
-      status: 'existing',
-      row: existing as DetailPageGenerationSnapshot,
-      directJobId: directJob.id,
-      releaseRequired: directJob.status === 'held',
-    };
-  }
-
-  async markGenerationFailed(input: {
-    organizationId: string;
-    generationId: string;
-    errorMessage: string;
-  }): Promise<void> {
-    await this.prisma.contentGeneration.updateMany({
-      where: { id: input.generationId, organizationId: input.organizationId },
-      data: { status: 'FAILED', errorMessage: input.errorMessage },
-    });
-  }
-
-  async findRerunBase(input: {
-    organizationId: string;
-    generationId: string;
-  }): Promise<DetailPageRerunBaseSnapshot | null> {
-    const base = await this.prisma.contentGeneration.findFirst({
-      where: { id: input.generationId, organizationId: input.organizationId },
-      select: {
-        id: true,
-        generationGroupId: true,
-        contentWorkspaceId: true,
-        generationInput: true,
-        generationResult: true,
-        templateId: true,
-        generatedTitle: true,
-      },
-    });
-    return base as DetailPageRerunBaseSnapshot | null;
+    if (!page || !directJob) throw new Error(`Missing detail-page AI direct job for ${existing.id}.`);
+    return { status: 'existing', page, directJobId: directJob.id, releaseRequired: directJob.status === 'held' };
   }
 
   async findImageOnlyBaseCandidates(input: {
@@ -268,162 +119,66 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
     contentWorkspaceId: string;
     templateId: string;
   }): Promise<DetailPageImageOnlyBaseCandidateSnapshot[]> {
-    const where: Prisma.ContentGenerationWhereInput = {
-      organizationId: input.organizationId,
-      contentType: 'detail_page',
-      templateId: input.templateId,
-      status: { in: ['READY', 'completed'] },
-      contentWorkspaceId: input.contentWorkspaceId,
-    };
-    const rows = await this.prisma.contentGeneration.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        generationInput: true,
-        generationResult: true,
-        templateId: true,
-        generatedTitle: true,
-      },
-    });
-    return rows as DetailPageImageOnlyBaseCandidateSnapshot[];
-  }
-
-  async findSourceContentGeneration(input: {
-    organizationId: string;
-    sourceContentGenerationId: string;
-  }) {
-    return this.prisma.contentGeneration.findFirst({
+    return this.prisma.detailPage.findMany({
       where: {
-        id: input.sourceContentGenerationId,
         organizationId: input.organizationId,
-      },
-      select: { id: true, generatedTitle: true },
-    });
-  }
-
-  async findSourceContentAsset(input: {
-    organizationId: string;
-    contentAssetId: string;
-  }) {
-    return this.prisma.contentAsset.findFirst({
-      where: {
-        id: input.contentAssetId,
-        organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
+        source: 'generated',
+        templateId: input.templateId,
+        status: 'ready',
         isDeleted: false,
       },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { id: true, generationInput: true, generationResult: true, templateId: true },
+    });
+  }
+
+  findSourceDetailPage(input: { organizationId: string; detailPageId: string }) {
+    return this.prisma.detailPage.findFirst({
+      where: { id: input.detailPageId, organizationId: input.organizationId, isDeleted: false },
+      select: { id: true, title: true },
+    });
+  }
+
+  findSourceContentAsset(input: { organizationId: string; contentAssetId: string }) {
+    return this.prisma.contentAsset.findFirst({
+      where: { id: input.contentAssetId, organizationId: input.organizationId, isDeleted: false },
       select: { id: true, label: true, role: true },
     });
   }
 
-  private async recordGenerationSources(scope: Prisma.TransactionClient, input: {
-    organizationId: string;
-    contentGenerationId: string;
-    sourceReferences: Array<{
-      sourceType: 'sourcing_candidate' | 'content_generation' | 'input_asset';
-      sourceCandidateId?: string | null;
-      sourceContentGenerationId?: string | null;
-      contentAssetId?: string | null;
-      label?: string | null;
-    }>;
-    inputAssets: Array<{
-      id: string;
-      assetKey: string;
-      role: string | null;
-      label: string | null;
-    }>;
-  }): Promise<void> {
-    const explicitRows = input.sourceReferences.map((ref, index) => ({
-      organizationId: input.organizationId,
-      contentGenerationId: input.contentGenerationId,
-      sourceType: ref.sourceType,
-      sourceCandidateId: ref.sourceCandidateId ?? null,
-      sourceContentGenerationId: ref.sourceContentGenerationId ?? null,
-      contentAssetId: ref.contentAssetId ?? null,
-      label: ref.label ?? null,
-      sortOrder: index,
-      metadata: {},
-    }));
-    const inputAssetRows = input.inputAssets.map((asset, index) => ({
-      organizationId: input.organizationId,
-      contentGenerationId: input.contentGenerationId,
-      sourceType: 'input_asset',
-      sourceCandidateId: null,
-      sourceContentGenerationId: null,
-      contentAssetId: asset.id,
-      label: asset.label ?? asset.role ?? 'Input asset',
-      sortOrder: explicitRows.length + index,
-      metadata: { assetKey: asset.assetKey },
-    }));
-    const rows = [...explicitRows, ...inputAssetRows];
-    if (rows.length === 0) return;
-    await scope.contentGenerationSource.createMany({
-      skipDuplicates: true,
-      data: rows,
-    });
-  }
-
-  async findCancellableGeneration(input: {
-    organizationId: string;
-    generationId: string;
-  }): Promise<DetailPageCancellableGenerationSnapshot | null> {
-    return this.prisma.contentGeneration.findFirst({
-      where: { id: input.generationId, organizationId: input.organizationId },
-      select: { id: true, status: true, generationInput: true, generationResult: true },
+  findGenerationStatus(input: { organizationId: string; detailPageId: string }) {
+    return this.prisma.detailPage.findFirst({
+      where: { id: input.detailPageId, organizationId: input.organizationId, source: 'generated' },
+      select: { id: true, status: true },
     });
   }
 
   async cancelDirectGeneration(input: {
     organizationId: string;
-    generationId: string;
+    detailPageId: string;
     reason: string;
-  }) {
-    return this.prisma.$transaction(async (tx) => {
-      const current = await tx.contentGeneration.findFirst({
-        where: { id: input.generationId, organizationId: input.organizationId },
-        select: { id: true, status: true, generationResult: true },
-      });
-      if (!current) {
-        return {
-          status: 'not_found' as const,
-          generationId: input.generationId,
-          preserved: false,
-        };
-      }
-      if (!DETAIL_PAGE_ACTIVE_STATUSES.includes(current.status)) {
-        return {
-          status: 'already_terminal' as const,
-          generationId: current.id,
-          preserved: DETAIL_PAGE_PRESERVED_STATUSES.has(current.status),
-        };
-      }
-
-      const cancelledGeneration = await tx.contentGeneration.updateMany({
-        where: {
-          id: current.id,
+  }): Promise<DetailPageDirectGenerationCancellation> {
+    const current = await this.findGenerationStatus(input);
+    if (!current) return { status: 'not_found', generationId: input.detailPageId, preserved: false };
+    if (!DETAIL_PAGE_ACTIVE_STATUSES.includes(current.status)) {
+      return { status: 'already_terminal', generationId: current.id, preserved: current.status === 'ready' };
+    }
+    return this.detailPages.runInTransaction(async (transaction) => {
+      try {
+        await this.detailPages.setStatus(transaction, {
           organizationId: input.organizationId,
-          status: { in: DETAIL_PAGE_ACTIVE_STATUSES },
-        },
-        data: {
-          status: 'CANCELLED',
+          detailPageId: current.id,
+          status: 'failed',
           errorMessage: input.reason,
-          generationResult: current.generationResult as Prisma.InputJsonValue,
-        },
-      });
-      if (cancelledGeneration.count === 0) {
-        const latest = await tx.contentGeneration.findFirst({
-          where: { id: current.id, organizationId: input.organizationId },
-          select: { id: true, status: true },
         });
-        return {
-          status: 'already_terminal' as const,
-          generationId: latest?.id ?? current.id,
-          preserved: latest ? DETAIL_PAGE_PRESERVED_STATUSES.has(latest.status) : false,
-        };
+      } catch (error) {
+        if (!(error instanceof ConflictException)) throw error;
+        // 결과가 먼저 들어왔다 — 끝난 생성은 그대로 둔다.
+        return { status: 'already_terminal' as const, generationId: current.id, preserved: true };
       }
-
-      await tx.aiDirectJob.updateMany({
+      await ownerTransactionClient(transaction).aiDirectJob.updateMany({
         where: {
           organizationId: input.organizationId,
           sourceResourceId: current.id,
@@ -438,11 +193,7 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
           lastErrorMessage: input.reason,
         },
       });
-      return {
-        status: 'cancelled' as const,
-        generationId: current.id,
-        preserved: false,
-      };
+      return { status: 'cancelled' as const, generationId: current.id, preserved: false };
     });
   }
 }
@@ -454,9 +205,5 @@ function readProductGenerationRequestHash(value: unknown): string | null {
 }
 
 function isUniqueConstraint(error: unknown): boolean {
-  return Boolean(
-    error &&
-    typeof error === 'object' &&
-    (error as { code?: unknown }).code === 'P2002',
-  );
+  return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === 'P2002');
 }

@@ -17,7 +17,7 @@ import { useContentWorkspaceImages } from '../../_shared/hooks/useContentWorkspa
 import {
   detailPageEditorHref,
 } from '../../_shared/lib/product-pipeline-routes';
-import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
+import { contentWorkspacesApi, contentWorkspaceLabel } from '../../_shared/lib/content-workspaces-api';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import {
   buildAgeGroupInstruction,
@@ -330,7 +330,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
         status: 'exists',
         checkedTitle: title,
         workspaceId: result.workspace.id,
-        workspaceTitle: result.workspace.displayName,
+        workspaceTitle: contentWorkspaceLabel(result.workspace),
       });
       toast.info('같은 상품명의 기존 이력이 있습니다.');
     } catch (err) {
@@ -354,7 +354,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       const input = latest && typeof latest === 'object'
         ? latest as Record<string, unknown>
         : {};
-      setRawTitle(pickString(input.rawTitle) ?? workspace.displayName);
+      setRawTitle(pickString(input.rawTitle) ?? contentWorkspaceLabel(workspace));
       setRawCategory(pickString(input.rawCategory) ?? '');
       setRawDescription(pickString(input.rawDescription) ?? '');
       setRawOptions(pickString(input.rawOptions) ?? '');
@@ -380,9 +380,9 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       setKcCertificationNumber(pickString(input.kcCertificationNumber) ?? '');
       setDuplicateWorkspace({
         status: 'loaded',
-        checkedTitle: workspace.displayName,
+        checkedTitle: contentWorkspaceLabel(workspace),
         workspaceId: workspace.id,
-        workspaceTitle: workspace.displayName,
+        workspaceTitle: contentWorkspaceLabel(workspace),
       });
       toast.success('기존 최신 이력을 불러왔습니다.');
     } catch (err) {
@@ -754,7 +754,7 @@ function mergeSourceReferences(
       ref.sourceType,
       ref.sourceCandidateId ?? '',
       ref.contentAssetId ?? '',
-      ref.sourceContentGenerationId ?? '',
+      ref.sourceDetailPageId ?? '',
       ref.label ?? '',
     ].join(':');
     if (seen.has(key)) continue;

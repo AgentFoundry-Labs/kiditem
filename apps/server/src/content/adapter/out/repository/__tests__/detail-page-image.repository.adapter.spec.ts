@@ -50,7 +50,7 @@ describe('DetailPageImageRepositoryAdapter', () => {
 
     await adapter.createIntent({
       organizationId: ORG,
-      detailPageArtifactId: '55555555-5555-4555-8555-555555555555',
+      detailPageId: '55555555-5555-4555-8555-555555555555',
       revisionId: REVISION,
       variant: 'wing-client-jpeg-v1',
       outputWidth: 780,
@@ -62,7 +62,7 @@ describe('DetailPageImageRepositoryAdapter', () => {
     expect(create).toHaveBeenCalledWith({
       data: {
         organizationId: ORG,
-        detailPageArtifactId: '55555555-5555-4555-8555-555555555555',
+        detailPageId: '55555555-5555-4555-8555-555555555555',
         revisionId: REVISION,
         variant: 'wing-client-jpeg-v1',
         outputWidth: 780,

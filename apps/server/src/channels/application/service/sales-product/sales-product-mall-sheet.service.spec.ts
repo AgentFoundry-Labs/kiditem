@@ -39,6 +39,8 @@ function setup(
   const detailPages = {
     read: vi.fn(),
     importFromSource: vi.fn(),
+    readImportedImageUrls: vi.fn(),
+    rewriteImportedImageUrls: vi.fn(),
     readMany: vi.fn().mockResolvedValue(new Map(detailHtml === null
       ? []
       : [[PRODUCT, { revisionId: 'revision-1', html: detailHtml, imageUrls: [] }]])),

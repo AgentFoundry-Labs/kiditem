@@ -54,15 +54,11 @@ export default function RegisteredWorkspaceDetailPage() {
   }
 
   const selfHref = registeredListingDetailHref(listing.id);
+  // 이력의 줄 하나가 상세 페이지 하나다 — 몰로 가는 현재는 작업공간의 현재 revision 이 속한 페이지다.
   const initialAgentHistory = contentWorkspace
     ? contentWorkspaceHistoryToGenerationHistory(contentWorkspace.history).map((item) => (
-        item.id === contentWorkspace.currentDetailPageGenerationId
-          ? {
-              ...item,
-              detailPageArtifactId:
-                contentWorkspace.currentDetailPageArtifactId ?? item.detailPageArtifactId,
-              detailPageRevisionId: contentWorkspace.currentDetailPageRevisionId,
-            }
+        item.id === contentWorkspace.currentDetailPageId
+          ? { ...item, detailPageRevisionId: contentWorkspace.currentDetailPageRevisionId }
           : item
       ))
     : [];
@@ -77,8 +73,8 @@ export default function RegisteredWorkspaceDetailPage() {
         initialAgentHistory={initialAgentHistory}
         generationHistoryQueryEnabled={false}
         listingContentWorkspaceId={listing.contentWorkspaceId}
-        hasSavedDetailPage={Boolean(contentWorkspace?.currentDetailPageGenerationId)}
-        savedDetailPageGenerationId={contentWorkspace?.currentDetailPageGenerationId ?? null}
+        hasSavedDetailPage={Boolean(contentWorkspace?.currentDetailPageId)}
+        savedDetailPageGenerationId={contentWorkspace?.currentDetailPageId ?? null}
         detailGenerationEnabled={Boolean(listing.contentWorkspaceId)}
         onOpenDetailTemplateGeneration={listing.contentWorkspaceId
           ? () => router.push(detailTemplateGenerationHref({
@@ -145,7 +141,7 @@ function channelListingToProductWorkspaceData(
 ): ProductWorkspaceData {
   const title = listing.listingName;
   const currentDetailGeneration = contentWorkspace?.history.find(
-    (item) => item.id === contentWorkspace.currentDetailPageGenerationId,
+    (item) => item.id === contentWorkspace.currentDetailPageId,
   ) ?? null;
   const generatedImageUrls = currentDetailGeneration?.imageUrls ?? [];
   const providerImageUrls = listing.providerDetail?.media.map((media) => media.sourceUrl) ?? [];
@@ -212,9 +208,7 @@ function channelListingToProductWorkspaceData(
       thumbnailUrls: imageUrls,
       salePrice: price,
       selectedDetailPageGenerationId:
-        contentWorkspace?.currentDetailPageGenerationId ?? null,
-      selectedDetailPageArtifactId:
-        contentWorkspace?.currentDetailPageArtifactId ?? null,
+        contentWorkspace?.currentDetailPageId ?? null,
       selectedDetailPageRevisionId:
         contentWorkspace?.currentDetailPageRevisionId ?? null,
     }),
@@ -267,7 +261,6 @@ function buildFallbackBasicInfo(input: {
   thumbnailUrls: string[];
   salePrice?: number;
   selectedDetailPageGenerationId?: string | null;
-  selectedDetailPageArtifactId?: string | null;
   selectedDetailPageRevisionId?: string | null;
 }): ProductDetailResponse['basicInfo'] {
   return {
@@ -297,7 +290,8 @@ function buildFallbackBasicInfo(input: {
     selectedThumbnailGenerationId: null,
     selectedThumbnailGenerationCandidateId: null,
     selectedDetailPageGenerationId: input.selectedDetailPageGenerationId ?? null,
-    selectedDetailPageArtifactId: input.selectedDetailPageArtifactId ?? null,
+    // 아티팩트는 KID-313 W3b 에서 사라졌다 — 상세는 상세 페이지 id 와 revision 으로 고른다.
+    selectedDetailPageArtifactId: null,
     selectedDetailPageRevisionId: input.selectedDetailPageRevisionId ?? null,
   };
 }

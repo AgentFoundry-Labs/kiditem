@@ -4,7 +4,7 @@ import { ProductGenerationContextRepositoryAdapter } from '../product-generation
 describe('ProductGenerationContextRepositoryAdapter', () => {
   it('reads request-hash provenance and the durable detail workspace from deterministic children', async () => {
     const prisma = {
-      contentGeneration: {
+      detailPage: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'detail-1',
           generationInput: { productGenerationRequestHash: 'a'.repeat(64) },
@@ -40,7 +40,7 @@ describe('ProductGenerationContextRepositoryAdapter', () => {
       },
     });
 
-    expect(prisma.contentGeneration.findFirst).toHaveBeenCalledWith({
+    expect(prisma.detailPage.findFirst).toHaveBeenCalledWith({
       where: { id: 'detail-1', organizationId: 'org-1' },
       select: { id: true, generationInput: true, contentWorkspaceId: true, isDeleted: true },
     });

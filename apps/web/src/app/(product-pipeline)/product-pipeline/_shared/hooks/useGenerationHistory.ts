@@ -12,7 +12,7 @@ import type { DetailGenerationHistoryItem } from '../lib/detail-generation-histo
 export type GenerationHistoryItem = DetailGenerationHistoryItem;
 
 /**
- * DELETE `/api/ai/detail-page/:generationId` — content_generations 단건 삭제.
+ * DELETE `/api/ai/detail-page/:id` — 상세 페이지 하나를 지운다(soft, KID-313 W3b). 몰로 가던 페이지면 남은 페이지가 현재가 된다.
  * 이력은 작업공간 조회가 들고 있으므로 작업공간 조회를 새로 읽는다.
  */
 export function useGenerationHistoryDelete() {

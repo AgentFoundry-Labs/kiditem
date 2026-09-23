@@ -17,6 +17,7 @@ import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SalesProductRepositoryPort,
 } from '../../port/out/persistence/sales-product.repository.port';
+import type { ChannelRegistrableDetailPagePort } from '../../port/out/content/registrable-detail-page.port';
 import {
   SALES_PRODUCT_IMAGE_MIRROR_PORT,
   type SalesProductImageMirrorOutcome,
@@ -29,8 +30,9 @@ const CONCURRENCY = 6;
 
 
 /**
- * 사방넷 서버의 판매상품 대표 · 추가 사진을 우리 저장소로 옮긴다(ADR-0014). 한 번에 한 묶음씩 옮기고, 판매상품은 버전이 그대로일
- * 때만 고친다 — 그사이 사람이 고쳤으면 그 상품은 다음 묶음에서 다시 옮긴다.
+ * 사방넷 서버의 판매상품 대표 · 추가 사진과 가져온 상세의 사진을 우리 저장소로 옮긴다(ADR-0014, KID-319). 한 번에
+ * 한 묶음씩 옮기고, 판매상품은 버전이 그대로일 때만 고친다 — 그사이 사람이 고쳤으면 그 상품은 다음 묶음에서 다시
+ * 옮긴다. 상세는 Content 가 가져온 revision 을 바꿔 쓴다(원문 digest 는 그대로).
  */
 
 export class SalesProductImageService implements SalesProductImagePort {
@@ -43,10 +45,11 @@ export class SalesProductImageService implements SalesProductImagePort {
     private readonly images: SalesProductImageMirrorPort,
     private readonly logger: ChannelActivityPort,
     private readonly integrity: ChannelIntegrityPort,
+    private readonly detailPages: ChannelRegistrableDetailPagePort,
   ) {}
 
   async external(organizationId: string): Promise<SalesProductExternalImages> {
-    const products = await this.repository.listImageUrls(organizationId);
+    const products = await this.productsWithDetailImages(organizationId);
     const pending = pendingMirrorImages(organizationId, products, (value) => this.integrity.sha256(value), { isOwnedUrl: (url) => this.isOwnedUrl(url) });
     const pendingUrls = new Set(pending.map((image) => image.url));
     const productsWithPendingImages = products.filter((product) => imageReferenceUrls(product).some((url) => {
@@ -62,7 +65,7 @@ export class SalesProductImageService implements SalesProductImagePort {
   ): Promise<SalesProductImageMirrorResult> {
     const limit = Math.min(Math.max(Math.trunc(options.limit ?? DEFAULT_BATCH), 1), MAX_BATCH);
     const skip = Math.max(Math.trunc(options.skip ?? 0), 0);
-    const products = await this.repository.listImageUrls(organizationId);
+    const products = await this.productsWithDetailImages(organizationId);
     const pending = pendingMirrorImages(organizationId, products, (value) => this.integrity.sha256(value), { isOwnedUrl: (url) => this.isOwnedUrl(url) });
     const tried = pending.slice(0, skip + limit).map((image) => image.url);
     const batch = pending.slice(skip, skip + limit);
@@ -94,10 +97,16 @@ export class SalesProductImageService implements SalesProductImagePort {
       if (written) productsUpdated += 1;
       else productsSkipped += 1;
     }
+    // 대표 · 추가 사진 다음에, 같은 묶음에서 옮긴 사진으로 가져온 상세를 바꿔 쓴다.
+    for (const product of products) {
+      const detailImageUrls = product.detailImageUrls ?? [];
+      if (!rewriteImageUrls(detailImageUrls, replacements).some((url, index) => url !== detailImageUrls[index])) continue;
+      await this.detailPages.rewriteImportedImageUrls({ organizationId, salesProductId: product.id, replacements });
+    }
 
     const after = pendingMirrorImages(
       organizationId,
-      await this.repository.listImageUrls(organizationId),
+      await this.productsWithDetailImages(organizationId),
       (value) => this.integrity.sha256(value), { isOwnedUrl: (url) => this.isOwnedUrl(url) },
     );
     const triedSet = new Set(tried);
@@ -119,6 +128,14 @@ export class SalesProductImageService implements SalesProductImagePort {
       `판매상품 사진 옮기기 org=${organizationId} 옮김 ${result.mirrored} · 실패 ${result.failedCount} · 남음 ${result.remaining}`,
     );
     return result;
+  }
+
+  private async productsWithDetailImages(organizationId: string) {
+    const [products, detailImages] = await Promise.all([
+      this.repository.listImageUrls(organizationId),
+      this.detailPages.readImportedImageUrls({ organizationId }),
+    ]);
+    return products.map((product) => ({ ...product, detailImageUrls: detailImages.get(product.id) ?? [] }));
   }
 
   private isOwnedUrl(url: string): boolean {

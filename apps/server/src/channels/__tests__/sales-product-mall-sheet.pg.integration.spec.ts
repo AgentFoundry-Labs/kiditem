@@ -76,7 +76,7 @@ describe('mall sheets send the detail revision the registration target chose (Po
     } });
     const revisionIds = await prisma.$transaction(async (tx) => {
       await content.ensureSalesProductWorkspace(ownerTransaction(tx), {
-        organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, displayName: `상품 ${code}`, createdByUserId: null,
+        organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, createdByUserId: null,
       });
       const ids: string[] = [];
       for (const [index, html] of htmls.entries()) {

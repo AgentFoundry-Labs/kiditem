@@ -21,7 +21,8 @@ export interface DetailPageRawInput {
   heroImageMode: 'first' | 'llm-pick';
   templateId: DetailPageTemplateId;
   generationMode?: 'draft' | 'image' | 'full';
-  baseContentGenerationId?: string;
+  /** 이미지만 다시 만들 때 결과를 빌려 온 생성 페이지. */
+  baseDetailPageId?: string;
   ageGroup?: DetailPageAgeGroup;
   detailImageCount?: DetailImageCount;
   usageSectionMode?: UsageSectionMode;
@@ -32,10 +33,10 @@ export interface DetailPageRawInput {
 }
 
 export interface DetailPageSourceReference {
-  sourceType: 'sourcing_candidate' | 'input_asset' | 'content_generation';
+  sourceType: 'sourcing_candidate' | 'input_asset' | 'detail_page';
   sourceCandidateId?: string;
   contentAssetId?: string;
-  sourceContentGenerationId?: string;
+  sourceDetailPageId?: string;
   label?: string;
 }
 

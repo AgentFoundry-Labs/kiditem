@@ -38,10 +38,6 @@ import {
   type RegistrationSubmissionJson,
 } from '../../../domain/registration/registration-submission-payload';
 import {
-  REGISTRATION_DRAFT_PORT,
-  type RegistrationDraftPort,
-} from '../../../application/port/out/persistence/registration-draft.port';
-import {
   CHANNEL_OPTION_RECIPE_PORT,
   type ChannelOptionRecipeMutation,
   type ChannelOptionRecipePort,
@@ -80,8 +76,8 @@ const TARGET_EXECUTION_ROW = {
  * 등록 실행 울타리의 저장소 어댑터.
  *
  * 울타리는 트랜잭션을 연다. 실행 행은 여기서 직접 쓰고, 몰마다 다른 준비 사실 · 계정 식별자 · 확인
- * 증거 · 옵션 규칙은 채널 어댑터가 답한다(KID-321). 등록 확인이 콘텐츠 작업공간을 몰 상품에 붙이는
- * 일은 같은 트랜잭션에서 `RegistrationDraftPort` 가 Content 계약으로 한다
+ * 증거 · 옵션 규칙은 채널 어댑터가 답한다(KID-321). 콘텐츠 작업공간은 판매 상품에 속하고 몰 상품은 상품을
+ * 거쳐 닿으므로 등록 확인은 작업공간을 건드리지 않는다(KID-313 W3b)
  * ([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
  */
 @Injectable()
@@ -90,8 +86,6 @@ export class RegistrationExecutionRepositoryAdapter
 {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(REGISTRATION_DRAFT_PORT)
-    private readonly drafts: RegistrationDraftPort,
     /** 몰마다 다른 것(계정 식별자 · 확인 증거 · 준비 때 얼릴 몰 사실 · 옵션 규칙)은 채널 어댑터가 답한다(KID-321). */
     @Inject(CHANNEL_ADAPTER_REGISTRY_PORT)
     private readonly adapters: ChannelAdapterRegistryPort,
@@ -968,11 +962,9 @@ export class RegistrationExecutionRepositoryAdapter
   }
 
   /**
-   * 새 몰 상품을 확인한 `register` 만의 뒷일(KID-321, 몰 중립):
-   *  - 판매 상품의 첫 몰 상품이 이 확인으로 생겼으면 콘텐츠 작업공간을 그 몰 상품에 붙인다(작업공간은 처음
-   *    붙은 몰 상품을 가리킨다 — 둘째 몰 등록은 그대로 둔다).
-   *  - 어댑터가 준비 때 셀피아 매칭을 얼렸으면 그 레시피를 업체상품코드가 같은 몰 옵션에 건다.
-   * 둘 다 확인과 같은 트랜잭션이다.
+   * 새 몰 상품을 확인한 `register` 만의 뒷일(KID-321, 몰 중립): 어댑터가 준비 때 셀피아 매칭을 얼렸으면 그
+   * 레시피를 업체상품코드가 같은 몰 옵션에 건다. 확인과 같은 트랜잭션이다. 콘텐츠 작업공간은 붙이지 않는다 —
+   * 몰 상품은 판매 상품을 거쳐 그 작업공간에 닿는다(KID-313 W3b).
    */
   private async completeFirstRegistration(
     tx: Prisma.TransactionClient,
@@ -981,18 +973,6 @@ export class RegistrationExecutionRepositoryAdapter
     resolved: TargetConfirmation,
   ): Promise<void> {
     const handle = ownerTransaction(tx);
-    if (resolved.created) {
-      const otherListings = await tx.channelListing.count({
-        where: { organizationId, salesProductId: snapshot.product.id, id: { not: resolved.listingId } },
-      });
-      if (otherListings === 0) {
-        await this.drafts.attachContentToListing(handle, {
-          organizationId,
-          salesProductId: snapshot.product.id,
-          listingId: resolved.listingId,
-        });
-      }
-    }
     const recipe = preparedRegistrationRecipe(snapshot);
     if (recipe) {
       if (!this.recipes) throw new ConflictException('Channel option recipe capability is unavailable.');

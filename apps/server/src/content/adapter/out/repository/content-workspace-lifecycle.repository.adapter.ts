@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
@@ -31,7 +31,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
 
   async ensureActiveWorkspace(
     input: EnsureContentWorkspaceInput,
-  ): Promise<{ id: string; displayName: string; normalizedTitle: string }> {
+  ): Promise<{ id: string }> {
     assertValidOwnerShape(input);
     const where = activeWorkspaceWhere(input);
     try {
@@ -45,8 +45,6 @@ implements ContentWorkspaceLifecycleRepositoryPort {
             ownerType: input.ownerType,
             salesProductId: input.salesProductId,
             channelListingId: input.channelListingId,
-            originWorkspaceId: input.originWorkspaceId,
-            displayName: input.displayName,
             normalizedTitle: input.normalizedTitle,
             status: 'active',
             createdByUserId: input.createdByUserId,
@@ -89,6 +87,8 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     return this.prisma.contentWorkspace.findFirst({
       where: {
         organizationId: input.organizationId,
+        // 제목으로 중복을 막는 것은 직접 상세 작업공간뿐이다(판매 상품 작업공간은 상품 하나에 하나).
+        ownerType: 'direct_detail_page',
         normalizedTitle: input.normalizedTitle,
         status: 'active',
         isDeleted: false,
@@ -99,18 +99,15 @@ implements ContentWorkspaceLifecycleRepositoryPort {
         ownerType: true,
         salesProductId: true,
         channelListingId: true,
-        originWorkspaceId: true,
-        displayName: true,
         normalizedTitle: true,
         status: true,
-        currentDetailPageArtifactId: true,
         currentDetailPageRevisionId: true,
         currentThumbnailSelectionId: true,
         createdAt: true,
         updatedAt: true,
-        _count: { select: { contentGenerations: true } },
-        currentDetailPageArtifact: {
-          select: { sourceContentGenerationId: true },
+        _count: { select: { detailPages: { where: { isDeleted: false } } } },
+        currentDetailPageRevision: {
+          select: { id: true, detailPageId: true, revisionType: true, createdAt: true },
         },
         currentThumbnailSelection: {
           select: {
@@ -119,7 +116,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
           },
         },
       },
-    }) as Promise<ContentWorkspaceSnapshot | null>;
+    }).then((row) => (row ? toWorkspaceSnapshot(row as unknown as WorkspaceRecord) : null));
   }
 
   getById(input: {
@@ -184,57 +181,10 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     });
     return result.count;
   }
-
-  findSelectableDetailPageGeneration(input: {
-    organizationId: string;
-    workspaceId: string;
-    contentGenerationId: string;
-  }) {
-    return this.prisma.contentGeneration.findFirst({
-      where: {
-        id: input.contentGenerationId,
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.workspaceId,
-        contentType: 'detail_page',
-        isDeleted: false,
-      },
-      select: {
-        id: true,
-        detailPageArtifactId: true,
-        detailPageArtifact: {
-          select: {
-            currentRevisionId: true,
-          },
-        },
-      },
-    });
-  }
-
-  async selectCurrentDetailPage(input: {
-    organizationId: string;
-    workspaceId: string;
-    detailPageArtifactId: string;
-    detailPageRevisionId: string | null;
-  }): Promise<number> {
-    const result = await this.prisma.contentWorkspace.updateMany({
-      where: {
-        id: input.workspaceId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      data: {
-        currentDetailPageArtifactId: input.detailPageArtifactId,
-        currentDetailPageRevisionId: input.detailPageRevisionId,
-      },
-    });
-    return result.count;
-  }
 }
 
 const workspaceIdentitySelect = {
   id: true,
-  displayName: true,
-  normalizedTitle: true,
 } as const;
 
 function findActiveWorkspace(
@@ -251,13 +201,13 @@ function findActiveWorkspace(
 function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
   const hasSalesProduct = input.salesProductId !== null;
   const hasListing = input.channelListingId !== null;
-  const hasOrigin = input.originWorkspaceId !== null;
-  // A draft workspace gains its listing through `attachToListing`, never at creation.
+  const hasTitle = input.normalizedTitle !== null;
+  // 판매 상품 작업공간은 리스팅을 갖지 않는다 — 리스팅은 상품을 거쳐 작업공간에 닿는다(KID-313 W3).
   const valid = input.ownerType === 'sales_product'
-    ? hasSalesProduct && !hasListing && !hasOrigin
+    ? hasSalesProduct && !hasListing && !hasTitle
     : input.ownerType === 'channel_listing'
-      ? !hasSalesProduct && hasListing
-      : !hasSalesProduct && !hasListing && !hasOrigin;
+      ? !hasSalesProduct && hasListing && !hasTitle
+      : !hasSalesProduct && !hasListing && hasTitle;
   if (!valid) {
     throw new BadRequestException('Content workspace owner fields do not match ownerType.');
   }
@@ -265,8 +215,7 @@ function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
 
 /**
  * Every owner a workspace can name is checked through its owner's capability —
- * the draft and the listing through Channels, the origin workspace through AI's
- * own locked row.
+ * the draft and the listing through Channels.
  */
 async function validateOwnerReferences(
   tx: Prisma.TransactionClient,
@@ -289,20 +238,6 @@ async function validateOwnerReferences(
     organizationId: input.organizationId,
     listingId: input.channelListingId!,
   });
-  if (!input.originWorkspaceId) return;
-  const originRows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id
-    FROM content_workspaces
-    WHERE id = ${input.originWorkspaceId}::uuid
-      AND organization_id = ${input.organizationId}::uuid
-      AND owner_type = 'sales_product'
-      AND status = 'active'
-      AND is_deleted = false
-    FOR UPDATE
-  `);
-  if (originRows.length !== 1) {
-    throw new NotFoundException('Origin content workspace not found.');
-  }
 }
 
 /**
@@ -313,7 +248,7 @@ function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.Conten
   return {
     organizationId: input.organizationId,
     ownerType: input.ownerType,
-    ...(input.ownerType === 'sales_product' ? {} : { normalizedTitle: input.normalizedTitle }),
+    ...(input.ownerType === 'direct_detail_page' ? { normalizedTitle: input.normalizedTitle } : {}),
     status: 'active',
     isDeleted: false,
     ...(input.ownerType === 'sales_product'
@@ -330,7 +265,7 @@ function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.Conten
 type WorkspaceRecord = Prisma.ContentWorkspaceGetPayload<{ include: ReturnType<typeof workspaceInclude> }>;
 
 /** revision 종류는 정한 목록 안의 값만 읽는다 — 목록 밖의 값은 writer 가 깨진 것이다. */
-function toWorkspaceSnapshot(row: WorkspaceRecord): ContentWorkspaceSnapshot {
+function toWorkspaceSnapshot(row: Pick<WorkspaceRecord, 'currentDetailPageRevision'>): ContentWorkspaceSnapshot {
   const revision = row.currentDetailPageRevision;
   return {
     ...row,
@@ -342,16 +277,8 @@ function toWorkspaceSnapshot(row: WorkspaceRecord): ContentWorkspaceSnapshot {
 
 function workspaceInclude() {
   return {
-    currentDetailPageArtifact: {
-      select: {
-        id: true,
-        currentRevisionId: true,
-        title: true,
-        sourceContentGenerationId: true,
-      },
-    },
     currentDetailPageRevision: {
-      select: { id: true, revisionType: true, createdAt: true },
+      select: { id: true, detailPageId: true, revisionType: true, createdAt: true },
     },
     currentThumbnailSelection: {
       select: {
@@ -359,20 +286,21 @@ function workspaceInclude() {
         contentAsset: { select: { id: true, url: true } },
       },
     },
-    _count: { select: { contentGenerations: true } },
-    contentGenerations: {
+    _count: { select: { detailPages: { where: { isDeleted: false } } } },
+    detailPages: {
       where: { isDeleted: false },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       take: 20,
       select: {
         id: true,
-        contentType: true,
+        source: true,
         status: true,
-        generatedTitle: true,
+        title: true,
         templateId: true,
         generationInput: true,
         generationResult: true,
-        detailPageArtifactId: true,
+        errorMessage: true,
+        currentRevisionId: true,
         createdAt: true,
         updatedAt: true,
       },

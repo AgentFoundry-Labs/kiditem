@@ -51,6 +51,15 @@ export class DetailPageEditorController {
     return this.service.getById(id, organizationId);
   }
 
+  /** 상세 페이지와 그 revision 이력(KID-313 W3b). */
+  @Get(':id/revisions')
+  getRevisions(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.service.getWithRevisions(id, organizationId);
+  }
+
   @Post(':id/edited-html')
   saveEditedHtml(
     @Param('id', new ParseUUIDPipe()) id: string,

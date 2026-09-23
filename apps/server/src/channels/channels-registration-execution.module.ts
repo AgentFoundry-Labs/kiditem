@@ -1,6 +1,5 @@
 import { REGISTRATION_TARGET_PORT } from './application/port/in/registration-target.port';
 import { SALES_PRODUCT_PORT } from './application/port/in/sales-product.port';
-import { REGISTRATION_DRAFT_PORT } from './application/port/out/persistence/registration-draft.port';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { StockoutCheckController } from './adapter/in/web/stockout-check.controller';
 import { StockoutCheckService } from './application/service/listing/stockout-check.service';
@@ -19,7 +18,6 @@ import { RegistrationExecutionRepositoryAdapter } from './adapter/out/repository
 import { RegistrationExecutionService } from './application/service/registration/registration-execution.service';
 import { REGISTRATION_EXECUTION_PORT } from './application/port/in/capability/registration-execution.port';
 import { REGISTRATION_EXECUTION_REPOSITORY_PORT } from './application/port/out/repository/registration-execution.repository.port';
-import { RegistrationDraftAdapter } from './adapter/out/persistence/registration-draft.adapter';
 import { RegistrationStateRepositoryAdapter } from './adapter/out/persistence/registration-state.repository.adapter';
 import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
 import { CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT } from './application/port/out/content/registrable-detail-page.port';
@@ -50,11 +48,9 @@ import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/ch
     },
     { provide: REGISTRATION_EXECUTION_PORT, useExisting: RegistrationExecutionService },
     // 예전 channels-registration-preparation.module.ts.
-    RegistrationDraftAdapter,
     RegistrationStateRepositoryAdapter,
-    { provide: REGISTRATION_DRAFT_PORT, useExisting: RegistrationDraftAdapter },
     { provide: REGISTRATION_STATE_PORT, useExisting: RegistrationStateRepositoryAdapter },
   ],
-  exports: [STOCKOUT_CHECK_PORT, REGISTRATION_EXECUTION_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT, REGISTRATION_DRAFT_PORT, REGISTRATION_STATE_PORT],
+  exports: [STOCKOUT_CHECK_PORT, REGISTRATION_EXECUTION_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT, REGISTRATION_STATE_PORT],
 })
 export class ChannelsRegistrationExecutionModule {}

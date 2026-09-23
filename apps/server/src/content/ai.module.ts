@@ -10,10 +10,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 // adapter/in/http
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../channels/application/port/out/cross-domain/catalog-media-publication.port';
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
-import { ContentArchiveController } from './adapter/in/http/content-archive.controller';
-import { ContentArchiveLinkageController } from './adapter/in/http/content-archive-linkage.controller';
 import { ContentAssetController } from './adapter/in/http/content-asset.controller';
-import { ContentGenerationRerunController } from './adapter/in/http/content-generation-rerun.controller';
 import { DetailPageWorkspaceImageController } from './adapter/in/http/detail-page-workspace-image.controller';
 import { DetailPageEditorController } from './adapter/in/http/detail-page-editor.controller';
 import { DetailPageGenerationController } from './adapter/in/http/detail-page-generation.controller';
@@ -46,13 +43,12 @@ import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnai
 import { SharpGeneratedImageValidatorAdapter } from './adapter/out/image-validation/sharp-generated-image-validator.adapter';
 import { DetailPageTemplateStylesAdapter } from './adapter/out/runtime/detail-page-template-styles.adapter';
 import { ThumbnailGenerationEventAdapter } from './adapter/out/repository/thumbnail-generation-event.adapter';
-import { ContentArchiveRepositoryAdapter } from './adapter/out/repository/content-archive.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from './adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from './adapter/out/repository/content-workspace-lifecycle.repository.adapter';
 import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from './adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
 import { RegistrationContentWorkspaceRepositoryAdapter } from './adapter/out/repository/registration-content-workspace.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from './adapter/out/repository/detail-page-generation.repository.adapter';
-import { DetailPageQueryRepositoryAdapter } from './adapter/out/repository/detail-page-query.repository.adapter';
+import { DetailPageRepositoryAdapter } from './adapter/out/repository/detail-page.repository.adapter';
 import { DetailPageImageRepositoryAdapter } from './adapter/out/repository/detail-page-image.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from './adapter/out/repository/product-generation-context.repository.adapter';
 import { SalesProductWorkspaceArchiveRepositoryAdapter } from './adapter/out/repository/sales-product-workspace-archive.repository.adapter';
@@ -97,8 +93,6 @@ import { ThumbnailRecomposeService } from './application/service/thumbnail-recom
 import { ThumbnailTrackingService } from './application/service/thumbnail-tracking.service';
 import { ThumbnailVisionAiService } from './application/service/thumbnail-vision-ai.service';
 import { RegistrableThumbnailService } from './application/service/registrable-thumbnail.service';
-import { ContentArchiveService } from './application/service/content-archive.service';
-import { ContentGenerationRerunService } from './application/service/content-generation-rerun.service';
 import { ContentWorkspaceService } from './application/service/content-workspace.service';
 import { ContentWorkspaceThumbnailSelectionService } from './application/service/content-workspace-thumbnail-selection.service';
 import { RegistrationContentWorkspaceService } from './application/service/registration-content-workspace.service';
@@ -146,13 +140,12 @@ import {
 import {
   AI_DIRECT_JOB_REPOSITORY_PORT,
   CATALOG_DISPLAY_MEDIA_REPOSITORY_PORT,
-  CONTENT_ARCHIVE_REPOSITORY_PORT,
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
   CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT,
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   DETAIL_PAGE_IMAGE_REPOSITORY_PORT,
-  DETAIL_PAGE_QUERY_REPOSITORY_PORT,
+  DETAIL_PAGE_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
   SALES_PRODUCT_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
@@ -199,7 +192,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ContentWorkspaceLifecycleRepositoryAdapter,
     SalesProductOwnerReadAdapter,
     DetailPageGenerationRepositoryAdapter,
-    DetailPageQueryRepositoryAdapter,
+    DetailPageRepositoryAdapter,
     ProductGenerationContextRepositoryAdapter,
     ThumbnailGenerationEventAdapter,
     ThumbnailGenerationLedgerRepositoryAdapter,
@@ -213,7 +206,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     { provide: CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT, useExisting: ContentWorkspaceLifecycleRepositoryAdapter },
     { provide: SALES_PRODUCT_OWNER_READ_PORT, useExisting: SalesProductOwnerReadAdapter },
     { provide: DETAIL_PAGE_GENERATION_REPOSITORY_PORT, useExisting: DetailPageGenerationRepositoryAdapter },
-    { provide: DETAIL_PAGE_QUERY_REPOSITORY_PORT, useExisting: DetailPageQueryRepositoryAdapter },
+    { provide: DETAIL_PAGE_REPOSITORY_PORT, useExisting: DetailPageRepositoryAdapter },
     { provide: GENERATED_IMAGE_VALIDATOR_PORT, useExisting: SharpGeneratedImageValidatorAdapter },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
     { provide: IMAGE_STORAGE_PORT, useExisting: StorageService },
@@ -231,7 +224,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
     CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
     DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
-    DETAIL_PAGE_QUERY_REPOSITORY_PORT,
+    DETAIL_PAGE_REPOSITORY_PORT,
     GENERATED_IMAGE_VALIDATOR_PORT,
     IMAGE_FETCH_PORT,
     IMAGE_STORAGE_PORT,
@@ -302,9 +295,7 @@ export class AiAgentRuntimeModule {}
     DetailPageAiService,
     DetailPageClientRenderService,
     DetailPageRasterizationService,
-    ContentArchiveService,
     ContentAssetService,
-    ContentGenerationRerunService,
     ContentWorkspaceThumbnailSelectionService,
     RegistrationContentWorkspaceService,
     SalesProductWorkspaceArchiveService,
@@ -331,7 +322,6 @@ export class AiAgentRuntimeModule {}
     GeminiTextCompletionAdapter,
     GeminiThumbnailVisionAdapter,
     ImageEditGeminiMediaAdapter,
-    ContentArchiveRepositoryAdapter,
     ContentWorkspaceThumbnailSelectionRepositoryAdapter,
     RegistrationContentWorkspaceRepositoryAdapter,
     DetailPageImageRepositoryAdapter,
@@ -367,10 +357,6 @@ export class AiAgentRuntimeModule {}
     {
       provide: THUMBNAIL_VISION_PROVIDER_PORT,
       useExisting: GeminiThumbnailVisionAdapter,
-    },
-    {
-      provide: CONTENT_ARCHIVE_REPOSITORY_PORT,
-      useExisting: ContentArchiveRepositoryAdapter,
     },
     {
       provide: CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT,
@@ -420,10 +406,7 @@ export class AiAgentRuntimeModule {}
   ],
   controllers: [
     AiUsageController,
-    ContentArchiveController,
-    ContentArchiveLinkageController,
     ContentAssetController,
-    ContentGenerationRerunController,
     DetailPageWorkspaceImageController,
     DetailPageEditorController,
     DetailPageGenerationController,
@@ -440,9 +423,7 @@ export class AiAgentRuntimeModule {}
   ],
   exports: [
     AiAgentRuntimeModule,
-    ContentArchiveService,
     ContentAssetService,
-    ContentGenerationRerunService,
     ContentWorkspaceThumbnailSelectionService,
     DetailPageAiService,
     DetailPageClientRenderService,

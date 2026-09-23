@@ -46,7 +46,8 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
   }
 
   /**
-   * 올린 상세페이지를 그 상품의 현재 상세페이지로 건다. AI 는 부르지 않는다.
+   * 올린 상세페이지를 그 상품의 상세 페이지 하나(`source: 'uploaded'`)로 만든다. AI 는 부르지 않는다. 사람이 올린
+   * 것이라 `manual_edit` revision 이고, 그래서 곧바로 워크스페이스의 현재가 된다.
    *
    * 워크스페이스는 생성 경로와 **같은 `ensureForGeneration`** 으로 연다 — 여기서 따로 만들면
    * 같은 상품이 워크스페이스 두 개를 갖게 된다.
@@ -68,11 +69,6 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
       contentWorkspaceId: workspace.id,
       title: productName,
       imageUrls: input.detailPageImageUrls,
-    });
-    await this.contentWorkspaces.selectCurrentDetailPage({
-      organizationId: input.organizationId,
-      workspaceId: workspace.id,
-      contentGenerationId: created.id,
     });
     return {
       salesProductId: input.salesProductId,

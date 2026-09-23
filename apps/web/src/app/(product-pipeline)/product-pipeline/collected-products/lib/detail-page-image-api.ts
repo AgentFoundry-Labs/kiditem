@@ -61,8 +61,8 @@ export async function prepareSavedDetailImage(
 
   const history = contentWorkspaceHistoryToGenerationHistory(workspace.history);
   const preferredGenerationIds = [
-    workspace.currentDetailPageGenerationId,
-    workspace.latestGenerationId,
+    workspace.currentDetailPageId,
+    workspace.latestDetailPageId,
   ].filter((id): id is string => typeof id === 'string' && id.length > 0);
   const generated = preferredGenerationIds
     .map((id) => history.find((item) => item.id === id))

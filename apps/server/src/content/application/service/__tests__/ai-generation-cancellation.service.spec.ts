@@ -41,7 +41,7 @@ describe('AiGenerationCancellationService', () => {
   it('cancels non-terminal ContentGeneration through the detail-page owner service', async () => {
     const { service, detailPages } = makeService();
 
-    const result = await service.cancelContentGeneration({
+    const result = await service.cancelDetailPageGeneration({
       organizationId: ORG,
       generationId: 'cg-1',
       actorUserId: 'user-1',

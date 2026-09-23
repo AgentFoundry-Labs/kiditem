@@ -385,7 +385,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       await this.contentWorkspaces.ensureSalesProductWorkspace(ownerTransaction(tx), {
         organizationId,
         salesProductId: product.id,
-        displayName: record.name,
         createdByUserId: null,
       });
       return product.id;
@@ -1339,7 +1338,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
             await this.contentWorkspaces.ensureSalesProductWorkspace(ownerTransaction(tx), {
               organizationId,
               salesProductId: productId,
-              displayName: write.create.name,
               createdByUserId: null,
             });
             // 상세는 새로 만들거나 사람이 고른 상품에만 쌓는다. 사람이 고친 revision 은 덮지 않는다.

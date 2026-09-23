@@ -38,7 +38,7 @@ describe('detail-page stored JSON helpers', () => {
       heroImageMode: 'first',
       templateId: 'bold-vertical',
       generationMode: 'full',
-      baseContentGenerationId: undefined,
+      baseDetailPageId: undefined,
       ageGroup: 'age-8-plus',
       detailImageCount: 'auto',
       usageSectionMode: 'include',
@@ -79,7 +79,7 @@ describe('detail-page stored JSON helpers', () => {
       heroImageMode: 'llm-pick',
       templateId: 'kids-playful',
       generationMode: 'full',
-      baseContentGenerationId: undefined,
+      baseDetailPageId: undefined,
       ageGroup: 'age-14-plus',
       detailImageCount: '6',
       usageSectionMode: 'exclude',
@@ -91,7 +91,7 @@ describe('detail-page stored JSON helpers', () => {
   it('builds canonical detail-page result links for the sourcing editor surface', () => {
     expect(detailPageResultHref({
       productId: 'product-123',
-      contentGenerationId: 'generation-456',
+      detailPageId: 'generation-456',
       templateId: 'bold-vertical',
     })).toBe('/product-pipeline/detail-pages/generation-456/editor');
   });
@@ -100,7 +100,7 @@ describe('detail-page stored JSON helpers', () => {
     expect(detailPageResultHref({
       productId: 'product-123',
       contentWorkspaceId: 'workspace-123',
-      contentGenerationId: 'generation-456',
+      detailPageId: 'generation-456',
       templateId: 'bold-vertical',
     })).toBe('/product-pipeline/detail-pages/generation-456/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-123');
   });

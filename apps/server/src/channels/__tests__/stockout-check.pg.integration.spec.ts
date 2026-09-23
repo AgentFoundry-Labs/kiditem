@@ -20,7 +20,7 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma(); await prisma.$connect();
     persistence = new StockoutCheckPersistenceAdapter(prisma as PrismaService, new ProductTransactionalReadRepositoryAdapter());
-    executions = new RegistrationExecutionRepositoryAdapter(prisma as PrismaService, {} as never, channelAdapters());
+    executions = new RegistrationExecutionRepositoryAdapter(prisma as PrismaService, channelAdapters());
     service = new StockoutCheckService(persistence, executions, channelAdapters());
   });
   afterAll(async () => prisma?.$disconnect());

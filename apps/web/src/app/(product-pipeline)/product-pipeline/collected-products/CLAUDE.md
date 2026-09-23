@@ -40,10 +40,11 @@ Do not reintroduce standalone sourcing or product-content routes.
   execution into a new create request.
 - `ChannelListing` is the real registered marketplace identity. Registered
   products derive membership and navigation from listing/workspace existence.
-- `ContentGeneration` stores generation request/result snapshots and candidate
-  lineage.
-- `DetailPageArtifact` + `DetailPageRevision` store saved editor HTML versions.
-- `ContentAsset` + `ContentGenerationAssetUsage` store generated/edited images.
+- `DetailPage` is one detail page however it started (generated, manual,
+  uploaded, imported) and keeps the generation input/result; its
+  `DetailPageRevision` rows are the saved HTML history.
+- `ContentAsset` stores the workspace's input and generated images; a
+  revision's `imageUrls` says which images it uses.
 - Manual product registration creates a draft without a source record;
   product-less direct detail generation creates no draft.
 
@@ -51,10 +52,10 @@ Do not reintroduce standalone sourcing or product-content routes.
 
 ```text
 candidate workspace
-  -> generated detail-page history row
-  -> /product-pipeline/detail-pages/{contentGenerationId}/editor
+  -> detail-page history row
+  -> /product-pipeline/detail-pages/{detailPageId}/editor
   -> shared ContentGenerationEditorSurface
-  -> POST /api/ai/detail-page/{contentGenerationId}/edited-html
+  -> POST /api/ai/detail-page/{detailPageId}/edited-html
 ```
 
 Use `_shared/lib/product-pipeline-routes.ts` for route construction. Draft

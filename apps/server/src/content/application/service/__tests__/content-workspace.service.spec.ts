@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentWorkspaceLifecycleRepositoryPort } from '../../port/out/repository/content-workspace-lifecycle.repository.port';
+import type { DetailPageRepositoryPort } from '../../port/out/repository/detail-page.repository.port';
 import { ContentWorkspaceService } from '../content-workspace.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 const REVISION_ID = '33333333-3333-4333-8333-333333333333';
-const ARTIFACT_ID = '44444444-4444-4444-8444-444444444444';
-const GENERATION_ID = '55555555-5555-4555-8555-555555555555';
+const DETAIL_PAGE_ID = '55555555-5555-4555-8555-555555555555';
 
 function repository(
   overrides: Partial<ContentWorkspaceLifecycleRepositoryPort> = {},
@@ -18,10 +18,21 @@ function repository(
     getById: vi.fn(),
     listActive: vi.fn(),
     archive: vi.fn(),
-    findSelectableDetailPageGeneration: vi.fn(),
-    selectCurrentDetailPage: vi.fn(),
     ...overrides,
   } as ContentWorkspaceLifecycleRepositoryPort;
+}
+
+function detailPages(overrides: Partial<DetailPageRepositoryPort> = {}): DetailPageRepositoryPort {
+  return {
+    runInTransaction: vi.fn(async (work) => work({} as never)),
+    findById: vi.fn(),
+    setCurrentRevision: vi.fn(),
+    ...overrides,
+  } as unknown as DetailPageRepositoryPort;
+}
+
+function service(repo: ContentWorkspaceLifecycleRepositoryPort, pages = detailPages()) {
+  return new ContentWorkspaceService(repo, pages);
 }
 
 function workspace(overrides: Record<string, unknown> = {}) {
@@ -30,13 +41,9 @@ function workspace(overrides: Record<string, unknown> = {}) {
     organizationId: ORG,
     ownerType: 'direct_detail_page',
     salesProductId: null,
-    targetMasterId: null,
     channelListingId: null,
-    originWorkspaceId: null,
-    displayName: '키즈 텀블러',
     normalizedTitle: '키즈텀블러',
     status: 'active',
-    currentDetailPageArtifactId: ARTIFACT_ID,
     currentDetailPageRevisionId: REVISION_ID,
     currentThumbnailSelectionId: null,
     currentThumbnailSelection: null,
@@ -45,33 +52,28 @@ function workspace(overrides: Record<string, unknown> = {}) {
     deletedAt: null,
     createdAt: new Date('2026-05-12T01:00:00.000Z'),
     updatedAt: new Date('2026-05-12T03:00:00.000Z'),
-    currentDetailPageArtifact: {
-      id: ARTIFACT_ID,
-      currentRevisionId: REVISION_ID,
-      title: '키즈 텀블러 상세',
-      sourceContentGenerationId: GENERATION_ID,
-    },
     currentDetailPageRevision: {
       id: REVISION_ID,
+      detailPageId: DETAIL_PAGE_ID,
       revisionType: 'manual_edit',
       createdAt: new Date('2026-05-12T02:00:00.000Z'),
     },
-    _count: { contentGenerations: 2 },
-    contentGenerations: [
-      generation({ id: 'generation-new', updatedAt: new Date('2026-05-12T04:00:00.000Z') }),
-      generation({ id: 'generation-old', updatedAt: new Date('2026-05-12T02:00:00.000Z') }),
+    _count: { detailPages: 2 },
+    detailPages: [
+      detailPage({ id: 'page-new', updatedAt: new Date('2026-05-12T04:00:00.000Z') }),
+      detailPage({ id: 'page-old', updatedAt: new Date('2026-05-12T02:00:00.000Z') }),
     ],
     ...overrides,
   };
 }
 
-function generation(overrides: Record<string, unknown> = {}) {
+function detailPage(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'generation-1',
-    contentType: 'detail_page',
-    status: 'READY',
-    generatedTitle: '키즈 텀블러 상세',
-    templateId: 'kids-playful',
+    id: 'page-1',
+    source: 'generated',
+    status: 'ready',
+    title: '키즈 텀블러 상세',
+    templateId: 'bold-vertical',
     generationInput: {
       rawTitle: '키즈 텀블러',
       imageUrls: ['https://example.com/input.jpg'],
@@ -82,7 +84,8 @@ function generation(overrides: Record<string, unknown> = {}) {
       imageUrls: ['https://example.com/input.jpg'],
       processedImages: { __heroBanner: 'https://example.com/hero.jpg' },
     },
-    detailPageArtifactId: ARTIFACT_ID,
+    errorMessage: null,
+    currentRevisionId: null,
     createdAt: new Date('2026-05-12T01:30:00.000Z'),
     updatedAt: new Date('2026-05-12T02:00:00.000Z'),
     ...overrides,
@@ -90,17 +93,13 @@ function generation(overrides: Record<string, unknown> = {}) {
 }
 
 describe('ContentWorkspaceService', () => {
-  it('creates a channel-listing workspace owner and projects its branch provenance', async () => {
+  it('creates a channel-listing workspace owner without a title and projects its listing', async () => {
     const repo = repository({
-      ensureActiveWorkspace: vi.fn().mockResolvedValue({
-        id: WORKSPACE_ID,
-        displayName: 'Kids rain boots',
-        normalizedTitle: 'kidsrainboots',
-      }),
+      ensureActiveWorkspace: vi.fn().mockResolvedValue({ id: WORKSPACE_ID }),
       getById: vi.fn().mockResolvedValue(workspace({
         ownerType: 'channel_listing',
         channelListingId: 'listing-1',
-        originWorkspaceId: 'source-workspace-1',
+        normalizedTitle: null,
         currentThumbnailSelectionId: 'selection-1',
         currentThumbnailSelection: {
           id: 'selection-1',
@@ -108,271 +107,192 @@ describe('ContentWorkspaceService', () => {
         },
       })),
     });
-    const service = new ContentWorkspaceService(repo);
+    const contentWorkspaces = service(repo);
 
-    await service.createWorkspace({
+    await contentWorkspaces.createWorkspace({
       organizationId: ORG,
       triggeredByUserId: 'user-1',
       rawTitle: 'Kids rain boots',
       salesProductId: null,
       channelListingId: 'listing-1',
-      originWorkspaceId: 'source-workspace-1',
     });
 
     expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith(expect.objectContaining({
       ownerType: 'channel_listing',
       salesProductId: null,
       channelListingId: 'listing-1',
-      originWorkspaceId: 'source-workspace-1',
+      normalizedTitle: null,
     }));
-    await expect(service.get(ORG, WORKSPACE_ID)).resolves.toMatchObject({
+    const summary = await contentWorkspaces.get(ORG, WORKSPACE_ID);
+    expect(summary).toMatchObject({
       channelListingId: 'listing-1',
-      originWorkspaceId: 'source-workspace-1',
-      currentThumbnailSelection: {
-        id: 'selection-1',
-        contentAssetId: 'asset-1',
-        url: 'https://cdn.example.com/thumb.png',
-      },
+      currentThumbnailSelection: { id: 'selection-1', contentAssetId: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
     });
+    expect(summary).not.toHaveProperty('displayName');
+    expect(summary).not.toHaveProperty('originWorkspaceId');
   });
 
-  it('normalizes a direct detail-page workspace before delegating creation to the lifecycle repository', async () => {
-    const repo = repository({
-      ensureActiveWorkspace: vi.fn().mockResolvedValue({
-        id: WORKSPACE_ID,
-        displayName: '키즈 터치등',
-        normalizedTitle: '키즈터치등',
-      }),
-    });
-    const service = new ContentWorkspaceService(repo);
+  it('keys only a product-less direct workspace by its normalized title', async () => {
+    const repo = repository({ ensureActiveWorkspace: vi.fn().mockResolvedValue({ id: WORKSPACE_ID }) });
+    const contentWorkspaces = service(repo);
 
-    await expect(service.ensureForGeneration({
+    await expect(contentWorkspaces.ensureForGeneration({
       organizationId: ORG,
       triggeredByUserId: 'user-1',
       rawTitle: ' 키즈   터치등 ',
       salesProductId: null,
-    })).resolves.toEqual({
-      id: WORKSPACE_ID,
-      displayName: '키즈 터치등',
-      normalizedTitle: '키즈터치등',
+    })).resolves.toEqual({ id: WORKSPACE_ID });
+    await contentWorkspaces.ensureForGeneration({
+      organizationId: ORG,
+      triggeredByUserId: 'user-1',
+      rawTitle: '키즈 터치등',
+      salesProductId: 'product-1',
     });
 
-    expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith({
+    expect(repo.ensureActiveWorkspace).toHaveBeenNthCalledWith(1, {
       organizationId: ORG,
       ownerType: 'direct_detail_page',
       salesProductId: null,
       channelListingId: null,
-      originWorkspaceId: null,
-      displayName: '키즈 터치등',
       normalizedTitle: '키즈터치등',
+      createdByUserId: 'user-1',
+    });
+    expect(repo.ensureActiveWorkspace).toHaveBeenNthCalledWith(2, {
+      organizationId: ORG,
+      ownerType: 'sales_product',
+      salesProductId: 'product-1',
+      channelListingId: null,
+      normalizedTitle: null,
       createdByUserId: 'user-1',
     });
   });
 
-  it('creates a content workspace without a detail-page generation history', async () => {
-    const emptyWorkspace = workspace({
-      displayName: '키즈 컵',
-      normalizedTitle: '키즈컵',
-      currentDetailPageArtifactId: null,
-      currentDetailPageRevisionId: null,
-      currentDetailPageArtifact: null,
-      currentDetailPageRevision: null,
-      contentGenerations: [],
-      _count: { contentGenerations: 0 },
-    });
+  it('creates a content workspace without detail pages', async () => {
     const repo = repository({
-      ensureActiveWorkspace: vi.fn().mockResolvedValue({
-        id: WORKSPACE_ID,
-        displayName: '키즈 컵',
-        normalizedTitle: '키즈컵',
-      }),
-      getById: vi.fn().mockResolvedValue(emptyWorkspace),
+      ensureActiveWorkspace: vi.fn().mockResolvedValue({ id: WORKSPACE_ID }),
+      getById: vi.fn().mockResolvedValue(workspace({
+        currentDetailPageRevisionId: null,
+        currentDetailPageRevision: null,
+        detailPages: [],
+        _count: { detailPages: 0 },
+      })),
     });
-    const service = new ContentWorkspaceService(repo);
 
-    await expect(service.createWorkspace({
+    await expect(service(repo).createWorkspace({
       organizationId: ORG,
       triggeredByUserId: 'user-1',
       rawTitle: '키즈 컵',
       salesProductId: null,
     })).resolves.toMatchObject({
       id: WORKSPACE_ID,
-      displayName: '키즈 컵',
-      normalizedTitle: '키즈컵',
-      generationCount: 0,
-      latestGenerationId: null,
+      detailPageCount: 0,
+      latestDetailPageId: null,
       latestStatus: null,
-      currentDetailPageArtifactId: null,
+      currentDetailPageId: null,
       currentDetailPageRevisionId: null,
       history: [],
     });
-
-    expect(repo.getById).toHaveBeenCalledWith({
-      organizationId: ORG,
-      workspaceId: WORKSPACE_ID,
-    });
   });
 
-  it('finds duplicate normalized titles without expanding generation history', async () => {
+  it('finds duplicate normalized titles without expanding detail-page history', async () => {
     const repo = repository({
       findDuplicateByNormalizedTitle: vi.fn().mockResolvedValue(workspace()),
     });
-    const service = new ContentWorkspaceService(repo);
 
-    await expect(service.checkDuplicate(ORG, '  키즈   텀블러  ')).resolves.toMatchObject({
+    await expect(service(repo).checkDuplicate(ORG, '  키즈   텀블러  ')).resolves.toMatchObject({
       exists: true,
       workspace: {
         id: WORKSPACE_ID,
-        displayName: '키즈 텀블러',
         normalizedTitle: '키즈텀블러',
-        generationCount: 2,
-        latestGenerationId: null,
+        detailPageCount: 2,
+        latestDetailPageId: null,
         history: [],
-        currentDetailPageArtifactId: ARTIFACT_ID,
+        currentDetailPageId: DETAIL_PAGE_ID,
         currentDetailPageRevisionId: REVISION_ID,
       },
     });
-
-    expect(repo.findDuplicateByNormalizedTitle).toHaveBeenCalledWith({
-      organizationId: ORG,
-      normalizedTitle: '키즈텀블러',
-    });
+    expect(repo.findDuplicateByNormalizedTitle).toHaveBeenCalledWith({ organizationId: ORG, normalizedTitle: '키즈텀블러' });
   });
 
-  it('lists registered workspaces as one card with multiple ContentGeneration history rows', async () => {
+  it('lists a workspace as one card whose history rows are its detail pages, keyed by detail page id', async () => {
     const repo = repository({
       listActive: vi.fn().mockResolvedValue({
         total: 1,
         rows: [
           workspace({
-            contentGenerations: [
-              generation({ id: 'generation-new', status: 'READY', updatedAt: new Date('2026-05-12T04:00:00.000Z') }),
-              generation({ id: 'generation-old', status: 'FAILED', updatedAt: new Date('2026-05-12T02:00:00.000Z') }),
+            detailPages: [
+              detailPage({ id: 'page-new', status: 'ready', updatedAt: new Date('2026-05-12T04:00:00.000Z') }),
+              detailPage({
+                id: 'page-old',
+                source: 'uploaded',
+                status: 'ready',
+                generationResult: {},
+                currentRevisionId: REVISION_ID,
+                updatedAt: new Date('2026-05-12T02:00:00.000Z'),
+              }),
             ],
-            _count: { contentGenerations: 2 },
           }),
         ],
       }),
     });
-    const service = new ContentWorkspaceService(repo);
 
-    await expect(service.list(ORG)).resolves.toMatchObject({
+    await expect(service(repo).list(ORG)).resolves.toMatchObject({
       total: 1,
       items: [
         {
           id: WORKSPACE_ID,
           href: `/product-pipeline/registered-products/${WORKSPACE_ID}`,
-          generationCount: 2,
-          latestGenerationId: 'generation-new',
-          latestStatus: 'READY',
+          detailPageCount: 2,
+          latestDetailPageId: 'page-new',
+          latestStatus: 'ready',
           history: [
             {
-              id: 'generation-new',
-              status: 'READY',
+              id: 'page-new',
+              source: 'generated',
+              status: 'ready',
               detailPageData: { hook: { text: '키즈 텀블러' } },
               imageUrls: ['https://example.com/input.jpg'],
               processedImages: { __heroBanner: 'https://example.com/hero.jpg' },
-              href: `/product-pipeline/detail-pages/generation-new/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${WORKSPACE_ID}`,
+              href: `/product-pipeline/detail-pages/page-new/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${WORKSPACE_ID}`,
             },
-            { id: 'generation-old', status: 'FAILED' },
+            { id: 'page-old', source: 'uploaded', detailPageData: null, currentRevisionId: REVISION_ID },
           ],
         },
       ],
     });
-
     expect(repo.listActive).toHaveBeenCalledWith({
-      organizationId: ORG,
-      status: 'active',
-      normalizedTitle: null,
-      page: 1,
-      limit: 24,
+      organizationId: ORG, status: 'active', normalizedTitle: null, page: 1, limit: 24,
     });
   });
 
-  it('does not infer a current detail page from generation history when the workspace has no saved artifact', async () => {
-    const repo = repository({
-      listActive: vi.fn().mockResolvedValue({
-        total: 1,
-        rows: [
-          workspace({
-            currentDetailPageArtifactId: null,
-            currentDetailPageRevisionId: null,
-            currentDetailPageArtifact: null,
-            currentDetailPageRevision: null,
-            contentGenerations: [
-              generation({
-                id: 'history-only-generation',
-                detailPageArtifactId: null,
-                updatedAt: new Date('2026-05-12T04:00:00.000Z'),
-              }),
-            ],
-            _count: { contentGenerations: 1 },
-          }),
-        ],
-      }),
-    });
-    const service = new ContentWorkspaceService(repo);
-
-    await expect(service.list(ORG)).resolves.toMatchObject({
-      items: [
-        {
-          latestGenerationId: 'history-only-generation',
-          currentDetailPageArtifactId: null,
-          currentDetailPageRevisionId: null,
-          currentDetailPageGenerationId: null,
-        },
-      ],
-    });
-  });
-
-  it('selects a saved detail-page generation as the current registration detail page', async () => {
-    const selectedArtifactId = '66666666-6666-4666-8666-666666666666';
+  it('selects a detail page as the current one by moving the pointer to that page\'s current revision', async () => {
     const selectedRevisionId = '77777777-7777-4777-8777-777777777777';
-    const updatedWorkspace = workspace({
-      currentDetailPageArtifactId: selectedArtifactId,
-      currentDetailPageRevisionId: selectedRevisionId,
-      currentDetailPageArtifact: {
-        id: selectedArtifactId,
-        currentRevisionId: selectedRevisionId,
-        title: '선택한 상세페이지',
-        sourceContentGenerationId: GENERATION_ID,
-      },
-    });
-    const repo = repository({
-      findSelectableDetailPageGeneration: vi.fn().mockResolvedValue({
-        id: GENERATION_ID,
-        detailPageArtifactId: selectedArtifactId,
-        detailPageArtifact: {
-          currentRevisionId: selectedRevisionId,
-        },
-      }),
-      selectCurrentDetailPage: vi.fn().mockResolvedValue(1),
-      getById: vi.fn().mockResolvedValue(updatedWorkspace),
-    });
-    const service = new ContentWorkspaceService(repo);
-
-    await expect(service.selectCurrentDetailPage({
-      organizationId: ORG,
-      workspaceId: WORKSPACE_ID,
-      contentGenerationId: GENERATION_ID,
-    })).resolves.toMatchObject({
-      id: WORKSPACE_ID,
-      currentDetailPageArtifactId: selectedArtifactId,
-      currentDetailPageRevisionId: selectedRevisionId,
-      currentDetailPageGenerationId: GENERATION_ID,
+    const repo = repository({ getById: vi.fn().mockResolvedValue(workspace()) });
+    const pages = detailPages({
+      findById: vi.fn().mockResolvedValue({ id: DETAIL_PAGE_ID, contentWorkspaceId: WORKSPACE_ID, currentRevisionId: selectedRevisionId }),
     });
 
-    expect(repo.findSelectableDetailPageGeneration).toHaveBeenCalledWith({
-      organizationId: ORG,
-      workspaceId: WORKSPACE_ID,
-      contentGenerationId: GENERATION_ID,
+    await service(repo, pages).selectCurrentDetailPage({ organizationId: ORG, workspaceId: WORKSPACE_ID, detailPageId: DETAIL_PAGE_ID });
+
+    expect(pages.setCurrentRevision).toHaveBeenCalledWith(expect.anything(), {
+      organizationId: ORG, contentWorkspaceId: WORKSPACE_ID, revisionId: selectedRevisionId,
     });
-    expect(repo.selectCurrentDetailPage).toHaveBeenCalledWith({
-      organizationId: ORG,
-      workspaceId: WORKSPACE_ID,
-      detailPageArtifactId: selectedArtifactId,
-      detailPageRevisionId: selectedRevisionId,
+  });
+
+  it('refuses to select a page of another workspace or a page with nothing saved yet', async () => {
+    const repo = repository({ getById: vi.fn().mockResolvedValue(workspace()) });
+    const foreign = detailPages({
+      findById: vi.fn().mockResolvedValue({ id: DETAIL_PAGE_ID, contentWorkspaceId: 'other-workspace', currentRevisionId: REVISION_ID }),
     });
+    const unsaved = detailPages({
+      findById: vi.fn().mockResolvedValue({ id: DETAIL_PAGE_ID, contentWorkspaceId: WORKSPACE_ID, currentRevisionId: null }),
+    });
+    const input = { organizationId: ORG, workspaceId: WORKSPACE_ID, detailPageId: DETAIL_PAGE_ID };
+
+    await expect(service(repo, foreign).selectCurrentDetailPage(input)).rejects.toThrow('Detail page not found');
+    await expect(service(repo, unsaved).selectCurrentDetailPage(input)).rejects.toThrow('Detail page has no saved revision yet');
+    expect(foreign.setCurrentRevision).not.toHaveBeenCalled();
+    expect(unsaved.setCurrentRevision).not.toHaveBeenCalled();
   });
 });
 
@@ -381,9 +301,9 @@ describe('ContentWorkspaceService.getForSalesProduct', () => {
 
   it('answers null for a draft that has no workspace yet, without creating one', async () => {
     const repo = repository({ findActiveSalesProductWorkspaceId: vi.fn().mockResolvedValue(null) });
-    const service = new ContentWorkspaceService(repo);
+    const contentWorkspaces = service(repo);
 
-    await expect(service.getForSalesProduct(ORG, SALES_PRODUCT_ID)).resolves.toEqual({ workspace: null });
+    await expect(contentWorkspaces.getForSalesProduct(ORG, SALES_PRODUCT_ID)).resolves.toEqual({ workspace: null });
     expect(repo.ensureActiveWorkspace).not.toHaveBeenCalled();
     expect(repo.getById).not.toHaveBeenCalled();
   });
@@ -393,9 +313,9 @@ describe('ContentWorkspaceService.getForSalesProduct', () => {
       findActiveSalesProductWorkspaceId: vi.fn().mockResolvedValue(WORKSPACE_ID),
       getById: vi.fn().mockResolvedValue(workspace({ ownerType: 'sales_product', salesProductId: SALES_PRODUCT_ID })),
     });
-    const service = new ContentWorkspaceService(repo);
+    const contentWorkspaces = service(repo);
 
-    const result = await service.getForSalesProduct(ORG, SALES_PRODUCT_ID);
+    const result = await contentWorkspaces.getForSalesProduct(ORG, SALES_PRODUCT_ID);
     expect(result.workspace).toMatchObject({ id: WORKSPACE_ID, salesProductId: SALES_PRODUCT_ID });
     expect(repo.findActiveSalesProductWorkspaceId).toHaveBeenCalledWith({ organizationId: ORG, salesProductId: SALES_PRODUCT_ID });
   });

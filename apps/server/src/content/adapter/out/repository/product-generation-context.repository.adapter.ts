@@ -23,7 +23,7 @@ implements ProductGenerationContextRepositoryPort {
     thumbnail: { generationId: string; requestHash: string | null; isDeleted: boolean } | null;
   }> {
     const [detail, thumbnail] = await Promise.all([
-      this.prisma.contentGeneration.findFirst({
+      this.prisma.detailPage.findFirst({
         where: {
           id: input.detailGenerationId,
           organizationId: input.organizationId,

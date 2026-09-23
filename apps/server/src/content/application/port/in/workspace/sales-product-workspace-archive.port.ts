@@ -10,11 +10,7 @@ export interface AiWorkspaceArchiveScope {
   contentWorkspace: {
     updateMany(args: any): Promise<{ count: number }>;
   };
-  contentGeneration: {
-    findMany(args: any): Promise<Array<{ id: string }>>;
-    updateMany(args: any): Promise<{ count: number }>;
-  };
-  detailPageArtifact: {
+  detailPage: {
     updateMany(args: any): Promise<{ count: number }>;
   };
   contentAsset: {
@@ -32,8 +28,7 @@ export interface ArchiveSalesProductWorkspaceInput {
 }
 
 export interface ArchiveSalesProductWorkspaceResult {
-  archivedContentGenerations: number;
-  archivedDetailPageArtifacts: number;
+  archivedDetailPages: number;
   archivedContentAssets: number;
   archivedThumbnailGenerations: number;
 }

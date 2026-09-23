@@ -2,7 +2,6 @@ import { realRegistrationContentWorkspace } from '../../test-helpers/registratio
 import { productTransactionalRead } from './product-transactional-read.fake';
 import { channelAdapters } from './channel-adapters';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
-import { RegistrationDraftAdapter } from '../adapter/out/persistence/registration-draft.adapter';
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 import type { TargetExecutionIntent } from '../application/port/out/repository/registration-execution.repository.port';
 import { randomUUID } from 'node:crypto';
@@ -45,7 +44,6 @@ describe('registration execution fence (PG integration)', () => {
     await prisma.$connect();
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
       channelAdapters(),
     );
     targets = new RegistrationTargetRepositoryAdapter(

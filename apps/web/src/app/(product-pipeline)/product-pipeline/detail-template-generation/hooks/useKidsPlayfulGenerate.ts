@@ -38,10 +38,10 @@ export interface KidsPlayfulGenerateBody {
   templateId?: DetailPageTemplateId;
   generationMode?: 'draft' | 'image' | 'full';
   sourceReferences?: Array<{
-    sourceType: 'sourcing_candidate' | 'input_asset' | 'content_generation';
+    sourceType: 'sourcing_candidate' | 'input_asset' | 'detail_page';
     sourceCandidateId?: string;
     contentAssetId?: string;
-    sourceContentGenerationId?: string;
+    sourceDetailPageId?: string;
     label?: string;
   }>;
 }

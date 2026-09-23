@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { DetailPageWithRevisions } from '@kiditem/shared/product-content';
 import type {
   GenerateDetailPageInput,
   PrefillDetailPageInput,
@@ -51,6 +52,10 @@ export class DetailPageAiService {
 
   getById(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
     return this.query.getById(id, organizationId);
+  }
+
+  getWithRevisions(id: string, organizationId: string): Promise<DetailPageWithRevisions> {
+    return this.query.getWithRevisions(id, organizationId);
   }
 
   saveEditedHtml(

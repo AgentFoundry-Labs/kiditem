@@ -127,9 +127,11 @@ model DetailPage {
   source             String
   templateId         String? @map("template_id")
   title              String?
-  /// pending | processing | ready | failed (생성) · ready (그 외). AI 결과는 generated revision 으로 들어오며 sink 는 revision 없이 상태만 바꾸지 않는다.
+  /// pending | processing | ready | failed (생성) · ready (그 외). 생성의 ready 는 generation_result 가 기록된 순간이다 — sink 는 결과 없이 상태만 바꾸지 않는다.
   status             String  @default("ready")
   generationInput    Json    @default("{}") @map("generation_input")
+  /// AI 가 준 구조화 결과(템플릿 데이터 · 처리한 이미지). HTML 은 웹 템플릿이 이 결과로 그리고, 처음 저장될 때 `generated` revision 이 된다(이미지만 다시 생성할 때 이 결과를 다시 쓴다).
+  generationResult   Json    @default("{}") @map("generation_result")
   errorMessage       String? @map("error_message")
   currentRevisionId  String? @map("current_revision_id") @db.Uuid
   triggeredByUserId  String? @map("triggered_by_user_id") @db.Uuid

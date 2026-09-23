@@ -105,6 +105,7 @@ erDiagram
     String title
     String status
     Json generationInput
+    Json generationResult
     String errorMessage
     String currentRevisionId FK
     String triggeredByUserId FK
