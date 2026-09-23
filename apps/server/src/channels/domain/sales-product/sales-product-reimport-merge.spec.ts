@@ -166,7 +166,15 @@ describe('Sabangnet reimport three-way merge', () => {
     expect(old.preserved).toEqual(['detailHtml', 'extraDetailHtml']);
   });
 
-  it('never takes the own code from the file', () => {
+  it('fills an empty own code from the file', () => {
+    const last = basics({ ownCode: null });
+    const result = mergeSabangnetReimport({
+      current: last, incoming: basics({ ownCode: 'OWN-2' }), baseline: baselineOf(last), sha256,
+    });
+    expect(result.merged.ownCode).toBe('OWN-2');
+  });
+
+  it('never replaces a set own code with the file one', () => {
     const last = basics();
     const result = mergeSabangnetReimport({
       current: last, incoming: basics({ ownCode: 'OWN-2' }), baseline: baselineOf(last), sha256,

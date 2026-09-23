@@ -14,7 +14,8 @@ import type {
  * 없으면(원문이 없는 상품) 모든 칸을 지킨다. 상세 HTML 은 원문에 본문 대신 디지스트만 있어서
  * 디지스트로 비교하고, 디지스트가 없으면(디지스트를 남기기 전에 가져온 줄) 상세를 지킨다.
  *
- * 자체상품코드(`ownCode`)는 상품을 찾는 열쇠라 병합하지 않는다 — 언제나 지금 값이다.
+ * 자체상품코드(`ownCode`)는 상품을 찾는 열쇠라 병합하지 않는다 — 지금 값이 있으면 그대로 두고, 비어 있을
+ * 때만 파일 값으로 채운다.
  */
 
 export interface SabangnetReimportBasics {
@@ -104,7 +105,7 @@ export function mergeSabangnetReimport<T extends SabangnetReimportBasics>(input:
   sha256: (value: string) => string;
 }): SabangnetReimportMerge<T> {
   const { current, incoming, baseline } = input;
-  const merged = { ...incoming, ownCode: current.ownCode } as T;
+  const merged = { ...incoming, ownCode: current.ownCode ?? incoming.ownCode } as T;
   const preserved: SabangnetReimportField[] = [];
   const updated: SabangnetReimportField[] = [];
   const currentDigests = sabangnetDetailDigests(current, input.sha256);

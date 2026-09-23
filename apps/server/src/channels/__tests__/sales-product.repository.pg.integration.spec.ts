@@ -1071,6 +1071,36 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     });
   });
 
+  it('keeps the Sabangnet goods number when a reimported row carries only the own code', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({}), false);
+    const imported = await product();
+
+    const preview = await service.import(TEST_ORGANIZATION_ID, file({ 품번코드: '', 상품명: '자체코드로 온 줄' }), true);
+    const [change] = preview.existingChanges;
+    expect(change).toMatchObject({ salesProductId: imported.id });
+    await service.import(TEST_ORGANIZATION_ID, file({ 품번코드: '', 상품명: '자체코드로 온 줄' }), false, [{
+      salesProductId: imported.id,
+      expectedVersion: change!.expectedVersion,
+    }]);
+
+    await expect(prisma.salesProduct.findFirstOrThrow({ where: { id: imported.id } })).resolves.toMatchObject({
+      sabangnetGoodsNo: GOODS_NO,
+      ownCode: OWN_CODE,
+      name: '자체코드로 온 줄',
+    });
+  });
+
+  it('fills an empty own code from the file and never replaces one that is set', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({ 자체상품코드: '' }), false);
+    await expect(product()).resolves.toMatchObject({ ownCode: null });
+
+    await reimport({ 자체상품코드: OWN_CODE });
+    await expect(product()).resolves.toMatchObject({ ownCode: OWN_CODE });
+
+    await reimport({ 자체상품코드: 'OWN-OTHER', 상품명: '다른 이름' });
+    await expect(product()).resolves.toMatchObject({ ownCode: OWN_CODE, name: '다른 이름' });
+  });
+
   it('still holds an identity conflict and writes nothing', async () => {
     await service.import(TEST_ORGANIZATION_ID, file({}), false);
     const imported = await product();

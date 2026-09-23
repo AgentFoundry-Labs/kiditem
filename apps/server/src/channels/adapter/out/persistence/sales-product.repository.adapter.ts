@@ -1330,7 +1330,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                 where: { id: existing.id, organizationId, version: write.expectedVersion },
                 data: {
                   ...basicsData(write.create),
-                  sabangnetGoodsNo: write.create.sabangnetGoodsNo,
+                  // 바깥 식별자는 빈 값으로 덮지 않는다 — 품번코드 없이 온 줄(대량등록 양식)도 지금 품번을 지킨다.
+                  sabangnetGoodsNo: write.create.sabangnetGoodsNo ?? undefined,
                   optionAxes: write.create.optionAxes,
                   sourceRaw: (write.create.sourceRaw as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
                   version: { increment: 1 },
