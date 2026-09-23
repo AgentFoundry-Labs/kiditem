@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  listingStatusReportsSoldOut,
   countPublished,
   needsAttention,
   resolveMallListingState,
@@ -123,5 +124,16 @@ describe('countPublished / needsAttention', () => {
     expect(needsAttention('unknown')).toBe(true);
     expect(needsAttention('published')).toBe(false);
     expect(needsAttention('unregistered')).toBe(false);
+  });
+
+  it('품절 표시는 원문에서 읽는다 — 몰 관리자 품절 · 사방넷 완전품절 · 영문 sold_out, 비활성 · 단종은 아님', () => {
+    expect(listingStatusReportsSoldOut('품절')).toBe(true);
+    expect(listingStatusReportsSoldOut('일시품절')).toBe(true);
+    expect(listingStatusReportsSoldOut('사방넷 완전품절')).toBe(true);
+    expect(listingStatusReportsSoldOut('SOLD_OUT')).toBe(true);
+    expect(listingStatusReportsSoldOut('out-of-stock')).toBe(true);
+    expect(listingStatusReportsSoldOut('비활성')).toBe(false);
+    expect(listingStatusReportsSoldOut('단종')).toBe(false);
+    expect(listingStatusReportsSoldOut(null)).toBe(false);
   });
 });

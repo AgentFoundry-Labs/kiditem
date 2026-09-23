@@ -177,3 +177,15 @@ export const ERROR_LISTING_STATUSES: readonly string[] = [
     .filter(([, state]) => state === 'error')
     .flatMap(([status]) => [status, status.toUpperCase()])),
 ];
+
+/**
+ * 몰이 이 리스팅을 품절이라 보고했는가(KID-320). 우리 어휘로 접으면 품절은 `paused`(다시 열 수 있는 멈춤)에 섞여
+ * 사라지므로, 등록 상태의 품절 표시는 원문에서 바로 읽는다. 사방넷 `완전품절` · 몰 관리자 `품절` · 영문 sold_out 류.
+ */
+export function listingStatusReportsSoldOut(rawStatus: string | null | undefined): boolean {
+  if (!rawStatus) return false;
+  const value = rawStatus.trim();
+  if (value === MALL_ADMIN_LISTING_STATUS.soldOut || value === `${SABANGNET_STATUS_PREFIX}완전품절`) return true;
+  const lowered = value.toLowerCase().replace(/[\s_-]/g, '');
+  return lowered.includes('품절') || lowered === 'soldout' || lowered === 'outofstock';
+}

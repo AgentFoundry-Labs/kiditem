@@ -1,6 +1,6 @@
 import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import { decideRegistrationAccountState } from '../../../domain/registration/registration-account-state';
-import { resolveMallListingState } from '../../../domain/listing/mall-listing-state';
+import { listingStatusReportsSoldOut, resolveMallListingState } from '../../../domain/listing/mall-listing-state';
 import type { RegistrationStatePort, SalesProductRegistrationView } from '../../port/in/registration-state.port';
 import type {
   RegistrationStateAccountFacts,
@@ -58,6 +58,7 @@ function toAccountState(
   const decision = decideRegistrationAccountState({
     hasTarget: target !== null,
     listingState,
+    listingSoldOut: account.listing ? listingStatusReportsSoldOut(account.listing.status) : false,
     latestListingShaping: shaping,
     lastSucceededFrozen: account.lastSucceededFrozen,
     latestAvailability: account.latestAvailability,

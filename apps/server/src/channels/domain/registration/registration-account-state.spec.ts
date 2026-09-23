@@ -8,6 +8,7 @@ function inputs(overrides: Partial<RegistrationAccountInputs>): RegistrationAcco
   return {
     hasTarget: true,
     listingState: null,
+    listingSoldOut: false,
     latestListingShaping: null,
     lastSucceededFrozen: null,
     latestAvailability: null,
@@ -38,8 +39,9 @@ describe('registration account state', () => {
 
   it('품절은 마지막 성공한 가용성 실행이, 없으면 몰이 보고한 상태가 말하고 등록됨일 때만 얹힌다', () => {
     expect(decideRegistrationAccountState(inputs({ listingState: 'published', latestAvailability: { kind: 'sold_out', status: 'succeeded' } })).soldOut).toBe(true);
-    expect(decideRegistrationAccountState(inputs({ listingState: 'discontinued', latestAvailability: { kind: 'resume', status: 'succeeded' } })).soldOut).toBe(false);
-    expect(decideRegistrationAccountState(inputs({ listingState: 'discontinued', latestAvailability: { kind: 'sold_out', status: 'failed' } })).soldOut).toBe(true);
+    expect(decideRegistrationAccountState(inputs({ listingState: 'paused', listingSoldOut: true, latestAvailability: { kind: 'resume', status: 'succeeded' } })).soldOut).toBe(false);
+    expect(decideRegistrationAccountState(inputs({ listingState: 'paused', listingSoldOut: true, latestAvailability: { kind: 'sold_out', status: 'failed' } })).soldOut).toBe(true);
+    expect(decideRegistrationAccountState(inputs({ listingState: 'discontinued', listingSoldOut: false })).soldOut).toBe(false);
     expect(decideRegistrationAccountState(inputs({ latestAvailability: { kind: 'sold_out', status: 'succeeded' } })).soldOut).toBe(false);
   });
 

@@ -109,13 +109,13 @@ describe('registration state service', () => {
     expect(kept.changedSinceRegistration).toBe(false);
   });
 
-  it('reads a catalog-only listing as registered with no target, sold out when the mall discontinued it', async () => {
+  it('reads a catalog-only listing as registered with no target, sold out when the mall reports 품절', async () => {
     const { service } = setup([{
       channelAccountId: CATALOG_ACCOUNT,
       channel: 'mall-b',
       channelAccountName: null,
       target: null,
-      listing: { id: CATALOG_LISTING, externalId: 'B-1', status: '단종' },
+      listing: { id: CATALOG_LISTING, externalId: 'B-1', status: '품절' },
       latestListingShaping: null,
       lastSucceededFrozen: null,
       latestAvailability: null,

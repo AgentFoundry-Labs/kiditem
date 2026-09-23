@@ -15,8 +15,8 @@ import type { MallListingState } from '../listing/mall-listing-state';
  *  3. 리스팅이 없으면 마지막 등록성 실행이 말한다: 실패 → 실패, 성공 → 등록됨(몰이 아직 안 돌려준
  *     리스팅), 취소 · 없음 → 미등록.
  *
- * 품절은 우리가 마지막으로 보낸 가용성 실행이 성공했으면 그것이, 아니면 몰이 보고한 상태(`discontinued`)가
- * 말한다. 재전송 필요는 등록됨일 때만, 마지막 성공 등록성 실행이 얼린 값(상품 · 등록 설정 version, 상세
+ * 품절은 우리가 마지막으로 보낸 가용성 실행이 성공했으면 그것이, 아니면 몰이 보고한 원문 상태
+ * (`listingStatusReportsSoldOut`)가 말한다. 재전송 필요는 등록됨일 때만, 마지막 성공 등록성 실행이 얼린 값(상품 · 등록 설정 version, 상세
  * revision id, 대표이미지 자산 id)과 지금 값이 다르면 true 다.
  */
 
@@ -45,8 +45,10 @@ export type CurrentRegistrationFacts = Readonly<{
 
 export type RegistrationAccountInputs = Readonly<{
   hasTarget: boolean;
-  /** 몰에 살아 있는 리스팅이 보고한 상태. 리스팅이 없으면 null. */
+  /** 몰에 살아 있는 리스팅이 보고한 상태(우리 어휘). 리스팅이 없으면 null. */
   listingState: MallListingState | null;
+  /** 몰이 그 리스팅을 품절이라 보고했는가(원문 기준, `listingStatusReportsSoldOut`). 리스팅이 없으면 false. */
+  listingSoldOut: boolean;
   /** 가장 최근 등록성 실행. 없으면 null. */
   latestListingShaping: ListingShapingExecution | null;
   /** 가장 최근에 성공한 등록성 실행이 얼린 값. 없으면 null. */
@@ -96,7 +98,7 @@ function liveStage(execution: ListingShapingExecution | null): RegistrationAccou
 function decideSoldOut(input: RegistrationAccountInputs): boolean {
   const availability = input.latestAvailability;
   if (availability?.status === 'succeeded') return availability.kind === 'sold_out';
-  return input.listingState === 'discontinued';
+  return input.listingSoldOut;
 }
 
 function decideChanged(frozen: FrozenRegistrationFacts | null, current: CurrentRegistrationFacts): boolean {
