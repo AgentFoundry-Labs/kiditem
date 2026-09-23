@@ -34,7 +34,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
-import { resolveCoupangVendorId } from '../../../../channels/adapter/out/channel/coupang/coupang-account-identity';
+import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
 import { addDays, businessDateKey, evidenceCutoffDate } from '../../../../common/kst';
 import { normalizeAdKeywordTarget } from '../../../application/service/ad-keyword-normalizer';
 import { mergeKeywordTargets } from '../../../domain/ad-keyword-target-merge';

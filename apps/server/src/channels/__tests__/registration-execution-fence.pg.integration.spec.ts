@@ -1,12 +1,15 @@
-import { channelAdapters } from './channel-adapters';
 import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { productTransactionalRead } from './product-transactional-read.fake';
+import { channelAdapters } from './channel-adapters';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
-import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import { RegistrationDraftAdapter } from '../adapter/out/persistence/registration-draft.adapter';
+import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
+import type { TargetExecutionIntent } from '../application/port/out/repository/registration-execution.repository.port';
 import { randomUUID } from 'node:crypto';
-import { ConflictException, NotFoundException } from '@nestjs/common';
-import { Prisma, type PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ConflictException } from '@nestjs/common';
+import type { PrismaClient } from '@prisma/client';
+import type { PrepareTargetExecutionInput, ReportTargetExecutionInput } from '@kiditem/shared/sales-product';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
   resetDb,
@@ -14,25 +17,23 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
-import { hashRegistrationSubmissionPayload } from '../domain/registration/registration-submission-payload';
-import { RegistrationDraftAdapter } from '../adapter/out/persistence/registration-draft.adapter';
-import { REGISTRATION_EXECUTION_LEASE_MS } from '../domain/registration/registration-execution-state';
-import { ownerTransaction, ownerTransactionClient } from '../../prisma/owner-transaction';
-import type { OwnerTransaction } from '../../common/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
 
-const channelIntegrity = new ChannelIntegrityAdapter();
-
-const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
+const MALL_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
-const BUNDLE_MASTER_PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
+const WING_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
 const SALES_PRODUCT_ID = '44444444-4444-4444-8444-444444444444';
 const SALES_PRODUCT_OPTION_ID = '55555555-5555-4555-8555-555555555555';
 /** 직접 작성한 판매상품 — 원천 기록(후보)이 없다. */
 const DIRECT_SALES_PRODUCT_ID = '66666666-6666-4666-8666-666666666666';
 const DIRECT_SALES_PRODUCT_OPTION_ID = '77777777-7777-4777-8777-777777777777';
+const KIDKIDS_ADMIN = 'https://partner.kidkids.net';
 
+/**
+ * 등록 실행 울타리(ADR-0014 · ADR-0020)를 등록 대상 실행 경로에서 잰다(KID-321). 몰 전용 경로는 없다 —
+ * 폼 몰 · 쿠팡 WING 모두 대상 하나에 살아 있는 실행 하나, 같은 키는 같은 실행, 결과는 `outcome` 하나로
+ * 보고한다. 몰마다 다른 것은 채널 어댑터가 맡는다.
+ */
 describe('registration execution fence (PG integration)', () => {
   let prisma: PrismaClient;
   let targets: RegistrationTargetRepositoryAdapter;
@@ -42,8 +43,6 @@ describe('registration execution fence (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    // 울타리는 실행 행만 쓰고 설정은 설정 어댑터를 통해 만진다(ADR-0014).
-    // 실제 두 어댑터를 그대로 엮어야 한 트랜잭션 계약이 여기서 검증된다.
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
       new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
@@ -62,17 +61,15 @@ describe('registration execution fence (PG integration)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     await prisma.channelAccount.createMany({
-      data: [ACCOUNT_ID, SECOND_ACCOUNT_ID].map((id, index) => ({
-        id,
-        organizationId: TEST_ORGANIZATION_ID,
-        channel: index === 0 ? 'coupang' : 'rocket',
-        externalAccountId: `account-${index}`,
-        name: `Account ${index}`,
-        status: 'active',
-      })),
+      data: [
+        { id: MALL_ACCOUNT_ID, organizationId: TEST_ORGANIZATION_ID, channel: 'kidkids', externalAccountId: 'seller-1', name: 'kidkids', status: 'active' },
+        { id: SECOND_ACCOUNT_ID, organizationId: TEST_ORGANIZATION_ID, channel: 'smartstore', externalAccountId: 'seller-2', name: 'smartstore', status: 'active' },
+        { id: WING_ACCOUNT_ID, organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Wing', status: 'active' },
+      ],
     });
     candidateId = (await prisma.sourceRecord.create({
-      data: { sourceIdentityHash: randomUUID(),
+      data: {
+        sourceIdentityHash: randomUUID(),
         organizationId: TEST_ORGANIZATION_ID,
         sourceUrl: `https://1688.com/item/${randomUUID()}`,
         sourcePlatform: 'ALIBABA_1688',
@@ -80,1039 +77,186 @@ describe('registration execution fence (PG integration)', () => {
         name: 'Kids rain boots',
       },
     })).id;
-    await prisma.salesProduct.create({
-      data: {
-        id: SALES_PRODUCT_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceRecordId: candidateId,
-        code: 'CANDIDATE-REGISTRATION-FENCE',
-        status: 'active',
-        name: 'Kids rain boots',
-      },
-    });
-    await prisma.salesProductOption.create({
-      data: {
-        id: SALES_PRODUCT_OPTION_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        salesProductId: SALES_PRODUCT_ID,
-        optionCode: 'KID-FENCE-0001',
-        optionKey: '단일',
-        values: [],
-        salePrice: 12900,
-        normalPrice: 15900,
-        supplyStatus: 'selling',
-        sortOrder: 0,
-      },
-    });
+    await createProduct(SALES_PRODUCT_ID, SALES_PRODUCT_OPTION_ID, 'Kids rain boots', candidateId);
   });
 
-  /**
-   * 두 게이트가 사는 자리.
-   *
-   * 보관한 상품에는 등록 설정을 만들지 않고, 판매가를 정하지 않은 초안은 설정이 있어도 제출
-   * 동결에서 막는다 — 초안은 설정을 만들어 두고 값을 채워 가는 것이 정상이라 설정 생성에
-   * 가격을 요구하지 않는다(KID-310 · ADR-0022).
-   */
-  it('refuses a target on an archived product, and freezes only a priced draft', async () => {
-    await prisma.salesProduct.update({
-      where: { id: SALES_PRODUCT_ID },
-      data: { status: 'archived' },
-    });
-    await expect(createTarget(ACCOUNT_ID)).rejects.toThrow('보관된 판매상품');
+  it('refuses a target on an archived product and prepares a registration only for a selling product with a KID', async () => {
+    await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { status: 'archived' } });
+    await expect(targets.resolve(TEST_ORGANIZATION_ID, { salesProductId: SALES_PRODUCT_ID, channelAccountId: MALL_ACCOUNT_ID }))
+      .rejects.toThrow('보관된 판매상품');
 
-    await prisma.salesProduct.update({
-      where: { id: SALES_PRODUCT_ID },
-      data: { status: 'active' },
-    });
-    await prisma.salesProductOption.update({
-      where: { id: SALES_PRODUCT_OPTION_ID },
-      data: { salePrice: null },
-    });
-    await expect(repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    })).rejects.toThrow('아직 판매가를 정하지 않은');
+    await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { status: 'active' } });
+    const targetId = await resolveTarget(MALL_ACCOUNT_ID);
+    await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { status: 'draft', code: null } });
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('Only a selling product with a KID');
+    expect(await prisma.productRegistrationExecution.count()).toBe(0);
   });
 
-  /**
-   * 등록 설정을 만드는 문은 `channels/registration-targets` 하나다(KID-310 · ADR-0022).
-   * 제출 동결이 설정을 대신 만들면 그 자리에서 KID 발급을 건너뛰어, 코드 없는 상품이 몰로 나간다.
-   */
-  it('refuses to freeze a product with no registration setting and issues its KID when one is made', async () => {
-    await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { code: null, status: 'draft' } });
-    const input = {
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    };
-    await expect(repository.prepare(input)).rejects.toThrow('등록 설정');
-    expect(await prisma.registrationTarget.count({ where: { salesProductId: SALES_PRODUCT_ID } })).toBe(0);
-
-    await createTarget(ACCOUNT_ID);
-    await expect(repository.prepare(input)).resolves.toMatchObject({ status: 'prepared' });
-    const product = await prisma.salesProduct.findUniqueOrThrow({ where: { id: SALES_PRODUCT_ID } });
-    expect(product.code).toMatch(/^KID[0-9]{8}$/);
-  });
-
-  it('returns one draft under concurrent same-account creation', async () => {
-    const [left, right] = await Promise.all([
-      createTarget(ACCOUNT_ID),
-      createTarget(ACCOUNT_ID),
-    ]);
-
-    expect(left.preparationId).toBe(right.preparationId);
+  it('returns one target under concurrent same-account resolution and keeps separate targets per account', async () => {
+    const [left, right] = await Promise.all([resolveTarget(MALL_ACCOUNT_ID), resolveTarget(MALL_ACCOUNT_ID)]);
+    expect(left).toBe(right);
+    const second = await resolveTarget(SECOND_ACCOUNT_ID);
+    expect(second).not.toBe(left);
     expect(await prisma.registrationTarget.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: SALES_PRODUCT_ID },
-    })).toBe(1);
-  });
-
-  it('keeps independent active drafts for separate channel accounts', async () => {
-    const first = await createTarget(ACCOUNT_ID);
-
-    const second = await createTarget(SECOND_ACCOUNT_ID);
-
-    expect(second.preparationId).not.toBe(first.preparationId);
-    expect(await prisma.registrationTarget.count({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        salesProductId: SALES_PRODUCT_ID,
-        archivedAt: null,
-      },
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: SALES_PRODUCT_ID, archivedAt: null },
     })).toBe(2);
   });
 
-  it('durably prepares, starts, reconciles, and finalizes one external WING execution', async () => {
-    await createTarget(ACCOUNT_ID);
-    const idempotencyKey = randomUUID();
-    const prepared = await repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey,
-    });
-    expect(prepared).toMatchObject({
-      status: 'prepared', providerOutcome: 'not_attempted', expectedProviderAccountId: 'account-0',
-    });
-    const replay = await repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey,
-    });
-    expect(replay.executionId).toBe(prepared.executionId);
-    await expect(repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Changed name',
-      registrationInput: { wingProduct: { productName: 'Changed name' } },
-      idempotencyKey,
-    })).rejects.toBeInstanceOf(ConflictException);
-
-    const started = await repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-    });
-    expect(started).toMatchObject({ status: 'executing', providerOutcome: 'uncertain' });
-    expect((await repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-    })).executionId).toBe(prepared.executionId);
-    await expect(repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-    })).rejects.toBeInstanceOf(ConflictException);
-
-    const unresolved = await repository.markUnresolved({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-      evidence: { reason: 'browser_timeout' },
-    });
-    expect(unresolved).toMatchObject({ status: 'reconciling', providerOutcome: 'uncertain' });
-
-    const frozen = await repository.loadFrozenSubmission(
-      TEST_ORGANIZATION_ID,
-      prepared.preparationId,
-      prepared.executionId,
-    );
-    expect(frozen.executionId).toBe(prepared.executionId);
-    expect(frozen.preparationId).toBe(prepared.preparationId);
-    const frozenRow = await prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: prepared.executionId },
-      select: {
-        registrationTargetId: true,
-        channelAccountId: true,
-        submissionPayloadJson: true,
-        submissionPayloadHash: true,
-        leaseToken: true,
-      },
-    });
-    expect(frozenRow).toMatchObject({
-      registrationTargetId: prepared.preparationId,
-      channelAccountId: ACCOUNT_ID,
-    });
-    await repository.recordProviderResult(
-      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
-      { externalListingId: '427011919', channel: 'coupang', rawResult: { source: 'wing' } },
-      prepared.executionId,
-    );
-    const completed = await repository.finalizeRegistered(
-      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
-      async (opaqueTx) => ({ listingId: await createListingBranch(tx(opaqueTx), '427011919') }),
-      prepared.executionId,
-    );
-    expect(completed.status).toBe('registered');
-    await expect(repository.get({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-    })).resolves.toMatchObject({ status: 'succeeded', listingId: completed.listingId });
-  });
-
   it('runs the same fence for a directly authored product that has no source record', async () => {
-    await createDirectlyAuthoredProduct();
-    await createTarget(ACCOUNT_ID, DIRECT_SALES_PRODUCT_ID);
-
-    const prepared = await repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: DIRECT_SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Direct rain boots',
-      registrationInput: { wingProduct: { productName: 'Direct rain boots' } },
-      idempotencyKey: randomUUID(),
-    });
-    expect(prepared).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
-    expect(await prisma.registrationTarget.findUniqueOrThrow({
-      where: { id: prepared.preparationId },
-      select: { salesProductId: true, channelAccountId: true },
-    })).toEqual({ salesProductId: DIRECT_SALES_PRODUCT_ID, channelAccountId: ACCOUNT_ID });
-
-    await expect(repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: DIRECT_SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-    })).resolves.toMatchObject({ status: 'executing', providerOutcome: 'uncertain' });
-
-    const frozen = await repository.loadFrozenSubmission(
-      TEST_ORGANIZATION_ID, prepared.preparationId, prepared.executionId,
-    );
-    expect(frozen).toMatchObject({
-      salesProductId: DIRECT_SALES_PRODUCT_ID,
-      sourceRecordId: null,
-    });
-
-    await repository.recordProviderResult(
-      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
-      { externalListingId: '427011920', channel: 'coupang', rawResult: { source: 'wing' } },
-      prepared.executionId,
-    );
-    await expect(repository.finalizeRegistered(
-      TEST_ORGANIZATION_ID, prepared.preparationId, frozen.submissionLeaseToken!,
-      async (opaqueTx) => ({
-        listingId: await createListingBranch(tx(opaqueTx), '427011920', DIRECT_SALES_PRODUCT_ID),
-      }),
-      prepared.executionId,
-    )).resolves.toMatchObject({ status: 'registered' });
+    await createProduct(DIRECT_SALES_PRODUCT_ID, DIRECT_SALES_PRODUCT_OPTION_ID, 'Direct rain boots', null);
+    const targetId = await resolveTarget(MALL_ACCOUNT_ID, DIRECT_SALES_PRODUCT_ID);
+    const prepared = await prepare(targetId, MALL_ACCOUNT_ID, { salesProductId: DIRECT_SALES_PRODUCT_ID });
+    const started = await start(prepared.executionId);
+    await expect(report(prepared.executionId, started, 'confirmed', { externalListingId: 'direct-1' }))
+      .resolves.toMatchObject({ status: 'succeeded' });
+    await expect(prisma.channelListing.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: MALL_ACCOUNT_ID, externalId: 'direct-1' },
+      select: { salesProductId: true },
+    })).resolves.toEqual({ salesProductId: DIRECT_SALES_PRODUCT_ID });
   });
 
-  it('keeps the source record as execution provenance and refuses a new registration once the product is archived', async () => {
-    await createTarget(ACCOUNT_ID);
-    const prepared = await repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    });
+  it('keeps the source record as provenance and refuses a new registration once the product is archived', async () => {
+    const targetId = await resolveTarget(MALL_ACCOUNT_ID);
+    const prepared = await prepare(targetId, MALL_ACCOUNT_ID);
+    await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { status: 'archived' } });
 
-    await prisma.salesProduct.update({
-      where: { id: SALES_PRODUCT_ID },
-      data: { status: 'archived' },
-    });
-
-    // 이미 남은 실행의 출처 표시는 그대로다.
-    await expect(repository.loadFrozenSubmission(
-      TEST_ORGANIZATION_ID, prepared.preparationId, prepared.executionId,
-    )).resolves.toMatchObject({
-      salesProductId: SALES_PRODUCT_ID,
-      sourceRecordId: candidateId,
-    });
-
-    // 보관한 상품으로 새 준비를 열지는 않는다(KID-313).
-    await expect(repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: SECOND_ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    })).rejects.toBeInstanceOf(ConflictException);
+    // 남은 실행은 판매상품을 통해 원천 기록에 닿는다 — 실행 행이 원천을 열쇠로 갖지 않는다.
+    await expect(prisma.salesProduct.findUniqueOrThrow({ where: { id: SALES_PRODUCT_ID }, select: { sourceRecordId: true } }))
+      .resolves.toEqual({ sourceRecordId: candidateId });
+    await expect(start(prepared.executionId)).rejects.toBeInstanceOf(ConflictException);
+    await expect(resolveTarget(SECOND_ACCOUNT_ID)).rejects.toThrow('보관된 판매상품');
   });
 
-  it('does not downgrade provider success when an unresolved report was waiting on the execution lock', async () => {
-    await createTarget(ACCOUNT_ID);
-    const prepared = await repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    });
-    await repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-    });
+  it('admits one live execution per target: another intent conflicts until the first closes as not submitted', async () => {
+    const targetId = await resolveTarget(MALL_ACCOUNT_ID);
+    const first = await prepare(targetId, MALL_ACCOUNT_ID);
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toBeInstanceOf(ConflictException);
 
-    let releaseSuccessWriter!: () => void;
-    let reportExecutionLocked!: () => void;
-    const successWriterRelease = new Promise<void>((resolve) => {
-      releaseSuccessWriter = resolve;
-    });
-    const executionLocked = new Promise<void>((resolve) => {
-      reportExecutionLocked = resolve;
-    });
-    const successWriter = prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw(Prisma.sql`
-        SELECT id
-        FROM product_registration_executions
-        WHERE id = ${prepared.executionId}::uuid
-          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
-        FOR UPDATE
-      `);
-      reportExecutionLocked();
-      await successWriterRelease;
-      await transaction.productRegistrationExecution.update({
-        where: { id: prepared.executionId },
-        data: {
-          status: 'executing',
-          providerOutcome: 'succeeded',
-          providerSubmissionId: '427011919',
-          externalListingId: '427011919',
-          resultJson: { source: 'wing' },
-        },
-      });
-    });
-    await executionLocked;
-
-    const unresolved = repository.markUnresolved({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-      evidence: { reason: 'late_browser_timeout' },
-    });
-    const observation = await Promise.race([
-      unresolved.then(() => 'settled' as const, () => 'settled' as const),
-      new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 100)),
-    ]);
-    expect(observation).toBe('blocked');
-
-    releaseSuccessWriter();
-    await successWriter;
-    await expect(unresolved).resolves.toMatchObject({
-      status: 'executing',
-      providerOutcome: 'succeeded',
-    });
-    await expect(repository.get({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-    })).resolves.toMatchObject({
-      status: 'executing',
-      providerOutcome: 'succeeded',
-      listingId: null,
-    });
+    const started = await start(first.executionId);
+    await expect(report(first.executionId, started, 'not_submitted', { message: '폼 채우기 실패' }))
+      .resolves.toMatchObject({ status: 'failed', providerOutcome: 'definitive_failure' });
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).resolves.toMatchObject({ status: 'prepared' });
+    expect(await prisma.productRegistrationExecution.count({ where: { registrationTargetId: targetId } })).toBe(2);
   });
 
-  it('replays a concurrent same-hash external preparation after the candidate lock', async () => {
-    await createTarget(ACCOUNT_ID);
-    const idempotencyKey = randomUUID();
-    const input = {
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey,
-    };
-    const [left, right] = await Promise.all([
-      repository.prepare(input),
-      repository.prepare(input),
-    ]);
+  it('keeps an unknown outcome reconciling and blocking, then leaves the target open for the next intent after success', async () => {
+    const targetId = await resolveTarget(MALL_ACCOUNT_ID);
+    const prepared = await prepare(targetId, MALL_ACCOUNT_ID);
+    const started = await start(prepared.executionId);
+    await expect(report(prepared.executionId, started, 'uncertain', {}))
+      .resolves.toMatchObject({ status: 'reconciling', providerOutcome: 'uncertain' });
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toBeInstanceOf(ConflictException);
+    // 결과를 모르는 제출은 "제출 안 됨"으로 되돌릴 수 없다 — 몰 식별자가 있으면 거절된다.
+    await report(prepared.executionId, started, 'submitted', { externalListingId: 'kk-9' });
+    await expect(report(prepared.executionId, started, 'not_submitted', {})).rejects.toBeInstanceOf(ConflictException);
+
+    await expect(report(prepared.executionId, started, 'confirmed', { externalListingId: 'kk-9' }))
+      .resolves.toMatchObject({ status: 'succeeded' });
+    await expect(prisma.registrationTarget.findUniqueOrThrow({ where: { id: targetId }, select: { archivedAt: true } }))
+      .resolves.toEqual({ archivedAt: null });
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).resolves.toMatchObject({ status: 'prepared' });
+  });
+
+  it('replays concurrent same-key preparations as one execution and grants one lease to concurrent starts', async () => {
+    const targetId = await resolveTarget(MALL_ACCOUNT_ID);
+    const key = randomUUID();
+    const [left, right] = await Promise.all([prepare(targetId, MALL_ACCOUNT_ID, { key }), prepare(targetId, MALL_ACCOUNT_ID, { key })]);
     expect(left.executionId).toBe(right.executionId);
-    expect(await prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, idempotencyKey },
-    })).toBe(1);
+    const starts = await Promise.all([start(left.executionId), start(left.executionId)]);
+    expect(starts.filter((result) => result.maySubmit)).toHaveLength(1);
+    expect(new Set(starts.map((result) => result.leaseToken)).size).toBe(1);
   });
 
-  it('resumes the same prepared manual execution after the browser page is reopened', async () => {
-    await createTarget(ACCOUNT_ID);
-    const base = {
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-    };
-    const prepared = await repository.prepare({
-      ...base,
-      idempotencyKey: randomUUID(),
-    });
-
-    const resumed = await repository.prepare({
-      ...base,
-      idempotencyKey: randomUUID(),
-    });
-
-    expect(resumed.executionId).toBe(prepared.executionId);
-    expect(await prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: prepared.preparationId },
-    })).toBe(1);
+  it('refuses a Wing registration before any intent when the account has no vendor identity', async () => {
+    const targetId = await resolveTarget(WING_ACCOUNT_ID);
+    await expect(prepare(targetId, WING_ACCOUNT_ID)).rejects.toThrow('vendor identity');
+    expect(await prisma.productRegistrationExecution.count()).toBe(0);
   });
 
-  it('allocates a bundle KID in the candidate-locked transaction and freezes its full payload hash', async () => {
-    await createTarget(ACCOUNT_ID);
-    const input = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
-    const prepared = await repository.prepare(input);
-    if (!prepared.kidItemCode) throw new Error('bundle preparation did not return an assigned KID');
-
-    const execution = await prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: prepared.executionId },
-      select: {
-        requestHash: true,
-        submissionPayloadHash: true,
-        submissionPayloadJson: true,
-      },
-    });
-    const payload = execution.submissionPayloadJson as {
-      registrationInput: {
-        kidItemCode: string;
-        sellpiaMatch: { code: string };
-        wingProduct: { variants: Array<{ vendorItemCode: string }> };
-      };
-    };
-
-    expect(prepared.kidItemCode).toMatch(/^KID[0-9]{8}$/);
-    expect(payload.registrationInput.sellpiaMatch.code).toBe('KID00000001');
-    expect(payload.registrationInput.kidItemCode).toBe(prepared.kidItemCode);
-    expect(payload.registrationInput.wingProduct.variants[0]?.vendorItemCode)
-      .toBe(prepared.kidItemCode);
-    expect(execution.requestHash).toBe(execution.submissionPayloadHash);
-    expect(execution.requestHash).toBe(hashRegistrationSubmissionPayload(payload, channelIntegrity.sha256));
-    expect(prepared.requestHash).toBe(execution.requestHash);
-  });
-
-  it('replays a bundle preparation by key and rejects a changed request under that key', async () => {
-    await createTarget(ACCOUNT_ID);
-    const idempotencyKey = randomUUID();
-    const input = createExternalRegistrationInput(idempotencyKey, { quantity: 2 });
-    const first = await repository.prepare(input);
-    const replay = await repository.prepare(input);
-
-    expect(replay).toMatchObject({
-      executionId: first.executionId,
-      preparationId: first.preparationId,
-      kidItemCode: first.kidItemCode,
-      requestHash: first.requestHash,
-    });
-
-    await expect(repository.prepare({
-      ...input,
-      displayName: 'Changed bundle request',
-      registrationInput: {
-        ...input.registrationInput,
-        wingProduct: { productName: 'Changed bundle request', variants: [{ vendorItemCode: 'KID00000001' }] },
-      },
-    })).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('serializes concurrent bundle preparations with distinct keys and reuses one assigned KID', async () => {
-    await createTarget(ACCOUNT_ID);
-    const firstInput = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
-    const secondInput = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
-    const [first, second] = await Promise.all([
-      repository.prepare(firstInput),
-      repository.prepare(secondInput),
-    ]);
-
-    expect(second.executionId).toBe(first.executionId);
-    expect(second.preparationId).toBe(first.preparationId);
-    expect(second.kidItemCode).toBe(first.kidItemCode);
-    expect(await prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: first.preparationId },
-    })).toBe(1);
-  });
-
-  it('resumes a prepared bundle under a new key without changing its assigned KID', async () => {
-    await createTarget(ACCOUNT_ID);
-    const first = await repository.prepare(createExternalRegistrationInput(randomUUID(), { quantity: 2 }));
-    const resumed = await repository.prepare(createExternalRegistrationInput(randomUUID(), { quantity: 2 }));
-
-    expect(resumed).toMatchObject({
-      executionId: first.executionId,
-      preparationId: first.preparationId,
-      kidItemCode: first.kidItemCode,
-      requestHash: first.requestHash,
-    });
-    expect(await prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: first.preparationId },
-    })).toBe(1);
-  });
-
-  it('reuses the bundle KID after a definitive pre-provider failure', async () => {
-    await createTarget(ACCOUNT_ID);
-    const sourceInput = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
-    const first = await repository.prepare(sourceInput);
-    const firstFrozen = await repository.loadFrozenSubmission(
-      TEST_ORGANIZATION_ID,
-      first.preparationId,
-      first.executionId,
-    );
-    expect(firstFrozen.executionId).toBe(first.executionId);
-    expect(firstFrozen.submissionPayloadJson).toMatchObject({
-      registrationInput: { kidItemCode: first.kidItemCode },
-    });
-    await repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: first.executionId,
-      requestedByUserId: TEST_USER_ID,
-    });
-    await repository.markNotSubmitted({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: first.executionId,
-      requestedByUserId: TEST_USER_ID,
-      evidence: { reason: 'extension_failed_before_provider_submission' },
-    });
-
-    const retry = await repository.prepare({
-      ...sourceInput,
-      idempotencyKey: randomUUID(),
-    });
-
-    expect(retry.executionId).not.toBe(first.executionId);
-    expect(retry.preparationId).toBe(first.preparationId);
-    expect(retry.kidItemCode).toBe(first.kidItemCode);
-    const retryFrozen = await repository.loadFrozenSubmission(
-      TEST_ORGANIZATION_ID,
-      retry.preparationId,
-      retry.executionId,
-    );
-    expect(retryFrozen.executionId).toBe(retry.executionId);
-    expect(retryFrozen.submissionPayloadJson).toMatchObject({
-      registrationInput: { kidItemCode: retry.kidItemCode },
-    });
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: first.executionId },
-      select: { status: true, providerOutcome: true },
-    })).resolves.toEqual({ status: 'failed', providerOutcome: 'definitive_failure' });
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: retry.executionId },
-      select: { status: true, providerOutcome: true },
-    })).resolves.toEqual({ status: 'prepared', providerOutcome: 'not_attempted' });
-  });
-
-  it('uses the source Master KID for a singleton instead of allocating a bundle code', async () => {
-    await createTarget(ACCOUNT_ID);
-    const sourceCode = 'KID00000007';
-    const prepared = await repository.prepare(createExternalRegistrationInput(randomUUID(), {
-      quantity: 1,
-      sourceCode,
-    }));
-    if (!prepared.kidItemCode) throw new Error('singleton preparation did not return a KID');
-
-    const execution = await prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: prepared.executionId },
-      select: { submissionPayloadJson: true },
-    });
-    const payload = execution.submissionPayloadJson as {
-      registrationInput: {
-        kidItemCode: string;
-        sellpiaMatch: { code: string };
-        wingProduct: { variants: Array<{ vendorItemCode: string }> };
-      };
-    };
-    expect(prepared.kidItemCode).toBe(sourceCode);
-    expect(payload.registrationInput.kidItemCode).toBe(sourceCode);
-    expect(payload.registrationInput.sellpiaMatch.code).toBe(sourceCode);
-    expect(payload.registrationInput.wingProduct.variants[0]?.vendorItemCode).toBe(sourceCode);
-  });
-
-  it('rolls back a failed bundle allocation without leaving an execution or preparation', async () => {
-    const failingDrafts = new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma));
-    vi.spyOn(failingDrafts, 'freezeForSubmission').mockRejectedValueOnce(
-      new Error('forced transaction rollback after allocation'),
-    );
-    const failingRepository = new RegistrationExecutionRepositoryAdapter(
-      prisma as unknown as PrismaService,
-      failingDrafts,
-      channelAdapters(),
-    );
-    await createTarget(ACCOUNT_ID);
-    const input = createExternalRegistrationInput(randomUUID(), { quantity: 2 });
-
-    await expect(failingRepository.prepare(input)).rejects.toThrow(
-      'forced transaction rollback after allocation',
-    );
-    expect(await prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-    })).toBe(0);
-    // 설정은 이 트랜잭션이 만든 것이 아니라 그대로 남고, 실행만 사라진다.
-    expect(await prisma.registrationTarget.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: SALES_PRODUCT_ID },
-    })).toBe(1);
-
-    await expect(repository.prepare({
-      ...input,
-      idempotencyKey: randomUUID(),
-    })).resolves.toMatchObject({ status: 'prepared', kidItemCode: expect.stringMatching(/^KID[0-9]{8}$/) });
-  });
-
-  it('leaves only the Coupang adapter values on the target — execution facts stay in the execution payload', async () => {
-    const { preparationId } = await createTarget(ACCOUNT_ID);
-    const input = createExternalRegistrationInput(randomUUID(), { quantity: 1 });
-    const prepared = await repository.prepare({
-      ...input,
-      registrationInput: { ...input.registrationInput, wingCategoryKey: '64687' },
-    });
-
-    const target = await prisma.registrationTarget.findUniqueOrThrow({
-      where: { id: preparationId },
-      select: { registrationInput: true, selectedThumbnailAssetId: true, selectedDetailPageRevisionId: true },
-    });
-    expect(target).toEqual({
-      registrationInput: {
-        mallCategory: null,
-        mallFields: {},
-        adapter: { coupang: { wingCategoryKey: '64687', wingProduct: input.registrationInput.wingProduct } },
-      },
-      selectedThumbnailAssetId: null,
-      selectedDetailPageRevisionId: null,
-    });
-    const execution = await prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: prepared.executionId },
-      select: { submissionPayloadJson: true },
-    });
-    expect(execution.submissionPayloadJson).toMatchObject({
-      registrationInput: { sellpiaMatch: expect.any(Object), kidItemCode: prepared.kidItemCode },
-    });
-  });
-
-  it('abandons a never-submitted execution and reuses its target for a changed payload', async () => {
-    await createTarget(ACCOUNT_ID);
-    const base = {
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-    };
-    const staleIdempotencyKey = randomUUID();
-    const stale = await repository.prepare({
-      ...base,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: staleIdempotencyKey,
-    });
-
-    // A later attempt with a changed payload (e.g. an edited category) freezes a
-    // different hash, so the prepared execution can no longer resume. Because the
-    // stale intent never reached the provider, the execution is abandoned while
-    // the durable registration target remains the same.
-    const fresh = await repository.prepare({
-      ...base,
-      displayName: 'Kids rain boots (edited)',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots', wingCategoryKey: '64687' } },
-      idempotencyKey: randomUUID(),
-    });
-
-    expect(fresh.status).toBe('prepared');
-    expect(fresh.executionId).not.toBe(stale.executionId);
-    expect(fresh.preparationId).toBe(stale.preparationId);
-    await expect(prisma.registrationTarget.findUniqueOrThrow({
-      where: { id: stale.preparationId },
-      select: { archivedAt: true },
-    })).resolves.toEqual({
-      archivedAt: null,
-    });
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: stale.executionId },
-      select: {
-        status: true,
-        providerOutcome: true,
-        completedAt: true,
-        leaseToken: true,
-        leaseClaimedAt: true,
-      },
-    })).resolves.toEqual({
-      status: 'cancelled',
-      providerOutcome: 'not_attempted',
-      completedAt: expect.any(Date),
-      leaseToken: null,
-      leaseClaimedAt: null,
-    });
-    expect(await prisma.registrationTarget.count({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        salesProductId: SALES_PRODUCT_ID,
-        archivedAt: null,
-      },
-    })).toBe(1);
-
-    // Superseding never erases the frozen idempotency ledger. Retrying the old
-    // request must surface its terminal cancellation instead of reviving it.
-    await expect(repository.prepare({
-      ...base,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: staleIdempotencyKey,
-    })).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('restarts a reconciled unknown WING attempt only after the channel absence was verified', async () => {
-    await createTarget(ACCOUNT_ID);
-    const base = {
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-    };
-    const stale = await repository.prepare({
-      ...base,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    });
-    await repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: stale.executionId,
-      requestedByUserId: TEST_USER_ID,
-    });
-    await repository.markUnresolved({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: stale.executionId,
-      requestedByUserId: TEST_USER_ID,
-      evidence: { reason: 'browser_timeout' },
-    });
-
-    await expect(repository.prepare({
-      ...base,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    })).resolves.toMatchObject({
-      executionId: stale.executionId,
-      status: 'reconciling',
-      providerOutcome: 'uncertain',
-    });
-
-    const fresh = await repository.prepare({
-      ...base,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-      providerAbsenceVerified: true,
-    });
-
-    expect(fresh).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
-    expect(fresh.executionId).not.toBe(stale.executionId);
-    expect(fresh.preparationId).toBe(stale.preparationId);
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: stale.executionId },
-      select: { status: true, providerOutcome: true, completedAt: true, leaseToken: true },
-    })).resolves.toEqual({
-      status: 'cancelled',
-      providerOutcome: 'uncertain',
-      completedAt: expect.any(Date),
-      leaseToken: null,
-    });
-    await expect(prisma.registrationTarget.findUniqueOrThrow({
-      where: { id: stale.preparationId },
-      select: { archivedAt: true },
-    })).resolves.toEqual({
-      archivedAt: null,
-    });
-  });
-
-  it('restarts a started unknown attempt only after the channel absence was verified', async () => {
-    await createTarget(ACCOUNT_ID);
-    const base = {
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-    };
-    const prepared = await repository.prepare({
-      ...base,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    });
-    // Without a fresh provider lookup, a started execution remains protected.
-    await repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-    });
-
-    await expect(repository.prepare({
-      ...base,
-      displayName: 'Changed after start',
-      registrationInput: { wingProduct: { productName: 'Changed after start' } },
-      idempotencyKey: randomUUID(),
-    })).rejects.toBeInstanceOf(ConflictException);
-
-    const fresh = await repository.prepare({
-      ...base,
-      displayName: 'Changed after verified absence',
-      registrationInput: { wingProduct: { productName: 'Changed after verified absence' } },
-      idempotencyKey: randomUUID(),
-      providerAbsenceVerified: true,
-    });
-
-    expect(fresh).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted' });
-    expect(fresh.executionId).not.toBe(prepared.executionId);
-  });
-
-  it('serializes start behind a concurrent supersede and never resurrects the stale execution', async () => {
-    await createTarget(ACCOUNT_ID);
-    const base = {
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-    };
-    const stale = await repository.prepare({
-      ...base,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    });
-
-    let releaseSupersede!: () => void;
-    let reportCandidateLocked!: () => void;
-    const supersedeRelease = new Promise<void>((resolve) => {
-      releaseSupersede = resolve;
-    });
-    const candidateLocked = new Promise<void>((resolve) => {
-      reportCandidateLocked = resolve;
-    });
-    let didPause = false;
-    const pausedPrisma = {
-      $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) =>
-        prisma.$transaction(async (transaction) => callback(new Proxy(transaction, {
-          get(target, property, receiver) {
-            if (property !== '$queryRaw') return Reflect.get(target, property, receiver);
-            return async <R>(query: Prisma.Sql): Promise<R> => {
-              const rows = await transaction.$queryRaw<R>(query);
-              if (!didPause) {
-                didPause = true;
-                reportCandidateLocked();
-                await supersedeRelease;
-              }
-              return rows;
-            };
-          },
-        }))),
-    };
-    const pausedRepository = new RegistrationExecutionRepositoryAdapter(
-      pausedPrisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(realRegistrationContentWorkspace(prisma)),
-      channelAdapters(),
-    );
-    const supersede = pausedRepository.prepare({
-      ...base,
-      displayName: 'Kids rain boots (edited while start races)',
-      registrationInput: {
-        wingProduct: {
-          productName: 'Kids rain boots',
-          wingCategoryKey: '64687',
-        },
-      },
-      idempotencyKey: randomUUID(),
-    });
-    await candidateLocked;
-
-    const start = repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: stale.executionId,
-      requestedByUserId: TEST_USER_ID,
-    });
-    const startState = await Promise.race([
-      start.then(() => 'settled' as const, () => 'settled' as const),
-      new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 100)),
-    ]);
-    expect(startState).toBe('blocked');
-    releaseSupersede();
-
-    const fresh = await supersede;
-    await expect(start).rejects.toBeInstanceOf(ConflictException);
-    expect(fresh.executionId).not.toBe(stale.executionId);
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: stale.executionId },
-      select: { status: true, providerOutcome: true, startedAt: true },
-    })).resolves.toEqual({
-      status: 'cancelled',
-      providerOutcome: 'not_attempted',
-      startedAt: null,
-    });
-  });
-
-  it('rejects external preparation when the persisted account is not a vendor-identified Wing account', async () => {
-    await prisma.channelAccount.update({
-      where: { id: ACCOUNT_ID },
-      data: { channel: 'rocket', vendorId: null, externalAccountId: null },
-    });
-    await expect(repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    })).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  function createExternalRegistrationInput(
-    idempotencyKey: string,
-    options: { quantity: number; sourceCode?: string },
-  ) {
-    const sourceCode = options.sourceCode ?? 'KID00000001';
-    return {
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: {
-        sellpiaMatch: {
-          sellpiaInventorySkuId: BUNDLE_MASTER_PRODUCT_ID,
-          code: sourceCode,
-          name: 'Kids rain boots',
-          optionName: 'Blue / 130',
-          quantity: options.quantity,
-        },
-        wingProduct: {
-          productName: 'Kids rain boots',
-          variants: [{ vendorItemCode: sourceCode }],
-        },
-      },
-      idempotencyKey,
-    };
-  }
-
-  async function createDirectlyAuthoredProduct(): Promise<void> {
+  async function createProduct(id: string, optionId: string, name: string, sourceRecordId: string | null) {
     await prisma.salesProduct.create({
-      data: {
-        id: DIRECT_SALES_PRODUCT_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'DIRECTLY-AUTHORED-FENCE',
-        status: 'active',
-        name: 'Direct rain boots',
-      },
+      data: { id, organizationId: TEST_ORGANIZATION_ID, sourceRecordId, code: `SP-${id.slice(0, 8)}`, status: 'active', name },
     });
     await prisma.salesProductOption.create({
       data: {
-        id: DIRECT_SALES_PRODUCT_OPTION_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        salesProductId: DIRECT_SALES_PRODUCT_ID,
-        optionCode: 'KID-DIRECT-0001',
-        optionKey: '단일',
-        values: [],
-        salePrice: 19900,
-        supplyStatus: 'selling',
-        sortOrder: 0,
+        id: optionId, organizationId: TEST_ORGANIZATION_ID, salesProductId: id, optionCode: `KID${id.slice(0, 8).replace(/\D/g, '0')}`,
+        optionKey: '단일', values: [], salePrice: 12900, normalPrice: 15900, supplyStatus: 'selling', sortOrder: 0,
       },
     });
   }
 
-  /**
-   * 등록 설정을 만드는 길은 하나다 — 상품 × 몰 계정으로 찾거나 만든다(KID-310 · ADR-0022).
-   * 울타리 spec 도 그 길로 설정을 세워야 실제 배선과 같은 것을 잰다.
-   */
-  async function createTarget(channelAccountId: string, salesProductId = SALES_PRODUCT_ID) {
+  /** 등록 대상을 세우는 길은 하나다 — 상품 × 몰 계정으로 찾거나 만든다(KID-310 · ADR-0022). */
+  function resolveTarget(channelAccountId: string, salesProductId = SALES_PRODUCT_ID): Promise<string> {
+    return targets.resolve(TEST_ORGANIZATION_ID, { salesProductId, channelAccountId });
+  }
+
+  async function prepare(targetId: string, channelAccountId: string, input: { salesProductId?: string; key?: string } = {}) {
+    const request: PrepareTargetExecutionInput = {
+      expectedVersion: 1, kind: 'register', idempotencyKey: input.key ?? randomUUID(),
+      applyCompositionTemplate: false, optionTransitions: [],
+    };
+    return repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, request,
+      snapshot: await intentFor(targetId, channelAccountId, input.salesProductId ?? SALES_PRODUCT_ID),
+    });
+  }
+
+  function start(executionId: string) {
+    return repository.startTarget({ organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId });
+  }
+
+  function report(
+    executionId: string,
+    started: { leaseToken: string | null; payloadHash: string },
+    outcome: ReportTargetExecutionInput['outcome'],
+    evidence: Partial<ReportTargetExecutionInput['evidence']>,
+  ) {
+    const externalListingId = evidence.externalListingId;
+    return repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId,
+      report: {
+        leaseToken: started.leaseToken!, payloadHash: started.payloadHash, outcome,
+        evidence: {
+          channelAccountId: MALL_ACCOUNT_ID,
+          ...(outcome === 'confirmed' && externalListingId
+            ? { providerAccountId: 'seller-1', observedUrl: `${KIDKIDS_ADMIN}/goods/${externalListingId}` }
+            : {}),
+          ...evidence,
+        },
+      },
+    });
+  }
+
+  /** 서비스가 모으는 실행 의도 — 판매 상품 · 선택 옵션 · 몰 값을 지금 행에서 읽는다. */
+  async function intentFor(targetId: string, channelAccountId: string, salesProductId: string): Promise<TargetExecutionIntent> {
+    const target = await prisma.registrationTarget.findUniqueOrThrow({
+      where: { id: targetId },
+      select: { version: true, registrationInput: true, selectedOptions: { orderBy: { sortOrder: 'asc' }, select: { salesProductOptionId: true } } },
+    });
+    const product = await prisma.salesProduct.findUniqueOrThrow({ where: { id: salesProductId }, include: { options: true } });
+    const timestamp = new Date().toISOString();
     return {
-      preparationId: await targets.resolve(TEST_ORGANIZATION_ID, { salesProductId, channelAccountId }),
-      status: 'draft' as const,
+      targetId, targetVersion: target.version, channelAccountId, kind: 'register', channelListingId: null,
+      applyCompositionTemplate: false, optionTransitions: [], detailPage: null,
+      registrationInput: target.registrationInput as Record<string, unknown>,
+      product: {
+        id: product.id, code: product.code, ownCode: null, sabangnetGoodsNo: null, sourcePlatform: null, sourceUrl: null,
+        description: '', targetAudience: null, ageGroup: null, productSize: null, colorVariantNames: [], boxSetQuantity: null,
+        registrationDefaults: null, kcStatus: 'unknown', sourceRecordId: product.sourceRecordId, name: product.name,
+        shortName: null, englishName: null, printName: null, modelName: null, modelNo: null, brand: null, manufacturer: null,
+        originCountry: null, originRegion: null, keywords: [], standardCategory: null, status: product.status as 'active',
+        taxType: 'taxable', deliveryFeeType: null, deliveryFee: null, optionAxes: [], stockManaged: false, imageUrls: [],
+        noticeCategory: null, noticeValues: [], certifications: [], importDeclarationNo: null, adminMemo: null,
+        version: product.version, createdAt: timestamp, updatedAt: timestamp, channelOverrides: [], channelListings: [],
+        options: target.selectedOptions.map(({ salesProductOptionId }) => {
+          const option = product.options.find((row) => row.id === salesProductOptionId)!;
+          return {
+            id: option.id, optionCode: option.optionCode, values: [], optionKey: option.optionKey, alias: null, barcode: null,
+            salePrice: option.salePrice, normalPrice: option.normalPrice, supplyStatus: option.supplyStatus as 'selling',
+            safetyStock: null, sortOrder: option.sortOrder, referenceCost: null, components: [], linkedChannelOptionCount: 0,
+          };
+        }),
+      },
     };
   }
-
-  async function createListingBranch(
-    client: Prisma.TransactionClient,
-    externalId: string,
-    salesProductId: string = SALES_PRODUCT_ID,
-  ): Promise<string> {
-    const listing = await client.channelListing.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: ACCOUNT_ID,
-        salesProductId,
-        externalId,
-        displayName: 'Kids rain boots',
-        status: 'active',
-      },
-    });
-    await client.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'channel_listing',
-        channelListingId: listing.id,
-        originWorkspaceId: (await client.contentWorkspace.findFirstOrThrow({
-          where: { organizationId: TEST_ORGANIZATION_ID, salesProductId },
-        })).id,
-        displayName: 'Kids rain boots',
-        normalizedTitle: 'kids rain boots',
-        createdByUserId: TEST_USER_ID,
-      },
-    });
-    return listing.id;
-  }
 });
-
-function tx(
-  value: OwnerTransaction,
-): Prisma.TransactionClient {
-  return ownerTransactionClient(value);
-}

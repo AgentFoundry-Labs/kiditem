@@ -366,7 +366,7 @@ function execution(
     organizationId,
     registrationTargetId,
     channelAccountId,
-    executionKind: 'external_wing',
+    executionKind: 'register',
     idempotencyKey: `reader-${id}`,
     requestHash: 'a'.repeat(64),
     status,

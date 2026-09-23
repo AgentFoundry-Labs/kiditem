@@ -26,7 +26,6 @@ import {
   type CapabilityMcpDependencies,
 } from './kiditem-agent-os-mcp-server';
 import type { AnalyticsAgentOverviewCapabilityPort } from '../../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
-import type { ChannelsFinalCapabilityPort } from '../../../../channels/application/port/in/capability/channels-final-capability.port';
 import type { ChannelsRepresentativeImageCapabilityPort } from '../../../../channels/application/port/in/capability/representative-image.port';
 import type { ProductsListingGenerationCapabilityPort } from '../../../../products/application/port/in/capability/listing-generation.port';
 import type {
@@ -166,15 +165,6 @@ const scenarios: readonly InvocationScenario[] = [
     kind: 'register',
     applyCompositionTemplate: false,
   }, targetExecutionResult),
-  scenario('channels.register_confirmed_listing', 'channels.registerConfirmedListing', 'medium', {
-    registrationExecutionId: OPERATION_ID,
-    preparationId: PREPARATION_ID,
-    externalListingId: 'listing-1',
-    confirmationEvidence: {
-      wingVendorId: 'vendor-1',
-      wingIdentitySource: 'dom:data-vendor-id',
-    },
-  }, { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' }),
   scenario('channels.report_target_execution', 'channels.reportTargetExecution', 'medium', {
     executionId: OPERATION_ID,
     leaseToken: CHANNEL_ACCOUNT_ID,
@@ -249,7 +239,7 @@ const scenarios: readonly InvocationScenario[] = [
 ];
 
 describe('actual capability MCP wire matrix', () => {
-  it('discovers and invokes all 17 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
+  it('discovers and invokes all 16 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
     const runtime = matrixRuntime();
     try {
       const catalog = await call(runtime.handler, 'tools/call', {
@@ -271,7 +261,7 @@ describe('actual capability MCP wire matrix', () => {
         expect.any(SupplyCapabilityCompositionAdapter),
       ]);
       expect(runtime.compositionProviders.flatMap((provider) => provider.compositions))
-        .toHaveLength(17);
+        .toHaveLength(16);
 
       for (const entry of scenarios) {
         expect(entry.definition.ownerInputPort).toBe(entry.expectedOwnerInputPort);
@@ -494,13 +484,6 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
       },
     ),
   };
-  const channels: ChannelsFinalCapabilityPort = {
-    registerConfirmedListing: typedOwnerPortMethod(
-      typedOwnerPortCalls,
-      'channels.register_confirmed_listing',
-      { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' as const },
-    ),
-  };
   const wing: ChannelsRepresentativeImageCapabilityPort = {
     submitRepresentativeImage: typedOwnerPortMethod(
       typedOwnerPortCalls,
@@ -606,7 +589,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
 
   return [
     new AnalyticsCapabilityCompositionAdapter(analytics),
-    new ChannelsCapabilityCompositionAdapter(channels, wing, executions as never),
+    new ChannelsCapabilityCompositionAdapter(wing, executions as never),
     new ProductsCapabilityCompositionAdapter(products),
     new SourcingCapabilityCompositionAdapter(sourcing),
     new SupplyCapabilityCompositionAdapter(supply),
@@ -677,8 +660,6 @@ function expectedTypedOwnerPortCall(
     }
     case 'channels.get_target_execution':
       return [ORGANIZATION_ID, input.executionId, USER_ID];
-    case 'channels.register_confirmed_listing':
-      return { context: mutationContext(), input };
     case 'channels.report_target_execution': {
       const { executionId, ...report } = input;
       return [ORGANIZATION_ID, executionId, USER_ID, report];

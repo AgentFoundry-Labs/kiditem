@@ -11,10 +11,6 @@ import {
   registerFinalCapabilityCatalog,
 } from './final-capability-catalog-registrar.service';
 import type { AnalyticsAgentOverviewCapabilityPort } from '../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
-import type {
-  ChannelsFinalCapabilityPort,
-  ChannelsRegistrationReference,
-} from '../../../channels/application/port/in/capability/channels-final-capability.port';
 import type { ChannelsRepresentativeImageCapabilityPort } from '../../../channels/application/port/in/capability/representative-image.port';
 import type { ProductsListingGenerationCapabilityPort } from '../../../products/application/port/in/capability/listing-generation.port';
 import type {
@@ -44,11 +40,6 @@ function mutationContext(input: unknown) {
   return { ...context, ownerInputHash: canonicalOwnerInputHash(input) };
 }
 
-const registrationReference: ChannelsRegistrationReference = {
-  registrationExecutionId: identifiers.executionId,
-  preparationId: identifiers.preparationId,
-};
-
 const snapshot: SourcingSourceSnapshot = {
   sourceUrl: 'https://detail.1688.com/offer/1.html',
   platform: '1688',
@@ -66,13 +57,6 @@ function ownerCompositions() {
       sales: { revenue: 1, orders: 2 },
       inventory: { outOfStockSkus: 3, mappingAttentionSkus: 4 },
       freshness: { lastSync: '2026-08-25T00:00:00.000Z' },
-    })),
-  };
-  const channels: ChannelsFinalCapabilityPort = {
-    registerConfirmedListing: vi.fn(async () => ({
-      preparationId: identifiers.preparationId,
-      listingId: identifiers.candidateId,
-      status: 'registered' as const,
     })),
   };
   const wing: ChannelsRepresentativeImageCapabilityPort = {
@@ -134,10 +118,10 @@ function ownerCompositions() {
   };
 
   return {
-    ports: { analytics, channels, wing, products, sourcing, supply },
+    ports: { analytics, wing, products, sourcing, supply },
     providers: [
       new AnalyticsCapabilityCompositionAdapter(analytics),
-      new ChannelsCapabilityCompositionAdapter(channels, wing, executions as never),
+      new ChannelsCapabilityCompositionAdapter(wing, executions as never),
       new ProductsCapabilityCompositionAdapter(products),
       new SourcingCapabilityCompositionAdapter(sourcing),
       new SupplyCapabilityCompositionAdapter(supply),
@@ -168,14 +152,14 @@ describe('owner capability composition', () => {
     }
   });
 
-  it('registers the exact 17 owner-local units and invokes their actual typed owner ports', async () => {
+  it('registers the exact 16 owner-local units and invokes their actual typed owner ports', async () => {
     const { ports, providers } = ownerCompositions();
     const registry = new AgentCapabilityRegistry();
 
     expect(providers.map((provider) => provider.compositions)).toHaveLength(5);
     expect(
       providers.flatMap((provider) => provider.compositions),
-    ).toHaveLength(17);
+    ).toHaveLength(16);
 
     registerFinalCapabilityCatalog(registry, providers);
     expect(registry.listDefinitions().map((definition) => definition.key)).toEqual(

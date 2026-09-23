@@ -3,62 +3,6 @@ import { RegistrationTargetException } from '../../exception/registration-target
 import { ChannelRegistrationService } from './channel-registration.service';
 
 describe('ChannelRegistrationService registration matching', () => {
-  it('previews the one automatically verified Sellpia match without calling Coupang', async () => {
-    const proposal = {
-      masterProductId: '00000000-0000-4000-8000-000000000051',
-      code: '10451-1',
-      name: '3500꿀사과슬랑이',
-      optionName: null,
-      currentStock: 13,
-      evidence: [],
-      requiresQuantityConfirmation: false,
-      recommendedQuantity: 1,
-    };
-    const persistence = {
-      assertActiveRegistrationAccount: vi.fn(),
-      findExistingActiveListingBySellerSku: vi.fn(),
-    };
-    const recipes = {
-      suggestRegistration: vi.fn().mockResolvedValue({
-        automationDecision: 'auto_apply',
-        recommendedQuantity: 1,
-        reason: 'one match',
-        proposals: [proposal],
-      }),
-    };
-    const service = new ChannelRegistrationService(
-      persistence as never,
-      recipes as never,
-    );
-
-    await expect(service.previewExternalProductRegistrationMatch({
-      organizationId: 'org-1',
-      channelListingOptionId: 'candidate-1',
-      listingName: '꿀사과슬랑이',
-      itemName: null,
-    })).resolves.toEqual({
-      status: 'matched',
-      reason: '상품명으로 셀피아 재고 1건을 자동 매칭했습니다.',
-      sellpiaMatch: {
-        sellpiaInventorySkuId: proposal.masterProductId,
-        code: '10451-1',
-        name: '3500꿀사과슬랑이',
-        optionName: null,
-        currentStock: 13,
-        quantity: 1,
-      },
-      proposals: [{
-        sellpiaInventorySkuId: proposal.masterProductId,
-        code: '10451-1',
-        name: '3500꿀사과슬랑이',
-        optionName: null,
-        currentStock: 13,
-        recommendedQuantity: 1,
-      }],
-    });
-    expect(persistence.findExistingActiveListingBySellerSku).not.toHaveBeenCalled();
-  });
-
   it('revalidates an operator-selected active Sellpia SKU even when it was not suggested', async () => {
     const selectedSku = {
       masterProductId: '00000000-0000-4000-8000-000000000099',

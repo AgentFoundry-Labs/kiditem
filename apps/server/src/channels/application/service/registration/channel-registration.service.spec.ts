@@ -56,41 +56,6 @@ describe('ChannelRegistrationService browser registration boundary', () => {
     })).rejects.toBe(ambiguity);
   });
 
-  it('accepts external confirmation only for an active persisted Wing identity', async () => {
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({
-        channel: 'coupang',
-        vendorId: ' A00012345 ',
-        externalAccountId: null,
-      }),
-    };
-    const service = new ChannelRegistrationService(repository as never, {} as never);
-
-    await expect(service.assertExternalProductRegistrationAccount({
-      organizationId: 'org-1',
-      channelAccountId: 'account-1',
-    })).resolves.toEqual({ channel: 'coupang', vendorId: 'A00012345' });
-  });
-
-  it('rejects non-Wing accounts before external confirmation', async () => {
-    const repository = {
-      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({
-        channel: 'rocket',
-        vendorId: 'A00012345',
-        externalAccountId: 'A00012345',
-      }),
-    };
-    const service = new ChannelRegistrationService(repository as never, {} as never);
-
-    await expect(service.assertExternalProductRegistrationAccount({
-      organizationId: 'org-1',
-      channelAccountId: 'rocket-account-1',
-    })).rejects.toMatchObject({
-      name: 'RegistrationTargetException',
-      code: 'conflict',
-    } satisfies Partial<RegistrationTargetException>);
-  });
-
   it('requires a real Sellpia SKU before querying synced listing identity', async () => {
     const repository = {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({
@@ -147,7 +112,7 @@ describe('ChannelRegistrationService browser registration boundary', () => {
       submissionKey: 'submission-key-1',
       externalListingId: '427011919',
       displayName: 'Kids rain boots',
-      ownerCapabilityKey: 'channels.register_confirmed_listing' as const,
+      ownerCapabilityKey: 'channels.report_target_execution' as const,
       ownerIdempotencyKey: 'capability-invocation:00000000-0000-4000-8000-000000000001',
       ownerRequestHash: 'a'.repeat(64),
     };

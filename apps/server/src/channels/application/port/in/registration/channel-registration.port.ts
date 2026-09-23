@@ -37,7 +37,7 @@ export interface ResolveProductRegistrationWithOwnerReceiptInput {
     sellpiaInventorySkuId: string;
     quantity: number;
   }>;
-  ownerCapabilityKey: 'channels.register_confirmed_listing';
+  ownerCapabilityKey: 'channels.report_target_execution';
   ownerIdempotencyKey: string;
   ownerRequestHash: string;
 }
@@ -54,28 +54,6 @@ export interface ExternalProductRegistrationPreflightInput {
   itemName: string | null;
   selectedSellpiaInventorySkuId?: string;
   selectedQuantity?: number;
-}
-
-export type ExternalProductRegistrationMatchPreviewInput = Omit<
-  ExternalProductRegistrationPreflightInput,
-  'channelAccountId' | 'selectedSellpiaInventorySkuId' | 'selectedQuantity'
->;
-
-export interface ExternalProductRegistrationMatchProposal {
-  sellpiaInventorySkuId: string;
-  code: string;
-  name: string;
-  optionName: string | null;
-  currentStock: number | null;
-  recommendedQuantity: number | null;
-}
-
-export interface ExternalProductRegistrationMatchPreviewResult {
-  status: 'matched' | 'selection_required';
-  reason: string;
-  sellpiaMatch:
-    ExternalProductRegistrationPreflightResult['sellpiaMatch'] | null;
-  proposals: ExternalProductRegistrationMatchProposal[];
 }
 
 export interface ExternalProductRegistrationPreflightResult {
@@ -97,18 +75,9 @@ export interface ExternalProductRegistrationPreflightResult {
 export const CHANNEL_REGISTRATION_PORT = Symbol('CHANNEL_REGISTRATION_PORT');
 
 export interface ChannelRegistrationPort {
-  previewExternalProductRegistrationMatch(
-    input: ExternalProductRegistrationMatchPreviewInput,
-  ): Promise<ExternalProductRegistrationMatchPreviewResult>;
-
   preflightExternalProductRegistration(
     input: ExternalProductRegistrationPreflightInput,
   ): Promise<ExternalProductRegistrationPreflightResult>;
-
-  assertExternalProductRegistrationAccount(input: {
-    organizationId: string;
-    channelAccountId: string;
-  }): Promise<{ channel: 'coupang'; vendorId: string }>;
 
   resolveProductRegistration(
     transaction: OwnerTransaction,

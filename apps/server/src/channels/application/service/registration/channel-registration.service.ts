@@ -2,8 +2,7 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { ChannelListingRegistrationResult } from '@kiditem/shared/channel-listing';
 import type { ChannelRecipeSuggestionResponse } from '@kiditem/shared/channel-product-matching';
 import type {
-  ChannelRegistrationPort, ExternalProductRegistrationMatchPreviewInput,
-  ExternalProductRegistrationMatchPreviewResult, ExternalProductRegistrationPreflightInput,
+  ChannelRegistrationPort, ExternalProductRegistrationPreflightInput,
   ExternalProductRegistrationPreflightResult, ResolveProductRegistrationCapabilityInput,
   ResolveProductRegistrationWithOwnerReceiptInput,
 } from '../../port/in/registration/channel-registration.port';
@@ -20,43 +19,6 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
     private readonly repository: ListingRegistrationPersistencePort,
     private readonly recipeSuggestions: RegistrationRecipeSuggestions,
   ) {}
-
-  async previewExternalProductRegistrationMatch(
-    input: ExternalProductRegistrationMatchPreviewInput,
-  ): Promise<ExternalProductRegistrationMatchPreviewResult> {
-    const suggestion = await this.recipeSuggestions.suggestRegistration(
-      input.organizationId,
-      input,
-    );
-    const proposal =
-      suggestion.automationDecision === "auto_apply" &&
-      suggestion.proposals.length === 1
-        ? suggestion.proposals[0]
-        : undefined;
-    const quantity =
-      proposal?.recommendedQuantity ?? suggestion.recommendedQuantity;
-    const sellpiaMatch =
-      proposal && Number.isSafeInteger(quantity) && (quantity ?? 0) > 0
-        ? toSellpiaMatch(proposal, quantity!)
-        : null;
-    return {
-      status: sellpiaMatch ? "matched" : "selection_required",
-      reason: sellpiaMatch
-        ? "상품명으로 셀피아 재고 1건을 자동 매칭했습니다."
-        : suggestion.proposals.length > 0
-          ? "자동으로 확정할 수 없습니다. 추천 후보를 확인하거나 셀피아 재고를 검색하세요."
-          : "상품명과 일치하는 셀피아 재고를 찾지 못했습니다.",
-      sellpiaMatch,
-      proposals: suggestion.proposals.map((item) => ({
-        sellpiaInventorySkuId: item.masterProductId,
-        code: item.code,
-        name: item.name,
-        optionName: item.optionName,
-        currentStock: item.currentStock,
-        recommendedQuantity: item.recommendedQuantity,
-      })),
-    };
-  }
 
   async preflightExternalProductRegistration(
     input: ExternalProductRegistrationPreflightInput,
@@ -114,27 +76,6 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
     return { sellpiaMatch, existingListing };
   }
 
-  async assertExternalProductRegistrationAccount(input: {
-    organizationId: string;
-    channelAccountId: string;
-  }): Promise<{ channel: "coupang"; vendorId: string }> {
-    const account =
-      await this.repository.assertActiveRegistrationAccount(input);
-    if (account.channel !== "coupang") {
-      throw new RegistrationTargetException('conflict',
-        "External registration confirmation requires an active Coupang Wing account.",
-      );
-    }
-    const vendorId =
-      account.vendorId?.trim() || account.externalAccountId?.trim() || "";
-    if (!vendorId) {
-      throw new RegistrationTargetException('conflict',
-        "External registration requires a persisted Coupang Wing vendor identity.",
-      );
-    }
-    return { channel: "coupang", vendorId };
-  }
-
   async findExistingExternalProductRegistration(input: {
     organizationId: string;
     channelAccountId: string;
@@ -144,11 +85,11 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
     displayName: string;
     status: string | null;
   } | null> {
-    await this.assertExternalProductRegistrationAccount(input);
+    await this.repository.assertActiveRegistrationAccount(input);
     const externalVendorSku = input.externalVendorSku.trim();
     if (!externalVendorSku) {
       throw new RegistrationTargetException('conflict',
-        "A real Sellpia SKU code is required before Coupang registration.",
+        "A real Sellpia SKU code is required before registration.",
       );
     }
     return this.repository.findExistingActiveListingBySellerSku({

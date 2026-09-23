@@ -42,7 +42,7 @@ import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempo
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { isNewerAttempt } from '../../../../common/current-row';
 import { lockListingTraffic } from '../../../../common/listing-traffic-lock';
-import { resolveCoupangVendorId } from '../../../../channels/adapter/out/channel/coupang/coupang-account-identity';
+import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
 import {
   addDays,
   businessDateKey,

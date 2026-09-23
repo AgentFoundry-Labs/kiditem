@@ -127,7 +127,10 @@ export async function readRegistrationExecutionFacts(
   }]);
 }
 
-/** Successful immutable registration recipes awaiting their real catalog option identities. */
+/**
+ * Successful immutable `register` executions whose channel adapter froze a Sellpia recipe (KID-321), for
+ * catalog options that arrive after the registration.
+ */
 export async function readPreparedRegistrationRecipes(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; channelListingIds: readonly string[] },
@@ -137,9 +140,9 @@ export async function readPreparedRegistrationRecipes(
     where: {
       organizationId: input.organizationId,
       channelListingId: { in: [...input.channelListingIds] },
-      status: 'succeeded', providerOutcome: 'succeeded', executionKind: 'external_wing',
+      status: 'succeeded', providerOutcome: 'succeeded', executionKind: 'register',
     },
-    select: { channelListingId: true, submissionPayloadJson: true, submissionPayloadHash: true, requestHash: true },
+    select: { channelListingId: true, submissionPayloadJson: true, submissionPayloadHash: true },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
 }

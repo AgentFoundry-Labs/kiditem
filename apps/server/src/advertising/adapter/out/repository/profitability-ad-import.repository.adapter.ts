@@ -20,7 +20,7 @@ import {
 } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { resolveCoupangVendorId } from '../../../../channels/adapter/out/channel/coupang/coupang-account-identity';
+import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
 import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import {

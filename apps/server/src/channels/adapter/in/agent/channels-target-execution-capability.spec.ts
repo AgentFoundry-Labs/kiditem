@@ -37,7 +37,7 @@ function setup() {
     getTargetExecution: vi.fn().mockResolvedValue(response),
     reportTargetExecution: vi.fn().mockResolvedValue(response) };
   const port = methods as unknown as RegistrationExecutionPort;
-  const adapter = new ChannelsCapabilityCompositionAdapter({} as never, {} as never, port);
+  const adapter = new ChannelsCapabilityCompositionAdapter({} as never, port);
   const capability = (key: string) => adapter.compositions.find(item => item.definition.key === `channels.${key}`)!.implementation;
   return { methods, capability, web: new RegistrationTargetExecutionController(port) };
 }

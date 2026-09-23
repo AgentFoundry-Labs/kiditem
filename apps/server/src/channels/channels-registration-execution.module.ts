@@ -1,7 +1,6 @@
 import { REGISTRATION_TARGET_PORT } from './application/port/in/registration-target.port';
 import { SALES_PRODUCT_PORT } from './application/port/in/sales-product.port';
 import { REGISTRATION_DRAFT_PORT } from './application/port/out/persistence/registration-draft.port';
-import { CHANNEL_REGISTRATION_PORT } from './application/port/in/registration/channel-registration.port';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { StockoutCheckController } from './adapter/in/web/stockout-check.controller';
 import { StockoutCheckService } from './application/service/listing/stockout-check.service';
@@ -44,7 +43,7 @@ import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/ch
     { provide: StockoutCheckService, useFactory: (...dependencies: ConstructorParameters<typeof StockoutCheckService>) => new StockoutCheckService(...dependencies), inject: [STOCKOUT_CHECK_PERSISTENCE_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT, CHANNEL_ADAPTER_REGISTRY_PORT] },
     { provide: STOCKOUT_CHECK_PORT, useExisting: StockoutCheckService },
     RegistrationExecutionRepositoryAdapter,
-    { provide: RegistrationExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof RegistrationExecutionService>) => new RegistrationExecutionService(...dependencies), inject: [REGISTRATION_EXECUTION_REPOSITORY_PORT, CHANNEL_REGISTRATION_PORT, REGISTRATION_DRAFT_PORT, SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT, STOCKOUT_CHECK_PORT, CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT] },
+    { provide: RegistrationExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof RegistrationExecutionService>) => new RegistrationExecutionService(...dependencies), inject: [REGISTRATION_EXECUTION_REPOSITORY_PORT, SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT, STOCKOUT_CHECK_PORT, CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT] },
     {
       provide: REGISTRATION_EXECUTION_REPOSITORY_PORT,
       useExisting: RegistrationExecutionRepositoryAdapter,

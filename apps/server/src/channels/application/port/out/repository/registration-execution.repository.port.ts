@@ -2,10 +2,6 @@ import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { ListingAvailabilitySnapshot } from '@kiditem/shared/sales-product';
 import type { PrepareListingAvailabilityInput, ListingAvailabilityExecution, ReportListingAvailabilityInput } from '@kiditem/shared/sales-product';
 import type { PrepareTargetExecutionInput, ReportTargetExecutionInput, TargetExecutionResult, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
-import type { MarketplaceSubmissionResult } from '@kiditem/shared/channel-listing';
-import type { ProductPreparationStatus } from '@kiditem/shared/sourcing';
-import type { ChannelsRepositoryTransaction } from '../transaction/repository-transaction';
-import type { RegistrationExecutionProviderOutcome } from '../../../../domain/registration/registration-execution-state';
 
 /**
  * 애플리케이션이 모은 실행 의도 — 동결 스냅샷에서 채널 어댑터가 준비 트랜잭션 안에서 채우는
@@ -16,75 +12,6 @@ export type TargetExecutionIntent = Omit<TargetExecutionSnapshot, 'adapterPayloa
 export const REGISTRATION_EXECUTION_REPOSITORY_PORT = Symbol(
   'REGISTRATION_EXECUTION_REPOSITORY_PORT',
 );
-
-export interface RegistrationExecutionRegisteredResult {
-  preparationId: string;
-  status: 'registered';
-  listingId: string;
-}
-
-/**
- * 한 실행이 동결해 둔 제출본. 실행이 시작된 뒤에는 이 값만 공급자에게 나간다 —
- * 초안이 그 사이 편집돼도 제출된 것은 바뀌지 않는다.
- */
-export interface FrozenRegistrationSubmission {
-  executionId: string;
-  preparationId: string;
-  /** 등록 설정의 주인(판매상품 초안). */
-  salesProductId: string;
-  /** 그 초안을 만든 원천 기록. 직접 만든 상품이면 null. */
-  sourceRecordId: string | null;
-  channelAccountId: string;
-  /** AI 콘텐츠 작업공간. 등록 설정 줄에 저장하지 않는다. */
-  sourceContentWorkspaceId: string | null;
-  displayName: string;
-  /** 초안이 지금 머무는 상태. 울타리는 그대로 비추기만 한다. */
-  status: ProductPreparationStatus;
-  submissionKey: string;
-  submissionPayloadJson: unknown;
-  submissionPayloadHash: string;
-  providerSubmissionId: string | null;
-  registrationResult: unknown;
-  providerOutcome: RegistrationExecutionProviderOutcome;
-  submissionLeaseToken: string | null;
-  isRetry: boolean;
-}
-
-export interface PrepareRegistrationExecutionInput {
-  organizationId: string;
-  /** 울타리의 열쇠. 이 판매상품 × 계정에 최대 하나의 살아 있는 실행이 있다. */
-  salesProductId: string;
-  requestedByUserId: string | null;
-  channelAccountId: string;
-  displayName: string;
-  registrationInput: Record<string, unknown>;
-  idempotencyKey: string;
-  providerAbsenceVerified?: boolean;
-}
-
-export interface RegistrationExecutionResult {
-  /** Assigned in the frozen preparation; absent on historical executions. */
-  kidItemCode?: string;
-  executionId: string;
-  preparationId: string;
-  requestHash: string;
-  status: 'prepared' | 'executing' | 'reconciling' | 'succeeded';
-  providerOutcome: 'not_attempted' | 'uncertain' | 'succeeded';
-  submissionLeaseToken: string | null;
-  expectedProviderAccountId: string;
-  listingId: string | null;
-}
-
-/**
- * 제출되지 않은 채 닫힌 실행. `RegistrationExecutionResult` 는 살아 있는
- * 실행(prepared~succeeded)만 표현하므로 종료 상태를 섞지 않는다.
- */
-export interface ClosedRegistrationExecutionResult {
-  executionId: string;
-  preparationId: string;
-  status: 'failed';
-  providerOutcome: 'definitive_failure';
-}
 
 export interface RegistrationExecutionRepositoryPort {
   findListingAvailabilityByKey(input: { organizationId: string; requestedByUserId: string | null; idempotencyKey: string }): Promise<ListingAvailabilityExecution | null>;
@@ -103,83 +30,5 @@ export interface RegistrationExecutionRepositoryPort {
   listTarget(input: { organizationId: string; targetId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult[]>;
   getTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult>;
   reportTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null; report: ReportTargetExecutionInput }): Promise<TargetExecutionResult>;
-
-  prepare(
-    input: PrepareRegistrationExecutionInput,
-  ): Promise<RegistrationExecutionResult>;
-
-  start(input: {
-    organizationId: string;
-    salesProductId: string;
-    executionId: string;
-    requestedByUserId: string | null;
-  }): Promise<RegistrationExecutionResult>;
-
-  get(input: {
-    organizationId: string;
-    salesProductId: string;
-    executionId: string;
-    requestedByUserId: string | null;
-  }): Promise<RegistrationExecutionResult>;
-
-  markUnresolved(input: {
-    organizationId: string;
-    salesProductId: string;
-    executionId: string;
-    requestedByUserId: string | null;
-    evidence: unknown;
-  }): Promise<RegistrationExecutionResult>;
-
-  /**
-   * 마켓에 아무것도 제출되지 않은 채 끝난 실행을 확정 실패로 닫는다.
-   *
-   * 제출 여부를 모르는 실패는 `markUnresolved` 로 `reconciling` 에 남겨 중복 등록을
-   * 막아야 한다. 그런데 확장이 폼을 채우다 실패한 경우는 제출 단계에 닿지도 못한
-   * 것이라 재시도가 안전하다. 이 둘을 구분하지 않으면 폼 채움 실패 한 번에 그
-   * 수집상품이 영구히 등록 불가가 된다(라이브 사례).
-   *
-   * 공급자 식별자(등록상품ID·결과)가 하나라도 기록돼 있으면 호출자가 무엇을
-   * 주장하든 거부한다. 기록된 성공을 실패로 되돌릴 수 있는 경로는 없다.
-   */
-  markNotSubmitted(input: {
-    organizationId: string;
-    salesProductId: string;
-    executionId: string;
-    requestedByUserId: string | null;
-    evidence: unknown;
-  }): Promise<ClosedRegistrationExecutionResult>;
-
-  /** 실행은 모두 명시한 실행 id 로 찾는다 — 옛 `create` 종류(실행 id 없이 준비로 찾던 것)는 없다(KID-313). */
-  loadFrozenSubmission(
-    organizationId: string,
-    preparationId: string,
-    executionId: string,
-  ): Promise<FrozenRegistrationSubmission>;
-
-  recordProviderResult(
-    organizationId: string,
-    preparationId: string,
-    submissionLeaseToken: string,
-    result: MarketplaceSubmissionResult,
-    executionId: string,
-  ): Promise<FrozenRegistrationSubmission>;
-
-  markFailed(input: {
-    organizationId: string;
-    preparationId: string;
-    submissionLeaseToken: string;
-    error: string;
-    executionId: string;
-    providerOutcome?: 'definitive_failure';
-  }): Promise<{ preparationId: string; status: 'failed' }>;
-
-  finalizeRegistered(
-    organizationId: string,
-    preparationId: string,
-    submissionLeaseToken: string,
-    finalize: (
-      tx: ChannelsRepositoryTransaction,
-    ) => Promise<{ listingId: string }>,
-    executionId: string,
-  ): Promise<RegistrationExecutionRegisteredResult>;
 }
+

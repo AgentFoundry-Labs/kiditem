@@ -39,7 +39,6 @@ const CAPABILITY_FILES = [
   [
     "apps/server/src/channels/domain/capability/channels.capabilities.ts",
     [
-      "channels.register_confirmed_listing",
       "channels.submit_representative_image",
       "channels.prepare_target_execution",
       "channels.get_target_execution",
@@ -333,7 +332,7 @@ test("requires each owner capability to provide bounded Korean completion copy",
 
   const findings = collectAgentOsContractionFindings(files);
   expectFinding(findings, "analytics.read_overview: missing resultSummary");
-  expectFinding(findings, "channels.register_confirmed_listing: resultSummary must be bounded Korean copy");
+  expectFinding(findings, "channels.submit_representative_image: resultSummary must be bounded Korean copy");
 });
 
 test("keeps provider CLIs out of the API and worker image surfaces", () => {

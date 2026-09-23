@@ -70,7 +70,7 @@ export interface ListingRegistrationPersistencePort {
         sellpiaInventorySkuId: string;
         quantity: number;
       }>;
-      ownerCapabilityKey: "channels.register_confirmed_listing";
+      ownerCapabilityKey: "channels.report_target_execution";
       ownerIdempotencyKey: string;
       ownerRequestHash: string;
     },

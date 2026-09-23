@@ -18,7 +18,7 @@ describe('ChannelRegistrationExecutionController.registrationState', () => {
         registrationInput: {}, createdAt: new Date('2026-09-23T00:00:00Z'), updatedAt: new Date('2026-09-23T01:00:00Z'),
       }],
     }]]));
-    const controller = new ChannelRegistrationExecutionController({} as never, { readForSalesProducts } as never);
+    const controller = new ChannelRegistrationExecutionController({ readForSalesProducts } as never);
 
     const state = await controller.registrationState(PRODUCT, 'org-1');
 
@@ -29,7 +29,7 @@ describe('ChannelRegistrationExecutionController.registrationState', () => {
 
   it('answers 404 for a draft this organization does not have', async () => {
     const controller = new ChannelRegistrationExecutionController(
-      {} as never, { readForSalesProducts: vi.fn().mockResolvedValue(new Map()) } as never,
+      { readForSalesProducts: vi.fn().mockResolvedValue(new Map()) } as never,
     );
     await expect(controller.registrationState(PRODUCT, 'org-1')).rejects.toBeInstanceOf(NotFoundException);
   });

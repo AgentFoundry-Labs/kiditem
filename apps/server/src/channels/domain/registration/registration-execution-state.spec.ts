@@ -11,7 +11,7 @@ function fact(overrides: Partial<RegistrationExecutionFact> = {}): RegistrationE
     registrationTargetId: 'preparation-1',
     channelAccountId: 'account-1',
     channelListingId: null,
-    executionKind: 'external_wing',
+    executionKind: 'register',
     status: 'prepared',
     providerOutcome: 'not_attempted',
     providerSubmissionId: null,

@@ -127,7 +127,7 @@ describe('sales product registration state (PostgreSQL)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         registrationTargetId,
         channelAccountId,
-        executionKind: 'external_wing',
+        executionKind: 'register',
         expectedProviderAccountId: 'A00012345',
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),

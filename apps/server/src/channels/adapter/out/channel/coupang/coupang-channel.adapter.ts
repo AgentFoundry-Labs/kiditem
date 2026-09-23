@@ -15,7 +15,7 @@ import {
 } from '../../../../application/port/in/registration/channel-registration.port';
 import type { RepresentativeImageRunnerPort } from '../../../../application/port/out/automation/representative-image-runner.port';
 import { decideConfirmationEvidence } from '../channel-evidence';
-import { resolveCoupangVendorId } from './coupang-account-identity';
+import { resolveCoupangVendorId } from '../../../../domain/account/coupang-account-identity';
 import { CoupangRepresentativeImageRunnerAdapter } from './representative-image-runner.adapter';
 
 export const COUPANG_CHANNEL_KEY = 'coupang';

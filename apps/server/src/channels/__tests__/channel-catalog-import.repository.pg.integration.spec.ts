@@ -284,8 +284,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       },
     });
     const frozen = freezeProductRegistrationPayload({
-      registrationInput: {
-        kidItemCode: 'KID12345678',
+      adapterPayload: {
+        vendorItemCode: 'KID12345678',
         sellpiaMatch: {
           sellpiaInventorySkuId: component.id,
           quantity: 2,
@@ -300,7 +300,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         registrationTargetId: await createRegistrationTarget(prisma, WING_ACCOUNT_ID, component.id, 'KID12345678'),
         channelAccountId: WING_ACCOUNT_ID,
         channelListingId: listing.id,
-        executionKind: 'external_wing',
+        executionKind: 'register',
         idempotencyKey: randomUUID(),
         requestHash: frozen.hash,
         submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
@@ -1784,8 +1784,8 @@ async function createFrozenRegistrationExecution(input: {
   sellerSku: string;
 }) {
   const frozen = freezeProductRegistrationPayload({
-    registrationInput: {
-      kidItemCode: input.sellerSku,
+    adapterPayload: {
+      vendorItemCode: input.sellerSku,
       sellpiaMatch: {
         sellpiaInventorySkuId: input.masterProductId,
         quantity: 2,
@@ -1800,7 +1800,7 @@ async function createFrozenRegistrationExecution(input: {
       registrationTargetId: await createRegistrationTarget(input.prisma, input.channelAccountId, input.masterProductId, input.sellerSku),
       channelAccountId: input.channelAccountId,
       channelListingId: input.channelListingId,
-      executionKind: 'external_wing',
+      executionKind: 'register',
       idempotencyKey: randomUUID(),
       requestHash: frozen.hash,
       submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
