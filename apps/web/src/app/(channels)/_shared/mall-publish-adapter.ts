@@ -82,6 +82,12 @@ export interface MallPublishItem {
   thumbnailUrl: string | null;
   /** 어디서 온 상품인가. 없으면 수집상품이다(ADR-0014 이전과 같다). */
   source?: 'candidate' | 'sales_product';
+  /**
+   * `source: 'candidate'` 일 때 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) —
+   * 만들 필요 없이 그대로 등록 설정을 연다. `source: 'sales_product'` 항목은 `candidateId` 가
+   * 이미 판매상품 id라 비워 둔다.
+   */
+  salesProductId?: string | null;
   /** 판매상품의 쓰는 단품 수. 둘 이상이면 옵션을 채우는 몰에만 보낸다. */
   optionCount?: number;
   /**

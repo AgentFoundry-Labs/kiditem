@@ -142,39 +142,6 @@ describe('buildPublishPlan', () => {
     expect(plan.tasks[0]?.adapterValues).not.toHaveProperty('categoryPath');
   });
 
-  it('blocks an item until one of its multiple account settings is explicitly selected', () => {
-    const plan = buildPublishPlan({
-      items: [item('a')],
-      adapters: [adapter({ mallKey: 'kidsnote' })],
-      valuesByMall: {},
-      channelAccountIds: { kidsnote: 'account-1' },
-      registrationTargetSelectionRequiredByMall: { kidsnote: ['a'] },
-    });
-
-    expect(plan.tasks).toHaveLength(0);
-    expect(plan.sendCount).toBe(0);
-    expect(plan.blocks).toMatchObject([{
-      mallKey: 'kidsnote',
-      candidateId: 'a',
-      reasons: ['여러 등록 설정 중 사용할 설정을 선택하세요.'],
-    }]);
-  });
-
-  it('freezes the exact explicitly selected registration target on the task', () => {
-    const plan = buildPublishPlan({
-      items: [item('a'), item('b')],
-      adapters: [adapter({ mallKey: 'kidsnote', batchSize: 1 })],
-      valuesByMall: {},
-      registrationTargetSelectionRequiredByMall: { kidsnote: ['a', 'b'] },
-      registrationTargetIdsByMall: { kidsnote: { a: 'target-a', b: 'target-b' } },
-    });
-
-    expect(plan.tasks.map((entry) => entry.registrationTargetIdsByItem)).toEqual([
-      { a: 'target-a' },
-      { b: 'target-b' },
-    ]);
-  });
-
   it('보낼 것이 하나도 없으면 작업이 없다', () => {
     const plan = buildPublishPlan({
       items: [],

@@ -17,11 +17,10 @@ const { fillKidsnoteMock, prepareKidsnoteMock, generateWingExcelMock, downloadWi
     generateWingExcelMock: vi.fn(),
     downloadWingExcelMock: vi.fn(),
   }));
-const { resolveTargetMock, targetHistoryMock, executeTargetMock, ensureCandidateMock } = vi.hoisted(() => ({
+const { resolveTargetMock, targetHistoryMock, executeTargetMock } = vi.hoisted(() => ({
   resolveTargetMock: vi.fn(),
   targetHistoryMock: vi.fn(),
   executeTargetMock: vi.fn(),
-  ensureCandidateMock: vi.fn(),
 }));
 
 // 등록현황은 쿠팡 칸의 지금 재고를 확장으로 읽는다. 몰에 닿는 그 한 단계만 막는다.
@@ -84,9 +83,10 @@ vi.mock('@tanstack/react-query', () => ({
     return {
       data: {
         items: [
-          { id: 'c1', name: '킬러볼 스피너 키링', price_krw: 2280, thumbnailUrl: null },
-          { id: 'c2', name: '공룡 물총', price_krw: 3500, thumbnailUrl: null },
-          { id: 'c3', name: '판매가 없는 상품', price_krw: 0, thumbnailUrl: null },
+          // 수집 시점부터 판매상품 초안이 있다(ADR-0022) — 목록 항목이 이미 그 id를 안다.
+          { id: 'c1', name: '킬러볼 스피너 키링', price_krw: 2280, thumbnailUrl: null, salesProductId: 'sp-c1' },
+          { id: 'c2', name: '공룡 물총', price_krw: 3500, thumbnailUrl: null, salesProductId: 'sp-c2' },
+          { id: 'c3', name: '판매가 없는 상품', price_krw: 0, thumbnailUrl: null, salesProductId: 'sp-c3' },
         ],
         total: 3,
       },
@@ -108,10 +108,6 @@ vi.mock('../_shared/registration-execution-api', () => ({
 vi.mock('../_shared/target-registration-execution', () => ({
   executeTargetRegistration: executeTargetMock,
   isActiveTargetExecution: (execution: { status: string }) => ['prepared', 'executing', 'reconciling'].includes(execution.status),
-}));
-
-vi.mock('@/lib/candidate-sales-product-registration', () => ({
-  ensureCandidateSalesProduct: ensureCandidateMock,
 }));
 
 vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api', () => ({
@@ -205,7 +201,6 @@ beforeEach(() => {
   });
   resolveTargetMock.mockResolvedValue({ id: 'target-id', version: 1 });
   targetHistoryMock.mockResolvedValue([]);
-  ensureCandidateMock.mockImplementation(async (candidateId: string) => ({ id: `sales-${candidateId}` }));
   executeTargetMock.mockResolvedValue({
     execution: { executionId: 'execution-id', status: 'reconciling', providerOutcome: 'uncertain' },
     outcome: {

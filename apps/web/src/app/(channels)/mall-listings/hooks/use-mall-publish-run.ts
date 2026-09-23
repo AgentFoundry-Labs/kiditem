@@ -6,12 +6,7 @@ import { executeTargetRegistration, isActiveTargetExecution } from '../../_share
 import { listRegistrationTargetExecutions } from '../../_shared/registration-execution-api';
 import { getMallPublishAdapter } from '../../_shared/adapters';
 import type { MallPublishItem, MallSendOutcome } from '../../_shared/mall-publish-adapter';
-import type { SalesProduct } from '@kiditem/shared/sales-product';
 import type { PublishTask, PublishTaskStatus } from '../lib/publish-plan';
-
-export interface MallPublishRunOptions {
-  ensureCandidateSalesProduct?: (candidateId: string) => Promise<SalesProduct>;
-}
 
 function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -59,7 +54,6 @@ function latestActive(history: Awaited<ReturnType<typeof listRegistrationTargetE
 async function executeItem(
   task: PublishTask,
   item: MallPublishItem,
-  options: MallPublishRunOptions,
 ): Promise<{ status: PublishTaskStatus; outcome: MallSendOutcome }> {
   const adapter = getMallPublishAdapter(task.mallKey);
   if (!adapter) throw new Error(`${task.mallName} 어댑터가 없습니다.`);
@@ -72,18 +66,16 @@ async function executeItem(
   }
 
   if (!task.channelAccountId) throw new Error(`${task.mallName} 계정 식별자를 확인하지 못했습니다.`);
-  const salesProduct = item.source === 'candidate'
-    ? await options.ensureCandidateSalesProduct?.(item.candidateId)
-    : undefined;
-  if (item.source === 'candidate' && !salesProduct) {
-    throw new Error('수집상품을 판매상품으로 준비할 실행 경로가 없습니다.');
+  // 수집 시점부터 판매상품 초안이 있다(ADR-0022) — 만들 것 없이 후보가 이미 아는
+  // salesProductId 를 그대로 쓴다. 상품 × 몰 계정당 등록 설정은 하나뿐이라
+  // (부분 유일키, 사용자 결정 01:12) resolve 는 고를 것 없이 그 하나를 연다.
+  const salesProductId = item.source === 'candidate' ? item.salesProductId : item.candidateId;
+  if (!salesProductId) {
+    throw new Error('이 수집상품에 연결된 판매상품 초안이 없습니다.');
   }
-  const salesProductId = salesProduct?.id ?? item.candidateId;
-  const registrationTargetId = task.registrationTargetIdsByItem?.[item.candidateId];
   const target = await registrationTargetApi.resolve({
     salesProductId,
     channelAccountId: task.channelAccountId,
-    ...(registrationTargetId ? { targetId: registrationTargetId } : {}),
   });
   const history = await listRegistrationTargetExecutions(target.id);
   const activeExecution = latestActive(history);
@@ -126,7 +118,7 @@ export function useMallPublishRun() {
   }, []);
 
   const start = useCallback(
-    async (queue: readonly PublishTask[], options: MallPublishRunOptions = {}) => {
+    async (queue: readonly PublishTask[]) => {
       if (runningRef.current || queue.length === 0) return;
       runningRef.current = true;
       cancelledRef.current = false;
@@ -159,7 +151,7 @@ export function useMallPublishRun() {
                   finalStatus = 'cancelled';
                   break;
                 }
-                const result = await executeItem(task, item, options);
+                const result = await executeItem(task, item);
                 itemOutcomes.push(result.outcome);
                 if (result.status === 'failed') finalStatus = 'failed';
                 else if (result.status === 'reconciling' && finalStatus !== 'failed') finalStatus = 'reconciling';

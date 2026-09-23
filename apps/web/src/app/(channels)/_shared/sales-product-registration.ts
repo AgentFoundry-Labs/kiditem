@@ -104,11 +104,22 @@ export function detailImageUrlsFromHtml(html: string | null | undefined): string
   return [...new Set(urls)];
 }
 
+/**
+ * 이 단품이 몰에 보일 판매가. 몰별 값(override)이 있으면 그 값이 이기고, 없으면 옵션 판매가다.
+ *
+ * 둘 다 없으면(판매 결정 전 초안) 몰에 보낼 값이 없다는 뜻이다 — 0원으로 지어내지 않고
+ * 막는다. 등록 동결(prepare)이 이미 같은 규칙으로 판매가를 검사하므로, 여기 닿았다면
+ * 보통 스냅샷 없이 미리보기만 하는 경로다.
+ */
 export function salesProductOptionPrice(
   option: Pick<SalesProduct['options'][number], 'salePrice'>,
   override: { salePrice: number | null } | undefined,
 ): number {
-  return override?.salePrice ?? option.salePrice;
+  const price = override?.salePrice ?? option.salePrice;
+  if (price == null) {
+    throw new Error('판매가가 아직 없습니다(초안). 판매상품 편집에서 판매가를 먼저 정하세요.');
+  }
+  return price;
 }
 
 export function salesProductToMallProductDraft(

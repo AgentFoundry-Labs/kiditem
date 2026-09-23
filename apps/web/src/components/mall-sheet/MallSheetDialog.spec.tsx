@@ -28,10 +28,8 @@ vi.mock('@/lib/sales-product-api', () => ({
 
 vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
 
-const MANY = '11111111-1111-4111-8111-111111111111';
-const ONE = '22222222-2222-4222-8222-222222222222';
-const FIRST = '33333333-3333-4333-8333-333333333333';
-const SECOND = '44444444-4444-4444-8444-444444444444';
+const READY = '11111111-1111-4111-8111-111111111111';
+const BLOCKED = '22222222-2222-4222-8222-222222222222';
 
 const sheets: SalesProductMallSheetList = {
   sheets: [{
@@ -46,49 +44,43 @@ const sheets: SalesProductMallSheetList = {
   unavailable: [],
 };
 
-function checkResult(overrides: Partial<SalesProductMallSheetCheck['products'][number]> = {}): SalesProductMallSheetCheck {
-  const many: SalesProductMallSheetCheck['products'][number] = {
-    salesProductId: MANY,
-    code: 'KID001',
-    name: '설정 여러 개',
-    rows: 0,
-    problems: ['몰별 등록 설정이 여러 개입니다 — 이 엑셀에 쓸 등록 설정을 골라 주세요.'],
-    warnings: [],
-    unreadableImages: 0,
-    categories: [],
-    mallTargets: [{
-      mallKey: 'teacher-mall',
-      selectionRequired: true,
-      targets: [
-        { id: FIRST, label: '기본 등록', optionCount: 1, categoryPath: null },
-        { id: SECOND, label: '별도 등록', optionCount: 2, categoryPath: '완구>블록' },
-      ],
-    }],
-    ...overrides,
-  };
-  const one: SalesProductMallSheetCheck['products'][number] = {
-    salesProductId: ONE,
-    code: 'KID002',
-    name: '설정 하나',
-    rows: 1,
-    problems: [],
-    warnings: [],
-    unreadableImages: 0,
-    categories: [],
-    mallTargets: [{
-      mallKey: 'teacher-mall',
-      selectionRequired: false,
-      targets: [{ id: FIRST, label: '기본 등록', optionCount: 1, categoryPath: null }],
-    }],
-  };
+function checkResult(): SalesProductMallSheetCheck {
   return {
     sheetKey: 'teacherville',
     scope: 'selected',
     missingFixed: [],
     maybeListed: 0,
-    ready: many.problems.length ? 1 : 2,
-    blocked: many.problems.length ? 1 : 0,
-    products: [many, one],
+    ready: 1,
+    blocked: 1,
+    products: [
+      {
+        salesProductId: READY,
+        code: 'KID001',
+        name: '넣을 수 있는 상품',
+        rows: 1,
+        problems: [],
+        warnings: [],
+        unreadableImages: 0,
+        categories: [],
+      },
+      {
+        salesProductId: BLOCKED,
+        code: null,
+        name: '막힌 상품',
+        rows: 0,
+        problems: ['G마켓 카테고리 번호를 모릅니다.'],
+        warnings: [],
+        unreadableImages: 0,
+        categories: [{
+          mallKey: 'teacher-mall',
+          path: null,
+          code: null,
+          source: 'none',
+          resolved: false,
+          suggestion: { path: '완구>블록', share: 0.8, voters: 2, basis: 'other_malls', resolves: true },
+        }],
+      },
+    ],
   };
 }
 
@@ -96,12 +88,13 @@ function open() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MallSheetDialog onClose={vi.fn()} salesProductIds={[MANY, ONE]} />
+      <MallSheetDialog onClose={vi.fn()} salesProductIds={[READY, BLOCKED]} />
     </QueryClientProvider>,
   );
 }
 
-describe('<MallSheetDialog /> choosing among several registration settings', () => {
+// 판매상품 × 채널계정은 등록 설정이 늘 0/1개다(ADR-0022) — 이 창은 더 이상 고를 설정을 묻지 않는다.
+describe('<MallSheetDialog />', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(salesProductApi.mallSheets).mockResolvedValue(sheets);
@@ -110,63 +103,33 @@ describe('<MallSheetDialog /> choosing among several registration settings', () 
     vi.mocked(salesProductApi.downloadMallSheet).mockResolvedValue({ blob: new Blob(['x']), fileName: 'a.xls' });
   });
 
-  it('asks only for the product that has several settings', async () => {
+  it('never shows a registration-setting picker for any product', async () => {
     open();
-    const choose = await screen.findByRole('combobox', { name: 'KID001 teacher-mall 등록 설정' });
-    expect(screen.queryByRole('combobox', { name: 'KID002 teacher-mall 등록 설정' })).not.toBeInTheDocument();
-    expect([...choose.querySelectorAll('option')].map((option) => option.textContent)).toEqual([
-      '설정 고르기(2개)',
-      '기본 등록 · 단품 1개',
-      '별도 등록 · 단품 2개 · 완구>블록',
-    ]);
-    expect(screen.getByText('등록 설정을 고르지 않은 상품 · 몰 1개는 받을 수 없습니다.')).toBeInTheDocument();
+    await screen.findByText('KID001');
+    expect(screen.queryByText('등록 설정')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /등록 설정/ })).not.toBeInTheDocument();
   });
 
-  it('still downloads the ready products while another product waits for its setting', async () => {
+  it('downloads only the ready, selected products with no target-selection payload', async () => {
     open();
-    await screen.findByRole('combobox', { name: 'KID001 teacher-mall 등록 설정' });
-    // 막힌 상품은 담기지 않는다 — 담은 상품만으로 파일을 만든다.
-    expect(screen.getByRole('checkbox', { name: 'KID001 고르기' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /엑셀 받기/ })).toBeEnabled();
+    await screen.findByText('KID001');
+    expect(screen.getByRole('checkbox', { name: 'KID001 고르기' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'null 고르기' })).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: /엑셀 받기/ }));
     await waitFor(() => expect(salesProductApi.downloadMallSheet).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(salesProductApi.downloadMallSheet).mock.calls[0]![1])
-      .toEqual({ salesProductIds: [ONE], fixed: {} });
+    expect(vi.mocked(salesProductApi.downloadMallSheet).mock.calls[0]![1]).toEqual({ salesProductIds: [READY], fixed: {} });
   });
 
-  it('will not download with the earlier check result after the setting changes', async () => {
+  it('saves a suggested category without any target id', async () => {
+    vi.mocked(salesProductApi.assignMallCategory).mockResolvedValue({ written: 1, code: null });
     open();
-    const choose = await screen.findByRole('combobox', { name: 'KID001 teacher-mall 등록 설정' });
-    fireEvent.change(choose, { target: { value: SECOND } });
-
-    expect(screen.getByText('등록 설정을 바꿨습니다 — 다시 확인을 눌러 주세요.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /엑셀 받기/ })).toBeDisabled();
-    expect(salesProductApi.downloadMallSheet).not.toHaveBeenCalled();
-  });
-
-  it('re-checks with the chosen setting and then splits the download, sending each batch its own choice', async () => {
-    vi.mocked(salesProductApi.checkMallSheet).mockResolvedValueOnce(checkResult());
-    open();
-    const choose = await screen.findByRole('combobox', { name: 'KID001 teacher-mall 등록 설정' });
-    fireEvent.change(choose, { target: { value: SECOND } });
-
-    vi.mocked(salesProductApi.checkMallSheet).mockResolvedValue(checkResult({ problems: [], rows: 3 }));
-    fireEvent.click(screen.getByRole('button', { name: /다시 확인/ }));
-
-    await waitFor(() => expect(salesProductApi.checkMallSheet).toHaveBeenLastCalledWith('teacherville', {
-      fixed: {},
-      salesProductIds: [MANY, ONE],
-      targetIds: [{ salesProductId: MANY, mallKey: 'teacher-mall', targetId: SECOND }],
+    await screen.findByText('KID001');
+    fireEvent.click(await screen.findByRole('button', { name: /이 1개에 저장/ }));
+    await waitFor(() => expect(salesProductApi.assignMallCategory).toHaveBeenCalledWith({
+      mallKey: 'teacher-mall',
+      path: '완구>블록',
+      salesProductIds: [BLOCKED],
     }));
-    await waitFor(() => expect(screen.getByRole('button', { name: /엑셀 받기/ })).toBeEnabled());
-
-    fireEvent.click(screen.getByRole('button', { name: /엑셀 받기/ }));
-    // 몰이 한 파일에 하나만 받으므로 묶음마다 따로 보낸다 — 그 묶음에 없는 상품의 선택은 보내지 않는다.
-    await waitFor(() => expect(salesProductApi.downloadMallSheet).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(salesProductApi.downloadMallSheet).mock.calls.map((call) => call[1])).toEqual([
-      { salesProductIds: [MANY], fixed: {}, targetIds: [{ salesProductId: MANY, mallKey: 'teacher-mall', targetId: SECOND }] },
-      { salesProductIds: [ONE], fixed: {} },
-    ]);
   });
 });

@@ -15,7 +15,7 @@ const prepared = {
 } as unknown as TargetExecutionResult;
 const started = { ...prepared, status: 'executing', providerOutcome: 'uncertain', maySubmit: true, leaseToken: 'lease' } as TargetExecutionResult;
 const input = {
-  salesProductId: 'product', channelAccountId: 'account', targetId: 'target', expectedPrice: 3000,
+  salesProductId: 'product', channelAccountId: 'account', expectedPrice: 3000,
   listingId: 'listing', mallKey: 'kakao', idempotencyKey: 'request',
 };
 const transport = { sent: 1, failed: 0, confirmed: 1, warnings: [], results: [
@@ -35,7 +35,8 @@ describe('mall price target execution boundary', () => {
     const api = client();
     const send = vi.fn().mockResolvedValue(transport);
     await executeTargetMallPrice(input, api, send, resolveTarget);
-    expect(resolveTarget).toHaveBeenCalledWith({ salesProductId: 'product', channelAccountId: 'account', targetId: 'target' });
+    // 상품 × 몰 계정당 등록 설정은 하나뿐이다(KID-310) — 고를 target id 가 없다.
+    expect(resolveTarget).toHaveBeenCalledWith({ salesProductId: 'product', channelAccountId: 'account' });
     expect(api.prepare).toHaveBeenCalledWith('target', expect.objectContaining({
       kind: 'update', updateFields: ['salePrice'], expectedVersion: 4, channelListingId: 'listing',
     }));

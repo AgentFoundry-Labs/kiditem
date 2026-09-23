@@ -29,8 +29,6 @@ export interface PublishTask {
   values: Record<string, string>;
   /** 실제로 편집한 값만 실행 target에 override로 보낸다. */
   adapterValues: Record<string, string>;
-  /** Explicitly selected saved registration settings, keyed by the original item ID. */
-  registrationTargetIdsByItem?: Record<string, string>;
   status: PublishTaskStatus;
   outcome: MallSendOutcome | null;
   error: string | null;
@@ -60,10 +58,6 @@ export interface BuildPublishPlanInput {
   editedValuesByMall?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** Exact account IDs returned with the selected mall targets. */
   channelAccountIds?: Readonly<Record<string, string | null | undefined>>;
-  /** Items with multiple saved settings for a mall/account must choose one before dispatch. */
-  registrationTargetSelectionRequiredByMall?: Readonly<Record<string, readonly string[]>>;
-  /** Explicit target choices, keyed by mall then original item ID. */
-  registrationTargetIdsByMall?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
@@ -93,12 +87,6 @@ export function buildPublishPlan(input: BuildPublishPlanInput): PublishPlan {
     for (const item of input.items) {
       const sourceProblem = itemSourceProblem(adapter, item);
       const reasons = sourceProblem ? [sourceProblem] : adapter.validate(item, values);
-      const requiresTargetChoice = input.registrationTargetSelectionRequiredByMall?.[adapter.mallKey]
-        ?.includes(item.candidateId) ?? false;
-      const registrationTargetId = input.registrationTargetIdsByMall?.[adapter.mallKey]?.[item.candidateId];
-      if (requiresTargetChoice && !registrationTargetId) {
-        reasons.push('여러 등록 설정 중 사용할 설정을 선택하세요.');
-      }
       if (reasons.length > 0) {
         blocks.push({
           mallKey: adapter.mallKey,
@@ -122,10 +110,6 @@ export function buildPublishPlan(input: BuildPublishPlanInput): PublishPlan {
         items: group,
         values: { ...values },
         adapterValues: { ...(input.editedValuesByMall?.[adapter.mallKey] ?? {}) },
-        registrationTargetIdsByItem: Object.fromEntries(group.flatMap((item) => {
-          const targetId = input.registrationTargetIdsByMall?.[adapter.mallKey]?.[item.candidateId];
-          return targetId ? [[item.candidateId, targetId]] : [];
-        })),
         status: 'pending',
         outcome: null,
         error: null,

@@ -35,13 +35,18 @@ function product(): SalesProduct {
     originRegion: null,
     keywords: ['패드'],
     standardCategory: null,
+    description: '',
+    targetAudience: null,
+    ageGroup: null,
+    productSize: null,
+    colorVariantNames: [],
+    boxSetQuantity: null,
+    registrationDefaults: null,
+    kcStatus: 'unknown',
     status: 'active',
     taxType: 'taxable',
     deliveryFeeType: null,
     deliveryFee: null,
-    costPrice: 2000,
-    salePrice: 5900,
-    tagPrice: 9000,
     optionAxes: ['색상'],
     stockManaged: false,
     imageUrls: ['https://img.example/1.jpg', 'https://img.example/2.jpg'],
@@ -93,7 +98,7 @@ function option(code: string, value: string, supplyStatus: SalesProduct['options
     safetyStock: null,
     sortOrder: 0,
     components: sellpiaCode
-      ? [{ sellpiaInventorySkuId: '8b0b4f3e-6d77-4a58-9f43-2f1f2b7b8c11', sellpiaCode, name: 'x', optionName: null, quantity: 1, currentStock: 3 }]
+      ? [{ masterProductId: '8b0b4f3e-6d77-4a58-9f43-2f1f2b7b8c11', sellpiaCode, name: 'x', optionName: null, quantity: 1, currentStock: 3 }]
       : [],
     linkedChannelOptionCount: 0,
   };

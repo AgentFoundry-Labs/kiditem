@@ -4,11 +4,10 @@ import { registrationTargetApi } from '@/lib/registration-target-api';
 import { getMallPublishAdapter } from '../../_shared/adapters';
 import { executeTargetRegistration } from '../../_shared/target-registration-execution';
 import { listRegistrationTargetExecutions } from '../../_shared/registration-execution-api';
-import { buildPublishPlan } from '../lib/publish-plan';
 import { useMallPublishRun } from './use-mall-publish-run';
 import type { MallPublishAdapter, MallPublishItem } from '../../_shared/mall-publish-adapter';
 import type { PublishTask } from '../lib/publish-plan';
-import type { SalesProduct, TargetExecutionResult } from '@kiditem/shared/sales-product';
+import type { TargetExecutionResult } from '@kiditem/shared/sales-product';
 
 const mocks = vi.hoisted(() => ({
   getAdapter: vi.fn(),
@@ -45,6 +44,8 @@ function item(source: MallPublishItem['source'] = 'sales_product'): MallPublishI
   return {
     candidateId: source === 'candidate' ? 'candidate-id' : PRODUCT_ID,
     name: '상품', salePrice: 5000, thumbnailUrl: null, source,
+    // 수집 시점부터 초안이 있다(ADR-0022) — 후보 항목도 이미 자기 판매상품 id를 안다.
+    ...(source === 'candidate' ? { salesProductId: PRODUCT_ID } : {}),
   };
 }
 
@@ -84,38 +85,6 @@ describe('useMallPublishRun target execution', () => {
     await waitFor(() => expect(result.current.tasks[0]?.status).toBe('reconciling'));
   });
 
-  it('passes the explicitly selected target to resolve for this item', async () => {
-    const { result } = renderHook(() => useMallPublishRun());
-
-    await act(async () => {
-      await result.current.start([task({ registrationTargetIdsByItem: { [PRODUCT_ID]: 'selected-target-id' } })]);
-    });
-
-    expect(mocks.resolve).toHaveBeenCalledWith({
-      salesProductId: PRODUCT_ID,
-      channelAccountId: ACCOUNT_ID,
-      targetId: 'selected-target-id',
-    });
-    expect(mocks.execute).toHaveBeenCalledWith(expect.objectContaining({ targetId: TARGET_ID }));
-  });
-
-  it('does not resolve or send when a multi-target item has no explicit choice', async () => {
-    const plan = buildPublishPlan({
-      items: [item()],
-      adapters: [adapter],
-      valuesByMall: {},
-      registrationTargetSelectionRequiredByMall: { kidsnote: [PRODUCT_ID] },
-    });
-    const { result } = renderHook(() => useMallPublishRun());
-
-    await act(async () => { await result.current.start(plan.tasks); });
-
-    expect(plan.sendCount).toBe(0);
-    expect(mocks.resolve).not.toHaveBeenCalled();
-    expect(mocks.execute).not.toHaveBeenCalled();
-    expect(adapter.send).not.toHaveBeenCalled();
-  });
-
   it('reuses an active execution history row and leaves resend fencing to the shared helper', async () => {
     const active = { executionId: 'active', status: 'reconciling', providerOutcome: 'uncertain' } as TargetExecutionResult;
     mocks.history.mockResolvedValue([active]);
@@ -133,27 +102,28 @@ describe('useMallPublishRun target execution', () => {
     expect(result.current.tasks[0]?.status).toBe('reconciling');
   });
 
-  it('promotes a candidate before target resolution and execution', async () => {
-    const product = { id: PRODUCT_ID } as SalesProduct;
-    const sequence: string[] = [];
-    mocks.resolve.mockImplementation(async () => { sequence.push('resolve'); return target; });
-    mocks.history.mockImplementation(async () => { sequence.push('history'); return []; });
-    mocks.execute.mockImplementation(async () => {
-      sequence.push('execute');
-      return { execution: { status: 'reconciling' }, outcome: { ok: true, confirmed: false, manualSteps: [], warnings: [] }, adapterCalled: true };
-    });
+  it('resolves a candidate item by the salesProductId it already carries, with no separate creation step', async () => {
+    // 수집 시점부터 초안이 있다(ADR-0022) — 후보 출처 항목도 만들지 않고 곧장 연다.
     const { result } = renderHook(() => useMallPublishRun());
 
     await act(async () => {
-      await result.current.start([task({ items: [item('candidate')] })], {
-        ensureCandidateSalesProduct: async (candidateId) => {
-          sequence.push(`promote:${candidateId}`);
-          return product;
-        },
-      });
+      await result.current.start([task({ items: [item('candidate')] })]);
     });
 
-    expect(sequence).toEqual(['promote:candidate-id', 'resolve', 'history', 'execute']);
+    expect(mocks.resolve).toHaveBeenCalledWith({ salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID });
+  });
+
+  it('fails a candidate item with no linked sales-product draft instead of resolving', async () => {
+    const { result } = renderHook(() => useMallPublishRun());
+
+    await act(async () => {
+      await result.current.start([task({
+        items: [{ candidateId: 'candidate-id', name: '상품', salePrice: 5000, thumbnailUrl: null, source: 'candidate', salesProductId: null }],
+      })]);
+    });
+
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(result.current.tasks[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('판매상품 초안') });
   });
 
   it('stops before target creation when the selected mall has no exact account ID', async () => {
