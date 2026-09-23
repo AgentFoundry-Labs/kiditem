@@ -8,9 +8,9 @@ import {
   type RegistrationExecutionPort,
 } from '../../../application/port/in/capability/registration-execution.port';
 import {
-  CANDIDATE_REGISTRATION_PORT,
-  type CandidateRegistrationPort,
-} from '../../../application/port/in/candidate-registration.port';
+  REGISTRATION_STATE_PORT,
+  type RegistrationStatePort,
+} from '../../../application/port/in/registration-state.port';
 import type { SalesProductRegistrationState } from '@kiditem/shared/sales-product';
 import {
   ConfirmRegistrationExecutionDto,
@@ -35,8 +35,8 @@ export class ChannelRegistrationExecutionController {
   constructor(
     @Inject(REGISTRATION_EXECUTION_PORT)
     private readonly executions: RegistrationExecutionPort,
-    @Inject(CANDIDATE_REGISTRATION_PORT)
-    private readonly registrations: CandidateRegistrationPort,
+    @Inject(REGISTRATION_STATE_PORT)
+    private readonly registrations: RegistrationStatePort,
   ) {}
 
   /** 초안의 등록 설정(몰 계정마다 하나)과 울타리가 말하는 등록 상태. 후보 조회에 기대지 않는다. */

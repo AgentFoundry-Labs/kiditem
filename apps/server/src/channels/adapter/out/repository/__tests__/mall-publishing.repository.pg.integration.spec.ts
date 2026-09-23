@@ -1,4 +1,3 @@
-import { RegistrationSourceAdapter } from '../../../../../sourcing/adapter/out/repository/registration-source.adapter';
 import { ListingContentQueryRepositoryAdapter } from '../../../../../content/adapter/out/repository/listing-content-query.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -444,16 +443,14 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
     async function createCandidate(
       sourceUrl: string,
       rawData: Record<string, unknown>,
-      provenanceMasterProductId?: string,
     ) {
-      return prisma.sourcingCandidate.create({
-        data: {
+      return prisma.sourceRecord.create({
+        data: { sourceIdentityHash: randomUUID(),
           organizationId: TEST_ORGANIZATION_ID,
           sourceUrl,
           sourcePlatform: '1688',
           name: '원목 블록',
           rawData: rawData as never,
-          ...(provenanceMasterProductId ? { provenanceMasterProductId } : {}),
         },
       });
     }
@@ -505,7 +502,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       const product = await createProduct('KID-2');
       await createCandidate('https://example.com/kid-2', {
         manualBasics: { kcCertificationStatus: 'exists', kcCertificationNumber: 'CB061R1234-1001' },
-      }, product.id);
+      });
       const draft = await prisma.salesProduct.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,

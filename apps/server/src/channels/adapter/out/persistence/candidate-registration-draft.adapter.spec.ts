@@ -28,56 +28,59 @@ describe('RegistrationDraftAdapter 대표 사진 울타리', () => {
 
   function setup(draftImageUrls: string[], generatedUrls: string[]) {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'draft-1' }]),
       registrationTarget: {
-        findFirst: vi.fn().mockResolvedValue(TARGET),
+        findMany: vi.fn().mockResolvedValue([TARGET]),
         update: vi.fn().mockResolvedValue(TARGET),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       salesProduct: {
-        findFirst: vi.fn().mockResolvedValue({
-          name: '상품',
-          sourceRecordId: 'candidate-1',
-          imageUrls: draftImageUrls,
+        findFirstOrThrow: vi.fn().mockResolvedValue({
+          id: 'draft-1', name: '상품', status: 'active', sourceRecordId: 'source-record-1',
+          options: [{ id: 'option-1', salePrice: 1000, supplyStatus: 'selling' }],
         }),
+        findFirst: vi.fn().mockResolvedValue({ imageUrls: draftImageUrls }),
       },
       productRegistrationExecution: { findMany: vi.fn().mockResolvedValue([]) },
     };
     const contentWorkspaces = {
       ensureSalesProductWorkspace: vi.fn().mockResolvedValue({ workspaceId: 'workspace-1' }),
       findSalesProductWorkspaceId: vi.fn().mockResolvedValue('workspace-1'),
-      resolveSourceSelections: vi.fn().mockImplementation(async (_tx, input) => input),
+      // 작업공간이 고른 대표 사진이 이 주소다.
+      resolveSourceSelections: vi.fn().mockImplementation(async (_tx, input) => ({
+        ...input, selectedThumbnailUrl: 'https://cdn.example.com/other/9.jpg',
+      })),
       attachToListing: vi.fn(),
     };
     const thumbnails = { listGeneratedThumbnailUrls: vi.fn().mockResolvedValue(generatedUrls) };
-    const adapter = new RegistrationDraftAdapter(
-      { lock: vi.fn(), requireActive: vi.fn() } as never,
-      contentWorkspaces as never,
-      thumbnails as never,
-    );
+    const adapter = new RegistrationDraftAdapter(contentWorkspaces as never, thumbnails as never);
     return { adapter, tx, handle: ownerTransaction(tx as never), thumbnails, contentWorkspaces };
   }
 
-  const claim = {
+  const freeze = {
     organizationId: 'org-1',
-    preparationId: 'target-1',
-    reuseFrozenSubmission: false,
+    salesProductId: 'draft-1',
+    channelAccountId: 'account-1',
+    displayName: '상품',
+    registrationInput: {},
+    frozenHash: 'hash',
+    requestedByUserId: null,
   };
 
   it('⭐ 이 상품의 것이 아닌 대표 사진은 얼리지 않는다', async () => {
     const { adapter, tx, handle, thumbnails } = setup(['https://cdn.example.com/draft/1.jpg'], []);
 
-    await expect(adapter.claimForSubmission(handle, claim as never))
+    await expect(adapter.freezeForSubmission(handle, freeze))
       .rejects.toThrow('대표 사진');
 
     expect(thumbnails.listGeneratedThumbnailUrls).toHaveBeenCalledWith('org-1', 'draft-1');
-    expect(tx.registrationTarget.updateMany).not.toHaveBeenCalled();
+    expect(tx.registrationTarget.update).not.toHaveBeenCalled();
   });
 
   it('AI 가 이 상품을 위해 만든 썸네일은 통과시킨다', async () => {
     const { adapter, tx, handle } = setup([], ['https://cdn.example.com/other/9.jpg']);
 
-    await adapter.claimForSubmission(handle, claim as never);
+    await adapter.freezeForSubmission(handle, freeze);
 
-    expect(tx.registrationTarget.updateMany).toHaveBeenCalled();
+    expect(tx.registrationTarget.update).toHaveBeenCalled();
   });
 });

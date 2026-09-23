@@ -1,4 +1,3 @@
-import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type RegistrationTarget } from '@prisma/client';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
@@ -6,10 +5,6 @@ import { readRegistrationExecutionFacts } from '../repository/registration-execu
 import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
 import { canStartRegistration } from '../../../domain/sales-product/sales-product-status';
 import type { SalesProductStatus } from '@kiditem/shared/sales-product';
-import {
-  freezeProductRegistrationPayload,
-  type RegistrationSubmissionJson,
-} from '../../../domain/registration/registration-submission-payload';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
@@ -22,23 +17,19 @@ import {
   assertRegistrationIdentity,
   assertThumbnailBelongsToProduct,
   requireConfirmedSalesProduct,
-  findCandidateAccountPreparation,
+  findAccountPreparation,
   lockPreparation,
   lockSalesProduct,
   resolvedSelectionData,
   selectionResolutionInput,
-} from './candidate-registration-rows';
+} from './registration-state-rows';
 import type {
   CloseRegistrationDraftInput,
-  ClaimRegistrationDraftInput,
-  ClaimedRegistrationDraft,
   FreezeRegistrationDraftInput,
   FrozenRegistrationDraft,
   RegistrationDraftPort,
 } from '../../../application/port/out/persistence/registration-draft.port';
 import type { ChannelsRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
-
-const channelIntegrity = new ChannelIntegrityAdapter();
 
 /**
  * Channels 소유 등록 설정을 실행 울타리의 같은 트랜잭션에서 처리한다(ADR-0020).
@@ -162,7 +153,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       status?: string;
     },
   ): Promise<FrozenRegistrationDraft | null> {
-    const row = await findCandidateAccountPreparation(client(tx), input.organizationId, input.salesProductId, input.channelAccountId);
+    const row = await findAccountPreparation(client(tx), input.organizationId, input.salesProductId, input.channelAccountId);
     if (!row) return null;
     const named = await this.ensureDisplayName(tx, row);
     const draft = await toFrozenDraft(client(tx), named, await this.readSourceContext(tx, named));
@@ -186,7 +177,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
   ): Promise<FrozenRegistrationDraft> {
     const tx = client(handle);
     const product = await requireConfirmedSalesProduct(tx, input.organizationId, input.salesProductId);
-    const existing = await findCandidateAccountPreparation(tx, input.organizationId, product.id, input.channelAccountId);
+    const existing = await findAccountPreparation(tx, input.organizationId, product.id, input.channelAccountId);
     if (!existing) {
       throw new ConflictException(
         `'${product.name}' 에는 이 몰 계정의 등록 설정이 없습니다. 등록 설정을 먼저 만든 뒤 다시 시도하세요.`,
@@ -244,56 +235,6 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     return updated.count;
   }
 
-  async claimForSubmission(
-    handle: ChannelsRepositoryTransaction,
-    input: ClaimRegistrationDraftInput,
-  ): Promise<ClaimedRegistrationDraft> {
-    const tx = client(handle);
-    const current = await tx.registrationTarget.findFirst({
-      where: { id: input.preparationId, organizationId: input.organizationId, archivedAt: null },
-    });
-    if (!current) throw new NotFoundException('Product preparation not found.');
-
-    if (input.reuseFrozenSubmission) {
-      return { draft: await toFrozenDraft(tx, current, await this.readSourceContext(handle, current)), frozen: null };
-    }
-
-    assertRegistrationIdentity(current);
-    const context = await this.readSourceContext(handle, current, { ensure: true });
-    if (!context.sourceContentWorkspaceId) {
-      throw new ConflictException('이 판매상품에는 콘텐츠 작업공간이 없습니다.');
-    }
-    const resolvedSelections = await this.contentWorkspaces.resolveSourceSelections(
-      handle,
-      selectionResolutionInput(
-        input.organizationId,
-        context.sourceContentWorkspaceId,
-        current,
-      ),
-    );
-    await assertThumbnailBelongsToProduct(
-      tx,
-      this.thumbnailSources,
-      input.organizationId,
-      current.salesProductId,
-      resolvedSelections.selectedThumbnailUrl,
-    );
-    const resolvedCurrent = {
-      ...current,
-      ...resolvedSelectionData(resolvedSelections),
-    } as RegistrationTarget;
-    const frozen = freezeProductRegistrationPayload(
-      buildSubmissionPayload(resolvedCurrent, context.productName), channelIntegrity.sha256,
-    );
-    const updated = await updatePreparationAndLoad(tx, input.organizationId, current.id, {
-      ...resolvedSelectionData(resolvedSelections),
-    });
-    return {
-      draft: await toFrozenDraft(tx, updated, context),
-      frozen: { payload: frozen.payload, hash: frozen.hash },
-    };
-  }
-
   branchContentToListing(
     tx: ChannelsRepositoryTransaction,
     input: {
@@ -322,41 +263,6 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
 
 function client(tx: ChannelsRepositoryTransaction): Prisma.TransactionClient {
   return ownerTransactionClient(tx);
-}
-
-async function updatePreparationAndLoad(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  preparationId: string,
-  data: Prisma.RegistrationTargetUncheckedUpdateManyInput,
-): Promise<RegistrationTarget> {
-    const updated = await tx.registrationTarget.updateMany({
-    where: { id: preparationId, organizationId, archivedAt: null },
-    data,
-  });
-  if (updated.count !== 1) {
-    throw new ConflictException('Product preparation changed during its locked update.');
-  }
-  const row = await tx.registrationTarget.findFirst({
-    where: { id: preparationId, organizationId, archivedAt: null },
-  });
-  if (!row) throw new NotFoundException('Product preparation not found.');
-  return row;
-}
-
-function buildSubmissionPayload(row: RegistrationTarget, productName: string): RegistrationSubmissionJson {
-  assertRegistrationIdentity(row);
-  return {
-    channelAccountId: row.channelAccountId,
-    displayName: row.displayName ?? productName,
-    registrationInput: row.registrationInput as RegistrationSubmissionJson,
-    selectedThumbnailUrl: row.selectedThumbnailUrl,
-    selectedThumbnailGenerationId: row.selectedThumbnailGenerationId,
-    selectedThumbnailGenerationCandidateId: row.selectedThumbnailGenerationCandidateId,
-    selectedDetailPageArtifactId: row.selectedDetailPageArtifactId,
-    selectedDetailPageRevisionId: row.selectedDetailPageRevisionId,
-    selectedDetailPageGenerationId: row.selectedDetailPageGenerationId,
-  };
 }
 
 async function toFrozenDraft(

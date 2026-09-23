@@ -12,11 +12,9 @@ import type { SalesProductStatus } from '@kiditem/shared/sales-product';
 import type { ResolvedRegistrationContentSelections } from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
 
 /**
- * 초안 행을 다루는 공용 조각. 초안 CRUD 어댑터와 등록 울타리가 쓰는 초안 어댑터가
- * 같은 잠금·선택값 규칙을 쓰도록 한 곳에 둔다.
+ * 등록 설정 행을 다루는 공용 조각. 등록 상태 리더와 등록 울타리가 쓰는 설정 어댑터가 같은
+ * 잠금 · 선택값 규칙을 쓰도록 한 곳에 둔다.
  */
-
-export const ACTIVE_PREPARATION_STATUSES = ['draft', 'submitting', 'failed'] as const;
 
 export interface ConfirmedSalesProduct {
   id: string;
@@ -79,23 +77,7 @@ export async function requireConfirmedSalesProduct(
   }
 }
 
-/** 원천 기록(후보)에서 만든 초안. 후보당 초안은 하나다. */
-export async function requireConfirmedProductForCandidate(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  sourceRecordId: string,
-): Promise<ConfirmedSalesProduct> {
-  const product = await tx.salesProduct.findFirst({
-    where: { organizationId, sourceRecordId },
-    select: { id: true },
-  });
-  if (!product) {
-    throw new ConflictException('이 수집상품의 판매상품이 없습니다. 판매상품을 먼저 만들어주세요.');
-  }
-  return requireConfirmedSalesProduct(tx, organizationId, product.id);
-}
-
-export async function findCandidateAccountPreparation(
+export async function findAccountPreparation(
   tx: Prisma.TransactionClient,
   organizationId: string,
   salesProductId: string,
@@ -211,8 +193,4 @@ export function resolvedSelectionData(
     selectedDetailPageRevisionId: resolved.selectedDetailPageRevisionId,
     selectedDetailPageGenerationId: resolved.selectedDetailPageGenerationId,
   };
-}
-
-export function isUniqueConstraintError(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === 'P2002');
 }

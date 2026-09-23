@@ -38,7 +38,7 @@ describe('product registration execution contracts', () => {
       registrationTargetId: PREPARATION_ID,
       channelAccountId: ACCOUNT_ID,
       channelListingId: null,
-      executionKind: 'create',
+      executionKind: 'external_wing',
       expectedProviderAccountId: null,
       idempotencyKey: 'register:rain-boots:v1',
       requestHash: 'sha256:request',

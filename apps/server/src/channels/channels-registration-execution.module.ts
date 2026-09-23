@@ -22,8 +22,8 @@ import { REGISTRATION_EXECUTION_PORT } from './application/port/in/capability/re
 import { REGISTRATION_EXECUTION_REPOSITORY_PORT, type RegistrationExecutionRepositoryPort } from './application/port/out/repository/registration-execution.repository.port';
 import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-product-thumbnail-source.adapter';
 import { RegistrationDraftAdapter } from './adapter/out/persistence/candidate-registration-draft.adapter';
-import { ProductPreparationRepositoryAdapter } from './adapter/out/persistence/candidate-registration.repository.adapter';
-import { CANDIDATE_REGISTRATION_PORT } from './application/port/in/candidate-registration.port';
+import { RegistrationStateRepositoryAdapter } from './adapter/out/persistence/registration-state.repository.adapter';
+import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
 import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/sales-product-thumbnail-source.port';
 
 /**
@@ -52,13 +52,13 @@ import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/s
     { provide: REGISTRATION_EXECUTION_PORT, useExisting: RegistrationExecutionService },
     // 예전 channels-registration-preparation.module.ts.
     RegistrationDraftAdapter,
-    ProductPreparationRepositoryAdapter,
+    RegistrationStateRepositoryAdapter,
     SalesProductThumbnailSourceAdapter,
     // 대표 사진 울타리가 쓰는 생성 썸네일 목록. 소비자가 필수로 받으므로 빠지면 부트가 실패한다.
     { provide: SALES_PRODUCT_THUMBNAIL_SOURCE_PORT, useExisting: SalesProductThumbnailSourceAdapter },
     { provide: REGISTRATION_DRAFT_PORT, useExisting: RegistrationDraftAdapter },
-    { provide: CANDIDATE_REGISTRATION_PORT, useExisting: ProductPreparationRepositoryAdapter },
+    { provide: REGISTRATION_STATE_PORT, useExisting: RegistrationStateRepositoryAdapter },
   ],
-  exports: [STOCKOUT_CHECK_PORT, REGISTRATION_EXECUTION_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT, REGISTRATION_DRAFT_PORT, CANDIDATE_REGISTRATION_PORT],
+  exports: [STOCKOUT_CHECK_PORT, REGISTRATION_EXECUTION_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT, REGISTRATION_DRAFT_PORT, REGISTRATION_STATE_PORT],
 })
 export class ChannelsRegistrationExecutionModule {}

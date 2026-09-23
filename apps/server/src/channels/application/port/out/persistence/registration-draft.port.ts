@@ -59,21 +59,6 @@ export interface CloseRegistrationDraftInput {
   archive?: boolean;
 }
 
-export interface ClaimRegistrationDraftInput {
-  organizationId: string;
-  preparationId: string;
-  userId: string | null;
-  now: Date;
-  /** 실행 장부가 이미 있는 재청구. 내용을 다시 동결하지 않는다. */
-  reuseFrozenSubmission: boolean;
-}
-
-export interface ClaimedRegistrationDraft {
-  draft: FrozenRegistrationDraft;
-  /** 새로 동결한 제출본. `reuseFrozenSubmission` 이면 `null`. */
-  frozen: { payload: unknown; hash: string } | null;
-}
-
 export interface RegistrationDraftPort {
   /**
    * 판매상품 행을 잠근다. 울타리 트랜잭션의 첫 단계.
@@ -136,12 +121,6 @@ export interface RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     input: CloseRegistrationDraftInput,
   ): Promise<number>;
-
-  /** Resolve and approve submission content; Channels alone claims execution leases. */
-  claimForSubmission(
-    tx: ChannelsRepositoryTransaction,
-    input: ClaimRegistrationDraftInput,
-  ): Promise<ClaimedRegistrationDraft>;
 
   /**
    * 확정된 리스팅으로 콘텐츠 작업공간을 분기한다. 등록 확정 트랜잭션 안에서 함께

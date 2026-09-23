@@ -50,10 +50,6 @@ export interface FrozenRegistrationSubmission {
   selectedDetailPageGenerationId: string | null;
 }
 
-export type RegistrationExecutionClaimResult =
-  | FrozenRegistrationSubmission
-  | RegistrationExecutionRegisteredResult;
-
 export interface PrepareRegistrationExecutionInput {
   organizationId: string;
   /** 울타리의 열쇠. 이 판매상품 × 계정에 최대 하나의 살아 있는 실행이 있다. */
@@ -153,30 +149,19 @@ export interface RegistrationExecutionRepositoryPort {
     evidence: unknown;
   }): Promise<ClosedRegistrationExecutionResult>;
 
-  claimForSubmission(
-    organizationId: string,
-    preparationId: string,
-    userId: string | null,
-  ): Promise<RegistrationExecutionClaimResult>;
-
+  /** 실행은 모두 명시한 실행 id 로 찾는다 — 옛 `create` 종류(실행 id 없이 준비로 찾던 것)는 없다(KID-313). */
   loadFrozenSubmission(
     organizationId: string,
     preparationId: string,
-    executionId?: string,
+    executionId: string,
   ): Promise<FrozenRegistrationSubmission>;
-
-  markProviderAttemptStarted(
-    organizationId: string,
-    preparationId: string,
-    submissionLeaseToken: string,
-  ): Promise<void>;
 
   recordProviderResult(
     organizationId: string,
     preparationId: string,
     submissionLeaseToken: string,
     result: MarketplaceSubmissionResult,
-    executionId?: string,
+    executionId: string,
   ): Promise<FrozenRegistrationSubmission>;
 
   markFailed(input: {
@@ -184,7 +169,7 @@ export interface RegistrationExecutionRepositoryPort {
     preparationId: string;
     submissionLeaseToken: string;
     error: string;
-    executionId?: string;
+    executionId: string;
     providerOutcome?: 'definitive_failure';
   }): Promise<{ preparationId: string; status: 'failed' }>;
 
@@ -195,6 +180,6 @@ export interface RegistrationExecutionRepositoryPort {
     finalize: (
       tx: ChannelsRepositoryTransaction,
     ) => Promise<{ listingId: string }>,
-    executionId?: string,
+    executionId: string,
   ): Promise<RegistrationExecutionRegisteredResult>;
 }
