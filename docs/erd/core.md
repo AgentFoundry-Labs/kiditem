@@ -170,7 +170,6 @@ erDiagram
 | Organization | organization | referenced by external | AI | ThumbnailGenerationCandidate |
 | Organization | organization | referenced by external | AI | ThumbnailGenerationEvent |
 | Organization | organization | referenced by external | AI | ThumbnailGenerationInputImage |
-| Organization | organization | referenced by external | AI | ThumbnailRegistrationAttempt |
 | Organization | organization | referenced by external | AI | ThumbnailTracking |
 | Organization | organization | referenced by external | AI | ThumbnailTrackingDailySnapshot |
 | Organization | organization | referenced by external | Analytics | SellpiaProductMonthlySales |

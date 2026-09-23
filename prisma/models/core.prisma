@@ -26,7 +26,6 @@ model Organization {
   thumbnailGenerationCandidates      ThumbnailGenerationCandidate[]
   thumbnailGenerationInputImages     ThumbnailGenerationInputImage[]
   thumbnailGenerationEvents          ThumbnailGenerationEvent[]
-  thumbnailRegistrationAttempts      ThumbnailRegistrationAttempt[]
   thumbnailTrackings                 ThumbnailTracking[]
   thumbnailTrackingDailySnapshots    ThumbnailTrackingDailySnapshot[]
   reviews                            Review[]

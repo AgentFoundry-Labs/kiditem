@@ -282,6 +282,20 @@ does, and that no draft ends up with two active workspaces; either aborts.
 A second run sees the contracted shape and writes nothing. Recovery follows the
 deployment data-loss policy.
 
+`026_move_thumbnail_registration_attempts_to_executions` runs before the schema
+push drops `thumbnail_registration_attempts`. Each attempt becomes one
+`product_registration_executions` row with `execution_kind='thumbnail_update'`
+and idempotency key `thumbnail_update:legacy:<attempt id>`: `uploaded` becomes
+`succeeded`, `failed` becomes a `definitive_failure`, and anything else an
+`uncertain` execution left `reconciling`. The frozen payload comes from the
+generation, its workspace and its selected image (`sha256: 'legacy'`); the account
+is the workspace listing's, else the organization's single active Coupang
+account; owner key, request hash and timestamps are kept. Attempts without a
+generation or workspace, an image or an account, an older live attempt of a
+generation that has a newer one, and a live attempt whose listing already has a
+live execution are counted in `skippedBy` and left for the table drop
+(ADR-0010). A rerun reports them as `alreadyMoved` and inserts nothing.
+
 Before cutover, reconcile conflicting common product metadata for targets of the
 same candidate that have no existing canonical selling product. Per-target
 display names and price overrides may differ; option composition must resolve
