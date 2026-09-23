@@ -31,6 +31,7 @@ export class SalesProductGenerationController {
       user.id ?? null,
       body?.task ?? 'all',
       parseRequiredIdempotencyKey(idempotencyKey),
+      body?.templateId,
     );
   }
 }
