@@ -428,7 +428,7 @@ export default function SourcingPage() {
 
       {(startedProgress.runningDetailCount > 0 || startedProgress.runningThumbnailCount > 0) && (
         <div
-          className="flex items-center gap-2 border-b border-violet-100 bg-violet-50 px-5 py-2 text-sm font-semibold text-violet-800"
+          className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--primary-soft)] px-5 py-2 text-sm font-semibold text-[var(--primary)]"
           role="status"
           aria-live="polite"
         >

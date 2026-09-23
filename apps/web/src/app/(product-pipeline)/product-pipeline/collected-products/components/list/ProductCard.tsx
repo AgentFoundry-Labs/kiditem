@@ -41,7 +41,7 @@ export default function ProductCard({
   // 진행 중 overlay — 이 화면에서 시작한 생성만 표시한다. 다른 곳에서 시작한 생성은 그 상품의
   // 작업공간 화면이 보여준다.
   const statusBanner = isProcessing ? (
-    <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center gap-1.5 bg-violet-600 px-2 py-1 text-[10px] font-semibold text-white shadow">
+    <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center gap-1.5 bg-[var(--primary)] px-2 py-1 text-[10px] font-semibold text-[var(--primary-contrast)] shadow">
       <Loader2 size={10} className="animate-spin" />
       생성 중
     </div>
