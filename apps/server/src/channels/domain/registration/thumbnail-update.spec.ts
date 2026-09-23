@@ -46,7 +46,7 @@ describe('thumbnailReportTransition', () => {
       status: 'reconciling',
       providerOutcome: 'uncertain',
       errorCode: 'thumbnail_awaiting_confirmation',
-      errorMessage: 'Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요',
+      errorMessage: '몰 수정 화면에 올렸습니다 — 몰에서 저장한 뒤 반영됨으로 표시하세요',
     });
   });
   it('keeps a rejection and an unknown outcome apart', () => {

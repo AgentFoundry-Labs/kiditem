@@ -96,7 +96,7 @@ export type ThumbnailReportTransition = Readonly<{
   errorMessage: string | null;
 }>;
 
-export const THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE = 'Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요';
+export const THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE = '몰 수정 화면에 올렸습니다 — 몰에서 저장한 뒤 반영됨으로 표시하세요';
 
 /**
  * 확장 · runner 보고의 전이. 올린 것은 저장이 아니므로 성공이 아니다 — 운영자 확인을 기다리는
