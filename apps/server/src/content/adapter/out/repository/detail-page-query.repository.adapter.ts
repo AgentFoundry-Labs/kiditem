@@ -15,6 +15,7 @@ import type {
   DetailPageListRepositoryInput,
   DetailPageQueryRepositoryPort,
 } from '../../../application/port/out/repository/detail-page-query.repository.port';
+import { DETAIL_PAGE_REVISION_TYPE } from '../../../domain/detail-page/detail-page-revision-type';
 
 interface DetailPageEditableGenerationSnapshot {
   id: string;
@@ -267,7 +268,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
             organizationId: input.organizationId,
             artifactId: artifact.id,
             contentGenerationId: created.id,
-            revisionType: 'duplicate',
+            revisionType: DETAIL_PAGE_REVISION_TYPE.duplicate,
             html: sourceRevision.html,
             assetUrlMap: sourceRevision.assetUrlMap as Prisma.InputJsonValue,
             imageUrls: sourceRevision.imageUrls as Prisma.InputJsonValue,
@@ -349,7 +350,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           organizationId: input.organizationId,
           artifactId,
           contentGenerationId: input.contentGenerationId,
-          revisionType: 'manual_edit',
+          revisionType: DETAIL_PAGE_REVISION_TYPE.manual_edit,
           html: input.html,
           assetUrlMap: input.assetUrlMap as Prisma.InputJsonValue,
           imageUrls: input.imageUrls as Prisma.InputJsonValue,

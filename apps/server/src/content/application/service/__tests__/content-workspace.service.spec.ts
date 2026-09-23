@@ -52,7 +52,7 @@ function workspace(overrides: Record<string, unknown> = {}) {
     },
     currentDetailPageRevision: {
       id: REVISION_ID,
-      revisionType: 'generated',
+      revisionType: 'manual_edit',
       createdAt: new Date('2026-05-12T02:00:00.000Z'),
     },
     _count: { contentGenerations: 2 },

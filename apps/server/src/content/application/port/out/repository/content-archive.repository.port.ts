@@ -1,3 +1,4 @@
+import type { DetailPageRevisionType } from '../../../../domain/detail-page/detail-page-revision-type';
 export const CONTENT_ARCHIVE_REPOSITORY_PORT = Symbol('CONTENT_ARCHIVE_REPOSITORY_PORT');
 
 export type ContentArchiveContentType = 'detail_page' | 'image';
@@ -59,12 +60,12 @@ export interface ContentArchiveGenerationRow {
     currentRevisionId: string | null;
     currentRevision: {
       id: string;
-      revisionType: string;
+      revisionType: DetailPageRevisionType;
       createdAt: Date;
     } | null;
     revisions: Array<{
       id: string;
-      revisionType: string;
+      revisionType: DetailPageRevisionType;
       createdAt: Date;
     }>;
   } | null;

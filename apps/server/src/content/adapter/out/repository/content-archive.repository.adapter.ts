@@ -6,6 +6,7 @@ import type {
   ContentArchiveRepositoryPort,
   ContentArchiveRepositoryQuery,
 } from '../../../application/port/out/repository/content-archive.repository.port';
+import { DetailPageRevisionTypeSchema } from '../../../domain/detail-page/detail-page-revision-type';
 
 const generationInclude = {
   contentWorkspace: {
@@ -78,7 +79,7 @@ export class ContentArchiveRepositoryAdapter implements ContentArchiveRepository
       take: 500,
       include: generationInclude,
     });
-    return rows as unknown as ContentArchiveGenerationRow[];
+    return rows.map(toArchiveRow);
   }
 
   async listSourcingCandidateGenerations(input: {
@@ -102,8 +103,30 @@ export class ContentArchiveRepositoryAdapter implements ContentArchiveRepository
         include: generationInclude,
       }),
     ]);
-    return { total, rows: rows as unknown as ContentArchiveGenerationRow[] };
+    return { total, rows: rows.map(toArchiveRow) };
   }
+}
+
+type ArchiveGenerationRecord = Prisma.ContentGenerationGetPayload<{ include: typeof generationInclude }>;
+
+/** revision 종류는 정한 목록 안의 값만 읽는다 — 목록 밖의 값은 writer 가 깨진 것이다. */
+function toArchiveRow(row: ArchiveGenerationRecord): ContentArchiveGenerationRow {
+  const artifact = row.detailPageArtifact;
+  return {
+    ...row,
+    detailPageArtifact: artifact
+      ? {
+        ...artifact,
+        currentRevision: artifact.currentRevision
+          ? { ...artifact.currentRevision, revisionType: DetailPageRevisionTypeSchema.parse(artifact.currentRevision.revisionType) }
+          : null,
+        revisions: artifact.revisions.map((revision) => ({
+          ...revision,
+          revisionType: DetailPageRevisionTypeSchema.parse(revision.revisionType),
+        })),
+      }
+      : null,
+  } as unknown as ContentArchiveGenerationRow;
 }
 
 function generationWhere(
