@@ -189,6 +189,7 @@ const scenarios: readonly InvocationScenario[] = [
   }, targetExecutionResult),
   scenario('channels.submit_wing_thumbnail', 'channels.submitWingThumbnail', 'high', { generationId: 'generation-1' }, {
     success: true,
+    status: 'succeeded',
     screenshotPath: null,
   }),
   scenario('products.create_listing_generation_package', 'products.createListingGenerationPackage', 'medium', { salesProductId: CANDIDATE_ID }, {
@@ -505,7 +506,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
     submitWingThumbnail: typedOwnerPortMethod(
       typedOwnerPortCalls,
       'channels.submit_wing_thumbnail',
-      { success: true, screenshotPath: null },
+      { success: true as const, status: 'succeeded' as const, screenshotPath: null },
     ),
   };
   const executions = {

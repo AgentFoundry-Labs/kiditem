@@ -9,7 +9,6 @@ import type {
   ThumbnailExecutionRow,
 } from '../../../application/port/out/persistence/thumbnail-execution.persistence.port';
 import {
-  THUMBNAIL_REPORTABLE_STATUSES,
   acceptsThumbnailReport,
   type ThumbnailReportTransition,
   type ThumbnailUpdatePayload,
@@ -123,6 +122,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     organizationId: string;
     executionId: string;
     transition: ThumbnailReportTransition;
+    acceptFrom: readonly OperationStatus[];
     screenshotPath: string | null;
     externalId: string | null;
   }): Promise<{ mode: 'applied'; execution: ThumbnailExecutionRow } | { mode: 'rejected'; status: OperationStatus } | { mode: 'not_found' }> {
@@ -132,7 +132,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       if (!current) return { mode: 'not_found' as const };
       const terminal = input.transition.status !== 'reconciling';
       const updated = await tx.productRegistrationExecution.updateMany({
-        where: { ...where, status: { in: [...THUMBNAIL_REPORTABLE_STATUSES] } },
+        where: { ...where, status: { in: [...input.acceptFrom] } },
         data: {
           status: input.transition.status,
           providerOutcome: input.transition.providerOutcome,
@@ -140,8 +140,8 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
           lastErrorMessage: input.transition.errorMessage?.slice(0, 2_000) ?? null,
           resultJson: {
             ...resultObject(current.resultJson),
-            screenshotPath: input.screenshotPath,
-            externalId: input.externalId,
+            ...(input.screenshotPath !== null ? { screenshotPath: input.screenshotPath } : {}),
+            ...(input.externalId !== null ? { externalId: input.externalId } : {}),
           } as Prisma.InputJsonValue,
           ...(terminal ? { completedAt: new Date() } : {}),
         },
@@ -252,6 +252,7 @@ function toRow(row: ProductRegistrationExecution): ThumbnailExecutionRow {
     generationId,
     status: row.status as OperationStatus,
     providerOutcome: row.providerOutcome as ProviderOutcome,
+    lastErrorCode: row.lastErrorCode,
     lastErrorMessage: row.lastErrorMessage,
     screenshotPath: typeof result.screenshotPath === 'string' ? result.screenshotPath : null,
     completedAt: row.completedAt,

@@ -8,6 +8,7 @@ export type ThumbnailExecutionRow = Readonly<{
   generationId: string;
   status: OperationStatus;
   providerOutcome: ProviderOutcome;
+  lastErrorCode: string | null;
   lastErrorMessage: string | null;
   screenshotPath: string | null;
   completedAt: Date | null;
@@ -38,11 +39,15 @@ export interface ThumbnailExecutionPersistencePort {
     payload: ThumbnailUpdatePayload;
     payloadHash: string;
   }): Promise<{ mode: 'created'; executionId: string } | { mode: 'replay'; execution: ThumbnailExecutionRow } | { mode: 'live_conflict' }>;
-  /** 보고를 반영한다. 받을 수 없는 상태면 `rejected`. */
+  /**
+   * 보고를 반영한다. `acceptFrom` 에 없는 상태면 `rejected`. 사진 경로 · 외부 id 는 주어질 때만
+   * 덮어쓴다(운영자 확인이 올릴 때의 스크린샷을 지우지 않게).
+   */
   applyReport(input: {
     organizationId: string;
     executionId: string;
     transition: ThumbnailReportTransition;
+    acceptFrom: readonly OperationStatus[];
     screenshotPath: string | null;
     externalId: string | null;
   }): Promise<{ mode: 'applied'; execution: ThumbnailExecutionRow } | { mode: 'rejected'; status: OperationStatus } | { mode: 'not_found' }>;

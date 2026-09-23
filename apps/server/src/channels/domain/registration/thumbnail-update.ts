@@ -51,15 +51,25 @@ export function thumbnailUpdateIdempotencyKey(input: {
 export type ThumbnailReportTransition = Readonly<{
   status: Extract<OperationStatus, 'succeeded' | 'failed' | 'reconciling'>;
   providerOutcome: Extract<ProviderOutcome, 'succeeded' | 'definitive_failure' | 'uncertain'>;
-  errorCode: 'thumbnail_rejected' | 'thumbnail_outcome_unknown' | null;
+  errorCode: 'thumbnail_rejected' | 'thumbnail_outcome_unknown' | 'thumbnail_awaiting_confirmation' | null;
   errorMessage: string | null;
 }>;
 
-/** 몰이 받았다는 증거만 성공이다. 모르면 `reconciling` 으로 두고 다음 보고를 기다린다. */
+export const THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE = 'Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요';
+
+/**
+ * 확장 · runner 보고의 전이. 올린 것은 저장이 아니므로 성공이 아니다 — 운영자 확인을 기다리는
+ * `reconciling` 이다. 성공은 운영자 확인(`thumbnailConfirmationTransition`)으로만 된다.
+ */
 export function thumbnailReportTransition(report: ThumbnailExecutionReportRequest): ThumbnailReportTransition {
   switch (report.outcome) {
-    case 'succeeded':
-      return { status: 'succeeded', providerOutcome: 'succeeded', errorCode: null, errorMessage: null };
+    case 'uploaded_pending_save':
+      return {
+        status: 'reconciling',
+        providerOutcome: 'uncertain',
+        errorCode: 'thumbnail_awaiting_confirmation',
+        errorMessage: THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE,
+      };
     case 'definitive_failure':
       return { status: 'failed', providerOutcome: 'definitive_failure', errorCode: 'thumbnail_rejected', errorMessage: report.error };
     case 'uncertain':
@@ -76,4 +86,14 @@ export const THUMBNAIL_REPORTABLE_STATUSES = ['executing', 'reconciling'] as con
 
 export function acceptsThumbnailReport(status: OperationStatus): boolean {
   return (THUMBNAIL_REPORTABLE_STATUSES as readonly OperationStatus[]).includes(status);
+}
+
+/**
+ * 운영자의 "반영됨으로 표시". Wing 에서 저장한 것을 사람이 확인한 것만 성공이다. 올린 뒤 기다리는
+ * (`reconciling`) 실행만 받는다 — 아직 올리지도 않은 `executing` 은 확인할 것이 없다.
+ */
+export const THUMBNAIL_CONFIRMABLE_STATUSES = ['reconciling'] as const satisfies readonly OperationStatus[];
+
+export function thumbnailConfirmationTransition(): ThumbnailReportTransition {
+  return { status: 'succeeded', providerOutcome: 'succeeded', errorCode: null, errorMessage: null };
 }

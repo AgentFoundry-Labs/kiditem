@@ -31,12 +31,17 @@ export const ThumbnailExecutionPrepareResponseSchema = z.object({
 export type ThumbnailExecutionPrepareResponse = z.infer<typeof ThumbnailExecutionPrepareResponseSchema>;
 
 /**
- * 확장이 돌려준 결과. 확장이 실패라고 답하면 `definitive_failure`(아무것도 올라가지 않음),
- * 확장과의 통신 자체가 끊기면 `uncertain`(올라갔는지 모름)이다.
+ * 확장(또는 개발 서버 runner)이 돌려준 결과.
+ *
+ * - `uploaded_pending_save`: Wing 상품 수정 화면의 대표이미지 칸에 사진을 넣었다. 저장 · 수정요청은
+ *   누르지 않으므로 몰 반영이 아니다 — 실행은 `reconciling` 으로 남고, 운영자가 Wing 에서 저장한 뒤
+ *   "반영됨으로 표시"(`/applied`) 해야 `succeeded` 가 된다.
+ * - `definitive_failure`: 확장이 실패라고 답했다(아무것도 올라가지 않음).
+ * - `uncertain`: 확장과의 통신 자체가 끊겼다(올라갔는지 모름).
  */
 export const ThumbnailExecutionReportRequestSchema = z.discriminatedUnion('outcome', [
   z.object({
-    outcome: z.literal('succeeded'),
+    outcome: z.literal('uploaded_pending_save'),
     screenshotUrl: z.string().trim().min(1).max(2048).optional(),
     externalId: z.string().trim().min(1).max(120).optional(),
   }).strict(),
@@ -45,10 +50,15 @@ export const ThumbnailExecutionReportRequestSchema = z.discriminatedUnion('outco
 ]);
 export type ThumbnailExecutionReportRequest = z.infer<typeof ThumbnailExecutionReportRequestSchema>;
 
+/**
+ * 실행 결과. `success` 는 운영자가 반영을 확인한 `succeeded` 일 때만 참이다. 올리기만 한 실행은
+ * `status: 'reconciling'` 이고 `error` 가 운영자에게 할 일을 말한다.
+ */
 export const ThumbnailExecutionResultSchema = z.object({
   generationId: z.string().uuid(),
   executionId: z.string().uuid(),
   success: z.boolean(),
+  status: OperationStatusSchema,
   screenshotPath: z.string().nullable(),
   error: z.string().optional(),
 }).strict();

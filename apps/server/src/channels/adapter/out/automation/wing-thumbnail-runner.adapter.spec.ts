@@ -46,7 +46,7 @@ describe('WingThumbnailRunnerAdapter', () => {
     expect(spawned[0]!.args.at(-1)).toContain('/tmp/wing-upload-input-gen-1.png');
     spawned[0]!.proc.stdout.emit('data', Buffer.from('SUCCESS\n'));
     spawned[0]!.proc.emit('close', 0);
-    await expect(pending).resolves.toEqual({ outcome: 'succeeded', screenshotPath: '/tmp/wing-upload-gen-1.png' });
+    await expect(pending).resolves.toEqual({ outcome: 'uploaded_pending_save', screenshotPath: '/tmp/wing-upload-gen-1.png' });
   });
 
   it('reads an ERROR line as a definitive failure', async () => {

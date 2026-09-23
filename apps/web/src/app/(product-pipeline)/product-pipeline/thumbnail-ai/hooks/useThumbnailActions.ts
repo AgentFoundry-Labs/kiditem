@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import type { RecomposeVariantKey, ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { useAnalyze } from './useThumbnailAnalysis';
+import { wingUploadReached } from '../../_shared/lib/wing-registration';
 import {
   useApplyGeneration,
   useCancelGeneration,
@@ -139,8 +140,8 @@ export function useThumbnailActions(refetchGenerations: () => void, options: Opt
     setWingRegisteringIds((prev) => new Set(prev).add(gen.id));
     try {
       const result = await wingRegisterMutation.mutateAsync(gen.id);
-      if (result.success) {
-        toast.success('Wing 대표이미지 업로드 완료 — 열린 Wing 화면 확인 후 저장하세요');
+      if (wingUploadReached(result)) {
+        toast.success('Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요');
         markApplied(gen.id);
         options.onAfterClose?.();
       } else {

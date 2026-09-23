@@ -12,9 +12,11 @@ import {
   type ThumbnailRegistrationFields,
 } from '../lib/thumbnail-registration';
 import {
+  confirmWingThumbnailApplied,
   markWingThumbnailNotApplied,
   registerWingThumbnailViaExtension,
   resendWingThumbnailViaExtension,
+  wingUploadReached,
   type WingRegistrationResult,
 } from '../lib/wing-registration';
 
@@ -380,11 +382,13 @@ export function useBatchWingRegister() {
       for (const id of generationIds) {
         try {
           const result: WingRegistrationResult = await registerWingThumbnailViaExtension(id);
+          // 배치의 성공은 "Wing 수정 화면에 올렸다" 이다. 반영은 운영자가 저장 뒤 확인한다.
+          const uploaded = wingUploadReached(result);
           results.push({
             id,
-            success: result.success,
+            success: uploaded,
             screenshotPath: result.screenshotPath,
-            ...(result.error ? { error: result.error } : {}),
+            ...(!uploaded && result.error ? { error: result.error } : {}),
           });
         } catch (error) {
           results.push({
@@ -406,6 +410,15 @@ export function useResendWingRegistration() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (executionId: string) => resendWingThumbnailViaExtension(executionId),
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
+  });
+}
+
+/** "반영됨으로 표시" — 운영자가 Wing 에서 저장한 것을 확인했다. 성공으로 가는 유일한 길이다. */
+export function useConfirmRegistrationApplied() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (executionId: string) => confirmWingThumbnailApplied(executionId),
     onSettled: () => invalidateThumbnailRegistration(queryClient),
   });
 }

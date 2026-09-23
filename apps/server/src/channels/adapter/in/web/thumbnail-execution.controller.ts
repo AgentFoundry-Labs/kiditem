@@ -44,6 +44,16 @@ export class ThumbnailExecutionController {
     return this.executions.resend({ organizationId, executionId });
   }
 
+  /** 운영자의 "반영됨으로 표시" — Wing 에서 저장한 것을 확인했다. 성공으로 가는 유일한 길이다. */
+  @Post(':executionId/applied')
+  confirmApplied(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('executionId', new ParseUUIDPipe()) executionId: string,
+  ) {
+    return this.executions.confirmApplied({ organizationId, requestedByUserId: user?.id ?? null, executionId });
+  }
+
   /** 운영자의 "반영 안 됨으로 표시" — 살아 있는 실행을 실패로 끝내 새 반영을 연다. */
   @Post(':executionId/not-applied')
   markNotApplied(

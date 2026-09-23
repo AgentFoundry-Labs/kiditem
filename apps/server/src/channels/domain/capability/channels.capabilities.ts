@@ -56,14 +56,20 @@ export const CHANNELS_CAPABILITIES = [
     ownerDomain: "channels",
     ownerInputPort: "channels.submitWingThumbnail",
     description:
-      "Send one approved generated thumbnail (by generationId) to the product's Coupang Wing listing through the " +
-      "operator's browser session. The result says whether Wing accepted it and where the confirmation screenshot " +
-      "is stored. Use it only for a thumbnail the operator already approved; it does not generate images, does not " +
-      "touch other malls, and a rejected or unknown Wing result is not success.",
-    resultSummary: "대표 이미지를 쿠팡 윙에 반영했습니다.",
+      "Put one approved generated thumbnail (by generationId) into the representative-image slot of the product's " +
+      "Coupang Wing edit form. It does not press save: the result is success=false with status " +
+      "awaiting_operator_confirmation and a screenshot path until the operator saves it in Wing and confirms it in " +
+      "the KidItem web app, after which a replay returns success=true with status succeeded. Use it only for a " +
+      "thumbnail the operator already approved; it does not generate images, does not touch other malls, and a " +
+      "rejected or unknown Wing result is not success.",
+    resultSummary: "대표 이미지를 쿠팡 윙 수정 화면에 올렸습니다 — 운영자가 Wing 저장을 확인하면 반영됩니다.",
     inputSchema: z.object({ generationId: Identifier }).strict(),
     outputSchema: z
-      .object({ success: z.boolean(), screenshotPath: z.string().nullable() })
+      .object({
+        success: z.boolean(),
+        status: z.enum(["awaiting_operator_confirmation", "succeeded"]),
+        screenshotPath: z.string().nullable(),
+      })
       .strict(),
     effects: ["browser", "external_write", "db_write"],
     approvalRisk: "high",

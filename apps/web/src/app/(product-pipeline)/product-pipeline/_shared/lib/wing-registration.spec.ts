@@ -3,6 +3,7 @@ import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import {
   EXTENSION_REQUIRED_MESSAGE,
+  confirmWingThumbnailApplied,
   markWingThumbnailNotApplied,
   registerWingThumbnailViaExtension,
   resendWingThumbnailViaExtension,
@@ -48,7 +49,7 @@ describe('registerWingThumbnailViaExtension', () => {
     expect(mockedApiPost).not.toHaveBeenCalled();
   });
 
-  it('prepares a Channels execution, sends the unchanged message to the extension and reports success', async () => {
+  it('prepares a Channels execution, sends the unchanged message to the extension and reports the upload as waiting for the Wing save', async () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedApiPost
       .mockResolvedValueOnce(prepared)
@@ -68,7 +69,7 @@ describe('registerWingThumbnailViaExtension', () => {
       image: prepared.image,
     });
     expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
-      outcome: 'succeeded',
+      outcome: 'uploaded_pending_save',
       screenshotUrl: 'shot',
     });
   });
@@ -125,7 +126,7 @@ describe('registerWingThumbnailViaExtension', () => {
 
     expect(mockedApiPost).toHaveBeenNthCalledWith(1, `/api/channels/thumbnail-executions/${EXECUTION_ID}/resend`, {});
     expect(mockedSendToExtension).toHaveBeenCalledWith('extension-1', expect.objectContaining({ attemptId: EXECUTION_ID, action: 'registerWingThumbnail' }));
-    expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, { outcome: 'succeeded' });
+    expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, { outcome: 'uploaded_pending_save' });
     expect(mockedApiPost).not.toHaveBeenCalledWith('/api/channels/thumbnail-executions', expect.anything());
   });
 
@@ -135,5 +136,13 @@ describe('registerWingThumbnailViaExtension', () => {
     await markWingThumbnailNotApplied(EXECUTION_ID);
 
     expect(mockedApiPost).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION_ID}/not-applied`, {});
+  });
+
+  it('confirms the Wing save through the Channels applied route', async () => {
+    mockedApiPost.mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: true, status: 'succeeded', screenshotPath: null });
+
+    await expect(confirmWingThumbnailApplied(EXECUTION_ID)).resolves.toMatchObject({ success: true });
+
+    expect(mockedApiPost).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION_ID}/applied`, {});
   });
 });

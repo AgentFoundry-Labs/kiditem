@@ -9,9 +9,24 @@ const generationId = '00000000-0000-4000-8000-000000000004';
 const executionId = '00000000-0000-4000-8000-000000000005';
 
 describe('ChannelsWingThumbnailCapabilityAdapter', () => {
+  it('answers an upload with a pending receipt: the operator confirms the Wing save in the web app', async () => {
+    const executions = {
+      runOnServer: vi.fn().mockResolvedValue({
+        generationId, executionId, success: false, status: 'reconciling', screenshotPath: '/tmp/shot.png', error: 'Wing 수정 화면에 올렸습니다',
+      }),
+    };
+    const adapter = new ChannelsWingThumbnailCapabilityAdapter(executions as never);
+    await expect(adapter.submitWingThumbnail({
+      organizationId: ORGANIZATION_ID,
+      generationId,
+      ownerIdempotencyKey: `capability-invocation:${INVOCATION_ID}`,
+      requestHash: canonicalOwnerInputHash({ generationId }),
+    })).resolves.toEqual({ success: false, status: 'awaiting_operator_confirmation', screenshotPath: '/tmp/shot.png' });
+  });
+
   it('runs the Channels thumbnail execution on the server with the admitted owner key and canonical hash', async () => {
     const executions = {
-      runOnServer: vi.fn().mockResolvedValue({ generationId, executionId, success: true, screenshotPath: '/tmp/shot.png' }),
+      runOnServer: vi.fn().mockResolvedValue({ generationId, executionId, success: true, status: 'succeeded', screenshotPath: '/tmp/shot.png' }),
     };
     const adapter = new ChannelsWingThumbnailCapabilityAdapter(executions as never);
     const owner = {
@@ -20,7 +35,7 @@ describe('ChannelsWingThumbnailCapabilityAdapter', () => {
     };
 
     await expect(adapter.submitWingThumbnail({ organizationId: ORGANIZATION_ID, generationId, triggeredByUserId: USER_ID, ...owner }))
-      .resolves.toEqual({ success: true, screenshotPath: '/tmp/shot.png' });
+      .resolves.toEqual({ success: true, status: 'succeeded', screenshotPath: '/tmp/shot.png' });
     expect(executions.runOnServer).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       requestedByUserId: USER_ID,
@@ -31,7 +46,7 @@ describe('ChannelsWingThumbnailCapabilityAdapter', () => {
 
   it('fails the invocation when the mall refused the image', async () => {
     const executions = {
-      runOnServer: vi.fn().mockResolvedValue({ generationId, executionId, success: false, screenshotPath: null, error: '상품을 찾을 수 없습니다' }),
+      runOnServer: vi.fn().mockResolvedValue({ generationId, executionId, success: false, status: 'failed', screenshotPath: null, error: '상품을 찾을 수 없습니다' }),
     };
     const adapter = new ChannelsWingThumbnailCapabilityAdapter(executions as never);
     await expect(adapter.submitWingThumbnail({

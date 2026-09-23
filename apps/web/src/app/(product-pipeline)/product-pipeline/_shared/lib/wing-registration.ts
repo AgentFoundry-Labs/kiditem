@@ -22,7 +22,8 @@ interface ExtensionWingRegistrationResponse {
 }
 
 /**
- * 대표이미지 몰 반영(Channels 실행) — 준비 → 확장 업로드 → 보고.
+ * 대표이미지 몰 반영(Channels 실행) — 준비 → 확장 업로드 → 보고. 올린 것은 저장이 아니므로 결과는
+ * `status: 'reconciling'` 이고, 운영자가 Wing 에서 저장한 뒤 `confirmWingThumbnailApplied` 로 끝낸다.
  *
  * 확장이 실패라고 답하면(로그인 대기 포함) 아무것도 올라가지 않은 것이라 `definitive_failure`,
  * 확장과의 통신 자체가 끊기면 올라갔는지 모르므로 `uncertain` 으로 보고한다.
@@ -43,6 +44,16 @@ export async function resendWingThumbnailViaExtension(executionId: string): Prom
     {},
   );
   return uploadAndReport(extensionId, prepared);
+}
+
+/** 운영자의 "반영됨으로 표시" — Wing 에서 저장한 것을 확인했다. */
+export function confirmWingThumbnailApplied(executionId: string): Promise<WingRegistrationResult> {
+  return apiClient.post<WingRegistrationResult>(`/api/channels/thumbnail-executions/${executionId}/applied`, {});
+}
+
+/** 확장이 Wing 수정 화면에 올렸고 운영자의 저장 확인을 기다린다(또는 이미 확인됐다). */
+export function wingUploadReached(result: WingRegistrationResult): boolean {
+  return result.success || result.status === 'reconciling';
 }
 
 /** 운영자의 "반영 안 됨으로 표시". 같은 생성에 새 반영을 열어 준다. */
@@ -79,8 +90,9 @@ async function uploadAndReport(extensionId: string, prepared: ThumbnailExecution
     throw new Error(reported?.error ?? message);
   }
 
+  // 확장은 Wing 수정 화면의 대표이미지 칸에 넣을 뿐 저장하지 않는다 — 운영자가 저장하고 확인해야 반영이다.
   return report(prepared.executionId, {
-    outcome: 'succeeded',
+    outcome: 'uploaded_pending_save',
     ...(extensionResult.screenshotUrl ? { screenshotUrl: extensionResult.screenshotUrl } : {}),
   });
 }

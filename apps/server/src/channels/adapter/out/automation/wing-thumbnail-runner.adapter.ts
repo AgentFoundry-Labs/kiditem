@@ -24,7 +24,7 @@ export class WingThumbnailRunnerAdapter implements WingThumbnailRunnerPort {
   }
 
   async upload(input: { productName: string; image: { dataUrl: string; filename: string } }): Promise<
-    | { outcome: 'succeeded'; screenshotPath: string | null }
+    | { outcome: 'uploaded_pending_save'; screenshotPath: string | null }
     | { outcome: 'definitive_failure'; error: string }
   > {
     if (this.isBlocked()) {
@@ -56,7 +56,7 @@ export class WingThumbnailRunnerAdapter implements WingThumbnailRunnerPort {
       proc.on('close', () => {
         this.logger.log(`playwriter stdout: ${stdout.trim()}`);
         if (stdout.includes('SUCCESS')) {
-          resolve({ outcome: 'succeeded', screenshotPath });
+          resolve({ outcome: 'uploaded_pending_save', screenshotPath });
         } else {
           const message = stdout.match(/ERROR:(.+)/)?.[1]?.trim() || stderr.trim() || 'Unknown error';
           resolve({ outcome: 'definitive_failure', error: message });

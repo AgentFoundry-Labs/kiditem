@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  THUMBNAIL_CONFIRMABLE_STATUSES,
   THUMBNAIL_REPORTABLE_STATUSES,
+  thumbnailConfirmationTransition,
   acceptsThumbnailReport,
   resolveThumbnailAccount,
   thumbnailReportTransition,
@@ -34,8 +36,13 @@ describe('thumbnailUpdateIdempotencyKey', () => {
 });
 
 describe('thumbnailReportTransition', () => {
-  it('records success only when the mall accepted the image', () => {
-    expect(thumbnailReportTransition({ outcome: 'succeeded' })).toMatchObject({ status: 'succeeded', providerOutcome: 'succeeded' });
+  it('never records an upload as success: it waits for the operator to confirm the save in Wing', () => {
+    expect(thumbnailReportTransition({ outcome: 'uploaded_pending_save' })).toEqual({
+      status: 'reconciling',
+      providerOutcome: 'uncertain',
+      errorCode: 'thumbnail_awaiting_confirmation',
+      errorMessage: 'Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요',
+    });
   });
   it('keeps a rejection and an unknown outcome apart', () => {
     expect(thumbnailReportTransition({ outcome: 'definitive_failure', error: 'login' }))
@@ -53,5 +60,12 @@ describe('thumbnailReportTransition', () => {
   it('publishes the reportable states as the one list the store filters by', () => {
     expect([...THUMBNAIL_REPORTABLE_STATUSES].sort()).toEqual(['executing', 'reconciling']);
     for (const status of THUMBNAIL_REPORTABLE_STATUSES) expect(acceptsThumbnailReport(status)).toBe(true);
+  });
+});
+
+describe('thumbnailConfirmationTransition', () => {
+  it('is the only way to success and applies only to an upload waiting for the operator', () => {
+    expect(thumbnailConfirmationTransition()).toEqual({ status: 'succeeded', providerOutcome: 'succeeded', errorCode: null, errorMessage: null });
+    expect(THUMBNAIL_CONFIRMABLE_STATUSES).toEqual(['reconciling']);
   });
 });

@@ -25,7 +25,10 @@ import {
 } from '../../../domain/exception/channel-business-error';
 import { freezeProductRegistrationPayload, type RegistrationSubmissionJson } from '../../../domain/registration/registration-submission-payload';
 import {
+  THUMBNAIL_CONFIRMABLE_STATUSES,
+  THUMBNAIL_REPORTABLE_STATUSES,
   resolveThumbnailAccount,
+  thumbnailConfirmationTransition,
   thumbnailReportTransition,
   thumbnailUpdateIdempotencyKey,
   type ThumbnailUpdatePayload,
@@ -84,16 +87,33 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     executionId: string;
     report: ThumbnailExecutionReportRequest;
   }): Promise<ThumbnailExecutionResult> {
-    const succeeded = input.report.outcome === 'succeeded' ? input.report : null;
-    const applied = await this.persistence.applyReport({
+    const uploaded = input.report.outcome === 'uploaded_pending_save' ? input.report : null;
+    return this.settle({
       organizationId: input.organizationId,
       executionId: input.executionId,
       transition: thumbnailReportTransition(input.report),
-      screenshotPath: succeeded?.screenshotUrl ?? null,
-      externalId: succeeded?.externalId ?? null,
+      acceptFrom: THUMBNAIL_REPORTABLE_STATUSES,
+      screenshotPath: uploaded?.screenshotUrl ?? null,
+      externalId: uploaded?.externalId ?? null,
     });
+  }
+
+  /** 운영자의 "반영됨으로 표시" — Wing 에서 저장한 것을 확인했다. 성공으로 가는 유일한 길이다. */
+  confirmApplied(input: { organizationId: string; requestedByUserId: string | null; executionId: string }): Promise<ThumbnailExecutionResult> {
+    return this.settle({
+      organizationId: input.organizationId,
+      executionId: input.executionId,
+      transition: thumbnailConfirmationTransition(),
+      acceptFrom: THUMBNAIL_CONFIRMABLE_STATUSES,
+      screenshotPath: null,
+      externalId: null,
+    });
+  }
+
+  private async settle(input: Parameters<ThumbnailExecutionPersistencePort['applyReport']>[0]): Promise<ThumbnailExecutionResult> {
+    const applied = await this.persistence.applyReport(input);
     if (applied.mode === 'not_found') throw new ChannelNotFoundError('썸네일 반영 실행을 찾을 수 없습니다');
-    if (applied.mode === 'rejected') throw new ChannelConflictError(`이 실행은 이미 끝났습니다(${applied.status})`);
+    if (applied.mode === 'rejected') throw new ChannelConflictError(`이 실행은 지금 받을 수 없습니다(${applied.status})`);
     return toResult(applied.execution);
   }
 
@@ -121,8 +141,12 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     }));
     if (created.mode === 'live_conflict') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
     if (created.mode === 'replay') {
-      if (created.execution.status === 'succeeded' || created.execution.status === 'failed') return toResult(created.execution);
-      throw new ChannelUnavailableError(RECONCILIATION_PENDING);
+      // 올리고 운영자 확인을 기다리는 실행은 그 영수증을 돌려준다. 결과 자체를 모르는 실행만 503 이다.
+      const { execution } = created;
+      if (execution.status === 'reconciling' && execution.lastErrorCode === 'thumbnail_outcome_unknown') {
+        throw new ChannelUnavailableError(RECONCILIATION_PENDING);
+      }
+      return toResult(execution);
     }
 
     let outcome: Awaited<ReturnType<WingThumbnailRunnerPort['upload']>>;
@@ -137,6 +161,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
         organizationId: input.organizationId,
         executionId: created.executionId,
         transition: thumbnailReportTransition({ outcome: 'uncertain', error: message.slice(0, 2_000) || 'Wing upload failed' }),
+        acceptFrom: THUMBNAIL_REPORTABLE_STATUSES,
         screenshotPath: null,
         externalId: null,
       });
@@ -145,10 +170,11 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     const applied = await this.persistence.applyReport({
       organizationId: input.organizationId,
       executionId: created.executionId,
-      transition: thumbnailReportTransition(outcome.outcome === 'succeeded'
-        ? { outcome: 'succeeded' }
+      transition: thumbnailReportTransition(outcome.outcome === 'uploaded_pending_save'
+        ? { outcome: 'uploaded_pending_save' }
         : { outcome: 'definitive_failure', error: outcome.error.slice(0, 2_000) || 'Unknown error' }),
-      screenshotPath: outcome.outcome === 'succeeded' ? outcome.screenshotPath : null,
+      acceptFrom: THUMBNAIL_REPORTABLE_STATUSES,
+      screenshotPath: outcome.outcome === 'uploaded_pending_save' ? outcome.screenshotPath : null,
       externalId: null,
     });
     if (applied.mode !== 'applied') throw new ChannelConflictError('Wing registration execution changed.');
@@ -232,7 +258,8 @@ function toResult(row: ThumbnailExecutionRow): ThumbnailExecutionResult {
     generationId: row.generationId,
     executionId: row.id,
     success,
-    screenshotPath: success ? row.screenshotPath : null,
+    status: row.status,
+    screenshotPath: row.screenshotPath,
     ...(success ? {} : { error: row.lastErrorMessage ?? 'Wing upload failed' }),
   };
 }

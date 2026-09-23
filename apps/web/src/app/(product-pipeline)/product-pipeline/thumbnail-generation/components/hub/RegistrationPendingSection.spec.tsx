@@ -50,13 +50,23 @@ describe('RegistrationPendingSection checking actions', () => {
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
     vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href.endsWith('/resend')
       ? { executionId: EXECUTION, generationId: G1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
-      : { generationId: G1, executionId: EXECUTION, success: true, screenshotPath: null }));
+      : { generationId: G1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null }));
     renderSection();
 
     fireEvent.click(await screen.findByRole('button', { name: '다시 보내기' }));
 
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/report`, { outcome: 'succeeded' }));
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/report`, { outcome: 'uploaded_pending_save' }));
     expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/resend`, {});
     expect(apiClient.post).not.toHaveBeenCalledWith('/api/channels/thumbnail-executions', expect.anything());
+  });
+
+  it('records success only when the operator confirms the Wing save', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ generationId: G1, executionId: EXECUTION, success: true, status: 'succeeded', screenshotPath: null });
+    renderSection();
+
+    expect(await screen.findByText('Wing 저장 확인 필요')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '반영됨으로 표시' }));
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/applied`, {}));
   });
 });

@@ -14,8 +14,10 @@ export const CHANNELS_THUMBNAIL_EXECUTION_PORT = Symbol('CHANNELS_THUMBNAIL_EXEC
  * - `prepare` 는 확장 경로다: 실행을 `executing` 으로 만들고 확장에 넘길 사진을 돌려준다.
  *   같은 생성에 살아 있는 실행(`prepared` · `executing` · `reconciling`)이 있으면 409.
  * - `report` 는 확장 결과를 받는다. 끝난 실행에 온 보고는 409, `reconciling` 은 한 번 더 받는다.
- * - `runOnServer` 는 Agent 경로다(개발 서버 전용 Playwright, 운영에서는 503). owner 키가 같으면
- *   같은 실행을 다시 돌려준다.
+ *   Wing 수정 화면에 올린 보고(`uploaded_pending_save`)도 성공이 아니라 `reconciling` 이다.
+ * - `confirmApplied` 는 운영자의 "반영됨으로 표시" 다. `reconciling` 에서만 받고 성공으로 가는 유일한 길이다.
+ * - `runOnServer` 는 Agent 경로다(개발 서버 전용 Playwright, 운영에서는 503). 올린 결과는 운영자
+ *   확인을 기다리는 영수증(`status: 'reconciling'`)이다. owner 키가 같으면 기록된 결과를 다시 돌려준다.
  * - `listLatest` 는 생성마다 가장 최근 실행이다. 운영자가 치운 실패는 빠진다.
  * - `dismissFailed` 는 가장 최근 실패를 화면에서 치운다(`resultJson.dismissedAt`). 행은 지우지 않는다.
  * - `resend` 는 결과를 모르는 실행(`executing` · `reconciling`)의 동결 사진을 확장에 다시 보낼 수 있게
@@ -48,6 +50,11 @@ export interface ChannelsThumbnailExecutionPort {
   listLatest(input: { organizationId: string; generationIds: readonly string[] }): Promise<ThumbnailExecutionStatus[]>;
   dismissFailed(input: { organizationId: string; generationId: string }): Promise<{ dismissed: boolean }>;
   resend(input: { organizationId: string; executionId: string }): Promise<ThumbnailExecutionPrepareResponse>;
+  confirmApplied(input: {
+    organizationId: string;
+    requestedByUserId: string | null;
+    executionId: string;
+  }): Promise<ThumbnailExecutionResult>;
   markNotApplied(input: {
     organizationId: string;
     requestedByUserId: string | null;

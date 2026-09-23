@@ -10,6 +10,7 @@ import {
   useGenerationList,
   useBatchWingRegister,
   useClearRegistrationError,
+  useConfirmRegistrationApplied,
   useMarkRegistrationNotApplied,
   useResendWingRegistration,
   type ThumbnailGenerationListItem,
@@ -68,6 +69,7 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
   const clearError = useClearRegistrationError();
   const resend = useResendWingRegistration();
   const markNotApplied = useMarkRegistrationNotApplied();
+  const confirmApplied = useConfirmRegistrationApplied();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [results, setResults] = useState<WingBatchItemResult[] | null>(null);
@@ -105,7 +107,7 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
 
   const handleResend = (executionId: string) => {
     resend.mutate(executionId, {
-      onSuccess: () => toast.success('다시 보냈습니다 — 쿠팡에 반영됐습니다'),
+      onSuccess: () => toast.success('Wing 수정 화면에 다시 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요'),
       onError: (err) => toast.error(err instanceof Error ? err.message : '다시 보내기에 실패했습니다'),
     });
   };
@@ -115,7 +117,13 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
       onError: (err) => toast.error(err instanceof Error ? err.message : '표시에 실패했습니다'),
     });
   };
-  const checkingBusy = resend.isPending || markNotApplied.isPending;
+  const handleConfirmApplied = (executionId: string) => {
+    confirmApplied.mutate(executionId, {
+      onSuccess: () => toast.success('반영됨으로 표시했습니다'),
+      onError: (err) => toast.error(err instanceof Error ? err.message : '표시에 실패했습니다'),
+    });
+  };
+  const checkingBusy = resend.isPending || markNotApplied.isPending || confirmApplied.isPending;
 
   const failedIds = items.filter((g) => g.registrationStatus === 'failed').map((g) => g.id);
   const handleClearAllErrors = () => {
@@ -137,8 +145,8 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
       setResults(res.results);
       const ok = res.results.filter((r) => r.success).length;
       const fail = res.results.length - ok;
-      if (fail === 0) toast.success(`쿠팡 등록 완료 · 성공 ${ok}장`);
-      else toast.warning(`쿠팡 등록 완료 · 성공 ${ok} / 실패 ${fail}`);
+      if (fail === 0) toast.success(`Wing 수정 화면에 ${ok}장 올림 — Wing에서 저장한 뒤 반영됨으로 표시하세요`);
+      else toast.warning(`Wing 수정 화면에 ${ok}장 올림 / 실패 ${fail} — 올린 것은 저장 뒤 반영됨으로 표시하세요`);
       setSelectedIds(new Set());
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '배치 등록에 실패했습니다');
@@ -248,6 +256,7 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
                   onClearError={() => group.items.forEach((i) => handleClearError(i.id))}
                   onResend={handleResend}
                   onMarkNotApplied={handleMarkNotApplied}
+                  onConfirmApplied={handleConfirmApplied}
                   checkingBusy={checkingBusy}
                 />
               );
@@ -301,6 +310,7 @@ function RegistrationPendingCard({
   onClearError,
   onResend,
   onMarkNotApplied,
+  onConfirmApplied,
   checkingBusy,
 }: {
   group: RegGroup;
@@ -310,6 +320,7 @@ function RegistrationPendingCard({
   onClearError: () => void;
   onResend: (executionId: string) => void;
   onMarkNotApplied: (executionId: string) => void;
+  onConfirmApplied: (executionId: string) => void;
   checkingBusy: boolean;
 }) {
   const item = group.representative;
@@ -366,10 +377,21 @@ function RegistrationPendingCard({
         <p className="text-[11px] font-bold text-gray-900 truncate">{productName}</p>
         {!anyFailed && anyChecking && checking?.registrationExecutionId && (
           <div className="mt-0.5">
-            <p className="text-[10px] font-bold text-amber-600 truncate" title="몰에 반영됐는지 아직 모릅니다">
-              확인 중
+            <p className="text-[10px] font-bold text-amber-600 truncate" title={checking.registrationError ?? '몰에 반영됐는지 아직 모릅니다'}>
+              Wing 저장 확인 필요
             </p>
-            <div className="mt-1 flex gap-1">
+            <div className="mt-1 flex flex-wrap gap-1">
+              <button
+                type="button"
+                disabled={checkingBusy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onConfirmApplied(checking.registrationExecutionId!);
+                }}
+                className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+              >
+                반영됨으로 표시
+              </button>
               <button
                 type="button"
                 disabled={checkingBusy}

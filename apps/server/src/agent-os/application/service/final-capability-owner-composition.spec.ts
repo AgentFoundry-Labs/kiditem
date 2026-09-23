@@ -76,7 +76,7 @@ function ownerCompositions() {
     })),
   };
   const wing: ChannelsWingThumbnailCapabilityPort = {
-    submitWingThumbnail: vi.fn(async () => ({ success: true, screenshotPath: null })),
+    submitWingThumbnail: vi.fn(async () => ({ success: true as const, status: 'succeeded' as const, screenshotPath: null })),
   };
   const executions = {
     prepareTargetExecution: vi.fn(),

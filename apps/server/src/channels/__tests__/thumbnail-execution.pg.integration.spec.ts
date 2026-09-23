@@ -21,6 +21,7 @@ import { ThumbnailExecutionPersistenceAdapter } from '../adapter/out/persistence
 import { ThumbnailExecutionService } from '../application/service/registration/thumbnail-execution.service';
 import type { WingThumbnailRunnerPort } from '../application/port/out/automation/wing-thumbnail-runner.port';
 import { ChannelBusinessError } from '../domain/exception/channel-business-error';
+import { THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE as AWAITING } from '../domain/registration/thumbnail-update';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { StockoutCheckPersistenceAdapter } from '../adapter/out/persistence/stockout-check.persistence.adapter';
@@ -33,7 +34,7 @@ function fakeRunner() {
   const runner = {
     blocked: false,
     calls: 0,
-    next: (): ReturnType<WingThumbnailRunnerPort['upload']> => Promise.resolve({ outcome: 'succeeded', screenshotPath: '/tmp/wing.png' }),
+    next: (): ReturnType<WingThumbnailRunnerPort['upload']> => Promise.resolve({ outcome: 'uploaded_pending_save', screenshotPath: '/tmp/wing.png' }),
     isBlocked: () => runner.blocked,
     upload: (_input: Parameters<WingThumbnailRunnerPort['upload']>[0]) => { runner.calls += 1; return runner.next(); },
   };
@@ -112,7 +113,13 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     return { product, listings, workspace, generation };
   }
 
-  it('prepares an executing thumbnail_update execution, records the extension success and lists it as the latest', async () => {
+  /** 확장이 Wing 수정 화면에 올리고, 운영자가 Wing 에서 저장한 뒤 반영됨으로 표시한다. */
+  async function uploadAndConfirm(executionId: string) {
+    await service.report({ organizationId: ORG, requestedByUserId: USER, executionId, report: { outcome: 'uploaded_pending_save' } });
+    return service.confirmApplied({ organizationId: ORG, requestedByUserId: USER, executionId });
+  }
+
+  it('prepares an executing thumbnail_update execution, waits for the operator after the upload and records success only on confirmation', async () => {
     const { account, listing, workspace, generation } = await listingGeneration();
 
     const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id });
@@ -144,11 +151,17 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
 
     await expect(service.report({
       organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId,
-      report: { outcome: 'succeeded', screenshotUrl: 'chrome-extension://wing/shot.png', externalId: 'seller-1' },
+      report: { outcome: 'uploaded_pending_save', screenshotUrl: 'chrome-extension://wing/shot.png', externalId: 'seller-1' },
     })).resolves.toEqual({
-      generationId: generation.id, executionId: prepared.executionId, success: true, screenshotPath: 'chrome-extension://wing/shot.png',
+      generationId: generation.id, executionId: prepared.executionId, success: false, status: 'reconciling',
+      screenshotPath: 'chrome-extension://wing/shot.png', error: AWAITING,
     });
+    await expect(service.listLatest({ organizationId: ORG, generationIds: [generation.id] }))
+      .resolves.toMatchObject([{ status: 'reconciling', providerOutcome: 'uncertain', error: AWAITING, screenshotPath: 'chrome-extension://wing/shot.png' }]);
 
+    await expect(service.confirmApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId })).resolves.toEqual({
+      generationId: generation.id, executionId: prepared.executionId, success: true, status: 'succeeded', screenshotPath: 'chrome-extension://wing/shot.png',
+    });
     await expect(service.listLatest({ organizationId: ORG, generationIds: [generation.id] })).resolves.toEqual([{
       generationId: generation.id,
       executionId: prepared.executionId,
@@ -186,24 +199,37 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id })))
       .toEqual({ kind: 'conflict', message: '이 썸네일은 이미 반영 중입니다' });
 
-    await expect(report({ outcome: 'succeeded' })).resolves.toMatchObject({ success: true });
+    await expect(report({ outcome: 'uploaded_pending_save' })).resolves.toMatchObject({ success: false, status: 'reconciling' });
+    await expect(service.confirmApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId }))
+      .resolves.toMatchObject({ success: true, status: 'succeeded' });
     await expect(service.listLatest({ organizationId: ORG, generationIds: [generation.id] }))
       .resolves.toMatchObject([{ status: 'succeeded', providerOutcome: 'succeeded', error: null }]);
 
     expect(await rejection(report({ outcome: 'definitive_failure', error: 'late' }))).toMatchObject({ kind: 'conflict' });
     expect(await rejection(service.report({
-      organizationId: ORG, requestedByUserId: USER, executionId: randomUUID(), report: { outcome: 'succeeded' },
+      organizationId: ORG, requestedByUserId: USER, executionId: randomUUID(), report: { outcome: 'uploaded_pending_save' },
     }))).toMatchObject({ kind: 'not_found' });
+  });
+
+  it('accepts the operator confirmation only after an upload is waiting for it', async () => {
+    const { generation } = await listingGeneration();
+    const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id });
+    const confirm = () => service.confirmApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId });
+
+    expect(await rejection(confirm())).toMatchObject({ kind: 'conflict' });
+    await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'definitive_failure', error: '로그인 필요' } });
+    expect(await rejection(confirm())).toMatchObject({ kind: 'conflict' });
+    expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } })).toMatchObject({ status: 'failed' });
   });
 
   it('records a definitive failure, lets the operator dismiss it from the latest list and keeps the row', async () => {
     const { generation } = await listingGeneration();
     const first = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id });
-    await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: first.executionId, report: { outcome: 'succeeded' } });
+    await uploadAndConfirm(first.executionId);
     const second = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id });
     await expect(service.report({
       organizationId: ORG, requestedByUserId: USER, executionId: second.executionId, report: { outcome: 'definitive_failure', error: '로그인 필요' },
-    })).resolves.toEqual({ generationId: generation.id, executionId: second.executionId, success: false, screenshotPath: null, error: '로그인 필요' });
+    })).resolves.toEqual({ generationId: generation.id, executionId: second.executionId, success: false, status: 'failed', screenshotPath: null, error: '로그인 필요' });
     await expect(service.listLatest({ organizationId: ORG, generationIds: [generation.id] }))
       .resolves.toMatchObject([{ executionId: second.executionId, status: 'failed', providerOutcome: 'definitive_failure', error: '로그인 필요' }]);
 
@@ -216,14 +242,16 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       .toMatchObject({ status: 'failed', resultJson: expect.objectContaining({ dismissedAt: expect.any(String) }) });
   });
 
-  it('replays an Agent owner key without another upload and refuses a drifted request hash', async () => {
+  it('answers an Agent run with a pending receipt until the operator confirms, replays it by owner key and refuses a drifted request hash', async () => {
     const { generation } = await listingGeneration();
     const owner = { ownerIdempotencyKey: `capability-invocation:${randomUUID()}`, requestHash: canonicalOwnerInputHash({ generationId: generation.id }) };
     const input = { organizationId: ORG, requestedByUserId: USER, generationId: generation.id, owner };
 
     const first = await service.runOnServer(input);
-    expect(first).toMatchObject({ success: true, screenshotPath: '/tmp/wing.png' });
+    expect(first).toMatchObject({ success: false, status: 'reconciling', screenshotPath: '/tmp/wing.png', error: AWAITING });
     await expect(service.runOnServer(input)).resolves.toEqual(first);
+    await service.confirmApplied({ organizationId: ORG, requestedByUserId: USER, executionId: first.executionId });
+    await expect(service.runOnServer(input)).resolves.toMatchObject({ success: true, status: 'succeeded', screenshotPath: '/tmp/wing.png' });
     expect(runner.calls).toBe(1);
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: first.executionId } }))
       .toMatchObject({ ownerIdempotencyKey: owner.ownerIdempotencyKey, requestHash: owner.requestHash, idempotencyKey: `thumbnail_update:${owner.ownerIdempotencyKey}` });
@@ -261,7 +289,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: theirs.generation.id }))).toMatchObject({ kind: '404' });
     const prepared = await service.prepare({ organizationId: OTHER_ORGANIZATION_ID, requestedByUserId: null, generationId: theirs.generation.id });
 
-    expect(await rejection(service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'succeeded' } })))
+    expect(await rejection(service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'uploaded_pending_save' } })))
       .toMatchObject({ kind: 'not_found' });
     await expect(service.listLatest({ organizationId: ORG, generationIds: [theirs.generation.id, mine.generation.id] })).resolves.toEqual([]);
     await expect(service.listLatest({ organizationId: OTHER_ORGANIZATION_ID, generationIds: [theirs.generation.id] }))
@@ -294,7 +322,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     await service.report({ ...input, executionId: prepared.executionId, report: { outcome: 'uncertain', error: 'port closed' } });
 
     await expect(service.markNotApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId }))
-      .resolves.toEqual({ generationId: generation.id, executionId: prepared.executionId, success: false, screenshotPath: null, error: '운영자가 반영되지 않았다고 표시함' });
+      .resolves.toEqual({ generationId: generation.id, executionId: prepared.executionId, success: false, status: 'failed', screenshotPath: null, error: '운영자가 반영되지 않았다고 표시함' });
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } }))
       .toMatchObject({ status: 'failed', providerOutcome: 'definitive_failure', lastErrorMessage: '운영자가 반영되지 않았다고 표시함' });
     await expect(service.prepare(input)).resolves.toMatchObject({ generationId: generation.id });
@@ -303,7 +331,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
   it('refuses to mark a finished execution as not applied', async () => {
     const { generation } = await listingGeneration();
     const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id });
-    await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'succeeded' } });
+    await uploadAndConfirm(prepared.executionId);
     expect(await rejection(service.markNotApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId })))
       .toMatchObject({ kind: 'conflict' });
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } }))
@@ -316,7 +344,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'uncertain', error: 'port closed' } });
 
     await expect(service.resend({ organizationId: ORG, executionId: prepared.executionId })).resolves.toEqual(prepared);
-    await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'succeeded' } });
+    await uploadAndConfirm(prepared.executionId);
     expect(await rejection(service.resend({ organizationId: ORG, executionId: prepared.executionId }))).toMatchObject({ kind: 'conflict' });
     expect(await rejection(service.resend({ organizationId: OTHER_ORGANIZATION_ID, executionId: prepared.executionId }))).toMatchObject({ kind: 'not_found' });
   });
@@ -351,7 +379,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: none.generation.id });
       expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } }))
         .toMatchObject({ channelAccountId: only.id, channelListingId: null });
-      await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'succeeded' } });
+      await uploadAndConfirm(prepared.executionId);
 
       await coupangAccount();
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: none.generation.id })))
