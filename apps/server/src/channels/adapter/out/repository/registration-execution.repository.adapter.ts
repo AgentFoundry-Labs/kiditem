@@ -472,6 +472,10 @@ export class RegistrationExecutionRepositoryAdapter
         // snapshot even when the target/product has since been edited.
         const frozen = freezeTargetExecutionSnapshot(input.snapshot);
         assertTargetRequestMatchesSnapshot(input.request, frozen.payload);
+        // Refuse before any provider call: a confirmation could not record an option without its KID.
+        if (frozen.payload.product.options.some((option) => option.optionCode === null)) {
+          throw new ConflictException('A KID must be issued before registration for every selected sales product option.');
+        }
 
         await tx.$queryRaw(Prisma.sql`
           SELECT id

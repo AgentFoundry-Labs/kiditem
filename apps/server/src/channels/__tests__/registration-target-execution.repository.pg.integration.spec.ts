@@ -24,6 +24,11 @@ import type {
 } from '@kiditem/shared/sales-product';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { productTransactionalRead } from './product-transactional-read.fake';
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import {
+  freezeProductRegistrationPayload,
+  type RegistrationSubmissionJson,
+} from '../domain/registration/registration-submission-payload';
 import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
 import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
@@ -848,17 +853,13 @@ describe('registration target execution repository (PostgreSQL)', () => {
     expect(await readGeneration(prisma)).toBe(generationBefore);
   });
 
-  it('refuses a composition confirmation for an option whose KID was never issued', async () => {
-    const change = await prepareTwoOptionCompositionChange(prisma, targets, repository, { unissuedSecondCode: true });
-    const before = await readChannelOptions(prisma, change.channelOptionIds);
-
-    await expect(repository.reportTarget(change.confirmedReport())).rejects.toThrow(ConflictException);
-    await expect(repository.reportTarget(change.confirmedReport())).rejects.toThrow('KID');
-
-    await expect(readChannelOptions(prisma, change.channelOptionIds)).resolves.toEqual(before);
+  it('refuses to prepare a composition change for an option whose KID was never issued', async () => {
+    await expect(prepareTwoOptionCompositionChange(prisma, targets, repository, { unissuedSecondCode: true }))
+      .rejects.toThrow(/KID must be issued before registration/);
+    await expect(prisma.productRegistrationExecution.count()).resolves.toBe(0);
   });
 
-  it('refuses a registration confirmation that would create a channel option without an issued KID', async () => {
+  it('refuses to prepare a registration whose selling option has no issued KID', async () => {
     const fixture = await createFixture(prisma, targets);
     const snapshot = {
       ...fixture.snapshot,
@@ -867,16 +868,41 @@ describe('registration target execution repository (PostgreSQL)', () => {
         options: fixture.snapshot.product.options.map((option) => ({ ...option, optionCode: null })),
       },
     };
-    const prepared = await repository.prepareTarget({
+
+    const prepare = repository.prepareTarget({
       organizationId: TEST_ORGANIZATION_ID,
       requestedByUserId: TEST_USER_ID,
       request: requestFor('target-unissued-create-1'),
       snapshot,
     });
+    await expect(prepare).rejects.toBeInstanceOf(ConflictException);
+    await expect(prepare).rejects.toThrow(/KID must be issued before registration/);
+    await expect(prisma.productRegistrationExecution.count()).resolves.toBe(0);
+  });
+
+  it('still refuses a confirmation that would create a channel option from a frozen option without a KID', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: requestFor('target-unissued-backstop-1'),
+      snapshot: fixture.snapshot,
+    });
     const started = await repository.startTarget({
       organizationId: TEST_ORGANIZATION_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
+    });
+    // Only a frozen payload written before the prepare guard existed can carry a null code.
+    const row = await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } });
+    const payload = row.submissionPayloadJson as unknown as TargetExecutionSnapshot;
+    const unissued = freezeProductRegistrationPayload({
+      ...payload,
+      product: { ...payload.product, options: payload.product.options.map((option) => ({ ...option, optionCode: null })) },
+    } as unknown as RegistrationSubmissionJson, new ChannelIntegrityAdapter().sha256);
+    await prisma.productRegistrationExecution.update({
+      where: { id: prepared.executionId },
+      data: { submissionPayloadJson: unissued.payload as Prisma.InputJsonValue, submissionPayloadHash: unissued.hash },
     });
 
     await expect(repository.reportTarget({
@@ -885,7 +911,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       requestedByUserId: TEST_USER_ID,
       report: {
         leaseToken: started.leaseToken!,
-        payloadHash: started.payloadHash,
+        payloadHash: unissued.hash,
         outcome: 'confirmed',
         evidence: {
           channelAccountId: fixture.accountId,
@@ -894,7 +920,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
           options: [{ salesProductOptionId: fixture.optionId, externalOptionId: 'provider-option-unissued' }],
         },
       },
-    })).rejects.toThrow(ConflictException);
+    })).rejects.toThrow(/KID must be issued/);
 
     await expect(prisma.channelListingOption.count({
       where: { organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'provider-option-unissued' },
