@@ -17,40 +17,29 @@ import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
-import {
-  ensureCandidateSalesProduct,
-  type CandidateSalesProductRegistrationDeps,
-} from '@/lib/candidate-sales-product-registration';
+import { registrationTargetApi, registrationTargetKeys } from '@/lib/registration-target-api';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
 import { useKidsPlayfulFromSourcing } from '../../../hooks/useKidsPlayfulFromSourcing';
 import TemplateSelectionModal from '@/app/(product-pipeline)/product-pipeline/_shared/components/detail-page/TemplateSelectionModal';
 import {
   candidatesApi,
-  productsApi,
   registrationStateFromPreparation,
   type CandidateRegistrationState,
   type ProductBasics,
   type ProductPreparationSelection,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
-import { salesProductInputFromCandidate } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/candidate-sales-products';
-import { prepareSavedCandidateDetailImage } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow';
 import {
   channelListingsApi,
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
 import { getInlineGenerationProgressLabel } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
 import ProductPreparationDraftDialog from './ProductPreparationDraftDialog';
 
-const CANDIDATE_SALES_PRODUCT_DEPS: CandidateSalesProductRegistrationDeps = {
-  findByCandidate: salesProductApi.findByCandidate,
-  update: salesProductApi.update,
-  createFromCandidates: salesProductApi.createFromCandidates,
-};
-
 interface ProductEditHeaderProps {
   productName: string;
   productId: string;
+  /** 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) — 등록 설정은 이 id 로 연다. */
+  salesProductId?: string | null;
   status?: SourcingCandidateStatus;
   registrationTarget?: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에서만 `null` 이다. */
@@ -77,6 +66,7 @@ interface ProductEditHeaderProps {
 export default function ProductEditHeader({
   productName,
   productId,
+  salesProductId = null,
   status = 'sourced',
   registrationTarget = null,
   registrationState = null,
@@ -112,44 +102,29 @@ export default function ProductEditHeader({
     enabled: preparationDialogOpen,
   });
 
+  /**
+   * "제품 등록 준비" = 이 판매상품 초안 × 고른 몰 계정의 등록 설정을 연다.
+   *
+   * 초안은 수집 시점부터 있으므로(KID-310 · ADR-0022) 여기서 만들 것이 없다 — 이름·
+   * 썸네일·상세페이지·판매가는 전부 초안 자체에 이미 있다(판매상품 편집이 정본).
+   * 같은 상품 × 몰 계정에 이미 설정이 있으면 서버가 그 설정을 그대로 돌려준다
+   * (부분 유일키, 사용자 결정 01:12) — 골라야 할 것이 없다.
+   */
   const createPreparationDraftMutation = useMutation({
     mutationFn: async (channelAccountId: string) => {
-      await ensureCandidateSalesProduct(
-        productId,
-        async (candidateId) => {
-          const detail = await productsApi.getDetail(candidateId);
-          const rendered = await prepareSavedCandidateDetailImage(candidateId, detail).catch(() => null);
-          return salesProductInputFromCandidate(
-            detail,
-            rendered?.status === 'ready' ? rendered.imageUrl : null,
-            {
-              name: productName === '(상품명 없음)' ? undefined : productName,
-              salePrice: basicInfo?.salePrice,
-            },
-          );
-        },
-        CANDIDATE_SALES_PRODUCT_DEPS,
-      );
-      void queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
-      return candidatesApi.createPreparationDraft(productId, {
-        channelAccountId,
-        displayName: productName,
-        registrationInput: preparationRegistrationInput(productName, basicInfo),
-        selectedThumbnailUrl,
-        selectedThumbnailGenerationId,
-        selectedThumbnailGenerationCandidateId,
-        selectedDetailPageGenerationId,
-        selectedDetailPageArtifactId: basicInfo?.selectedDetailPageArtifactId ?? null,
-        selectedDetailPageRevisionId: basicInfo?.selectedDetailPageRevisionId ?? null,
-      });
+      if (!salesProductId) {
+        throw new Error('이 후보에 연결된 판매상품 초안을 찾지 못했습니다.');
+      }
+      return registrationTargetApi.resolve({ salesProductId, channelAccountId });
     },
-    onSuccess: (data) => {
+    onSuccess: (target) => {
       setPreparationDialogOpen(false);
       toast.success('제품 등록 준비를 저장했습니다.', {
-        description: `준비 ID: ${data.preparationId}`,
+        description: `등록 설정 ID: ${target.id}`,
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: registrationTargetKeys.all });
     },
     onError: (err) => {
       toast.error(
@@ -190,10 +165,13 @@ export default function ProductEditHeader({
   };
 
   const accountScopedPreparation = registrationTarget?.channelAccountId ? registrationTarget : null;
+  // `registrationTargetApi.resolve` 는 상태가 없는 등록 설정을 돌려준다 — 방금 열었다는
+  // 사실 자체가 '등록 준비됨' 이다. 서버 재조회가 끝나면 `registrationTarget`(울타리
+  // 기준)이 그 자리를 대신한다.
   const preparationStatus = accountScopedPreparation?.status ??
-    createPreparationDraftMutation.data?.status ?? null;
+    (createPreparationDraftMutation.data ? 'draft' : null);
   const preparationId = accountScopedPreparation?.id ??
-    createPreparationDraftMutation.data?.preparationId ?? null;
+    createPreparationDraftMutation.data?.id ?? null;
   /**
    * 등록이 어디까지 갔는가는 울타리가 답한다(ADR-0014). 초안 행의 `status` 는 거울이라
    * 울타리와 어긋날 수 있고, 어긋난 거울을 믿으면 이미 마켓에 올라간 상품에 '제품 등록
@@ -431,27 +409,6 @@ export default function ProductEditHeader({
       </div>
     </div>
   );
-}
-
-function preparationRegistrationInput(
-  productName: string,
-  basicInfo: ProductBasics | null,
-): Record<string, unknown> {
-  if (!basicInfo) return { name: productName };
-  const {
-    selectedThumbnailUrl: _selectedThumbnailUrl,
-    selectedThumbnailGenerationId: _selectedThumbnailGenerationId,
-    selectedThumbnailGenerationCandidateId: _selectedThumbnailGenerationCandidateId,
-    selectedDetailPageGenerationId: _selectedDetailPageGenerationId,
-    selectedDetailPageArtifactId: _selectedDetailPageArtifactId,
-    selectedDetailPageRevisionId: _selectedDetailPageRevisionId,
-    thumbnailPreviewUrls: _thumbnailPreviewUrls,
-    // 몰 등록 값은 후보에만 산다 — 준비로 복사하면 아무도 읽지 않는 옛 사본이 된다.
-    mallRegisterValues: _mallRegisterValues,
-    mallRegisterShared: _mallRegisterShared,
-    ...registrationInput
-  } = basicInfo;
-  return { ...registrationInput, name: productName };
 }
 
 /** 울타리 상태를 사장님이 읽을 한 줄로. `none` 은 배지를 세우지 않는다. */

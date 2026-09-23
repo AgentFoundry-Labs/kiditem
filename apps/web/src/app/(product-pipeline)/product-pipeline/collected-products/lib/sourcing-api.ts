@@ -1,15 +1,13 @@
 import {
-  CreateProductPreparationInputSchema,
-  ProductPreparationCommandResultSchema,
   ProductPreparationStatusSchema,
   SourcingCandidateStatusSchema,
-  type CreateProductPreparationInput,
-  type ProductPreparationCommandResult,
   type ProductPreparationProjection,
   type SourcingCandidateStatus,
 } from '@kiditem/shared/sourcing';
 import { apiClient } from '@/lib/api-client';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import { salesProductApi } from '@/lib/sales-product-api';
+import type { SalesProduct, SalesProductUpdateInput } from '@kiditem/shared/sales-product';
 
 export type ProductStatus = SourcingCandidateStatus;
 
@@ -83,6 +81,8 @@ export interface SourcedProduct {
   organizationId?: string;
   name: string;
   status: ProductStatus;
+  /** 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) — 없으면 이관 전 구행이다. */
+  salesProductId: string | null;
   sourcePlatform: string;
   source_platform: string;
   sourceUrl: string | null;
@@ -140,6 +140,11 @@ export interface ProductDetailResponse {
   processed_data: Record<string, unknown> | null;
   image_urls: string[];
   images: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
+  /**
+   * 읽기 전용 basics 투영. 서버는 더 이상 합성 basics 를 주지 않는다 — 이 값은
+   * `salesProductId` 로 이어진 판매상품 초안에서 `productBasicsFromSalesProduct` 가
+   * 계산한다. 편집은 여기로 보내지 않는다(전부 `salesProductApi.update`/`replaceOptions`).
+   */
   basicInfo: ProductBasics;
   registrationTarget: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
@@ -152,8 +157,23 @@ export interface ProductDetailResponse {
    * 구버전 응답에는 없을 수 있어 `null` 로 정규화한다.
    */
   contentWorkspaceId: string | null;
+  /** 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) — 없으면 이관 전 구행이다. */
+  salesProductId: string | null;
+  /** 초안의 낙관적 동시성 버전. `salesProductApi.update`/`replaceOptions` 의 `expectedVersion`. */
+  salesProductVersion: number | null;
+  /** 초안 기준 등록 이미지(role 별). 초안이 없으면 빈 값. */
+  registrationImages: RegistrationImages;
+  /** 초안이 저장해 둔 대표 썸네일. 초안이 없거나 고른 적이 없으면 `null`. */
+  currentThumbnail: SalesProductCurrentThumbnailView | null;
   created_at: string;
   updated_at: string;
+}
+
+/** `SalesProductContentAssetPort.SalesProductCurrentThumbnail` 과 같은 모양. */
+export interface SalesProductCurrentThumbnailView {
+  url: string;
+  sourceThumbnailGenerationId: string | null;
+  sourceThumbnailCandidateId: string | null;
 }
 
 export interface RegistrationImages {
@@ -287,13 +307,6 @@ export type ProductPreparationSelection = Omit<
   registrationInput: Record<string, unknown>;
   updatedAt: string | null;
 };
-
-interface StatusResponse {
-  id: string;
-  status: ProductStatus;
-  is_processed: boolean;
-  error?: string;
-}
 
 export interface ScrapeUrlResponse {
   ok: boolean;
@@ -477,6 +490,18 @@ function normalizeRegistrationImages(value: unknown): RegistrationImages {
   };
 }
 
+function normalizeCurrentThumbnail(value: unknown): SalesProductCurrentThumbnailView | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const url = normalizeImageUrl(raw.url);
+  if (!url) return null;
+  return {
+    url,
+    sourceThumbnailGenerationId: typeof raw.sourceThumbnailGenerationId === 'string' ? raw.sourceThumbnailGenerationId : null,
+    sourceThumbnailCandidateId: typeof raw.sourceThumbnailCandidateId === 'string' ? raw.sourceThumbnailCandidateId : null,
+  };
+}
+
 const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'none'];
 
 /** 서버가 값을 안 줬거나 모르는 값이면 출처 미상 → `none`. 추측하지 않는다. */
@@ -595,6 +620,82 @@ function normalizeProductBasics(
   };
 }
 
+/**
+ * 판매상품 초안 → 읽기 전용 `ProductBasics` 투영.
+ *
+ * 편집 정본이 판매상품으로 옮겨간 뒤(KID-310 · ADR-0022), 후보 상세는 이 값을 그대로
+ * 보여주기만 한다 — WING 등록·몰 중립 초안처럼 아직 `ProductBasics` 모양을 그대로 쓰는
+ * 읽기 전용 소비자를 위한 다리다. 저장은 이 값을 거치지 않고 `salesProductApi.update`/
+ * `replaceOptions` 로 초안에 직접 간다.
+ *
+ * 판매가·정상가는 `unused` 가 아닌 옵션 중 가장 싼 값을 쓴다 — 목록 칸(`salePrice`)과
+ * 같은 규칙이다. 아직 하나도 가격이 없으면(= draft) 0 이다.
+ */
+function productBasicsFromSalesProduct(
+  product: SalesProduct,
+  media: { registrationImages: RegistrationImages; currentThumbnail: SalesProductCurrentThumbnailView | null },
+): ProductBasics {
+  const sellingOptions = product.options.filter((option) => option.supplyStatus !== 'unused');
+  const pricedOptions = sellingOptions.filter(
+    (option): option is typeof option & { salePrice: number } => option.salePrice !== null,
+  );
+  const cheapest = pricedOptions.length > 0
+    ? pricedOptions.reduce((min, option) => (option.salePrice < min.salePrice ? option : min))
+    : null;
+  const certification = product.certifications[0] ?? null;
+  const thumbnailUrls = product.imageUrls;
+  return {
+    name: product.name,
+    category: product.standardCategory ?? '',
+    description: product.description,
+    target: product.targetAudience ?? '',
+    ageGroup: product.ageGroup ?? '',
+    tags: [],
+    keywords: product.keywords,
+    optionNames: sellingOptions.length > 1
+      ? sellingOptions.map((option) => option.values.join(' / ')).filter(Boolean)
+      : [],
+    kcCertificationStatus: product.kcStatus === 'unknown' ? '' : product.kcStatus,
+    kcCertificationNumber: certification?.number ?? '',
+    kcCertificationImageUrl: certification?.imageUrl ?? '',
+    productSize: product.productSize ?? '',
+    colorVariantStatus: product.colorVariantNames.length > 0 ? 'multiple' : '',
+    colorVariantNames: product.colorVariantNames.join(', '),
+    boxSetStatus: product.boxSetQuantity ? 'set' : '',
+    boxSetQuantity: product.boxSetQuantity != null ? String(product.boxSetQuantity) : '',
+    originalPrice: cheapest?.normalPrice ?? 0,
+    salePrice: cheapest?.salePrice ?? 0,
+    salePriceSource: cheapest ? 'input' : 'none',
+    discountRate: 0,
+    costPrice: 0,
+    brand: product.brand ?? '',
+    manufacturer: product.manufacturer ?? '',
+    originCountry: product.originCountry ?? '',
+    modelName: product.modelName ?? '',
+    ownCode: product.ownCode ?? '',
+    taxType: product.taxType,
+    deliveryFee: product.deliveryFee ?? 0,
+    deliveryFeeType: product.deliveryFeeType ?? '',
+    certificationIssuer: certification?.issuer ?? '',
+    certificationField: certification?.field ?? '',
+    rocketBundleQuantity: 0,
+    rocketUnitCost: 0,
+    thumbnailUrls,
+    thumbnailPreviewUrls: thumbnailUrls,
+    registrationImages: media.registrationImages,
+    // 몰별 값은 이제 등록 대상(RegistrationTarget.registrationInput)에 산다 — 채널 계정이
+    // 있어야 읽을 수 있어 여기서는 비워 둔다. 공통값만 판매상품에 남아 있다.
+    mallRegisterValues: {},
+    mallRegisterShared: normalizeStringMap(product.registrationDefaults),
+    selectedThumbnailUrl: media.currentThumbnail?.url ?? thumbnailUrls[0] ?? null,
+    selectedThumbnailGenerationId: media.currentThumbnail?.sourceThumbnailGenerationId ?? null,
+    selectedThumbnailGenerationCandidateId: media.currentThumbnail?.sourceThumbnailCandidateId ?? null,
+    selectedDetailPageGenerationId: null,
+    selectedDetailPageArtifactId: null,
+    selectedDetailPageRevisionId: null,
+  };
+}
+
 function imageUrlFingerprint(url: string): string {
   try {
     return decodeURIComponent(url).toLowerCase().replace(/[?#].*$/, '');
@@ -705,6 +806,7 @@ export const productsApi = {
         organizationId: p.organizationId,
         name: p.name || rawData.title || '',
         status: SourcingCandidateStatusSchema.parse(p.status),
+        salesProductId: typeof p.salesProductId === 'string' && p.salesProductId ? p.salesProductId : null,
         sourcePlatform,
         source_platform: sourcePlatform,
         sourceUrl: p.sourceUrl ?? null,
@@ -745,14 +847,22 @@ export const productsApi = {
     const thumbnailUrl = selectBestThumbnailImage(hydratedRawData, images, p.thumbnailUrl || p.imageUrl || null);
     const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
     const registrationTarget = normalizeProductPreparation(p.registrationTarget);
-    const basicInfo = normalizeProductBasics(p.basicInfo, {
-      name: p.name || rawData.title || '',
-      category: p.category || '',
-      description: p.description || '',
-      tags: Array.isArray(p.tags) ? p.tags.filter((tag: unknown): tag is string => typeof tag === 'string') : [],
-      thumbnailUrls: images,
-      preparation: registrationTarget,
-    });
+    const salesProductId = typeof p.salesProductId === 'string' && p.salesProductId ? p.salesProductId : null;
+    const registrationImages = normalizeRegistrationImages(p.registrationImages);
+    const currentThumbnail = normalizeCurrentThumbnail(p.currentThumbnail);
+    // 편집 정본은 판매상품 초안이다(KID-310 · ADR-0022). 후보는 더 이상 합성 basics 를
+    // 주지 않으므로, 초안이 있으면 그 값을 basics 모양으로 옮겨 읽기 전용으로 보여준다.
+    const salesProduct = salesProductId ? await salesProductApi.get(salesProductId).catch(() => null) : null;
+    const basicInfo = salesProduct
+      ? productBasicsFromSalesProduct(salesProduct, { registrationImages, currentThumbnail })
+      : normalizeProductBasics(undefined, {
+        name: p.name || rawData.title || '',
+        category: p.category || '',
+        description: p.description || '',
+        tags: Array.isArray(p.tags) ? p.tags.filter((tag: unknown): tag is string => typeof tag === 'string') : [],
+        thumbnailUrls: images,
+        preparation: registrationTarget,
+      });
     return {
       id: p.id,
       name: p.name || rawData.title || '',
@@ -777,38 +887,25 @@ export const productsApi = {
         typeof p.contentWorkspaceId === 'string' && p.contentWorkspaceId
           ? p.contentWorkspaceId
           : null,
+      salesProductId,
+      salesProductVersion: salesProduct?.version ?? null,
+      registrationImages,
+      currentThumbnail,
       created_at: p.createdAt || '',
       updated_at: p.updatedAt || '',
     };
   },
 
-  async delete(id: string): Promise<{ ok: boolean }> {
-    return apiClient.delete<{ ok: boolean }>(`/api/sourcing/candidates/${id}`);
+  async delete(id: string): Promise<{
+    ok: boolean;
+    archivedCandidateImages?: number;
+    /** 그 후보의 판매상품 초안을 `unused` 로 내렸는가. 초안이 없으면 없다. */
+    draftRetired?: boolean;
+    /** 내리지 못한 이유(몰에 올라가 있다 등). 후보 삭제 자체는 막지 않는다. */
+    draftWarning?: string;
+  }> {
+    return apiClient.delete(`/api/sourcing/candidates/${id}`);
   },
-
-  async process(
-    id: string,
-    opts?: { generation_mode?: string }
-  ): Promise<{ ok: boolean; message: string }> {
-    await apiClient.post<{ ok: boolean }>(`/api/sourcing/candidates/${id}/quick-process`, {
-      task: opts?.generation_mode === 'image' ? 'thumbnail' : opts?.generation_mode === 'draft' ? 'detail' : 'all',
-    });
-    return { ok: true, message: 'AI 가공 작업이 시작되었습니다.' };
-  },
-
-  async cancel(id: string): Promise<{ ok: boolean }> {
-    return { ok: true };
-  },
-
-  async status(id: string): Promise<StatusResponse> {
-    const detail = await this.getDetail(id);
-    return {
-      id: detail.id,
-      status: detail.status,
-      is_processed: detail.is_processed,
-    };
-  },
-
 };
 
 export const sourcingApi = {
@@ -832,20 +929,15 @@ export const productThumbnailGenerationApi = {
   },
 };
 
-export type CreatePreparationDraftInput = CreateProductPreparationInput;
-
-export interface CreatePreparationDraftResponse {
-  preparationId: string;
-  status: 'draft';
-}
-
 export interface RejectCandidateResponse {
   ok: true;
 }
 
 export interface QuickProcessCandidateResponse {
   ok: true;
-  candidateId: string;
+  /** 이 초안의 원천 후보. 후보 없이 직접 만든 초안이면 `null`. */
+  candidateId: string | null;
+  salesProductId: string;
   href: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
@@ -855,84 +947,130 @@ export interface QuickProcessCandidateResponse {
 export type QuickProcessTask = 'all' | 'detail' | 'thumbnail';
 
 export const candidatesApi = {
-  async createPreparationDraft(
-    id: string,
-    body: CreatePreparationDraftInput,
-  ): Promise<CreatePreparationDraftResponse> {
-    const input = CreateProductPreparationInputSchema.parse(body);
-    const result = ProductPreparationCommandResultSchema.parse(
-      await apiClient.post<unknown>(`/api/sourcing/candidates/${id}/preparations`, input),
-    );
-    if (result.status !== 'draft' || result.listingId !== undefined) {
-      throw new Error('Preparation draft creation returned an invalid result.');
-    }
-    return { preparationId: result.preparationId, status: result.status };
-  },
+  /** 판매상품 초안의 AI 간편 처리 시작(썸네일·상세페이지). 대상은 초안이다(KID-310). */
   quickProcess: (
-    id: string,
+    salesProductId: string,
     task: QuickProcessTask,
     idempotencyKey: string,
   ) =>
     apiClient.post<QuickProcessCandidateResponse>(
-      `/api/sourcing/candidates/${id}/quick-process`,
+      `/api/products/sales-products/${encodeURIComponent(salesProductId)}/generation`,
       { task },
       { headers: { 'Idempotency-Key': idempotencyKey } },
-    ),
-  /**
-   * `RegistrationTarget` 이 없는 후보의 기본정보를 후보 자체에 저장한다.
-   * 채널 계정 선택 없이도 저장 가능하며, 준비가 생기면 registrationInput 이 이어받는다.
-   */
-  updateCandidateBasicInfo: (candidateId: string, body: UpdateProductBasicsInput) => {
-    const { basePreparationUpdatedAt: _ignored, ...basics } = body;
-    return apiClient.patch<{ ok: true }>(
-      `/api/sourcing/candidates/${encodeURIComponent(candidateId)}/basic-info`,
-      basics,
-    );
-  },
-  updateBasicInfo: (preparationId: string, body: UpdateProductBasicsInput) => {
-    const { basePreparationUpdatedAt, ...registrationInput } = body;
-    return apiClient.patch<ProductPreparationCommandResult>(
-      `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
-      {
-        ...(typeof body.name === 'string' && body.name.trim()
-          ? { displayName: body.name.trim() }
-          : {}),
-        registrationInput,
-        ...(basePreparationUpdatedAt !== undefined
-          ? { basePreparationUpdatedAt }
-          : {}),
-      },
-    );
-  },
-  selectThumbnail: (
-    preparationId: string,
-    body: {
-      selectedThumbnailUrl: string;
-      selectedThumbnailGenerationId?: string | null;
-      selectedThumbnailGenerationCandidateId?: string | null;
-    },
-  ) =>
-    apiClient.patch<ProductPreparationCommandResult>(
-      `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
-      body,
-    ),
-  selectDetailPage: (
-    preparationId: string,
-    body: {
-      selectedDetailPageGenerationId: string;
-      selectedDetailPageArtifactId?: string | null;
-      selectedDetailPageRevisionId?: string | null;
-    },
-  ) =>
-    apiClient.patch<ProductPreparationCommandResult>(
-      `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
-      body,
     ),
   reject: (id: string, reason?: string) =>
     apiClient.post<RejectCandidateResponse>(`/api/sourcing/candidates/${id}/reject`, { reason }),
   delete: (id: string) =>
-    apiClient.delete<{ ok: true }>(`/api/sourcing/candidates/${id}`),
+    apiClient.delete<{
+      ok: boolean;
+      archivedCandidateImages?: number;
+      draftRetired?: boolean;
+      draftWarning?: string;
+    }>(`/api/sourcing/candidates/${id}`),
 };
+
+/**
+ * basics 편집 폼 값 → 판매상품 초안 저장 입력.
+ *
+ * 판매가·정상가는 여기 없다 — 판매상품에서 가격은 옵션에 있다(`applyBasicsPriceToSalesProduct`).
+ * `optionNames`·`tags`·로켓 필드·몰별 값은 이 화면(수집상품 basics)에서 더 이상 쓰지 않는다 —
+ * 옵션은 옵션 표, 몰별 값은 `ChannelOverridesSection` 이 정본이다.
+ */
+export function salesProductUpdateInputFromBasics(
+  input: UpdateProductBasicsInput,
+  expectedVersion: number,
+): SalesProductUpdateInput {
+  const kcStatus = input.kcCertificationStatus === 'exists' || input.kcCertificationStatus === 'none'
+    ? input.kcCertificationStatus
+    : 'unknown';
+  const certificationNumber = input.kcCertificationNumber?.trim();
+  return {
+    expectedVersion,
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.category !== undefined ? { standardCategory: input.category || null } : {}),
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.target !== undefined ? { targetAudience: input.target || null } : {}),
+    ...(input.ageGroup !== undefined ? { ageGroup: input.ageGroup || null } : {}),
+    ...(input.keywords !== undefined ? { keywords: input.keywords } : {}),
+    ...(input.productSize !== undefined ? { productSize: input.productSize || null } : {}),
+    ...(input.colorVariantNames !== undefined
+      ? { colorVariantNames: parseCommaList(input.colorVariantNames) }
+      : {}),
+    ...(input.boxSetQuantity !== undefined
+      ? { boxSetQuantity: parsePositiveIntOrNull(input.boxSetQuantity) }
+      : {}),
+    ...(input.brand !== undefined ? { brand: input.brand || null } : {}),
+    ...(input.manufacturer !== undefined ? { manufacturer: input.manufacturer || null } : {}),
+    ...(input.originCountry !== undefined ? { originCountry: input.originCountry || null } : {}),
+    ...(input.modelName !== undefined ? { modelName: input.modelName || null } : {}),
+    ...(input.ownCode !== undefined ? { ownCode: input.ownCode || null } : {}),
+    ...(input.taxType !== undefined ? { taxType: input.taxType === 'tax_free' ? 'tax_free' : 'taxable' } : {}),
+    ...(input.deliveryFee !== undefined ? { deliveryFee: input.deliveryFee || null } : {}),
+    ...(input.deliveryFeeType !== undefined ? { deliveryFeeType: normalizeDeliveryFeeType(input.deliveryFeeType) } : {}),
+    ...(input.kcCertificationStatus !== undefined ? { kcStatus } : {}),
+    ...(certificationNumber
+      ? {
+        certifications: [{
+          number: certificationNumber,
+          ...(input.certificationIssuer?.trim() ? { issuer: input.certificationIssuer.trim() } : {}),
+          ...(input.certificationField?.trim() ? { field: input.certificationField.trim() } : {}),
+          ...(input.kcCertificationImageUrl?.trim() ? { imageUrl: input.kcCertificationImageUrl.trim() } : {}),
+        }],
+      }
+      : {}),
+  };
+}
+
+function parseCommaList(value: string): string[] {
+  return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
+function parsePositiveIntOrNull(value: string): number | null {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeDeliveryFeeType(value: string): SalesProductUpdateInput['deliveryFeeType'] {
+  const types = ['free', 'prepay', 'collect', 'collect_or_prepay'] as const;
+  return types.find((type) => type === value) ?? null;
+}
+
+/**
+ * basics 폼의 판매가·정상가를 초안의 판매(selling) 옵션 전체에 싣는다.
+ *
+ * 옵션마다 다른 가격을 매기는 것은 옵션 표의 일이다 — 이 폼은 "옵션이 아직 하나"인
+ * 상품(대개 수집 직후)을 위한 빠른 저장이라 모든 판매 옵션에 같은 값을 적용한다.
+ * 이미 같은 값이면 아무것도 보내지 않는다(WING 제출과 같은 규칙).
+ */
+export async function applyBasicsPriceToSalesProduct(
+  salesProductId: string,
+  salePrice: number,
+  normalPrice: number,
+): Promise<void> {
+  const product = await salesProductApi.get(salesProductId);
+  const unchanged = product.options.every((option) => option.supplyStatus === 'unused'
+    || (option.salePrice === (salePrice || null) && option.normalPrice === (normalPrice || null)));
+  if (unchanged) return;
+  await salesProductApi.replaceOptions(salesProductId, {
+    expectedVersion: product.version,
+    optionAxes: product.optionAxes,
+    options: product.options.map((option) => ({
+      id: option.id,
+      optionCode: option.optionCode ?? undefined,
+      values: option.values,
+      alias: option.alias,
+      barcode: option.barcode,
+      salePrice: option.supplyStatus === 'unused' ? option.salePrice : (salePrice || null),
+      normalPrice: option.supplyStatus === 'unused' ? option.normalPrice : (normalPrice || null),
+      supplyStatus: option.supplyStatus,
+      safetyStock: option.safetyStock,
+      components: option.components.map((component) => ({
+        masterProductId: component.masterProductId,
+        quantity: component.quantity,
+      })),
+    })),
+  });
+}
 
 export async function searchSellpiaInventorySkus(
   query: string,

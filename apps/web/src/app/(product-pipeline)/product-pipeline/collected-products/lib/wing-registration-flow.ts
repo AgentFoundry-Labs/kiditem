@@ -2,10 +2,6 @@ import { apiClient } from '@/lib/api-client';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { salesProductApi } from '@/lib/sales-product-api';
 import {
-  ensureCandidateSalesProduct,
-  type CandidateSalesProductRegistrationDeps,
-} from '@/lib/candidate-sales-product-registration';
-import {
   detectWingFormExtensionId,
   isChromeExtensionRuntimeAvailable,
   KIDITEM_WING_FORM_PORT_NAME,
@@ -28,7 +24,6 @@ import {
   type ProductDetailResponse,
   type SellpiaInventorySearchItem,
 } from './sourcing-api';
-import { salesProductInputFromCandidate } from './candidate-sales-products';
 import { resolveWingCategories } from './wing-category-resolution';
 import {
   getWingCategoryDefinition,
@@ -64,11 +59,43 @@ const TEMPLATE_URL = '/coupang-wing-bulk-template-v4.6.xlsm';
  */
 export const WING_FORM_FILL_TIMEOUT_MS = 180_000;
 
-const CANDIDATE_SALES_PRODUCT_DEPS: CandidateSalesProductRegistrationDeps = {
-  findByCandidate: salesProductApi.findByCandidate,
-  update: salesProductApi.update,
-  createFromCandidates: salesProductApi.createFromCandidates,
-};
+/**
+ * 확인 모달에서 정한 판매가를 판매상품 초안에 실어 둔다.
+ *
+ * 수집 시점부터 판매상품 초안이 있으므로(KID-310 · ADR-0022) 여기서 새로 만들 필요는
+ * 없다 — 등록 동결(`registrationExecutionApi.prepare`)은 초안의 판매(selling) 옵션에
+ * 저장된 가격만 보고 draft/active 를 가른다. 이미 같은 값이면 아무것도 보내지 않는다.
+ */
+export async function syncSalesProductPriceForWingSubmission(
+  salesProductId: string,
+  salePrice: number,
+): Promise<void> {
+  const product = await salesProductApi.get(salesProductId);
+  const sellingOptions = product.options.filter((option) => option.supplyStatus !== 'unused');
+  if (sellingOptions.length === 0) {
+    throw new Error('판매상품에 등록할 옵션이 없습니다. 판매상품 편집에서 옵션을 확인해 주세요.');
+  }
+  if (sellingOptions.every((option) => option.salePrice === salePrice)) return;
+  await salesProductApi.replaceOptions(salesProductId, {
+    expectedVersion: product.version,
+    optionAxes: product.optionAxes,
+    options: product.options.map((option) => ({
+      id: option.id,
+      optionCode: option.optionCode ?? undefined,
+      values: option.values,
+      alias: option.alias,
+      barcode: option.barcode,
+      salePrice: option.supplyStatus === 'unused' ? option.salePrice : salePrice,
+      normalPrice: option.normalPrice,
+      supplyStatus: option.supplyStatus,
+      safetyStock: option.safetyStock,
+      components: option.components.map((component) => ({
+        masterProductId: component.masterProductId,
+        quantity: component.quantity,
+      })),
+    })),
+  });
+}
 
 /**
  * 판매가는 `RegistrationTarget.registrationInput.salePrice` 하나에서만 온다.
@@ -527,6 +554,8 @@ export interface WingCategoryEvidence {
 
 export interface WingRegistrationDraft {
   candidateId: string;
+  /** 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) — 등록 실행은 이 id 로 연다. */
+  salesProductId: string;
   /** 모달을 닫기 전까지 유지하는 pre-intent 재시도 키. */
   idempotencyKey: string;
   /** 마지막 prepare 요청의 payload 지문. 같은 payload만 같은 키를 재사용한다. */
@@ -737,6 +766,12 @@ export async function prepareWingRegistration(
     );
   }
   const detail = await productsApi.getDetail(candidateId);
+  // 수집 시점부터 판매상품 초안이 있다(ADR-0022). 등록 실행은 이 초안을 연다 —
+  // 없으면 023 이전에 수집된 레거시 후보이므로 여기서 분명히 막는다.
+  if (!detail.salesProductId) {
+    throw new Error('이 수집상품에 연결된 판매상품 초안이 없습니다. 관리자에게 문의하세요.');
+  }
+  const salesProductId = detail.salesProductId;
   const categoryKey = await resolveWingCategoryKeyForRegistration(detail);
   const categoryCell = getWingCategoryDefinition(categoryKey)?.categoryCell ?? '';
   // 추천으로 정해진 카테고리는 근거를 함께 모달에 보여 사람이 검증하게 한다.
@@ -755,7 +790,7 @@ export async function prepareWingRegistration(
   const product = candidateToWingProduct(detail, defaults, categoryCell, detailImageUrl);
   const [accountSelection, sellpiaMatchPreview] = await Promise.all([
     resolveWingChannelAccount(detail.registrationTarget?.channelAccountId ?? null),
-    registrationExecutionApi.previewSellpiaMatch(candidateId, {
+    registrationExecutionApi.previewSellpiaMatch(salesProductId, {
       listingName: product.sellerProductName ?? product.productName ?? detail.name,
       itemName: product.productName,
     }),
@@ -764,6 +799,7 @@ export async function prepareWingRegistration(
     status: 'ready',
     draft: {
       candidateId,
+      salesProductId,
       idempotencyKey: createSecureRandomUuid(),
       product,
       overrides: buildWingRegistrationOverrides(product),
@@ -870,17 +906,8 @@ export async function submitWingRegistration(
       draft.idempotencyKey = createSecureRandomUuid();
     }
     draft.idempotencyFingerprint = fingerprint;
-    await ensureCandidateSalesProduct(
-      draft.candidateId,
-      async (candidateId) => {
-        const detail = await productsApi.getDetail(candidateId);
-        return salesProductInputFromCandidate(detail, draft.detailImageUrl, {
-          salePrice: product.variants[0]?.salePrice,
-        });
-      },
-      CANDIDATE_SALES_PRODUCT_DEPS,
-    );
-    execution = await registrationExecutionApi.prepare(draft.candidateId, {
+    await syncSalesProductPriceForWingSubmission(draft.salesProductId, product.variants[0]?.salePrice ?? 0);
+    execution = await registrationExecutionApi.prepare(draft.salesProductId, {
       ...request,
       idempotencyKey: draft.idempotencyKey,
     });
@@ -905,7 +932,7 @@ export async function submitWingRegistration(
     // 폼만 채우는 기본 경로는 아직 마켓 부작용이 없다. 사용자가 WING 에서
     // 실제 등록한 뒤 등록상품ID를 확인할 때 서버가 실행을 시작한다.
     if (autoSubmit === true) {
-      await registrationExecutionApi.start(draft.candidateId, execution.executionId);
+      await registrationExecutionApi.start(draft.salesProductId, execution.executionId);
     }
   } catch (error) {
     throw error instanceof Error ? error : new Error('WING 등록 실행 준비에 실패했습니다.');
@@ -934,7 +961,7 @@ export async function submitWingRegistration(
       // 확장과의 통신 자체가 끊긴 경우다. 제출까지 갔는지 알 수 없으므로
       // 중복 등록을 막기 위해 미해결로 남긴다.
       await registrationExecutionApi.markUnresolved(
-        draft.candidateId, execution.executionId, { reason: 'extension_throw', message: String(error) },
+        draft.salesProductId, execution.executionId, { reason: 'extension_throw', message: String(error) },
       ).catch(() => undefined);
     }
     throw error;
@@ -947,7 +974,7 @@ export async function submitWingRegistration(
     // (라이브 확인 2026-09-10: 옵션 생성 실패 한 번으로 상품이 잠겼다).
     if (autoSubmit !== true) {
       await registrationExecutionApi.markNotSubmitted(
-        draft.candidateId, execution.executionId,
+        draft.salesProductId, execution.executionId,
         { reason: 'extension_error', error: res?.error ?? null, attempted: false },
       ).catch(() => undefined);
     }
@@ -962,7 +989,7 @@ export async function submitWingRegistration(
         ? registrationExecutionApi.markUnresolved
         : registrationExecutionApi.markNotSubmitted;
       await close(
-        draft.candidateId, execution.executionId,
+        draft.salesProductId, execution.executionId,
         { reason: 'extension_error', error: res?.error ?? null, attempted },
       ).catch(() => undefined);
     }
@@ -973,7 +1000,7 @@ export async function submitWingRegistration(
     || res.submission?.attempted === true && !isConfirmedWingRegistration(res.submission)
   )) {
     await registrationExecutionApi.markUnresolved(
-      draft.candidateId, execution.executionId, { reason: 'unknown', extensionEvidence: res.evidence ?? null },
+      draft.salesProductId, execution.executionId, { reason: 'unknown', extensionEvidence: res.evidence ?? null },
     ).catch(() => undefined);
   }
   const detailImageUrl = draft.detailImageUrl;

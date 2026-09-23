@@ -2,7 +2,6 @@ import {
   CoupangCatalogPlanResultSchema,
   SabangnetImportPreviewSchema,
   SalesProductExternalImagesSchema,
-  SalesProductFromCandidatesResultSchema,
   SalesProductImageMirrorResultSchema,
   SalesProductListResponseSchema,
   SalesProductMallCategoriesSchema,
@@ -18,8 +17,6 @@ import {
   type SabangnetImportSelection,
   type SalesProduct,
   type SalesProductExternalImages,
-  type SalesProductFromCandidatesRequest,
-  type SalesProductFromCandidatesResult,
   type SalesProductImageMirrorResult,
   type SalesProductMallCategories,
   type SalesProductMallCategoryAssignRequest,
@@ -28,7 +25,6 @@ import {
   type SalesProductMallSheetCategoryList,
   type SalesProductMallSheetCheck,
   type SalesProductMallSheetList,
-  type SalesProductMallSheetTargetChoice,
   type SalesProductPublicImagePending,
   type SalesProductPublicImageSaveRequest,
   type SalesProductListQuery,
@@ -69,8 +65,6 @@ export const salesProductKeys = {
 export interface MallSheetRequestBody {
   salesProductIds?: string[];
   fixed: Record<string, string>;
-  /** 등록 설정이 둘 이상인 상품 × 몰에서 고른 설정. 이 요청에 든 상품 것만 보낸다. */
-  targetIds?: SalesProductMallSheetTargetChoice[];
 }
 
 function toQuery(query: Partial<SalesProductListQuery>): string {
@@ -90,9 +84,6 @@ export const salesProductApi = {
     apiClient.getParsed(`${BASE}/${id}`, SalesProductSchema),
   update: async (id: string, body: SalesProductUpdateInput): Promise<SalesProduct> =>
     SalesProductSchema.parse(await apiClient.patch<unknown>(`${BASE}/${id}`, body)),
-  /** 수집상품으로 되돌리기(수집상품에서 만든 판매상품만). 지우지 않고 내려 두며, 다시 올리면 되살아난다. */
-  demoteToCandidate: async (id: string, expectedVersion: number): Promise<SalesProduct> =>
-    SalesProductSchema.parse(await apiClient.post<unknown>(`${BASE}/${id}/demote`, { expectedVersion })),
   replaceOptions: async (id: string, body: SalesProductOptionsReplaceInput): Promise<SalesProduct> =>
     SalesProductSchema.parse(await apiClient.put<unknown>(`${BASE}/${id}/options`, body)),
   importSabangnet: (
@@ -192,13 +183,6 @@ export const salesProductApi = {
       fileName: fileNameFrom(response.headers.get('Content-Disposition')) ?? 'Coupang_detailinfo_수정요청.xlsx',
     };
   },
-  /** 수집상품 화면의 몰 대량등록 — 고른 수집상품을 판매상품으로 만든다(같은 수집상품에서 만든 것은 그대로 쓴다). */
-  findByCandidate: async (candidateId: string): Promise<SalesProduct | null> => {
-    const value = await apiClient.getNullable<unknown>(`${BASE}/from-candidate/${encodeURIComponent(candidateId)}`);
-    return value === null ? null : SalesProductSchema.parse(value);
-  },
-  createFromCandidates: async (body: SalesProductFromCandidatesRequest): Promise<SalesProductFromCandidatesResult> =>
-    SalesProductFromCandidatesResultSchema.parse(await apiClient.post<unknown>(`${BASE}/from-candidates`, body)),
   /** 이 판매상품들의 사진 중 몰이 못 읽고(우리 저장소) 공개 주소도 아직 없는 것. */
   pendingPublicImages: async (salesProductIds: string[]): Promise<SalesProductPublicImagePending> =>
     SalesProductPublicImagePendingSchema.parse(

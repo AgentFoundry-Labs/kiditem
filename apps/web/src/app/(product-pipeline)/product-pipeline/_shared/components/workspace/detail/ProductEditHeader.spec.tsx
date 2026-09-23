@@ -11,16 +11,14 @@ import type {
 import { queryKeys } from '@/lib/query-keys';
 
 const {
-  createPreparationDraftMock,
-  ensureCandidateSalesProductMock,
-  listAccountsMock,
   rejectMock,
+  resolveRegistrationTargetMock,
+  listAccountsMock,
   toastSuccessMock,
 } = vi.hoisted(() => ({
-  createPreparationDraftMock: vi.fn(),
-  ensureCandidateSalesProductMock: vi.fn(),
-  listAccountsMock: vi.fn(),
   rejectMock: vi.fn(),
+  resolveRegistrationTargetMock: vi.fn(),
+  listAccountsMock: vi.fn(),
   toastSuccessMock: vi.fn(),
 }));
 
@@ -31,15 +29,18 @@ vi.mock(
   async (importOriginal) => ({
     ...(await importOriginal<Record<string, unknown>>()),
     candidatesApi: {
-      createPreparationDraft: (...args: unknown[]) => createPreparationDraftMock(...args),
       reject: (...args: unknown[]) => rejectMock(...args),
     },
   }),
 );
 
-vi.mock('@/lib/candidate-sales-product-registration', () => ({
-  candidateSalesProductGap: vi.fn().mockReturnValue(null),
-  ensureCandidateSalesProduct: (...args: unknown[]) => ensureCandidateSalesProductMock(...args),
+vi.mock('@/lib/registration-target-api', () => ({
+  registrationTargetApi: {
+    resolve: (...args: unknown[]) => resolveRegistrationTargetMock(...args),
+  },
+  registrationTargetKeys: {
+    all: ['registration-targets'] as const,
+  },
 }));
 
 vi.mock('@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api', () => ({
@@ -129,6 +130,7 @@ function renderHeader(
     <ProductEditHeader
       productName="자석 다트게임"
       productId="candidate-1"
+      salesProductId="sales-product-1"
       status="sourced"
       registrationTarget={registrationTarget}
       registrationState={registrationState}
@@ -148,8 +150,7 @@ function renderHeader(
 
 describe('ProductEditHeader preparation draft action', () => {
   beforeEach(() => {
-    createPreparationDraftMock.mockReset();
-    ensureCandidateSalesProductMock.mockReset();
+    resolveRegistrationTargetMock.mockReset();
     listAccountsMock.mockReset();
     rejectMock.mockReset();
     toastSuccessMock.mockReset();
@@ -168,13 +169,18 @@ describe('ProductEditHeader preparation draft action', () => {
         externalAccountId: 'vendor-rocket',
       },
     ]);
-    ensureCandidateSalesProductMock.mockResolvedValue({});
   });
 
-  it('creates a draft for the explicitly selected account and stays in the candidate workspace', async () => {
-    createPreparationDraftMock.mockResolvedValue({
-      preparationId: '77777777-7777-4777-8777-777777777777',
-      status: 'draft',
+  it('resolves (creates or reuses) the registration target for the explicitly selected account and stays in the candidate workspace', async () => {
+    resolveRegistrationTargetMock.mockResolvedValue({
+      id: '77777777-7777-4777-8777-777777777777',
+      salesProductId: 'sales-product-1',
+      channelAccountId: '22222222-2222-4222-8222-222222222222',
+      version: 1,
+      displayName: null,
+      registrationInput: {},
+      selectedOptions: [],
+      resolved: { name: '자석 다트게임', options: [] },
     });
     renderHeader();
 
@@ -188,44 +194,12 @@ describe('ProductEditHeader preparation draft action', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '등록 준비 저장' }));
 
-    await waitFor(() => expect(createPreparationDraftMock).toHaveBeenCalledWith(
-      'candidate-1',
-      expect.objectContaining({
-        channelAccountId: '22222222-2222-4222-8222-222222222222',
-        displayName: '자석 다트게임',
-        registrationInput: expect.objectContaining({
-          name: '자석 다트게임',
-          category: '완구',
-          salePrice: 21900,
-        }),
-        selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
-        selectedThumbnailGenerationId: '22222222-2222-4222-8222-222222222222',
-        selectedThumbnailGenerationCandidateId: '33333333-3333-4333-8333-333333333333',
-        selectedDetailPageGenerationId: '44444444-4444-4444-8444-444444444444',
-        selectedDetailPageArtifactId: '55555555-5555-4555-8555-555555555555',
-        selectedDetailPageRevisionId: '66666666-6666-4666-8666-666666666666',
-      }),
-    ));
-    expect(ensureCandidateSalesProductMock).toHaveBeenCalledWith(
-      'candidate-1',
-      expect.any(Function),
-      expect.objectContaining({
-        findByCandidate: expect.any(Function),
-        update: expect.any(Function),
-        createFromCandidates: expect.any(Function),
-      }),
-    );
-    expect(ensureCandidateSalesProductMock.mock.invocationCallOrder[0]).toBeLessThan(
-      createPreparationDraftMock.mock.invocationCallOrder[0]!,
-    );
-    const request = createPreparationDraftMock.mock.calls[0]?.[1];
-    expect(request?.registrationInput).not.toHaveProperty('selectedThumbnailGenerationId');
-    // 몰 등록 값은 후보에만 산다 — 준비로 복사하지 않는다.
-    expect(request?.registrationInput).not.toHaveProperty('mallRegisterValues');
-    expect(request?.registrationInput).not.toHaveProperty('mallRegisterShared');
-    expect(request).not.toHaveProperty('options');
-    expect(request).not.toHaveProperty('skipPostPromotionHooks');
-    expect(request).not.toHaveProperty('masterId');
+    // 판매상품 초안은 수집 시점부터 있다(ADR-0022) — 만들지 않고 이 초안 × 고른
+    // 계정의 등록 설정을 열거나(이미 있으면) 그대로 돌려받는다.
+    await waitFor(() => expect(resolveRegistrationTargetMock).toHaveBeenCalledWith({
+      salesProductId: 'sales-product-1',
+      channelAccountId: '22222222-2222-4222-8222-222222222222',
+    }));
     expect(await screen.findByText('등록 준비됨')).toBeInTheDocument();
     expect(screen.getByText('자석 다트게임')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

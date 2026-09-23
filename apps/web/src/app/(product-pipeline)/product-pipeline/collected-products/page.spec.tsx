@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api-error';
 import SourcingPage from './page';
@@ -9,12 +9,22 @@ const {
   createRequestId,
   invalidateQueriesMock,
   toastErrorMock,
+  wingOnReadyRef,
+  submitWingRegistrationMock,
+  waitForRegisteredListingMock,
+  registrationExecutionConfirmMock,
+  registrationExecutionMarkUnresolvedMock,
 } = vi.hoisted(() => ({
   deleteCandidateMock: vi.fn(),
   quickProcessMock: vi.fn(),
   createRequestId: vi.fn(),
   invalidateQueriesMock: vi.fn(),
   toastErrorMock: vi.fn(),
+  wingOnReadyRef: { current: null as ((draft: unknown) => void) | null },
+  submitWingRegistrationMock: vi.fn(),
+  waitForRegisteredListingMock: vi.fn(),
+  registrationExecutionConfirmMock: vi.fn(),
+  registrationExecutionMarkUnresolvedMock: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -81,12 +91,43 @@ vi.mock('./hooks/useScrapeUrl', () => ({
 }));
 
 vi.mock('./hooks/useWingRegistrationPreparation', () => ({
-  useWingRegistrationPreparation: () => ({
-    start: vi.fn(),
-    cancel: vi.fn(),
-    isPreparing: false,
-    message: null,
-  }),
+  useWingRegistrationPreparation: (options: { onReady: (draft: unknown) => void }) => {
+    wingOnReadyRef.current = options.onReady;
+    return {
+      start: vi.fn(),
+      cancel: vi.fn(),
+      isPreparing: false,
+      message: null,
+    };
+  },
+}));
+
+// registrationExecutionApi 는 page.tsx 가 직접 부른다(WING 확정/미해결 표시) — KID-310 부터 salesProductId 로 연다.
+vi.mock('../../../(channels)/_shared/registration-execution-api', () => ({
+  registrationExecutionApi: {
+    confirm: registrationExecutionConfirmMock,
+    markUnresolved: registrationExecutionMarkUnresolvedMock,
+  },
+}));
+
+// submitWingRegistration/waitForRegisteredListing 만 갈아 끼운다 — isConfirmedWingRegistration ·
+// translateWingError 는 실제 구현 그대로 써서 분기 판정까지 검증한다.
+vi.mock('./lib/wing-registration-flow', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./lib/wing-registration-flow')>();
+  return {
+    ...actual,
+    submitWingRegistration: submitWingRegistrationMock,
+    waitForRegisteredListing: waitForRegisteredListingMock,
+  };
+});
+
+vi.mock('./components/wing/WingRegistrationConfirmDialog', () => ({
+  default: ({ draft, onConfirm }: { draft: unknown; onConfirm: (overrides: unknown, autoSubmit: boolean, channelAccountId: string, sellpiaSelection: unknown) => void }) =>
+    draft ? (
+      <button type="button" onClick={() => onConfirm({}, false, 'channel-account-1', { mode: 'skip' })}>
+        WING 확인
+      </button>
+    ) : null,
 }));
 
 vi.mock('@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate', () => ({
@@ -106,7 +147,6 @@ vi.mock('../_shared/components/workspace/GenerationProgressBanner', () => ({
 vi.mock('@/components/ui/Pagination', () => ({ Pagination: () => null }));
 vi.mock('./components/list/ScrapeUrlInput', () => ({ default: () => null }));
 vi.mock('./components/list/SourcingToolbar', () => ({ default: () => null }));
-vi.mock('./components/wing/WingRegistrationConfirmDialog', () => ({ default: () => null }));
 vi.mock('./components/list/ProductList', () => ({
   default: ({
     onDelete,
@@ -174,5 +214,77 @@ describe('SourcingPage candidate deletion', () => {
       'batch-quick-process-key',
     );
     expect(createRequestId).toHaveBeenCalledTimes(1);
+  });
+});
+
+// draft 는 useWingRegistrationPreparation({ onReady }) 로 들어오는 최소 필드만 채운다 — 나머지는
+// submitWingRegistration 이 mock 이라 안 쓰인다.
+const WING_DRAFT = {
+  candidateId: 'candidate-1',
+  salesProductId: 'sales-product-1',
+  idempotencyKey: 'idem-1',
+  product: {},
+  overrides: {},
+  extensionId: 'extension-1',
+  channelAccountId: 'channel-account-1',
+};
+
+describe('SourcingPage WING 확정', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    createRequestId.mockReturnValue('batch-quick-process-key');
+    waitForRegisteredListingMock.mockResolvedValue(true);
+  });
+
+  it('resolves the current sales-product draft id, not the candidate id, when confirming a completed WING registration', async () => {
+    submitWingRegistrationMock.mockResolvedValue({
+      submission: {
+        attempted: true,
+        ok: true,
+        status: 'registered',
+        externalListingId: 'external-listing-1',
+        executionId: 'execution-1',
+        evidence: { screenshot: 'shot.png' },
+      },
+    });
+
+    render(<SourcingPage />);
+    act(() => wingOnReadyRef.current?.(WING_DRAFT));
+    fireEvent.click(await screen.findByRole('button', { name: 'WING 확인' }));
+
+    await waitFor(() => {
+      expect(registrationExecutionConfirmMock).toHaveBeenCalledWith('sales-product-1', {
+        executionId: 'execution-1',
+        externalListingId: 'external-listing-1',
+        evidence: { screenshot: 'shot.png' },
+      });
+    });
+    expect(registrationExecutionConfirmMock).not.toHaveBeenCalledWith('candidate-1', expect.anything());
+  });
+
+  it('reports a failed listing sync against the sales-product draft id, not the candidate id', async () => {
+    submitWingRegistrationMock.mockResolvedValue({
+      submission: {
+        attempted: true,
+        ok: true,
+        status: 'registered',
+        externalListingId: 'external-listing-1',
+        executionId: 'execution-1',
+      },
+    });
+    registrationExecutionConfirmMock.mockRejectedValueOnce(new Error('등록상품 반영 실패'));
+
+    render(<SourcingPage />);
+    act(() => wingOnReadyRef.current?.(WING_DRAFT));
+    fireEvent.click(await screen.findByRole('button', { name: 'WING 확인' }));
+
+    await waitFor(() => {
+      expect(registrationExecutionMarkUnresolvedMock).toHaveBeenCalledWith(
+        'sales-product-1',
+        'execution-1',
+        { reason: 'completion_failed', message: expect.any(String) },
+      );
+    });
+    expect(registrationExecutionMarkUnresolvedMock).not.toHaveBeenCalledWith('candidate-1', expect.anything(), expect.anything());
   });
 });

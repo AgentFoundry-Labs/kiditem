@@ -57,7 +57,6 @@ import {
 import { MallQuickRegisterRows } from './components/MallQuickRegisterRows';
 import { useMallQuickRegister } from './hooks/useMallQuickRegister';
 import { useCandidateMallSheet } from './hooks/useCandidateMallSheet';
-import type { CandidateSalesProductsOutcome } from './lib/candidate-sales-products';
 import {
   emptyStateCopyForSourceFilter,
   platformForSourceFilter,
@@ -281,7 +280,8 @@ export default function SourcingPage() {
     sellpiaSelection: WingSellpiaSelection,
   ) => {
     if (!wingDraft || wingSubmitting) return;
-    const candidateId = wingDraft.candidateId;
+    // 등록 실행 울타리는 판매상품 id 로 연다(ADR-0022, KID-310) — 후보 id 가 아니다.
+    const salesProductId = wingDraft.salesProductId;
     setWingSubmissionError(null);
     setWingSubmitting(true);
     try {
@@ -301,14 +301,14 @@ export default function SourcingPage() {
         const externalListingId = result.submission.externalListingId;
         try {
           await completeExternalWingRegistration({
-            candidateId,
+            salesProductId,
             executionId,
             externalListingId,
             evidence: result.submission.evidence,
           });
         } catch (err) {
           await registrationExecutionApi.markUnresolved(
-            candidateId,
+            salesProductId,
             executionId,
             { reason: 'completion_failed', message: wingErrorMessage(err, '알 수 없는 오류') },
           ).catch(() => undefined);
@@ -344,17 +344,17 @@ export default function SourcingPage() {
   };
 
   const completeExternalWingRegistration = async ({
-    candidateId,
+    salesProductId,
     executionId,
     externalListingId,
     evidence,
   }: {
-    candidateId: string;
+    salesProductId: string;
     executionId: string;
     externalListingId: string;
     evidence?: Record<string, unknown>;
   }) => {
-    await registrationExecutionApi.confirm(candidateId, {
+    await registrationExecutionApi.confirm(salesProductId, {
       executionId,
       externalListingId,
       evidence,
@@ -469,18 +469,20 @@ export default function SourcingPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => mallSheet.start([...selectedIds])}
-                disabled={mallSheet.preparing}
+                onClick={() => {
+                  const salesProductIds = products
+                    .filter((product) => selectedIds.has(product.id) && product.salesProductId)
+                    .map((product) => product.salesProductId!);
+                  if (salesProductIds.length === 0) {
+                    toast.error('선택한 상품에 연결된 판매상품 초안이 없습니다.');
+                    return;
+                  }
+                  mallSheet.start(salesProductIds);
+                }}
                 className="inline-flex h-9 items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-black text-orange-900 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {mallSheet.preparing ? (
-                  <Loader2 size={15} className="animate-spin" />
-                ) : (
-                  <FileSpreadsheet size={15} />
-                )}
-                {mallSheet.preparing
-                  ? `판매상품 만드는 중 ${mallSheet.progress?.done ?? 0}/${mallSheet.progress?.total ?? selectedIds.size}`
-                  : '몰 대량등록'}
+                <FileSpreadsheet size={15} />
+                몰 대량등록
               </button>
               <button
                 type="button"
@@ -548,10 +550,10 @@ export default function SourcingPage() {
         }
       />
 
-      {mallSheet.outcome && (
+      {mallSheet.salesProductIds && (
         <MallSheetDialog
-          salesProductIds={mallSheet.outcome.products.map((product) => product.salesProductId)}
-          intro={<CandidateSalesProductsIntro outcome={mallSheet.outcome} />}
+          salesProductIds={mallSheet.salesProductIds}
+          intro="선택한 수집상품의 판매상품 초안을 몰 양식으로 만듭니다."
           onClose={mallSheet.close}
         />
       )}
@@ -573,28 +575,6 @@ export default function SourcingPage() {
 }
 
 /** 몰 대량등록 창 머리 — 고른 수집상품으로 판매상품을 몇 개 만들었고 무엇을 뺐는지. */
-function CandidateSalesProductsIntro({ outcome }: { outcome: CandidateSalesProductsOutcome }) {
-  return (
-    <div className="space-y-1">
-      <p>
-        수집상품으로 판매상품 <b className="tabular-nums">{outcome.products.length}</b>개를 준비했습니다
-        {' '}(새로 만듦 <span className="tabular-nums">{outcome.created}</span> · 이미 있던 것 <span className="tabular-nums">{outcome.reused}</span>).
-        {' '}판매상품 화면에서 고칠 수 있습니다.
-      </p>
-      {outcome.withoutDetail.length > 0 && (
-        <p className="text-amber-700">
-          상세페이지가 없어 상세설명 없이 만든 상품 {outcome.withoutDetail.length}개는 몰 엑셀에서 막힙니다 — 상세페이지를 저장한 뒤 다시 누르면 채웁니다.
-        </p>
-      )}
-      {outcome.skipped.length > 0 && (
-        <p className="text-amber-700" title={outcome.skipped.map((item) => `${item.name}: ${item.reason}`).join('\n')}>
-          만들지 않은 수집상품 {outcome.skipped.length}개 — {outcome.skipped[0]!.name}: {outcome.skipped[0]!.reason}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function QuickProcessSelectedDialog({
   open,
   targetCount,

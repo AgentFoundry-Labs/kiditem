@@ -34,10 +34,9 @@ import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
 import type { WingProduct } from './wing-registration-excel';
 import { resolveWingCategories } from './wing-category-resolution';
 
-const { findCandidateSalesProductMock, updateSalesProductMock, createCandidateSalesProductMock } = vi.hoisted(() => ({
-  findCandidateSalesProductMock: vi.fn(),
-  updateSalesProductMock: vi.fn(),
-  createCandidateSalesProductMock: vi.fn(),
+const { getSalesProductMock, replaceSalesProductOptionsMock } = vi.hoisted(() => ({
+  getSalesProductMock: vi.fn(),
+  replaceSalesProductOptionsMock: vi.fn(),
 }));
 
 vi.mock('@/lib/extension-bridge', () => ({
@@ -53,9 +52,8 @@ vi.mock('./detail-page-image-api', () => ({
 
 vi.mock('@/lib/sales-product-api', () => ({
   salesProductApi: {
-    findByCandidate: (...args: unknown[]) => findCandidateSalesProductMock(...args),
-    update: (...args: unknown[]) => updateSalesProductMock(...args),
-    createFromCandidates: (...args: unknown[]) => createCandidateSalesProductMock(...args),
+    get: (...args: unknown[]) => getSalesProductMock(...args),
+    replaceOptions: (...args: unknown[]) => replaceSalesProductOptionsMock(...args),
   },
 }));
 
@@ -125,15 +123,19 @@ beforeEach(() => {
   vi.mocked(registrationExecutionApi.markUnresolved).mockClear();
   vi.mocked(detectWingFormExtensionId).mockResolvedValue('extension-1');
   vi.mocked(productsApi.getDetail).mockReset();
-  findCandidateSalesProductMock.mockReset();
-  updateSalesProductMock.mockReset();
-  createCandidateSalesProductMock.mockReset();
-  findCandidateSalesProductMock.mockImplementation(async (candidateId: string) => ({
-    id: '22222222-2222-4222-8222-222222222222',
-    sourceCandidateId: candidateId,
+  getSalesProductMock.mockReset();
+  replaceSalesProductOptionsMock.mockReset();
+  getSalesProductMock.mockImplementation(async (salesProductId: string) => ({
+    id: salesProductId,
+    sourceCandidateId: 'candidate-1',
     status: 'active',
     version: 1,
-    options: [{ id: 'sales-option-1', salePrice: 2200, supplyStatus: 'selling' }],
+    optionAxes: [],
+    options: [{
+      id: 'sales-option-1', optionCode: null, values: [], alias: null, barcode: null,
+      salePrice: 2200, normalPrice: null, supplyStatus: 'selling', safetyStock: null,
+      components: [],
+    }],
   }));
   vi.mocked(renderCandidateDetailImageOnServer).mockReset();
   vi.mocked(contentWorkspacesApi.get).mockReset();
@@ -254,6 +256,18 @@ describe('direct WING account selection', () => {
     const draft = result.draft;
 
     expect(draft.channelAccountId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(draft.salesProductId).toBe('sales-product-1');
+  });
+
+  it('판매상품 초안이 없는 후보는 등록 실행을 열기 전에 막는다', async () => {
+    vi.mocked(productsApi.getDetail).mockResolvedValue({
+      ...detail(basics()),
+      salesProductId: null,
+    });
+
+    await expect(prepareWingRegistration('candidate-1')).rejects.toThrow(
+      /판매상품 초안이 없습니다/,
+    );
   });
 
   it('requires an explicit choice when an unprepared product has multiple Coupang accounts', async () => {
@@ -420,6 +434,9 @@ const detail = (basicInfo: ProductBasics): ProductDetailResponse => ({
   images: [{ url: SOURCE_IMAGE }],
   basicInfo,
   registrationTarget: null,
+  salesProductId: 'sales-product-1',
+  registrationImages: { primary: [], thumbnail: [], detail: [] },
+  currentThumbnail: null,
   created_at: '2026-07-19T00:00:00.000Z',
   updated_at: '2026-07-19T00:00:00.000Z',
 } as ProductDetailResponse);
@@ -883,6 +900,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
   it('검증에 걸리는 값은 확장으로 나가지 않는다', async () => {
     const draft = {
       candidateId: 'candidate-1',
+      salesProductId: 'sales-product-1',
       idempotencyKey: '33333333-3333-4333-8333-333333333333',
       product: product(),
       overrides: buildWingRegistrationOverrides(product()),
@@ -908,6 +926,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     vi.mocked(sendToExtensionViaPort).mockResolvedValueOnce({ ok: true });
     const draft = {
       candidateId: 'candidate-1',
+      salesProductId: 'sales-product-1',
       idempotencyKey: '33333333-3333-4333-8333-333333333333',
       product: product(),
       overrides: buildWingRegistrationOverrides(product()),
@@ -939,7 +958,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     expect(sent.variants[0].salePrice).toBe(4900);
     expect(sent.variants[0].stock).toBe(12);
     expect(registrationExecutionApi.prepare).toHaveBeenCalledWith(
-      'candidate-1',
+      'sales-product-1',
       expect.objectContaining({
         masterProductId: '44444444-4444-4444-8444-444444444444',
         sellpiaQuantity: 1,
@@ -952,33 +971,25 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     );
   });
 
-  it('creates a missing candidate sales product from the confirmed Wing price at submission time', async () => {
+  it('syncs the confirmed Wing price onto the existing sales-product draft before opening the fence', async () => {
+    // 수집 시점부터 초안이 있다(ADR-0022) — 만들지 않고, 확인한 가격을 그 초안의
+    // 판매 옵션에 실어 둔다. 새로 만드는 것이 아니라 이미 있는 초안을 고친다.
     vi.mocked(sendToExtensionViaPort).mockResolvedValueOnce({ ok: true });
-    const linked = {
-      id: '22222222-2222-4222-8222-222222222222',
+    getSalesProductMock.mockResolvedValueOnce({
+      id: 'sales-product-1',
       sourceCandidateId: 'candidate-1',
-      status: 'active',
-      version: 1,
-      options: [{ id: 'sales-option-1', salePrice: 4900, supplyStatus: 'selling' }],
-    };
-    findCandidateSalesProductMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(linked);
-    createCandidateSalesProductMock.mockResolvedValueOnce({
-      products: [{
-        candidateId: 'candidate-1',
-        salesProductId: linked.id,
-        code: 'K-1',
-        created: true,
+      status: 'draft',
+      version: 3,
+      optionAxes: [],
+      options: [{
+        id: 'sales-option-1', optionCode: null, values: [], alias: null, barcode: null,
+        salePrice: null, normalPrice: null, supplyStatus: 'selling', safetyStock: null,
+        components: [],
       }],
-      created: 1,
-      reused: 0,
     });
-    vi.mocked(productsApi.getDetail).mockResolvedValueOnce(
-      detail(basics({ salePrice: 0, originalPrice: 0 })),
-    );
     const draft = {
       candidateId: 'candidate-1',
+      salesProductId: 'sales-product-1',
       idempotencyKey: '33333333-3333-4333-8333-333333333333',
       product: product(),
       overrides: buildWingRegistrationOverrides(product()),
@@ -996,17 +1007,42 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
 
     await submitWingRegistration(draft, { ...draft.overrides, salePrice: 4900 });
 
-    const request = createCandidateSalesProductMock.mock.calls[0]?.[0] as {
-      items: Array<{ product: { options: Array<{ salePrice: number }>; imageUrls: string[]; detailHtml: string | null } }>;
-    };
-    expect(request.items[0]?.product).toMatchObject({
-      options: [{ salePrice: 4900 }],
-      imageUrls: [SOURCE_IMAGE],
-      detailHtml: '<center><img src="http://localhost:9000/rendered/detail-780.jpg"></center>',
+    expect(getSalesProductMock).toHaveBeenCalledWith('sales-product-1');
+    expect(replaceSalesProductOptionsMock).toHaveBeenCalledWith('sales-product-1', {
+      expectedVersion: 3,
+      optionAxes: [],
+      options: [expect.objectContaining({ id: 'sales-option-1', salePrice: 4900 })],
     });
-    expect(createCandidateSalesProductMock.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(replaceSalesProductOptionsMock.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(registrationExecutionApi.prepare).mock.invocationCallOrder[0]!,
     );
+  });
+
+  it('leaves the draft alone when it already carries the confirmed price', async () => {
+    vi.mocked(sendToExtensionViaPort).mockResolvedValueOnce({ ok: true });
+    // beforeEach 기본값이 이미 2200원짜리 selling 옵션을 준다 — product() 기본 판매가와 같다.
+    const draft = {
+      candidateId: 'candidate-1',
+      salesProductId: 'sales-product-1',
+      idempotencyKey: '33333333-3333-4333-8333-333333333333',
+      product: product(),
+      overrides: buildWingRegistrationOverrides(product()),
+      extensionId: 'ext-1',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      sellpiaMatchPreview: {
+        status: 'matched' as const,
+        reason: 'one match',
+        sellpiaMatch: PREPARED_WING_RESPONSE.sellpiaMatch,
+        proposals: [],
+      },
+      detailImageUrl: 'http://localhost:9000/rendered/detail-780.jpg',
+      registrationInput: { salePrice: 2200, category: '키링' },
+    };
+
+    await submitWingRegistration(draft, draft.overrides);
+
+    expect(getSalesProductMock).toHaveBeenCalledWith('sales-product-1');
+    expect(replaceSalesProductOptionsMock).not.toHaveBeenCalled();
   });
 });
 
@@ -1018,6 +1054,7 @@ describe('external WING pre-intent choreography', () => {
   );
   const draft = {
     candidateId: 'candidate-1',
+    salesProductId: 'sales-product-1',
     idempotencyKey: '33333333-3333-4333-8333-333333333333',
     extensionId: 'extension-1',
     channelAccountId: 'account-1',
@@ -1082,7 +1119,7 @@ describe('external WING pre-intent choreography', () => {
     await expect(submitWingRegistration(draft, draft.overrides, false)).rejects.toThrow(/옵션 목록/);
 
     expect(registrationExecutionApi.markNotSubmitted).toHaveBeenCalledWith(
-      draft.candidateId,
+      draft.salesProductId,
       '55555555-5555-4555-8555-555555555555',
       expect.objectContaining({ attempted: false }),
     );
@@ -1194,7 +1231,7 @@ describe('external WING pre-intent choreography', () => {
     vi.mocked(sendToExtensionViaPort).mockRejectedValue(new Error('extension disconnected'));
     await expect(submitWingRegistration(draft, draft.overrides, true)).rejects.toThrow('extension disconnected');
     expect(registrationExecutionApi.markUnresolved).toHaveBeenCalledWith(
-      'candidate-1',
+      'sales-product-1',
       '33333333-3333-4333-8333-333333333333',
       expect.objectContaining({ reason: 'extension_throw' }),
     );
@@ -1212,10 +1249,10 @@ describe('external WING pre-intent choreography', () => {
     await expect(submitWingRegistration(draft, draft.overrides, true)).rejects.toThrow('prepare response lost');
     await submitWingRegistration(draft, draft.overrides, true);
     expect(registrationExecutionApi.prepare).toHaveBeenNthCalledWith(
-      1, 'candidate-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
+      1, 'sales-product-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
     );
     expect(registrationExecutionApi.prepare).toHaveBeenNthCalledWith(
-      2, 'candidate-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
+      2, 'sales-product-1', expect.objectContaining({ idempotencyKey: draft.idempotencyKey }),
     );
   });
 
