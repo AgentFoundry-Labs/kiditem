@@ -354,9 +354,11 @@ export const SalesProductListQuerySchema = z.object({
   sourcePlatform: z.string().trim().max(40).optional(),
   /**
    * `with_options`: 단품이 둘 이상 · `unlinked`: 셀피아 연결이 빠진 단품이 있는 상품 ·
-   * `unregistered`: 아직 어느 몰에도 올라가지 않은 상품(수집상품에서 만든 것과 직접 만든 것을 함께).
+   * `unregistered`: 아직 어느 몰에도 올라가지 않은 상품(수집상품에서 만든 것과 직접 만든 것을 함께) ·
+   * `preparing`: 수집상품 화면 — 몰에 올라간 적 없고 내리지도(보관 · 미사용) 않은 상품. 판매가를 정한
+   * 뒤에도 몰에 올라갈 때까지 남아 있어야 등록 · 몰 대량등록을 거기서 할 수 있다.
    */
-  focus: z.enum(['all', 'with_options', 'unlinked', 'unregistered']).default('all'),
+  focus: z.enum(['all', 'with_options', 'unlinked', 'unregistered', 'preparing']).default('all'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });

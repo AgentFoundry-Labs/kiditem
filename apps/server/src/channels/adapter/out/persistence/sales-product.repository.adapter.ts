@@ -1,4 +1,4 @@
-import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { resolveUnitCost } from '../../../../products/domain/option-pricing-resolver';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { readSalesProductOptionExecutionCounts } from '../repository/registration-execution.reader';
@@ -205,11 +205,16 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     };
     /** 아직 판매가를 정하지 않은 초안. */
     const draftOnly: Prisma.SalesProductWhereInput = { status: 'draft' };
+    /** 수집상품 화면: 몰에 없고 내리지 않은 상품. 판매가를 정해 `active` 가 돼도 몰에 오를 때까지 남는다. */
+    const preparing: Prisma.SalesProductWhereInput = {
+      AND: [unregistered, { status: { notIn: ['archived', 'unused'] } }],
+    };
     const focusWhere = query.focus === 'with_options'
       ? withOptions
       : query.focus === 'unlinked'
         ? withUnlinked
-        : query.focus === 'unregistered' ? unregistered : {};
+        : query.focus === 'unregistered' ? unregistered
+          : query.focus === 'preparing' ? preparing : {};
     const where: Prisma.SalesProductWhereInput = { AND: [base, searchWhere, focusWhere] };
     const [total, summaryTotal, summaryWithOptions, summaryUnlinked, summaryUnregistered, summaryDraft, rows] = await Promise.all([
       this.prisma.salesProduct.count({ where }),
@@ -1232,35 +1237,19 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
     candidateId: string,
   ): Promise<SalesProductDraftRetireRow> {
-    return (async (tx: Tx) => {
-      const product = await tx.salesProduct.findFirst({
-        where: { organizationId, sourceCandidateId: candidateId },
-        select: { id: true, status: true },
-      });
-      if (!product) {
-        return { salesProductId: null, retired: false, activeListingCount: 0, activeExecutionCount: 0 };
-      }
-      const [activeListingCount, activeExecutionCount] = await Promise.all([
-        tx.channelListing.count({ where: { organizationId, salesProductId: product.id, isActive: true } }),
-        tx.productRegistrationExecution.count({
-          where: {
-            organizationId,
-            status: { in: ['prepared', 'executing', 'reconciling'] },
-            preparation: { salesProductId: product.id },
-          },
-        }),
-      ]);
-      if (activeListingCount > 0 || activeExecutionCount > 0) {
-        return { salesProductId: product.id, retired: false, activeListingCount, activeExecutionCount };
-      }
-      if (product.status !== 'unused') {
-        await tx.salesProduct.updateMany({
-          where: { id: product.id, organizationId },
-          data: { status: 'unused', version: { increment: 1 } },
-        });
-      }
-      return { salesProductId: product.id, retired: true, activeListingCount: 0, activeExecutionCount: 0 };
-    })(ownerTransactionClient(transaction) as Tx);
+    return retireDraftWhere(ownerTransactionClient(transaction) as Tx, organizationId, { sourceCandidateId: candidateId });
+  }
+
+  async retireDraft(
+    transaction: OwnerTransaction,
+    organizationId: string,
+    salesProductId: string,
+  ): Promise<SalesProductDraftRetireRow> {
+    return retireDraftWhere(ownerTransactionClient(transaction) as Tx, organizationId, { id: salesProductId });
+  }
+
+  runInTransaction<T>(work: (transaction: OwnerTransaction) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction((tx) => work(ownerTransaction(tx)), TRANSACTION_OPTIONS);
   }
 
   async readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>> {
@@ -1936,4 +1925,42 @@ async function readMasterProductCodesInTransaction(
     { organizationId, selector: { kind: 'ids', values: [...masterProductIds] } },
   );
   return new Map(identities.map((identity) => [identity.masterProductId, identity.code]));
+}
+
+/**
+ * 초안을 `unused` 로 내린다. 몰에 올라가 있거나 살아 있는 등록 실행이 있으면 그대로 두고 이유만
+ * 돌려준다. 원천 기록으로 찾든(후보 거절 · 삭제) 판매상품으로 찾든 규칙은 하나다.
+ */
+async function retireDraftWhere(
+  tx: Tx,
+  organizationId: string,
+  identity: { sourceCandidateId: string } | { id: string },
+): Promise<SalesProductDraftRetireRow> {
+  const product = await tx.salesProduct.findFirst({
+    where: { organizationId, ...identity },
+    select: { id: true, status: true },
+  });
+  if (!product) {
+    return { salesProductId: null, retired: false, activeListingCount: 0, activeExecutionCount: 0 };
+  }
+  const [activeListingCount, activeExecutionCount] = await Promise.all([
+    tx.channelListing.count({ where: { organizationId, salesProductId: product.id, isActive: true } }),
+    tx.productRegistrationExecution.count({
+      where: {
+        organizationId,
+        status: { in: ['prepared', 'executing', 'reconciling'] },
+        preparation: { salesProductId: product.id },
+      },
+    }),
+  ]);
+  if (activeListingCount > 0 || activeExecutionCount > 0) {
+    return { salesProductId: product.id, retired: false, activeListingCount, activeExecutionCount };
+  }
+  if (product.status !== 'unused') {
+    await tx.salesProduct.updateMany({
+      where: { id: product.id, organizationId },
+      data: { status: 'unused', version: { increment: 1 } },
+    });
+  }
+  return { salesProductId: product.id, retired: true, activeListingCount: 0, activeExecutionCount: 0 };
 }
