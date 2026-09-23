@@ -1,0 +1,215 @@
+import type {
+  ThumbnailExecutionPrepareResponse,
+  ThumbnailExecutionReportRequest,
+  ThumbnailExecutionResult,
+  ThumbnailExecutionStatus,
+} from '@kiditem/shared/thumbnail-execution';
+import type { ChannelsThumbnailExecutionPort } from '../../port/in/thumbnail-execution.port';
+import type { WingThumbnailRunnerPort } from '../../port/out/automation/wing-thumbnail-runner.port';
+import type {
+  ChannelRegistrableThumbnailPort,
+  RegistrableThumbnail,
+  ThumbnailImagePayload,
+} from '../../port/out/content/registrable-thumbnail.port';
+import type { ChannelIntegrityPort } from '../../port/out/integrity/channel-integrity.port';
+import type {
+  ThumbnailExecutionPersistencePort,
+  ThumbnailExecutionRow,
+} from '../../port/out/persistence/thumbnail-execution.persistence.port';
+import {
+  ChannelConflictError,
+  ChannelInputError,
+  ChannelNotFoundError,
+  ChannelUnavailableError,
+} from '../../../domain/exception/channel-business-error';
+import { freezeProductRegistrationPayload, type RegistrationSubmissionJson } from '../../../domain/registration/registration-submission-payload';
+import {
+  resolveThumbnailAccount,
+  thumbnailReportTransition,
+  thumbnailUpdateIdempotencyKey,
+  type ThumbnailUpdatePayload,
+} from '../../../domain/registration/thumbnail-update';
+
+export const SERVER_AUTOMATION_BLOCKED_MESSAGE = '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.';
+const RECONCILIATION_PENDING = 'wing_registration_reconciliation_pending';
+
+const ACCOUNT_MESSAGES = {
+  no_coupang_account: '쿠팡 계정이 없습니다',
+  ambiguous_coupang_account: '쿠팡 계정이 여럿입니다 — listing을 고르세요',
+} as const;
+
+/**
+ * 대표이미지 몰 반영의 소유자. Content 에서 승인 사진을 받아 실행 하나를 동결하고, 확장
+ * 보고나 개발 서버 runner 결과로 그 실행을 끝낸다.
+ */
+export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort {
+  constructor(
+    private readonly content: ChannelRegistrableThumbnailPort,
+    private readonly persistence: ThumbnailExecutionPersistencePort,
+    private readonly runner: WingThumbnailRunnerPort,
+    private readonly integrity: ChannelIntegrityPort,
+  ) {}
+
+  async prepare(input: {
+    organizationId: string;
+    requestedByUserId: string | null;
+    generationId: string;
+    channelListingId?: string;
+  }): Promise<ThumbnailExecutionPrepareResponse> {
+    const intent = await this.freezeIntent(input.organizationId, input.generationId, input.channelListingId ?? null);
+    const created = await this.persistence.createExecuting({
+      organizationId: input.organizationId,
+      requestedByUserId: input.requestedByUserId,
+      channelAccountId: intent.channelAccountId,
+      idempotencyKey: thumbnailUpdateIdempotencyKey({ generationId: input.generationId, ownerIdempotencyKey: null, nonce: globalThis.crypto.randomUUID() }),
+      ownerIdempotencyKey: null,
+      requestHash: intent.payloadHash,
+      payload: intent.payload,
+      payloadHash: intent.payloadHash,
+    });
+    if (created.mode !== 'created') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
+    return {
+      executionId: created.executionId,
+      generationId: input.generationId,
+      productName: intent.payload.productName,
+      image: { dataUrl: intent.image.dataUrl, filename: intent.image.filename, mimeType: intent.image.mimeType },
+    };
+  }
+
+  async report(input: {
+    organizationId: string;
+    requestedByUserId: string | null;
+    executionId: string;
+    report: ThumbnailExecutionReportRequest;
+  }): Promise<ThumbnailExecutionResult> {
+    const succeeded = input.report.outcome === 'succeeded' ? input.report : null;
+    const applied = await this.persistence.applyReport({
+      organizationId: input.organizationId,
+      executionId: input.executionId,
+      transition: thumbnailReportTransition(input.report),
+      screenshotPath: succeeded?.screenshotUrl ?? null,
+      externalId: succeeded?.externalId ?? null,
+    });
+    if (applied.mode === 'not_found') throw new ChannelNotFoundError('썸네일 반영 실행을 찾을 수 없습니다');
+    if (applied.mode === 'rejected') throw new ChannelConflictError(`이 실행은 이미 끝났습니다(${applied.status})`);
+    return toResult(applied.execution);
+  }
+
+  async runOnServer(input: {
+    organizationId: string;
+    requestedByUserId: string | null;
+    generationId: string;
+    owner: { ownerIdempotencyKey: string; requestHash: string } | null;
+  }): Promise<ThumbnailExecutionResult> {
+    if (this.runner.isBlocked()) throw new ChannelUnavailableError(SERVER_AUTOMATION_BLOCKED_MESSAGE);
+    const intent = await this.freezeIntent(input.organizationId, input.generationId, null);
+    const created = await this.persistence.createExecuting({
+      organizationId: input.organizationId,
+      requestedByUserId: input.requestedByUserId,
+      channelAccountId: intent.channelAccountId,
+      idempotencyKey: thumbnailUpdateIdempotencyKey({
+        generationId: input.generationId,
+        ownerIdempotencyKey: input.owner?.ownerIdempotencyKey ?? null,
+        nonce: globalThis.crypto.randomUUID(),
+      }),
+      ownerIdempotencyKey: input.owner?.ownerIdempotencyKey ?? null,
+      requestHash: input.owner?.requestHash ?? intent.payloadHash,
+      payload: intent.payload,
+      payloadHash: intent.payloadHash,
+    });
+    if (created.mode === 'live_conflict') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
+    if (created.mode === 'replay') {
+      if (created.execution.status === 'succeeded' || created.execution.status === 'failed') return toResult(created.execution);
+      throw new ChannelUnavailableError(RECONCILIATION_PENDING);
+    }
+
+    let outcome: Awaited<ReturnType<WingThumbnailRunnerPort['upload']>>;
+    try {
+      outcome = await this.runner.upload({
+        productName: intent.payload.productName,
+        image: { dataUrl: intent.image.dataUrl, filename: intent.image.filename },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.persistence.applyReport({
+        organizationId: input.organizationId,
+        executionId: created.executionId,
+        transition: thumbnailReportTransition({ outcome: 'uncertain', error: message.slice(0, 2_000) || 'Wing upload failed' }),
+        screenshotPath: null,
+        externalId: null,
+      });
+      throw error;
+    }
+    const applied = await this.persistence.applyReport({
+      organizationId: input.organizationId,
+      executionId: created.executionId,
+      transition: thumbnailReportTransition(outcome.outcome === 'succeeded'
+        ? { outcome: 'succeeded' }
+        : { outcome: 'definitive_failure', error: outcome.error.slice(0, 2_000) || 'Unknown error' }),
+      screenshotPath: outcome.outcome === 'succeeded' ? outcome.screenshotPath : null,
+      externalId: null,
+    });
+    if (applied.mode !== 'applied') throw new ChannelConflictError('Wing registration execution changed.');
+    return toResult(applied.execution);
+  }
+
+  async listLatest(input: { organizationId: string; generationIds: readonly string[] }): Promise<ThumbnailExecutionStatus[]> {
+    const rows = await this.persistence.findLatest({ organizationId: input.organizationId, generationIds: [...new Set(input.generationIds)] });
+    return rows.map((row) => ({
+      generationId: row.generationId,
+      executionId: row.id,
+      status: row.status,
+      providerOutcome: row.providerOutcome,
+      checkedAt: (row.completedAt ?? row.updatedAt).toISOString(),
+      error: row.lastErrorMessage,
+      screenshotPath: row.screenshotPath,
+    }));
+  }
+
+  async dismissFailed(input: { organizationId: string; generationId: string }): Promise<{ dismissed: boolean }> {
+    return { dismissed: await this.persistence.dismissLatestFailed(input) };
+  }
+
+  private async freezeIntent(organizationId: string, generationId: string, requestedListingId: string | null): Promise<{
+    channelAccountId: string;
+    payload: ThumbnailUpdatePayload;
+    payloadHash: string;
+    image: ThumbnailImagePayload;
+  }> {
+    const thumbnail: RegistrableThumbnail = await this.content.read({ organizationId, generationId });
+    const evidence = await this.persistence.readAccountEvidence({
+      organizationId,
+      channelListingId: requestedListingId ?? thumbnail.channelListingId,
+      salesProductId: thumbnail.salesProductId,
+    });
+    const account = resolveThumbnailAccount(evidence);
+    if (!account.ok) throw new ChannelInputError(ACCOUNT_MESSAGES[account.reason]);
+    const image = await this.content.loadImage({ organizationId, generationId, url: thumbnail.image.url });
+    const frozen = freezeProductRegistrationPayload({
+      kind: 'thumbnail_update',
+      generationId,
+      contentWorkspaceId: thumbnail.contentWorkspaceId,
+      salesProductId: thumbnail.salesProductId,
+      channelListingId: evidence.channelListingId,
+      productName: thumbnail.productName,
+      image: { url: thumbnail.image.url, assetId: thumbnail.image.assetId, sha256: image.sha256 },
+    } satisfies ThumbnailUpdatePayload as unknown as RegistrationSubmissionJson, (value) => this.integrity.sha256(value));
+    return {
+      channelAccountId: account.channelAccountId,
+      payload: frozen.payload as unknown as ThumbnailUpdatePayload,
+      payloadHash: frozen.hash,
+      image,
+    };
+  }
+}
+
+function toResult(row: ThumbnailExecutionRow): ThumbnailExecutionResult {
+  const success = row.status === 'succeeded';
+  return {
+    generationId: row.generationId,
+    executionId: row.id,
+    success,
+    screenshotPath: success ? row.screenshotPath : null,
+    ...(success ? {} : { error: row.lastErrorMessage ?? 'Wing upload failed' }),
+  };
+}
