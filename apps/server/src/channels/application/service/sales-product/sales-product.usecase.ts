@@ -96,15 +96,19 @@ export class SalesProductUseCase implements SalesProductPort {
       existing: [],
       options: input.options.map(toDraft),
     }));
-    const id = await this.repository.create(organizationId, {
-      ...basicsRecord({ ...input, status: 'draft' }),
-      code: null,
-      sabangnetGoodsNo: null,
-      optionAxes: input.optionAxes,
-      sourceRaw: null,
-    }, plan);
-    // 직접 작성은 팔려고 만드는 것이다 — 만드는 순간이 곧 판매 결정이라 여기서 KID 를 발급한다.
-    await this.ensureSalesProductCodes(organizationId, id);
+    // 직접 작성은 팔려고 만드는 것이다 — 삽입과 KID 발급이 한 트랜잭션이다(KID-313). 시퀀스가 없으면
+    // 발급이 503 으로 던지고 삽입도 되돌아가, 코드 없는 판매 상품이 남지 않는다.
+    const id = await this.repository.runInTransaction(async (transaction) => {
+      const created = await this.repository.create(organizationId, {
+        ...basicsRecord({ ...input, status: 'draft' }),
+        code: null,
+        sabangnetGoodsNo: null,
+        optionAxes: input.optionAxes,
+        sourceRaw: null,
+      }, plan, transaction);
+      await this.repository.ensureCodes(organizationId, created, transaction);
+      return created;
+    });
     return this.get(organizationId, id);
   }
 

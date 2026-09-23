@@ -148,12 +148,16 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return this.prisma.$transaction((tx) => allocateKidItemCode(tx));
   }
 
-  async ensureCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }> {
-    return this.prisma.$transaction(
-      (tx) => ensureSalesProductCodesInTransaction(tx, organizationId, salesProductId,
-        (ids) => readMasterProductCodesInTransaction(this.productTransactionalRead, tx, organizationId, ids)),
-      TRANSACTION_OPTIONS,
-    );
+  async ensureCodes(
+    organizationId: string,
+    salesProductId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ code: string; issued: number }> {
+    const issue = (tx: Tx) => ensureSalesProductCodesInTransaction(tx, organizationId, salesProductId,
+      (ids) => readMasterProductCodesInTransaction(this.productTransactionalRead, tx, organizationId, ids));
+    return transaction
+      ? issue(ownerTransactionClient(transaction) as Tx)
+      : this.prisma.$transaction(issue, TRANSACTION_OPTIONS);
   }
 
   async ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number> {

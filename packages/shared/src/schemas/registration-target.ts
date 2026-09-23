@@ -16,16 +16,10 @@ const editable = {
     .refine(options => new Set(options.map(option => option.salesProductOptionId)).size === options.length,
       '같은 옵션을 두 번 선택할 수 없습니다.'),
 };
-export const RegistrationTargetCreateInputSchema = z.object({
-  salesProductId: z.string().uuid(),
-  channelAccountId: z.string().uuid(),
-  ...editable,
-}).strict();
-export type RegistrationTargetCreateInput = z.infer<typeof RegistrationTargetCreateInputSchema>;
-
 /**
- * 보통 등록은 따로 설정 단계를 거치지 않고 이 자리에서 설정을 찾거나 만든다.
- * 상품 × 몰 계정당 활성 설정은 하나라 고를 것이 없다 — 행사용 등록은 별도 판매상품이다.
+ * 등록 설정이 생기는 길은 이것 하나다(KID-313) — 이 자리에서 설정을 찾거나 만들고, 처음 만들 때 그
+ * 상품에 KID 를 발급한다. 상품 × 몰 계정당 활성 설정은 하나라 고를 것이 없다 — 행사용 등록은 별도
+ * 판매상품이다. 값은 만든 뒤 update 로 고친다.
  */
 export const RegistrationTargetResolveInputSchema = z.object({
   salesProductId: z.string().uuid(),

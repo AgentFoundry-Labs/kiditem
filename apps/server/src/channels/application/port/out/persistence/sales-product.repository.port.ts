@@ -104,9 +104,14 @@ export interface SalesProductRepositoryPort {
   allocateCode(organizationId: string): Promise<string>;
   /**
    * 팔기로 정한 시점에 KID 를 채운다(상품 + 파는 단품 전부). 이미 있으면 그대로 두는 멱등 연산이고,
-   * 판매상품 줄을 잠근 채 한 트랜잭션에서 끝난다.
+   * 판매상품 줄을 잠근 채 한 트랜잭션에서 끝난다. `transaction` 을 주면 그 안에서 한다 — 직접 작성은
+   * 삽입과 발급이 한 커밋이다(KID-313).
    */
-  ensureCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }>;
+  ensureCodes(
+    organizationId: string,
+    salesProductId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ code: string; issued: number }>;
   /** 배치판. 몰 엑셀 한 파일이 상품마다 트랜잭션을 여는 것을 막는다 — 한 번에 한 트랜잭션이다. */
   ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number>;
   readMasterProductCodes(organizationId: string, ids: readonly string[]): Promise<Map<string, string>>;

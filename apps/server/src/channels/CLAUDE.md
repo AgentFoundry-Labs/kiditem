@@ -56,8 +56,9 @@ sync, registration, matching, and capacity behavior is executable in
   current browser result; it is not confirmed registration.
 - A selling product has at most one active registration target per channel
   account. Nothing chooses among settings; a promotional listing is its own
-  selling product. `channels/registration-targets` (resolve, create, update,
-  archive) is the only way to make or change one; `resolve` finds or creates it,
+  selling product. `channels/registration-targets` (resolve, update, archive) is
+  the only way to make or change one; `resolve` is the only way one comes to exist
+  (it finds or creates it and issues the product's KID),
   and a target with a live execution cannot be archived. The target display name
   is an override, not identity — an empty one reads as the product name.
 - Selected accounts must exist and be active. `ChannelAccount` stores the Wing

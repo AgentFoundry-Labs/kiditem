@@ -10,10 +10,10 @@ import {
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type {
-  RegistrationTargetCreateInput,
   RegistrationTargetResolveInput,
   RegistrationTargetUpdateInput,
 } from '@kiditem/shared/sales-product';
+import type { RegistrationTargetCreateRecord } from '../application/port/out/persistence/registration-target.repository.port';
 import type { PrismaClient } from '@prisma/client';
 import { productTransactionalRead } from './product-transactional-read.fake';
 
@@ -387,7 +387,7 @@ describe('registration target repository (PostgreSQL)', () => {
   });
 });
 
-function createInput(overrides: Partial<RegistrationTargetCreateInput>): RegistrationTargetCreateInput {
+function createInput(overrides: Partial<RegistrationTargetCreateRecord>): RegistrationTargetCreateRecord {
   return {
     salesProductId: overrides.salesProductId!,
     channelAccountId: overrides.channelAccountId!,
@@ -399,7 +399,7 @@ function createInput(overrides: Partial<RegistrationTargetCreateInput>): Registr
 
 function selected(
   salesProductOptionId: string,
-  overrides: Partial<RegistrationTargetCreateInput['selectedOptions'][number]> = {},
+  overrides: Partial<RegistrationTargetCreateRecord['selectedOptions'][number]> = {},
 ) {
   return {
     salesProductOptionId,

@@ -26,7 +26,7 @@ belong to Supply; supplier payments belong to Finance.
   provided by `sourcing-source-record.module.ts`) and deletes the record
   through `deleteForDraft` in the draft-deletion transaction.
 - Sourcing serves no registration-setting route. Creating and editing one is
-  `channels/registration-targets` (resolve, create, update, archive). Content
+  `channels/registration-targets` (resolve, update, archive). Content
   generation starts on the draft too:
   `POST products/sales-products/:salesProductId/generation`, whose idempotency
   receipt (`sourcing.quick_process`) records `{ salesProductId }` — a directly

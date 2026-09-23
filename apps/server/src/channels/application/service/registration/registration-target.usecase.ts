@@ -1,5 +1,5 @@
 
-import type { RegistrationTarget, RegistrationTargetCreateInput, RegistrationTargetResolveInput, RegistrationTargetUpdateInput } from '@kiditem/shared/sales-product';
+import type { RegistrationTarget, RegistrationTargetResolveInput, RegistrationTargetUpdateInput } from '@kiditem/shared/sales-product';
 import type { RegistrationTargetPort } from '../../port/in/registration-target.port';
 import { REGISTRATION_TARGET_REPOSITORY_PORT, type RegistrationTargetRecord, type RegistrationTargetRepositoryPort } from '../../port/out/persistence/registration-target.repository.port';
 import { RegistrationTargetException } from '../../exception/registration-target.exception';
@@ -19,9 +19,6 @@ export class RegistrationTargetUseCase implements RegistrationTargetPort {
     const target = await this.repository.get(organizationId, targetId);
     if (!target) throw new RegistrationTargetException('not_found', '등록 설정을 찾지 못했습니다.');
     return resolveTarget(target);
-  }
-  async create(organizationId: string, input: RegistrationTargetCreateInput): Promise<RegistrationTarget> {
-    return this.get(organizationId, await this.repository.create(organizationId, input));
   }
   async archive(organizationId: string, targetId: string): Promise<void> {
     await this.repository.archive(organizationId, targetId);
