@@ -1457,7 +1457,7 @@ async function assertTargetProviderEvidence(
   });
   if (!account) throw new ConflictException('Registration execution account no longer exists.');
   const adapter = adapters.get(account.channel);
-  const decision = adapter.validateConfirmationEvidence(account, execution.expectedProviderAccountId, {
+  const decision = adapter.validateConfirmationEvidence(execution.expectedProviderAccountId, {
     providerAccountId, observedUrl, externalListingId,
   });
   // 확인이 아닌 보고는 계정 식별자를 빼도 된다 — 있는 값만 맞으면 된다.
@@ -1465,7 +1465,7 @@ async function assertTargetProviderEvidence(
     throw new ConflictException(EVIDENCE_REJECTIONS[decision.reason]);
   }
   if (!confirmed || providerAccountId !== null || observedUrl !== null) return;
-  if (!targetPriorProviderEvidence(execution, account, adapter)) {
+  if (!targetPriorProviderEvidence(execution, adapter)) {
     throw new ConflictException('Confirmed registration requires provider account or trusted product evidence.');
   }
 }
@@ -1473,7 +1473,6 @@ async function assertTargetProviderEvidence(
 /** 앞선 보고가 이미 이 몰의 계정 식별자나 신뢰하는 관리자 URL 을 남겼는가. */
 function targetPriorProviderEvidence(
   execution: ProductRegistrationExecution,
-  account: { id: string; channel: string; vendorId: string | null; externalAccountId: string | null },
   adapter: ChannelAdapter,
 ): boolean {
   const value = execution.resultJson;
@@ -1482,10 +1481,9 @@ function targetPriorProviderEvidence(
   const providerAccountId = typeof evidence.providerAccountId === 'string' ? evidence.providerAccountId.trim() || null : null;
   const observedUrl = typeof evidence.observedUrl === 'string' ? evidence.observedUrl.trim() || null : null;
   if (providerAccountId === null && observedUrl === null) return false;
-  const decision = adapter.validateConfirmationEvidence(account, execution.expectedProviderAccountId, {
+  return adapter.validateConfirmationEvidence(execution.expectedProviderAccountId, {
     providerAccountId, observedUrl, externalListingId: null,
-  });
-  return decision.ok || (decision.reason === 'missing_account' && observedUrl !== null);
+  }).ok;
 }
 
 function targetReportEvidenceJson(report: ReportTargetExecutionInput): Prisma.InputJsonValue {

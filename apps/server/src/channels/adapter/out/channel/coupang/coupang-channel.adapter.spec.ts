@@ -41,9 +41,9 @@ function payloadInput(input: Partial<PrepareAdapterPayloadInput> = {}): PrepareA
 }
 
 describe('CoupangChannelAdapter', () => {
-  it('is the form-delivered channel that answers by vendor id and carries the representative image runner', () => {
+  it('is the channel that answers by vendor id and carries the representative image runner', () => {
     const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() }, runner);
-    expect(adapter).toMatchObject({ channel: 'coupang', delivery: 'form', representativeImage: runner });
+    expect(adapter).toMatchObject({ channel: 'coupang', representativeImage: runner });
     expect(adapter.providerAccountId(account(' A00012345 '))).toBe('A00012345');
     expect(adapter.providerAccountId(account(null, 'legacy-vendor'))).toBe('legacy-vendor');
     expect(adapter.providerAccountId(account(null, null))).toBeNull();
@@ -51,7 +51,7 @@ describe('CoupangChannelAdapter', () => {
 
   it('accepts only the vendor frozen at preparation, the wing.coupang.com origin and a numeric listing id', () => {
     const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() }, runner);
-    const decide = (input: Parameters<typeof evidence>[0]) => adapter.validateConfirmationEvidence(account(), 'A00012345', evidence(input));
+    const decide = (input: Parameters<typeof evidence>[0]) => adapter.validateConfirmationEvidence('A00012345', evidence(input));
     expect(decide({ observedUrl: 'https://wing.coupang.com/vendor-inventory/list?x=1' })).toEqual({ ok: true });
     expect(decide({ observedUrl: 'https://www.coupang.com/vp/products/1' })).toEqual({ ok: false, reason: 'untrusted_url' });
     expect(decide({ observedUrl: 'http://wing.coupang.com/' })).toEqual({ ok: false, reason: 'untrusted_url' });

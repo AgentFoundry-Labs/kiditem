@@ -1,5 +1,4 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import { channelDelivery } from '@kiditem/shared/channel-registry';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   AvailabilityOptionKind,
@@ -20,6 +19,8 @@ import { CoupangRepresentativeImageRunnerAdapter } from './representative-image-
 
 export const COUPANG_CHANNEL_KEY = 'coupang';
 const WING_ADMIN_ORIGIN = 'https://wing.coupang.com';
+/** WING 등록상품ID 형식. */
+const WING_LISTING_ID_PATTERN = /^\d{6,20}$/;
 
 /**
  * 쿠팡 WING 채널 어댑터(KID-321). 등록 실행은 몰 중립 fence 를 그대로 지나고, 여기에는 WING 만의
@@ -34,8 +35,6 @@ const WING_ADMIN_ORIGIN = 'https://wing.coupang.com';
 @Injectable()
 export class CoupangChannelAdapter implements ChannelAdapter {
   readonly channel = COUPANG_CHANNEL_KEY;
-  readonly delivery = channelDelivery(COUPANG_CHANNEL_KEY);
-  readonly externalListingIdPattern = /^\d{6,20}$/;
 
   constructor(
     @Inject(CHANNEL_REGISTRATION_PORT)
@@ -49,7 +48,6 @@ export class CoupangChannelAdapter implements ChannelAdapter {
   }
 
   validateConfirmationEvidence(
-    _account: ChannelAccountIdentity,
     expectedProviderAccountId: string | null,
     evidence: ConfirmationEvidenceInput,
   ): ProviderEvidenceDecision {
@@ -57,7 +55,7 @@ export class CoupangChannelAdapter implements ChannelAdapter {
       expectedProviderAccountId,
       evidence,
       isTrustedAdminUrl: (url) => url.origin === WING_ADMIN_ORIGIN,
-      externalListingIdPattern: this.externalListingIdPattern,
+      externalListingIdPattern: WING_LISTING_ID_PATTERN,
     });
   }
 

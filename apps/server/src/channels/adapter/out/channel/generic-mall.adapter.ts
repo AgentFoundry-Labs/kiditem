@@ -1,4 +1,3 @@
-import { channelDelivery, type ChannelDelivery } from '@kiditem/shared/channel-registry';
 import { MALL_ADMIN_LISTING_READERS } from '@kiditem/shared/mall-admin-listings';
 import type {
   AvailabilityOptionKind,
@@ -14,13 +13,10 @@ import { decideConfirmationEvidence, trimmed } from './channel-evidence';
  * `MALL_ADMIN_LISTING_READERS` 의 origin 이고, 실행 준비에 얼릴 몰 사실도 대표이미지 runner 도 없다.
  */
 export class GenericMallChannelAdapter implements ChannelAdapter {
-  readonly delivery: ChannelDelivery;
-  readonly externalListingIdPattern = null;
   readonly representativeImage = null;
   private readonly adminOrigin: string | null;
 
   constructor(readonly channel: string) {
-    this.delivery = channelDelivery(channel);
     const reader = (MALL_ADMIN_LISTING_READERS as Record<string, { origin: string } | undefined>)[channel];
     this.adminOrigin = reader ? originOf(reader.origin) : null;
   }
@@ -30,7 +26,6 @@ export class GenericMallChannelAdapter implements ChannelAdapter {
   }
 
   validateConfirmationEvidence(
-    _account: ChannelAccountIdentity,
     expectedProviderAccountId: string | null,
     evidence: ConfirmationEvidenceInput,
   ): ProviderEvidenceDecision {
@@ -38,7 +33,7 @@ export class GenericMallChannelAdapter implements ChannelAdapter {
       expectedProviderAccountId,
       evidence,
       isTrustedAdminUrl: (url) => this.adminOrigin !== null && url.origin === this.adminOrigin,
-      externalListingIdPattern: this.externalListingIdPattern,
+      externalListingIdPattern: null,
     });
   }
 

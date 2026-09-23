@@ -47,6 +47,7 @@ const FIELD_ORDER = [
   'uploadTracking',
   'delivery',
   'representativeImage',
+  'soldOutScope',
   'verified',
   'logo',
 ];

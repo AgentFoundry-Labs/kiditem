@@ -15,6 +15,7 @@ import {
   channelCollectsOrders,
   channelCollectsViaExtension,
   channelRegistersListings,
+  channelSoldOutScope,
   channelUploadsTracking,
   type ChannelRegistryEntry,
   type MallChannelKey,
@@ -208,10 +209,9 @@ const MALL_ADMIN_SOLD_OUT_KEYS: ReadonlySet<string> = new Set([
   'icecream-mall', 'kidsnote', 'gmarket', 'auction', '11st', 'smartstore', 'thirtymall',
 ]);
 const SUSPENSION_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['gmarket', 'auction', '11st', 'smartstore', 'thirtymall']);
-const OPTION_LEVEL_SOLD_OUT_KEYS: ReadonlySet<string> = new Set(['coupang']);
-
+/** 옵션 단위로 품절 · 재개를 보내는 채널인가. 단위는 채널 레지스트리의 `soldOutScope` 가 답한다. */
 export function soldOutSendsByOption(key: string): boolean {
-  return OPTION_LEVEL_SOLD_OUT_KEYS.has(key);
+  return channelSoldOutScope(key) === 'option';
 }
 
 function soldOutRouteFor(key: string, applicable: boolean): 'mall_admin' | null {

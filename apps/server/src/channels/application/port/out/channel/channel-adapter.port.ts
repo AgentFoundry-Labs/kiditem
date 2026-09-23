@@ -1,4 +1,3 @@
-import type { ChannelDelivery } from '@kiditem/shared/channel-registry';
 import type { RegistrationMallInput, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { RepresentativeImageRunnerPort } from '../automation/representative-image-runner.port';
@@ -61,15 +60,10 @@ export type AvailabilityOptionKind = 'sendable' | 'excluded' | 'unknown';
 
 export interface ChannelAdapter {
   readonly channel: string;
-  /** registry `delivery` 와 같다 — 폼(확장) · API(서버) · 엑셀(운영자) · 없음. */
-  readonly delivery: ChannelDelivery;
   /** 계정에서 몰이 보는 계정 식별자를 고른다. 실행 준비가 `expectedProviderAccountId` 로 얼린다. */
   providerAccountId(account: ChannelAccountIdentity): string | null;
-  /** 몰 상품 id 형식. null 이면 형식 검사를 하지 않는다. */
-  readonly externalListingIdPattern: RegExp | null;
   /** 확인 증거가 이 몰의 것인가 — 계정 일치 · 관리자 origin · 상품 id 형식. */
   validateConfirmationEvidence(
-    account: ChannelAccountIdentity,
     expectedProviderAccountId: string | null,
     evidence: ConfirmationEvidenceInput,
   ): ProviderEvidenceDecision;
