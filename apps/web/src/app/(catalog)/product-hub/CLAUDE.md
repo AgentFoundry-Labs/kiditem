@@ -13,9 +13,11 @@ This folder owns four surfaces:
   per-option source template, and reusable Channels registration targets (ADR-0020). Saving sends only
   changed fields; options follow the basics save with the returned version.
   The shared mall bulk-sheet dialog (`src/components/mall-sheet/`) downloads
-  filled mall templates; the operator uploads them to the mall. The editor
-  sends a sales product made from a collected product back to 수집상품
-  (archived, revived by promoting it again).
+  filled mall templates; the operator uploads them to the mall. A sales
+  product is a draft from the moment its source is collected (ADR-0022,
+  KID-310) — there is no candidate-to-sales-product promotion and no demote
+  action in this editor. Its code (KID) issues lazily at the first sell
+  decision, so a still-undecided draft shows 미발급 instead of a code.
 
 ## State Contract
 

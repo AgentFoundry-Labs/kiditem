@@ -13,7 +13,7 @@ writes only through `salesProductApi`.
 - [사진 올리기] sends only our storage photos (`PUBLIC_IMAGE_SOURCE_ORIGINS`,
   mirrored in the extension) to the extension's `hostPublicImages`, saves each
   batch's public URLs as copies, and stops on a Kidsnote login prompt.
-- 상품 × 몰에 등록 설정이 여러 개면 사람이 고른 설정으로만 확인 · 파일 · 분류 저장을 한다. 선택을
-  바꾸면 이전 확인 결과로 파일을 만들지 않는다 — 다시 확인을 눌러야 받기가 열린다. 받기는 몰이 한
-  파일에 받는 수로 나누므로 그 묶음에 든 상품의 선택만 보낸다. 설정 0개 · 1개는 화면이 그대로다.
+- 판매상품 × 채널계정의 등록 설정은 활성 상태가 늘 0개 아니면 1개다(ADR-0022, KID-310) — 이
+  창은 등록 설정을 고르지 않는다. 확인 · 파일 · 분류 저장은 그 하나뿐인 설정(있으면)을 그대로
+  쓴다.
 - Keep route-specific copy in the caller's `intro`.
