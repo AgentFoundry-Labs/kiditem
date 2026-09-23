@@ -21,7 +21,7 @@ import {
   normalizeProductPipelineReturnTo,
 } from '../../../_shared/lib/product-pipeline-routes';
 import { thumbnailSubjectFromParams } from '../../../_shared/lib/thumbnail-subject';
-import { representativeImageUploadedMessage, wingUploadReached } from '../../../_shared/lib/wing-registration';
+import { representativeImageUploadedMessage, representativeImageUploadReached } from '../../../_shared/lib/representative-image-execution';
 import { useAnalysisList } from '../../../thumbnail-ai/hooks/useThumbnailAnalysis';
 import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { resolveImageUrl } from '@/lib/resolve-url';
@@ -487,7 +487,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
     try {
       const wingResult = await wingRegisterMutation.mutateAsync(generationId);
       if (!mountedRef.current) return;
-      if (wingUploadReached(wingResult)) {
+      if (representativeImageUploadReached(wingResult)) {
         toast.success(representativeImageUploadedMessage());
         setResult([]);
         setGenerationId(null);

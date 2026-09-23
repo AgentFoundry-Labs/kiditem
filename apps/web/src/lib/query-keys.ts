@@ -268,6 +268,12 @@ export const queryKeys = {
     all: ['channelAccounts'] as const,
     active: () => [...queryKeys.channelAccounts.all, 'active'] as const,
   },
+  /** 몰 어댑터 확인 창의 기본값(판매상품 × 몰). 저장된 몰 값이 바뀌면 다시 읽는다. */
+  registrationConfirmation: {
+    all: ['registrationConfirmation'] as const,
+    defaults: (mallKey: string, salesProductId: string, savedInputs: readonly unknown[]) =>
+      [...queryKeys.registrationConfirmation.all, mallKey, salesProductId, savedInputs] as const,
+  },
   channelSkuMappings: {
     all: ['channelSkuMappings'] as const,
     lists: () => [...queryKeys.channelSkuMappings.all, 'list'] as const,

@@ -4,14 +4,14 @@ import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { ApiError } from '@/lib/api-error';
 import {
   EXTENSION_REQUIRED_MESSAGE,
-  WingListingChoiceRequiredError,
-  fetchWingListingChoices,
-  confirmWingThumbnailApplied,
-  markWingThumbnailNotApplied,
-  registerWingThumbnailViaExtension,
+  ListingChoiceRequiredError,
+  fetchRepresentativeImageListingChoices,
+  confirmRepresentativeImageApplied,
+  markRepresentativeImageNotApplied,
+  submitRepresentativeImageViaExtension,
   representativeImageUploadedMessage,
-  resendWingThumbnailViaExtension,
-} from './wing-registration';
+  resendRepresentativeImageViaExtension,
+} from './representative-image-execution';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -41,7 +41,7 @@ const prepared = {
   },
 };
 
-describe('registerWingThumbnailViaExtension', () => {
+describe('submitRepresentativeImageViaExtension', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -49,19 +49,19 @@ describe('registerWingThumbnailViaExtension', () => {
   it('requires the local Chrome extension and does not prepare an execution without it', async () => {
     mockedDetectExtensionId.mockResolvedValueOnce(null);
 
-    await expect(registerWingThumbnailViaExtension('gen-1')).rejects.toThrow(EXTENSION_REQUIRED_MESSAGE);
+    await expect(submitRepresentativeImageViaExtension('gen-1')).rejects.toThrow(EXTENSION_REQUIRED_MESSAGE);
 
     expect(mockedApiPost).not.toHaveBeenCalled();
   });
 
-  it('prepares a Channels execution, sends the unchanged message to the extension and reports the upload as waiting for the Wing save', async () => {
+  it('prepares a Channels execution, sends the unchanged message to the extension and reports the upload as waiting for the mall save', async () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedApiPost
       .mockResolvedValueOnce(prepared)
       .mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: true, screenshotPath: 'shot' });
     mockedSendToExtension.mockResolvedValueOnce({ success: true, screenshotUrl: 'shot' });
 
-    await expect(registerWingThumbnailViaExtension('gen-1')).resolves.toEqual({
+    await expect(submitRepresentativeImageViaExtension('gen-1')).resolves.toEqual({
       generationId: 'gen-1', executionId: EXECUTION_ID, success: true, screenshotPath: 'shot',
     });
 
@@ -86,7 +86,7 @@ describe('registerWingThumbnailViaExtension', () => {
       .mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: false, screenshotPath: null, error: 'dropzone missing' });
     mockedSendToExtension.mockResolvedValueOnce({ success: false, error: 'dropzone missing' });
 
-    await expect(registerWingThumbnailViaExtension('gen-1')).rejects.toThrow('dropzone missing');
+    await expect(submitRepresentativeImageViaExtension('gen-1')).rejects.toThrow('dropzone missing');
 
     expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
       outcome: 'definitive_failure',
@@ -94,16 +94,16 @@ describe('registerWingThumbnailViaExtension', () => {
     });
   });
 
-  it('reports a pending Wing login as a definitive failure', async () => {
+  it('reports a pending mall login as a definitive failure', async () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, screenshotPath: null });
     mockedSendToExtension.mockResolvedValueOnce({ success: false, pendingLogin: true });
 
-    await expect(registerWingThumbnailViaExtension('gen-1')).rejects.toThrow('쿠팡 Wing 로그인 필요');
+    await expect(submitRepresentativeImageViaExtension('gen-1')).rejects.toThrow('쿠팡 WING 로그인 필요');
 
     expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
       outcome: 'definitive_failure',
-      error: '쿠팡 Wing 로그인 필요 — 열린 Wing 탭에서 로그인 후 다시 시도하세요.',
+      error: '쿠팡 WING 로그인 필요 — 열린 탭에서 로그인한 뒤 다시 시도하세요.',
     });
   });
 
@@ -112,7 +112,7 @@ describe('registerWingThumbnailViaExtension', () => {
     mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, screenshotPath: null });
     mockedSendToExtension.mockRejectedValueOnce(new Error('The message port closed before a response was received.'));
 
-    await expect(registerWingThumbnailViaExtension('gen-1')).rejects.toThrow('The message port closed');
+    await expect(submitRepresentativeImageViaExtension('gen-1')).rejects.toThrow('The message port closed');
 
     expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
       outcome: 'uncertain',
@@ -127,7 +127,7 @@ describe('registerWingThumbnailViaExtension', () => {
       .mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: true, screenshotPath: null });
     mockedSendToExtension.mockResolvedValueOnce({ success: true });
 
-    await expect(resendWingThumbnailViaExtension(EXECUTION_ID)).resolves.toMatchObject({ success: true });
+    await expect(resendRepresentativeImageViaExtension(EXECUTION_ID)).resolves.toMatchObject({ success: true });
 
     expect(mockedApiPost).toHaveBeenNthCalledWith(1, `/api/channels/thumbnail-executions/${EXECUTION_ID}/resend`, {});
     expect(mockedSendToExtension).toHaveBeenCalledWith('extension-1', expect.objectContaining({ attemptId: EXECUTION_ID, action: 'registerRepresentativeImage' }));
@@ -138,15 +138,15 @@ describe('registerWingThumbnailViaExtension', () => {
   it('marks an unknown outcome as not applied through the Channels route', async () => {
     mockedApiPost.mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: false, screenshotPath: null });
 
-    await markWingThumbnailNotApplied(EXECUTION_ID);
+    await markRepresentativeImageNotApplied(EXECUTION_ID);
 
     expect(mockedApiPost).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION_ID}/not-applied`, {});
   });
 
-  it('confirms the Wing save through the Channels applied route', async () => {
+  it('confirms the mall save through the Channels applied route', async () => {
     mockedApiPost.mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: true, status: 'succeeded', screenshotPath: null });
 
-    await expect(confirmWingThumbnailApplied(EXECUTION_ID)).resolves.toMatchObject({ success: true });
+    await expect(confirmRepresentativeImageApplied(EXECUTION_ID)).resolves.toMatchObject({ success: true });
 
     expect(mockedApiPost).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION_ID}/applied`, {});
   });
@@ -155,9 +155,9 @@ describe('registerWingThumbnailViaExtension', () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedApiPost.mockRejectedValueOnce(new ApiError(400, 'Bad Request', '리스팅이 여럿입니다 — 하나를 고르세요', { code: 'ambiguous_listing' }));
 
-    const error = await registerWingThumbnailViaExtension('gen-1').catch((caught: unknown) => caught);
+    const error = await submitRepresentativeImageViaExtension('gen-1').catch((caught: unknown) => caught);
 
-    expect(error).toBeInstanceOf(WingListingChoiceRequiredError);
+    expect(error).toBeInstanceOf(ListingChoiceRequiredError);
     expect(error).toMatchObject({ generationId: 'gen-1', message: '리스팅이 여럿입니다 — 하나를 고르세요' });
     expect(mockedSendToExtension).not.toHaveBeenCalled();
   });
@@ -167,7 +167,7 @@ describe('registerWingThumbnailViaExtension', () => {
     mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, status: 'reconciling', screenshotPath: null });
     mockedSendToExtension.mockResolvedValueOnce({ success: true });
 
-    await registerWingThumbnailViaExtension('gen-1', { channelListingId: 'listing-2' });
+    await submitRepresentativeImageViaExtension('gen-1', { channelListingId: 'listing-2' });
 
     expect(mockedApiPost).toHaveBeenNthCalledWith(1, '/api/channels/thumbnail-executions', { generationId: 'gen-1', channelListingId: 'listing-2' });
   });
@@ -175,7 +175,7 @@ describe('registerWingThumbnailViaExtension', () => {
   it('reads the listings the operator can pick from Channels', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ items: [{ channelListingId: 'listing-2', channelName: '두번째', channelAccountName: 'Wing', externalId: '99' }] });
 
-    await expect(fetchWingListingChoices('gen-1')).resolves.toEqual([
+    await expect(fetchRepresentativeImageListingChoices('gen-1')).resolves.toEqual([
       { channelListingId: 'listing-2', channelName: '두번째', channelAccountName: 'Wing', externalId: '99' },
     ]);
     expect(apiClient.get).toHaveBeenCalledWith('/api/channels/thumbnail-executions/listing-choices?generationId=gen-1');
@@ -183,7 +183,7 @@ describe('registerWingThumbnailViaExtension', () => {
 });
 
 describe('representativeImageUploadedMessage', () => {
-  it('names the channel that takes representative images from the registry, never a hard-coded Wing screen', () => {
+  it('names the channel that takes representative images from the registry, never a hard-coded screen', () => {
     const message = representativeImageUploadedMessage();
     expect(message).toBe('쿠팡 WING 상품 수정 화면에 올렸습니다 — 저장한 뒤 반영됨으로 표시하세요');
     expect(representativeImageUploadedMessage({ uploaded: 3 })).toBe(

@@ -17,12 +17,12 @@ import {
   type WingBatchItemResult,
 } from '../../../_shared/hooks/useThumbnailGenerations';
 import { thumbnailGenerationEditHref } from '../../../_shared/lib/product-pipeline-routes';
-import { representativeImageUploadedMessage } from '../../../_shared/lib/wing-registration';
+import { representativeImageUploadedMessage } from '../../../_shared/lib/representative-image-execution';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
-import { WingListingPicker } from './WingListingPicker';
+import { ListingPicker } from './ListingPicker';
 
 /**
  * 등록 대기: 적용했지만 아직 몰에 반영되지 않은 생성, 그리고 Content 단계와 관계없이 살아 있는
@@ -589,7 +589,7 @@ function BatchProgressDialog({
                       </div>
                     )}
                     {r.state === 'fail' && r.needsListingChoice && (
-                      <WingListingPicker generationId={r.id} onDone={() => onListingUploaded(r.id)} />
+                      <ListingPicker generationId={r.id} onDone={() => onListingUploaded(r.id)} />
                     )}
                     {r.state === 'ok' && r.screenshotPath && (
                       <div className="text-[11px] text-gray-500 truncate font-mono" title={r.screenshotPath}>

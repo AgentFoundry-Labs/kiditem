@@ -110,13 +110,13 @@ describe('RegistrationPendingSection checking actions', () => {
       return { items: [] };
     });
     vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
-    vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError(400, 'Bad Request', '쿠팡 listing 이 여럿입니다 — listing을 고르세요', { code: 'ambiguous_listing' }));
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError(400, 'Bad Request', '리스팅이 여럿입니다 — 하나를 고르세요', { code: 'ambiguous_listing' }));
     renderSection();
 
     fireEvent.click(await screen.findByRole('button', { name: '쿠팡 등록 선택' }));
     fireEvent.click(screen.getByRole('button', { name: /선택 1장 쿠팡 등록/ }));
 
-    expect(await screen.findByRole('combobox', { name: '쿠팡 listing' })).toBeTruthy();
+    expect(await screen.findByRole('combobox', { name: '올릴 리스팅' })).toBeTruthy();
     expect(sendToExtension).not.toHaveBeenCalled();
   });
 
