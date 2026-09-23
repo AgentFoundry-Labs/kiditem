@@ -12,8 +12,7 @@ import { publishItemSalesProductId, type MallPublishItem } from './mall-publish-
 /**
  * 판매상품(ADR-0014) → 몰 중립 등록 초안.
  *
- * 판매상품은 한 번 편집한 값이고, 몰마다 다른 것(판매가 · 상품명 · 상세)은 그 몰 계정의 몰별 값이
- * 이긴다. 옵션은 미사용이 아닌 단품마다 한 줄 — 품절 단품은 재고 0 으로 보낸다.
+ * 판매상품은 한 번 편집한 값이다. 옵션은 미사용이 아닌 단품마다 한 줄 — 품절 단품은 재고 0 으로 보낸다.
  */
 
 const DEFAULT_STOCK = KIDITEM_MALL_DRAFT_DEFAULTS.defaultStock;
@@ -40,56 +39,6 @@ function nonEmptyString(...values: unknown[]): string | undefined {
     if (trimmed) return trimmed;
   }
   return undefined;
-}
-
-function stringArray(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const values = value.filter((entry): entry is string => typeof entry === 'string')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  return values.length > 0 ? values : undefined;
-}
-
-function stringRecord(value: unknown): Record<string, string> {
-  const record = recordValue(value);
-  return Object.fromEntries(
-    Object.entries(record)
-      .filter(([, entry]) => typeof entry === 'string' && entry.trim())
-      .map(([key, entry]) => [key, (entry as string).trim()]),
-  );
-}
-
-function noticeFieldsFromRegistrationInput(input: RegistrationInput): Partial<Record<MallNoticeField, string>> {
-  const notice = recordValue(input.notice);
-  const fields: Partial<Record<MallNoticeField, string>> = {
-    ...stringRecord(input.noticeFields),
-    ...stringRecord(notice.fields),
-    ...stringRecord(input.noticeValues),
-  };
-  const put = (field: MallNoticeField, ...values: unknown[]) => {
-    const value = nonEmptyString(...values);
-    if (value) fields[field] = value;
-  };
-  put('품명및모델명', input.modelName, input.itemModelName);
-  put('제조자', input.manufacturer, input.maker);
-  put('제조국', input.originCountry, input.origin);
-  put('크기', input.productSize);
-  put('색상', input.colorVariantNames, input.color);
-  put('사용연령', input.ageGroup);
-  const certificationNumber = nonEmptyString(input.kcCertificationNumber, input.certNumber);
-  if (certificationNumber) {
-    fields.안전인증번호 = certificationNumber;
-    fields.KC인증 ??= 'KC 인증 있음';
-  }
-  return fields;
-}
-
-function detailImageUrlsFromRegistrationInput(input: RegistrationInput): string[] | undefined {
-  const direct = stringArray(input.detailImageUrls);
-  if (direct) return direct;
-  const content = recordValue(input.content);
-  const html = nonEmptyString(input.detailHtml, input.contentHtml, content.detailHtml, content.html);
-  return html ? detailImageUrlsFromHtml(html) : undefined;
 }
 
 export function detailImageUrlsFromHtml(html: string | null | undefined): string[] {
@@ -122,6 +71,11 @@ export function salesProductOptionPrice(
   return price;
 }
 
+/**
+ * 판매상품 → 몰 초안. 이름 · 사진 · 키워드 · 고시 · 제조사는 판매상품에서, 상세는 콘텐츠 revision 에서,
+ * 홍보문은 등록 대상의 몰 전용 값(`mallFields.promoText`)에서 온다(KID-313). 등록 대상은 상품 사실을 갖지
+ * 않으므로 `registrationInput` 의 다른 키는 읽지 않는다.
+ */
 export function salesProductToMallProductDraft(
   product: SalesProduct,
   mallKey: string,
@@ -130,43 +84,11 @@ export function salesProductToMallProductDraft(
   detailHtml: string | null = null,
 ): MallProductDraft {
   const override = product.channelOverrides.find((item) => item.mallKey === mallKey);
-  const content = recordValue(registrationInput.content);
-  const registrationImages = stringArray(registrationInput.imageUrls)
-    ?? stringArray(registrationInput.thumbnailUrls);
-  const representativeImageUrl = nonEmptyString(
-    registrationInput.representativeImageUrl,
-    registrationImages?.[0],
-    product.imageUrls[0],
-  ) ?? '';
-  const additionalImageUrls = stringArray(registrationInput.additionalImageUrls)
-    ?? registrationImages?.slice(1, 1 + MAX_ADDITIONAL_IMAGES)
-    ?? product.imageUrls.slice(1, 1 + MAX_ADDITIONAL_IMAGES);
-  const targetName = nonEmptyString(
-    registrationInput.displayName,
-    registrationInput.name,
-    registrationInput.productName,
-  );
-  const targetSellerName = nonEmptyString(
-    registrationInput.sellerProductName,
-    registrationInput.originalName,
-  );
-  const targetKeywords = stringArray(registrationInput.keywords)
-    ?? stringArray(registrationInput.tags);
-  const targetDetailHtml = nonEmptyString(
-    registrationInput.detailHtml,
-    registrationInput.contentHtml,
-    content.detailHtml,
-    content.html,
-  );
-  const targetDetailImageUrls = detailImageUrlsFromRegistrationInput(registrationInput);
-  const targetNoticeFields = noticeFieldsFromRegistrationInput(registrationInput);
-  const targetPromoText = nonEmptyString(registrationInput.promoText, override?.promoText);
-  const noticeCategory = nonEmptyString(
-    registrationInput.noticeCategory,
-    recordValue(registrationInput.notice).category,
-    override?.noticeCategory,
-    product.noticeCategory,
-  );
+  const mallFields = recordValue(registrationInput.mallFields);
+  const representativeImageUrl = product.imageUrls[0] ?? '';
+  const additionalImageUrls = product.imageUrls.slice(1, 1 + MAX_ADDITIONAL_IMAGES);
+  const promoText = nonEmptyString(mallFields.promoText, override?.promoText);
+  const noticeCategory = nonEmptyString(override?.noticeCategory, product.noticeCategory);
   const notice: Partial<Record<MallNoticeField, string>> = {
     ...KIDITEM_MALL_DRAFT_DEFAULTS.noticeFields,
     품명및모델명: product.shortName || product.name,
@@ -175,7 +97,6 @@ export function salesProductToMallProductDraft(
     ...(product.certifications[0]?.number
       ? { 안전인증번호: product.certifications[0].number, KC인증: 'KC 인증 있음' }
       : {}),
-    ...targetNoticeFields,
   };
   const variants: MallProductVariant[] = product.options
     .filter((option) => option.supplyStatus !== 'unused')
@@ -197,25 +118,21 @@ export function salesProductToMallProductDraft(
     });
   return {
     candidateId: product.id,
-    displayName: targetName || override?.name || product.name,
-    ...(targetPromoText ? { promoText: targetPromoText } : {}),
-    sellerProductName: targetSellerName || product.shortName || product.name,
-    brand: nonEmptyString(registrationInput.brand, product.brand)
-      || KIDITEM_MALL_DRAFT_DEFAULTS.brand,
-    maker: nonEmptyString(registrationInput.maker, registrationInput.manufacturer, product.manufacturer)
-      || KIDITEM_MALL_DRAFT_DEFAULTS.maker,
+    displayName: override?.name || product.name,
+    ...(promoText ? { promoText } : {}),
+    sellerProductName: product.shortName || product.name,
+    brand: nonEmptyString(product.brand) || KIDITEM_MALL_DRAFT_DEFAULTS.brand,
+    maker: nonEmptyString(product.manufacturer) || KIDITEM_MALL_DRAFT_DEFAULTS.maker,
     representativeImageUrl,
     additionalImageUrls,
-    detailImageUrls: targetDetailImageUrls
-      ?? detailImageUrlsFromHtml(targetDetailHtml ?? detailHtml),
-    keywords: (targetKeywords ?? product.keywords).slice(0, 20),
+    detailImageUrls: detailImageUrlsFromHtml(detailHtml),
+    keywords: product.keywords.slice(0, 20),
     notice: {
       category: SABANGNET_NOTICE_CATEGORY[noticeCategory ?? ''] ?? noticeCategory ?? KIDITEM_MALL_DRAFT_DEFAULTS.noticeCategory,
       fields: notice,
     },
     variants,
-    sourceCategory: nonEmptyString(registrationInput.sourceCategory, registrationInput.category)
-      ?? product.standardCategory,
+    sourceCategory: product.standardCategory,
   };
 }
 

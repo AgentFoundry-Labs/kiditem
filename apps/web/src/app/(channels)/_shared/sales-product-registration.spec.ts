@@ -138,23 +138,33 @@ describe('sales product → mall draft', () => {
     expect(draft.additionalImageUrls).toEqual(['https://img.example/2.jpg']);
   });
 
-  it('puts frozen target name, content, notice, and images into the actual mall form payload', () => {
-    const draft = salesProductToMallProductDraft(product(), 'smartstore', {
-      name: '동결 대상 이름',
-      detailHtml: '<img src="https://frozen.example/detail.png">',
-      imageUrls: ['https://frozen.example/primary.png', 'https://frozen.example/extra.png'],
-      keywords: ['동결 키워드'],
-      promoText: '동결 홍보문구',
-      manufacturer: '동결 제조사',
+  it('fills the mall form from the frozen product, its detail revision and the mall-only promo text, ignoring old product-fact keys', () => {
+    const frozen = product();
+    frozen.name = '동결 상품 이름';
+    frozen.keywords = ['동결 키워드'];
+    frozen.manufacturer = '동결 제조사';
+    frozen.imageUrls = ['https://frozen.example/primary.png', 'https://frozen.example/extra.png'];
+    const draft = salesProductToMallProductDraft(frozen, 'smartstore', {
+      mallCategory: null,
+      mallFields: { promoText: '  몰 홍보문구  ' },
+      adapter: {},
+      // 옛 등록 대상이 복사해 두던 상품 사실 — 새 계약에는 없고, 있어도 읽지 않는다.
+      name: '옛 대상 이름',
+      detailHtml: '<img src="https://stale.example/detail.png">',
+      imageUrls: ['https://stale.example/primary.png'],
+      keywords: ['옛 키워드'],
+      promoText: '옛 홍보문구',
+      manufacturer: '옛 제조사',
+      noticeCategory: '035',
       noticeFields: { 사용연령: '8세 이상' },
-    });
+    }, '<img src="https://frozen.example/detail.png">');
     const form = smartstoreFormFromDraft(draft, {
       quantity: 1,
       category: { id: '50000001', keyword: '동결 카테고리', label: '동결 카테고리' },
     });
     const elevenstForm = elevenstFormFromDraft(draft, { categoryPath: '대>중>소' });
 
-    expect(form.smartstore.productName).toContain('동결 대상 이름');
+    expect(form.smartstore.productName).toContain('동결 상품 이름');
     expect(form.smartstore.tags).toContain('동결키워드');
     expect(form.smartstore.notice.manufacturer).toBe('동결 제조사');
     expect(form.imageGroups.smartstore).toEqual([
@@ -162,7 +172,9 @@ describe('sales product → mall draft', () => {
       'https://frozen.example/extra.png',
     ]);
     expect(form.detailUploads).toEqual([{ url: 'https://frozen.example/detail.png' }]);
-    expect(elevenstForm.rowFields.promoText).toBe('동결 홍보문구');
+    expect(elevenstForm.rowFields.promoText).toBe('몰 홍보문구');
+    expect(draft.notice.category).toBe('어린이제품');
+    expect(draft.notice.fields.사용연령).not.toBe('8세 이상');
   });
 
   it('does not re-read live sales-product data for a target execution', async () => {
