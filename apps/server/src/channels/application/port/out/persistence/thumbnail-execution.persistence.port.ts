@@ -46,6 +46,12 @@ export interface ThumbnailExecutionPersistencePort {
     screenshotPath: string | null;
     externalId: string | null;
   }): Promise<{ mode: 'applied'; execution: ThumbnailExecutionRow } | { mode: 'rejected'; status: OperationStatus } | { mode: 'not_found' }>;
+  /** 살아 있는 실행의 동결 payload. 끝난 실행은 그 상태를, 없으면 `not_found`. */
+  readLivePayload(input: { organizationId: string; executionId: string }): Promise<
+    | { mode: 'live'; payload: ThumbnailUpdatePayload }
+    | { mode: 'finished'; status: OperationStatus }
+    | { mode: 'not_found' }
+  >;
   findLatest(input: { organizationId: string; generationIds: readonly string[] }): Promise<ThumbnailExecutionRow[]>;
   dismissLatestFailed(input: { organizationId: string; generationId: string }): Promise<boolean>;
 }

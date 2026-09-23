@@ -12,7 +12,7 @@ const user = { id: '00000000-0000-4000-8000-000000000003' } as never;
 const unreachable = new Proxy({}, { get: () => () => { throw new Error('owner must not be called'); } }) as ChannelsThumbnailExecutionPort;
 
 describe('ThumbnailExecutionController', () => {
-  it('publishes prepare, report, latest-status and dismiss routes under channels/thumbnail-executions', () => {
+  it('publishes prepare, report, resend, not-applied, latest-status and dismiss routes under channels/thumbnail-executions', () => {
     expect(Reflect.getMetadata('path', ThumbnailExecutionController)).toBe('channels/thumbnail-executions');
     const route = (name: keyof ThumbnailExecutionController) => ({
       path: Reflect.getMetadata('path', ThumbnailExecutionController.prototype[name]),
@@ -22,6 +22,8 @@ describe('ThumbnailExecutionController', () => {
     expect(route('report')).toEqual({ path: ':executionId/report', method: RequestMethod.POST });
     expect(route('listLatest')).toEqual({ path: '/', method: RequestMethod.GET });
     expect(route('dismissFailed')).toEqual({ path: 'failed/:generationId', method: RequestMethod.DELETE });
+    expect(route('resend')).toEqual({ path: ':executionId/resend', method: RequestMethod.POST });
+    expect(route('markNotApplied')).toEqual({ path: ':executionId/not-applied', method: RequestMethod.POST });
   });
 
   it('rejects bodies and queries outside the shared contract before the owner runs', async () => {

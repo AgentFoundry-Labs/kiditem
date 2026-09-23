@@ -21,6 +21,10 @@ import { ThumbnailExecutionPersistenceAdapter } from '../adapter/out/persistence
 import { ThumbnailExecutionService } from '../application/service/registration/thumbnail-execution.service';
 import type { WingThumbnailRunnerPort } from '../application/port/out/automation/wing-thumbnail-runner.port';
 import { ChannelBusinessError } from '../domain/exception/channel-business-error';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { StockoutCheckPersistenceAdapter } from '../adapter/out/persistence/stockout-check.persistence.adapter';
+import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 
 const PNG_DATA_URL = `data:image/png;base64,${Buffer.from('89504e470d0a1a0a', 'hex').toString('base64')}`;
 
@@ -123,7 +127,8 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       organizationId: ORG,
       executionKind: 'thumbnail_update',
       channelAccountId: account.id,
-      channelListingId: listing.id,
+      // listing 은 동결 payload 에만 있다 — 실행 행은 listing 자리를 잡지 않는다.
+      channelListingId: null,
       status: 'executing',
       providerOutcome: 'uncertain',
       requestedByUserId: USER,
@@ -263,19 +268,72 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       .resolves.toMatchObject([{ executionId: prepared.executionId, status: 'executing' }]);
   });
 
+  it('never takes the listing slot: a live thumbnail execution blocks neither a sold_out execution nor the stockout check', async () => {
+    const { account, listing, generation } = await listingGeneration();
+    await prisma.channelAccount.update({ where: { id: account.id }, data: { externalAccountId: 'vendor' } });
+    const option = await prisma.channelListingOption.create({
+      data: { organizationId: ORG, listingId: listing.id, externalOptionId: 'option-1', rawJson: { registrationType: 'NORMAL' }, status: 'active', safetyStock: 2 },
+    });
+    const component = await seedSourceProduct(prisma, { organizationId: ORG, code: randomUUID(), name: 'component', currentStock: 1 });
+    await prisma.channelListingOptionInventoryComponent.create({ data: { organizationId: ORG, channelListingOptionId: option.id, masterProductId: component.id, quantity: 1 } });
+    await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id });
+
+    const db = prisma as PrismaService;
+    const [subject] = await new StockoutCheckPersistenceAdapter(db, new ProductTransactionalReadRepositoryAdapter()).readSubjects(ORG, [listing.id]);
+    expect(subject?.activeExecutions).toEqual([]);
+    await expect(new RegistrationExecutionRepositoryAdapter(db, {} as never).prepareListingAvailability({
+      organizationId: ORG, requestedByUserId: USER,
+      request: { channelAccountId: account.id, externalListingId: listing.externalId, kind: 'sold_out', optionCodes: ['option-1'], idempotencyKey: randomUUID() },
+    })).resolves.toMatchObject({ status: 'prepared' });
+  });
+
+  it('lets the operator mark an unknown outcome as not applied, which frees the generation for a new upload', async () => {
+    const { generation } = await listingGeneration();
+    const input = { organizationId: ORG, requestedByUserId: USER, generationId: generation.id };
+    const prepared = await service.prepare(input);
+    await service.report({ ...input, executionId: prepared.executionId, report: { outcome: 'uncertain', error: 'port closed' } });
+
+    await expect(service.markNotApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId }))
+      .resolves.toEqual({ generationId: generation.id, executionId: prepared.executionId, success: false, screenshotPath: null, error: '운영자가 반영되지 않았다고 표시함' });
+    expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } }))
+      .toMatchObject({ status: 'failed', providerOutcome: 'definitive_failure', lastErrorMessage: '운영자가 반영되지 않았다고 표시함' });
+    await expect(service.prepare(input)).resolves.toMatchObject({ generationId: generation.id });
+  });
+
+  it('refuses to mark a finished execution as not applied', async () => {
+    const { generation } = await listingGeneration();
+    const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id });
+    await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'succeeded' } });
+    expect(await rejection(service.markNotApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId })))
+      .toMatchObject({ kind: 'conflict' });
+    expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } }))
+      .toMatchObject({ status: 'succeeded' });
+  });
+
+  it('hands the frozen upload back for a resend while the outcome is unknown, and only then', async () => {
+    const { generation } = await listingGeneration();
+    const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: generation.id });
+    await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'uncertain', error: 'port closed' } });
+
+    await expect(service.resend({ organizationId: ORG, executionId: prepared.executionId })).resolves.toEqual(prepared);
+    await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'succeeded' } });
+    expect(await rejection(service.resend({ organizationId: ORG, executionId: prepared.executionId }))).toMatchObject({ kind: 'conflict' });
+    expect(await rejection(service.resend({ organizationId: OTHER_ORGANIZATION_ID, executionId: prepared.executionId }))).toMatchObject({ kind: 'not_found' });
+  });
+
   describe('account resolution', () => {
     it('uses the listing a sales product has on Coupang, or the one the operator picks', async () => {
       const single = await salesProductGeneration({ listings: 1 });
       const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: single.generation.id });
       expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } }))
-        .toMatchObject({ channelAccountId: single.listings[0]!.channelAccountId, channelListingId: single.listings[0]!.id });
+        .toMatchObject({ channelAccountId: single.listings[0]!.channelAccountId, channelListingId: null, submissionPayloadJson: expect.objectContaining({ channelListingId: single.listings[0]!.id }) });
 
       const many = await salesProductGeneration({ listings: 2 });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: many.generation.id })))
         .toEqual({ kind: 'invalid', message: '쿠팡 계정이 여럿입니다 — listing을 고르세요' });
       const picked = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: many.generation.id, channelListingId: many.listings[1]!.id });
       expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: picked.executionId } }))
-        .toMatchObject({ channelAccountId: many.listings[1]!.channelAccountId, channelListingId: many.listings[1]!.id });
+        .toMatchObject({ channelAccountId: many.listings[1]!.channelAccountId, channelListingId: null, submissionPayloadJson: expect.objectContaining({ channelListingId: many.listings[1]!.id }) });
     });
 
     it('falls back to the single active Coupang account and refuses none or several', async () => {

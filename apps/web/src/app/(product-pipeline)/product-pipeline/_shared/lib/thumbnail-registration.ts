@@ -8,6 +8,8 @@ import {
 const MAX_IDS_PER_READ = 200;
 
 export interface ThumbnailRegistrationFields {
+  /** 가장 최근 몰 반영 실행. "확인 중" 에서 다시 보내기 · 반영 안 됨 표시가 이 실행에 한다. */
+  registrationExecutionId: string | null;
   registrationStatus: ThumbnailRegistrationState | null;
   registrationError: string | null;
   registrationCheckedAt: string | null;
@@ -23,6 +25,7 @@ export function mergeThumbnailRegistration<T extends { id: string }>(
     const latest = byGeneration.get(generation.id);
     return {
       ...generation,
+      registrationExecutionId: latest?.executionId ?? null,
       registrationStatus: thumbnailRegistrationState(latest?.status),
       registrationError: latest?.error ?? null,
       registrationCheckedAt: latest?.checkedAt ? String(latest.checkedAt) : null,

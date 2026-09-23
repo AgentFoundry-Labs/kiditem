@@ -25,10 +25,10 @@ describe('mergeThumbnailRegistration', () => {
     );
 
     expect(merged).toEqual([
-      { id: 'g1', registrationStatus: 'registered', registrationError: null, registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
-      { id: 'g2', registrationStatus: 'failed', registrationError: '로그인 필요', registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
-      { id: 'g3', registrationStatus: 'checking', registrationError: 'port closed', registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
-      { id: 'g4', registrationStatus: null, registrationError: null, registrationCheckedAt: null },
+      { id: 'g1', registrationExecutionId: 'g1-execution', registrationStatus: 'registered', registrationError: null, registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
+      { id: 'g2', registrationExecutionId: 'g2-execution', registrationStatus: 'failed', registrationError: '로그인 필요', registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
+      { id: 'g3', registrationExecutionId: 'g3-execution', registrationStatus: 'checking', registrationError: 'port closed', registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
+      { id: 'g4', registrationExecutionId: null, registrationStatus: null, registrationError: null, registrationCheckedAt: null },
     ]);
   });
 });

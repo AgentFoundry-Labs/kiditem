@@ -85,7 +85,9 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
           data: {
             organizationId: input.organizationId,
             channelAccountId: input.channelAccountId,
-            channelListingId: input.payload.channelListingId,
+            // listing 은 동결 payload 에만 둔다. 행에 적으면 listing 의 활성 실행 자리
+            // (product_registration_executions_active_listing_key)와 품절 검사를 막는다.
+            channelListingId: null,
             executionKind: THUMBNAIL_UPDATE_EXECUTION_KIND,
             idempotencyKey: input.idempotencyKey,
             ownerIdempotencyKey: input.ownerIdempotencyKey,
@@ -141,6 +143,18 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       const row = await tx.productRegistrationExecution.findFirstOrThrow({ where });
       return { mode: 'applied' as const, execution: toRow(row) };
     });
+  }
+
+  async readLivePayload(input: { organizationId: string; executionId: string }) {
+    const row = await this.prisma.productRegistrationExecution.findFirst({
+      where: { id: input.executionId, organizationId: input.organizationId, executionKind: THUMBNAIL_UPDATE_EXECUTION_KIND },
+      select: { status: true, submissionPayloadJson: true },
+    });
+    if (!row) return { mode: 'not_found' as const };
+    if (!(REPORTABLE_STATUSES as readonly string[]).includes(row.status)) {
+      return { mode: 'finished' as const, status: row.status as OperationStatus };
+    }
+    return { mode: 'live' as const, payload: row.submissionPayloadJson as unknown as ThumbnailUpdatePayload };
   }
 
   async findLatest(input: { organizationId: string; generationIds: readonly string[] }): Promise<ThumbnailExecutionRow[]> {

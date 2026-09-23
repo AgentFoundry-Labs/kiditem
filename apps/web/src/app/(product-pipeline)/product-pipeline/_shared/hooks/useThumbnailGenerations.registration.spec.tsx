@@ -3,7 +3,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
-import { useClearRegistrationError, useGenerationList, useVerifyRegistration } from './useThumbnailGenerations';
+import { useClearRegistrationError, useGenerationList, useMarkRegistrationNotApplied, useVerifyRegistration } from './useThumbnailGenerations';
 
 // 서버 API 는 웹의 외부 경계라 apiClient 만 바꾼다.
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
@@ -19,7 +19,7 @@ const generation = (id: string, phase: 'ready' | 'applied') => ({
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  return renderHook(() => ({ list: useGenerationList(), clear: useClearRegistrationError(), verify: useVerifyRegistration() }), { wrapper });
+  return renderHook(() => ({ list: useGenerationList(), clear: useClearRegistrationError(), verify: useVerifyRegistration(), notApplied: useMarkRegistrationNotApplied() }), { wrapper });
 }
 
 let executionStatus = 'reconciling';
@@ -64,5 +64,16 @@ describe('generation list with Channels mall registration status', () => {
     await act(async () => { await hook.result.current.clear.mutateAsync(G1); });
     expect(apiClient.delete).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/failed/${G1}`);
     expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it('marks a checking execution as not applied and reads the status again, which opens a new upload', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ generationId: G1, executionId: 'e1', success: false, screenshotPath: null });
+    const hook = mount();
+    await waitFor(() => expect(hook.result.current.list.data?.[0]?.registrationExecutionId).toBe('e1'));
+
+    executionStatus = 'failed';
+    await act(async () => { await hook.result.current.notApplied.mutateAsync('e1'); });
+    expect(apiClient.post).toHaveBeenCalledWith('/api/channels/thumbnail-executions/e1/not-applied', {});
+    await waitFor(() => expect(hook.result.current.list.data?.[0]?.registrationStatus).toBe('failed'));
   });
 });

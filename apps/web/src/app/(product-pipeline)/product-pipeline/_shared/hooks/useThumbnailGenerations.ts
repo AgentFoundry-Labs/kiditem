@@ -11,7 +11,12 @@ import {
   thumbnailExecutionIdChunks,
   type ThumbnailRegistrationFields,
 } from '../lib/thumbnail-registration';
-import { registerWingThumbnailViaExtension, type WingRegistrationResult } from '../lib/wing-registration';
+import {
+  markWingThumbnailNotApplied,
+  registerWingThumbnailViaExtension,
+  resendWingThumbnailViaExtension,
+  type WingRegistrationResult,
+} from '../lib/wing-registration';
 
 /** 생성 한 건과 그 생성의 몰 반영 상태(Channels 실행에서 읽는다). */
 export type ThumbnailGenerationListItem = ThumbnailGenerationItem & ThumbnailRegistrationFields;
@@ -392,6 +397,24 @@ export function useBatchWingRegister() {
       }
       return { results };
     },
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
+  });
+}
+
+/** "확인 중" 인 같은 실행을 확장에 다시 보낸다(`executionId` 는 `registrationExecutionId`). */
+export function useResendWingRegistration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (executionId: string) => resendWingThumbnailViaExtension(executionId),
+    onSettled: () => invalidateThumbnailRegistration(queryClient),
+  });
+}
+
+/** "반영 안 됨으로 표시" — 결과를 모르는 실행을 끝내 새 등록을 연다. */
+export function useMarkRegistrationNotApplied() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (executionId: string) => markWingThumbnailNotApplied(executionId),
     onSettled: () => invalidateThumbnailRegistration(queryClient),
   });
 }

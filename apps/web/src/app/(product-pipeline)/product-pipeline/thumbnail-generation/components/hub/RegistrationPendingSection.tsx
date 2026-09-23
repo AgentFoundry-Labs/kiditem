@@ -10,6 +10,8 @@ import {
   useGenerationList,
   useBatchWingRegister,
   useClearRegistrationError,
+  useMarkRegistrationNotApplied,
+  useResendWingRegistration,
   type ThumbnailGenerationListItem,
   type WingBatchItemResult,
 } from '../../../_shared/hooks/useThumbnailGenerations';
@@ -64,6 +66,8 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
   const { data = [] } = useGenerationList();
   const batch = useBatchWingRegister();
   const clearError = useClearRegistrationError();
+  const resend = useResendWingRegistration();
+  const markNotApplied = useMarkRegistrationNotApplied();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [results, setResults] = useState<WingBatchItemResult[] | null>(null);
@@ -98,6 +102,20 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
       onError: (err) => toast.error(err instanceof Error ? err.message : '에러 초기화 실패'),
     });
   };
+
+  const handleResend = (executionId: string) => {
+    resend.mutate(executionId, {
+      onSuccess: () => toast.success('다시 보냈습니다 — 쿠팡에 반영됐습니다'),
+      onError: (err) => toast.error(err instanceof Error ? err.message : '다시 보내기에 실패했습니다'),
+    });
+  };
+  const handleMarkNotApplied = (executionId: string) => {
+    markNotApplied.mutate(executionId, {
+      onSuccess: () => toast.success('반영 안 됨으로 표시했습니다 — 다시 등록할 수 있습니다'),
+      onError: (err) => toast.error(err instanceof Error ? err.message : '표시에 실패했습니다'),
+    });
+  };
+  const checkingBusy = resend.isPending || markNotApplied.isPending;
 
   const failedIds = items.filter((g) => g.registrationStatus === 'failed').map((g) => g.id);
   const handleClearAllErrors = () => {
@@ -228,6 +246,9 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
                     );
                   }}
                   onClearError={() => group.items.forEach((i) => handleClearError(i.id))}
+                  onResend={handleResend}
+                  onMarkNotApplied={handleMarkNotApplied}
+                  checkingBusy={checkingBusy}
                 />
               );
             })}
@@ -278,18 +299,25 @@ function RegistrationPendingCard({
   onToggle,
   onEdit,
   onClearError,
+  onResend,
+  onMarkNotApplied,
+  checkingBusy,
 }: {
   group: RegGroup;
   selectedCount: number;
   onToggle: () => void;
   onEdit: () => void;
   onClearError: () => void;
+  onResend: (executionId: string) => void;
+  onMarkNotApplied: (executionId: string) => void;
+  checkingBusy: boolean;
 }) {
   const item = group.representative;
   const preview = previewUrl(item);
   const resolved = preview ? resolveImageUrl(preview) : null;
   const anyFailed = group.items.some((i) => i.registrationStatus === 'failed');
-  const anyChecking = group.items.some((i) => i.registrationStatus === 'checking');
+  const checking = group.items.find((i) => i.registrationStatus === 'checking' && i.registrationExecutionId);
+  const anyChecking = Boolean(checking);
   const firstError = group.items.find((i) => i.registrationStatus === 'failed')?.registrationError ?? null;
   const fullSelected = selectedCount === group.items.length;
   const partialSelected = selectedCount > 0 && !fullSelected;
@@ -336,10 +364,36 @@ function RegistrationPendingCard({
       </div>
       <div className="px-1 py-1 bg-white">
         <p className="text-[11px] font-bold text-gray-900 truncate">{productName}</p>
-        {!anyFailed && anyChecking && (
-          <p className="mt-0.5 text-[10px] font-bold text-amber-600 truncate" title="몰에 반영됐는지 아직 모릅니다">
-            확인 중
-          </p>
+        {!anyFailed && anyChecking && checking?.registrationExecutionId && (
+          <div className="mt-0.5">
+            <p className="text-[10px] font-bold text-amber-600 truncate" title="몰에 반영됐는지 아직 모릅니다">
+              확인 중
+            </p>
+            <div className="mt-1 flex gap-1">
+              <button
+                type="button"
+                disabled={checkingBusy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResend(checking.registrationExecutionId!);
+                }}
+                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-primary hover:text-primary disabled:opacity-50"
+              >
+                다시 보내기
+              </button>
+              <button
+                type="button"
+                disabled={checkingBusy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMarkNotApplied(checking.registrationExecutionId!);
+                }}
+                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
+              >
+                반영 안 됨으로 표시
+              </button>
+            </div>
+          </div>
         )}
         {anyFailed && (
           <div className="flex items-start gap-1 mt-0.5">

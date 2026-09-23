@@ -32,6 +32,7 @@ import {
 
 export const SERVER_AUTOMATION_BLOCKED_MESSAGE = '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.';
 const RECONCILIATION_PENDING = 'wing_registration_reconciliation_pending';
+export const OPERATOR_NOT_APPLIED_MESSAGE = '운영자가 반영되지 않았다고 표시함';
 
 const ACCOUNT_MESSAGES = {
   no_coupang_account: '쿠팡 계정이 없습니다',
@@ -164,6 +165,27 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       error: row.lastErrorMessage,
       screenshotPath: row.screenshotPath,
     }));
+  }
+
+  async resend(input: { organizationId: string; executionId: string }): Promise<ThumbnailExecutionPrepareResponse> {
+    const live = await this.persistence.readLivePayload(input);
+    if (live.mode === 'not_found') throw new ChannelNotFoundError('썸네일 반영 실행을 찾을 수 없습니다');
+    if (live.mode === 'finished') throw new ChannelConflictError(`이 실행은 이미 끝났습니다(${live.status})`);
+    const { payload } = live;
+    const image = await this.content.loadImage({ organizationId: input.organizationId, generationId: payload.generationId, url: payload.image.url });
+    if (payload.image.sha256 !== 'legacy' && image.sha256 !== payload.image.sha256) {
+      throw new ChannelConflictError('사진이 바뀌어 같은 반영을 다시 보낼 수 없습니다 — 반영 안 됨으로 표시한 뒤 새로 올리세요');
+    }
+    return {
+      executionId: input.executionId,
+      generationId: payload.generationId,
+      productName: payload.productName,
+      image: { dataUrl: image.dataUrl, filename: image.filename, mimeType: image.mimeType },
+    };
+  }
+
+  markNotApplied(input: { organizationId: string; requestedByUserId: string | null; executionId: string }): Promise<ThumbnailExecutionResult> {
+    return this.report({ ...input, report: { outcome: 'definitive_failure', error: OPERATOR_NOT_APPLIED_MESSAGE } });
   }
 
   async dismissFailed(input: { organizationId: string; generationId: string }): Promise<{ dismissed: boolean }> {

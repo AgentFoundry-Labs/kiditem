@@ -13,7 +13,7 @@ import {
 } from '../../../application/port/in/thumbnail-execution.port';
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 
-/** 대표이미지 몰 반영 — 확장 경로의 준비 · 보고와 화면의 상태 읽기 · 실패 치우기. */
+/** 대표이미지 몰 반영 — 확장 경로의 준비 · 보고 · 다시 보내기, 운영자 표시, 상태 읽기 · 실패 치우기. */
 @UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/thumbnail-executions')
 export class ThumbnailExecutionController {
@@ -36,6 +36,22 @@ export class ThumbnailExecutionController {
     const parsed = ThumbnailExecutionReportRequestSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
     return this.executions.report({ organizationId, requestedByUserId: user?.id ?? null, executionId, report: parsed.data });
+  }
+
+  /** 결과를 모르는 실행의 동결 사진을 확장에 다시 보내려고 받는다. 보고는 `report` 로 한다. */
+  @Post(':executionId/resend')
+  resend(@CurrentOrganization() organizationId: string, @Param('executionId', new ParseUUIDPipe()) executionId: string) {
+    return this.executions.resend({ organizationId, executionId });
+  }
+
+  /** 운영자의 "반영 안 됨으로 표시" — 살아 있는 실행을 실패로 끝내 새 반영을 연다. */
+  @Post(':executionId/not-applied')
+  markNotApplied(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('executionId', new ParseUUIDPipe()) executionId: string,
+  ) {
+    return this.executions.markNotApplied({ organizationId, requestedByUserId: user?.id ?? null, executionId });
   }
 
   @Get()

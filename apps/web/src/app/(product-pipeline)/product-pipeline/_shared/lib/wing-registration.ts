@@ -28,15 +28,35 @@ interface ExtensionWingRegistrationResponse {
  * 확장과의 통신 자체가 끊기면 올라갔는지 모르므로 `uncertain` 으로 보고한다.
  */
 export async function registerWingThumbnailViaExtension(generationId: string): Promise<WingRegistrationResult> {
-  const extensionId = await detectExtensionId();
-  if (!extensionId) {
-    throw new Error(EXTENSION_REQUIRED_MESSAGE);
-  }
-
+  const extensionId = await requireExtension();
   const prepared = await apiClient.post<ThumbnailExecutionPrepareResponse>('/api/channels/thumbnail-executions', {
     generationId,
   });
+  return uploadAndReport(extensionId, prepared);
+}
 
+/** 결과를 모르는("확인 중") 같은 실행을 확장에 다시 보내고 그 실행에 보고한다. */
+export async function resendWingThumbnailViaExtension(executionId: string): Promise<WingRegistrationResult> {
+  const extensionId = await requireExtension();
+  const prepared = await apiClient.post<ThumbnailExecutionPrepareResponse>(
+    `/api/channels/thumbnail-executions/${executionId}/resend`,
+    {},
+  );
+  return uploadAndReport(extensionId, prepared);
+}
+
+/** 운영자의 "반영 안 됨으로 표시". 같은 생성에 새 반영을 열어 준다. */
+export function markWingThumbnailNotApplied(executionId: string): Promise<WingRegistrationResult> {
+  return apiClient.post<WingRegistrationResult>(`/api/channels/thumbnail-executions/${executionId}/not-applied`, {});
+}
+
+async function requireExtension(): Promise<string> {
+  const extensionId = await detectExtensionId();
+  if (!extensionId) throw new Error(EXTENSION_REQUIRED_MESSAGE);
+  return extensionId;
+}
+
+async function uploadAndReport(extensionId: string, prepared: ThumbnailExecutionPrepareResponse): Promise<WingRegistrationResult> {
   let extensionResult: ExtensionWingRegistrationResponse;
   try {
     extensionResult = await sendToExtension<ExtensionWingRegistrationResponse>(extensionId, {

@@ -3,7 +3,9 @@ import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import {
   EXTENSION_REQUIRED_MESSAGE,
+  markWingThumbnailNotApplied,
   registerWingThumbnailViaExtension,
+  resendWingThumbnailViaExtension,
 } from './wing-registration';
 
 vi.mock('@/lib/api-client', () => ({
@@ -110,5 +112,28 @@ describe('registerWingThumbnailViaExtension', () => {
       outcome: 'uncertain',
       error: 'The message port closed before a response was received.',
     });
+  });
+
+  it('resends the same execution to the extension and reports on it, without preparing a new one', async () => {
+    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
+    mockedApiPost
+      .mockResolvedValueOnce(prepared)
+      .mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: true, screenshotPath: null });
+    mockedSendToExtension.mockResolvedValueOnce({ success: true });
+
+    await expect(resendWingThumbnailViaExtension(EXECUTION_ID)).resolves.toMatchObject({ success: true });
+
+    expect(mockedApiPost).toHaveBeenNthCalledWith(1, `/api/channels/thumbnail-executions/${EXECUTION_ID}/resend`, {});
+    expect(mockedSendToExtension).toHaveBeenCalledWith('extension-1', expect.objectContaining({ attemptId: EXECUTION_ID, action: 'registerWingThumbnail' }));
+    expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, { outcome: 'succeeded' });
+    expect(mockedApiPost).not.toHaveBeenCalledWith('/api/channels/thumbnail-executions', expect.anything());
+  });
+
+  it('marks an unknown outcome as not applied through the Channels route', async () => {
+    mockedApiPost.mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: false, screenshotPath: null });
+
+    await markWingThumbnailNotApplied(EXECUTION_ID);
+
+    expect(mockedApiPost).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION_ID}/not-applied`, {});
   });
 });
