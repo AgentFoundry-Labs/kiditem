@@ -28,6 +28,7 @@ import { migrateMasterProductInventoryCutoverMigration } from "./v0.1.31/016_mas
 import { simplifyProductReferencesMigration } from "./v0.1.31/017_simplify_product_references";
 import { prepareSellingCatalogSourcesMigration } from './v0.1.31/019_prepare_selling_catalog_sources';
 import { sellingCatalogCutoverMigration } from './v0.1.31/020_selling_catalog_cutover';
+import { normalizeSalesProductStatusMigration } from './v0.1.31/027_normalize_sales_product_status';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -72,6 +73,7 @@ export const dataMigrations: readonly DataMigration[] = [
   initializeAbsoluteProductAbcFormula,
   backfillCoupangDirectTransportReceiptsMigration,
   activateAdFreeProductAbcFormula,
+  normalizeSalesProductStatusMigration,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

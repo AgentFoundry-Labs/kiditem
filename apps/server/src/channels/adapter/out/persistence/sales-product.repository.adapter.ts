@@ -1246,7 +1246,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     if (locked.length !== 1) return null;
     const product = await tx.salesProduct.findFirstOrThrow({
       where: { id: salesProductId, organizationId },
-      select: { status: true, sourceRecordId: true },
+      select: { status: true, code: true, sourceRecordId: true },
     });
     const [activeListingCount, liveExecutionCount] = await Promise.all([
       tx.channelListing.count({ where: { organizationId, salesProductId, isActive: true } }),
@@ -1260,6 +1260,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     ]);
     return {
       status: product.status as SalesProductStatus,
+      hasCode: product.code !== null,
       sourceRecordId: product.sourceRecordId,
       hasActiveListing: activeListingCount > 0,
       hasLiveExecution: liveExecutionCount > 0,

@@ -54,16 +54,21 @@ describe('statusAfterArchive', () => {
 
 describe('draftDeletion', () => {
   it('리스팅도 실행도 없는 초안만 지울 수 있다', () => {
-    expect(draftDeletion({ status: 'draft', hasActiveListing: false, hasLiveExecution: false })).toEqual({ allowed: true });
+    expect(draftDeletion({ status: 'draft', hasCode: false, hasActiveListing: false, hasLiveExecution: false })).toEqual({ allowed: true });
   });
 
   it('판매 상품 · 리스팅 · 살아 있는 실행은 각각의 이유로 막는다', () => {
-    expect(draftDeletion({ status: 'active', hasActiveListing: false, hasLiveExecution: false }))
+    expect(draftDeletion({ status: 'active', hasCode: true, hasActiveListing: false, hasLiveExecution: false }))
       .toEqual({ allowed: false, reason: 'not_draft' });
-    expect(draftDeletion({ status: 'draft', hasActiveListing: true, hasLiveExecution: false }))
+    expect(draftDeletion({ status: 'draft', hasCode: false, hasActiveListing: true, hasLiveExecution: false }))
       .toEqual({ allowed: false, reason: 'active_listing' });
-    expect(draftDeletion({ status: 'draft', hasActiveListing: false, hasLiveExecution: true }))
+    expect(draftDeletion({ status: 'draft', hasCode: false, hasActiveListing: false, hasLiveExecution: true }))
       .toEqual({ allowed: false, reason: 'live_execution' });
+  });
+
+  it('상태가 draft 여도 KID 가 있으면 판매 상품이라 지우지 않는다 — 상태를 믿지 않고 코드를 본다', () => {
+    expect(draftDeletion({ status: 'draft', hasCode: true, hasActiveListing: false, hasLiveExecution: false }))
+      .toEqual({ allowed: false, reason: 'not_draft' });
   });
 });
 

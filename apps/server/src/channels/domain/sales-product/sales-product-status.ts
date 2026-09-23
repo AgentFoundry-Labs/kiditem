@@ -63,10 +63,12 @@ export type DraftDeletionBlock = 'not_draft' | 'active_listing' | 'live_executio
  */
 export function draftDeletion(input: {
   status: SalesProductStatus;
+  /** KID 가 있으면 상태가 무엇이든 판매 상품이다 — 옛 행은 코드를 지닌 채 `draft` 로 남아 있을 수 있다. */
+  hasCode: boolean;
   hasActiveListing: boolean;
   hasLiveExecution: boolean;
 }): { allowed: true } | { allowed: false; reason: DraftDeletionBlock } {
-  if (input.status !== 'draft') return { allowed: false, reason: 'not_draft' };
+  if (input.status !== 'draft' || input.hasCode) return { allowed: false, reason: 'not_draft' };
   if (input.hasActiveListing) return { allowed: false, reason: 'active_listing' };
   if (input.hasLiveExecution) return { allowed: false, reason: 'live_execution' };
   return { allowed: true };

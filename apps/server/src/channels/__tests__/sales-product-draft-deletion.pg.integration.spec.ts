@@ -203,6 +203,24 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     expect(await prisma.sourceRecord.count()).toBe(1);
   });
 
+  it('refuses a legacy draft row that carries a KID and leaves it and its options in place', async () => {
+    const legacy = await prisma.salesProduct.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, code: 'KID00000077', status: 'active', name: '사방넷 판매 상품',
+    } });
+    await prisma.salesProductOption.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: legacy.id, optionCode: 'KID00000078', optionKey: '', salePrice: 1000,
+    } });
+    // KID-313 이전 사방넷 매핑은 코드를 쓴 채 `draft` 를 남겼다. 상태만 믿으면 초안으로 지운다.
+    await prisma.$executeRaw`UPDATE sales_products SET status = 'draft' WHERE id = ${legacy.id}::uuid`;
+
+    await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, legacy.id)).rejects.toMatchObject({
+      kind: 'conflict', details: { reason: 'not_draft' },
+    });
+
+    expect(await prisma.salesProduct.findUniqueOrThrow({ where: { id: legacy.id } })).toMatchObject({ code: 'KID00000077' });
+    expect(await prisma.salesProductOption.count({ where: { salesProductId: legacy.id } })).toBe(1);
+  });
+
   it('refuses with 409 while a launch candidate holds the source record, and leaves the draft whole', async () => {
     const admitted = await records.admit(sourceRecord(), drafts());
     const candidateId = await seedLaunchCandidate(prisma, admitted.sourceRecordId);

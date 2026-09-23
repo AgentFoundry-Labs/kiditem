@@ -58,6 +58,7 @@ export interface SalesProductOptionState {
 /** 초안 삭제 가부를 정하는 사실. 줄을 잠근 뒤 읽는다. */
 export interface SalesProductDraftDeletionFacts {
   status: SalesProductStatus;
+  hasCode: boolean;
   sourceRecordId: string | null;
   hasActiveListing: boolean;
   hasLiveExecution: boolean;

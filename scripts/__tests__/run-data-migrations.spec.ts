@@ -64,6 +64,7 @@ describe("data migration registry", () => {
       "v0.1.31:002_initialize_absolute_product_abc_formula",
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
       "v0.1.31:016_activate_ad_free_product_abc_formula",
+      "v0.1.31:027_normalize_sales_product_status",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -77,6 +78,7 @@ describe("data migration registry", () => {
       "v0.1.31:011_backfill_ad_action_execution_tasks",
       "v0.1.31:014_backfill_channel_listing_image_from_discovery",
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
+      "v0.1.31:027_normalize_sales_product_status",
     ]);
   });
 
@@ -347,6 +349,7 @@ describe("data migration registry", () => {
       "v0.1.31:002_initialize_absolute_product_abc_formula",
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
       "v0.1.31:016_activate_ad_free_product_abc_formula",
+      "v0.1.31:027_normalize_sales_product_status",
     ]);
   });
 

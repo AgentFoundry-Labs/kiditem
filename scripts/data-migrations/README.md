@@ -247,3 +247,13 @@ thumbnail-attempt cutovers (`022`–`026`) were removed with KID-313. The
 source-record / draft model replaces the rows they transformed, and Office's
 candidate, draft, workspace and thumbnail-attempt rows are discarded under the
 data-loss policy (ADR-0010) and rebuilt by collecting again.
+
+### Sales product status (0.1.31)
+
+`027_normalize_sales_product_status` runs post-schema and moves every
+`sales_products.status` to KID-313's three values, keeping
+`code IS NULL ⇔ status = 'draft'`: a row with no code becomes `draft`; a coded
+`unused` row becomes `archived`; a coded `draft`, `paused` or `sold_out` row
+becomes `active`. It covers every organization, reports each count, is a no-op on
+re-run, and refuses a status outside the retired Sabangnet vocabulary without
+changing any row.
