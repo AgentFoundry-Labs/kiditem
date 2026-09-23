@@ -53,6 +53,10 @@ export class RegistrableThumbnailService implements RegistrableThumbnailPort {
     };
   }
 
+  readCurrentThumbnailAssetIds(input: { organizationId: string; salesProductIds: readonly string[] }): Promise<ReadonlyMap<string, string | null>> {
+    return this.repository.readCurrentAssetIds(input);
+  }
+
   async loadThumbnailImage(input: { organizationId: string; assetId: string }) {
     const url = await this.repository.findAssetUrl(input);
     if (!url) throw new NotFoundException(`ContentAsset ${input.assetId} not found`);

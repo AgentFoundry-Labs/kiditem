@@ -21,6 +21,8 @@ export interface RegistrableThumbnailRepositoryPort {
     | { mode: 'none' }
     | { mode: 'foreign_asset' }
   >;
+  /** 판매 상품마다 활성 작업공간의 현재 대표이미지 자산 id. 작업공간이 없는 상품은 맵에 없다. */
+  readCurrentAssetIds(input: { organizationId: string; salesProductIds: readonly string[] }): Promise<ReadonlyMap<string, string | null>>;
   /** 조직의 살아 있는 자산 URL(사진 읽기용). */
   findAssetUrl(input: { organizationId: string; assetId: string }): Promise<string | null>;
 }

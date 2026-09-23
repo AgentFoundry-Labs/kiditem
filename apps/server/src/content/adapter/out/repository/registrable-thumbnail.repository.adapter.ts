@@ -41,6 +41,28 @@ export class RegistrableThumbnailRepositoryAdapter implements RegistrableThumbna
     return { mode: 'found' as const, asset: { assetId: current.id, contentWorkspaceId: workspace.id, url: current.url } };
   }
 
+  async readCurrentAssetIds(input: { organizationId: string; salesProductIds: readonly string[] }): Promise<ReadonlyMap<string, string | null>> {
+    const ids = [...new Set(input.salesProductIds)];
+    if (ids.length === 0) return new Map();
+    const workspaces = await this.prisma.contentWorkspace.findMany({
+      where: {
+        organizationId: input.organizationId,
+        ownerType: 'sales_product',
+        salesProductId: { in: ids },
+        status: 'active',
+        isDeleted: false,
+      },
+      select: { salesProductId: true, currentThumbnailAsset: { select: { id: true, isDeleted: true } } },
+    });
+    const current = new Map<string, string | null>();
+    for (const workspace of workspaces) {
+      if (!workspace.salesProductId) continue;
+      const asset = workspace.currentThumbnailAsset;
+      current.set(workspace.salesProductId, asset && !asset.isDeleted ? asset.id : null);
+    }
+    return current;
+  }
+
   async findAssetUrl(input: { organizationId: string; assetId: string }): Promise<string | null> {
     const asset = await this.prisma.contentAsset.findFirst({
       where: { id: input.assetId, organizationId: input.organizationId, isDeleted: false },

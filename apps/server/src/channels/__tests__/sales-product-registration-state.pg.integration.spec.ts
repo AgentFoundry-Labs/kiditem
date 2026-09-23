@@ -2,6 +2,15 @@ import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { RegistrationStateRepositoryAdapter } from '../adapter/out/persistence/registration-state.repository.adapter';
+import { RegistrationStateService } from '../application/service/registration/registration-state.service';
+import { RegistrableThumbnailAdapter } from '../adapter/out/content/registrable-thumbnail.adapter';
+import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository.adapter';
+import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
+import { RegistrableThumbnailRepositoryAdapter } from '../../content/adapter/out/repository/registrable-thumbnail.repository.adapter';
+import { RegistrableThumbnailService } from '../../content/application/service/registrable-thumbnail.service';
+import { fakeStorageImageFetch } from '../../content/__tests__/helpers/fake-storage-image-fetch';
+import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
+import { productTransactionalRead } from './product-transactional-read.fake';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -240,5 +249,126 @@ describe('registration state facts (PostgreSQL)', () => {
     const read = await facts.readFacts(ORG, products);
     expect(read.size).toBe(5);
     expect(queries).toBe(single);
+  });
+
+  describe('the one registration-state reader', () => {
+    let reader: RegistrationStateService;
+    let salesProducts: SalesProductRepositoryAdapter;
+
+    beforeAll(() => {
+      const db = prisma as unknown as PrismaService;
+      reader = new RegistrationStateService(
+        new RegistrationStateRepositoryAdapter(db),
+        realRegistrableDetailPages(prisma),
+        new RegistrableThumbnailAdapter(new RegistrableThumbnailService(new RegistrableThumbnailRepositoryAdapter(db), fakeStorageImageFetch(new Map()))),
+      );
+      salesProducts = new SalesProductRepositoryAdapter(
+        db,
+        productTransactionalRead(),
+        new RegistrationTargetRepositoryAdapter(db, productTransactionalRead(), realRegistrationContentWorkspace(prisma)),
+        realRegistrationContentWorkspace(prisma),
+        realRegistrableDetailPages(prisma),
+      );
+    });
+
+    const states = async (salesProductId: string) =>
+      (await reader.readForSalesProducts(ORG, [salesProductId])).get(salesProductId)!.accounts;
+
+    /** 판매 상품의 콘텐츠 작업공간 — 현재 상세 revision 과 현재 대표이미지가 있다. */
+    async function content(salesProductId: string) {
+      const workspace = await prisma.contentWorkspace.create({ data: { organizationId: ORG, ownerType: 'sales_product', salesProductId } });
+      const page = await prisma.detailPage.create({ data: { organizationId: ORG, contentWorkspaceId: workspace.id, source: 'manual' } });
+      const revision = async () => prisma.detailPageRevision.create({ data: { organizationId: ORG, detailPageId: page.id, html: '<p>상세</p>' } });
+      const current = await revision();
+      const asset = await prisma.contentAsset.create({ data: {
+        organizationId: ORG, contentWorkspaceId: workspace.id, source: 'upload', assetKey: `upload:${randomUUID()}`, url: 'https://cdn.example/a.png', role: 'thumbnail',
+      } });
+      await prisma.contentWorkspace.update({ where: { id: workspace.id }, data: { currentDetailPageRevisionId: current.id, currentThumbnailAssetId: asset.id } });
+      return { revisionId: current.id, assetId: asset.id, revision };
+    }
+
+    function frozenPayload(targetVersion: number, productVersion: number, revisionId: string, assetId: string) {
+      return {
+        targetVersion,
+        product: { version: productVersion },
+        detailPage: { revisionId, html: '<p>상세</p>' },
+        adapterPayload: { representativeImage: { assetId, url: 'https://cdn.example/a.png' } },
+      };
+    }
+
+    it('answers each account from the rule: registered, preparing on a live update, listing-only, failed, unregistered', async () => {
+      const registeredMall = await account('등록된 몰');
+      const updatingMall = await account('수정 중 몰');
+      const catalogMall = await account('카탈로그 몰');
+      const item = await product();
+      const itemContent = await content(item.id);
+      const registeredTarget = await target(item.id, registeredMall);
+      const updatingTarget = await target(item.id, updatingMall);
+      await listing(item.id, registeredMall);
+      const updatingListing = await listing(item.id, updatingMall);
+      const catalogListing = await listing(item.id, catalogMall, { status: 'observed' });
+      await execution({ registrationTargetId: registeredTarget.id, channelAccountId: registeredMall, kind: 'register', status: 'succeeded', payload: frozenPayload(1, 1, itemContent.revisionId, itemContent.assetId) });
+      await execution({ registrationTargetId: updatingTarget.id, channelAccountId: updatingMall, channelListingId: updatingListing.id, kind: 'update', status: 'prepared' });
+
+      const byAccount = new Map((await states(item.id)).map((row) => [row.channelAccountId, row]));
+      expect(byAccount.get(registeredMall)).toMatchObject({ state: 'registered', registrationTargetId: registeredTarget.id, soldOut: false, changedSinceRegistration: false });
+      expect(byAccount.get(updatingMall)).toMatchObject({ state: 'preparing', lastExecution: expect.objectContaining({ kind: 'update', status: 'prepared' }) });
+      expect(byAccount.get(catalogMall)).toMatchObject({ state: 'registered', registrationTargetId: null, channelListingId: catalogListing.id, changedSinceRegistration: false });
+
+      const failedProduct = await product();
+      const failedTarget = await target(failedProduct.id, registeredMall);
+      await execution({ registrationTargetId: failedTarget.id, channelAccountId: registeredMall, kind: 'register', status: 'failed', providerOutcome: 'definitive_failure' });
+      expect(await states(failedProduct.id)).toEqual([expect.objectContaining({ state: 'failed', channelListingId: null })]);
+
+      const cancelledProduct = await product();
+      const cancelledTarget = await target(cancelledProduct.id, registeredMall);
+      await execution({ registrationTargetId: cancelledTarget.id, channelAccountId: registeredMall, kind: 'register', status: 'cancelled' });
+      expect(await states(cancelledProduct.id)).toEqual([expect.objectContaining({ state: 'unregistered' })]);
+    });
+
+    it('turns sold out on with a succeeded sold_out and off with a succeeded resume; a thumbnail_update changes nothing', async () => {
+      const mall = await account('몰');
+      const item = await product();
+      const itemTarget = await target(item.id, mall);
+      const itemListing = await listing(item.id, mall);
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, kind: 'register', status: 'succeeded' });
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, channelListingId: itemListing.id, kind: 'sold_out', status: 'succeeded' });
+      expect(await states(item.id)).toEqual([expect.objectContaining({ state: 'registered', soldOut: true })]);
+
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, channelListingId: itemListing.id, kind: 'resume', status: 'succeeded' });
+      await execution({ registrationTargetId: null, channelAccountId: mall, channelListingId: itemListing.id, kind: 'thumbnail_update', status: 'failed', providerOutcome: 'definitive_failure' });
+      expect(await states(item.id)).toEqual([expect.objectContaining({ state: 'registered', soldOut: false, lastExecution: expect.objectContaining({ kind: 'register' }) })]);
+    });
+
+    it('needs a re-send after a product write or a different detail revision, never for values an update did not freeze', async () => {
+      const mall = await account('몰');
+      const item = await product();
+      const itemContent = await content(item.id);
+      const itemTarget = await target(item.id, mall);
+      await listing(item.id, mall);
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, kind: 'register', status: 'succeeded', payload: frozenPayload(1, 1, itemContent.revisionId, itemContent.assetId) });
+      expect((await states(item.id))[0].changedSinceRegistration).toBe(false);
+
+      // 옵션 쓰기가 판매 상품 version 을 올린다.
+      expect(await salesProducts.applyOptionPlan({ organizationId: ORG, salesProductId: item.id, expectedVersion: 1, optionAxes: [], plan: { writes: [], retireIds: [], deleteIds: [] } })).toBe(true);
+      expect((await states(item.id))[0].changedSinceRegistration).toBe(true);
+
+      const second = await product();
+      const secondContent = await content(second.id);
+      const secondTarget = await target(second.id, mall);
+      await listing(second.id, mall);
+      await execution({ registrationTargetId: secondTarget.id, channelAccountId: mall, kind: 'register', status: 'succeeded', payload: frozenPayload(1, 1, secondContent.revisionId, secondContent.assetId) });
+      const other = await secondContent.revision();
+      await prisma.registrationTarget.update({ where: { id: secondTarget.id }, data: { selectedDetailPageRevisionId: other.id } });
+      expect((await states(second.id))[0]).toMatchObject({ selectedDetailPageRevisionId: other.id, changedSinceRegistration: true });
+
+      // update 는 상세 · 대표이미지를 얼리지 않는다 — 없는 값은 비교하지 않는다.
+      const third = await product();
+      await content(third.id);
+      const thirdTarget = await target(third.id, mall);
+      const thirdListing = await listing(third.id, mall);
+      await execution({ registrationTargetId: thirdTarget.id, channelAccountId: mall, channelListingId: thirdListing.id, kind: 'update', status: 'succeeded', payload: { targetVersion: 1, product: { version: 1 }, detailPage: null, adapterPayload: {} } });
+      expect((await states(third.id))[0]).toMatchObject({ state: 'registered', changedSinceRegistration: false });
+    });
   });
 });
