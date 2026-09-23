@@ -89,14 +89,24 @@ export function pickMallOverride(source: MallSheetSourceProduct, mallKey: string
 }
 
 /**
- * 이 시트가 보낼 상세 revision: 시트의 몰에 걸린 첫 등록 대상(만든 순서)이 고른 것, 없으면 null(현재 revision).
- * 다른 몰의 등록 대상이 고른 revision 은 이 시트와 상관없다.
+ * 이 시트가 보낼 상세 revision: 시트의 몰 순서(`spec.mallKeys`, ESM 이면 G마켓 → 옥션)에서 revision 을 고른 등록 대상이
+ * 있는 첫 몰의 것, 없으면 null(현재 revision). 한 몰에 계정이 여럿이면 먼저 만든 대상이다. 다른 몰의 등록 대상이
+ * 고른 revision 은 이 시트와 상관없다.
  */
 export function sheetDetailPageRevisionId(
   overrides: Pick<MallSheetSourceProduct, 'overrides'>['overrides'],
   mallKeys: readonly string[],
 ): string | null {
-  return overrides.find((item) => mallKeys.includes(item.mallKey))?.selectedDetailPageRevisionId ?? null;
+  for (const mallKey of mallKeys) {
+    const chosen = overrides.find((item) => item.mallKey === mallKey && item.selectedDetailPageRevisionId);
+    if (chosen) return chosen.selectedDetailPageRevisionId!;
+  }
+  return null;
+}
+
+/** 이 상품의 등록 대상들이 고른 revision(겹치지 않게, 만든 순서) — 시트를 모르는 [사진 올리기]가 함께 본다. */
+export function chosenDetailPageRevisionIds(overrides: Pick<MallSheetSourceProduct, 'overrides'>['overrides']): string[] {
+  return [...new Set(overrides.flatMap((item) => item.selectedDetailPageRevisionId ? [item.selectedDetailPageRevisionId] : []))];
 }
 
 // 몰 등록 폼과 같은 이름을 보내야 해서 공용 함수를 쓴다(`@kiditem/shared/sales-product`).

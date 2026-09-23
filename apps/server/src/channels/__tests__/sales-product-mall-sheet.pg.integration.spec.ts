@@ -63,32 +63,37 @@ describe('mall sheets send the detail revision the registration target chose (Po
     return id;
   }
 
-  /** 가져온 revision 둘(예전 → 지금)을 가진 판매상품. 지금 것이 현재 revision 이다. */
-  async function productWithTwoRevisions(code: string) {
+  /** 가져온 revision 들(앞 → 뒤)을 가진 판매상품. 마지막 것이 현재 revision 이다. */
+  async function productWithRevisions(code: string, htmls: readonly string[], imageUrls = ['https://example.com/product.jpg']) {
     const productId = randomUUID();
     const optionId = randomUUID();
     await prisma.salesProduct.create({ data: {
-      id: productId, organizationId: TEST_ORGANIZATION_ID, code, status: 'active', name: `상품 ${code}`,
-      imageUrls: ['https://example.com/product.jpg'],
+      id: productId, organizationId: TEST_ORGANIZATION_ID, code, status: 'active', name: `상품 ${code}`, imageUrls,
     } });
     await prisma.salesProductOption.create({ data: {
       id: optionId, organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, optionCode: `${code}-0001`,
       optionKey: '', values: [], salePrice: 2_000, supplyStatus: 'selling', sortOrder: 0,
     } });
-    const [oldRevisionId] = await prisma.$transaction(async (tx) => {
+    const revisionIds = await prisma.$transaction(async (tx) => {
       await content.ensureSalesProductWorkspace(ownerTransaction(tx), {
         organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, displayName: `상품 ${code}`, createdByUserId: null,
       });
       const ids: string[] = [];
-      for (const [html, digest] of [[OLD_HTML, 'digest-old'], [CURRENT_HTML, 'digest-current']] as const) {
+      for (const [index, html] of htmls.entries()) {
         const result = await content.importDetailPage(ownerTransaction(tx), {
-          organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, source: 'sabangnet', html, digest, createdByUserId: null,
+          organizationId: TEST_ORGANIZATION_ID, salesProductId: productId, source: 'sabangnet', html, digest: `digest-${index}`, createdByUserId: null,
         });
         if (result.kind === 'appended') ids.push(result.revisionId);
       }
       return ids;
     });
-    return { productId, optionId, oldRevisionId: oldRevisionId! };
+    return { productId, optionId, revisionIds };
+  }
+
+  /** 가져온 revision 둘(예전 → 지금)을 가진 판매상품. 지금 것이 현재 revision 이다. */
+  async function productWithTwoRevisions(code: string) {
+    const { productId, optionId, revisionIds } = await productWithRevisions(code, [OLD_HTML, CURRENT_HTML]);
+    return { productId, optionId, oldRevisionId: revisionIds[0]! };
   }
 
   async function createTarget(input: {
@@ -97,13 +102,14 @@ describe('mall sheets send the detail revision the registration target chose (Po
     channelAccountId: string;
     selectedDetailPageRevisionId: string | null;
     createdAt: Date;
+    mallFields?: Record<string, string>;
   }) {
     const target = await prisma.registrationTarget.create({ data: {
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: input.productId,
       channelAccountId: input.channelAccountId,
       selectedDetailPageRevisionId: input.selectedDetailPageRevisionId,
-      registrationInput: { mallCategory: null, mallFields: { supplyPrice: '1500', categoryCode: '0001' }, adapter: {} },
+      registrationInput: { mallCategory: null, mallFields: input.mallFields ?? { supplyPrice: '1500', categoryCode: '0001' }, adapter: {} },
       createdAt: input.createdAt,
     } });
     await prisma.registrationTargetOption.create({ data: {
@@ -129,5 +135,35 @@ describe('mall sheets send the detail revision the registration target chose (Po
 
     const rows = write.mock.calls[0]![1] as Array<Record<string, unknown>>;
     expect(rows.map((row) => row[DETAIL_COLUMN])).toEqual([OLD_HTML, CURRENT_HTML, CURRENT_HTML]);
+  });
+
+  it('ESM takes the revision of the first sheet mall in its own order (G마켓, then 옥션), not creation order', async () => {
+    const gmarketAccountId = await createAccount('gmarket');
+    const auctionAccountId = await createAccount('auction');
+    const product = await productWithRevisions('KID00000201', ['<p>A</p>', '<p>B</p>', '<p>C</p>']);
+    const [revisionA, revisionB] = product.revisionIds;
+    const esmFields = { supplyPrice: '1500', categoryCode: '00000001', esmCategoryCode: '1234' };
+    // 옥션 대상을 먼저 만들고 A 를 골랐다. 나중에 만든 G마켓 대상은 B 를 골랐다.
+    await createTarget({ ...product, channelAccountId: auctionAccountId, selectedDetailPageRevisionId: revisionA!, createdAt: new Date('2026-09-01T00:00:00Z'), mallFields: esmFields });
+    await createTarget({ ...product, channelAccountId: gmarketAccountId, selectedDetailPageRevisionId: revisionB!, createdAt: new Date('2026-09-02T00:00:00Z'), mallFields: esmFields });
+
+    await sheets.file(TEST_ORGANIZATION_ID, 'esm', { salesProductIds: [product.productId] });
+
+    const rows = write.mock.calls[0]![1] as Array<Record<string, unknown>>;
+    expect(rows.map((row) => row['상품상세설명'])).toEqual(['<p>B</p>']);
+  });
+
+  it('lists for [사진 올리기] an image that only an older revision chosen by a target carries', async () => {
+    const OWN = 'http://localhost:4000/files';
+    const product = await productWithRevisions('KID00000301', [
+      `<p><img src="${OWN}/only-old.jpg"></p>`,
+      `<p><img src="${OWN}/current.jpg"></p>`,
+    ], ['https://example.com/product.jpg']);
+    await createTarget({ ...product, channelAccountId: otherMallAccountId, selectedDetailPageRevisionId: product.revisionIds[0]!, createdAt: new Date('2026-09-01T00:00:00Z') });
+
+    const pending = await sheets.pendingPublicImages(TEST_ORGANIZATION_ID, { salesProductIds: [product.productId] });
+
+    expect([...pending.urls].sort()).toEqual([`${OWN}/current.jpg`, `${OWN}/only-old.jpg`]);
+    expect(pending.products).toBe(1);
   });
 });
