@@ -1047,6 +1047,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
             id: true,
             channelAccountId: true,
             registrationInput: true,
+            selectedDetailPageRevisionId: true,
             selectedOptions: {
               orderBy: { sortOrder: 'asc' },
               select: { salesProductOptionId: true },
@@ -1878,6 +1879,7 @@ function projectMallSheetOverrides(
   targets: readonly {
     id: string;
     registrationInput: unknown;
+    selectedDetailPageRevisionId: string | null;
     selectedOptions: readonly { salesProductOptionId: string }[];
     channelAccount: { channel: string };
   }[],
@@ -1888,6 +1890,7 @@ function projectMallSheetOverrides(
     selectedOptionIds: target.selectedOptions.map((option) => option.salesProductOptionId),
     categoryPath: targetMallCategory(target.registrationInput),
     adapterValues: targetMallValues(target.registrationInput),
+    selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
   }));
 }
 

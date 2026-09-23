@@ -58,6 +58,8 @@ export interface MallSheetSourceProduct {
     categoryPath?: string | null;
     /** 몰 전용 칸(`registrationInput.mallFields` 의 글자 값). */
     adapterValues: Record<string, string>;
+    /** 이 등록 대상이 고른 Content 상세 revision. 비면 현재 revision(KID-313 W2). */
+    selectedDetailPageRevisionId?: string | null;
   }[];
   /** 사방넷에서 옮기기 전 사진 주소(대표 · 부가 순서). */
   sabangnetImageUrls: string[];
@@ -84,6 +86,17 @@ export function mallTargetCategoryPath(override: MallOverride): string | null {
  */
 export function pickMallOverride(source: MallSheetSourceProduct, mallKey: string): MallOverride | null {
   return mallTargets(source, mallKey)[0] ?? null;
+}
+
+/**
+ * 이 시트가 보낼 상세 revision: 시트의 몰에 걸린 첫 등록 대상(만든 순서)이 고른 것, 없으면 null(현재 revision).
+ * 다른 몰의 등록 대상이 고른 revision 은 이 시트와 상관없다.
+ */
+export function sheetDetailPageRevisionId(
+  overrides: Pick<MallSheetSourceProduct, 'overrides'>['overrides'],
+  mallKeys: readonly string[],
+): string | null {
+  return overrides.find((item) => mallKeys.includes(item.mallKey))?.selectedDetailPageRevisionId ?? null;
 }
 
 // 몰 등록 폼과 같은 이름을 보내야 해서 공용 함수를 쓴다(`@kiditem/shared/sales-product`).
