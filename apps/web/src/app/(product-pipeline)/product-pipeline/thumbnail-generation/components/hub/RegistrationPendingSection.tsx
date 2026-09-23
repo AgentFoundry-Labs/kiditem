@@ -6,16 +6,16 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { toast } from 'sonner';
 import { AlertCircle, Check, ChevronLeft, ChevronRight, Copy, Loader2, Store, X } from 'lucide-react';
 
+import { thumbnailJobTitle, useThumbnailJobs, type ThumbnailJobListItem } from '../../../_shared/hooks/useThumbnailJobs';
 import {
-  useGenerationList,
   useBatchWingRegister,
   useClearRegistrationError,
   useConfirmRegistrationApplied,
   useMarkRegistrationNotApplied,
   useResendWingRegistration,
-  type ThumbnailGenerationListItem,
   type WingBatchItemResult,
-} from '../../../_shared/hooks/useThumbnailGenerations';
+} from '../../../_shared/hooks/useRepresentativeImage';
+import type { RepresentativeImageSubject } from '../../../_shared/lib/representative-image-execution';
 import { thumbnailGenerationEditHref } from '../../../_shared/lib/product-pipeline-routes';
 import { representativeImageUploadedMessage } from '../../../_shared/lib/representative-image-execution';
 import { resolveImageUrl } from '@/lib/resolve-url';
@@ -25,27 +25,35 @@ import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 import { ListingPicker } from './ListingPicker';
 
 /**
- * 등록 대기: 적용했지만 아직 몰에 반영되지 않은 생성, 그리고 Content 단계와 관계없이 살아 있는
- * 실행(`checking`)이 있는 생성(Agent 가 올린 것 포함). 살아 있는 실행은 늘 여기서 출구를 가진다.
+ * 등록 대기: 후보를 판매상품 작업공간의 대표이미지로 채택했지만 아직 몰에 반영되지 않은 job, 그리고 채택과
+ * 관계없이 그 후보의 살아 있는 실행(`checking`)이 있는 job(Agent 가 올린 것 포함). 살아 있는 실행은 늘 여기서
+ * 출구를 가진다. 몰 반영은 판매상품의 것이라 판매상품이 없는 작업공간(리스팅 · 직접 업로드)은 오지 않는다.
  */
-function isPendingRegistration(g: ThumbnailGenerationListItem): boolean {
+function isPendingRegistration(g: ThumbnailJobListItem): boolean {
   if (g.registrationStatus === 'checking') return true;
-  if (g.phase !== 'applied') return false;
+  if (!g.adoptedCandidate || !g.workspace?.salesProductId) return false;
   return g.registrationStatus !== 'registered';
 }
 
-function previewUrl(g: ThumbnailGenerationListItem): string | null {
-  return g.selectedUrl ?? g.candidates?.[0]?.url ?? g.originalUrl ?? null;
+function previewUrl(g: ThumbnailJobListItem): string | null {
+  return g.adoptedCandidate?.url ?? g.candidates[0]?.url ?? g.workspace?.imageUrl ?? null;
+}
+
+/** 올릴 대표이미지: 판매상품과 채택한 후보 자산. */
+function registrationSubject(g: ThumbnailJobListItem): RepresentativeImageSubject | null {
+  const salesProductId = g.workspace?.salesProductId;
+  if (!salesProductId || !g.adoptedCandidate) return null;
+  return { salesProductId, assetId: g.adoptedCandidate.id };
 }
 
 type RegGroup = {
   contentWorkspaceId: string;
-  representative: ThumbnailGenerationListItem;
-  items: ThumbnailGenerationListItem[];
+  representative: ThumbnailJobListItem;
+  items: ThumbnailJobListItem[];
 };
 
-function groupByProduct(items: ThumbnailGenerationListItem[]): RegGroup[] {
-  const map = new Map<string, ThumbnailGenerationListItem[]>();
+function groupByProduct(items: ThumbnailJobListItem[]): RegGroup[] {
+  const map = new Map<string, ThumbnailJobListItem[]>();
   for (const g of items) {
     if (!g.contentWorkspaceId) continue;
     const bucket = map.get(g.contentWorkspaceId);
@@ -70,7 +78,7 @@ const PAGE_SIZE = 12;
 
 export function RegistrationPendingSection({ returnTo = null }: { returnTo?: string | null }) {
   const router = useRouter();
-  const { data = [] } = useGenerationList();
+  const { data = [] } = useThumbnailJobs();
   const batch = useBatchWingRegister();
   const clearError = useClearRegistrationError();
   const resend = useResendWingRegistration();
@@ -104,8 +112,8 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
   const selectAll = () => setSelectedIds(new Set(items.map((g) => g.id)));
   const clearAll = () => setSelectedIds(new Set());
 
-  const handleClearError = (id: string) => {
-    clearError.mutate(id, {
+  const handleClearError = (salesProductId: string) => {
+    clearError.mutate(salesProductId, {
       onSuccess: () => toast.success('에러 초기화 완료 — 다시 등록을 시도할 수 있습니다'),
       onError: (err) => toast.error(err instanceof Error ? err.message : '에러 초기화 실패'),
     });
@@ -131,23 +139,33 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
   };
   const checkingBusy = resend.isPending || markNotApplied.isPending || confirmApplied.isPending;
 
-  const failedIds = items.filter((g) => g.registrationStatus === 'failed').map((g) => g.id);
+  const failedSalesProductIds = [...new Set(items
+    .filter((g) => g.registrationStatus === 'failed')
+    .flatMap((g) => (g.workspace?.salesProductId ? [g.workspace.salesProductId] : [])))];
   const handleClearAllErrors = () => {
-    if (failedIds.length === 0) return;
-    failedIds.forEach((id) => clearError.mutate(id));
-    toast.success(`실패 ${failedIds.length}개 초기화 완료`);
+    if (failedSalesProductIds.length === 0) return;
+    failedSalesProductIds.forEach((salesProductId) => clearError.mutate(salesProductId));
+    toast.success(`실패 ${failedSalesProductIds.length}개 초기화 완료`);
   };
 
   const startBatch = async () => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0) return;
+    const targets = Array.from(selectedIds).flatMap((id) => {
+      const job = itemsById.get(id);
+      const subject = job ? registrationSubject(job) : null;
+      return subject ? [{ id, subject }] : [];
+    });
+    const ids = targets.map((target) => target.id);
+    if (ids.length === 0) {
+      toast.error('채택한 대표이미지가 있는 판매상품만 올릴 수 있습니다');
+      return;
+    }
 
     setRunningIds(ids);
     setResults(null);
     setDialogOpen(true);
 
     try {
-      const res = await batch.mutateAsync(ids);
+      const res = await batch.mutateAsync(targets);
       setResults(res.results);
       const ok = res.results.filter((r) => r.success).length;
       const fail = res.results.length - ok;
@@ -157,8 +175,9 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '배치 등록에 실패했습니다');
       setResults(
-        ids.map((id) => ({
+        targets.map(({ id, subject }) => ({
           id,
+          subject,
           success: false,
           screenshotPath: null,
           error: err instanceof Error ? err.message : 'unknown',
@@ -235,7 +254,7 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
             <Store size={22} className="text-violet-300" />
             <p className="mt-2 text-sm font-bold text-gray-700">쿠팡 등록 대기 없음</p>
             <p className="mt-1 max-w-xs text-xs leading-relaxed text-gray-500">
-              생성 결과를 선택하고 적용 완료 처리하면 여기에서 Wing 등록을 이어서 할 수 있습니다.
+              생성 결과를 대표이미지로 채택하면 여기에서 Wing 등록을 이어서 할 수 있습니다.
             </p>
           </div>
         ) : (
@@ -259,7 +278,10 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
                       }),
                     );
                   }}
-                  onClearError={() => group.items.forEach((i) => handleClearError(i.id))}
+                  onClearError={() => {
+                    const salesProductId = group.representative.workspace?.salesProductId;
+                    if (salesProductId) handleClearError(salesProductId);
+                  }}
                   onResend={handleResend}
                   onMarkNotApplied={handleMarkNotApplied}
                   onConfirmApplied={handleConfirmApplied}
@@ -342,7 +364,7 @@ function RegistrationPendingCard({
   const fullSelected = selectedCount === group.items.length;
   const partialSelected = selectedCount > 0 && !fullSelected;
   const multi = group.items.length > 1;
-  const productName = item.contentWorkspace?.name ?? '상품 정보 없음';
+  const productName = thumbnailJobTitle(item);
 
   return (
     <div
@@ -434,7 +456,7 @@ function CheckingActions({
   onMarkNotApplied,
 }: {
   executionId: string;
-  executionStatus: ThumbnailGenerationListItem['registrationExecutionStatus'];
+  executionStatus: ThumbnailJobListItem['registrationExecutionStatus'];
   title: string | null;
   busy: boolean;
   onConfirmApplied: (executionId: string) => void;
@@ -496,7 +518,7 @@ function BatchProgressDialog({
   isRunning: boolean;
   runningIds: string[];
   results: WingBatchItemResult[] | null;
-  itemsById: Map<string, ThumbnailGenerationListItem>;
+  itemsById: Map<string, ThumbnailJobListItem>;
   onListingUploaded: (id: string) => void;
 }) {
   const okCount = results?.filter((r) => r.success).length ?? 0;
@@ -509,18 +531,20 @@ function BatchProgressDialog({
     error?: string;
     screenshotPath?: string | null;
     needsListingChoice?: boolean;
+    subject?: RepresentativeImageSubject;
   }> = results
     ? results.map((r) => ({
         id: r.id,
-        name: itemsById.get(r.id)?.contentWorkspace?.name ?? r.id,
+        name: thumbnailJobTitle(itemsById.get(r.id) ?? { workspace: null }, r.id),
         state: r.success ? 'ok' : 'fail',
         error: r.error,
         screenshotPath: r.screenshotPath,
         needsListingChoice: r.needsListingChoice,
+        subject: r.subject,
       }))
     : runningIds.map((id) => ({
         id,
-        name: itemsById.get(id)?.contentWorkspace?.name ?? id,
+        name: thumbnailJobTitle(itemsById.get(id) ?? { workspace: null }, id),
         state: 'running',
       }));
 
@@ -588,8 +612,8 @@ function BatchProgressDialog({
                         {r.error}
                       </div>
                     )}
-                    {r.state === 'fail' && r.needsListingChoice && (
-                      <ListingPicker generationId={r.id} onDone={() => onListingUploaded(r.id)} />
+                    {r.state === 'fail' && r.needsListingChoice && r.subject && (
+                      <ListingPicker subject={r.subject} onDone={() => onListingUploaded(r.id)} />
                     )}
                     {r.state === 'ok' && r.screenshotPath && (
                       <div className="text-[11px] text-gray-500 truncate font-mono" title={r.screenshotPath}>

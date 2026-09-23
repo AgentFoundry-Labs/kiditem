@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { AiModule } from '../ai.module';
-import { ThumbnailAnalysisController } from '../adapter/in/http/thumbnail-analysis.controller';
+import { ListingThumbnailEvaluationController } from '../adapter/in/http/listing-thumbnail-evaluation.controller';
 import { ThumbnailAnalysisEditJobsController } from '../adapter/in/http/thumbnail-analysis-edit-jobs.controller';
 import { ThumbnailAnalysisGenerationReviewController } from '../adapter/in/http/thumbnail-analysis-generation-review.controller';
 
@@ -23,13 +23,29 @@ describe('AiModule thumbnail-analysis route-family wiring', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, AiModule) ?? [];
 
     for (const controller of [
-      ThumbnailAnalysisController,
       ThumbnailAnalysisEditJobsController,
       ThumbnailAnalysisGenerationReviewController,
     ]) {
       expect(controllers).toContain(controller);
       expect(Reflect.getMetadata(PATH_KEY, controller)).toBe('thumbnail-analysis');
     }
+  });
+
+  it('evaluates the mall listing image instead of analysing a workspace (KID-313 W3a)', () => {
+    const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, AiModule) ?? [];
+    expect(controllers).toContain(ListingThumbnailEvaluationController);
+    expect(Reflect.getMetadata(PATH_KEY, ListingThumbnailEvaluationController)).toBe('ai/listing-thumbnails');
+    expect(routeFor(ListingThumbnailEvaluationController.prototype, 'evaluate')).toEqual({
+      method: RequestMethod.POST,
+      path: ':channelListingId/evaluate',
+    });
+    expect(routeFor(ListingThumbnailEvaluationController.prototype, 'current')).toEqual({
+      method: RequestMethod.POST,
+      path: 'current',
+    });
+    // 적용 후 CTR 추적(Wing 판매 스크랩)은 없다 — 리스팅 평가가 대신한다.
+    const paths = controllers.map((controller) => Reflect.getMetadata(PATH_KEY, controller as object) as string);
+    expect(paths.filter((path) => path === 'thumbnail-tracking')).toEqual([]);
   });
 
   it('preserves moved generation and edit-job route URLs', () => {
@@ -45,18 +61,10 @@ describe('AiModule thumbnail-analysis route-family wiring', () => {
       method: RequestMethod.POST,
       path: 'generations/:id/cancel',
     });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'selectCandidate')).toEqual({
-      method: RequestMethod.PUT,
-      path: 'generations/:id/select',
-    });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'clearReadySelections')).toEqual({
-      method: RequestMethod.PUT,
-      path: 'generations/clear-ready-selections',
-    });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'applyGeneration')).toEqual({
-      method: RequestMethod.PUT,
-      path: 'generations/:id/apply',
-    });
+    // 후보 채택은 작업공간 대표이미지 route 하나다 — job 에 select · apply 단계가 없다(KID-313 W3a).
+    for (const retired of ['selectCandidate', 'clearReadySelections', 'applyGeneration']) {
+      expect(Reflect.get(ThumbnailAnalysisGenerationReviewController.prototype, retired)).toBeUndefined();
+    }
     expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'skipGeneration')).toEqual({
       method: RequestMethod.PUT,
       path: 'generations/:id/skip',

@@ -16,7 +16,7 @@ export class ContentAssetController {
       page: query.page,
       limit: query.limit,
       contentWorkspaceId: query.contentWorkspaceId ?? null,
-      generationId: query.generationId ?? null,
+      thumbnailGenerationId: query.thumbnailGenerationId ?? null,
     });
   }
 }

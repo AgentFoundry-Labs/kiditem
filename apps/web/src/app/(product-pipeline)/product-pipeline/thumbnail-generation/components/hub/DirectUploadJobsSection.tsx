@@ -6,10 +6,9 @@ import { ImageIcon, Sparkles, UploadCloud } from 'lucide-react';
 
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { formatDateTime } from '@/lib/utils';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { thumbnailGenerationEditHref } from '../../../_shared/lib/product-pipeline-routes';
-import { useGenerationList } from '../../../_shared/hooks/useThumbnailGenerations';
+import { thumbnailJobTitle, useThumbnailJobs, type ThumbnailJobView } from '../../../_shared/hooks/useThumbnailJobs';
 import {
   listRecentThumbnailEditorUploads,
   readThumbnailEditorUpload,
@@ -19,7 +18,7 @@ import {
 export function DirectUploadJobsSection({ returnTo = null }: { returnTo?: string | null }) {
   const router = useRouter();
   const [items, setItems] = useState<ThumbnailEditorRecentUpload[]>([]);
-  const { data: persistedGenerations = [] } = useGenerationList({
+  const { data: persistedGenerations = [] } = useThumbnailJobs({
     scope: 'direct-upload',
     limit: 8,
   });
@@ -51,7 +50,7 @@ export function DirectUploadJobsSection({ returnTo = null }: { returnTo?: string
     }));
   };
 
-  const openGeneration = (item: ThumbnailGenerationItem) => {
+  const openGeneration = (item: ThumbnailJobView) => {
     const mode = item.method === 'creative' ? 'creative' : 'edit';
     router.push(thumbnailGenerationEditHref({
       editCase: mode === 'edit' ? 'single' : null,
@@ -113,22 +112,20 @@ export function DirectUploadJobsSection({ returnTo = null }: { returnTo?: string
   );
 }
 
-function directGenerationTitle(item: ThumbnailGenerationItem): string {
-  const productName = item.inputMeta?.productName;
-  return typeof productName === 'string' && productName.trim()
-    ? productName.trim()
-    : '직접 업로드';
+/** 직접 업로드 job 의 이름은 그 job 이 시작될 때 받은 상품명이다(서버가 작업공간 요약의 이름으로 준다). */
+function directGenerationTitle(item: ThumbnailJobView): string {
+  return thumbnailJobTitle(item, '직접 업로드');
 }
 
-function directGenerationPreview(item: ThumbnailGenerationItem): string | null {
-  return item.selectedUrl ?? item.candidates[0]?.url ?? item.originalUrl;
+function directGenerationPreview(item: ThumbnailJobView): string | null {
+  return item.adoptedCandidate?.url ?? item.candidates[0]?.url ?? item.workspace?.imageUrl ?? null;
 }
 
 function DirectGenerationCard({
   item,
   onClick,
 }: {
-  item: ThumbnailGenerationItem;
+  item: ThumbnailJobView;
   onClick: () => void;
 }) {
   const title = directGenerationTitle(item);

@@ -612,10 +612,13 @@ export class RegistrationExecutionRepositoryAdapter
           product: intent.product,
         });
         // 상세는 새 상품 문서를 보내는 실행만 얼린다 — 가격 수정 · 품절 · 재개는 상세를 보내지 않는다.
+        // 대표이미지 자산도 같은 실행만 `adapterPayload.representativeImage` 로 얼린다(KID-313 W3a).
+        const { representativeImage, ...intentSnapshot } = intent;
+        const sendsDocument = intent.kind === 'register' || intent.kind === 'composition_change';
         const frozen = freezeTargetExecutionSnapshot({
-          ...intent,
-          detailPage: intent.kind === 'register' || intent.kind === 'composition_change' ? intent.detailPage : null,
-          adapterPayload,
+          ...intentSnapshot,
+          detailPage: sendsDocument ? intent.detailPage : null,
+          adapterPayload: sendsDocument && representativeImage ? { ...adapterPayload, representativeImage } : adapterPayload,
         });
 
         await assertFrozenTargetOptionTransitions(

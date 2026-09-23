@@ -79,7 +79,8 @@ export class ThumbnailEditorController {
     }
 
     const editCase = inferThumbnailEditCase(body);
-    const productName = workspace?.name ?? body.productName ?? null;
+    // 판매 상품 작업공간은 이름을 갖지 않는다 — 편집기가 보낸 상품명을 쓴다.
+    const productName = workspace?.name || body.productName || null;
     const category = workspace?.category ?? null;
     const inputMeta = buildThumbnailGenerationInputMeta({
       mode,
@@ -117,7 +118,7 @@ export class ThumbnailEditorController {
       const enqueueResult = await this.generationService.enqueueEditorGeneration({
         organizationId,
         contentWorkspaceId: workspace.id,
-        productName: workspace.name,
+        productName: productName ?? '',
         triggeredByUserId: authUser?.id ?? null,
         inputs,
         inputMeta,

@@ -248,6 +248,35 @@ describe('registration target execution repository (PostgreSQL)', () => {
     })).resolves.toMatchObject({ payload: { detailPage } });
   });
 
+  it('freezes the representative image asset into the adapter payload only for register and composition change (KID-313 W3a)', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const representativeImage = { assetId: randomUUID(), url: 'https://storage.example.com/representative.png' };
+    const registered = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: requestFor('target-representative-freeze-1'),
+      snapshot: { ...fixture.snapshot, representativeImage },
+    });
+    expect(registered.payload.adapterPayload).toMatchObject({ representativeImage });
+    expect(registered.payload).not.toHaveProperty('representativeImage');
+    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+      where: { id: registered.executionId },
+      select: { submissionPayloadJson: true },
+    })).resolves.toMatchObject({ submissionPayloadJson: { adapterPayload: { representativeImage } } });
+  });
+
+  it('does not freeze a representative image for a price update', async () => {
+    const listed = await createFixture(prisma, targets, { listing: true });
+    const representativeImage = { assetId: randomUUID(), url: 'https://storage.example.com/representative.png' };
+    const updated = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: { ...requestFor('target-representative-freeze-2'), kind: 'update', channelListingId: listed.listingId!, updateFields: ['salePrice'] },
+      snapshot: { ...listed.snapshot, kind: 'update', channelListingId: listed.listingId, updateFields: ['salePrice'], representativeImage },
+    });
+    expect(updated.payload.adapterPayload).not.toHaveProperty('representativeImage');
+  });
+
   it('replays an old intent after target and product edits while rejecting idempotency reuse', async () => {
     const fixture = await createFixture(prisma, targets);
     const request = requestFor('target-replay-1');

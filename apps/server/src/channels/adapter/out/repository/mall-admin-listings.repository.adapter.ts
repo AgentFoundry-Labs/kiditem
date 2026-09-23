@@ -216,13 +216,18 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
           products,
         });
         mappingChanged = upserted.mappingIdentityChanged;
-        // 몰이 목록에 사진을 함께 주는 몰(온채널)은 그 주소를 리스팅에 남긴다. 신원 upsert 는
-        // 사진을 모르므로 여기서 값이 달라진 줄만 쓴다.
+        // 몰이 목록에 사진을 함께 주는 몰(온채널)은 그 주소를 리스팅에 남긴다 — 수집마다 새로 쓴다(KID-313 W3a).
+        // 몰의 대표이미지가 바뀌면 리스팅 사진도 바뀌고, 대표이미지 평가는 바뀐 사진에 새 행을 만든다.
+        // 신원 upsert 는 사진을 모르므로 여기서 값이 달라진 줄만 쓴다. 사진을 주지 않은 줄은 남긴 사진을 지우지 않는다.
         for (const product of products) {
           const listingId = upserted.listingIds.get(product.externalProductId);
           if (!listingId || !product.imageUrl) continue;
           await tx.channelListing.updateMany({
-            where: { id: listingId, organizationId: input.organizationId, imageUrl: null },
+            where: {
+              id: listingId,
+              organizationId: input.organizationId,
+              OR: [{ imageUrl: null }, { NOT: { imageUrl: product.imageUrl } }],
+            },
             data: { imageUrl: product.imageUrl },
           });
         }

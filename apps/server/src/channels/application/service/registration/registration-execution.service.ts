@@ -9,6 +9,7 @@ import type {
 } from '../../port/out/repository/registration-execution.repository.port';
 import type { PrepareTargetExecutionInput, ReportTargetExecutionInput } from '@kiditem/shared/sales-product';
 import type { ChannelRegistrableDetailPagePort } from '../../port/out/content/registrable-detail-page.port';
+import type { ChannelRegistrableThumbnailPort } from '../../port/out/content/registrable-thumbnail.port';
 import type { RegistrationExecutionPort } from '../../port/in/capability/registration-execution.port';
 
 /**
@@ -28,6 +29,8 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
     private readonly stockout: StockoutCheckPort,
     /** 몰에 보낼 상세는 Content revision 에서 읽어 실행 payload 에 동결한다(KID-313 W2). */
     private readonly detailPages: ChannelRegistrableDetailPagePort,
+    /** 몰에 보낼 대표이미지 자산도 준비 순간 Content 에서 읽어 동결한다(KID-313 W3a). */
+    private readonly thumbnails: ChannelRegistrableThumbnailPort,
   ) {}
 
   prepareListingAvailability(organizationId: string, userId: string | null, input: PrepareListingAvailabilityInput) {
@@ -92,6 +95,14 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
         selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
       })
       : null;
+    // 대표이미지도 같은 실행만 얼린다: 대상이 고른 자산, 없으면 작업공간의 현재 대표이미지, 없으면 null.
+    const representative = input.kind === 'register' || input.kind === 'composition_change'
+      ? await this.thumbnails.find({
+        organizationId,
+        salesProductId: target.salesProductId,
+        selectedThumbnailAssetId: target.selectedThumbnailAssetId,
+      })
+      : null;
     // 몰마다 다른 준비 사실(`adapterPayload`)은 fence 가 준비 트랜잭션 안에서 채널 어댑터로 채운다.
     const snapshot: TargetExecutionIntent = {
       targetId, targetVersion: target.version, channelAccountId: target.channelAccountId,
@@ -112,6 +123,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
         }),
       },
       detailPage: detail ? { revisionId: detail.revisionId, html: detail.html } : null,
+      representativeImage: representative ? { assetId: representative.assetId, url: representative.image.url } : null,
       registrationInput: target.registrationInput,
     };
     return this.executions.prepareTarget({ organizationId, requestedByUserId: userId, request: input, snapshot });

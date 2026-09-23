@@ -5,9 +5,12 @@ import type { PrepareTargetExecutionInput, ReportTargetExecutionInput, TargetExe
 
 /**
  * 애플리케이션이 모은 실행 의도 — 동결 스냅샷에서 채널 어댑터가 준비 트랜잭션 안에서 채우는
- * `adapterPayload` 만 빠진다(KID-321).
+ * `adapterPayload` 만 빠진다(KID-321). `representativeImage` 는 등록 · 구성 전환이 몰에 보낼 대표이미지 자산이고
+ * (KID-313 W3a), 울타리가 `adapterPayload.representativeImage` 로 얼린다 — 몰 어댑터가 그 사진을 대표이미지로 쓴다.
  */
-export type TargetExecutionIntent = Omit<TargetExecutionSnapshot, 'adapterPayload'>;
+export type TargetExecutionIntent = Omit<TargetExecutionSnapshot, 'adapterPayload'> & {
+  representativeImage?: { assetId: string; url: string } | null;
+};
 
 export const REGISTRATION_EXECUTION_REPOSITORY_PORT = Symbol(
   'REGISTRATION_EXECUTION_REPOSITORY_PORT',

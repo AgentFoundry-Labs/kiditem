@@ -39,18 +39,19 @@ export class ListingContentQueryRepositoryAdapter implements ListingContentQuery
         select: {
           id: true,
           channelListingId: true,
-          currentDetailPageArtifactId: true,
           currentDetailPageRevisionId: true,
-          contentGenerationGroups: {
-            where: { organizationId: input.organizationId },
-            take: 3,
-            select: { originatingAssets: {
-              where: { organizationId: input.organizationId, isDeleted: false, assetType: 'image', role: { in: ['primary', 'thumbnail'] } },
-              take: 1, select: { url: true },
-            } },
-          },
-          currentThumbnailSelection: {
-            select: { contentAsset: { select: { url: true } } },
+          assets: {
+            where: {
+              organizationId: input.organizationId,
+              isDeleted: false,
+              assetType: 'image',
+              role: { in: ['primary', 'thumbnail'] },
+              // 채택하지 않은 AI 후보는 리스팅의 사진이 아니다.
+              source: { in: ['upload', 'catalog'] },
+            },
+            orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+            take: 1,
+            select: { url: true },
           },
         },
       }),
@@ -63,16 +64,12 @@ export class ListingContentQueryRepositoryAdapter implements ListingContentQuery
           assetType: 'image',
           role: { in: ['primary', 'detail', 'option'] },
           isDeleted: false,
-          originGenerationGroup: {
-            organizationId: input.organizationId,
-            groupType: 'workspace_assets',
-            contentWorkspaceId: { in: workspaces.map((workspace) => workspace.id) },
-          },
+          source: 'catalog',
+          contentWorkspaceId: { in: workspaces.map((workspace) => workspace.id) },
         },
         orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
         select: {
-          url: true, role: true, sortOrder: true, metadata: true,
-          originGenerationGroup: { select: { contentWorkspaceId: true } },
+          url: true, role: true, sortOrder: true, metadata: true, contentWorkspaceId: true,
         },
       })
       : [];
@@ -83,13 +80,13 @@ export class ListingContentQueryRepositoryAdapter implements ListingContentQuery
       return {
         listingId: listing.id,
         workspaceId: workspace?.id ?? null,
-        detailPageArtifactId: workspace?.currentDetailPageArtifactId ?? null,
+        // 상세 페이지 아티팩트 표는 없다(KID-313 W3b 가 detail_pages 로 옮긴다) — 현재 revision 이 몰로 가는 상세다.
+        detailPageArtifactId: null,
         detailPageRevisionId: workspace?.currentDetailPageRevisionId ?? null,
-        thumbnailUrl: workspace?.currentThumbnailSelection?.contentAsset.url
-          ?? thumbnailByListing.get(listing.id) ?? null,
-        workspaceImageUrl: workspace?.contentGenerationGroups.flatMap(group => group.originatingAssets).find(asset => Boolean(asset.url))?.url ?? null,
+        thumbnailUrl: thumbnailByListing.get(listing.id) ?? null,
+        workspaceImageUrl: workspace?.assets.find(asset => Boolean(asset.url))?.url ?? null,
         providerMedia: workspace ? assets.flatMap((asset) => {
-          if (asset.originGenerationGroup?.contentWorkspaceId !== workspace.id) return [];
+          if (asset.contentWorkspaceId !== workspace.id) return [];
           const metadata = jsonRecord(asset.metadata);
           if (!asset.url.trim() || metadata?.active === false
             || !isChannelProviderMetadata(metadata, listing.channel)) return [];
@@ -105,16 +102,29 @@ export class ListingContentQueryRepositoryAdapter implements ListingContentQuery
   }
 }
 
+/**
+ * 리스팅의 대표이미지 = 그 리스팅을 가리키는 활성 작업공간의 현재 대표이미지 자산(KID-313 W3a). 옛
+ * `thumbnails` 표는 없다. 작업공간이나 대표이미지가 없는 리스팅은 빠진다.
+ */
 async function latestThumbnails(
   prisma: Prisma.TransactionClient,
   input: { organizationId: string; listingIds: readonly string[] },
 ): Promise<Array<{ listingId: string; imageUrl: string }>> {
   if (input.listingIds.length === 0) return [];
-  return prisma.thumbnail.findMany({
-    where: { organizationId: input.organizationId, listingId: { in: [...input.listingIds] }, status: 'active' },
-    orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-    distinct: ['listingId'],
-    select: { listingId: true, imageUrl: true },
+  const workspaces = await prisma.contentWorkspace.findMany({
+    where: {
+      organizationId: input.organizationId,
+      channelListingId: { in: [...input.listingIds] },
+      status: 'active',
+      isDeleted: false,
+      currentThumbnailAssetId: { not: null },
+    },
+    select: { channelListingId: true, currentThumbnailAsset: { select: { url: true, isDeleted: true } } },
+  });
+  return workspaces.flatMap((workspace) => {
+    const asset = workspace.currentThumbnailAsset;
+    if (!workspace.channelListingId || !asset || asset.isDeleted || !asset.url.trim()) return [];
+    return [{ listingId: workspace.channelListingId, imageUrl: asset.url }];
   });
 }
 

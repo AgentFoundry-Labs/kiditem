@@ -1,13 +1,14 @@
+import type { ContentAssetSource } from '@kiditem/shared/product-content';
+
 export const SALES_PRODUCT_CONTENT_ASSET_PORT = Symbol('SALES_PRODUCT_CONTENT_ASSET_PORT');
 
 /**
  * Registration-ready images for one sourcing candidate, split by
  * `ContentAsset.role`.
  *
- * `role = 'source'` is deliberately dropped: those rows are the untouched
- * scrape originals (1688/Coupang CDN) and do not meet the Coupang 1,000x1,000
- * product-image spec. `ContentAsset.width/height` are NULL across the table, so
- * role is the only usable selector.
+ * Only `primary`/`thumbnail`/`detail` roles are returned; detail-page inputs
+ * (`detail_source`) and generated detail images are not registration photos,
+ * and AI thumbnail candidates reach a mall only once adopted.
  */
 export interface SalesProductRegistrationImages {
   primary: string[];
@@ -16,16 +17,15 @@ export interface SalesProductRegistrationImages {
 }
 
 /**
- * The candidate's saved representative thumbnail, owned by its content
- * workspace (`ContentWorkspace.currentThumbnailSelectionId`).
- *
- * A candidate with no `RegistrationTarget` has nowhere else to record one, so
- * this is the only way the saved selection survives a reload.
+ * The draft's representative image: the asset its content workspace points at
+ * (`ContentWorkspace.currentThumbnailAssetId`, KID-313 W3a). An upload and an
+ * adopted AI candidate are the same kind of row.
  */
 export interface SalesProductCurrentThumbnail {
+  assetId: string;
   url: string;
-  sourceThumbnailGenerationId: string | null;
-  sourceThumbnailCandidateId: string | null;
+  source: ContentAssetSource;
+  thumbnailGenerationId: string | null;
 }
 
 export interface SalesProductContentAssetPort {

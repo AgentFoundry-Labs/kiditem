@@ -1,11 +1,12 @@
 import type { OperationStatus } from '@kiditem/shared/registration-execution';
+import type { ContentAssetItem } from '@kiditem/shared/product-content';
 import {
   buildRegistrationThumbnailOptions,
   type RegistrationThumbnailOption,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 
 /**
- * 몰(Wing) 반영 상태. Channels 실행 상태에서 온다 — 사진을 만든 것은 반영된 것이 아니다.
+ * 몰 반영 상태. Channels 실행 상태에서 온다 — 사진을 만든 것은 반영된 것이 아니다.
  * `checking` 은 실행이 진행 중이거나 결과를 모르는 상태(`executing` · `reconciling`)다.
  */
 export type ThumbnailRegistrationState = 'registered' | 'failed' | 'checking';
@@ -25,28 +26,17 @@ export function thumbnailRegistrationState(status: OperationStatus | null | unde
   }
 }
 
-export interface ThumbnailWorkspaceGeneration {
-  id: string;
-  status: string;
-  phase?: string | null;
-  registrationStatus?: ThumbnailRegistrationState | null;
-  registrationError?: string | null;
-  candidates: Array<{
-    id?: string | null;
-    url?: string | null;
-  }>;
-}
-
 export function buildThumbnailSourceOptions(input: {
   sourceImageUrls: string[];
-  generations: ThumbnailWorkspaceGeneration[];
+  galleryAssets: readonly ContentAssetItem[];
 }): RegistrationThumbnailOption[] {
   return buildRegistrationThumbnailOptions(input);
 }
 
+/** 결과 영역의 AI 후보(`source = 'ai'`). */
 export function getGeneratedThumbnailOptions(input: {
   sourceImageUrls: string[];
-  generations: ThumbnailWorkspaceGeneration[];
+  galleryAssets: readonly ContentAssetItem[];
 }): RegistrationThumbnailOption[] {
   return buildThumbnailSourceOptions(input).filter((option) => option.kind === 'generated');
 }

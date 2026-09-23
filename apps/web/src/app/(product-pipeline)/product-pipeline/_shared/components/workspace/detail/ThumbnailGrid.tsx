@@ -73,8 +73,8 @@ export default function ThumbnailGrid({
     : displayedSourceUrls.map((url) => ({
         url,
         kind: 'source' as const,
+        assetId: null,
         generatedGenerationId: null,
-        generatedCandidateId: null,
       }));
   const sourceImageCount = Math.min(thumbnails.length, MAX_THUMBNAIL_IMAGES);
   const generatedCount = displayOptions.filter((option) => option.kind === 'generated').length;

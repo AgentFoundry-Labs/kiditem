@@ -21,6 +21,5 @@ export class ListContentAssetsQueryDto {
 
   @IsOptional()
   @IsUUID()
-  generationId?: string;
-
+  thumbnailGenerationId?: string;
 }

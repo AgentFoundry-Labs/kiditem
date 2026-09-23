@@ -111,11 +111,12 @@ export interface ProductDetailResponse {
   updated_at: string;
 }
 
-/** `SalesProductContentAssetPort.SalesProductCurrentThumbnail` 과 같은 모양. */
+/** `SalesProductContentAssetPort.SalesProductCurrentThumbnail` 과 같은 모양 — 작업공간의 대표이미지 자산. */
 export interface SalesProductCurrentThumbnailView {
+  assetId: string;
   url: string;
-  sourceThumbnailGenerationId: string | null;
-  sourceThumbnailCandidateId: string | null;
+  source: string;
+  thumbnailGenerationId: string | null;
 }
 
 export interface RegistrationImages {
@@ -194,8 +195,10 @@ export interface ProductBasics {
    */
   mallRegisterShared?: Record<string, string>;
   selectedThumbnailUrl: string | null;
+  /** 채택한 대표이미지가 AI 후보면 그 job id. */
   selectedThumbnailGenerationId: string | null;
-  selectedThumbnailGenerationCandidateId: string | null;
+  /** 초안 작업공간의 대표이미지 자산 id. */
+  selectedThumbnailAssetId: string | null;
   selectedDetailPageGenerationId: string | null;
   selectedDetailPageArtifactId: string | null;
   selectedDetailPageRevisionId: string | null;
@@ -443,11 +446,12 @@ function normalizeCurrentThumbnail(value: unknown): SalesProductCurrentThumbnail
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
   const url = normalizeImageUrl(raw.url);
-  if (!url) return null;
+  if (!url || typeof raw.assetId !== 'string') return null;
   return {
+    assetId: raw.assetId,
     url,
-    sourceThumbnailGenerationId: typeof raw.sourceThumbnailGenerationId === 'string' ? raw.sourceThumbnailGenerationId : null,
-    sourceThumbnailCandidateId: typeof raw.sourceThumbnailCandidateId === 'string' ? raw.sourceThumbnailCandidateId : null,
+    source: typeof raw.source === 'string' ? raw.source : 'upload',
+    thumbnailGenerationId: typeof raw.thumbnailGenerationId === 'string' ? raw.thumbnailGenerationId : null,
   };
 }
 
@@ -529,8 +533,8 @@ function productBasicsFromSalesProduct(
     mallRegisterValues: {},
     mallRegisterShared: normalizeStringMap(product.registrationDefaults),
     selectedThumbnailUrl: media.currentThumbnail?.url ?? thumbnailUrls[0] ?? null,
-    selectedThumbnailGenerationId: media.currentThumbnail?.sourceThumbnailGenerationId ?? null,
-    selectedThumbnailGenerationCandidateId: media.currentThumbnail?.sourceThumbnailCandidateId ?? null,
+    selectedThumbnailGenerationId: media.currentThumbnail?.thumbnailGenerationId ?? null,
+    selectedThumbnailAssetId: media.currentThumbnail?.assetId ?? null,
     selectedDetailPageGenerationId: null,
     selectedDetailPageArtifactId: null,
     selectedDetailPageRevisionId: null,

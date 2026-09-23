@@ -1,11 +1,9 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentAssetLibraryRepositoryPort } from '../../port/out/repository/content-asset-library.repository.port';
 import { ContentAssetService } from '../content-asset.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
-const GROUP_ID = '22222222-2222-4222-8222-222222222222';
-const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
 
 function repository(
@@ -37,8 +35,8 @@ describe('ContentAssetService.listRegistrationImages', () => {
         { role: 'thumbnail', url: 'http://localhost:9000/a/thumb-1.png', sortOrder: 1 },
         { role: 'thumbnail', url: 'http://localhost:9000/a/thumb-2.png', sortOrder: 2 },
         { role: 'detail', url: 'http://localhost:9000/a/detail.png', sortOrder: 3 },
-        // 원본 스크랩본 — 쿠팡 1,000x1,000 규격이 아니라 등록에 쓰면 안 된다.
-        { role: 'source', url: 'https://cbu01.alicdn.com/original.jpg', sortOrder: 4 },
+        // 상세 생성 입력(원본 스크랩본) — 쿠팡 1,000x1,000 규격이 아니라 등록에 쓰면 안 된다.
+        { role: 'detail_source', url: 'https://cbu01.alicdn.com/original.jpg', sortOrder: 4 },
         // 옵션별 이미지는 아직 어떤 등록 폼에도 배선돼 있지 않다.
         { role: 'option', url: 'https://image1.coupangcdn.com/option.jpg', sortOrder: 5 },
         { role: null, url: 'https://image1.coupangcdn.com/untagged.jpg', sortOrder: 6 },
@@ -88,17 +86,17 @@ describe('ContentAssetService.listRegistrationImages', () => {
     ).resolves.toEqual({ primary: [], thumbnail: [], detail: [] });
   });
 
-  it('unions the current workspace thumbnail so a reused pick reaches registration thumbnails', async () => {
-    // 중복 상품끼리 재사용된 썸네일은 다른 워크스페이스 그룹 소유라 자산 스캔이
-    // 놓친다. 현재 워크스페이스 선택은 이를 잡으므로 갤러리 뒤에 합쳐진다.
+  it('unions the adopted representative image so an adopted AI candidate reaches registration thumbnails', async () => {
+    // 채택 전 AI 후보는 자산 스캔에서 빠진다. 채택된 대표이미지는 갤러리 뒤에 합쳐진다.
     const repo = repository({
       listSalesProductAssets: vi.fn().mockResolvedValue([
         { role: 'thumbnail', url: 'http://localhost:9000/a/gallery.png', sortOrder: 0 },
       ]),
       findSalesProductCurrentThumbnail: vi.fn().mockResolvedValue({
-        url: 'http://localhost:9000/reused/from-other-workspace.png',
-        sourceThumbnailGenerationId: null,
-        sourceThumbnailCandidateId: null,
+        assetId: 'asset-ai-1',
+        url: 'http://localhost:9000/ai/adopted.png',
+        source: 'ai',
+        thumbnailGenerationId: 'generation-1',
       }),
     });
     const service = new ContentAssetService(repo);
@@ -109,7 +107,7 @@ describe('ContentAssetService.listRegistrationImages', () => {
       primary: [],
       thumbnail: [
         'http://localhost:9000/a/gallery.png',
-        'http://localhost:9000/reused/from-other-workspace.png',
+        'http://localhost:9000/ai/adopted.png',
       ],
       detail: [],
     });
@@ -117,9 +115,10 @@ describe('ContentAssetService.listRegistrationImages', () => {
 
   it('returns registration images and the exact same current selection from one media read', async () => {
     const currentThumbnail = {
+      assetId: 'asset-upload-1',
       url: 'http://localhost:9000/reused/current.png',
-      sourceThumbnailGenerationId: 'generation-1',
-      sourceThumbnailCandidateId: 'candidate-thumb-1',
+      source: 'upload' as const,
+      thumbnailGenerationId: null,
     };
     const repo = repository({
       listSalesProductAssets: vi.fn().mockResolvedValue([
@@ -250,146 +249,3 @@ describe('ContentAssetService.replaceWorkspaceThumbnailGallery', () => {
   });
 });
 
-describe('ContentAssetService', () => {
-  it('blocks deletion while an active generation usage or thumbnail selection references the asset', async () => {
-    const repo = repository({
-      deleteAsset: vi.fn().mockResolvedValue({ status: 'in_use' }),
-    });
-    const service = new ContentAssetService(repo);
-
-    await expect(service.deleteAsset(ORG, 'asset-1')).rejects.toBeInstanceOf(ConflictException);
-    expect(repo.deleteAsset).toHaveBeenCalledWith({
-      organizationId: ORG,
-      contentAssetId: 'asset-1',
-      deletedAt: expect.any(Date),
-    });
-  });
-
-  it('delegates detail-page input asset recording to the asset library repository', async () => {
-    const assets = [{
-      id: 'asset-1',
-      assetKey: 'group-url:group-1:hash',
-      url: 'https://example.com/a.jpg',
-      role: 'source',
-      label: null,
-      sortOrder: 0,
-    }];
-    const repo = repository({
-      recordDetailPageInputAssets: vi.fn().mockResolvedValue(assets),
-    });
-    const service = new ContentAssetService(repo);
-
-    await expect(service.recordDetailPageInputAssets({
-      organizationId: ORG,
-      generationGroupId: GROUP_ID,
-      createdByUserId: USER_ID,
-      imageUrls: ['https://example.com/a.jpg'],
-    })).resolves.toEqual(assets);
-
-    expect(repo.recordDetailPageInputAssets).toHaveBeenCalledWith({
-      organizationId: ORG,
-      generationGroupId: GROUP_ID,
-      createdByUserId: USER_ID,
-      imageUrls: ['https://example.com/a.jpg'],
-    });
-  });
-
-  it('keeps existing transaction callers on an abstract asset write scope', async () => {
-    const scope = {
-      contentAsset: {
-        createMany: vi.fn(),
-        findMany: vi.fn(),
-      },
-      contentGenerationAssetUsage: {
-        deleteMany: vi.fn(),
-        createMany: vi.fn(),
-      },
-    };
-    const repo = repository({
-      syncGenerationImageUsagesInScope: vi.fn().mockResolvedValue([]),
-    });
-    const service = new ContentAssetService(repo);
-
-    await service.syncGenerationImageUsagesTx(scope, {
-      organizationId: ORG,
-      generationGroupId: GROUP_ID,
-      contentGenerationId: GENERATION_ID,
-      createdByUserId: USER_ID,
-      imageUrls: ['https://example.com/a.jpg'],
-    });
-
-    expect(repo.syncGenerationImageUsagesInScope).toHaveBeenCalledWith(scope, {
-      organizationId: ORG,
-      generationGroupId: GROUP_ID,
-      contentGenerationId: GENERATION_ID,
-      createdByUserId: USER_ID,
-      imageUrls: ['https://example.com/a.jpg'],
-    });
-  });
-
-  it('lists group assets through the content workspace relation', async () => {
-    const createdAt = new Date('2026-05-13T09:00:00.000Z');
-    const updatedAt = new Date('2026-05-13T09:30:00.000Z');
-    const repo = repository({
-      listAssets: vi.fn().mockResolvedValue({
-        total: 1,
-        rows: [
-          {
-            id: 'asset-1',
-            originGenerationGroupId: GROUP_ID,
-            url: 'https://cdn.example.com/asset.png',
-            assetType: 'image',
-            role: 'used',
-            label: 'hero',
-            sortOrder: 0,
-            metadata: { width: 1200 },
-            createdAt,
-            updatedAt,
-            originGenerationGroup: {
-              contentWorkspace: {
-                id: 'workspace-1',
-                displayName: '큐브 퍼즐',
-              },
-            },
-          },
-        ],
-      }),
-    });
-    const service = new ContentAssetService(repo);
-
-    await expect(
-      service.listAssets(ORG, { page: 2, limit: 10, contentWorkspaceId: 'workspace-1' }),
-    ).resolves.toEqual({
-      items: [
-        {
-          id: 'asset-1',
-          contentWorkspaceId: 'workspace-1',
-          originGenerationGroupId: GROUP_ID,
-          url: 'https://cdn.example.com/asset.png',
-          assetType: 'image',
-          role: 'used',
-          label: 'hero',
-          sortOrder: 0,
-          metadata: { width: 1200 },
-          workspace: {
-            id: 'workspace-1',
-            displayName: '큐브 퍼즐',
-          },
-          createdAt: createdAt.toISOString(),
-          updatedAt: updatedAt.toISOString(),
-        },
-      ],
-      total: 1,
-      page: 2,
-      limit: 10,
-    });
-
-    expect(repo.listAssets).toHaveBeenCalledWith({
-      organizationId: ORG,
-      page: 2,
-      limit: 10,
-      contentWorkspaceId: 'workspace-1',
-      generationId: null,
-    });
-  });
-});

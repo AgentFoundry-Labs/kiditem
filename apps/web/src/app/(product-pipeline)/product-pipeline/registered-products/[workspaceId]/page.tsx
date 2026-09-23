@@ -146,12 +146,12 @@ function channelListingToProductWorkspaceData(
   const generatedImageUrls = currentDetailGeneration?.imageUrls ?? [];
   const providerImageUrls = listing.providerDetail?.media.map((media) => media.sourceUrl) ?? [];
   const imageUrls = Array.from(new Set([
-    contentWorkspace?.currentThumbnailSelection?.url ?? null,
+    contentWorkspace?.currentThumbnailAsset?.url ?? null,
     ...generatedImageUrls,
     listing.thumbnailUrl,
     ...providerImageUrls,
   ].filter((url): url is string => Boolean(url))));
-  const thumbnailUrl = contentWorkspace?.currentThumbnailSelection?.url
+  const thumbnailUrl = contentWorkspace?.currentThumbnailAsset?.url
     ?? generatedImageUrls[0]
     ?? listing.thumbnailUrl
     ?? providerImageUrls[0]
@@ -288,7 +288,7 @@ function buildFallbackBasicInfo(input: {
     thumbnailUrls: input.thumbnailUrls,
     selectedThumbnailUrl: null,
     selectedThumbnailGenerationId: null,
-    selectedThumbnailGenerationCandidateId: null,
+    selectedThumbnailAssetId: null,
     selectedDetailPageGenerationId: input.selectedDetailPageGenerationId ?? null,
     // 아티팩트는 KID-313 W3b 에서 사라졌다 — 상세는 상세 페이지 id 와 revision 으로 고른다.
     selectedDetailPageArtifactId: null,

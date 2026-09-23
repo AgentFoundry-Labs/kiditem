@@ -2,26 +2,34 @@ import type { OperationStatus, ProviderOutcome } from '@kiditem/shared/registrat
 import type { ThumbnailAccountResolutionReason, ThumbnailExecutionReportRequest } from '@kiditem/shared/thumbnail-execution';
 
 /**
- * 대표이미지 몰 반영 실행의 동결 내용. 실행이 만들어질 때 한 번 정해지고 바뀌지 않는다.
- * `generationId` · `contentWorkspaceId` 는 Content 소유 기록의 id 일 뿐 외래키가 아니다.
+ * 대표이미지 몰 반영 실행의 동결 내용(KID-313 W3a). 실행이 만들어질 때 한 번 정해지고 바뀌지 않는다.
+ * 올리는 것은 판매 상품 작업공간의 자산 하나다 — `assetId` · `contentWorkspaceId` 는 Content 소유 기록의 id 일 뿐
+ * 외래키가 아니다. 실행의 정체는 (판매 상품, 계정, 자산)이다.
  */
 export type ThumbnailUpdatePayload = Readonly<{
   kind: 'thumbnail_update';
-  generationId: string;
+  salesProductId: string;
+  assetId: string;
   contentWorkspaceId: string;
-  salesProductId: string | null;
   channelListingId: string | null;
   productName: string;
-  image: Readonly<{ url: string; assetId: string | null; sha256: string }>;
+  image: Readonly<{ url: string; sha256: string }>;
+}>;
+
+/** 대표이미지 반영 실행 하나의 정체. 살아 있는 실행은 이 셋마다 하나다. */
+export type ThumbnailUpdateSubject = Readonly<{
+  salesProductId: string;
+  channelAccountId: string;
+  assetId: string;
 }>;
 
 /**
  * 몰 관리자에서 상품을 찾는 이름. listing 이름이 있으면 그 이름(URL 인코딩은 두 번까지 푼다),
- * 없으면 작업공간 이름이다. 둘 다 비면 빈 문자열이고 호출자가 거절한다.
+ * 없으면 판매 상품 이름이다. 둘 다 비면 빈 문자열이고 호출자가 거절한다.
  */
-export function thumbnailProductName(listingChannelName: string | null, workspaceDisplayName: string | null): string {
+export function thumbnailProductName(listingChannelName: string | null, salesProductName: string | null): string {
   const listingName = listingChannelName?.trim();
-  return decodeProductName(listingName || workspaceDisplayName || '');
+  return decodeProductName(listingName || salesProductName || '');
 }
 
 function decodeProductName(value: string): string {
@@ -77,16 +85,23 @@ export function isReservedExecutionIdempotencyKey(idempotencyKey: string): boole
 
 /**
  * 실행 멱등 키. Agent 호출은 그 호출의 owner 키로 다시 와도 같은 실행이고, 화면 호출은
- * 누를 때마다 새 실행이다(같은 생성에 살아 있는 실행이 있으면 저장소가 막는다).
+ * 누를 때마다 새 실행이다 — 이름은 (판매 상품, 계정, 자산) 뒤에 한 번 쓰는 값을 붙인다. 같은 셋에 살아 있는
+ * 실행이 있으면 저장소가 막는다.
  */
 export function thumbnailUpdateIdempotencyKey(input: {
-  generationId: string;
+  subject: ThumbnailUpdateSubject;
   ownerIdempotencyKey: string | null;
   nonce: string;
 }): string {
+  const { salesProductId, channelAccountId, assetId } = input.subject;
   return input.ownerIdempotencyKey
     ? `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${input.ownerIdempotencyKey}`
-    : `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${input.generationId}:${input.nonce}`;
+    : `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${salesProductId}:${channelAccountId}:${assetId}:${input.nonce}`;
+}
+
+/** 살아 있는 실행 검사를 한 줄로 세우는 잠금 열쇠(조직 + 판매 상품 + 계정 + 자산). 생성 job id 가 아니다. */
+export function thumbnailUpdateLiveKey(input: ThumbnailUpdateSubject & { organizationId: string }): string {
+  return `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${input.organizationId}:${input.salesProductId}:${input.channelAccountId}:${input.assetId}`;
 }
 
 export type ThumbnailReportTransition = Readonly<{

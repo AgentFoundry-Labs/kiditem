@@ -80,7 +80,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({
           id: 'workspace-1',
-              normalizedTitle: 'kidsrainboots',
+          normalizedTitle: 'kidsrainboots',
         }),
       },
     };

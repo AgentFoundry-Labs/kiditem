@@ -13,7 +13,7 @@ immediate history sync.
 - Edit route for compliance and creative thumbnail generation
 - Slot-based image source selection from uploads, generated assets, previous
   generations, and other products
-- Candidate result selection, apply, skip, and history invalidation
+- Candidate result selection, adoption, skip, and history invalidation
 
 ## Generation Flow
 
@@ -21,10 +21,11 @@ immediate history sync.
 ModeShowcase / edit route
   -> mode + editCase + subject query state
   -> useGenerateThumbnail() mutation
-  -> pending rows observed through shared generation list
-  -> user selects candidate
-  -> useApplyGeneration() or useSkipGeneration()
-  -> invalidate thumbnail analysis/generation history
+  -> pending job observed through useThumbnailJob / useThumbnailJobs
+  -> candidates arrive as content assets (source ai, thumbnailGenerationId)
+  -> adopt: PATCH content-workspaces/:id/current-thumbnail {assetId}
+  -> mall upload: Channels thumbnail execution {salesProductId, assetId}
+  -> invalidate queryKeys.thumbnailJobs / thumbnailExecutions
 ```
 
 `contentWorkspaceId` is the identity for result attachment. A sales-product
@@ -50,7 +51,8 @@ Edit mode always sends `purpose: 'compliance'`; creative sends `'quality'`.
   `generationId`, and `selectedCandidateUrl`; it preserves product image/name.
 - Switching edit/creative tabs preserves state.
 - `colorImages` requires at least 2 images; `colorCount` is array length.
-- `selectedCandidateUrl` gates apply/skip buttons.
+- `selectedCandidateUrl` is screen state only; the mall upload adopts that
+  candidate's asset first, then uploads `{salesProductId, assetId}`.
 - Subject query state uses one canonical identity: `contentWorkspaceId`,
   `salesProductId` for a draft without a workspace, or none for direct upload.
   Never send `sourceCandidateId`.
@@ -58,11 +60,13 @@ Edit mode always sends `purpose: 'compliance'`; creative sends `'quality'`.
 
 ## Cross-Route Dependencies
 
-- `@kiditem/shared` provides `ThumbnailGenerationItem`.
+- `@kiditem/shared` provides `ThumbnailJob`, `ContentAssetItem`, and
+  `ThumbnailJobListResponse`.
 - `apiClient` calls `/api/thumbnail-editor/generate`,
   `/api/ai/content-workspaces`, `/api/ai/content-assets`, and
   `/api/thumbnail-analysis/generations/*`.
-- Shared thumbnail generation hooks provide select/apply/skip behavior.
+- `_shared/hooks/useThumbnailJobs` and `useRepresentativeImage` provide jobs,
+  candidate removal, adoption, and mall execution status.
 - Route helpers live in `_shared/lib/product-pipeline-routes.ts` and
   `_shared/lib/thumbnail-subject.ts`.
 

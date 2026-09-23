@@ -1,4 +1,5 @@
 import type { DetailPageSource, DetailPageStatus, DetailPageWithRevisions } from '@kiditem/shared/product-content';
+import type { ContentAssetItem, ContentAssetSource } from '@kiditem/shared/product-content';
 import { apiClient } from '@/lib/api-client';
 
 /**
@@ -38,9 +39,9 @@ export interface ContentWorkspaceSummary {
   /** 몰로 가는 현재 revision 과 그 revision 의 상세 페이지. */
   currentDetailPageId: string | null;
   currentDetailPageRevisionId: string | null;
-  currentThumbnailSelection: {
+  /** 작업공간의 대표이미지 자산(`currentThumbnailAssetId`). */
+  currentThumbnailAsset: {
     id: string;
-    contentAssetId: string;
     url: string;
   } | null;
   createdAt: string;
@@ -68,11 +69,12 @@ export interface SalesProductRegistrationImages {
   detail: string[];
 }
 
-/** 초안이 저장해 둔 대표 썸네일. */
+/** 초안 작업공간의 대표이미지 자산. AI 후보에서 채택했으면 그 job id 가 있다. */
 export interface SalesProductCurrentThumbnail {
+  assetId: string;
   url: string;
-  sourceThumbnailGenerationId: string | null;
-  sourceThumbnailCandidateId: string | null;
+  source: ContentAssetSource;
+  thumbnailGenerationId: string | null;
 }
 
 export interface SalesProductRegistrationMedia {
@@ -210,19 +212,18 @@ export const contentWorkspacesApi = {
     );
   },
 
-  async selectCurrentThumbnail(
-    id: string,
-    selection:
-      | { contentAssetId: string }
-      | {
-          sourceThumbnailGenerationId: string;
-          sourceThumbnailCandidateId: string;
-        }
-      | { externalUrl: string },
-  ): Promise<ContentWorkspaceSummary> {
-    return apiClient.patch<ContentWorkspaceSummary>(
+  /** 대표이미지 갤러리 — 업로드와 AI 후보 자산, 새것부터. */
+  async listThumbnailGallery(id: string): Promise<ContentAssetItem[]> {
+    return apiClient.get<ContentAssetItem[]>(
+      `/api/ai/content-workspaces/${encodeURIComponent(id)}/thumbnail-gallery`,
+    );
+  },
+
+  /** 채택: 작업공간의 자산 하나를 대표이미지로. 다른 작업공간의 자산은 서버가 거절한다. */
+  async selectCurrentThumbnail(id: string, assetId: string): Promise<ContentAssetItem> {
+    return apiClient.patch<ContentAssetItem>(
       `/api/ai/content-workspaces/${encodeURIComponent(id)}/current-thumbnail`,
-      selection,
+      { assetId },
     );
   },
 };

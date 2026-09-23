@@ -11,13 +11,11 @@ import {
   thumbnailWorkspaceHref,
   thumbnailGenerationEditHref,
 } from '../_shared/lib/product-pipeline-routes';
-import { useAnalysisList } from '../thumbnail-ai/hooks/useThumbnailAnalysis';
-import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
+import { useThumbnailJobs } from '../_shared/hooks/useThumbnailJobs';
 import { AutoEditSection } from './components/hub/AutoEditSection';
 import { DirectUploadJobsSection } from './components/hub/DirectUploadJobsSection';
 import { HubUploadZone, type HubUploadZoneHandle } from './components/hub/HubUploadZone';
 import { ModeShowcase } from './components/hub/ModeShowcase';
-import { NeedsFixSection } from './components/hub/NeedsFixSection';
 import { PendingSection } from './components/hub/PendingSection';
 import { RegistrationPendingSection } from './components/hub/RegistrationPendingSection';
 
@@ -30,8 +28,7 @@ export default function ThumbnailGenerationHubPage() {
 }
 
 function ThumbnailGenerationHubContent() {
-  const { data: generations = [] } = useGenerationList();
-  const { data: analysis } = useAnalysisList();
+  const { data: generations = [] } = useThumbnailJobs();
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = normalizeProductPipelineReturnTo(searchParams.get('returnTo'));
@@ -84,18 +81,11 @@ function ThumbnailGenerationHubContent() {
 
   const hasActiveGeneration = generations.some((g) => g.status === 'pending' || g.status === 'running');
   const hasRegistrationPending = generations.some(
-    (g) => g.registrationStatus === 'checking' || (g.phase === 'applied' && g.registrationStatus !== 'registered'),
+    (g) =>
+      g.registrationStatus === 'checking' ||
+      (g.adoptedCandidate !== null && Boolean(g.workspace?.salesProductId) && g.registrationStatus !== 'registered'),
   );
-  const hasNeedsFix = (analysis?.allResults ?? []).some(
-    (r) =>
-      r.imageUrl &&
-      (r.complianceGrade === 'FAIL' ||
-        r.complianceGrade === 'WARN' ||
-        r.grade === 'B' ||
-        r.grade === 'C' ||
-        r.grade === 'F'),
-  );
-  const isEmpty = !hasActiveGeneration && !hasRegistrationPending && !hasNeedsFix;
+  const isEmpty = !hasActiveGeneration && !hasRegistrationPending;
 
   return (
     <div className="relative -m-6 min-h-[calc(100vh-0px)]">
@@ -165,7 +155,6 @@ function ThumbnailGenerationHubContent() {
           <PendingSection returnTo={returnTo} />
           <RegistrationPendingSection returnTo={returnTo} />
         </div>
-        <NeedsFixSection returnTo={returnTo} />
 
         {isEmpty && (
           <div className="rounded-2xl border border-white/60 bg-white/40 py-16 text-center shadow-sm backdrop-blur-xl">
@@ -175,7 +164,7 @@ function ThumbnailGenerationHubContent() {
               <Link href={THUMBNAIL_AI_ROOT} className="font-medium text-violet-600 hover:underline">
                 썸네일 AI
               </Link>
-              에서 수정이 필요한 상품을 찾아보세요.
+              에서 평가가 낮은 리스팅을 찾아보세요.
             </div>
           </div>
         )}

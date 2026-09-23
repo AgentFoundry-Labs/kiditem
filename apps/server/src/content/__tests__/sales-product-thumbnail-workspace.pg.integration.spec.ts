@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createPendingSalesProductJob } from '../adapter/out/repository/thumbnail-generation-ledger.persistence';
+import { createPendingJob, ensureSalesProductWorkspace } from '../adapter/out/repository/thumbnail-generation-ledger.persistence';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 
 /**
@@ -20,11 +20,9 @@ describe('sales product thumbnail workspace (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
-  const job = (salesProductId: string) => prisma.$transaction((tx) => createPendingSalesProductJob(tx, {
+  const job = (salesProductId: string) => prisma.$transaction(async (tx) => createPendingJob(tx, {
     organizationId: TEST_ORGANIZATION_ID,
-    salesProductId,
-    productName: '초안 상품',
-    originalUrl: 'https://cdn.example.com/a.png',
+    contentWorkspaceId: await ensureSalesProductWorkspace(tx, { organizationId: TEST_ORGANIZATION_ID, salesProductId }),
     method: 'generate',
     inputMeta: {},
   }));
@@ -53,8 +51,7 @@ describe('sales product thumbnail workspace (PostgreSQL)', () => {
       data: { organizationId: TEST_ORGANIZATION_ID, code: null, name: '초안 상품' },
     });
     const existing = await prisma.contentWorkspace.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, ownerType: 'sales_product', salesProductId: product.id,
-        displayName: '이미 있는 작업공간', normalizedTitle: 'existing' },
+      data: { organizationId: TEST_ORGANIZATION_ID, ownerType: 'sales_product', salesProductId: product.id },
     });
 
     const created = await job(product.id);

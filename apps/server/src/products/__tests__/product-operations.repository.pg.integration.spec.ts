@@ -2339,22 +2339,13 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         organizationId,
         ownerType: 'channel_listing',
         channelListingId: listingId,
-        displayName: `Workspace ${listingId}`,
-        normalizedTitle: `workspace${listingId.replaceAll('-', '')}`,
-      },
-    });
-    const group = await prisma.contentGenerationGroup.create({
-      data: {
-        organizationId,
-        contentWorkspaceId: workspace.id,
-        groupType: 'workspace_assets',
-        title: 'Workspace managed assets',
       },
     });
     await prisma.contentAsset.create({
       data: {
         organizationId,
-        originGenerationGroupId: group.id,
+        contentWorkspaceId: workspace.id,
+        source: 'catalog',
         assetKey: `channel-provider:${channel}:${listingId}`,
         url,
         assetType: 'image',

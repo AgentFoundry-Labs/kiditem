@@ -36,6 +36,7 @@ export interface ContentWorkspaceSummary {
   ownerType: string;
   salesProductId: string | null;
   channelListingId: string | null;
+  /** 직접 상세 작업공간의 제목(정규화). 판매 상품 · 리스팅 작업공간은 null — 이름은 그 주인에게 있다. */
   normalizedTitle: string | null;
   status: string;
   href: string;
@@ -45,11 +46,8 @@ export interface ContentWorkspaceSummary {
   /** 몰로 가는 현재 revision 과 그 revision 의 상세 페이지. */
   currentDetailPageId: string | null;
   currentDetailPageRevisionId: string | null;
-  currentThumbnailSelection: {
-    id: string;
-    contentAssetId: string;
-    url: string;
-  } | null;
+  /** 대표이미지 자산(`currentThumbnailAssetId`). */
+  currentThumbnailAsset: { id: string; url: string } | null;
   createdAt: string;
   updatedAt: string;
   history: Array<{
@@ -86,7 +84,7 @@ export class ContentWorkspaceService {
     rawTitle: string;
     salesProductId: string | null;
     channelListingId?: string | null;
-  }): Promise<{ id: string }> {
+  }): Promise<{ id: string; normalizedTitle: string | null }> {
     return this.ensureWorkspace(input);
   }
 
@@ -95,7 +93,10 @@ export class ContentWorkspaceService {
     return this.get(input.organizationId, workspace.id);
   }
 
-  private async ensureWorkspace(input: CreateContentWorkspaceInput): Promise<{ id: string }> {
+  private async ensureWorkspace(input: CreateContentWorkspaceInput): Promise<{
+    id: string;
+    normalizedTitle: string | null;
+  }> {
     const ownerType = ownerTypeFor(input);
     return this.repository.ensureActiveWorkspace({
       organizationId: input.organizationId,
@@ -227,13 +228,7 @@ function summaryHead(row: ContentWorkspaceSnapshot): Omit<
     href: registeredWorkspaceHref(row.id),
     currentDetailPageId: row.currentDetailPageRevision?.detailPageId ?? null,
     currentDetailPageRevisionId: row.currentDetailPageRevisionId,
-    currentThumbnailSelection: row.currentThumbnailSelection
-      ? {
-          id: row.currentThumbnailSelection.id,
-          contentAssetId: row.currentThumbnailSelection.contentAsset.id,
-          url: row.currentThumbnailSelection.contentAsset.url,
-        }
-      : null,
+    currentThumbnailAsset: row.currentThumbnailAsset,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

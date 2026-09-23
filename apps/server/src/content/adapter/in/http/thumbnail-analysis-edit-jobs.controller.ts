@@ -31,14 +31,12 @@ export class ThumbnailAnalysisEditJobsController {
     @Param('id') id: string,
     @Body() body: ReEditDto,
     @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
   ) {
     return this.generationService.reEditJob(
       id,
       organizationId,
       body?.purpose ?? 'compliance',
       body?.variantKey ?? null,
-      user.id,
     );
   }
 }

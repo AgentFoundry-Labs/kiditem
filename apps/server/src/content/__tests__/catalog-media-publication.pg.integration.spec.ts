@@ -14,7 +14,6 @@ import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/ou
 import { ListingContentQueryRepositoryAdapter } from '../adapter/out/repository/listing-content-query.repository.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
-import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
 import type {
   CatalogMediaPublicationScope,
   ChannelCatalogMedia,
@@ -25,7 +24,6 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
   let prisma: PrismaClient;
   let publisher: AiCatalogMediaPublicationRepositoryAdapter;
   let library: ContentAssetLibraryRepositoryAdapter;
-  let selection: ContentWorkspaceThumbnailSelectionRepositoryAdapter;
   let catalog: ChannelListingQueryService;
   let listingId: string;
   let secondListingId: string;
@@ -39,7 +37,6 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     );
     publisher = new AiCatalogMediaPublicationRepositoryAdapter(catalog);
     library = new ContentAssetLibraryRepositoryAdapter(prisma as never);
-    selection = new ContentWorkspaceThumbnailSelectionRepositoryAdapter(prisma as never);
   });
   afterAll(async () => {
     await prisma?.$disconnect();
@@ -73,9 +70,11 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         page: 1,
         limit: 100,
         contentWorkspaceId: null,
-        generationId: null,
+        thumbnailGenerationId: null,
       })
       .then((result) => result.rows);
+  const adopt = (workspaceId: string, assetId: string) =>
+    library.setCurrentThumbnail({ organizationId: ORG, contentWorkspaceId: workspaceId, assetId });
   const publish = (
     id: string,
     media: ChannelCatalogMedia[],
@@ -133,8 +132,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       sortOrder: 1,
       metadata: { publicationReference: { type: 'source_import_run', id: firstRef } },
     });
-    const workspaceId = original.originGenerationGroup!.contentWorkspace.id;
-    const groupId = original.originGenerationGroupId!;
+    const workspaceId = original.contentWorkspaceId;
     const stored = await prisma.contentAsset.findFirstOrThrow({
       where: { id: original.id, organizationId: ORG },
     });
@@ -164,7 +162,8 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     const manual = await prisma.contentAsset.create({
       data: {
         organizationId: ORG,
-        originGenerationGroupId: groupId,
+        contentWorkspaceId: workspaceId,
+        source: 'ai',
         assetKey: randomUUID(),
         url: url('manual'),
         role: 'thumbnail',
@@ -174,18 +173,14 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     await prisma.contentAsset.create({
       data: {
         organizationId: ORG,
-        originGenerationGroupId: groupId,
+        contentWorkspaceId: workspaceId,
+        source: 'catalog',
         assetKey: randomUUID(),
         url: url('other-channel'),
         metadata: { sourceType: 'channel_catalog', channel: 'smartstore' },
       },
     });
-    await selection.selectCurrent({
-      organizationId: ORG,
-      workspaceId,
-      userId: USER,
-      selection: { kind: 'content_asset', contentAssetId: manual.id },
-    });
+    await adopt(workspaceId, manual.id);
     const nextRef = randomUUID();
     expect(
       await publish(
@@ -200,7 +195,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     const reused = refreshed.find((row) => row.url === url('a'))!;
     expect(reused).toMatchObject({
       id: original.id,
-      originGenerationGroupId: groupId,
+      contentWorkspaceId: workspaceId,
       sortOrder: 4,
       metadata: {
         sourceType: 'channel_catalog',
@@ -253,40 +248,31 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     await publish(listingId, [media('auto-a', 'primary')]);
     const initialWorkspace = await prisma.contentWorkspace.findFirstOrThrow({
       where: { organizationId: ORG, channelListingId: listingId },
+      include: { currentThumbnailAsset: true },
     });
-    const group = await prisma.contentGenerationGroup.findFirstOrThrow({
-      where: {
-        organizationId: ORG,
-        contentWorkspaceId: initialWorkspace.id,
-        groupType: 'workspace_assets',
-      },
-    });
-    const firstPointer = initialWorkspace.currentThumbnailSelectionId;
-    expect(firstPointer).not.toBeNull();
-    expect(group.metadata).toMatchObject({
-      catalogPublication: { autoThumbnailSelectionId: firstPointer },
+    expect(initialWorkspace.currentThumbnailAsset).toMatchObject({
+      url: url('auto-a'),
+      source: 'catalog',
+      role: 'primary',
+      metadata: { catalogRepresentative: true },
     });
 
     await publish(listingId, [media('auto-b', 'primary')]);
     const advancedWorkspace = await prisma.contentWorkspace.findUniqueOrThrow({
       where: { id: initialWorkspace.id },
+      include: { currentThumbnailAsset: true },
     });
-    const advancedGroup = await prisma.contentGenerationGroup.findUniqueOrThrow({
-      where: { id: group.id },
-    });
-    expect(advancedWorkspace.currentThumbnailSelectionId).not.toBe(firstPointer);
-    expect(advancedWorkspace.currentThumbnailSelectionId).not.toBeNull();
-    expect(advancedGroup.metadata).toMatchObject({
-      catalogPublication: {
-        autoThumbnailSelectionId: advancedWorkspace.currentThumbnailSelectionId,
-      },
+    expect(advancedWorkspace.currentThumbnailAssetId).not.toBe(initialWorkspace.currentThumbnailAssetId);
+    expect(advancedWorkspace.currentThumbnailAsset).toMatchObject({
+      url: url('auto-b'),
+      metadata: { catalogRepresentative: true },
     });
 
     await publish(listingId, []);
     const clearedWorkspace = await prisma.contentWorkspace.findUniqueOrThrow({
       where: { id: initialWorkspace.id },
     });
-    expect(clearedWorkspace.currentThumbnailSelectionId).toBeNull();
+    expect(clearedWorkspace.currentThumbnailAssetId).toBeNull();
     expect((await assets()).some((asset) => asset.url === url('auto-a'))).toBe(false);
     expect((await assets()).some((asset) => asset.url === url('auto-b'))).toBe(false);
   });
@@ -299,7 +285,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     const providerAsset = await prisma.contentAsset.findFirstOrThrow({
       where: {
         organizationId: ORG,
-        originGenerationGroup: { contentWorkspaceId: workspace.id },
+        contentWorkspaceId: workspace.id,
         url: url('manual-provider-a'),
       },
     });
@@ -307,12 +293,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       where: { id_organizationId: { id: providerAsset.id, organizationId: ORG } },
       data: { storageKey: 'kept/manual-provider-a.jpg' },
     });
-    const manualSelection = await selection.selectCurrent({
-      organizationId: ORG,
-      workspaceId: workspace.id,
-      userId: USER,
-      selection: { kind: 'content_asset', contentAssetId: providerAsset.id },
-    });
+    await adopt(workspace.id, providerAsset.id);
 
     await publish(listingId, [media('manual-provider-b', 'primary')]);
     let preserved = await prisma.contentAsset.findUniqueOrThrow({
@@ -321,7 +302,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     let after = await prisma.contentWorkspace.findUniqueOrThrow({
       where: { id: workspace.id },
     });
-    expect(after.currentThumbnailSelectionId).toBe(manualSelection.selectionId);
+    expect(after.currentThumbnailAssetId).toBe(providerAsset.id);
     expect(await currentThumbnail()).toBe(url('manual-provider-a'));
     expect(preserved).toMatchObject({
       isDeleted: false,
@@ -337,7 +318,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     after = await prisma.contentWorkspace.findUniqueOrThrow({
       where: { id: workspace.id },
     });
-    expect(after.currentThumbnailSelectionId).toBe(manualSelection.selectionId);
+    expect(after.currentThumbnailAssetId).toBe(providerAsset.id);
     expect(await currentThumbnail()).toBe(url('manual-provider-a'));
     expect(preserved).toMatchObject({
       isDeleted: false,
@@ -357,16 +338,11 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     const providerAsset = await prisma.contentAsset.findFirstOrThrow({
       where: {
         organizationId: ORG,
-        originGenerationGroup: { contentWorkspaceId: workspace.id },
+        contentWorkspaceId: workspace.id,
         url: providerUrl,
       },
     });
-    const manualSelection = await selection.selectCurrent({
-      organizationId: ORG,
-      workspaceId: workspace.id,
-      userId: USER,
-      selection: { kind: 'content_asset', contentAssetId: providerAsset.id },
-    });
+    await adopt(workspace.id, providerAsset.id);
     await prisma.contentAsset.update({
       where: { id_organizationId: { id: providerAsset.id, organizationId: ORG } },
       data: {
@@ -401,7 +377,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     const after = await prisma.contentWorkspace.findUniqueOrThrow({
       where: { id: workspace.id },
     });
-    expect(after.currentThumbnailSelectionId).toBe(manualSelection.selectionId);
+    expect(after.currentThumbnailAssetId).toBe(providerAsset.id);
     expect(await currentThumbnail()).toBe(materializedUrl);
     expect(preserved).toMatchObject({
       isDeleted: false,
@@ -432,52 +408,26 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     });
   });
 
-  it('preserves a markerless legacy pointer and unrelated group metadata', async () => {
+  it('preserves a pointer the catalog did not set (no representative marker)', async () => {
     await publish(listingId, [media('legacy-a', 'primary')]);
     const workspace = await prisma.contentWorkspace.findFirstOrThrow({
       where: { organizationId: ORG, channelListingId: listingId },
+      include: { currentThumbnailAsset: true },
     });
-    const group = await prisma.contentGenerationGroup.findFirstOrThrow({
-      where: {
-        organizationId: ORG,
-        contentWorkspaceId: workspace.id,
-        groupType: 'workspace_assets',
-      },
-    });
-    const legacyPointer = workspace.currentThumbnailSelectionId;
-    await prisma.contentGenerationGroup.update({
-      where: { id: group.id },
-      data: {
-        metadata: {
-          sourceType: 'channel_catalog',
-          channel: 'coupang',
-          legacyMarker: 'keep-me',
-        },
-      },
+    const legacyPointer = workspace.currentThumbnailAssetId!;
+    const { catalogRepresentative: _marker, ...unmarked } = workspace.currentThumbnailAsset!.metadata as Record<string, unknown>;
+    await prisma.contentAsset.update({
+      where: { id_organizationId: { id: legacyPointer, organizationId: ORG } },
+      data: { metadata: unmarked as never },
     });
 
     await publish(listingId, [media('legacy-b', 'primary')]);
     const after = await prisma.contentWorkspace.findUniqueOrThrow({
       where: { id: workspace.id },
     });
-    const oldAsset = await prisma.contentAsset.findFirstOrThrow({
-      where: {
-        organizationId: ORG,
-        originGenerationGroupId: group.id,
-        url: url('legacy-a'),
-      },
-    });
-    const afterGroup = await prisma.contentGenerationGroup.findUniqueOrThrow({
-      where: { id: group.id },
-    });
-    expect(after.currentThumbnailSelectionId).toBe(legacyPointer);
+    const oldAsset = await prisma.contentAsset.findUniqueOrThrow({ where: { id: legacyPointer } });
+    expect(after.currentThumbnailAssetId).toBe(legacyPointer);
     expect(oldAsset).toMatchObject({ isDeleted: false, metadata: { active: false } });
-    expect(afterGroup.metadata).toMatchObject({
-      sourceType: 'channel_catalog',
-      channel: 'coupang',
-      legacyMarker: 'keep-me',
-    });
-    expect(afterGroup.metadata).not.toHaveProperty('catalogPublication');
   });
 
   it('replaces basic, detail, and option media scopes independently', async () => {
@@ -516,23 +466,19 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         },
       },
     });
-    const workspaceId = initial[0]!.originGenerationGroup!.contentWorkspace.id;
+    const workspaceId = initial[0]!.contentWorkspaceId;
     const manual = await prisma.contentAsset.create({
       data: {
         organizationId: ORG,
-        originGenerationGroupId: initial[0]!.originGenerationGroupId,
+        contentWorkspaceId: workspaceId,
+        source: 'ai',
         assetKey: randomUUID(),
         url: url('operator'),
         role: 'thumbnail',
         metadata: { sourceType: 'generated', operatorNote: 'keep' },
       },
     });
-    await selection.selectCurrent({
-      organizationId: ORG,
-      workspaceId,
-      userId: USER,
-      selection: { kind: 'content_asset', contentAssetId: manual.id },
-    });
+    await adopt(workspaceId, manual.id);
 
     const basicRef = randomUUID();
     expect(
@@ -749,7 +695,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     const detail = await prisma.contentAsset.findFirstOrThrow({
       where: {
         organizationId: ORG,
-        originGenerationGroup: { contentWorkspaceId: workspace.id },
+        contentWorkspaceId: workspace.id,
         url: url('remap-detail'),
       },
     });
@@ -763,16 +709,12 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         },
       },
     });
-    await selection.selectCurrent({
-      organizationId: ORG,
-      workspaceId: workspace.id,
-      userId: USER,
-      selection: { kind: 'content_asset', contentAssetId: detail.id },
-    });
+    await adopt(workspace.id, detail.id);
     const manual = await prisma.contentAsset.create({
       data: {
         organizationId: ORG,
-        originGenerationGroupId: detail.originGenerationGroupId,
+        contentWorkspaceId: workspace.id,
+        source: 'upload',
         assetKey: randomUUID(),
         url: url('remap-manual'),
         role: 'thumbnail',
@@ -791,7 +733,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     );
 
     const remapped = await prisma.contentAsset.findMany({
-      where: { organizationId: ORG, originGenerationGroupId: detail.originGenerationGroupId },
+      where: { organizationId: ORG, contentWorkspaceId: workspace.id },
     });
     for (const name of ['remap-primary', 'remap-detail', 'remap-option']) {
       expect(remapped.find((asset) => asset.url === url(name))?.metadata).toMatchObject({
@@ -825,7 +767,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     const beforeWorkspace = await prisma.contentWorkspace.findFirstOrThrow({
       where: { organizationId: ORG, channelListingId: listingId },
     });
-    const beforeSelectionId = beforeWorkspace.currentThumbnailSelectionId;
+    const beforeSelectionId = beforeWorkspace.currentThumbnailAssetId;
     expect(beforeSelectionId).not.toBeNull();
 
     expect(
@@ -857,7 +799,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         externalOptionIds: [newExternalOptionId],
       },
     });
-    expect(afterWorkspace.currentThumbnailSelectionId).toBe(beforeSelectionId);
+    expect(afterWorkspace.currentThumbnailAssetId).toBe(beforeSelectionId);
     expect(afterOption).toMatchObject({
       isDeleted: false,
       metadata: {
@@ -871,11 +813,12 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
   it('does not overwrite a manual thumbnail selection racing provider publication', async () => {
     await publish(listingId, [media('a', 'primary')]);
     const original = (await assets())[0]!;
-    const workspaceId = original.originGenerationGroup!.contentWorkspace.id;
+    const workspaceId = original.contentWorkspaceId;
     const manual = await prisma.contentAsset.create({
       data: {
         organizationId: ORG,
-        originGenerationGroupId: original.originGenerationGroupId,
+        contentWorkspaceId: workspaceId,
+        source: 'upload',
         assetKey: randomUUID(),
         url: url('manual'),
         role: 'thumbnail',
@@ -913,13 +856,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         )
         .toBeGreaterThan(0);
       let manualDone = false;
-      manualSelection = selection
-        .selectCurrent({
-          organizationId: ORG,
-          workspaceId,
-          userId: USER,
-          selection: { kind: 'content_asset', contentAssetId: manual.id },
-        })
+      manualSelection = adopt(workspaceId, manual.id)
         .then((result) => {
           manualDone = true;
           return result;

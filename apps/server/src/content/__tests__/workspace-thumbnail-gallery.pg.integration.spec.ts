@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -12,23 +12,23 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
-import { groupUrlAssetKey } from '../domain/content-asset-key';
+import { ContentAssetService } from '../application/service/content-asset.service';
 
 /**
- * 준비(RegistrationTarget)가 없는 후보의 썸네일 미리보기 목록 저장 경로.
- *
- * 이 경로가 없을 때는 목록이 조용히 버려졌고, 쿠팡 WING 추가이미지가 늘 0/9 였다.
- * 여기서 검증하는 건 "저장한 목록이 `listSalesProductAssets`(= registrationImages.thumbnail,
- * 곧 additionalImageUrls 의 소스)로 그대로 다시 읽히는가" 다.
+ * 대표이미지 갤러리(KID-313 W3a): 운영자 업로드와 AI 후보가 같은 `content_assets` 행이고,
+ * 채택은 워크스페이스의 `current_thumbnail_asset_id` 하나를 옮긴다. 저장한 미리보기 목록(업로드)은
+ * 등록 사진(`registrationImages.thumbnail`, 곧 Wing 추가이미지)으로 순서대로 다시 읽힌다.
  */
 describe('workspace thumbnail gallery (PG integration)', () => {
   let prisma: PrismaClient;
-  let adapter: ContentAssetLibraryRepositoryAdapter;
+  let service: ContentAssetService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    adapter = new ContentAssetLibraryRepositoryAdapter(prisma as unknown as PrismaService);
+    service = new ContentAssetService(
+      new ContentAssetLibraryRepositoryAdapter(prisma as unknown as PrismaService),
+    );
   });
 
   afterAll(async () => prisma?.$disconnect());
@@ -38,237 +38,215 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  async function seedDraftWorkspace() {
+  async function seedDraftWorkspace(organizationId = TEST_ORGANIZATION_ID) {
     const salesProductId = randomUUID();
     const workspace = await prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sales_product',
-        salesProductId,
-        displayName: '과일바구니 딸깍이 키링',
-        normalizedTitle: `gallery${randomUUID().slice(0, 8)}`,
-      },
+      data: { organizationId, ownerType: 'sales_product', salesProductId },
     });
     return { salesProductId, workspaceId: workspace.id };
   }
 
-  const galleryThumbnails = (salesProductId: string) =>
-    adapter
-      .listSalesProductAssets({ organizationId: TEST_ORGANIZATION_ID, salesProductId })
-      .then((rows) => rows.filter((row) => row.role === 'thumbnail').map((row) => row.url));
-
-  it('reads the saved preview list back as role=thumbnail registration images, in order', async () => {
-    const { salesProductId, workspaceId } = await seedDraftWorkspace();
-
-    await adapter.replaceWorkspaceThumbnailGallery({
-      organizationId: TEST_ORGANIZATION_ID,
-      contentWorkspaceId: workspaceId,
-      createdByUserId: TEST_USER_ID,
-      urls: [
-        'https://cdn.example.com/thumb-a.png',
-        'https://cdn.example.com/thumb-b.png',
-        'https://cdn.example.com/thumb-c.png',
-      ],
-    });
-
-    await expect(galleryThumbnails(salesProductId)).resolves.toEqual([
-      'https://cdn.example.com/thumb-a.png',
-      'https://cdn.example.com/thumb-b.png',
-      'https://cdn.example.com/thumb-c.png',
-    ]);
-  });
-
-  it('replaces rather than appends, and honours a reordered list', async () => {
-    const { salesProductId, workspaceId } = await seedDraftWorkspace();
-    const save = (urls: string[]) =>
-      adapter.replaceWorkspaceThumbnailGallery({
-        organizationId: TEST_ORGANIZATION_ID,
-        contentWorkspaceId: workspaceId,
-        createdByUserId: TEST_USER_ID,
-        urls,
-      });
-
-    await save([
-      'https://cdn.example.com/thumb-a.png',
-      'https://cdn.example.com/thumb-b.png',
-    ]);
-    // b 를 지우고 c 를 추가하며 순서도 뒤집는다.
-    await save([
-      'https://cdn.example.com/thumb-c.png',
-      'https://cdn.example.com/thumb-a.png',
-    ]);
-
-    await expect(galleryThumbnails(salesProductId)).resolves.toEqual([
-      'https://cdn.example.com/thumb-c.png',
-      'https://cdn.example.com/thumb-a.png',
-    ]);
-  });
-
-  it('clears the gallery when every preview image is removed', async () => {
-    const { salesProductId, workspaceId } = await seedDraftWorkspace();
-
-    await adapter.replaceWorkspaceThumbnailGallery({
-      organizationId: TEST_ORGANIZATION_ID,
-      contentWorkspaceId: workspaceId,
-      createdByUserId: TEST_USER_ID,
-      urls: ['https://cdn.example.com/thumb-a.png'],
-    });
-    await adapter.replaceWorkspaceThumbnailGallery({
-      organizationId: TEST_ORGANIZATION_ID,
-      contentWorkspaceId: workspaceId,
-      createdByUserId: TEST_USER_ID,
-      urls: [],
-    });
-
-    await expect(galleryThumbnails(salesProductId)).resolves.toEqual([]);
-  });
-
-  it('keeps an asset that the current thumbnail selection still references', async () => {
-    const { salesProductId, workspaceId } = await seedDraftWorkspace();
-    await adapter.replaceWorkspaceThumbnailGallery({
-      organizationId: TEST_ORGANIZATION_ID,
-      contentWorkspaceId: workspaceId,
-      createdByUserId: TEST_USER_ID,
-      urls: [
-        'https://cdn.example.com/thumb-a.png',
-        'https://cdn.example.com/thumb-b.png',
-      ],
-    });
-    const selected = await prisma.contentAsset.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, url: 'https://cdn.example.com/thumb-b.png' },
-    });
-    await prisma.contentWorkspaceThumbnailSelection.create({
+  async function seedAiCandidate(workspaceId: string, url: string) {
+    const job = await prisma.thumbnailGeneration.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         contentWorkspaceId: workspaceId,
-        contentAssetId: selected.id,
-        createdByUserId: TEST_USER_ID,
+        status: 'succeeded',
+        method: 'generate',
       },
     });
-
-    // b 를 목록에서 빼도, 대표 선택이 참조 중이므로 자산 자체는 살아 있어야 한다.
-    await adapter.replaceWorkspaceThumbnailGallery({
-      organizationId: TEST_ORGANIZATION_ID,
-      contentWorkspaceId: workspaceId,
-      createdByUserId: TEST_USER_ID,
-      urls: ['https://cdn.example.com/thumb-a.png'],
-    });
-
-    await expect(
-      prisma.contentAsset.findUniqueOrThrow({ where: { id: selected.id } }),
-    ).resolves.toMatchObject({ isDeleted: false });
-    expect(await galleryThumbnails(salesProductId)).toContain('https://cdn.example.com/thumb-b.png');
-  });
-
-  it('tags a scrape original as a gallery thumbnail instead of reusing its role=source asset', async () => {
-    const { salesProductId, workspaceId } = await seedDraftWorkspace();
-    const sourceUrl = 'https://cbu01.alicdn.com/original.jpg';
-    const inputGroup = await prisma.contentGenerationGroup.create({
+    return prisma.contentAsset.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         contentWorkspaceId: workspaceId,
-        groupType: 'detail_page_inputs',
-      },
-    });
-    await prisma.contentAsset.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        originGenerationGroupId: inputGroup.id,
-        assetKey: groupUrlAssetKey(inputGroup.id, sourceUrl),
-        url: sourceUrl,
-        assetType: 'image',
-        role: 'source',
-      },
-    });
-
-    await adapter.replaceWorkspaceThumbnailGallery({
-      organizationId: TEST_ORGANIZATION_ID,
-      contentWorkspaceId: workspaceId,
-      createdByUserId: TEST_USER_ID,
-      urls: [sourceUrl],
-    });
-
-    // 기존 role=source 행을 재사용했다면 갤러리는 비어 보인다 = 조용한 저장 실패.
-    await expect(galleryThumbnails(salesProductId)).resolves.toEqual([sourceUrl]);
-    const roles = await prisma.contentAsset.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, url: sourceUrl, isDeleted: false },
-      select: { role: true },
-    });
-    expect(roles.map((row) => row.role).sort()).toEqual(['source', 'thumbnail']);
-  });
-
-  it('surfaces only the current thumbnail reused from another workspace', async () => {
-    // 원본 상품 A 의 워크스페이스에서 만든 썸네일 자산을, 거의 동일한 중복 상품 B 가
-    // 재사용(선택)하는 실제 시나리오. 자산은 A 의 그룹이 소유하므로 B 기준 자산 스캔은
-    // 이를 놓치지만(=버그), 선택 레코드는 워크스페이스 id 로 묶여 잡아낸다(=수정).
-    const original = await seedDraftWorkspace();
-    await adapter.replaceWorkspaceThumbnailGallery({
-      organizationId: TEST_ORGANIZATION_ID,
-      contentWorkspaceId: original.workspaceId,
-      createdByUserId: TEST_USER_ID,
-      urls: ['https://cdn.example.com/reused-thumb.png'],
-    });
-    const reusedAsset = await prisma.contentAsset.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        url: 'https://cdn.example.com/reused-thumb.png',
-        isDeleted: false,
-      },
-    });
-
-    const duplicate = await seedDraftWorkspace();
-    const historicalAsset = await prisma.contentAsset.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        assetKey: `historical-selection:${randomUUID()}`,
-        url: 'https://cdn.example.com/historical-thumb.png',
-        assetType: 'image',
+        source: 'ai',
+        thumbnailGenerationId: job.id,
+        assetKey: `ai-candidate:${job.id}:0`,
+        url,
         role: 'thumbnail',
       },
     });
-    const historicalSelection = await prisma.contentWorkspaceThumbnailSelection.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        contentWorkspaceId: duplicate.workspaceId,
-        contentAssetId: historicalAsset.id,
-        createdByUserId: TEST_USER_ID,
-      },
-    });
-    const currentSelection = await prisma.contentWorkspaceThumbnailSelection.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        contentWorkspaceId: duplicate.workspaceId,
-        contentAssetId: reusedAsset.id,
-        createdByUserId: TEST_USER_ID,
-      },
-    });
-    await prisma.contentWorkspace.update({
-      where: { id: duplicate.workspaceId },
-      data: { currentThumbnailSelectionId: currentSelection.id },
+  }
+
+  const saveGallery = (workspaceId: string, thumbnailUrls: string[]) =>
+    service.replaceWorkspaceThumbnailGallery({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+      createdByUserId: TEST_USER_ID,
+      thumbnailUrls,
     });
 
-    // 그룹 소유(=A) 기준 자산 스캔은 B 에서 재사용 자산을 놓친다.
-    await expect(galleryThumbnails(duplicate.salesProductId)).resolves.toEqual([]);
-    // 현재 선택만 재사용분으로 잡고, append-only 과거 선택은 되살리지 않는다.
-    await expect(adapter.findSalesProductCurrentThumbnail({
+  const registrationThumbnails = (salesProductId: string) =>
+    service
+      .listRegistrationImages({ organizationId: TEST_ORGANIZATION_ID, salesProductId })
+      .then((images) => images.thumbnail);
+
+  it('upload → gallery → adopt makes the uploaded asset the workspace representative image', async () => {
+    const { salesProductId, workspaceId } = await seedDraftWorkspace();
+    await saveGallery(workspaceId, [
+      'https://cdn.example.com/thumb-a.png',
+      'https://cdn.example.com/thumb-b.png',
+    ]);
+
+    const gallery = await service.listThumbnailGallery({
       organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: duplicate.salesProductId,
-    })).resolves.toEqual({
-      url: 'https://cdn.example.com/reused-thumb.png',
-      sourceThumbnailGenerationId: null,
-      sourceThumbnailCandidateId: null,
+      contentWorkspaceId: workspaceId,
     });
-    expect(historicalSelection.id).not.toBe(currentSelection.id);
+    expect(gallery.map((item) => [item.url, item.source, item.isCurrentThumbnail])).toEqual(
+      expect.arrayContaining([
+        ['https://cdn.example.com/thumb-a.png', 'upload', false],
+        ['https://cdn.example.com/thumb-b.png', 'upload', false],
+      ]),
+    );
+    const uploadB = gallery.find((item) => item.url.endsWith('thumb-b.png'))!;
+
+    const adopted = await service.adoptCurrentThumbnail({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+      assetId: uploadB.id,
+    });
+
+    expect(adopted).toMatchObject({ id: uploadB.id, isCurrentThumbnail: true });
+    const workspace = await prisma.contentWorkspace.findUniqueOrThrow({ where: { id: workspaceId } });
+    expect(workspace.currentThumbnailAssetId).toBe(uploadB.id);
+    await expect(service.findCurrentThumbnail({
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId,
+    })).resolves.toEqual({
+      assetId: uploadB.id,
+      url: 'https://cdn.example.com/thumb-b.png',
+      source: 'upload',
+      thumbnailGenerationId: null,
+    });
+  });
+
+  it('shows AI candidates and uploads in one gallery, newest first, and adopts an AI candidate', async () => {
+    const { salesProductId, workspaceId } = await seedDraftWorkspace();
+    await saveGallery(workspaceId, ['https://cdn.example.com/upload.png']);
+    const candidate = await seedAiCandidate(workspaceId, 'https://cdn.example.com/ai-1.png');
+
+    const gallery = await service.listThumbnailGallery({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+    });
+    expect(gallery.map((item) => [item.url, item.source])).toEqual([
+      ['https://cdn.example.com/ai-1.png', 'ai'],
+      ['https://cdn.example.com/upload.png', 'upload'],
+    ]);
+    expect(gallery[0]!.thumbnailGenerationId).toBe(candidate.thumbnailGenerationId);
+
+    // 채택하지 않은 AI 후보는 몰 추가이미지로 가지 않는다.
+    await expect(registrationThumbnails(salesProductId)).resolves.toEqual([
+      'https://cdn.example.com/upload.png',
+    ]);
+
+    await service.adoptCurrentThumbnail({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+      assetId: candidate.id,
+    });
+    await expect(service.findCurrentThumbnail({
+      organizationId: TEST_ORGANIZATION_ID,
+      salesProductId,
+    })).resolves.toMatchObject({ assetId: candidate.id, source: 'ai' });
+    await expect(registrationThumbnails(salesProductId)).resolves.toEqual([
+      'https://cdn.example.com/upload.png',
+      'https://cdn.example.com/ai-1.png',
+    ]);
+  });
+
+  it('rejects adopting an asset that belongs to another workspace or organization', async () => {
+    const own = await seedDraftWorkspace();
+    const other = await seedDraftWorkspace();
+    await saveGallery(other.workspaceId, ['https://cdn.example.com/foreign.png']);
+    const foreign = await prisma.contentAsset.findFirstOrThrow({
+      where: { contentWorkspaceId: other.workspaceId },
+    });
+
+    await expect(service.adoptCurrentThumbnail({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: own.workspaceId,
+      assetId: foreign.id,
+    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.adoptCurrentThumbnail({
+      organizationId: OTHER_ORGANIZATION_ID,
+      contentWorkspaceId: other.workspaceId,
+      assetId: foreign.id,
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    const workspaces = await prisma.contentWorkspace.findMany({
+      where: { id: { in: [own.workspaceId, other.workspaceId] } },
+      select: { currentThumbnailAssetId: true },
+    });
+    expect(workspaces.map((row) => row.currentThumbnailAssetId)).toEqual([null, null]);
+  });
+
+  it('reads the saved preview list back in order and replaces rather than appends', async () => {
+    const { salesProductId, workspaceId } = await seedDraftWorkspace();
+    await saveGallery(workspaceId, [
+      'https://cdn.example.com/thumb-a.png',
+      'https://cdn.example.com/thumb-b.png',
+    ]);
+    await saveGallery(workspaceId, [
+      'https://cdn.example.com/thumb-c.png',
+      'https://cdn.example.com/thumb-a.png',
+    ]);
+
+    await expect(registrationThumbnails(salesProductId)).resolves.toEqual([
+      'https://cdn.example.com/thumb-c.png',
+      'https://cdn.example.com/thumb-a.png',
+    ]);
+
+    await saveGallery(workspaceId, []);
+    await expect(registrationThumbnails(salesProductId)).resolves.toEqual([]);
+  });
+
+  it('keeps the adopted asset and AI candidates when the upload list drops them', async () => {
+    const { workspaceId } = await seedDraftWorkspace();
+    await saveGallery(workspaceId, [
+      'https://cdn.example.com/thumb-a.png',
+      'https://cdn.example.com/thumb-b.png',
+    ]);
+    const candidate = await seedAiCandidate(workspaceId, 'https://cdn.example.com/ai-1.png');
+    const adopted = await prisma.contentAsset.findFirstOrThrow({
+      where: { contentWorkspaceId: workspaceId, url: 'https://cdn.example.com/thumb-b.png' },
+    });
+    await service.adoptCurrentThumbnail({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+      assetId: adopted.id,
+    });
+
+    await saveGallery(workspaceId, []);
+
+    const alive = await prisma.contentAsset.findMany({
+      where: { contentWorkspaceId: workspaceId, isDeleted: false },
+      select: { id: true },
+    });
+    expect(alive.map((row) => row.id).sort()).toEqual([adopted.id, candidate.id].sort());
+  });
+
+  it('refuses to delete the adopted asset', async () => {
+    const { workspaceId } = await seedDraftWorkspace();
+    await saveGallery(workspaceId, ['https://cdn.example.com/thumb-a.png']);
+    const asset = await prisma.contentAsset.findFirstOrThrow({ where: { contentWorkspaceId: workspaceId } });
+    await service.adoptCurrentThumbnail({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+      assetId: asset.id,
+    });
+
+    await expect(service.deleteAsset(TEST_ORGANIZATION_ID, asset.id)).rejects.toMatchObject({ status: 409 });
   });
 
   it('refuses to write a gallery into another organization workspace', async () => {
     const { workspaceId } = await seedDraftWorkspace();
 
-    await expect(adapter.replaceWorkspaceThumbnailGallery({
+    await expect(service.replaceWorkspaceThumbnailGallery({
       organizationId: OTHER_ORGANIZATION_ID,
       contentWorkspaceId: workspaceId,
       createdByUserId: null,
-      urls: ['https://cdn.example.com/thumb-a.png'],
+      thumbnailUrls: ['https://cdn.example.com/thumb-a.png'],
     })).rejects.toBeInstanceOf(NotFoundException);
 
     await expect(

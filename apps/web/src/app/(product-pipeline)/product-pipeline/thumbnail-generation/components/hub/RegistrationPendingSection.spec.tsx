@@ -14,12 +14,26 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
 const G1 = '00000000-0000-4000-8000-000000000001';
+const SP1 = '00000000-0000-4000-8000-0000000000c1';
+const A1 = '00000000-0000-4000-8000-0000000000b1';
 const EXECUTION = '00000000-0000-4000-8000-0000000000e1';
-const generation = {
-  id: G1, contentWorkspaceId: 'w', originalUrl: null, candidates: [], selectedUrl: 'http://storage.local/a.png', status: 'succeeded',
-  phase: 'applied', grade: 'A', score: 90, method: 'edit', editAnalysis: null, createdAt: '2026-09-23T00:00:00.000Z',
-  contentWorkspace: { id: 'w', name: '곰돌이 우산', imageUrl: null, coupangProductId: null, category: null },
-};
+const jobResponse = (items = [{ id: G1, createdAt: '2026-09-23T00:00:00.000Z', assetId: A1 }]) => ({
+  items: items.map((item) => ({
+    id: item.id, contentWorkspaceId: 'w', status: 'succeeded', method: 'edit', prompt: null, errorMessage: null, attemptCount: 1,
+    createdAt: item.createdAt, updatedAt: item.createdAt,
+  })),
+  candidates: items.map((item) => ({
+    id: item.assetId, contentWorkspaceId: 'w', source: 'ai', role: 'thumbnail', url: 'http://storage.local/a.png', label: null, sortOrder: 0,
+    width: null, height: null, thumbnailGenerationId: item.id, isCurrentThumbnail: true, createdAt: item.createdAt,
+  })),
+  workspaces: [{ id: 'w', salesProductId: SP1, name: '곰돌이 우산', imageUrl: null }],
+  total: items.length,
+});
+const executionStatus = (patch: Record<string, unknown>) => ({
+  salesProductId: SP1, assetId: A1, executionId: EXECUTION, status: 'reconciling', providerOutcome: 'uncertain', checkedAt: null, error: null, screenshotPath: null, ...patch,
+});
+const prepared = { executionId: EXECUTION, salesProductId: SP1, assetId: A1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } };
+const reported = (patch: Record<string, unknown>) => ({ salesProductId: SP1, assetId: A1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null, ...patch });
 
 function renderSection() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -30,37 +44,31 @@ function renderSection() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-    if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
-    return { items: [{ generationId: G1, executionId: EXECUTION, status: 'reconciling', providerOutcome: 'uncertain', checkedAt: null, error: 'port closed', screenshotPath: null }] };
+    if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
+    return { items: [executionStatus({ error: 'port closed' })] };
   });
 });
 afterEach(cleanup);
 
 describe('RegistrationPendingSection checking actions', () => {
-  it('shows a failed sibling and a checking sibling of one product side by side', async () => {
-    const G2 = '00000000-0000-4000-8000-000000000002';
+  it('shows the failure of the adopted candidate and clears it for the sales product', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-      if (href.startsWith('/api/thumbnail-analysis/generations')) {
-        return { items: [generation, { ...generation, id: G2, createdAt: '2026-09-22T00:00:00.000Z' }], total: 2 };
-      }
-      return {
-        items: [
-          { generationId: G1, executionId: EXECUTION, status: 'reconciling', providerOutcome: 'uncertain', checkedAt: null, error: null, screenshotPath: null },
-          { generationId: G2, executionId: '00000000-0000-4000-8000-0000000000e2', status: 'failed', providerOutcome: 'definitive_failure', checkedAt: null, error: '로그인 필요', screenshotPath: null },
-        ],
-      };
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
+      return { items: [executionStatus({ status: 'failed', providerOutcome: 'definitive_failure', error: '로그인 필요' })] };
     });
+    vi.mocked(apiClient.delete).mockResolvedValue({ dismissed: true });
     renderSection();
 
     expect(await screen.findByText('등록 실패')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '반영됨으로 표시' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '다시 보내기' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '에러 지우기' }));
+
+    await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/failed/${SP1}`));
   });
 
   it('offers resend and not-applied but no confirmation while the upload itself is still running', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-      if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
-      return { items: [{ generationId: G1, executionId: EXECUTION, status: 'executing', providerOutcome: 'uncertain', checkedAt: null, error: null, screenshotPath: null }] };
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
+      return { items: [executionStatus({ status: 'executing' })] };
     });
     renderSection();
 
@@ -70,7 +78,7 @@ describe('RegistrationPendingSection checking actions', () => {
   });
 
   it('marks an unknown outcome as not applied on the same execution', async () => {
-    vi.mocked(apiClient.post).mockResolvedValue({ generationId: G1, executionId: EXECUTION, success: false, screenshotPath: null });
+    vi.mocked(apiClient.post).mockResolvedValue(reported({}));
     renderSection();
 
     fireEvent.click(await screen.findByRole('button', { name: '반영 안 됨으로 표시' }));
@@ -82,8 +90,8 @@ describe('RegistrationPendingSection checking actions', () => {
     vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
     vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href.endsWith('/resend')
-      ? { executionId: EXECUTION, generationId: G1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
-      : { generationId: G1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null }));
+      ? prepared
+      : reported({})));
     renderSection();
 
     fireEvent.click(await screen.findByRole('button', { name: '다시 보내기' }));
@@ -94,7 +102,7 @@ describe('RegistrationPendingSection checking actions', () => {
   });
 
   it('records success only when the operator confirms the Wing save', async () => {
-    vi.mocked(apiClient.post).mockResolvedValue({ generationId: G1, executionId: EXECUTION, success: true, status: 'succeeded', screenshotPath: null });
+    vi.mocked(apiClient.post).mockResolvedValue(reported({ success: true, status: 'succeeded' }));
     renderSection();
 
     expect(await screen.findByText('Wing 저장 확인 필요')).toBeTruthy();
@@ -105,7 +113,7 @@ describe('RegistrationPendingSection checking actions', () => {
 
   it('lets the operator pick one of several Coupang listings in the batch result and upload with it', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-      if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
       if (href.includes('listing-choices')) return { items: [{ channelListingId: '00000000-0000-4000-8000-0000000000a2', channelName: 'B', channelAccountName: 'Wing', externalId: '2' }] };
       return { items: [] };
     });
@@ -122,14 +130,14 @@ describe('RegistrationPendingSection checking actions', () => {
 
   it('counts a batch upload as uploaded, never as success', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-      if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
       return { items: [] };
     });
     vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
     vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href === '/api/channels/thumbnail-executions'
-      ? { executionId: EXECUTION, generationId: G1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
-      : { generationId: G1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null }));
+      ? prepared
+      : reported({})));
     renderSection();
 
     fireEvent.click(await screen.findByRole('button', { name: '쿠팡 등록 선택' }));
@@ -138,5 +146,6 @@ describe('RegistrationPendingSection checking actions', () => {
     const title = await screen.findByText(/배치 완료/);
     expect(title.textContent).toContain('올림 1');
     expect(title.textContent).not.toContain('성공');
+    expect(apiClient.post).toHaveBeenCalledWith('/api/channels/thumbnail-executions', { salesProductId: SP1, assetId: A1 });
   });
 });

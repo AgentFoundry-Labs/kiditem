@@ -175,7 +175,7 @@ export function useProductGenerateWorkflow() {
         queryClient.invalidateQueries({
           queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
         }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailJobs.all }),
       ]);
     } catch (err) {
       form.setError(isApiError(err) ? err.detail : '상품 생성 중단 요청에 실패했습니다.');

@@ -30,10 +30,19 @@ function setup() {
     readImportedImageUrls: vi.fn(),
     rewriteImportedImageUrls: vi.fn(),
   };
+  // 대표이미지 자산도 Content 에서 온다 — 경계 밖이라 읽은 값만 정해 준다.
+  const thumbnails = {
+    read: vi.fn(),
+    find: vi.fn().mockResolvedValue({
+      assetId: 'asset-current', contentWorkspaceId: 'workspace', salesProductId: 'product',
+      image: { url: 'https://storage.example.com/current.png', sha256: null },
+    }),
+    loadImage: vi.fn(),
+  };
   const service = new RegistrationExecutionService(executions as unknown as RegistrationExecutionRepositoryPort,
     products as unknown as SalesProductPort, targets as unknown as RegistrationTargetPort,
-    { preview: vi.fn(), prepare: vi.fn(), assertEligible: vi.fn() }, detailPages);
-  return { service, executions, product, target, targets, products, detailPages };
+    { preview: vi.fn(), prepare: vi.fn(), assertEligible: vi.fn() }, detailPages, thumbnails);
+  return { service, executions, product, target, targets, products, detailPages, thumbnails };
 }
 
 describe('registration target execution public capability', () => {
@@ -68,6 +77,21 @@ describe('registration target execution public capability', () => {
     detailPages.read.mockResolvedValue(null);
     await service.prepareTargetExecution('org', 'target', 'actor', { ...request, idempotencyKey: 'intent-2' });
     expect(executions.prepareTarget.mock.calls[1][0].snapshot.detailPage).toBeNull();
+  });
+
+  it('freezes the representative image asset the target chose, else the workspace one, for a registration (KID-313 W3a)', async () => {
+    const { service, executions, thumbnails, target } = setup();
+    await service.prepareTargetExecution('org', 'target', 'actor', request);
+
+    expect(thumbnails.find).toHaveBeenCalledWith({ organizationId: 'org', salesProductId: 'product', selectedThumbnailAssetId: null });
+    expect(executions.prepareTarget.mock.calls[0][0].snapshot.representativeImage)
+      .toEqual({ assetId: 'asset-current', url: 'https://storage.example.com/current.png' });
+
+    target.selectedThumbnailAssetId = 'asset-chosen' as never;
+    thumbnails.find.mockResolvedValue(null);
+    await service.prepareTargetExecution('org', 'target', 'actor', { ...request, idempotencyKey: 'intent-2' });
+    expect(thumbnails.find).toHaveBeenLastCalledWith({ organizationId: 'org', salesProductId: 'product', selectedThumbnailAssetId: 'asset-chosen' });
+    expect(executions.prepareTarget.mock.calls[1][0].snapshot.representativeImage).toBeNull();
   });
 
   it('returns the original execution for a repeated intent even after settings were edited', async () => {

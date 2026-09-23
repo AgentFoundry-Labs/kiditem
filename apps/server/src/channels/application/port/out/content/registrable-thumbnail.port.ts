@@ -25,5 +25,11 @@ export interface ChannelRegistrableThumbnailPort {
     salesProductId: string;
     selectedThumbnailAssetId: string | null;
   }): Promise<RegistrableThumbnail>;
+  /** `read` 와 같되 고른 자산도 현재 대표이미지도 없으면 null. */
+  find(input: {
+    organizationId: string;
+    salesProductId: string;
+    selectedThumbnailAssetId: string | null;
+  }): Promise<RegistrableThumbnail | null>;
   loadImage(input: { organizationId: string; assetId: string }): Promise<ThumbnailImagePayload>;
 }

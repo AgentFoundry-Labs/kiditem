@@ -15,6 +15,7 @@ export interface EnsureContentWorkspaceInput {
 
 export interface ContentWorkspaceIdentity {
   id: string;
+  normalizedTitle: string | null;
 }
 
 /** 작업공간의 상세 페이지 한 행(KID-313 W3b) — 생성 · 직접 작성 · 올린 파일 · 가져오기 어느 것이든. */
@@ -40,11 +41,8 @@ export interface ContentWorkspaceSnapshot {
   normalizedTitle: string | null;
   status: string;
   currentDetailPageRevisionId: string | null;
-  currentThumbnailSelectionId: string | null;
-  currentThumbnailSelection: {
-    id: string;
-    contentAsset: { id: string; url: string };
-  } | null;
+  /** 대표이미지 자산(`current_thumbnail_asset_id`). */
+  currentThumbnailAsset: { id: string; url: string } | null;
   /** 현재 revision 과 그 revision 이 속한 상세 페이지. */
   currentDetailPageRevision?: { id: string; detailPageId: string; revisionType: DetailPageRevisionType; createdAt: Date } | null;
   createdAt: Date;

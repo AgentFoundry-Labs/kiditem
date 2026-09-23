@@ -31,7 +31,8 @@ export class ChannelsCapabilityCompositionAdapter
         invoke: ({ context, input }) =>
           this.representativeImages.submitRepresentativeImage({
             organizationId: context.organizationId,
-            generationId: input.generationId,
+            salesProductId: input.salesProductId,
+            ...(input.assetId ? { assetId: input.assetId } : {}),
             triggeredByUserId: context.initiatingUserId,
             ownerIdempotencyKey: requiredOwnerIdempotencyKey(context),
             requestHash: requiredOwnerInputHash(context),

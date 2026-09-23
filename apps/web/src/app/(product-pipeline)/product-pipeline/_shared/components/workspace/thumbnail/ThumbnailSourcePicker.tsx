@@ -60,8 +60,8 @@ export default function ThumbnailSourcePicker({
         ? {
             url: selectedUrl,
             kind: 'source' as const,
+            assetId: null,
             generatedGenerationId: null,
-            generatedCandidateId: null,
           }
         : null),
     [availableOptions, selectedUrl],

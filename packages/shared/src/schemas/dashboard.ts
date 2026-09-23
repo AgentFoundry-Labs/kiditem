@@ -287,7 +287,6 @@ export const WarningsSchema = z.object({
   highAdProducts: z.number(),
   outOfStockSkus: z.number().nullable(),
   mappingAttentionSkus: z.number(),
-  lowCtrProducts: z.number().optional(),
   lowReviewProducts: z.number().optional(),
   metricBasis: DashboardMetricBasisMapSchema.optional(),
 });

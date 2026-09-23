@@ -21,6 +21,7 @@ import { REGISTRATION_EXECUTION_REPOSITORY_PORT } from './application/port/out/r
 import { RegistrationStateRepositoryAdapter } from './adapter/out/persistence/registration-state.repository.adapter';
 import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
 import { CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT } from './application/port/out/content/registrable-detail-page.port';
+import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/content/registrable-thumbnail.port';
 import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/channel-adapter.port';
 
 /**
@@ -41,7 +42,7 @@ import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/ch
     { provide: StockoutCheckService, useFactory: (...dependencies: ConstructorParameters<typeof StockoutCheckService>) => new StockoutCheckService(...dependencies), inject: [STOCKOUT_CHECK_PERSISTENCE_PORT, REGISTRATION_EXECUTION_REPOSITORY_PORT, CHANNEL_ADAPTER_REGISTRY_PORT] },
     { provide: STOCKOUT_CHECK_PORT, useExisting: StockoutCheckService },
     RegistrationExecutionRepositoryAdapter,
-    { provide: RegistrationExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof RegistrationExecutionService>) => new RegistrationExecutionService(...dependencies), inject: [REGISTRATION_EXECUTION_REPOSITORY_PORT, SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT, STOCKOUT_CHECK_PORT, CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT] },
+    { provide: RegistrationExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof RegistrationExecutionService>) => new RegistrationExecutionService(...dependencies), inject: [REGISTRATION_EXECUTION_REPOSITORY_PORT, SALES_PRODUCT_PORT, REGISTRATION_TARGET_PORT, STOCKOUT_CHECK_PORT, CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT, CHANNEL_REGISTRABLE_THUMBNAIL_PORT] },
     {
       provide: REGISTRATION_EXECUTION_REPOSITORY_PORT,
       useExisting: RegistrationExecutionRepositoryAdapter,

@@ -664,7 +664,8 @@ Notable route subtrees:
   product-bound detail generation links should enter through the shared
   product-pipeline route helpers instead of ad hoc path strings.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-ai`
-  owns the independent thumbnail AI analysis and batch UI.
+  owns listing thumbnail evaluation (the image a mall shows, scored with an
+  operator-chosen model) and the AI edit job list where candidates are adopted.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-generation`
   owns the standalone thumbnail generation hub and edit flow. It is opened from
   product workspaces or direct URLs, not from the sidebar.
@@ -968,10 +969,10 @@ marketplace operation history to preserve.
 `direct_detail_page`. A sales-product draft owns exactly one active workspace,
 and registration records the listing on that same row instead of cloning
 artifacts, revisions or generation jobs into a second workspace.
-Current-thumbnail selection may adopt an existing content asset, a succeeded
-generation candidate owned by that workspace, or a draft image URL its owner
-passes in. Asset deletion and GC
-must reject active generation usage or any thumbnail selection.
+The representative image is `ContentWorkspace.currentThumbnailAssetId`, one
+content asset of that workspace (an upload or an AI candidate); adoption checks
+ownership. Asset deletion and GC must reject the current representative image
+and images used by a current detail revision.
 
 ## Sellpia Current Inventory And Collection
 
@@ -1093,8 +1094,8 @@ product-outflow,
 Dashboard, and Advertising consume the stored grade/evaluation snapshot;
 missing evidence remains unclassified instead of C and stale source states
 preserve the last published grade. Organization-locked publication fences stale
-concurrent calculations. AI thumbnail analysis quality grades remain an
-independent product-registration signal. Product-outflow may display matched
+concurrent calculations. Listing thumbnail evaluation grades (Content, one row per listing image URL)
+remain an independent signal. Product-outflow may display matched
 active Coupang catalog media through AI's read-only media capability without
 copying image URLs into source products.
 

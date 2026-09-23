@@ -11,6 +11,7 @@ import type {
 } from '../../../application/port/out/persistence/thumbnail-execution.persistence.port';
 import {
   acceptsThumbnailReport,
+  thumbnailUpdateLiveKey,
   type ThumbnailReportTransition,
   type ThumbnailUpdatePayload,
 } from '../../../domain/registration/thumbnail-update';
@@ -30,9 +31,13 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
   async readAccountEvidence(input: {
     organizationId: string;
     pickedListingId: string | null;
-    workspaceListingId: string | null;
-    salesProductId: string | null;
+    salesProductId: string;
   }) {
+    const product = await this.prisma.salesProduct.findFirst({
+      where: { id: input.salesProductId, organizationId: input.organizationId },
+      select: { name: true },
+    });
+    if (!product) throw new FactNotFoundError('판매상품을 찾을 수 없습니다');
     const activeAccounts = await this.prisma.channelAccount.findMany({
       where: { organizationId: input.organizationId, channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
       select: { id: true, channel: true },
@@ -42,13 +47,15 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     const listingWhere = {
       organizationId: input.organizationId,
       isActive: true,
+      salesProductId: input.salesProductId,
       channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
     } satisfies Prisma.ChannelListingWhereInput;
-    const select = { id: true, channelAccountId: true, salesProductId: true, channelName: true, externalId: true, channelAccount: { select: { channel: true } } } as const;
+    const select = { id: true, channelAccountId: true, channelName: true, externalId: true, channelAccount: { select: { channel: true } } } as const;
     const evidence = (
       listing: { id: string; channelAccountId: string; channelName: string | null; externalId: string | null; channelAccount: { channel: string } } | null,
       productListingCount = listing ? 1 : 0,
     ) => ({
+      salesProductName: product.name,
       listingAccountId: listing?.channelAccountId ?? null,
       channelListingId: listing?.id ?? null,
       listingChannelName: listing?.channelName ?? null,
@@ -63,36 +70,36 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
 
     if (input.pickedListingId) {
       const listing = await this.prisma.channelListing.findFirst({ where: { ...listingWhere, id: input.pickedListingId }, select });
-      const belongs = listing
-        && (listing.id === input.workspaceListingId
-          || (input.salesProductId !== null && listing.salesProductId === input.salesProductId));
-      if (!listing || !belongs) throw new FactInputError('고른 listing 은 이 상품의 대표이미지 반영 listing 이 아닙니다');
+      if (!listing) throw new FactInputError('고른 listing 은 이 상품의 대표이미지 반영 listing 이 아닙니다');
       return evidence(listing);
     }
-    if (input.workspaceListingId) {
-      const listing = await this.prisma.channelListing.findFirst({ where: { ...listingWhere, id: input.workspaceListingId }, select });
-      if (!listing) throw new FactNotFoundError('대표이미지를 반영할 listing 을 찾을 수 없습니다');
-      return evidence(listing);
-    }
-    if (input.salesProductId) {
-      const listings = await this.prisma.channelListing.findMany({
-        where: { ...listingWhere, salesProductId: input.salesProductId },
-        select,
-        take: 2,
-      });
-      if (listings.length === 1) return evidence(listings[0]!);
-      if (listings.length > 1) return evidence(null, listings.length);
-    }
+    const listings = await this.prisma.channelListing.findMany({ where: listingWhere, select, take: 2 });
+    if (listings.length === 1) return evidence(listings[0]!);
+    if (listings.length > 1) return evidence(null, listings.length);
     return evidence(null);
   }
 
-  async findListingChoices(input: { organizationId: string; salesProductId: string | null; workspaceListingId: string | null }) {
-    const scope = input.salesProductId
-      ? { salesProductId: input.salesProductId }
-      : input.workspaceListingId ? { id: input.workspaceListingId } : null;
-    if (!scope) return [];
+  async findTargetThumbnailAssetId(input: { organizationId: string; salesProductId: string; channelAccountId: string }) {
+    const target = await this.prisma.registrationTarget.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        salesProductId: input.salesProductId,
+        channelAccountId: input.channelAccountId,
+        archivedAt: null,
+      },
+      select: { selectedThumbnailAssetId: true },
+    });
+    return target?.selectedThumbnailAssetId ?? null;
+  }
+
+  async findListingChoices(input: { organizationId: string; salesProductId: string }) {
     const listings = await this.prisma.channelListing.findMany({
-      where: { organizationId: input.organizationId, isActive: true, channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' }, ...scope },
+      where: {
+        organizationId: input.organizationId,
+        isActive: true,
+        salesProductId: input.salesProductId,
+        channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
+      },
       select: { id: true, channelName: true, externalId: true, channelAccount: { select: { name: true } } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: 50,
@@ -122,7 +129,12 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
   > {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await lockGeneration(tx, input.organizationId, input.payload.generationId);
+        await lockSubject(tx, input.organizationId, thumbnailUpdateLiveKey({
+          organizationId: input.organizationId,
+          salesProductId: input.payload.salesProductId,
+          channelAccountId: input.channelAccountId,
+          assetId: input.payload.assetId,
+        }));
         // listing 은 행에 적지 않으므로 listing 하나에 살아 있는 반영 하나도 여기서 지킨다.
         if (input.payload.channelListingId) await lockListing(tx, input.organizationId, input.payload.channelListingId);
         const replay = await this.findReplay(tx, input);
@@ -131,8 +143,12 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
           where: {
             organizationId: input.organizationId,
             executionKind: THUMBNAIL_UPDATE_EXECUTION_KIND,
+            channelAccountId: input.channelAccountId,
             status: { in: [...LIVE_STATUSES] },
-            submissionPayloadJson: { path: ['generationId'], equals: input.payload.generationId },
+            AND: [
+              { submissionPayloadJson: { path: ['salesProductId'], equals: input.payload.salesProductId } },
+              { submissionPayloadJson: { path: ['assetId'], equals: input.payload.assetId } },
+            ],
           },
           select: { id: true },
         });
@@ -175,8 +191,8 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
       // 행이 listing 을 적지 않으므로 남은 unique 는 (조직, 멱등 키) 하나다. 같은 owner 키가 다른
-      // 생성으로 먼저 들어왔으면(lock 은 생성 단위다) 그 실행을 재생하거나 충돌로 답한다. 화면
-      // 호출의 멱등 키는 매번 새 nonce 라 여기 올 일이 없고, 오면 이 생성의 반영 중 충돌이 아니다.
+      // 자산으로 먼저 들어왔으면(lock 은 (상품, 계정, 자산) 단위다) 그 실행을 재생하거나 충돌로 답한다. 화면
+      // 호출의 멱등 키는 매번 새 nonce 라 여기 올 일이 없다.
       const replay = await this.findReplay(this.prisma, input);
       if (replay) return replay;
       throw new FactConflictError('Thumbnail execution idempotency key already exists.', { code: 'idempotency_key_conflict' });
@@ -222,9 +238,9 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     idempotencyKey: string;
     ownerIdempotencyKey: string;
     requestHash: string;
-    generationId: string;
+    salesProductId: string;
   }): Promise<ThumbnailExecutionRow | null> {
-    const replay = await this.findReplay(this.prisma, { ...input, payload: { generationId: input.generationId } });
+    const replay = await this.findReplay(this.prisma, { ...input, payload: { salesProductId: input.salesProductId } });
     return replay?.execution ?? null;
   }
 
@@ -240,16 +256,16 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     return { mode: 'live' as const, payload: row.submissionPayloadJson as unknown as ThumbnailUpdatePayload };
   }
 
-  async findLatest(input: { organizationId: string; generationIds: readonly string[] }): Promise<ThumbnailExecutionRow[]> {
-    if (input.generationIds.length === 0) return [];
+  async findLatest(input: { organizationId: string; salesProductIds: readonly string[] }): Promise<ThumbnailExecutionRow[]> {
+    if (input.salesProductIds.length === 0) return [];
     const ids = await this.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT DISTINCT ON (submission_payload_json->>'generationId') id::text AS id
+      SELECT DISTINCT ON (submission_payload_json->>'salesProductId') id::text AS id
       FROM product_registration_executions
       WHERE organization_id = ${input.organizationId}::uuid
         AND execution_kind = ${THUMBNAIL_UPDATE_EXECUTION_KIND}
-        AND submission_payload_json->>'generationId' = ANY(${[...input.generationIds]}::text[])
+        AND submission_payload_json->>'salesProductId' = ANY(${[...input.salesProductIds]}::text[])
         AND NOT (status = 'failed' AND result_json ? 'dismissedAt')
-      ORDER BY submission_payload_json->>'generationId', created_at DESC, id DESC
+      ORDER BY submission_payload_json->>'salesProductId', created_at DESC, id DESC
     `;
     if (ids.length === 0) return [];
     const rows = await this.prisma.productRegistrationExecution.findMany({
@@ -258,15 +274,15 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     return rows.map(toRow);
   }
 
-  async dismissLatestFailed(input: { organizationId: string; generationId: string }): Promise<boolean> {
+  async dismissLatestFailed(input: { organizationId: string; salesProductId: string }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      await lockGeneration(tx, input.organizationId, input.generationId);
+      await lockSubject(tx, input.organizationId, `thumbnail_update:${input.organizationId}:dismiss:${input.salesProductId}`);
       const failed = await tx.productRegistrationExecution.findMany({
         where: {
           organizationId: input.organizationId,
           executionKind: THUMBNAIL_UPDATE_EXECUTION_KIND,
           status: 'failed',
-          submissionPayloadJson: { path: ['generationId'], equals: input.generationId },
+          submissionPayloadJson: { path: ['salesProductId'], equals: input.salesProductId },
         },
         select: { id: true, resultJson: true },
       });
@@ -284,7 +300,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
 
   private async findReplay(
     client: Pick<Prisma.TransactionClient, 'productRegistrationExecution'>,
-    input: { organizationId: string; idempotencyKey: string; ownerIdempotencyKey: string | null; requestHash: string; payload: Pick<ThumbnailUpdatePayload, 'generationId'> },
+    input: { organizationId: string; idempotencyKey: string; ownerIdempotencyKey: string | null; requestHash: string; payload: Pick<ThumbnailUpdatePayload, 'salesProductId'> },
   ): Promise<{ mode: 'replay'; execution: ThumbnailExecutionRow } | null> {
     if (!input.ownerIdempotencyKey) return null;
     const existing = await client.productRegistrationExecution.findFirst({
@@ -294,18 +310,20 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     if (existing.executionKind !== THUMBNAIL_UPDATE_EXECUTION_KIND
       || existing.ownerIdempotencyKey !== input.ownerIdempotencyKey
       || existing.requestHash !== input.requestHash
-      || payloadGenerationId(existing.submissionPayloadJson) !== input.payload.generationId) {
+      || payloadString(existing.submissionPayloadJson, 'salesProductId') !== input.payload.salesProductId) {
       throw new FactConflictError('Representative image owner idempotency key conflicted.', { code: 'owner_idempotency_key_conflict' });
     }
     return { mode: 'replay', execution: toRow(existing) };
   }
 }
 
-/** 같은 생성의 살아 있는 실행 검사 · 실패 치우기를 한 줄로 세운다(조직 + 생성 키). */
-async function lockGeneration(tx: Prisma.TransactionClient, organizationId: string, generationId: string): Promise<void> {
-  const lockKey = `thumbnail_update:${organizationId}:${generationId}`;
+/** 같은 (판매 상품, 계정, 자산)의 살아 있는 실행 검사 · 실패 치우기를 한 줄로 세운다. 열쇠에 조직이 들어 있다. */
+async function lockSubject(tx: Prisma.TransactionClient, organizationId: string, lockKey: string): Promise<void> {
+  if (!lockKey.startsWith(`thumbnail_update:${organizationId}:`)) {
+    throw new Error('thumbnail_update lock key must start with its organization id');
+  }
   await tx.$queryRaw`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock keyed by organization and generation.
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock; the key starts with the organization id.
     SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
   `;
 }
@@ -322,18 +340,22 @@ function resultObject(value: Prisma.JsonValue | null): Record<string, Prisma.Jso
   return value && typeof value === 'object' && !Array.isArray(value) ? { ...value } as Record<string, Prisma.JsonValue> : {};
 }
 
-function payloadGenerationId(value: Prisma.JsonValue | null): string | null {
-  const generationId = resultObject(value).generationId;
-  return typeof generationId === 'string' ? generationId : null;
+function payloadString(value: Prisma.JsonValue | null, key: 'salesProductId' | 'assetId'): string | null {
+  const found = resultObject(value)[key];
+  return typeof found === 'string' ? found : null;
 }
 
 function toRow(row: ProductRegistrationExecution): ThumbnailExecutionRow {
   const result = resultObject(row.resultJson);
-  const generationId = payloadGenerationId(row.submissionPayloadJson);
-  if (!generationId) throw new Error(`thumbnail_update execution ${row.id} has no frozen generation id`);
+  const salesProductId = payloadString(row.submissionPayloadJson, 'salesProductId');
+  const assetId = payloadString(row.submissionPayloadJson, 'assetId');
+  if (!salesProductId || !assetId) {
+    throw new Error(`thumbnail_update execution ${row.id} has no frozen sales product and asset`);
+  }
   return {
     id: row.id,
-    generationId,
+    salesProductId,
+    assetId,
     status: row.status as OperationStatus,
     providerOutcome: row.providerOutcome as ProviderOutcome,
     lastErrorCode: row.lastErrorCode,

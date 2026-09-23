@@ -10,7 +10,8 @@ import { ListingPicker } from './ListingPicker';
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
 
-const G1 = '00000000-0000-4000-8000-000000000001';
+const SP1 = '00000000-0000-4000-8000-0000000000c1';
+const A1 = '00000000-0000-4000-8000-0000000000b1';
 const L1 = '00000000-0000-4000-8000-0000000000a1';
 const L2 = '00000000-0000-4000-8000-0000000000a2';
 const EXECUTION = '00000000-0000-4000-8000-0000000000e1';
@@ -18,7 +19,7 @@ const EXECUTION = '00000000-0000-4000-8000-0000000000e1';
 function renderPicker(onDone = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  render(<ListingPicker generationId={G1} onDone={onDone} />, { wrapper });
+  render(<ListingPicker subject={{ salesProductId: SP1, assetId: A1 }} onDone={onDone} />, { wrapper });
   return onDone;
 }
 
@@ -45,8 +46,8 @@ describe('ListingPicker', () => {
     vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
     vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href === '/api/channels/thumbnail-executions'
-      ? { executionId: EXECUTION, generationId: G1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
-      : { generationId: G1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null }));
+      ? { executionId: EXECUTION, salesProductId: SP1, assetId: A1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
+      : { salesProductId: SP1, assetId: A1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null }));
     const onDone = renderPicker();
 
     const select = await screen.findByRole('combobox', { name: '올릴 리스팅' });
@@ -55,9 +56,9 @@ describe('ListingPicker', () => {
     fireEvent.change(select, { target: { value: L2 } });
     fireEvent.click(screen.getByRole('button', { name: '이 리스팅으로 올리기' }));
 
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/channels/thumbnail-executions', { generationId: G1, channelListingId: L2 }));
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/channels/thumbnail-executions', { salesProductId: SP1, assetId: A1, channelListingId: L2 }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(apiClient.get).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/listing-choices?generationId=${G1}`);
+    expect(apiClient.get).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/listing-choices?salesProductId=${SP1}`);
   });
 
   it('keeps the picker open when the upload with the chosen listing did not reach the mall', async () => {
@@ -65,8 +66,8 @@ describe('ListingPicker', () => {
     // 확장은 올렸다고 답했지만 서버는 그 보고를 받아들이지 않은 경우(도달 안 함).
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
     vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href === '/api/channels/thumbnail-executions'
-      ? { executionId: EXECUTION, generationId: G1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
-      : { generationId: G1, executionId: EXECUTION, success: false, status: 'failed', screenshotPath: null, error: '로그인 필요' }));
+      ? { executionId: EXECUTION, salesProductId: SP1, assetId: A1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
+      : { salesProductId: SP1, assetId: A1, executionId: EXECUTION, success: false, status: 'failed', screenshotPath: null, error: '로그인 필요' }));
     const onDone = renderPicker();
 
     fireEvent.click(await screen.findByRole('button', { name: '이 리스팅으로 올리기' }));

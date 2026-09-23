@@ -45,8 +45,7 @@ function workspace(overrides: Record<string, unknown> = {}) {
     normalizedTitle: '키즈텀블러',
     status: 'active',
     currentDetailPageRevisionId: REVISION_ID,
-    currentThumbnailSelectionId: null,
-    currentThumbnailSelection: null,
+    currentThumbnailAsset: null,
     createdByUserId: null,
     isDeleted: false,
     deletedAt: null,
@@ -100,11 +99,7 @@ describe('ContentWorkspaceService', () => {
         ownerType: 'channel_listing',
         channelListingId: 'listing-1',
         normalizedTitle: null,
-        currentThumbnailSelectionId: 'selection-1',
-        currentThumbnailSelection: {
-          id: 'selection-1',
-          contentAsset: { id: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
-        },
+        currentThumbnailAsset: { id: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
       })),
     });
     const contentWorkspaces = service(repo);
@@ -117,16 +112,18 @@ describe('ContentWorkspaceService', () => {
       channelListingId: 'listing-1',
     });
 
-    expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith(expect.objectContaining({
+    expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith({
+      organizationId: ORG,
       ownerType: 'channel_listing',
       salesProductId: null,
       channelListingId: 'listing-1',
       normalizedTitle: null,
-    }));
+      createdByUserId: 'user-1',
+    });
     const summary = await contentWorkspaces.get(ORG, WORKSPACE_ID);
     expect(summary).toMatchObject({
       channelListingId: 'listing-1',
-      currentThumbnailSelection: { id: 'selection-1', contentAssetId: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
+      currentThumbnailAsset: { id: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
     });
     expect(summary).not.toHaveProperty('displayName');
     expect(summary).not.toHaveProperty('originWorkspaceId');

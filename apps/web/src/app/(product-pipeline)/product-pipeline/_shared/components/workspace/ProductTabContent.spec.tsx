@@ -138,7 +138,7 @@ const basicInfo = {
   thumbnailUrls: ['https://cdn.example.com/product.jpg'],
   selectedThumbnailUrl: null,
   selectedThumbnailGenerationId: null,
-  selectedThumbnailGenerationCandidateId: null,
+  selectedThumbnailAssetId: null,
   selectedDetailPageGenerationId: null,
   selectedDetailPageArtifactId: null,
   selectedDetailPageRevisionId: null,

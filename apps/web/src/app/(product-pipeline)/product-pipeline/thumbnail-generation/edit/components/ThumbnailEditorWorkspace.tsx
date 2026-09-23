@@ -2,28 +2,25 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import {
-  useCreateEditJobs,
-  useGenerationList,
-  useSelectCandidate,
-  useWingUploadAndApply,
-  useDeleteCandidate,
-} from '../../../_shared/hooks/useThumbnailGenerations';
+  useDeleteThumbnailCandidate,
+  useThumbnailJob,
+  useThumbnailJobs,
+  type ThumbnailJobView,
+} from '../../../_shared/hooks/useThumbnailJobs';
+import { useAdoptAndUploadThumbnail } from '../../../_shared/hooks/useRepresentativeImage';
 import {
   THUMBNAIL_GENERATION_ROOT,
   normalizeProductPipelineReturnTo,
 } from '../../../_shared/lib/product-pipeline-routes';
 import { thumbnailSubjectFromParams } from '../../../_shared/lib/thumbnail-subject';
 import { representativeImageUploadedMessage, representativeImageUploadReached } from '../../../_shared/lib/representative-image-execution';
-import { useAnalysisList } from '../../../thumbnail-ai/hooks/useThumbnailAnalysis';
-import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { useContentWorkspaceImages } from '../../../_shared/hooks/useContentWorkspaceImages';
 
@@ -48,7 +45,6 @@ import { useEditorHistory } from '../hooks/useEditorHistory';
 import { useGenerationAwaitingState } from '../hooks/useGenerationAwaitingState';
 import { EditorPageHeader } from './EditorPageHeader';
 import { DeleteCandidateConfirmDialog } from './DeleteCandidateConfirmDialog';
-import { RecomposeControlSlot } from './RecomposeControlSlot';
 import { getThemeHint } from '../lib/theme-hint';
 
 export type { EditorMode, HistoryCandidate } from '../lib/edit-page-types';
@@ -93,23 +89,6 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
   }, []);
 
   const productName = productNameParam;
-
-  // 분석 결과 fetch — contentWorkspaceId 의 recompose 분류 정보 (kind, options) 받아서 picker 노출.
-  const { data: analysisList } = useAnalysisList();
-  const productAnalysis = contentWorkspaceId
-    ? analysisList?.allResults.find((r) => r.contentWorkspaceId === contentWorkspaceId)
-    : null;
-  const recomposeClassification = productAnalysis?.recompose ?? null;
-
-  // recompose flow (variant picker) 클릭 시 호출 — backend 의 recompose endpoint.
-  const editJobsMutation = useCreateEditJobs();
-
-  /**
-   * Picker 에서 사용자가 선택한 variantKey — 즉시 호출하지 않고 state 로만 보관.
-   * 우측 상단 "편집하기" 버튼 클릭 시 이 state 가 set 되어 있으면 recompose flow,
-   * 없으면 기존 generate flow.
-   */
-  const [selectedVariantKey, setSelectedVariantKey] = useState<RecomposeVariantKey | undefined>(undefined);
 
   const [mode, setMode] = useState<EditorMode>(modeParam === 'creative' ? 'creative' : 'edit');
   // edit 모드는 editCase 를 항상 'single' 로 기본값. UseCaseSelection 중간 단계 제거 — 사용자는 이미
@@ -208,25 +187,15 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [selectedCandidateUrl, setSelectedCandidateUrl] = useState<string | null>(null);
 
-  const { data: pollingGenerations = [] } = useGenerationList();
+  const { data: pollingGenerations = [] } = useThumbnailJobs();
   const observedGenerationId = generationId ?? generationIdParam;
-  const { data: observedGeneration } = useQuery({
-    queryKey: ['thumbnail-generation', observedGenerationId],
-    queryFn: () =>
-      apiClient.get<ThumbnailGenerationItem>(`/api/thumbnail-analysis/generations/${observedGenerationId}`),
-    enabled: !!observedGenerationId,
-    refetchInterval: (query) => {
-      const item = query.state.data;
-      return item?.status === 'pending' || item?.status === 'running' ? 2500 : false;
-    },
-  });
+  const { data: observedGeneration } = useThumbnailJob(observedGenerationId);
   const { forcedAwaiting, isAwaitingGen, beginAwaiting, clearAwaiting } = useGenerationAwaitingState(
     observedGenerationId,
     pollingGenerations,
     observedGeneration,
   );
   const originalPreviewImage = resolveOriginalPreviewImage({
-    initialGenerationOriginalUrl: observedGeneration?.originalUrl,
     initialImageUrl,
     originalImageUrl,
   });
@@ -236,15 +205,16 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
     if (generationId !== observedGeneration.id) {
       setGenerationId(observedGeneration.id);
     }
-    if (observedGeneration.candidates?.length > 0) {
+    if (observedGeneration.candidates.length > 0) {
+      const observedResult = jobResult(observedGeneration);
       const hasSameCandidates =
-        result.length === observedGeneration.candidates.length &&
-        result.every((candidate, index) => candidate.url === observedGeneration.candidates[index]?.url);
+        result.length === observedResult.length &&
+        result.every((candidate, index) => candidate.url === observedResult[index]?.url);
       if (!hasSameCandidates) {
-        setResult(observedGeneration.candidates);
+        setResult(observedResult);
         setSelectedCandidateUrl(null);
         if (uploadKeyParam) {
-          writeThumbnailEditorUploadResult(uploadKeyParam, observedGeneration.candidates, {
+          writeThumbnailEditorUploadResult(uploadKeyParam, observedResult, {
             productName,
             mode,
           });
@@ -288,42 +258,12 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
   });
 
   const generateMutation = useGenerateThumbnail();
-  const selectCandidateMutation = useSelectCandidate();
-  const wingRegisterMutation = useWingUploadAndApply();
-  const deleteCandidateMutation = useDeleteCandidate();
+  const wingRegisterMutation = useAdoptAndUploadThumbnail();
+  const deleteCandidateMutation = useDeleteThumbnailCandidate();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const handleGenerate = async (options: { imageOnly?: boolean } = {}) => {
     const imageOnly = options.imageOnly === true;
-    console.log('[edit-page] handleGenerate called', {
-      selectedVariantKey,
-      contentWorkspaceId,
-      mode,
-      hasRecompose: !!recomposeClassification,
-      userPromptEmpty: !userPrompt.trim(),
-      imageOnly,
-    });
-
-    // Path 결정 (top-down 우선순위):
-    // 1. Picker 명시 선택 → recompose flow (variant prompt)
-    // 2. AI 분류 결과 있고 + 사용자 textarea 비어있음 → recompose flow (auto variant)
-    //    (사용자가 그냥 편집하기 누른 경우 = AI 분류 따라가는 의도)
-    // 3. 그 외 (textarea 에 사용자 instruction 있음) → generate flow
-
-    if (!imageOnly && selectedVariantKey) {
-      console.log('[edit-page] → recompose flow (variantKey 명시 선택)');
-      await handleRecomposeVariant(selectedVariantKey);
-      return;
-    }
-
-    if (!imageOnly && recomposeClassification && !userPrompt.trim()) {
-      console.log('[edit-page] → recompose flow (AI 분류 + 빈 textarea — auto variant)');
-      await handleRecomposeVariant(undefined);
-      return;
-    }
-
-    // generate flow — textarea instruction 기반
-    console.log('[edit-page] → generate flow (textarea hint)');
     beginAwaiting();
     try {
       const dto = buildGenerateThumbnailDto({
@@ -355,7 +295,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
         next.set('generationId', data.generationId);
         router.replace(`?${next.toString()}`, { scroll: false });
         await queryClient.refetchQueries({
-          queryKey: queryKeys.thumbnailAnalysis.all,
+          queryKey: queryKeys.thumbnailJobs.all,
         });
         toast.success('썸네일 생성 시작 — 잠시만 기다려주세요');
         return;
@@ -374,7 +314,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
         }
         clearAwaiting();
         queryClient.invalidateQueries({
-          queryKey: queryKeys.thumbnailAnalysis.all,
+          queryKey: queryKeys.thumbnailJobs.all,
         });
         toast.success(`썸네일 ${data.candidates.length}장 생성 완료`);
         if (data.generationId) {
@@ -390,78 +330,14 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
     }
   };
 
-  /**
-   * RecomposeVariantPicker 클릭 시 — backend 의 recompose endpoint 호출.
-   * generation flow ("편집하기" 버튼) 와 별도 path. variantKey 별 다른 prompt 사용.
-   *
-   * 응답: ThumbnailGenerationItem[] — generationId 받아 URL 갱신 → 결과 폴링/표시.
-   */
-  const handleRecomposeVariant = async (variantKey: RecomposeVariantKey | undefined) => {
-    console.log('[edit-page] handleRecomposeVariant called', {
-      variantKey,
-      contentWorkspaceId,
-    });
-    if (!contentWorkspaceId) {
-      toast.error('상품 정보가 필요합니다');
-      return;
-    }
-    beginAwaiting(); // mutation 직후 race window 차단 — UI 즉시 loading
-    console.log('[edit-page] forcedAwaiting=true, calling editJobsMutation...');
-    try {
-      const created = await editJobsMutation.mutateAsync({
-        contentWorkspaceIds: [contentWorkspaceId],
-        purpose: 'compliance',
-        variantKey,
-      });
-      console.log('[edit-page] editJobsMutation response:', created);
-      const item = Array.isArray(created) ? created.find((d) => d.contentWorkspaceId === contentWorkspaceId) : null;
-      if (item) {
-        setGenerationId(item.id);
-        // mutation 응답 candidates 는 일반적으로 빈 배열 (status=pending). 결과 도착은 polling 으로.
-        // candidates 가 mutation 응답에 이미 채워져 있어도 setResult 안 함 — useEffect 가 status='succeeded' 잡고
-        // 모달 종료 후 자연스럽게 historyCandidates 통해 표시되도록.
-        const next = new URLSearchParams(searchParams.toString());
-        next.set('generationId', item.id);
-        router.replace(`?${next.toString()}`, { scroll: false });
-        // 명시적 refetch 강제 — invalidate 보다 빠르게 polling 데이터에 새 row 반영.
-        await queryClient.refetchQueries({
-          queryKey: queryKeys.thumbnailAnalysis.all,
-        });
-        toast.success('AI 편집 시작 — 잠시만 기다려주세요');
-      } else {
-        // mutation 응답 빈 array — 이미 진행 중인 같은 contentWorkspaceId job 있음.
-        // 해당 active generation 을 폴링 데이터에서 찾아 generationId 박기 → 모달 유지.
-        const activeGen = pollingGenerations.find(
-          (g) => g.contentWorkspaceId === contentWorkspaceId && (g.status === 'pending' || g.status === 'running'),
-        );
-        if (activeGen) {
-          setGenerationId(activeGen.id);
-          if (Array.isArray(activeGen.candidates) && activeGen.candidates.length > 0) {
-            setResult(activeGen.candidates);
-          }
-          const next = new URLSearchParams(searchParams.toString());
-          next.set('generationId', activeGen.id);
-          router.replace(`?${next.toString()}`, { scroll: false });
-          // forcedAwaiting 유지 — useEffect 가 status 'succeeded/failed' 보고 자동 해제.
-          toast.info('이미 편집 진행 중 — 결과 기다리는 중...');
-        } else {
-          // active 못 찾으면 일반 경고
-          clearAwaiting();
-          toast.warning('이미 편집이 진행 중인 상품입니다');
-        }
-      }
-    } catch (err) {
-      clearAwaiting();
-      toast.error(err instanceof Error ? err.message : 'AI 편집 실패');
-    }
-  };
-
+  // 후보 고르기는 화면 선택일 뿐이다 — 채택(작업공간의 대표이미지)은 몰에 올릴 때 한다(KID-313 W3a).
   const handleSelectCandidate = (url: string) => {
     setSelectedCandidateUrl(url || null);
-    if (generationId && url) {
-      selectCandidateMutation.mutate({ id: generationId, selectedUrl: url });
-    }
   };
+
+  const selectedHistoryCandidate = selectedCandidateUrl
+    ? historyCandidates.find((c) => (resolveImageUrl(c.url) ?? c.url) === selectedCandidateUrl) ?? null
+    : null;
 
   const handleReEditFromSelected = () => {
     if (!selectedCandidateUrl) {
@@ -484,8 +360,22 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
       toast.error('먼저 결과 이미지를 선택하세요');
       return;
     }
+    const candidateJob = selectedHistoryCandidate?.generationId
+      ? (observedGeneration?.id === selectedHistoryCandidate.generationId
+        ? observedGeneration
+        : pollingGenerations.find((job) => job.id === selectedHistoryCandidate.generationId)) ?? null
+      : null;
+    const salesProductId = candidateJob?.workspace?.salesProductId ?? null;
+    if (!selectedHistoryCandidate?.assetId || !candidateJob || !salesProductId) {
+      toast.error('판매상품에 저장된 후보만 몰에 올릴 수 있습니다');
+      return;
+    }
     try {
-      const wingResult = await wingRegisterMutation.mutateAsync(generationId);
+      const wingResult = await wingRegisterMutation.mutateAsync({
+        contentWorkspaceId: candidateJob.contentWorkspaceId,
+        salesProductId,
+        assetId: selectedHistoryCandidate.assetId,
+      });
       if (!mountedRef.current) return;
       if (representativeImageUploadReached(wingResult)) {
         toast.success(representativeImageUploadedMessage());
@@ -506,9 +396,9 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
       setDeleteDialogOpen(false);
       return;
     }
-    // selectedCandidateUrl 은 resolveImageUrl 거친 값 — 원본 url 찾아서 backend 로 보낸다
-    const target = historyCandidates.find((c) => (resolveImageUrl(c.url) ?? c.url) === selectedCandidateUrl);
-    if (!target?.generationId) {
+    // selectedCandidateUrl 은 resolveImageUrl 거친 값 — 후보 자산 id 로 backend 에 보낸다
+    const target = selectedHistoryCandidate;
+    if (!target?.generationId || !target.assetId) {
       setDeleteDialogOpen(false);
       toast.error('선택한 이미지를 찾을 수 없습니다');
       return;
@@ -518,8 +408,8 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
     setDeleteDialogOpen(false);
     try {
       const res = await deleteCandidateMutation.mutateAsync({
-        id: targetGenId,
-        url: targetUrl,
+        jobId: targetGenId,
+        assetId: target.assetId,
       });
       if (!mountedRef.current) return;
       // 현재 편집 중인 generation 의 candidate 를 삭제했을 때만 로컬 state 조정
@@ -665,7 +555,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
           originalImage={originalPreviewImage ?? productImage}
           candidates={historyCandidates}
           selectedCandidateUrl={selectedCandidateUrl}
-          isGenerating={generateMutation.isPending || editJobsMutation.isPending || isAwaitingGen || forcedAwaiting}
+          isGenerating={generateMutation.isPending || isAwaitingGen || forcedAwaiting}
           productName={productName}
           onSelectCandidate={handleSelectCandidate}
         />
@@ -679,7 +569,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
           sceneType={sceneType}
           styleType={styleType}
           productDescription={productDescription}
-          isPending={generateMutation.isPending || editJobsMutation.isPending || isAwaitingGen || forcedAwaiting}
+          isPending={generateMutation.isPending || isAwaitingGen || forcedAwaiting}
           hasInput={hasInput}
           selectedCandidateUrl={selectedCandidateUrl}
           generationId={generationId}
@@ -697,16 +587,6 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
           onGenerate={() => handleGenerate()}
           onCoupang={handleCoupang}
           onReEditFromSelected={handleReEditFromSelected}
-          recomposeSlot={
-            recomposeClassification ? (
-              <RecomposeControlSlot
-                classification={recomposeClassification}
-                userPrompt={userPrompt}
-                selectedVariantKey={selectedVariantKey}
-                onSelectVariant={setSelectedVariantKey}
-              />
-            ) : undefined
-          }
         />
       </div>
 
@@ -718,4 +598,11 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
       />
     </div>
   );
+}
+
+function jobResult(job: ThumbnailJobView): Array<{ url: string; filename: string }> {
+  return job.candidates.map((candidate) => ({
+    url: candidate.url,
+    filename: candidate.label ?? candidate.url.split('/').pop()?.split('?')[0] ?? candidate.url,
+  }));
 }

@@ -171,8 +171,8 @@ describe('owner capability composition', () => {
       input: { period: 'today' },
     });
     await registry.resolveImplementation('channels.submit_representative_image')!.invoke({
-      context: mutationContext({ generationId: 'generation-1' }),
-      input: { generationId: 'generation-1' },
+      context: mutationContext({ salesProductId: identifiers.candidateId }),
+      input: { salesProductId: identifiers.candidateId },
     });
     await registry
       .resolveImplementation('products.create_listing_generation_package')!
@@ -213,6 +213,7 @@ describe('owner capability composition', () => {
         triggeredByUserId: identifiers.userId,
         ownerIdempotencyKey: context.ownerIdempotencyKey,
         requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        salesProductId: identifiers.candidateId,
       }),
     );
     expect(ports.products.createListingGenerationPackage).toHaveBeenCalledWith(

@@ -30,13 +30,15 @@ const mockedDetectExtensionId = vi.mocked(detectExtensionId);
 const mockedSendToExtension = vi.mocked(sendToExtension);
 
 const EXECUTION_ID = '00000000-0000-4000-8000-0000000000e1';
+const SUBJECT = { salesProductId: 'product-1', assetId: 'asset-1' };
 const prepared = {
   executionId: EXECUTION_ID,
-  generationId: 'gen-1',
+  salesProductId: 'product-1',
+  assetId: 'asset-1',
   productName: '쿠팡 상품명',
   image: {
     dataUrl: 'data:image/png;base64,aW1hZ2U=',
-    filename: 'gen-1.png',
+    filename: 'asset-1.png',
     mimeType: 'image/png',
   },
 };
@@ -49,7 +51,7 @@ describe('submitRepresentativeImageViaExtension', () => {
   it('requires the local Chrome extension and does not prepare an execution without it', async () => {
     mockedDetectExtensionId.mockResolvedValueOnce(null);
 
-    await expect(submitRepresentativeImageViaExtension('gen-1')).rejects.toThrow(EXTENSION_REQUIRED_MESSAGE);
+    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toThrow(EXTENSION_REQUIRED_MESSAGE);
 
     expect(mockedApiPost).not.toHaveBeenCalled();
   });
@@ -58,18 +60,19 @@ describe('submitRepresentativeImageViaExtension', () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedApiPost
       .mockResolvedValueOnce(prepared)
-      .mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: true, screenshotPath: 'shot' });
+      .mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: true, screenshotPath: 'shot' });
     mockedSendToExtension.mockResolvedValueOnce({ success: true, screenshotUrl: 'shot' });
 
-    await expect(submitRepresentativeImageViaExtension('gen-1')).resolves.toEqual({
-      generationId: 'gen-1', executionId: EXECUTION_ID, success: true, screenshotPath: 'shot',
+    await expect(submitRepresentativeImageViaExtension(SUBJECT)).resolves.toEqual({
+      salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: true, screenshotPath: 'shot',
     });
 
-    expect(mockedApiPost).toHaveBeenNthCalledWith(1, '/api/channels/thumbnail-executions', { generationId: 'gen-1' });
+    expect(mockedApiPost).toHaveBeenNthCalledWith(1, '/api/channels/thumbnail-executions', { salesProductId: 'product-1', assetId: 'asset-1' });
     expect(mockedSendToExtension).toHaveBeenCalledWith('extension-1', {
       action: 'registerRepresentativeImage',
       attemptId: EXECUTION_ID,
-      generationId: 'gen-1',
+      salesProductId: 'product-1',
+      assetId: 'asset-1',
       productName: '쿠팡 상품명',
       image: prepared.image,
     });
@@ -83,10 +86,10 @@ describe('submitRepresentativeImageViaExtension', () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedApiPost
       .mockResolvedValueOnce(prepared)
-      .mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: false, screenshotPath: null, error: 'dropzone missing' });
+      .mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: false, screenshotPath: null, error: 'dropzone missing' });
     mockedSendToExtension.mockResolvedValueOnce({ success: false, error: 'dropzone missing' });
 
-    await expect(submitRepresentativeImageViaExtension('gen-1')).rejects.toThrow('dropzone missing');
+    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toThrow('dropzone missing');
 
     expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
       outcome: 'definitive_failure',
@@ -99,7 +102,7 @@ describe('submitRepresentativeImageViaExtension', () => {
     mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, screenshotPath: null });
     mockedSendToExtension.mockResolvedValueOnce({ success: false, pendingLogin: true });
 
-    await expect(submitRepresentativeImageViaExtension('gen-1')).rejects.toThrow('쿠팡 WING 로그인 필요');
+    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toThrow('쿠팡 WING 로그인 필요');
 
     expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
       outcome: 'definitive_failure',
@@ -112,7 +115,7 @@ describe('submitRepresentativeImageViaExtension', () => {
     mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, screenshotPath: null });
     mockedSendToExtension.mockRejectedValueOnce(new Error('The message port closed before a response was received.'));
 
-    await expect(submitRepresentativeImageViaExtension('gen-1')).rejects.toThrow('The message port closed');
+    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toThrow('The message port closed');
 
     expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
       outcome: 'uncertain',
@@ -124,7 +127,7 @@ describe('submitRepresentativeImageViaExtension', () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedApiPost
       .mockResolvedValueOnce(prepared)
-      .mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: true, screenshotPath: null });
+      .mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: true, screenshotPath: null });
     mockedSendToExtension.mockResolvedValueOnce({ success: true });
 
     await expect(resendRepresentativeImageViaExtension(EXECUTION_ID)).resolves.toMatchObject({ success: true });
@@ -136,7 +139,7 @@ describe('submitRepresentativeImageViaExtension', () => {
   });
 
   it('marks an unknown outcome as not applied through the Channels route', async () => {
-    mockedApiPost.mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: false, screenshotPath: null });
+    mockedApiPost.mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: false, screenshotPath: null });
 
     await markRepresentativeImageNotApplied(EXECUTION_ID);
 
@@ -144,7 +147,7 @@ describe('submitRepresentativeImageViaExtension', () => {
   });
 
   it('confirms the mall save through the Channels applied route', async () => {
-    mockedApiPost.mockResolvedValueOnce({ generationId: 'gen-1', executionId: EXECUTION_ID, success: true, status: 'succeeded', screenshotPath: null });
+    mockedApiPost.mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: true, status: 'succeeded', screenshotPath: null });
 
     await expect(confirmRepresentativeImageApplied(EXECUTION_ID)).resolves.toMatchObject({ success: true });
 
@@ -155,10 +158,10 @@ describe('submitRepresentativeImageViaExtension', () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedApiPost.mockRejectedValueOnce(new ApiError(400, 'Bad Request', '리스팅이 여럿입니다 — 하나를 고르세요', { code: 'ambiguous_listing' }));
 
-    const error = await submitRepresentativeImageViaExtension('gen-1').catch((caught: unknown) => caught);
+    const error = await submitRepresentativeImageViaExtension(SUBJECT).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(ListingChoiceRequiredError);
-    expect(error).toMatchObject({ generationId: 'gen-1', message: '리스팅이 여럿입니다 — 하나를 고르세요' });
+    expect(error).toMatchObject({ salesProductId: 'product-1', message: '리스팅이 여럿입니다 — 하나를 고르세요' });
     expect(mockedSendToExtension).not.toHaveBeenCalled();
   });
 
@@ -167,18 +170,18 @@ describe('submitRepresentativeImageViaExtension', () => {
     mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, status: 'reconciling', screenshotPath: null });
     mockedSendToExtension.mockResolvedValueOnce({ success: true });
 
-    await submitRepresentativeImageViaExtension('gen-1', { channelListingId: 'listing-2' });
+    await submitRepresentativeImageViaExtension(SUBJECT, { channelListingId: 'listing-2' });
 
-    expect(mockedApiPost).toHaveBeenNthCalledWith(1, '/api/channels/thumbnail-executions', { generationId: 'gen-1', channelListingId: 'listing-2' });
+    expect(mockedApiPost).toHaveBeenNthCalledWith(1, '/api/channels/thumbnail-executions', { salesProductId: 'product-1', assetId: 'asset-1', channelListingId: 'listing-2' });
   });
 
   it('reads the listings the operator can pick from Channels', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ items: [{ channelListingId: 'listing-2', channelName: '두번째', channelAccountName: 'Wing', externalId: '99' }] });
 
-    await expect(fetchRepresentativeImageListingChoices('gen-1')).resolves.toEqual([
+    await expect(fetchRepresentativeImageListingChoices('product-1')).resolves.toEqual([
       { channelListingId: 'listing-2', channelName: '두번째', channelAccountName: 'Wing', externalId: '99' },
     ]);
-    expect(apiClient.get).toHaveBeenCalledWith('/api/channels/thumbnail-executions/listing-choices?generationId=gen-1');
+    expect(apiClient.get).toHaveBeenCalledWith('/api/channels/thumbnail-executions/listing-choices?salesProductId=product-1');
   });
 });
 

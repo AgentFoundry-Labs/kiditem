@@ -56,13 +56,12 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       .map((listing) => {
         const id = randomUUID();
         workspaceIdsByListing.set(listing.listingId, id);
+        // 리스팅 작업공간은 이름을 갖지 않는다 — 이름은 리스팅(Channels)에서 읽는다.
         return {
           id,
           organizationId: input.organizationId,
           ownerType: 'channel_listing',
           channelListingId: listing.listingId,
-          displayName: listing.displayName,
-          normalizedTitle: normalizeContentTitle(listing.displayName),
           createdByUserId: input.userId,
         };
       });
@@ -90,72 +89,32 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       select: {
         id: true,
         channelListingId: true,
-        currentThumbnailSelectionId: true,
-        currentThumbnailSelection: {
-          select: { contentAssetId: true, contentAsset: { select: { metadata: true } } },
-        },
+        currentThumbnailAssetId: true,
+        currentThumbnailAsset: { select: { metadata: true } },
       },
     });
     const workspaceByListing = new Map(workspaces.map((row) => [row.channelListingId!, row]));
-    const groups = await tx.contentGenerationGroup.findMany({
-      where: {
-        organizationId: input.organizationId,
-        contentWorkspaceId: { in: workspaceIds },
-        groupType: 'workspace_assets',
-      },
-      select: { id: true, contentWorkspaceId: true, metadata: true },
-    });
-    const groupByWorkspace = new Map<string, string>();
-    const groupMetadataById = new Map<string, Prisma.JsonValue>();
-    for (const group of groups) {
-      groupMetadataById.set(group.id, group.metadata);
-      if (!groupByWorkspace.has(group.contentWorkspaceId))
-        groupByWorkspace.set(group.contentWorkspaceId, group.id);
-    }
-    const newGroups = input.listings
-      .filter((listing) => !groupByWorkspace.has(workspaceIdsByListing.get(listing.listingId)!))
-      .map((listing) => {
-        const contentWorkspaceId = workspaceIdsByListing.get(listing.listingId)!;
-        const id = randomUUID();
-        groupByWorkspace.set(contentWorkspaceId, id);
-        groupMetadataById.set(id, { sourceType: 'channel_catalog', channel: listing.channel });
-        return {
-          id,
-          organizationId: input.organizationId,
-          contentWorkspaceId,
-          groupType: 'workspace_assets',
-          title: 'Workspace managed assets',
-          createdByUserId: input.userId,
-          metadata: { sourceType: 'channel_catalog', channel: listing.channel },
-        };
-      });
-    for (let offset = 0; offset < newGroups.length; offset += BULK_ROWS) {
-      await tx.contentGenerationGroup.createMany({
-        data: newGroups.slice(offset, offset + BULK_ROWS),
-      });
-    }
+    // 카탈로그 사진은 워크스페이스가 소유한 content_assets 행이다(KID-313 W3a, source=catalog). 같은 워크스페이스의
+    // 업로드 · AI 후보 · 상세 이미지는 제공자 사진이 아니라 건드리지 않는다(metadata 로 가른다).
     const existingAssets = await tx.contentAsset.findMany({
       where: {
         organizationId: input.organizationId,
-        originGenerationGroupId: { in: [...groupByWorkspace.values()] },
+        contentWorkspaceId: { in: workspaceIds },
       },
     });
     const listingById = new Map(input.listings.map((listing) => [listing.listingId, listing]));
     const listingIdByWorkspace = new Map(
       [...workspaceIdsByListing].map(([listingId, workspaceId]) => [workspaceId, listingId]),
     );
-    const workspaceIdByGroup = new Map(
-      [...groupByWorkspace].map(([workspaceId, groupId]) => [groupId, workspaceId]),
-    );
     const remappedMetadataUpdates: Array<{
       id: string;
-      groupId: string;
+      workspaceId: string;
       metadata: Record<string, unknown>;
     }> = [];
-    const assetsByGroup = new Map<string, ContentAsset[]>();
+    const assetsByWorkspace = new Map<string, ContentAsset[]>();
     for (const asset of existingAssets) {
-      const groupId = asset.originGenerationGroupId!;
-      const listingId = listingIdByWorkspace.get(workspaceIdByGroup.get(groupId) ?? '');
+      const workspaceId = asset.contentWorkspaceId;
+      const listingId = listingIdByWorkspace.get(workspaceId);
       const listing = listingId ? listingById.get(listingId) : undefined;
       const remappedMetadata = listing
         ? remapProviderOptionMetadata(
@@ -168,11 +127,11 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         ? { ...asset, metadata: remappedMetadata as Prisma.JsonValue }
         : asset;
       if (remappedMetadata) {
-        remappedMetadataUpdates.push({ id: asset.id, groupId, metadata: remappedMetadata });
+        remappedMetadataUpdates.push({ id: asset.id, workspaceId, metadata: remappedMetadata });
       }
-      const rows = assetsByGroup.get(groupId) ?? [];
+      const rows = assetsByWorkspace.get(workspaceId) ?? [];
       rows.push(effectiveAsset);
-      assetsByGroup.set(groupId, rows);
+      assetsByWorkspace.set(workspaceId, rows);
     }
     // Remap every provider asset in the locked workspace, including assets
     // outside the current publication scope and source-inactive selections.
@@ -184,10 +143,10 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         UPDATE content_assets AS asset
         SET metadata = incoming.metadata, updated_at = NOW()
         FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
-          AS incoming(id uuid, "groupId" uuid, metadata jsonb)
+          AS incoming(id uuid, "workspaceId" uuid, metadata jsonb)
         WHERE asset.organization_id = ${input.organizationId}::uuid
           AND asset.id = incoming.id
-          AND asset.origin_generation_group_id = incoming."groupId"
+          AND asset.content_workspace_id = incoming."workspaceId"
       `;
       if (updated !== batch.length) {
         throw new Error('Catalog provider option identity remap fence lost');
@@ -196,7 +155,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
     const newAssets: Prisma.ContentAssetCreateManyInput[] = [];
     const updatedAssets: Array<{
       id: string;
-      groupId: string;
+      workspaceId: string;
       url: string;
       role: string;
       sortOrder: number;
@@ -208,48 +167,37 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       fileSize: number | null;
       metadata: Record<string, unknown>;
     }> = [];
-    const absentAssets: Array<{ id: string; groupId: string; metadata: Record<string, unknown> }> =
+    const absentAssets: Array<{ id: string; workspaceId: string; metadata: Record<string, unknown> }> =
       [];
     const preservedAbsentAssets: Array<{
       id: string;
-      groupId: string;
+      workspaceId: string;
       metadata: Record<string, unknown>;
     }> = [];
     const preservedOptionAssets: Array<{
       id: string;
-      groupId: string;
+      workspaceId: string;
       metadata: Record<string, unknown>;
     }> = [];
-    const selections: Array<{
-      id: string;
-      organizationId: string;
-      contentWorkspaceId: string;
-      contentAssetId: string;
-      createdByUserId: string;
-      listingId: string;
-    }> = [];
     const pointerUpdates: Array<{
-      selectionId: string | null;
+      assetId: string | null;
       contentWorkspaceId: string;
       listingId: string;
     }> = [];
-    const markerUpdates: Array<{ id: string; metadata: Prisma.InputJsonValue }> = [];
     let imageCount = 0;
     let inactivatedImageCount = 0;
 
     for (const listing of input.listings) {
       const workspace = workspaceByListing.get(listing.listingId)!;
-      const groupId = groupByWorkspace.get(workspace.id)!;
-      const groupMetadata = groupMetadataById.get(groupId) ?? {};
-      const autoThumbnailSelectionId = readAutoThumbnailSelectionId(groupMetadata);
-      const currentSelectionId = workspace.currentThumbnailSelectionId;
+      const workspaceId = workspace.id;
+      // 대표이미지 포인터가 카탈로그 몫인가: 이 publication 이 세운 자산에만 `catalogRepresentative` 표시가 있다.
+      // 운영자가 다른 자산(업로드 · AI · 다른 카탈로그 사진)을 채택했으면 표시가 없어 그대로 둔다.
+      const currentSelectedAssetId = workspace.currentThumbnailAssetId;
       const currentSelectionIsCatalogOwned = Boolean(
-        autoThumbnailSelectionId
-        && currentSelectionId
-        && autoThumbnailSelectionId === currentSelectionId,
+        currentSelectedAssetId
+        && jsonRecord(workspace.currentThumbnailAsset?.metadata)?.catalogRepresentative === true,
       );
-      const currentSelectedAssetId = workspace.currentThumbnailSelection?.contentAssetId ?? null;
-      const providerAssets = (assetsByGroup.get(groupId) ?? []).filter((asset) =>
+      const providerAssets = (assetsByWorkspace.get(workspaceId) ?? []).filter((asset) =>
         isChannelProviderAsset(asset, listing.channel),
       );
       const optionIdentityRemaps = optionIdentityRemapsByListing.get(listing.listingId);
@@ -326,7 +274,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         if (existing) {
           updatedAssets.push({
             id,
-            groupId,
+            workspaceId,
             url: publishedUrl,
             role: media.role,
             sortOrder: media.sortOrder,
@@ -342,7 +290,8 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
           newAssets.push({
             id,
             organizationId: input.organizationId,
-            originGenerationGroupId: groupId,
+            contentWorkspaceId: workspaceId,
+            source: 'catalog',
             createdByUserId: input.userId,
             assetKey,
             url: media.sourceUrl,
@@ -372,7 +321,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
                   }
                 : {}),
             };
-            preservedOptionAssets.push({ id: asset.id, groupId, metadata });
+            preservedOptionAssets.push({ id: asset.id, workspaceId, metadata });
             continue;
           }
         }
@@ -385,9 +334,9 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
           lastImportRunId: input.publicationReference.id,
         };
         if (asset.id === currentSelectedAssetId && !currentSelectionIsCatalogOwned) {
-          preservedAbsentAssets.push({ id: asset.id, groupId, metadata });
+          preservedAbsentAssets.push({ id: asset.id, workspaceId, metadata });
         } else {
-          absentAssets.push({ id: asset.id, groupId, metadata });
+          absentAssets.push({ id: asset.id, workspaceId, metadata });
         }
         inactivatedImageCount += 1;
       }
@@ -397,26 +346,13 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       if (
         primaryScopeObserved &&
         primary &&
-        (!currentSelectionId || currentSelectionIsCatalogOwned) &&
+        (!currentSelectedAssetId || currentSelectionIsCatalogOwned) &&
         currentSelectedAssetId !== primary.id
       ) {
-        const selectionId = randomUUID();
-        selections.push({
-          id: selectionId,
-          organizationId: input.organizationId,
-          contentWorkspaceId: workspace.id,
-          contentAssetId: primary.id,
-          createdByUserId: input.userId,
-          listingId: listing.listingId,
-        });
         pointerUpdates.push({
-          selectionId,
+          assetId: primary.id,
           contentWorkspaceId: workspace.id,
           listingId: listing.listingId,
-        });
-        markerUpdates.push({
-          id: groupId,
-          metadata: withAutoThumbnailSelectionId(groupMetadata, selectionId),
         });
       } else if (
         primaryScopeObserved
@@ -424,7 +360,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         && currentSelectionIsCatalogOwned
       ) {
         pointerUpdates.push({
-          selectionId: null,
+          assetId: null,
           contentWorkspaceId: workspace.id,
           listingId: listing.listingId,
         });
@@ -448,12 +384,12 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
           metadata = incoming.metadata, is_deleted = false, deleted_at = NULL, updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
         AS incoming(
-          id uuid, "groupId" uuid, url text, role text, "sortOrder" integer,
+          id uuid, "workspaceId" uuid, url text, role text, "sortOrder" integer,
           "preserveStorage" boolean, "storageKey" text, "mimeType" text,
           width integer, height integer, "fileSize" integer, metadata jsonb
         )
       WHERE asset.organization_id = ${input.organizationId}::uuid
-        AND asset.id = incoming.id AND asset.origin_generation_group_id = incoming."groupId"
+        AND asset.id = incoming.id AND asset.content_workspace_id = incoming."workspaceId"
     `;
       if (updated !== batch.length)
         throw new Error('Catalog provider asset changed before publication');
@@ -464,9 +400,9 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       UPDATE content_assets AS asset
       SET is_deleted = true, deleted_at = NOW(), metadata = incoming.metadata, updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
-        AS incoming(id uuid, "groupId" uuid, metadata jsonb)
+        AS incoming(id uuid, "workspaceId" uuid, metadata jsonb)
       WHERE asset.organization_id = ${input.organizationId}::uuid
-        AND asset.id = incoming.id AND asset.origin_generation_group_id = incoming."groupId"
+        AND asset.id = incoming.id AND asset.content_workspace_id = incoming."workspaceId"
     `;
       if (updated !== batch.length)
         throw new Error('Catalog provider asset changed before publication');
@@ -477,9 +413,9 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       UPDATE content_assets AS asset
       SET metadata = incoming.metadata, updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
-        AS incoming(id uuid, "groupId" uuid, metadata jsonb)
+        AS incoming(id uuid, "workspaceId" uuid, metadata jsonb)
       WHERE asset.organization_id = ${input.organizationId}::uuid
-        AND asset.id = incoming.id AND asset.origin_generation_group_id = incoming."groupId"
+        AND asset.id = incoming.id AND asset.content_workspace_id = incoming."workspaceId"
     `;
       if (updated !== batch.length)
         throw new Error('Catalog provider asset changed before publication');
@@ -490,43 +426,35 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       UPDATE content_assets AS asset
       SET metadata = incoming.metadata, updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
-        AS incoming(id uuid, "groupId" uuid, metadata jsonb)
+        AS incoming(id uuid, "workspaceId" uuid, metadata jsonb)
       WHERE asset.organization_id = ${input.organizationId}::uuid
-        AND asset.id = incoming.id AND asset.origin_generation_group_id = incoming."groupId"
+        AND asset.id = incoming.id AND asset.content_workspace_id = incoming."workspaceId"
     `;
       if (updated !== batch.length)
         throw new Error('Catalog provider asset changed before publication');
-    }
-    for (let offset = 0; offset < selections.length; offset += BULK_ROWS) {
-      const batch = selections.slice(offset, offset + BULK_ROWS);
-      await tx.contentWorkspaceThumbnailSelection.createMany({
-        data: batch.map(({ listingId: _listingId, ...selection }) => selection),
-      });
     }
     for (let offset = 0; offset < pointerUpdates.length; offset += BULK_ROWS) {
       const batch = pointerUpdates.slice(offset, offset + BULK_ROWS);
       const updated = await tx.$executeRaw`
         UPDATE content_workspaces AS workspace
-        SET current_thumbnail_selection_id = incoming."selectionId", updated_at = NOW()
+        SET current_thumbnail_asset_id = incoming."assetId", updated_at = NOW()
         FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
-          AS incoming("selectionId" uuid, "contentWorkspaceId" uuid, "listingId" uuid)
+          AS incoming("assetId" uuid, "contentWorkspaceId" uuid, "listingId" uuid)
         WHERE workspace.organization_id = ${input.organizationId}::uuid
           AND workspace.id = incoming."contentWorkspaceId" AND workspace.channel_listing_id = incoming."listingId"
           AND workspace.owner_type = 'channel_listing' AND workspace.status = 'active' AND workspace.is_deleted = false
       `;
       if (updated !== batch.length) throw new Error('Catalog workspace changed before publication');
     }
-    for (let offset = 0; offset < markerUpdates.length; offset += BULK_ROWS) {
-      const batch = markerUpdates.slice(offset, offset + BULK_ROWS);
-      const updated = await tx.$executeRaw`
-        UPDATE content_generation_groups AS generation_group
-        SET metadata = incoming.metadata, updated_at = NOW()
-        FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
-          AS incoming(id uuid, metadata jsonb)
-        WHERE generation_group.organization_id = ${input.organizationId}::uuid
-          AND generation_group.id = incoming.id
+    // 카탈로그가 세운 대표이미지 자산에 표시를 남긴다 — 다음 publication 이 이 포인터를 자기 몫으로 안다.
+    const representativeAssetIds = pointerUpdates.flatMap((update) => (update.assetId ? [update.assetId] : []));
+    if (representativeAssetIds.length > 0) {
+      await tx.$executeRaw`
+        UPDATE content_assets
+        SET metadata = metadata || '{"catalogRepresentative": true}'::jsonb, updated_at = NOW()
+        WHERE organization_id = ${input.organizationId}::uuid
+          AND id = ANY(${representativeAssetIds}::uuid[])
       `;
-      if (updated !== batch.length) throw new Error('Catalog generation group changed before publication');
     }
     return { imageCount, inactivatedImageCount };
   }
@@ -724,29 +652,6 @@ function isProviderMetadata(value: unknown, channel: string): boolean {
   return metadata?.sourceType === 'channel_catalog' && metadata.channel === channel;
 }
 
-function readAutoThumbnailSelectionId(value: unknown): string | null {
-  const publication = jsonRecord(jsonRecord(value)?.catalogPublication);
-  const selectionId = publication?.autoThumbnailSelectionId;
-  return typeof selectionId === 'string' && selectionId.length > 0
-    ? selectionId
-    : null;
-}
-
-function withAutoThumbnailSelectionId(
-  value: unknown,
-  selectionId: string,
-): Prisma.InputJsonValue {
-  const metadata = jsonRecord(value) ?? {};
-  const publication = jsonRecord(metadata.catalogPublication) ?? {};
-  return {
-    ...metadata,
-    catalogPublication: {
-      ...publication,
-      autoThumbnailSelectionId: selectionId,
-    },
-  } as Prisma.InputJsonValue;
-}
-
 function jsonRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -769,13 +674,4 @@ function withoutMaterializationMetadata(
     delete result[key];
   }
   return result;
-}
-
-function normalizeContentTitle(value: string): string {
-  const normalized = value
-    .normalize('NFKC')
-    .toLocaleLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[^\p{L}\p{N}]/gu, '');
-  return normalized || '상세페이지 작업';
 }

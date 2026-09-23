@@ -60,9 +60,9 @@ vi.mock('./ProductTabContent', () => ({
       thumbnailUrls: string[];
       selectedThumbnail: {
         url: string;
-        kind: 'generated';
-        generatedGenerationId: string;
-        generatedCandidateId: string;
+        kind: 'generated' | 'source';
+        assetId: string | null;
+        generatedGenerationId: string | null;
       } | null;
     }) => void;
     canSaveThumbnailConfiguration?: boolean;
@@ -118,13 +118,29 @@ vi.mock('./ProductTabContent', () => ({
             selectedThumbnail: {
               url: 'https://cdn.example.com/generated.jpg',
               kind: 'generated',
+              assetId: 'thumbnail-asset-1',
               generatedGenerationId: 'thumbnail-generation-1',
-              generatedCandidateId: 'thumbnail-candidate-1',
             },
           })
         }
       >
         mock-save-thumbnail
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onSaveThumbnailConfiguration?.({
+            thumbnailUrls: ['https://cdn.example.com/source.jpg'],
+            selectedThumbnail: {
+              url: 'https://cdn.example.com/source.jpg',
+              kind: 'source',
+              assetId: null,
+              generatedGenerationId: null,
+            },
+          })
+        }
+      >
+        mock-save-source-thumbnail
       </button>
       <button
         type="button"
@@ -198,7 +214,7 @@ function workspaceSummary(overrides: Partial<ContentWorkspaceSummary> = {}): Con
     latestStatus: null,
     currentDetailPageId: null,
     currentDetailPageRevisionId: null,
-    currentThumbnailSelection: null,
+    currentThumbnailAsset: null,
     createdAt: '2026-05-16T00:00:00.000Z',
     updatedAt: '2026-05-16T00:00:00.000Z',
     history: [],
@@ -392,10 +408,28 @@ describe('ProductWorkspaceScreen — 수집상품(판매상품 초안) 화면', 
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
       `/api/ai/content-workspaces/${WORKSPACE_ID}/current-thumbnail`,
-      {
-        sourceThumbnailGenerationId: 'thumbnail-generation-1',
-        sourceThumbnailCandidateId: 'thumbnail-candidate-1',
-      },
+      { assetId: 'thumbnail-asset-1' },
+    ));
+  });
+
+  it('adopts a source image by the asset the gallery save wrote for its URL', async () => {
+    api.put.mockResolvedValue({ thumbnailUrls: ['https://cdn.example.com/source.jpg'] });
+    api.patch.mockResolvedValue({ id: 'gallery-asset-1', isCurrentThumbnail: true });
+    serveCollectedDraft({ workspace: workspaceSummary() });
+    renderCollected();
+    const baseGet = api.get.getMockImplementation();
+    api.get.mockImplementation((url: string) => (
+      url === `/api/ai/content-workspaces/${WORKSPACE_ID}/thumbnail-gallery`
+        ? Promise.resolve([{ id: 'gallery-asset-1', url: 'https://cdn.example.com/source.jpg', source: 'upload' }])
+        : baseGet!(url)
+    ));
+
+    await waitFor(() => expect(screen.getByTestId('product-tab-content')).toHaveAttribute('data-can-save-thumbnail', 'true'));
+    fireEvent.click(screen.getByRole('button', { name: 'mock-save-source-thumbnail' }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+      `/api/ai/content-workspaces/${WORKSPACE_ID}/current-thumbnail`,
+      { assetId: 'gallery-asset-1' },
     ));
   });
 
@@ -496,10 +530,7 @@ describe('ProductWorkspaceScreen — 등록상품(리스팅) 화면', () => {
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
       '/api/ai/content-workspaces/workspace-1/current-thumbnail',
-      {
-        sourceThumbnailGenerationId: 'thumbnail-generation-1',
-        sourceThumbnailCandidateId: 'thumbnail-candidate-1',
-      },
+      { assetId: 'thumbnail-asset-1' },
     ));
   });
 });

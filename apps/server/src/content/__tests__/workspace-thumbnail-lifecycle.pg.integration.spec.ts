@@ -10,10 +10,9 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sales-product-workspace-archive.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
-import { groupUrlAssetKey } from '../domain/content-asset-key';
 
 describe('workspace thumbnail lifecycle (PG integration)', () => {
   let prisma: PrismaClient;
@@ -30,55 +29,24 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('archives a draft workspace before a concurrent thumbnail selection can edit it', async () => {
+  it('archives a draft workspace before a concurrent adoption can repoint its representative image', async () => {
     const salesProductId = randomUUID();
     const workspace = await prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'sales_product',
-        salesProductId,
-        displayName: 'Archive workspace lock',
-        normalizedTitle: 'archiveworkspacelock',
-      },
+      data: { organizationId: TEST_ORGANIZATION_ID, ownerType: 'sales_product', salesProductId },
     });
-    const group = await prisma.contentGenerationGroup.create({
+    const [current, other] = await Promise.all(['current', 'other'].map((name) => prisma.contentAsset.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         contentWorkspaceId: workspace.id,
-        groupType: 'workspace_assets',
+        source: 'upload',
+        assetKey: `archive-${name}:${workspace.id}`,
+        url: `https://cdn.example.com/archive-${name}.png`,
+        role: 'thumbnail',
       },
-    });
-    const generation = await prisma.contentGeneration.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        generationGroupId: group.id,
-        contentWorkspaceId: workspace.id,
-      },
-    });
-    const asset = await prisma.contentAsset.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        originGenerationGroupId: group.id,
-        assetKey: groupUrlAssetKey(group.id, 'https://cdn.example.com/archive-current.png'),
-        url: 'https://cdn.example.com/archive-current.png',
-        usages: {
-          create: {
-            organizationId: TEST_ORGANIZATION_ID,
-            contentGenerationId: generation.id,
-          },
-        },
-      },
-    });
-    const historicalSelection = await prisma.contentWorkspaceThumbnailSelection.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        contentWorkspaceId: workspace.id,
-        contentAssetId: asset.id,
-      },
-    });
+    })));
     await prisma.contentWorkspace.update({
       where: { id: workspace.id },
-      data: { currentThumbnailSelectionId: historicalSelection.id },
+      data: { currentThumbnailAssetId: current!.id },
     });
 
     let reportWorkspaceLocked!: () => void;
@@ -115,129 +83,30 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     });
     await workspaceLocked;
 
-    const selectionRepository = new ContentWorkspaceThumbnailSelectionRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
-    const selection = selectionRepository.selectCurrent({
+    const assets = new ContentAssetLibraryRepositoryAdapter(prisma as unknown as PrismaService);
+    const adoption = assets.setCurrentThumbnail({
       organizationId: TEST_ORGANIZATION_ID,
-      workspaceId: workspace.id,
-      userId: null,
-      selection: { kind: 'content_asset', contentAssetId: asset.id },
+      contentWorkspaceId: workspace.id,
+      assetId: other!.id,
     });
-    const selectionState = await Promise.race([
-      selection.then(() => 'settled', () => 'settled'),
+    const adoptionState = await Promise.race([
+      adoption.then(() => 'settled', () => 'settled'),
       new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 100)),
     ]);
 
     releaseWorkspace();
     await archive;
-    await expect(selection).rejects.toBeInstanceOf(NotFoundException);
-    expect(selectionState).toBe('blocked');
+    await expect(adoption).rejects.toBeInstanceOf(NotFoundException);
+    expect(adoptionState).toBe('blocked');
     await expect(prisma.contentWorkspace.findUniqueOrThrow({
       where: { id: workspace.id },
-      select: {
-        status: true,
-        isDeleted: true,
-        deletedAt: true,
-        currentThumbnailSelectionId: true,
-      },
+      select: { status: true, isDeleted: true, deletedAt: true, currentThumbnailAssetId: true },
     })).resolves.toEqual({
       status: 'archived',
       isDeleted: true,
       deletedAt: archivedAt,
-      currentThumbnailSelectionId: null,
+      currentThumbnailAssetId: null,
     });
-    expect(await prisma.contentWorkspaceThumbnailSelection.count({
-      where: { id: historicalSelection.id },
-    })).toBe(1);
-    expect(await prisma.contentAsset.findUniqueOrThrow({
-      where: { id: asset.id },
-      select: { isDeleted: true },
-    })).toEqual({ isDeleted: true });
-  });
-
-  it('serializes first external URL adoption and reuses one managed asset group', async () => {
-    const workspace = await prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'direct_detail_page',
-        displayName: 'Concurrent external selection',
-        normalizedTitle: 'concurrentexternalselection',
-      },
-    });
-    let reportWorkspaceLocked!: () => void;
-    const workspaceLocked = new Promise<void>((resolve) => {
-      reportWorkspaceLocked = resolve;
-    });
-    let releaseWorkspace!: () => void;
-    const workspaceRelease = new Promise<void>((resolve) => {
-      releaseWorkspace = resolve;
-    });
-    let didPause = false;
-    const pausedPrisma = {
-      $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) =>
-        prisma.$transaction(async (tx) => callback(new Proxy(tx, {
-          get(target, property, receiver) {
-            if (property !== '$queryRaw') return Reflect.get(target, property, receiver);
-            return async <R>(query: Prisma.Sql): Promise<R> => {
-              const rows = await tx.$queryRaw<R>(query);
-              if (!didPause) {
-                didPause = true;
-                reportWorkspaceLocked();
-                await workspaceRelease;
-              }
-              return rows;
-            };
-          },
-        }))),
-    };
-    const firstRepository = new ContentWorkspaceThumbnailSelectionRepositoryAdapter(
-      pausedPrisma as unknown as PrismaService,
-    );
-    const secondRepository = new ContentWorkspaceThumbnailSelectionRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
-    const managedUrl = 'https://cdn.example.com/concurrent-external.png';
-    const source = {
-      kind: 'external' as const,
-      url: managedUrl,
-      storageKey: 'content-assets/concurrent-external.png',
-      mimeType: 'image/png',
-      fileSize: 128,
-    };
-
-    const first = firstRepository.selectCurrent({
-      organizationId: TEST_ORGANIZATION_ID,
-      workspaceId: workspace.id,
-      userId: null,
-      selection: source,
-    });
-    await workspaceLocked;
-    const second = secondRepository.selectCurrent({
-      organizationId: TEST_ORGANIZATION_ID,
-      workspaceId: workspace.id,
-      userId: null,
-      selection: source,
-    });
-    const secondState = await Promise.race([
-      second.then(() => 'settled', () => 'settled'),
-      new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 100)),
-    ]);
-
-    releaseWorkspace();
-    const [firstResult, secondResult] = await Promise.all([first, second]);
-    expect(secondState).toBe('blocked');
-    expect(secondResult.contentAssetId).toBe(firstResult.contentAssetId);
-    expect(await prisma.contentGenerationGroup.count({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        contentWorkspaceId: workspace.id,
-        groupType: 'workspace_assets',
-      },
-    })).toBe(1);
-    expect(await prisma.contentAsset.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, url: managedUrl },
-    })).toBe(1);
   });
 
   it('serializes concurrent candidate removals and derives the terminal generation state in-transaction', async () => {
@@ -247,26 +116,24 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'direct_detail_page',
-        displayName: 'Concurrent candidate removal',
         normalizedTitle: 'concurrentcandidateremoval',
       },
     });
     const generation = await prisma.thumbnailGeneration.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspace.id, status: 'succeeded' },
+    });
+    const [firstAsset, secondAsset] = await Promise.all([firstUrl, secondUrl].map((url, index) => prisma.contentAsset.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         contentWorkspaceId: workspace.id,
-        status: 'succeeded',
-        phase: 'ready',
-        selectedUrl: firstUrl,
-        candidates: {
-          create: [
-            { organizationId: TEST_ORGANIZATION_ID, url: firstUrl, sortOrder: 0 },
-            { organizationId: TEST_ORGANIZATION_ID, url: secondUrl, sortOrder: 1 },
-          ],
-        },
+        source: 'ai',
+        thumbnailGenerationId: generation.id,
+        assetKey: `ai-candidate:${generation.id}:${index}`,
+        url,
+        role: 'thumbnail',
+        sortOrder: index,
       },
-      include: { candidates: { orderBy: { sortOrder: 'asc' } } },
-    });
+    })));
     let reportGenerationLocked!: () => void;
     const generationLocked = new Promise<void>((resolve) => {
       reportGenerationLocked = resolve;
@@ -303,13 +170,13 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     const first = firstRepository.removeCandidate({
       id: generation.id,
       organizationId: TEST_ORGANIZATION_ID,
-      candidateUrl: firstUrl,
+      assetId: firstAsset!.id,
     });
     await generationLocked;
     const second = secondRepository.removeCandidate({
       id: generation.id,
       organizationId: TEST_ORGANIZATION_ID,
-      candidateUrl: secondUrl,
+      assetId: secondAsset!.id,
     });
     const secondState = await Promise.race([
       second.then(() => 'settled', () => 'settled'),
@@ -321,11 +188,10 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     expect(secondState).toBe('blocked');
     await expect(prisma.thumbnailGeneration.findUniqueOrThrow({
       where: { id: generation.id },
-      select: { isDeleted: true, selectedUrl: true, candidates: { select: { id: true } } },
-    })).resolves.toEqual({
-      isDeleted: true,
-      selectedUrl: null,
-      candidates: [],
-    });
+      select: { isDeleted: true },
+    })).resolves.toEqual({ isDeleted: true });
+    await expect(prisma.contentAsset.count({
+      where: { thumbnailGenerationId: generation.id, isDeleted: false },
+    })).resolves.toBe(0);
   });
 });

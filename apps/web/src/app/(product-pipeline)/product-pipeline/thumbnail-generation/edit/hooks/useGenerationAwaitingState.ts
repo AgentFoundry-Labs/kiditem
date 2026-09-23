@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import type { ThumbnailJobView } from '../../../_shared/hooks/useThumbnailJobs';
 
 export function useGenerationAwaitingState(
   generationId: string | null,
-  pollingGenerations: ThumbnailGenerationItem[],
-  observedGeneration?: ThumbnailGenerationItem | null,
+  pollingGenerations: ThumbnailJobView[],
+  observedGeneration?: ThumbnailJobView | null,
 ) {
   const targetGen = generationId
     ? pollingGenerations.find((g) => g.id === generationId) ??
@@ -20,7 +20,6 @@ export function useGenerationAwaitingState(
   const isGenComplete = !!(
     targetGen &&
     targetGen.status === 'succeeded' &&
-    Array.isArray(targetGen.candidates) &&
     targetGen.candidates.length > 0
   );
   const isGenError = !!(

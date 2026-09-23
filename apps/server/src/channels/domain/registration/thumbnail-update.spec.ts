@@ -8,6 +8,7 @@ import {
   resolveThumbnailAccount,
   thumbnailReportTransition,
   thumbnailUpdateIdempotencyKey,
+  thumbnailUpdateLiveKey,
 } from './thumbnail-update';
 
 describe('resolveThumbnailAccount', () => {
@@ -32,11 +33,17 @@ describe('resolveThumbnailAccount', () => {
 });
 
 describe('thumbnailUpdateIdempotencyKey', () => {
+  const subject = { salesProductId: 'p', channelAccountId: 'a', assetId: 'x' };
   it('replays an Agent invocation by its owner key and gives each screen press its own key', () => {
-    expect(thumbnailUpdateIdempotencyKey({ generationId: 'g', ownerIdempotencyKey: 'capability-invocation:x', nonce: 'n1' }))
+    expect(thumbnailUpdateIdempotencyKey({ subject, ownerIdempotencyKey: 'capability-invocation:x', nonce: 'n1' }))
       .toBe('thumbnail_update:capability-invocation:x');
-    expect(thumbnailUpdateIdempotencyKey({ generationId: 'g', ownerIdempotencyKey: null, nonce: 'n1' }))
-      .not.toBe(thumbnailUpdateIdempotencyKey({ generationId: 'g', ownerIdempotencyKey: null, nonce: 'n2' }));
+    expect(thumbnailUpdateIdempotencyKey({ subject, ownerIdempotencyKey: null, nonce: 'n1' }))
+      .not.toBe(thumbnailUpdateIdempotencyKey({ subject, ownerIdempotencyKey: null, nonce: 'n2' }));
+  });
+  it('names a screen press by the product, account and asset it uploads, not by a generation job', () => {
+    expect(thumbnailUpdateIdempotencyKey({ subject, ownerIdempotencyKey: null, nonce: 'n1' }))
+      .toBe('thumbnail_update:p:a:x:n1');
+    expect(thumbnailUpdateLiveKey({ organizationId: 'o', ...subject })).toBe('thumbnail_update:o:p:a:x');
   });
 });
 
@@ -76,12 +83,12 @@ describe('thumbnailConfirmationTransition', () => {
 });
 
 describe('thumbnailProductName', () => {
-  it('uses the decoded Coupang listing name, else the workspace name', () => {
-    expect(thumbnailProductName(encodeURIComponent(encodeURIComponent('곰돌이 우산')), '작업공간')).toBe('곰돌이 우산');
-    expect(thumbnailProductName('  쿠팡 이름 ', '작업공간')).toBe('쿠팡 이름');
-    expect(thumbnailProductName(null, ' 작업공간 ')).toBe('작업공간');
-    expect(thumbnailProductName('   ', '작업공간')).toBe('작업공간');
-    expect(thumbnailProductName('%E0%A4%A', '작업공간')).toBe('%E0%A4%A');
+  it('uses the decoded listing name, else the sales product name', () => {
+    expect(thumbnailProductName(encodeURIComponent(encodeURIComponent('곰돌이 우산')), '판매상품')).toBe('곰돌이 우산');
+    expect(thumbnailProductName('  쿠팡 이름 ', '판매상품')).toBe('쿠팡 이름');
+    expect(thumbnailProductName(null, ' 판매상품 ')).toBe('판매상품');
+    expect(thumbnailProductName('   ', '판매상품')).toBe('판매상품');
+    expect(thumbnailProductName('%E0%A4%A', '판매상품')).toBe('%E0%A4%A');
   });
   it('is empty when neither name exists', () => {
     expect(thumbnailProductName(null, '  ')).toBe('');

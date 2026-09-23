@@ -52,7 +52,7 @@ const completeBasicInfo: ProductBasics = {
   registrationImages: { primary: [], thumbnail: [], detail: [] },
   selectedThumbnailUrl: 'https://cdn.example.com/selected.jpg',
   selectedThumbnailGenerationId: null,
-  selectedThumbnailGenerationCandidateId: null,
+  selectedThumbnailAssetId: null,
   selectedDetailPageGenerationId: 'detail-1',
   selectedDetailPageArtifactId: null,
   selectedDetailPageRevisionId: null,

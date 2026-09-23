@@ -241,8 +241,6 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         ownerType: 'sales_product',
         salesProductId,
-        displayName: 'Concurrent thumbnail',
-        normalizedTitle: 'concurrent thumbnail',
         createdByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
       },
       select: { id: true },
@@ -266,7 +264,6 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
       subject: 'sales_product',
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId,
-      productName: 'Concurrent thumbnail',
       contentWorkspaceId: workspace.id,
       originalUrl: 'https://example.com/concurrent-thumbnail.jpg',
       method: 'generate',
@@ -352,10 +349,8 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         contentWorkspaceId: workspace.id,
-        originalUrl: 'https://example.com/input.jpg',
-        inputMeta: {},
+        inputMeta: { originalUrl: 'https://example.com/input.jpg' },
         status: 'running',
-        phase: 'processing',
       },
       select: { id: true },
     });
@@ -401,15 +396,11 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
           organizationId: TEST_ORGANIZATION_ID,
           generationId: thumbnail.id,
           reason: 'operator_cancelled',
-          actorUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
-          payload: { reason: 'operator_cancelled' },
         }),
         thumbnailCanceller.cancelDirectGeneration({
           organizationId: TEST_ORGANIZATION_ID,
           generationId: thumbnail.id,
           reason: 'operator_cancelled',
-          actorUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
-          payload: { reason: 'operator_cancelled' },
         }),
       ]),
     ]);
@@ -431,10 +422,9 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
     });
     await expect(prisma.thumbnailGeneration.findUniqueOrThrow({
       where: { id: thumbnail.id },
-      select: { status: true, phase: true, errorMessage: true },
+      select: { status: true, errorMessage: true },
     })).resolves.toEqual({
       status: 'cancelled',
-      phase: null,
       errorMessage: 'operator_cancelled',
     });
     await expect(prisma.aiDirectJob.findMany({
@@ -445,9 +435,6 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
       expect.objectContaining({ id: detailJob.id, status: 'cancelled', lastErrorCode: 'user_cancelled' }),
       expect.objectContaining({ id: thumbnailJob.id, status: 'cancelled', lastErrorCode: 'user_cancelled' }),
     ]));
-    await expect(prisma.thumbnailGenerationEvent.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, generationId: thumbnail.id },
-    })).resolves.toBe(2);
   });
 
 });

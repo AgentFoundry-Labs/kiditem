@@ -6,15 +6,16 @@ import { ChevronLeft, ChevronRight, Loader2, PlayCircle, Square, X } from 'lucid
 import { toast } from 'sonner';
 
 import {
-  useCancelGeneration,
-  useDeleteGeneration,
-  useGenerationList,
-} from '../../../_shared/hooks/useThumbnailGenerations';
+  thumbnailJobTitle,
+  useCancelThumbnailJob,
+  useDeleteThumbnailJob,
+  useThumbnailJobs,
+  type ThumbnailJobListItem,
+} from '../../../_shared/hooks/useThumbnailJobs';
 import { thumbnailGenerationEditHref } from '../../../_shared/lib/product-pipeline-routes';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 
@@ -35,12 +36,12 @@ function navigate(
 
 type ProductGroup = {
   contentWorkspaceId: string;
-  representative: ThumbnailGenerationItem;
-  items: ThumbnailGenerationItem[];
+  representative: ThumbnailJobListItem;
+  items: ThumbnailJobListItem[];
 };
 
-function groupByProduct(items: ThumbnailGenerationItem[]): ProductGroup[] {
-  const map = new Map<string, ThumbnailGenerationItem[]>();
+function groupByProduct(items: ThumbnailJobListItem[]): ProductGroup[] {
+  const map = new Map<string, ThumbnailJobListItem[]>();
   for (const g of items) {
     if (!g.contentWorkspaceId) continue;
     const bucket = map.get(g.contentWorkspaceId);
@@ -61,11 +62,11 @@ function groupByProduct(items: ThumbnailGenerationItem[]): ProductGroup[] {
   );
 }
 
-function isInProgress(g: ThumbnailGenerationItem): boolean {
+function isInProgress(g: ThumbnailJobListItem): boolean {
   return g.status === 'pending' || g.status === 'running';
 }
 
-function isActiveGeneration(g: ThumbnailGenerationItem): boolean {
+function isActiveGeneration(g: ThumbnailJobListItem): boolean {
   return g.status === 'pending' || g.status === 'running';
 }
 
@@ -73,9 +74,9 @@ const PAGE_SIZE = 12;
 
 export function PendingSection({ returnTo = null }: { returnTo?: string | null }) {
   const router = useRouter();
-  const { data = [], isLoading } = useGenerationList();
-  const deleteMutation = useDeleteGeneration();
-  const cancelMutation = useCancelGeneration();
+  const { data = [], isLoading } = useThumbnailJobs();
+  const deleteMutation = useDeleteThumbnailJob();
+  const cancelMutation = useCancelThumbnailJob();
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<ProductGroup | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ProductGroup | null>(null);
@@ -194,7 +195,7 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
           deleteTarget ? (
             <>
               <span className="font-semibold text-[var(--text-primary,#0f172a)]">
-                {deleteTarget.representative.contentWorkspace?.name ?? '상품 정보 없음'}
+                {thumbnailJobTitle(deleteTarget.representative)}
               </span>
               의 AI 생성 작업이 삭제됩니다. 복구할 수 없습니다.
             </>
@@ -267,11 +268,9 @@ function PendingCard({
   const running = item.status === 'running' || item.status === 'pending';
   const activeCount = group.items.filter(isActiveGeneration).length;
   const canCancel = activeCount > 0;
-  const productName = item.contentWorkspace?.name ?? '상품 정보 없음';
-  const preview = item.candidates?.[0]?.url ?? item.originalUrl ?? item.contentWorkspace?.imageUrl;
+  const productName = thumbnailJobTitle(item);
+  const preview = item.candidates[0]?.url ?? item.workspace?.imageUrl;
   const resolved = resolveImageUrl(preview);
-  const hasBox = Boolean(item.contentWorkspace?.hasBoxImage);
-  const hasColor = Boolean(item.contentWorkspace?.hasColorVariantImages);
 
   return (
     <div onClick={onClick} className="flex flex-col group relative cursor-pointer hover:opacity-95 transition-opacity">
@@ -358,31 +357,8 @@ function PendingCard({
           </div>
         )}
       </div>
-      <div
-        className={cn(
-          'px-1 py-1 flex items-center gap-1 transition-colors',
-          hasBox && hasColor && 'bg-violet-100',
-          hasBox && !hasColor && 'bg-amber-100',
-          !hasBox && hasColor && 'bg-fuchsia-100',
-        )}
-      >
-        <p
-          className={cn(
-            'text-[11px] font-bold truncate flex-1',
-            hasBox && hasColor && 'text-violet-900',
-            hasBox && !hasColor && 'text-amber-900',
-            !hasBox && hasColor && 'text-fuchsia-900',
-            !hasBox && !hasColor && 'text-gray-900',
-          )}
-        >
-          {productName}
-        </p>
-        {(hasBox || hasColor) && (
-          <span className="flex items-center gap-0.5 text-[11px] leading-none flex-shrink-0">
-            {hasBox && <span title="박스 이미지 보유">📦</span>}
-            {hasColor && <span title="색상 이미지 보유">🎨</span>}
-          </span>
-        )}
+      <div className="px-1 py-1">
+        <p className="text-[11px] font-bold truncate text-gray-900">{productName}</p>
       </div>
     </div>
   );

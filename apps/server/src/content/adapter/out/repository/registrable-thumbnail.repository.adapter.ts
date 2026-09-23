@@ -1,47 +1,48 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type {
-  RegistrableThumbnailGenerationRow,
-  RegistrableThumbnailRepositoryPort,
-  RegistrableThumbnailWorkspaceRow,
-} from '../../../application/port/out/repository/registrable-thumbnail.repository.port';
+import type { RegistrableThumbnailRepositoryPort } from '../../../application/port/out/repository/registrable-thumbnail.repository.port';
 
 @Injectable()
 export class RegistrableThumbnailRepositoryAdapter implements RegistrableThumbnailRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findGeneration(generationId: string, organizationId: string): Promise<RegistrableThumbnailGenerationRow | null> {
-    const generation = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id: generationId, organizationId, isDeleted: false },
+  async findRegistrableAsset(input: { organizationId: string; salesProductId: string; assetId: string | null }) {
+    const workspace = await this.prisma.contentWorkspace.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        salesProductId: input.salesProductId,
+        status: 'active',
+        isDeleted: false,
+      },
       select: {
-        contentWorkspaceId: true,
-        selectedUrl: true,
-        candidates: {
-          where: { organizationId },
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-          select: { url: true },
-        },
-        thumbnailSelections: {
-          where: { organizationId },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: 1,
-          select: { contentAssetId: true },
-        },
+        id: true,
+        currentThumbnailAsset: { select: { id: true, url: true, isDeleted: true } },
       },
     });
-    if (!generation) return null;
-    return {
-      contentWorkspaceId: generation.contentWorkspaceId,
-      selectedUrl: generation.selectedUrl,
-      candidates: generation.candidates,
-      selectedAssetId: generation.thumbnailSelections[0]?.contentAssetId ?? null,
-    };
+    if (!workspace) return input.assetId ? { mode: 'foreign_asset' as const } : { mode: 'none' as const };
+    if (input.assetId) {
+      const asset = await this.prisma.contentAsset.findFirst({
+        where: {
+          id: input.assetId,
+          organizationId: input.organizationId,
+          contentWorkspaceId: workspace.id,
+          isDeleted: false,
+        },
+        select: { id: true, url: true },
+      });
+      if (!asset) return { mode: 'foreign_asset' as const };
+      return { mode: 'found' as const, asset: { assetId: asset.id, contentWorkspaceId: workspace.id, url: asset.url } };
+    }
+    const current = workspace.currentThumbnailAsset;
+    if (!current || current.isDeleted) return { mode: 'none' as const };
+    return { mode: 'found' as const, asset: { assetId: current.id, contentWorkspaceId: workspace.id, url: current.url } };
   }
 
-  findRegistrableWorkspace(contentWorkspaceId: string, organizationId: string): Promise<RegistrableThumbnailWorkspaceRow | null> {
-    return this.prisma.contentWorkspace.findFirst({
-      where: { id: contentWorkspaceId, organizationId, isDeleted: false, status: 'active' },
-      select: { displayName: true, salesProductId: true, channelListingId: true },
+  async findAssetUrl(input: { organizationId: string; assetId: string }): Promise<string | null> {
+    const asset = await this.prisma.contentAsset.findFirst({
+      where: { id: input.assetId, organizationId: input.organizationId, isDeleted: false },
+      select: { url: true },
     });
+    return asset?.url ?? null;
   }
 }

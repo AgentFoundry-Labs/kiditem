@@ -1,59 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildThumbnailSourceOptions,
-  getGeneratedThumbnailOptions,
-  thumbnailRegistrationState,
-  type ThumbnailWorkspaceGeneration,
-} from './thumbnail-workspace-state';
+import type { ContentAssetItem } from '@kiditem/shared/product-content';
+import { getGeneratedThumbnailOptions, thumbnailRegistrationState } from './thumbnail-workspace-state';
 
-const readyGeneration: ThumbnailWorkspaceGeneration = {
-  id: 'generation-ready',
-  status: 'succeeded',
-  phase: 'ready',
-  registrationStatus: null,
-  registrationError: null,
-  candidates: [{ id: 'candidate-1', url: 'https://cdn.example.com/generated.jpg' }],
+const aiAsset: ContentAssetItem = {
+  id: 'asset-ai',
+  contentWorkspaceId: '00000000-0000-4000-8000-000000000001',
+  source: 'ai',
+  role: 'thumbnail',
+  url: 'https://cdn.example.com/generated.jpg',
+  label: null,
+  sortOrder: 0,
+  width: null,
+  height: null,
+  thumbnailGenerationId: 'job-1',
+  isCurrentThumbnail: false,
+  createdAt: '2026-09-23T00:00:00.000Z',
 };
 
 describe('thumbnail workspace state', () => {
-  it('builds source options from source images and generated results without duplicates', () => {
-    expect(buildThumbnailSourceOptions({
-      sourceImageUrls: ['https://cdn.example.com/source.jpg'],
-      generations: [
-        readyGeneration,
-        {
-          ...readyGeneration,
-          id: 'generation-duplicate',
-          candidates: [{ id: 'candidate-2', url: 'https://cdn.example.com/source.jpg' }],
-        },
-      ],
-    })).toEqual([
-      {
-        url: 'https://cdn.example.com/source.jpg',
-        kind: 'source',
-        generatedGenerationId: null,
-        generatedCandidateId: null,
-      },
-      {
-        url: 'https://cdn.example.com/generated.jpg',
-        kind: 'generated',
-        generatedGenerationId: 'generation-ready',
-        generatedCandidateId: 'candidate-1',
-      },
-    ]);
-  });
-
-  it('returns generated thumbnail options only for the results section', () => {
+  it('returns only the AI candidates for the results section', () => {
     expect(getGeneratedThumbnailOptions({
       sourceImageUrls: ['https://cdn.example.com/source.jpg'],
-      generations: [readyGeneration],
+      galleryAssets: [aiAsset, { ...aiAsset, id: 'asset-upload', source: 'upload', url: 'https://cdn.example.com/upload.jpg', thumbnailGenerationId: null }],
     })).toEqual([
-      {
-        url: 'https://cdn.example.com/generated.jpg',
-        kind: 'generated',
-        generatedGenerationId: 'generation-ready',
-        generatedCandidateId: 'candidate-1',
-      },
+      { url: 'https://cdn.example.com/generated.jpg', kind: 'generated', assetId: 'asset-ai', generatedGenerationId: 'job-1' },
     ]);
   });
 

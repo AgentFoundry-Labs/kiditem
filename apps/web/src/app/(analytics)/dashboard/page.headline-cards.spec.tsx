@@ -154,7 +154,6 @@ const inventory = {
     highAdProducts: 2,
     outOfStockSkus: 7,
     mappingAttentionSkus: 4,
-    lowCtrProducts: 0,
     lowReviewProducts: 0,
   },
 };

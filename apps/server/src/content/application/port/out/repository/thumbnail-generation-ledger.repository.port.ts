@@ -1,71 +1,37 @@
-import type { EditAnalysisResult } from '@kiditem/shared/ai';
 import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../../../domain/model/thumbnail-editor';
 import type { ThumbnailGenerationListScope } from '../../../../domain/thumbnail-generation-subject';
-import type { ThumbnailAnalysisContext } from '../../../../domain/thumbnail-generation-inputs';
 import type { CreateAiDirectJobInput } from './ai-direct-job.repository.port';
 import type { ProductGenerationChildIdentity } from '../../../service/product-generation-child-identity';
 
 export const THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT = Symbol('THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT');
 
+/**
+ * 대표이미지 생성 job 저장소(KID-313 W3a). `thumbnail_generations` 는 job 만 갖는다(상태 · 방법 · 프롬프트 ·
+ * 입력 메타 · 오류 · 시도). 결과 후보는 성공 전이와 같은 트랜잭션에서 `content_assets`(source ai, role thumbnail,
+ * thumbnail_generation_id) 행이 된다. 입력 사진 · 원본 URL · 편집 분석은 `input_meta` 에 있다
+ * (`domain/thumbnail/thumbnail-job-input-meta`). 후보 · job 이 워크스페이스의 대표이미지로 채택돼 있으면 바꾸지 않는다.
+ */
+
 export interface ThumbnailGenerationWorkspaceSummary {
   id: string;
+  salesProductId: string | null;
   name: string;
   imageUrl: string | null;
   category: string | null;
 }
 
-export interface ThumbnailGenerationCandidateRow {
+export interface ThumbnailJobRow {
   id: string;
-  url: string;
-  storageKey: string | null;
-  filename: string | null;
-  sortOrder: number;
-  mimeType?: string | null;
-  width?: number | null;
-  height?: number | null;
-  fileSize?: number | null;
-}
-
-export interface ThumbnailGenerationInputImageRow {
-  url: string | null;
-  role: string | null;
-  label: string | null;
-  sortOrder: number;
-  source: string | null;
-}
-
-export interface ThumbnailGenerationLedgerRow {
-  id: string;
-  createdAt: Date;
-  status: string;
-  phase: string | null;
-  grade: string;
-  score: number;
   contentWorkspaceId: string;
+  status: string;
   method: string;
-  originalUrl: string | null;
-  selectedUrl: string | null;
   prompt: string | null;
-  editAnalysis: unknown;
   inputMeta: unknown;
   errorMessage: string | null;
   attemptCount: number;
   triggeredByUserId: string | null;
-  candidates: ThumbnailGenerationCandidateRow[];
-  contentWorkspace?: ThumbnailGenerationWorkspaceSummary | null;
-}
-
-export type ThumbnailGenerationWithCandidatesRow = ThumbnailGenerationLedgerRow;
-
-export interface ThumbnailGenerationWithInputImagesRow {
-  id: string;
-  contentWorkspaceId: string | null;
-  selectedUrl: string | null;
-  originalUrl: string | null;
-  method: string;
-  inputMeta: unknown;
-  editAnalysis: unknown;
-  inputImages: ThumbnailGenerationInputImageRow[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface ThumbnailGenerationWorkspaceContext {
@@ -80,44 +46,28 @@ export interface ThumbnailGenerationWorkspaceContext {
     sortOrder: number;
     isPrimary: boolean;
   }>;
-  thumbnailAnalyses: ThumbnailAnalysisContext[];
 }
 
 export interface ThumbnailGenerationProjectionStatus {
   id: string;
   status: string;
-  phase?: string | null;
   inputMeta?: unknown;
   errorMessage: string | null;
 }
 
 export interface ThumbnailGenerationAttemptChange {
   fromStatus: string;
-  fromPhase: string | null;
   attemptNumber: number;
 }
 
 export interface ThumbnailGenerationStatusChange {
   fromStatus: string;
-  fromPhase: string | null;
 }
 
 export interface ThumbnailGenerationDirectCancellation {
   status: 'cancelled' | 'already_terminal' | 'not_found';
   generationId: string;
   preserved: boolean;
-}
-
-export interface SaveEditorResultInput {
-  contentWorkspaceId: string;
-  organizationId: string;
-  originalUrl: string | null;
-  candidates: ThumbnailEditorCandidate[];
-  inputImages?: ThumbnailEditorInputImage[];
-  method: string;
-  inputMeta?: unknown;
-  editAnalysis?: EditAnalysisResult | null;
-  triggeredByUserId?: string | null;
 }
 
 export type OpenPendingThumbnailDirectGenerationInput = {
@@ -133,12 +83,10 @@ export type OpenPendingThumbnailDirectGenerationInput = {
   | {
       subject: 'editor';
       contentWorkspaceId: string;
-      editAnalysis: EditAnalysisResult | null;
     }
   | {
       subject: 'sales_product';
       salesProductId: string;
-      productName: string;
       contentWorkspaceId?: string | null;
     }
   | {
@@ -165,24 +113,13 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
       scope?: ThumbnailGenerationListScope;
       limit?: number | null;
     },
-  ): Promise<ThumbnailGenerationLedgerRow[]>;
-  findGenerationOrThrow(id: string, organizationId: string): Promise<ThumbnailGenerationLedgerRow>;
-  findGenerationWithCandidatesOrThrow(
-    id: string,
-    organizationId: string,
-  ): Promise<ThumbnailGenerationWithCandidatesRow>;
-  findGenerationWithInputImages(
-    id: string,
-    organizationId: string,
-  ): Promise<ThumbnailGenerationWithInputImagesRow | null>;
+  ): Promise<ThumbnailJobRow[]>;
+  findGenerationOrThrow(id: string, organizationId: string): Promise<ThumbnailJobRow>;
+  /** 작업공간 요약. 리스팅 이름이 없는 작업공간은 그 행들의 `inputMeta.productName` 으로 부른다. */
   findGenerationWorkspaces(
-    rows: Array<{ contentWorkspaceId: string | null }>,
+    rows: Array<{ contentWorkspaceId: string | null; inputMeta?: unknown }>,
     organizationId: string,
   ): Promise<Map<string, ThumbnailGenerationWorkspaceSummary>>;
-  findGenerationWorkspace(
-    contentWorkspaceId: string | null,
-    organizationId: string,
-  ): Promise<ThumbnailGenerationWorkspaceSummary | null>;
   findWorkspaceForThumbnailJob(
     contentWorkspaceId: string,
     organizationId: string,
@@ -195,98 +132,55 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
     contentWorkspaceId: string,
     organizationId: string,
     method: string,
-  ): Promise<ThumbnailGenerationLedgerRow | null>;
+  ): Promise<ThumbnailJobRow | null>;
   findRecentAutoJob(
     contentWorkspaceId: string,
     organizationId: string,
     cooldownStart: Date,
   ): Promise<{ id: string } | null>;
   findAutoBatchCandidates(organizationId: string, take: number): Promise<Array<{ id: string }>>;
-  findThumbnailAnalysisGrade(
-    contentWorkspaceId: string,
-    organizationId: string,
-  ): Promise<{ grade: string; overallScore: number } | null>;
 
-  saveEditorResult(input: SaveEditorResultInput): Promise<string>;
   openPendingDirectGeneration(input: OpenPendingThumbnailDirectGenerationInput): Promise<{
     status: 'created' | 'existing';
     generationId: string;
     directJobId: string;
     releaseRequired: boolean;
   }>;
+  /** 자동 · 일괄 편집 job(직접 job 없이 재편집 경로로 돈다). 입력은 `inputMeta` 에 같이 넣는다. */
   openPendingEditorJob(input: {
     organizationId: string;
     contentWorkspaceId: string;
     originalUrl: string;
     method: string;
-    inputMeta: unknown;
-    editAnalysis: EditAnalysisResult | null;
+    inputMeta: Record<string, unknown>;
     triggeredByUserId?: string | null;
-  }): Promise<ThumbnailGenerationLedgerRow>;
-  openPendingSalesProductJob(input: {
-    organizationId: string;
-    salesProductId: string;
-    productName: string;
-    originalUrl: string;
-    method: string;
-    inputMeta: unknown;
-    contentWorkspaceId?: string | null;
-    triggeredByUserId?: string | null;
-  }): Promise<{ id: string }>;
-  openPendingStandaloneJob(input: {
-    organizationId: string;
-    originalUrl: string;
-    method: string;
-    inputMeta: unknown;
-    contentWorkspaceId?: string | null;
-    triggeredByUserId?: string | null;
-  }): Promise<{ id: string }>;
-  persistPendingInputImages(input: {
-    generationId: string;
-    organizationId: string;
-    inputImages: ThumbnailEditorInputImage[];
-  }): Promise<void>;
-  setSelectedCandidate(id: string, organizationId: string, selectedUrl: string | null): Promise<void>;
-  clearReadySelections(organizationId: string): Promise<{ count: number }>;
-  applyGenerationToWorkspace(input: {
-    id: string;
-    organizationId: string;
-    contentWorkspaceId: string;
-    selected: {
-      url: string;
-      storageKey: string | null;
-      mimeType?: string | null;
-      width?: number | null;
-      height?: number | null;
-      fileSize?: number | null;
-    } | null;
-  }): Promise<void>;
+  }): Promise<ThumbnailJobRow>;
   cancelDirectGeneration(input: {
     organizationId: string;
     generationId: string;
     reason: string;
-    actorUserId?: string | null;
-    payload?: unknown | null;
   }): Promise<ThumbnailGenerationDirectCancellation>;
+  /** job 과 그 후보 자산을 지운다. 후보가 대표이미지면 409. */
   deleteGeneration(id: string, organizationId: string): Promise<void>;
+  /** 후보 자산 하나를 지운다. 마지막 후보면 job 도 지운다. 대표이미지면 409, 그 job 의 후보가 아니면 null. */
   removeCandidate(input: {
     id: string;
     organizationId: string;
-    candidateUrl: string;
+    assetId: string;
   }): Promise<{ generationDeleted: boolean; remaining: number } | null>;
+  /** 끝난 job 을 pending 으로 되돌리고 후보를 지운다. 입력 사진은 `inputMeta` 에 남긴다. */
   resetGenerationForReEdit(input: {
     id: string;
     organizationId: string;
     purpose: 'compliance' | 'quality';
     variantKey: 'auto' | 'with-box' | 'no-box' | null;
   }): Promise<ThumbnailGenerationStatusChange | null>;
+  /** 재편집 결과: running job 의 후보를 바꾸고 succeeded 로. */
   replaceLegacyEditResult(input: {
     generationId: string;
     organizationId: string;
     candidates: ThumbnailEditorCandidate[];
-    inputImages: ThumbnailEditorInputImage[];
-    inputMeta: unknown;
-    editAnalysis: EditAnalysisResult | null;
+    inputMeta: Record<string, unknown>;
   }): Promise<ThumbnailGenerationAttemptChange | null>;
   markGenerationFailed(
     id: string,
@@ -298,11 +192,12 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
     generationId: string;
     organizationId: string;
   }): Promise<ThumbnailGenerationAttemptChange | null>;
+  /** 직접 job 성공: 후보 자산 쓰기와 succeeded 전이가 한 트랜잭션. 요청 필드는 `inputMeta` 에 병합한다. */
   projectDirectSuccess(input: {
     generationId: string;
     organizationId: string;
     candidates: ThumbnailEditorCandidate[];
-    inputMeta: unknown;
+    projection: Record<string, unknown>;
   }): Promise<ThumbnailGenerationAttemptChange | null>;
   projectDirectFailure(input: {
     generationId: string;

@@ -31,7 +31,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
 
   async ensureActiveWorkspace(
     input: EnsureContentWorkspaceInput,
-  ): Promise<{ id: string }> {
+  ): Promise<{ id: string; normalizedTitle: string | null }> {
     assertValidOwnerShape(input);
     const where = activeWorkspaceWhere(input);
     try {
@@ -102,19 +102,13 @@ implements ContentWorkspaceLifecycleRepositoryPort {
         normalizedTitle: true,
         status: true,
         currentDetailPageRevisionId: true,
-        currentThumbnailSelectionId: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { detailPages: { where: { isDeleted: false } } } },
         currentDetailPageRevision: {
           select: { id: true, detailPageId: true, revisionType: true, createdAt: true },
         },
-        currentThumbnailSelection: {
-          select: {
-            id: true,
-            contentAsset: { select: { id: true, url: true } },
-          },
-        },
+        currentThumbnailAsset: { select: { id: true, url: true } },
       },
     }).then((row) => (row ? toWorkspaceSnapshot(row as unknown as WorkspaceRecord) : null));
   }
@@ -185,6 +179,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
 
 const workspaceIdentitySelect = {
   id: true,
+  normalizedTitle: true,
 } as const;
 
 function findActiveWorkspace(
@@ -280,12 +275,7 @@ function workspaceInclude() {
     currentDetailPageRevision: {
       select: { id: true, detailPageId: true, revisionType: true, createdAt: true },
     },
-    currentThumbnailSelection: {
-      select: {
-        id: true,
-        contentAsset: { select: { id: true, url: true } },
-      },
-    },
+    currentThumbnailAsset: { select: { id: true, url: true } },
     _count: { select: { detailPages: { where: { isDeleted: false } } } },
     detailPages: {
       where: { isDeleted: false },

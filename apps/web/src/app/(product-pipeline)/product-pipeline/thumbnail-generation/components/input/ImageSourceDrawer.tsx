@@ -7,7 +7,6 @@ import * as Popover from '@radix-ui/react-popover';
 import { ArrowRight, ImageIcon, Loader2, Search, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { MasterImageItem } from '@kiditem/shared/product';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { useRecentGenerations } from '../../hooks/useRecentGenerations';
 import { HUB_ROLE_CONFIG, type MasterImageRole } from '../../../_shared/lib/hub-roles';
@@ -282,15 +281,15 @@ interface RecentTabProps {
 function RecentTab({ contentWorkspaceId, onPick }: RecentTabProps) {
   const { data: generations = [], isLoading } = useRecentGenerations(contentWorkspaceId);
 
-  // Flatten: prefer selectedUrl, else all candidates
+  // Flatten: 채택한 후보가 있으면 그것, 없으면 모든 후보
   const thumbs = useMemo(() => {
     const out: Array<{ url: string; genId: string; createdAt: string }> = [];
     for (const g of generations) {
-      if (g.selectedUrl) {
-        out.push({ url: g.selectedUrl, genId: g.id, createdAt: g.createdAt });
-      } else if (g.candidates?.length) {
+      if (g.adoptedCandidate) {
+        out.push({ url: g.adoptedCandidate.url, genId: g.id, createdAt: String(g.createdAt) });
+      } else if (g.candidates.length) {
         for (const c of g.candidates) {
-          out.push({ url: c.url, genId: g.id, createdAt: g.createdAt });
+          out.push({ url: c.url, genId: g.id, createdAt: String(g.createdAt) });
         }
       }
     }
@@ -351,7 +350,7 @@ function toProductLite(item: ContentWorkspaceSummary): ProductLite {
   return {
     id: item.id,
     name: contentWorkspaceLabel(item),
-    imageUrl: item.currentThumbnailSelection?.url ?? null,
+    imageUrl: item.currentThumbnailAsset?.url ?? null,
   };
 }
 

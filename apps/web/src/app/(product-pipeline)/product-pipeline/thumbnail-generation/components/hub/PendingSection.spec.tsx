@@ -1,54 +1,55 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PendingSection } from './PendingSection';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import type { ThumbnailJobListItem } from '../../../_shared/hooks/useThumbnailJobs';
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   cancelGeneration: vi.fn().mockResolvedValue(undefined),
-  generations: [] as ThumbnailGenerationItem[],
+  generations: [] as unknown[],
   runningGeneration: {
     id: 'thumbnail-generation-1',
     contentWorkspaceId: 'workspace-1',
-    sourceCandidateId: null,
-    originalUrl: 'https://example.com/original.png',
-    candidates: [],
-    selectedUrl: null,
     status: 'running',
-    phase: null,
-    grade: '',
-    score: 0,
     method: 'generate',
-    editAnalysis: null,
-    inputMeta: null,
+    prompt: null,
     errorMessage: null,
+    attemptCount: 1,
     createdAt: '2026-05-17T00:00:00.000Z',
-    contentWorkspace: {
+    updatedAt: '2026-05-17T00:00:00.000Z',
+    candidates: [],
+    adoptedCandidate: null,
+    workspace: {
       id: 'workspace-1',
+      salesProductId: null,
       name: '테스트 상품',
       imageUrl: 'https://example.com/original.png',
-      coupangProductId: null,
-      category: null,
     },
-  },
+    registrationExecutionId: null,
+    registrationExecutionStatus: null,
+    registrationStatus: null,
+    registrationError: null,
+    registrationCheckedAt: null,
+  } satisfies ThumbnailJobListItem,
 }));
 
-mocks.generations = [mocks.runningGeneration as ThumbnailGenerationItem];
+mocks.generations = [mocks.runningGeneration];
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 
-vi.mock('../../../_shared/hooks/useThumbnailGenerations', () => ({
-  useGenerationList: () => ({
+vi.mock('../../../_shared/hooks/useThumbnailJobs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../_shared/hooks/useThumbnailJobs')>()),
+  useThumbnailJobs: () => ({
     data: mocks.generations,
     isLoading: false,
   }),
-  useDeleteGeneration: () => ({
+  useDeleteThumbnailJob: () => ({
     mutate: vi.fn(),
     isPending: false,
   }),
-  useCancelGeneration: () => ({
+  useCancelThumbnailJob: () => ({
     mutateAsync: mocks.cancelGeneration,
     isPending: false,
   }),
@@ -56,7 +57,7 @@ vi.mock('../../../_shared/hooks/useThumbnailGenerations', () => ({
 
 describe('PendingSection', () => {
   it('offers a cancel action for running thumbnail generation cards', async () => {
-    mocks.generations = [mocks.runningGeneration as ThumbnailGenerationItem];
+    mocks.generations = [mocks.runningGeneration];
     render(<PendingSection />);
 
     fireEvent.click(screen.getByRole('button', { name: '썸네일 생성 중단' }));
@@ -83,8 +84,7 @@ describe('PendingSection', () => {
         ...mocks.runningGeneration,
         id: 'thumbnail-generation-complete',
         status: 'succeeded',
-        phase: 'ready',
-      } as ThumbnailGenerationItem,
+      },
     ];
 
     render(<PendingSection />);

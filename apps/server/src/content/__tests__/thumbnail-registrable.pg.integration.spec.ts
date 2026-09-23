@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -17,6 +17,10 @@ import { fakeStorageImageFetch } from './helpers/fake-storage-image-fetch';
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
 const PNG_DATA_URL = `data:image/png;base64,${PNG.toString('base64')}`;
 
+/**
+ * 몰에 올릴 대표이미지(KID-313 W3a): 열쇠는 판매 상품과 고른 자산이고, 고르지 않았으면 작업공간의 현재
+ * 대표이미지다. 업로드본과 AI 후보가 같은 길로 나간다.
+ */
 describe('registrable thumbnail (PostgreSQL)', () => {
   let prisma: PrismaClient;
   let service: RegistrableThumbnailService;
@@ -25,8 +29,10 @@ describe('registrable thumbnail (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const repository = new RegistrableThumbnailRepositoryAdapter(prisma as PrismaService);
-    service = new RegistrableThumbnailService(repository, fakeStorageImageFetch(storage));
+    service = new RegistrableThumbnailService(
+      new RegistrableThumbnailRepositoryAdapter(prisma as PrismaService),
+      fakeStorageImageFetch(storage),
+    );
   });
   afterAll(async () => prisma?.$disconnect());
   beforeEach(async () => {
@@ -35,105 +41,79 @@ describe('registrable thumbnail (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
-  async function listingWorkspace(input: { channelName: string | null; displayName?: string; listingActive?: boolean }) {
-    const account = await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'coupang', name: 'Wing', status: 'active' } });
-    const listing = await prisma.channelListing.create({
-      data: { organizationId: ORG, channelAccountId: account.id, externalId: `ext-${Math.random()}`, channelName: input.channelName, isActive: input.listingActive ?? true },
-    });
+  async function productWorkspace(organizationId = ORG) {
+    const salesProductId = randomUUID();
     const workspace = await prisma.contentWorkspace.create({
-      data: { organizationId: ORG, ownerType: 'channel_listing', channelListingId: listing.id, displayName: input.displayName ?? '작업공간 이름', normalizedTitle: 'ws' },
+      data: { organizationId, ownerType: 'sales_product', salesProductId },
     });
-    return { account, listing, workspace };
-  }
-
-  async function generation(workspaceId: string, data: { selectedUrl?: string | null; candidateUrls?: string[]; organizationId?: string } = {}) {
-    return prisma.thumbnailGeneration.create({
+    const asset = (source: 'upload' | 'ai', url: string) => prisma.contentAsset.create({
       data: {
-        organizationId: data.organizationId ?? ORG,
-        contentWorkspaceId: workspaceId,
-        status: 'succeeded',
-        selectedUrl: data.selectedUrl === undefined ? PNG_DATA_URL : data.selectedUrl,
-        candidates: { create: (data.candidateUrls ?? []).map((url, index) => ({ organizationId: data.organizationId ?? ORG, url, sortOrder: index })) },
+        organizationId,
+        contentWorkspaceId: workspace.id,
+        source,
+        assetKey: `${source}:${randomUUID()}`,
+        url,
+        role: 'thumbnail',
       },
     });
+    return { salesProductId, workspace, asset };
   }
 
-  it('reads the approved image with the workspace name and owner, without reading the Channels listing', async () => {
-    const { listing, workspace } = await listingWorkspace({ channelName: encodeURIComponent('쿠팡 상품명'), listingActive: false });
-    const gen = await generation(workspace.id);
+  it('reads the workspace representative image when nothing is chosen, and the chosen asset otherwise', async () => {
+    const { salesProductId, workspace, asset } = await productWorkspace();
+    const upload = await asset('upload', PNG_DATA_URL);
+    const candidate = await asset('ai', 'https://storage.example.com/ai.png');
+    await prisma.contentWorkspace.update({ where: { id: workspace.id }, data: { currentThumbnailAssetId: upload.id } });
 
-    await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: gen.id })).resolves.toEqual({
-      generationId: gen.id,
-      contentWorkspaceId: workspace.id,
-      salesProductId: null,
-      channelListingId: listing.id,
-      workspaceDisplayName: '작업공간 이름',
-      image: { url: PNG_DATA_URL, assetId: null },
-    });
+    await expect(service.readRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: null }))
+      .resolves.toEqual({
+        assetId: upload.id,
+        contentWorkspaceId: workspace.id,
+        salesProductId,
+        image: { url: PNG_DATA_URL, sha256: null },
+      });
+    await expect(service.readRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: candidate.id }))
+      .resolves.toMatchObject({ assetId: candidate.id, image: { url: 'https://storage.example.com/ai.png' } });
   });
 
-  it('names a sales-product workspace by its display name and uses the single candidate when none is selected', async () => {
-    const product = await prisma.salesProduct.create({ data: { organizationId: ORG, name: '판매상품' } });
-    const workspace = await prisma.contentWorkspace.create({
-      data: { organizationId: ORG, ownerType: 'sales_product', salesProductId: product.id, displayName: '판매상품 작업공간', normalizedTitle: 'sp' },
-    });
-    const gen = await generation(workspace.id, { selectedUrl: null, candidateUrls: ['http://storage.local/a.png'] });
+  it('answers nothing when the product has no representative image, and refuses another product asset', async () => {
+    const { salesProductId } = await productWorkspace();
+    const other = await productWorkspace();
+    const foreign = await other.asset('upload', PNG_DATA_URL);
 
-    await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: gen.id })).resolves.toMatchObject({
-      salesProductId: product.id,
-      channelListingId: null,
-      workspaceDisplayName: '판매상품 작업공간',
-      image: { url: 'http://storage.local/a.png' },
-    });
-  });
-
-  it('keeps the 404 answers for a missing generation, image or workspace', async () => {
-    const { workspace } = await listingWorkspace({ channelName: null, displayName: '  ' });
-    await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: '00000000-0000-4000-8000-000000000999' }))
-      .rejects.toThrow(new NotFoundException('ThumbnailGeneration 00000000-0000-4000-8000-000000000999 not found'));
-
-    const noImage = await generation(workspace.id, { selectedUrl: null, candidateUrls: ['http://a/1.png', 'http://a/2.png'] });
-    await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: noImage.id }))
-      .rejects.toThrow(new NotFoundException('Generation not found or no selected image'));
-
-    const archived = await prisma.contentWorkspace.create({
-      data: { organizationId: ORG, ownerType: 'direct_detail_page', displayName: '보관', normalizedTitle: 'archived', status: 'archived' },
-    });
-    const orphan = await generation(archived.id);
-    await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: orphan.id }))
-      .rejects.toThrow(new NotFoundException(`ContentWorkspace ${archived.id} not found`));
-  });
-
-  it('does not read another organization generation', async () => {
-    const other = await prisma.contentWorkspace.create({
-      data: { organizationId: OTHER_ORGANIZATION_ID, ownerType: 'direct_detail_page', displayName: '남의 것', normalizedTitle: 'other' },
-    });
-    const gen = await generation(other.id, { organizationId: OTHER_ORGANIZATION_ID });
-    await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: gen.id })).rejects.toBeInstanceOf(NotFoundException);
-  });
-
-  it('loads a data URL or a storage image as a data URL with the sha256 of its bytes and rejects oversize or unsupported images', async () => {
-    const generationId = '00000000-0000-4000-8000-0000000000aa';
-    await expect(service.loadThumbnailImage({ organizationId: ORG, generationId, url: PNG_DATA_URL })).resolves.toEqual({
-      dataUrl: PNG_DATA_URL,
-      filename: `${generationId}.png`,
-      mimeType: 'image/png',
-      sha256: createHash('sha256').update(PNG).digest('hex'),
-    });
-
-    const jpeg = Buffer.from('ffd8ffe0', 'hex');
-    storage.set('http://storage.local/b.jpg', { buffer: jpeg, mimeType: 'image/jpeg' });
-    await expect(service.loadThumbnailImage({ organizationId: ORG, generationId, url: 'http://storage.local/b.jpg' })).resolves.toEqual({
-      dataUrl: `data:image/jpeg;base64,${jpeg.toString('base64')}`,
-      filename: `${generationId}.jpg`,
-      mimeType: 'image/jpeg',
-      sha256: createHash('sha256').update(jpeg).digest('hex'),
-    });
-
-    storage.set('http://storage.local/huge.png', { buffer: Buffer.alloc(10 * 1024 * 1024 + 1), mimeType: 'image/png' });
-    await expect(service.loadThumbnailImage({ organizationId: ORG, generationId, url: 'http://storage.local/huge.png' }))
-      .rejects.toThrow(new BadRequestException('image too large'));
-    await expect(service.loadThumbnailImage({ organizationId: ORG, generationId, url: 'data:image/gif;base64,R0lGOD' }))
+    await expect(service.findRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: null }))
+      .resolves.toBeNull();
+    await expect(service.readRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: null }))
+      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.readRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: foreign.id }))
       .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.findRegistrableThumbnail({ organizationId: ORG, salesProductId: randomUUID(), selectedThumbnailAssetId: null }))
+      .resolves.toBeNull();
+  });
+
+  it('keeps the read inside one organization', async () => {
+    const { salesProductId, workspace, asset } = await productWorkspace(OTHER_ORGANIZATION_ID);
+    const upload = await asset('upload', PNG_DATA_URL);
+    await prisma.contentWorkspace.update({ where: { id: workspace.id }, data: { currentThumbnailAssetId: upload.id } });
+
+    await expect(service.findRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: null }))
+      .resolves.toBeNull();
+    await expect(service.loadThumbnailImage({ organizationId: ORG, assetId: upload.id }))
+      .rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('loads the asset photo from a data URL or trusted storage with its digest', async () => {
+    const { asset } = await productWorkspace();
+    const inline = await asset('upload', PNG_DATA_URL);
+    const stored = await asset('ai', 'https://storage.example.com/ai.png');
+    storage.set('https://storage.example.com/ai.png', { buffer: PNG, mimeType: 'image/png' });
+    const digest = createHash('sha256').update(PNG).digest('hex');
+
+    await expect(service.loadThumbnailImage({ organizationId: ORG, assetId: inline.id })).resolves.toEqual({
+      dataUrl: PNG_DATA_URL, filename: `${inline.id}.png`, mimeType: 'image/png', sha256: digest,
+    });
+    await expect(service.loadThumbnailImage({ organizationId: ORG, assetId: stored.id })).resolves.toEqual({
+      dataUrl: PNG_DATA_URL, filename: `${stored.id}.png`, mimeType: 'image/png', sha256: digest,
+    });
   });
 });

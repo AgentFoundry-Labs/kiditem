@@ -1,28 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import type { ThumbnailGenerationItem, ThumbnailGenerationListResponse } from '@kiditem/shared/ai';
-import { apiClient } from '@/lib/api-client';
-import { queryKeys } from '@/lib/query-keys';
+import { useThumbnailJobs } from './useThumbnailJobs';
 
 /**
- * 이 작업공간의 썸네일 생성 이력. 작업공간이 없으면(첫 생성 전) 읽지 않는다 — 원천 기록 id 로
+ * 이 작업공간의 대표이미지 생성 job(후보 자산 포함). 작업공간이 없으면(첫 생성 전) 읽지 않는다 — 원천 기록 id 로
  * 묻지 않는다(서버는 그 필터를 400 으로 거절한다).
  */
 export function useSourcingThumbnailGenerations(contentWorkspaceId: string | null | undefined) {
-  return useQuery({
-    queryKey: queryKeys.thumbnailAnalysis.generations({ contentWorkspaceId: contentWorkspaceId ?? '' }),
-    enabled: !!contentWorkspaceId,
-    queryFn: async (): Promise<ThumbnailGenerationItem[]> => {
-      const searchParams = new URLSearchParams({ limit: '20', contentWorkspaceId: contentWorkspaceId! });
-      const result = await apiClient.get<ThumbnailGenerationListResponse>(
-        `/api/thumbnail-analysis/generations?${searchParams}`,
-      );
-      return result.items;
-    },
-    refetchInterval: (query) => {
-      const items = query.state.data ?? [];
-      return items.some((item) => item.status === 'pending' || item.status === 'running') ? 2500 : false;
-    },
-  });
+  return useThumbnailJobs({ contentWorkspaceId, limit: 20, enabled: Boolean(contentWorkspaceId) });
 }

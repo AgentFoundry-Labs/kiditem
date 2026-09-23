@@ -23,12 +23,10 @@ function makeLifecycle() {
   return {
     projectDirectSuccess: vi.fn().mockResolvedValue({
       fromStatus: 'running',
-      fromPhase: null,
       attemptNumber: 1,
     }),
     projectDirectFailure: vi.fn().mockResolvedValue({
       fromStatus: 'running',
-      fromPhase: null,
       attemptNumber: 1,
     }),
   };
@@ -65,12 +63,7 @@ describe('ThumbnailGenerationSinkAdapter', () => {
           url: 'https://storage.example.com/thumbnail-generations/org/c1.png',
         },
       ],
-      inputMeta: { executionMode: 'direct_ai', aiJobId: REQUEST },
-      payload: {
-        executionMode: 'direct_ai',
-        aiJobId: REQUEST,
-        candidateCount: 1,
-      },
+      projection: { executionMode: 'direct_ai', aiJobId: REQUEST },
     });
   });
 
@@ -132,11 +125,6 @@ describe('ThumbnailGenerationSinkAdapter', () => {
       generationId: GEN_ID,
       organizationId: ORG,
       errorMessage: 'no provider',
-      payload: {
-        errorCode: 'runtime_not_configured',
-        executionMode: 'direct_ai',
-        aiJobId: REQUEST,
-      },
     });
   });
 
