@@ -38,7 +38,7 @@ const basicsWith = (patch: Partial<ProductBasics>): ProductBasics =>
     thumbnailUrls: [],
     selectedThumbnailUrl: null,
     selectedThumbnailGenerationId: null,
-    selectedThumbnailGenerationCandidateId: null,
+    selectedThumbnailAssetId: null,
     ...patch,
   }) as ProductBasics;
 

@@ -150,12 +150,12 @@ function channelListingToProductWorkspaceData(
   const generatedImageUrls = currentDetailGeneration?.imageUrls ?? [];
   const providerImageUrls = listing.providerDetail?.media.map((media) => media.sourceUrl) ?? [];
   const imageUrls = Array.from(new Set([
-    contentWorkspace?.currentThumbnailSelection?.url ?? null,
+    contentWorkspace?.currentThumbnailAsset?.url ?? null,
     ...generatedImageUrls,
     listing.thumbnailUrl,
     ...providerImageUrls,
   ].filter((url): url is string => Boolean(url))));
-  const thumbnailUrl = contentWorkspace?.currentThumbnailSelection?.url
+  const thumbnailUrl = contentWorkspace?.currentThumbnailAsset?.url
     ?? generatedImageUrls[0]
     ?? listing.thumbnailUrl
     ?? providerImageUrls[0]
@@ -295,7 +295,7 @@ function buildFallbackBasicInfo(input: {
     thumbnailUrls: input.thumbnailUrls,
     selectedThumbnailUrl: null,
     selectedThumbnailGenerationId: null,
-    selectedThumbnailGenerationCandidateId: null,
+    selectedThumbnailAssetId: null,
     selectedDetailPageGenerationId: input.selectedDetailPageGenerationId ?? null,
     selectedDetailPageArtifactId: input.selectedDetailPageArtifactId ?? null,
     selectedDetailPageRevisionId: input.selectedDetailPageRevisionId ?? null,

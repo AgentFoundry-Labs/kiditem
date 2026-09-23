@@ -114,8 +114,6 @@ export function ProductWorkspaceScreen({
    * 폴백 없이 서버가 준 값만 담는다.
    */
   const [savedRepresentativeThumbnailUrl, setSavedRepresentativeThumbnailUrl] = useState<string | null>(null);
-  const [selectedThumbnailGenerationId, setSelectedThumbnailGenerationId] = useState<string | null>(null);
-  const [selectedThumbnailGenerationCandidateId, setSelectedThumbnailGenerationCandidateId] = useState<string | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
   const [thumbnailPreviewImages, setThumbnailPreviewImages] = useState<string[]>([]);
   const [detailWorkspacePreviewHtml, setDetailWorkspacePreviewHtml] = useState<string | null>(null);
@@ -262,8 +260,6 @@ export function ProductWorkspaceScreen({
     setSelectedBoldVerticalId(null);
     setSelectedAgentId(null);
     setSelectedRegistrationThumbnailUrl(null);
-    setSelectedThumbnailGenerationId(null);
-    setSelectedThumbnailGenerationCandidateId(null);
     setThumbnailPreviewUrl(null);
     setThumbnailPreviewImages([]);
     setDetailWorkspacePreviewHtml(null);
@@ -309,12 +305,6 @@ export function ProductWorkspaceScreen({
     setThumbnailPreviewImages(thumbnailUrls);
     if (input.selectedThumbnail) {
       setSelectedRegistrationThumbnailUrl(input.selectedThumbnail.url);
-      setSelectedThumbnailGenerationId(
-        input.selectedThumbnail.generatedGenerationId ?? null,
-      );
-      setSelectedThumbnailGenerationCandidateId(
-        input.selectedThumbnail.generatedCandidateId ?? null,
-      );
     }
     try {
       if (effectiveContentWorkspaceId) {
@@ -327,10 +317,12 @@ export function ProductWorkspaceScreen({
           thumbnailUrls,
         );
         if (input.selectedThumbnail) {
-          await contentWorkspacesApi.selectCurrentThumbnail(
-            effectiveContentWorkspaceId,
-            contentWorkspaceThumbnailSelection(input.selectedThumbnail),
-          );
+          // 채택은 작업공간의 자산 id 하나다(KID-313 W3a). 자산이 아닌 원천 사진은 방금 저장한 갤러리에서
+          // 그 URL 의 자산을 찾아 채택한다.
+          const assetId = input.selectedThumbnail.assetId
+            ?? await findGalleryAssetId(effectiveContentWorkspaceId, input.selectedThumbnail.url);
+          if (!assetId) throw new Error('대표 썸네일로 저장할 이미지를 갤러리에서 찾지 못했습니다.');
+          await contentWorkspacesApi.selectCurrentThumbnail(effectiveContentWorkspaceId, assetId);
         }
         await Promise.all([
           queryClient.invalidateQueries({
@@ -414,16 +406,6 @@ export function ProductWorkspaceScreen({
     // 배지용 값에는 `nextEditData.thumbnails[0]` 폴백을 **넣지 않는다**.
     // 저장된 대표가 없으면 null 이어야 배지가 안 붙는다.
     setSavedRepresentativeThumbnailUrl(basicInfo?.selectedThumbnailUrl ?? null);
-    setSelectedThumbnailGenerationId(
-      basicInfo?.selectedThumbnailGenerationId
-      ?? fetchedData.product.registrationTarget?.selectedThumbnailGenerationId
-      ?? null,
-    );
-    setSelectedThumbnailGenerationCandidateId(
-      basicInfo?.selectedThumbnailGenerationCandidateId
-      ?? fetchedData.product.registrationTarget?.selectedThumbnailGenerationCandidateId
-      ?? null,
-    );
     // 준비가 있으면 `thumbnailPreviewUrls`, 없으면 워크스페이스 갤러리
     // (`registrationImages.thumbnail`)가 저장된 목록이다. 후자를 안 읽으면
     // 저장은 됐는데 화면에는 안 보이는 상태가 된다.
@@ -452,8 +434,6 @@ export function ProductWorkspaceScreen({
       if (selectedRegistrationThumbnailUrl
         && !next.includes(selectedRegistrationThumbnailUrl)) {
         setSelectedRegistrationThumbnailUrl(null);
-        setSelectedThumbnailGenerationId(null);
-        setSelectedThumbnailGenerationCandidateId(null);
       }
     }
   };
@@ -596,8 +576,6 @@ export function ProductWorkspaceScreen({
         isEditComplete={isEditComplete}
         isLocked={isLocked}
         selectedThumbnailUrl={selectedRegistrationThumbnailUrl}
-        selectedThumbnailGenerationId={selectedThumbnailGenerationId}
-        selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
         selectedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
         detailGenerationContentWorkspaceId={detailGenerationContentWorkspaceId}
         detailGenerationEnabled={detailGenerationEnabled}
@@ -713,12 +691,8 @@ function uniqueNonEmpty(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[]));
 }
 
-function contentWorkspaceThumbnailSelection(option: RegistrationThumbnailOption) {
-  if (option.generatedGenerationId && option.generatedCandidateId) {
-    return {
-      sourceThumbnailGenerationId: option.generatedGenerationId,
-      sourceThumbnailCandidateId: option.generatedCandidateId,
-    };
-  }
-  return { externalUrl: option.url };
+async function findGalleryAssetId(contentWorkspaceId: string, url: string): Promise<string | null> {
+  const gallery = await contentWorkspacesApi.listThumbnailGallery(contentWorkspaceId);
+  const target = url.trim();
+  return gallery.find((asset) => asset.url.trim() === target)?.id ?? null;
 }

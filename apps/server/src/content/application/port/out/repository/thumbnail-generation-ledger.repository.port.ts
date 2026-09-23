@@ -14,6 +14,7 @@ export const THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT = Symbol('THUMBNAIL_GEN
 
 export interface ThumbnailGenerationWorkspaceSummary {
   id: string;
+  salesProductId: string | null;
   name: string;
   imageUrl: string | null;
   category: string | null;
@@ -114,8 +115,9 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
     },
   ): Promise<ThumbnailJobRow[]>;
   findGenerationOrThrow(id: string, organizationId: string): Promise<ThumbnailJobRow>;
+  /** 작업공간 요약. 리스팅 이름이 없는 작업공간은 그 행들의 `inputMeta.productName` 으로 부른다. */
   findGenerationWorkspaces(
-    rows: Array<{ contentWorkspaceId: string | null }>,
+    rows: Array<{ contentWorkspaceId: string | null; inputMeta?: unknown }>,
     organizationId: string,
   ): Promise<Map<string, ThumbnailGenerationWorkspaceSummary>>;
   findWorkspaceForThumbnailJob(

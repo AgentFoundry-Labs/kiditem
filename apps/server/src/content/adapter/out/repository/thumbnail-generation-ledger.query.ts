@@ -28,6 +28,7 @@ const workspaceContextSelect = {
     select: { url: true, role: true, sortOrder: true },
   },
   channelListingId: true,
+  salesProductId: true,
 } satisfies Prisma.ContentWorkspaceSelect;
 
 type WorkspaceContextRow = Prisma.ContentWorkspaceGetPayload<{
@@ -60,9 +61,14 @@ export type EditorProductRow = {
  * 목록 · 프롬프트에 쓰는 작업공간 이름. 직접 작업공간은 제목, 리스팅 작업공간은 몰이 보여주는 이름이다.
  * 판매 상품 작업공간은 이름을 갖지 않는다 — 호출자가 요청의 상품명을 쓴다(AI 는 Channels 행으로 이름을 채우지 않는다).
  */
+function readJobProductName(inputMeta: unknown): string | null {
+  if (!inputMeta || typeof inputMeta !== 'object') return null;
+  const value = (inputMeta as Record<string, unknown>).productName;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 function workspaceName(workspace: WorkspaceContextRow): string {
   return (
-    workspace.channelListing?.displayName ||
     workspace.channelListing?.displayName ||
     workspace.channelListing?.channelName ||
     workspace.channelListing?.externalId ||
@@ -155,12 +161,20 @@ export async function findWorkspaceForThumbnailEditor(
 
 export async function findGenerationWorkspaces(
   prisma: PrismaService,
-  rows: Array<{ contentWorkspaceId: string | null }>,
+  rows: Array<{ contentWorkspaceId: string | null; inputMeta?: unknown }>,
   organizationId: string,
   listings: ChannelListingQueryPort,
 ): Promise<Map<string, GenerationWorkspaceSummary>> {
   const ids = [...new Set(rows.map((row) => row.contentWorkspaceId).filter((id): id is string => Boolean(id)))];
   const workspaces = await findWorkspaceContexts(prisma, ids, organizationId, listings);
+  // 작업공간은 이름을 갖지 않는다 — 리스팅 이름이 없으면 그 작업공간 job 이 시작될 때 받은 상품명을 부른다.
+  const jobProductName = new Map<string, string>();
+  for (const row of rows) {
+    const name = readJobProductName(row.inputMeta);
+    if (row.contentWorkspaceId && name && !jobProductName.has(row.contentWorkspaceId)) {
+      jobProductName.set(row.contentWorkspaceId, name);
+    }
+  }
   return new Map(
     workspaces.map((workspace) => {
       const job = toThumbnailJobWorkspace(workspace);
@@ -168,7 +182,8 @@ export async function findGenerationWorkspaces(
         workspace.id,
         {
           id: job.id,
-          name: job.name,
+          salesProductId: workspace.salesProductId,
+          name: job.name || jobProductName.get(workspace.id) || '',
           imageUrl: job.imageUrl,
           category: job.category,
         },

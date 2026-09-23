@@ -1,47 +1,35 @@
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import type { ThumbnailJobView } from '../../../_shared/hooks/useThumbnailJobs';
 import { useGenerationAwaitingState } from './useGenerationAwaitingState';
 
-function generation(overrides: Partial<ThumbnailGenerationItem>): ThumbnailGenerationItem {
+function job(overrides: Partial<ThumbnailJobView>): ThumbnailJobView {
   return {
     id: 'generation-1',
-    createdAt: '2026-05-18T00:00:00.000Z',
-    status: 'pending',
-    phase: null,
-    grade: 'F',
-    score: 0,
     contentWorkspaceId: 'workspace-direct',
-    sourceCandidateId: null,
-    originalUrl: 'https://example.com/input.jpg',
-    selectedUrl: null,
-    candidates: [],
+    status: 'pending',
     method: 'generate',
-    editAnalysis: null,
-    inputMeta: null,
-    contentWorkspace: {
-      id: 'workspace-direct',
-      name: '직접 업로드',
-      imageUrl: 'https://example.com/input.jpg',
-      coupangProductId: null,
-      category: null,
-    },
+    prompt: null,
+    errorMessage: null,
+    attemptCount: 0,
+    createdAt: '2026-05-18T00:00:00.000Z',
+    updatedAt: '2026-05-18T00:00:00.000Z',
+    candidates: [],
+    adoptedCandidate: null,
+    workspace: { id: 'workspace-direct', salesProductId: null, name: '직접 업로드', imageUrl: 'https://example.com/input.jpg' },
     ...overrides,
   };
 }
 
 describe('useGenerationAwaitingState', () => {
-  it('uses a directly fetched generation when the ownerless row is absent from the list query', () => {
-    const directUploadGeneration = generation({
-      id: 'direct-upload-generation',
-      status: 'pending',
-    });
+  it('uses a directly fetched job when the ownerless row is absent from the list query', () => {
+    const directUploadJob = job({ id: 'direct-upload-generation', status: 'pending' });
 
     const { result } = renderHook(() =>
-      useGenerationAwaitingState('direct-upload-generation', [], directUploadGeneration),
+      useGenerationAwaitingState('direct-upload-generation', [], directUploadJob),
     );
 
-    expect(result.current.targetGen).toBe(directUploadGeneration);
+    expect(result.current.targetGen).toBe(directUploadJob);
     expect(result.current.isAwaitingGen).toBe(true);
   });
 });

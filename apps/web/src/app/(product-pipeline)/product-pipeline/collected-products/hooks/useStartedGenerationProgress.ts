@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import type { ThumbnailGenerationListResponse } from '@kiditem/shared/ai';
+import type { ThumbnailJobListResponse } from '@kiditem/shared/ai';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -99,7 +99,7 @@ export function useStartedGenerationProgress(started: readonly StartedGeneration
     queryKey: PROGRESS_KEYS.thumbnail,
     enabled: hasThumbnail && cachedRunning(queryClient, 'thumbnail', started).length > 0,
     queryFn: async (): Promise<StatusRow[]> => {
-      const response = await apiClient.get<ThumbnailGenerationListResponse>(
+      const response = await apiClient.get<ThumbnailJobListResponse>(
         '/api/thumbnail-analysis/generations?limit=100',
       );
       return response.items.map((row) => ({ id: row.id, status: row.status }));

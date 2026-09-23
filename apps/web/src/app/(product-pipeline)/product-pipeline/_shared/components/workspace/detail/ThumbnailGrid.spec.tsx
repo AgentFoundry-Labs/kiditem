@@ -39,14 +39,14 @@ describe('ThumbnailGrid', () => {
           {
             url: 'https://cdn.example.com/product.jpg',
             kind: 'source',
+            assetId: null,
             generatedGenerationId: null,
-            generatedCandidateId: null,
           },
           {
             url: 'https://cdn.example.com/generated.jpg',
             kind: 'generated',
+            assetId: 'asset-1',
             generatedGenerationId: 'generation-1',
-            generatedCandidateId: 'candidate-1',
           },
         ]}
         onThumbnailsChange={vi.fn()}

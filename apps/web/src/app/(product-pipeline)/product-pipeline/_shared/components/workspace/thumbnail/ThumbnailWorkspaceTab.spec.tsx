@@ -13,16 +13,22 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => searchParamsMock(),
 }));
 
-vi.mock('../../../hooks/useGenerateSourcingThumbnail', () => ({
-  useSourcingThumbnailGenerations: () => ({
+vi.mock('../../../hooks/useRepresentativeImage', () => ({
+  useThumbnailGallery: () => ({
     data: [
       {
-        id: 'generation-1',
-        status: 'succeeded',
-        phase: 'ready',
-        registrationStatus: null,
-        registrationError: null,
-        candidates: [{ id: 'candidate-1', url: 'https://cdn.example.com/generated.jpg' }],
+        id: 'asset-ai-1',
+        contentWorkspaceId: 'workspace-1',
+        source: 'ai',
+        role: 'thumbnail',
+        url: 'https://cdn.example.com/generated.jpg',
+        label: null,
+        sortOrder: 0,
+        width: null,
+        height: null,
+        thumbnailGenerationId: 'generation-1',
+        isCurrentThumbnail: false,
+        createdAt: '2026-09-23T00:00:00.000Z',
       },
     ],
     isLoading: false,
@@ -311,8 +317,8 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/source.jpg',
         kind: 'source',
+        assetId: null,
         generatedGenerationId: null,
-        generatedCandidateId: null,
       },
     });
   });
@@ -341,8 +347,8 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/source.jpg',
         kind: 'source',
+        assetId: null,
         generatedGenerationId: null,
-        generatedCandidateId: null,
       },
     });
   });
@@ -380,8 +386,8 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/other.jpg',
         kind: 'source',
+        assetId: null,
         generatedGenerationId: null,
-        generatedCandidateId: null,
       },
     });
   });

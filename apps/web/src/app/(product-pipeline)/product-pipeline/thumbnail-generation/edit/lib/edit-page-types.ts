@@ -8,6 +8,8 @@ export interface HistoryCandidate {
   method: string;
   createdAt: string;
   generationId: string | null;
+  /** 후보 콘텐츠 자산 id. 채택 · 삭제 · 몰 올리기가 이 id 로 한다. 아직 저장 전 결과면 null. */
+  assetId: string | null;
 }
 
 export const EDIT_CASE_LABEL: Record<EditUseCase, string> = {

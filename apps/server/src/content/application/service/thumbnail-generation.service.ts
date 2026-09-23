@@ -245,6 +245,7 @@ export class ThumbnailGenerationService {
       candidates: candidates.map(toContentAssetItem),
       workspaces: [...workspaces.values()].map((workspace) => ({
         id: workspace.id,
+        salesProductId: workspace.salesProductId,
         name: workspace.name,
         imageUrl: workspace.imageUrl,
       })),

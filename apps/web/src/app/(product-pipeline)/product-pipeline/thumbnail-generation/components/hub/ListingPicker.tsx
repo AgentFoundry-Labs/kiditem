@@ -4,17 +4,22 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
-import { useWingRegister } from '../../../_shared/hooks/useThumbnailGenerations';
-import { fetchRepresentativeImageListingChoices, representativeImageUploadedMessage, representativeImageUploadReached } from '../../../_shared/lib/representative-image-execution';
+import { useWingRegister } from '../../../_shared/hooks/useRepresentativeImage';
+import {
+  fetchRepresentativeImageListingChoices,
+  representativeImageUploadedMessage,
+  representativeImageUploadReached,
+  type RepresentativeImageSubject,
+} from '../../../_shared/lib/representative-image-execution';
 
 /**
- * 판매상품에 대표이미지를 받는 채널의 리스팅이 여럿이라 준비가 거절된(`ambiguous_listing`) 생성에서, 운영자가
+ * 판매상품에 대표이미지를 받는 채널의 리스팅이 여럿이라 준비가 거절된(`ambiguous_listing`) 대표이미지에서, 운영자가
  * 올릴 리스팅을 고르고 그 리스팅으로 다시 올린다. 몰 이름은 리스팅 줄이 말하고 이 화면은 몰을 모른다(KID-321).
  */
-export function ListingPicker({ generationId, onDone }: { generationId: string; onDone: () => void }) {
+export function ListingPicker({ subject, onDone }: { subject: RepresentativeImageSubject; onDone: () => void }) {
   const choices = useQuery({
-    queryKey: queryKeys.thumbnailExecutions.listingChoices(generationId),
-    queryFn: () => fetchRepresentativeImageListingChoices(generationId),
+    queryKey: queryKeys.thumbnailExecutions.listingChoices(subject.salesProductId),
+    queryFn: () => fetchRepresentativeImageListingChoices(subject.salesProductId),
   });
   const register = useWingRegister();
   const [picked, setPicked] = useState<string>('');
@@ -41,7 +46,7 @@ export function ListingPicker({ generationId, onDone }: { generationId: string; 
         type="button"
         disabled={!selected || register.isPending}
         onClick={() => {
-          register.mutate({ generationId, channelListingId: selected }, {
+          register.mutate({ ...subject, channelListingId: selected }, {
             onSuccess: (result) => {
               if (!representativeImageUploadReached(result)) {
                 toast.error(result.error ?? '대표이미지를 올리지 못했습니다');

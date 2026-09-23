@@ -1,27 +1,8 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import { useThumbnailJobs } from '../../_shared/hooks/useThumbnailJobs';
 
-import { apiClient } from '@/lib/api-client';
-import { queryKeys } from '@/lib/query-keys';
-
+/** 이 작업공간의 최근 대표이미지 생성 job(후보 자산 포함). 작업공간이 없으면 읽지 않는다. */
 export function useRecentGenerations(contentWorkspaceId: string | null, limit = 10) {
-  return useQuery({
-    queryKey: queryKeys.thumbnailAnalysis.generations(
-      contentWorkspaceId
-        ? { contentWorkspaceId, limit: String(limit) }
-        : { contentWorkspaceId: '', limit: String(limit) },
-    ),
-    queryFn: async () => {
-      const res = await apiClient.get<{
-        items: ThumbnailGenerationItem[];
-        total: number;
-      }>(
-        `/api/thumbnail-analysis/generations?contentWorkspaceId=${encodeURIComponent(contentWorkspaceId ?? '')}&limit=${limit}`,
-      );
-      return res?.items ?? [];
-    },
-    enabled: !!contentWorkspaceId,
-  });
+  return useThumbnailJobs({ contentWorkspaceId, limit, enabled: Boolean(contentWorkspaceId) });
 }

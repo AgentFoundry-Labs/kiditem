@@ -61,7 +61,7 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
     return findGenerationOrThrow(this.prisma, id, organizationId);
   }
 
-  async findGenerationWorkspaces(rows: Array<{ contentWorkspaceId: string | null }>, organizationId: string) {
+  async findGenerationWorkspaces(rows: Array<{ contentWorkspaceId: string | null; inputMeta?: unknown }>, organizationId: string) {
     return findGenerationWorkspaces(this.prisma, rows, organizationId, this.listings);
   }
 

@@ -7,7 +7,7 @@ import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/produ
 import { prepareImageUploadFile } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/lib/image-whitespace-crop';
 import { writeThumbnailEditorUpload } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/upload-session';
 import { apiClient } from '@/lib/api-client';
-import { useSourcingThumbnailGenerations } from '../../../hooks/useGenerateSourcingThumbnail';
+import { useThumbnailGallery } from '../../../hooks/useRepresentativeImage';
 import { thumbnailGenerationEditHref } from '../../../lib/product-pipeline-routes';
 import ProductThumbnailResults from './ProductThumbnailResults';
 import ThumbnailSourcePicker from './ThumbnailSourcePicker';
@@ -69,23 +69,16 @@ export default function ThumbnailWorkspaceTab({
       editData.thumbnails[0] ??
       null,
   );
-  // 썸네일 이력은 이 작업공간의 것만 읽는다(B3). 작업공간이 없으면 읽지 않는다.
-  const thumbnailGenerations = useSourcingThumbnailGenerations(contentWorkspaceId);
+  // 대표이미지 갤러리(업로드 · AI 후보 자산)는 이 작업공간의 것만 읽는다. 작업공간이 없으면 읽지 않는다.
+  const gallery = useThumbnailGallery(contentWorkspaceId);
+  const galleryAssets = useMemo(() => gallery.data ?? [], [gallery.data]);
   const sourceOptions = useMemo(
-    () =>
-      buildThumbnailSourceOptions({
-        sourceImageUrls: editData.thumbnails,
-        generations: thumbnailGenerations.data ?? [],
-      }),
-    [editData.thumbnails, thumbnailGenerations.data],
+    () => buildThumbnailSourceOptions({ sourceImageUrls: editData.thumbnails, galleryAssets }),
+    [editData.thumbnails, galleryAssets],
   );
   const resultOptions = useMemo(
-    () =>
-      getGeneratedThumbnailOptions({
-        sourceImageUrls: editData.thumbnails,
-        generations: thumbnailGenerations.data ?? [],
-      }),
-    [editData.thumbnails, thumbnailGenerations.data],
+    () => getGeneratedThumbnailOptions({ sourceImageUrls: editData.thumbnails, galleryAssets }),
+    [editData.thumbnails, galleryAssets],
   );
   const fallbackPreviewImages = useMemo(
     () => uniqueNonEmpty([selectedRegistrationThumbnailUrl, thumbnailUrl, editData.thumbnails[0]]),
@@ -213,8 +206,8 @@ export default function ThumbnailWorkspaceTab({
     ({
       url,
       kind: 'source',
+      assetId: null,
       generatedGenerationId: null,
-      generatedCandidateId: null,
     } satisfies RegistrationThumbnailOption);
 
   /**

@@ -188,9 +188,10 @@ describe('sourcing API', () => {
         [`/api/ai/content-workspaces/by-sales-product/${DRAFT_ID}/registration-media`]: {
           registrationImages: { primary: ['https://cdn.example.com/primary.png'], thumbnail: ['https://cdn.example.com/t1.png'], detail: [] },
           currentThumbnail: {
+            assetId: '00000000-0000-4000-8000-0000000000b1',
             url: 'https://cdn.example.com/selected.png',
-            sourceThumbnailGenerationId: 'gen-1',
-            sourceThumbnailCandidateId: null,
+            source: 'ai',
+            thumbnailGenerationId: 'gen-1',
           },
         },
       });
@@ -214,7 +215,8 @@ describe('sourcing API', () => {
       // 등록용 사진과 대표 썸네일은 초안의 것이다.
       expect(detail.registrationImages.thumbnail).toEqual(['https://cdn.example.com/t1.png']);
       expect(detail.basicInfo.selectedThumbnailUrl).toBe('https://cdn.example.com/selected.png');
-      expect(detail.currentThumbnail?.sourceThumbnailGenerationId).toBe('gen-1');
+      expect(detail.currentThumbnail).toMatchObject({ assetId: '00000000-0000-4000-8000-0000000000b1', thumbnailGenerationId: 'gen-1' });
+      expect(detail.basicInfo.selectedThumbnailAssetId).toBe('00000000-0000-4000-8000-0000000000b1');
     });
 
     it('원천 기록이 없는 초안(직접 작성 · 사방넷)은 후보를 묻지 않고 초안 사진으로 보인다', async () => {

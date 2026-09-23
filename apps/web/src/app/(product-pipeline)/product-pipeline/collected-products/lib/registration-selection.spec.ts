@@ -1,56 +1,45 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildRegistrationThumbnailOptions,
-  selectedThumbnailGenerationId,
-  selectedThumbnailGenerationCandidateId,
-} from './registration-selection';
+import type { ContentAssetItem } from '@kiditem/shared/product-content';
+import { buildRegistrationThumbnailOptions } from './registration-selection';
+
+const asset = (patch: Partial<ContentAssetItem> & Pick<ContentAssetItem, 'id' | 'url' | 'source'>): ContentAssetItem => ({
+  contentWorkspaceId: '00000000-0000-4000-8000-000000000001',
+  role: 'thumbnail',
+  label: null,
+  sortOrder: 0,
+  width: null,
+  height: null,
+  thumbnailGenerationId: null,
+  isCurrentThumbnail: false,
+  createdAt: '2026-09-23T00:00:00.000Z',
+  ...patch,
+});
 
 describe('sourcing registration thumbnail selection', () => {
-  it('keeps generated thumbnail candidates visible without auto-promoting them above source images', () => {
+  it('keeps AI candidates visible after the source images and carries every gallery asset id', () => {
     const options = buildRegistrationThumbnailOptions({
       sourceImageUrls: ['https://cdn.example.com/source-a.jpg', 'https://cdn.example.com/source-b.jpg'],
-      generations: [
-        {
-          id: 'generated-generation-1',
-          candidates: [
-            { id: 'generated-candidate-1', url: 'https://cdn.example.com/generated-a.jpg' },
-          ],
-        },
+      galleryAssets: [
+        asset({ id: 'asset-ai', url: 'https://cdn.example.com/generated-a.jpg', source: 'ai', thumbnailGenerationId: 'job-1' }),
+        asset({ id: 'asset-upload', url: 'https://cdn.example.com/source-b.jpg', source: 'upload' }),
       ],
     });
 
-    expect(options.map((option) => ({ url: option.url, kind: option.kind }))).toEqual([
-      { url: 'https://cdn.example.com/source-a.jpg', kind: 'source' },
-      { url: 'https://cdn.example.com/source-b.jpg', kind: 'source' },
-      { url: 'https://cdn.example.com/generated-a.jpg', kind: 'generated' },
+    expect(options).toEqual([
+      { url: 'https://cdn.example.com/source-a.jpg', kind: 'source', assetId: null, generatedGenerationId: null },
+      { url: 'https://cdn.example.com/source-b.jpg', kind: 'source', assetId: 'asset-upload', generatedGenerationId: null },
+      { url: 'https://cdn.example.com/generated-a.jpg', kind: 'generated', assetId: 'asset-ai', generatedGenerationId: 'job-1' },
     ]);
-    expect(options[2]).toEqual({
-      url: 'https://cdn.example.com/generated-a.jpg',
-      kind: 'generated',
-      generatedGenerationId: 'generated-generation-1',
-      generatedCandidateId: 'generated-candidate-1',
-    });
   });
 
-  it('resolves a generated candidate id only after the operator explicitly selects that URL', () => {
-    const generations = [
-      {
-        id: 'generated-generation-1',
-        candidates: [
-          { id: 'generated-candidate-1', url: 'https://cdn.example.com/generated-a.jpg' },
-        ],
-      },
-    ];
+  it('lists an uploaded gallery image that is not among the source images as a source option', () => {
+    const options = buildRegistrationThumbnailOptions({
+      sourceImageUrls: [],
+      galleryAssets: [asset({ id: 'asset-upload', url: 'https://cdn.example.com/upload.jpg', source: 'upload' })],
+    });
 
-    expect(selectedThumbnailGenerationCandidateId(null, generations)).toBeNull();
-    expect(
-      selectedThumbnailGenerationCandidateId('https://cdn.example.com/source-a.jpg', generations),
-    ).toBeNull();
-    expect(
-      selectedThumbnailGenerationCandidateId('https://cdn.example.com/generated-a.jpg', generations),
-    ).toBe('generated-candidate-1');
-    expect(
-      selectedThumbnailGenerationId('https://cdn.example.com/generated-a.jpg', generations),
-    ).toBe('generated-generation-1');
+    expect(options).toEqual([
+      { url: 'https://cdn.example.com/upload.jpg', kind: 'source', assetId: 'asset-upload', generatedGenerationId: null },
+    ]);
   });
 });

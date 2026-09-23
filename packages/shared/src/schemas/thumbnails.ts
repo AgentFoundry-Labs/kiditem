@@ -129,6 +129,8 @@ export const EditAnalysisResultSchema = z.object({
  */
 export const ThumbnailJobWorkspaceSummarySchema = z.object({
   id: z.string().uuid(),
+  /** 판매 상품 작업공간이면 그 판매 상품 — 대표이미지 몰 반영 실행의 열쇠다. */
+  salesProductId: z.string().uuid().nullable(),
   name: z.string(),
   imageUrl: z.string().nullable(),
 }).strict();

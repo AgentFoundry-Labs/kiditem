@@ -4,7 +4,7 @@ Before working in this directory, always read this document first rather than re
 
 `app/(product-pipeline)/` owns the product content pipeline UI: collected
 products, registered products, content workspaces, detail-page generation,
-detail editing, thumbnail analysis, and thumbnail generation. It coordinates
+detail editing, listing thumbnail evaluation, and thumbnail generation. It coordinates
 backend AI/content APIs but does not own the model prompts or durable generation
 state.
 
@@ -13,7 +13,8 @@ state.
 - Collected product workspace and raw-data projections
 - Content workspace tabs for product, thumbnail, and detail-page work
 - Detail-page generation, preview, editor, and history views
-- Thumbnail analysis, batch analysis, tracking, and generation flows
+- Listing thumbnail evaluation, AI thumbnail jobs, candidate adoption, and
+  generation flows
 - Channel listing confirmation and registration handoff views
 
 ## Data Flow
@@ -22,7 +23,8 @@ state.
 React Query + apiClient
   -> /api/sourcing/*
   -> /api/ai/*
-  -> /api/thumbnail-analysis/*
+  -> /api/thumbnail-analysis/{generations,edit-jobs}  (thumbnail jobs + candidate assets)
+  -> /api/ai/listing-thumbnails/*  (listing image evaluation)
   -> /api/thumbnail-editor/*
   -> /api/channels/listings/*
   -> /api/channels/thumbnail-executions  (representative image upload: prepare, report, resend, applied/not-applied, listing choices, latest status)
@@ -49,6 +51,9 @@ React Query + apiClient
   group imports them.
 - Generated detail/thumbnail history is backend-owned; local UI selection state
   is not a source of truth.
+- The representative image is one content asset: adopt it with
+  `PATCH /api/ai/content-workspaces/:id/current-thumbnail {assetId}`, and key
+  mall uploads by `{salesProductId, assetId}`.
 
 ## Verification
 

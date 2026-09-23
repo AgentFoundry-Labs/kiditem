@@ -132,6 +132,17 @@ describe('thumbnail job (PG integration)', () => {
     ]);
   });
 
+  it('names each listed workspace with its sales product and the product name the job was started with', async () => {
+    const { workspaceId, jobId } = await seedPendingJob({ mode: 'edit', productName: '자석 다트게임' });
+    const workspace = await prisma.contentWorkspace.findUniqueOrThrow({ where: { id: workspaceId } });
+
+    const listed = await generations.findOne(jobId, TEST_ORGANIZATION_ID);
+
+    expect(listed.workspaces).toEqual([
+      { id: workspaceId, salesProductId: workspace.salesProductId, name: '자석 다트게임', imageUrl: null },
+    ]);
+  });
+
   it('refuses to delete a job or remove a candidate that is the adopted representative image', async () => {
     const { workspaceId, jobId } = await seedPendingJob();
     await succeed(jobId, ['a.png', 'b.png']);

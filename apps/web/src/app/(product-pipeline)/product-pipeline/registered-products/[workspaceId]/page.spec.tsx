@@ -63,9 +63,8 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     currentDetailPageArtifactId: 'artifact-1',
     currentDetailPageRevisionId: 'revision-1',
     currentDetailPageGenerationId: 'generation-1',
-    currentThumbnailSelection: {
-      id: 'selection-1',
-      contentAssetId: 'asset-1',
+    currentThumbnailAsset: {
+      id: 'asset-1',
       url: 'https://cdn.example.com/workspace.png',
     },
     createdAt: '2026-07-13T00:00:00.000Z',

@@ -40,7 +40,7 @@ describe('thumbnail identity contracts', () => {
         isCurrentThumbnail: false,
         createdAt: '2026-07-14T00:00:00.000Z',
       }],
-      workspaces: [{ id: WORKSPACE_ID, name: 'Workspace product', imageUrl: null }],
+      workspaces: [{ id: WORKSPACE_ID, salesProductId: null, name: 'Workspace product', imageUrl: null }],
       total: 1,
     });
 

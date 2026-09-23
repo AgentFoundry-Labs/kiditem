@@ -30,7 +30,7 @@ export function AutoEditSection() {
         toast.success(`자동 재편집: 성공 ${data.succeeded} / 실패 ${data.failed} / 쿨다운 스킵 ${data.skipped}`);
       }
       queryClient.invalidateQueries({
-        queryKey: queryKeys.thumbnailAnalysis.all,
+        queryKey: queryKeys.thumbnailJobs.all,
       });
     },
     onError: (err: unknown) => {

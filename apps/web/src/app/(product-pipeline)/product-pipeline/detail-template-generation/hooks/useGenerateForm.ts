@@ -8,8 +8,9 @@ import type {
   DetailImageCount,
   DetailPageAgeGroup,
   DetailPageTemplateId,
-  ThumbnailGenerationItem,
+  ThumbnailJobListResponse,
 } from '@kiditem/shared/ai';
+import type { ThumbnailJob } from '@kiditem/shared/product-content';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -223,10 +224,10 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   );
   const thumbnailStatusQuery = useQuery({
     queryKey: ['thumbnail-generation', generationDialog?.thumbnailGenerationId ?? 'noop'],
-    queryFn: () =>
-      apiClient.get<ThumbnailGenerationItem>(
+    queryFn: async () =>
+      (await apiClient.get<ThumbnailJobListResponse>(
         `/api/thumbnail-analysis/generations/${generationDialog?.thumbnailGenerationId}`,
-      ),
+      )).items[0] ?? null,
     enabled: Boolean(generationDialog?.open && generationDialog.thumbnailGenerationId),
     refetchInterval: (query) => {
       const item = query.state.data;
@@ -703,7 +704,7 @@ function generationStatusToDialogPhase(
 }
 
 function thumbnailStatusToDialogPhase(
-  status: ThumbnailGenerationItem['status'] | undefined,
+  status: ThumbnailJob['status'] | undefined,
 ): GenerationDialogPhase | null {
   if (status === 'pending' || status === 'running') return 'started';
   if (status === 'succeeded') return 'completed';
@@ -717,7 +718,7 @@ export function resolveProductGenerationDialogPhase(input: {
   detailGenerationId: string | null;
   detail?: KidsPlayfulGenerationItem;
   thumbnailGenerationId: string | null;
-  thumbnail?: ThumbnailGenerationItem;
+  thumbnail?: Pick<ThumbnailJob, 'status'> | null;
 }): GenerationDialogPhase | null {
   if (input.currentPhase === 'cancelled') return null;
 
