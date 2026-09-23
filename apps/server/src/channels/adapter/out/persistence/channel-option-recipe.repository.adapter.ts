@@ -142,11 +142,6 @@ implements ChannelOptionRecipeRepositoryPort {
   }) {
     return this.prisma.$transaction(async (tx) => {
       await lockProductMapping(tx, input.organizationId);
-      await validateRecipeTargetsInTransaction(
-        tx,
-        input,
-        this.productTransactionalRead,
-      );
       const option = await tx.channelListingOption.findFirst({
         where: {
           id: input.channelListingOptionId,
@@ -166,6 +161,8 @@ implements ChannelOptionRecipeRepositoryPort {
       if (!sameRecipe(option.inventoryComponents, input.expectedComponents)) {
         throw new ListingException('conflict', 'The option recipe changed after it was loaded');
       }
+      // A stale request is a conflict first, even when it names a since-deleted product.
+      await validateRecipeTargetsInTransaction(tx, input, this.productTransactionalRead);
       const recipeChanged = !sameRecipe(option.inventoryComponents, input.components);
       if (recipeChanged) {
         await tx.channelListingOptionInventoryComponent.deleteMany({

@@ -174,6 +174,29 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
     await expect(readGeneration()).resolves.toBe(0n);
   });
 
+  it('answers a stale replacement with a conflict even when it names a since-deleted product', async () => {
+    const current = await createProduct('CURRENT', 12);
+    const deleted = await createProduct('DELETED', 4);
+    const { options } = await createListing(1);
+    const option = options[0]!;
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, masterProductId: current.id, quantity: 2 },
+    });
+    await prisma.masterProduct.delete({ where: { id: deleted.id } });
+
+    await expect(recipes.replaceRecipe({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingOptionId: option.id,
+      expectedComponents: [],
+      components: [{ masterProductId: deleted.id, quantity: 1 }],
+    })).rejects.toMatchObject({ code: 'conflict' });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: option.id },
+      select: { masterProductId: true, quantity: true },
+    })).resolves.toEqual([{ masterProductId: current.id, quantity: 2 }]);
+    await expect(readGeneration()).resolves.toBe(0n);
+  });
+
   it('issues a separate bundle code when a singleton recipe changes without rewriting seller SKU', async () => {
     const product = await createProduct('CODE-TRANSITION', 8);
     const { options } = await createListing(1);
