@@ -162,12 +162,6 @@ export const MALL_LISTING_STATE_PRESENTATION: Record<
     dot: 'bg-sky-500',
     attention: false,
   },
-  preparing: {
-    label: '준비중',
-    tone: 'bg-slate-500 text-white',
-    dot: 'bg-slate-400',
-    attention: false,
-  },
   error: {
     label: '오류',
     tone: 'bg-red-600 text-white',

@@ -7,6 +7,8 @@ import {
   FORM_MALL_ADAPTERS,
   type MallReadiness,
 } from '../../../../(channels)/_shared/mall-register-values';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
+import { RegistrationStateBadge } from '../../../../(channels)/_shared/components/RegistrationStateBadge';
 import type { MallRunOutcome } from '../lib/mall-quick-register-run';
 
 /**
@@ -54,6 +56,11 @@ interface MallQuickRegisterRowsProps {
   /** 이번 모달에서 이미 돌린 결과. 몰키 → 결과. */
   results: Readonly<Record<string, MallRunOutcome>>;
   /**
+   * 이 상품의 몰 계정별 등록 상태(등록 상태 reader, KID-320). 폼 채움 배지와 다른 사실이라 옆에 따로 선다 —
+   * 폼을 채운 것은 등록이 아니다.
+   */
+  registrationAccounts?: readonly RegistrationAccountState[];
+  /**
    * 지금 폼을 채우는 중인 몰키들. 비어 있으면 도는 것이 없다.
    *
    * 하나가 아니라 여럿인 까닭 — 등록은 묶음으로 동시에 돈다. 칸이 하나면 마지막에 시작한
@@ -91,6 +98,7 @@ const STATUS_STYLE: Record<RowStatus, { label: string; className: string }> = {
 export function MallQuickRegisterRows({
   readiness,
   results,
+  registrationAccounts = [],
   runningMallKeys,
   isLoading,
   disabled,
@@ -182,6 +190,8 @@ export function MallQuickRegisterRows({
             const needsConfirmation = confirmKeys.has(row.mallKey);
             const result = results[row.mallKey] ?? null;
             const badge = STATUS_STYLE[status];
+            // 계정 행의 `channel` 은 몰 키다(ADR-0012).
+            const mallAccounts = registrationAccounts.filter((account) => account.channel === row.mallKey);
             return (
               <div key={row.mallKey} className={status === 'blocked' ? 'bg-slate-50/60' : ''}>
                 <div className="flex items-center gap-2 px-3 py-2">
@@ -211,6 +221,11 @@ export function MallQuickRegisterRows({
                           : ''}
                     </span>
                   </label>
+                  {mallAccounts.length === 1 ? (
+                    <RegistrationStateBadge account={mallAccounts[0]!} className="shrink-0" />
+                  ) : mallAccounts.length > 1 ? (
+                    <RegistrationStateBadge accounts={mallAccounts} className="shrink-0" />
+                  ) : null}
                   <span
                     className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black ring-1 ${badge.className}`}
                   >

@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import { Pagination } from '@/components/ui/Pagination';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import type { MallPublishItem } from '../../_shared/mall-publish-adapter';
+import { RegistrationStateBadge } from '../../_shared/components/RegistrationStateBadge';
 
 interface StepProductsProps {
   /** 판매상품(한 번 편집한 상품)에서 보내는가, 수집상품에서 바로 보내는가. */
@@ -13,6 +15,8 @@ interface StepProductsProps {
   search: string;
   onSearch: (search: string) => void;
   items: MallPublishItem[];
+  /** 상품(candidateId) → 등록 상태 reader 의 계정별 상태(목록이 싣고 온 값, KID-320). */
+  registrationByItem?: ReadonlyMap<string, readonly RegistrationAccountState[]>;
   total: number;
   page: number;
   limit: number;
@@ -35,6 +39,7 @@ export function StepProducts({
   search,
   onSearch,
   items,
+  registrationByItem,
   total,
   page,
   limit,
@@ -151,6 +156,9 @@ export function StepProducts({
                           <span className="flex-none rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
                             옵션 {item.optionCount}
                           </span>
+                        )}
+                        {(registrationByItem?.get(item.candidateId)?.length ?? 0) > 0 && (
+                          <RegistrationStateBadge accounts={registrationByItem!.get(item.candidateId)!} className="flex-none" />
                         )}
                       </div>
                     </td>

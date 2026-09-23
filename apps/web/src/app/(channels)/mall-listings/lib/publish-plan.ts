@@ -4,7 +4,9 @@ import {
   type MallPublishItem,
   type MallSendOutcome,
 } from '../../_shared/mall-publish-adapter';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import type { PublishTask, PublishTaskStatus } from '../../_shared/use-mall-publish-run';
+import { isLiveRegistrationState, registrationStateLabel } from '../../_shared/registration-account-state';
 
 /**
  * 송신 계획.
@@ -41,6 +43,26 @@ export interface BuildPublishPlanInput {
   editedValuesByMall?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** Exact account IDs returned with the selected mall targets. */
   channelAccountIds?: Readonly<Record<string, string | null | undefined>>;
+  /** 상품(candidateId) → 등록 상태 reader 의 계정별 상태. 목록이 싣고 온 값이다(KID-320). */
+  registrationAccountsByItem?: ReadonlyMap<string, readonly RegistrationAccountState[]>;
+}
+
+/**
+ * 그 몰 계정에 이미 등록됐거나 보내는 중이면 새 등록으로 보내지 않는다 — 같은 상품을 한 계정에 두 번
+ * 올리지 않게. 등록된 상품의 바뀐 값은 수정 실행이 보낸다.
+ */
+function registrationProblem(
+  accounts: readonly RegistrationAccountState[] | undefined,
+  channelAccountId: string | null | undefined,
+): string | null {
+  if (!channelAccountId) return null;
+  const account = accounts?.find((one) => one.channelAccountId === channelAccountId);
+  if (!account) return null;
+  if (account.state === 'registered') return '이 몰 계정에 이미 등록됨 — 바뀐 값은 수정으로 보냅니다.';
+  if (isLiveRegistrationState(account.state)) {
+    return `이 몰 계정으로 ${registrationStateLabel(account.state)} — 끝난 뒤 다시 고르세요.`;
+  }
+  return null;
 }
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
@@ -67,8 +89,10 @@ export function buildPublishPlan(input: BuildPublishPlanInput): PublishPlan {
     const values = input.valuesByMall[adapter.mallKey] ?? {};
     const sendable: MallPublishItem[] = [];
 
+    const channelAccountId = input.channelAccountIds?.[adapter.mallKey];
     for (const item of input.items) {
-      const sourceProblem = itemSourceProblem(adapter, item);
+      const registered = registrationProblem(input.registrationAccountsByItem?.get(item.candidateId), channelAccountId);
+      const sourceProblem = registered ?? itemSourceProblem(adapter, item);
       const reasons = sourceProblem ? [sourceProblem] : adapter.validate(item, values);
       if (reasons.length > 0) {
         blocks.push({

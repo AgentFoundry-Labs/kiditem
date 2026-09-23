@@ -21,10 +21,12 @@ import {
 } from '../hooks/use-mall-live-availability';
 import { CellActionPopover, RowActionMenu } from './ListingActionMenus';
 import type {
+  MallListingMatrixCell,
   MallListingMatrixColumn,
   MallListingMatrixRow,
   MallListingState,
 } from '@kiditem/shared/mall-publishing';
+import { RegistrationStateBadge } from '../../_shared/components/RegistrationStateBadge';
 import type { MallLiveSummary } from '../../_shared/mall-availability-send';
 import type { MallStopKind } from '../../_shared/mall-presentation';
 
@@ -464,6 +466,7 @@ function MatrixRow({
               >
                 <StatePill
                   state={state}
+                  registration={cell?.registration ?? null}
                   rawStatus={cell?.rawStatus ?? null}
                   warning={cell?.warning ?? null}
                   updatedAt={cell?.updatedAt ?? null}
@@ -557,6 +560,7 @@ function livePillTone(summary: MallLiveSummary): MallStopKind | null {
 
 function StatePill({
   state,
+  registration = null,
   rawStatus,
   warning,
   updatedAt,
@@ -564,6 +568,8 @@ function StatePill({
   live = null,
 }: {
   state: MallListingState;
+  /** 판매상품 × 이 몰 계정의 등록 상태(reader). 있으면 이것이 칸의 배지다(KID-313 결정 11). */
+  registration?: MallListingMatrixCell['registration'];
   rawStatus: string | null;
   warning: string | null;
   updatedAt: string | null;
@@ -582,6 +588,18 @@ function StatePill({
       >
         <PillIcon size={11} />
         {label}
+      </span>
+    );
+  }
+  if (registration) {
+    const title = [
+      rawStatus ? `몰 상태: ${rawStatus}` : null,
+      warning,
+      updatedAt ? `갱신 ${formatDateTime(updatedAt)}` : null,
+    ].filter(Boolean).join('\n');
+    return (
+      <span title={title || undefined} className="inline-flex">
+        <RegistrationStateBadge account={registration} className="justify-center" />
       </span>
     );
   }

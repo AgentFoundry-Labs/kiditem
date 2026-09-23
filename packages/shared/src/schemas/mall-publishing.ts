@@ -170,7 +170,6 @@ export type MallPreflightResponse = z.infer<typeof MallPreflightResponseSchema>;
 export const MallListingStateSchema = z.enum([
   'published',
   'reviewing',
-  'preparing',
   'error',
   'paused',
   'discontinued',

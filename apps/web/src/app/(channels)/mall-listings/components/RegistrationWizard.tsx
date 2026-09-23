@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import { AlertCircle, ArrowLeft, ArrowRight, RotateCcw, Send } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -63,6 +64,8 @@ export function RegistrationWizard() {
   const [step, setStep] = useState(1);
   const [page, setPage] = useState(1);
   const [selectedItems, setSelectedItems] = useState<Map<string, MallPublishItem>>(new Map());
+  // 고른 상품의 등록 상태 — 고를 때 그 쪽 목록이 싣고 온 계정별 상태다(KID-320). 이미 등록된 계정은 계획이 뺀다.
+  const [selectedRegistration, setSelectedRegistration] = useState<Map<string, readonly RegistrationAccountState[]>>(new Map());
   const [selectedMalls, setSelectedMalls] = useState<ReadonlySet<string>>(new Set());
   const [valuesByMall, setValuesByMall] = useState(initialValues);
   const [editedValuesByMall, setEditedValuesByMall] = useState<Record<string, Record<string, string>>>({});
@@ -127,11 +130,32 @@ export function RegistrationWizard() {
     [source, productsQuery.data, salesQuery.data],
   );
 
+  const pageRegistration = useMemo(
+    () => new Map<string, readonly RegistrationAccountState[]>(
+      ((source === 'sales_product' ? salesQuery.data?.items : productsQuery.data?.items) ?? [])
+        .map((product) => [product.id, product.registrationAccounts]),
+    ),
+    [source, productsQuery.data, salesQuery.data],
+  );
+
   const changeSource = useCallback((next: ProductSource) => {
     setSource(next);
     setPage(1);
     setSelectedItems(new Map());
+    setSelectedRegistration(new Map());
   }, []);
+
+  const rememberRegistration = useCallback((candidateIds: readonly string[], selected: boolean) => {
+    setSelectedRegistration((current) => {
+      const next = new Map(current);
+      for (const candidateId of candidateIds) {
+        const accounts = pageRegistration.get(candidateId);
+        if (selected && accounts) next.set(candidateId, accounts);
+        else next.delete(candidateId);
+      }
+      return next;
+    });
+  }, [pageRegistration]);
 
   const items = useMemo(() => [...selectedItems.values()], [selectedItems]);
 
@@ -153,8 +177,10 @@ export function RegistrationWizard() {
         target.manifest.key,
         target.channelAccountId,
       ])),
+      registrationAccountsByItem: selectedRegistration,
     }),
     [
+      selectedRegistration,
       items,
       adapters,
       valuesByMall,
@@ -170,6 +196,7 @@ export function RegistrationWizard() {
   const hasFormAdapter = adapters.some((adapter) => adapter.mode === 'form');
 
   const toggleProduct = useCallback((candidateId: string) => {
+    const selecting = !selectedItems.has(candidateId);
     setSelectedItems((current) => {
       const next = new Map(current);
       if (next.has(candidateId)) {
@@ -180,19 +207,21 @@ export function RegistrationWizard() {
       if (found) next.set(candidateId, found);
       return next;
     });
-  }, [pageItems]);
+    rememberRegistration([candidateId], selecting);
+  }, [pageItems, rememberRegistration, selectedItems]);
 
   const toggleAllOnPage = useCallback(() => {
+    const allSelected = pageItems.length > 0 && pageItems.every((item) => selectedItems.has(item.candidateId));
     setSelectedItems((current) => {
       const next = new Map(current);
-      const allSelected = pageItems.length > 0 && pageItems.every((item) => next.has(item.candidateId));
       for (const item of pageItems) {
         if (allSelected) next.delete(item.candidateId);
         else next.set(item.candidateId, item);
       }
       return next;
     });
-  }, [pageItems]);
+    rememberRegistration(pageItems.map((item) => item.candidateId), !allSelected);
+  }, [pageItems, rememberRegistration, selectedItems]);
 
   const toggleMall = useCallback((mallKey: string) => {
     setSelectedMalls((current) => {
@@ -252,6 +281,7 @@ export function RegistrationWizard() {
             setPage(1);
           }}
           items={pageItems}
+          registrationByItem={pageRegistration}
           total={(source === 'sales_product' ? salesQuery.data?.total : productsQuery.data?.total) ?? 0}
           page={page}
           limit={PAGE_SIZE}

@@ -138,6 +138,32 @@ describe('buildPublishPlan', () => {
     expect(plan.tasks[0]?.adapterValues).not.toHaveProperty('categoryPath');
   });
 
+  it('이미 그 몰 계정에 등록됐거나 보내는 중인 상품은 기본으로 빼고 이유를 남긴다(KID-320)', () => {
+    const account = (state: string) => ({
+      channelAccountId: 'channel-account-id', channel: 'kidsnote', channelAccountName: '키즈노트',
+      registrationTargetId: null, channelListingId: null, externalListingId: null, state,
+      soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null, lastExecution: null,
+    });
+    const plan = buildPublishPlan({
+      items: [item('a'), item('b'), item('c'), item('d')],
+      adapters: [adapter({ mallKey: 'kidsnote', mallName: '키즈노트' })],
+      valuesByMall: {},
+      channelAccountIds: { kidsnote: 'channel-account-id' },
+      registrationAccountsByItem: new Map([
+        ['a', [account('registered')]],
+        ['b', [account('submitting')]],
+        ['c', [account('failed')]],
+      ] as never),
+    });
+
+    expect(plan.tasks.flatMap((task) => task.items.map((one) => one.candidateId))).toEqual(['c', 'd']);
+    expect(plan.blocks).toEqual([
+      expect.objectContaining({ candidateId: 'a', reasons: ['이 몰 계정에 이미 등록됨 — 바뀐 값은 수정으로 보냅니다.'] }),
+      expect.objectContaining({ candidateId: 'b', reasons: ['이 몰 계정으로 전송 중 — 끝난 뒤 다시 고르세요.'] }),
+    ]);
+  });
+
   it('보낼 것이 하나도 없으면 작업이 없다', () => {
     const plan = buildPublishPlan({
       items: [],

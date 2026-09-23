@@ -272,6 +272,7 @@ export default function SourcingPage() {
     if (!mallKey || !adapter || confirmSubmitting) return;
     setConfirmError(null);
     setConfirmSubmitting(true);
+    const registeringSalesProductId = confirmation.submit ? quickProcessTargetIds[0] ?? null : null;
     try {
       if (!confirmation.submit) {
         await mallRegister.fillConfirmed(mallKey, {
@@ -318,6 +319,11 @@ export default function SourcingPage() {
       toast.error(message);
     } finally {
       setConfirmSubmitting(false);
+      // 등록 실행은 울타리를 열었을 수 있다 — 결과와 무관하게 등록 상태와 목록을 다시 읽는다(KID-320).
+      if (registeringSalesProductId) {
+        void queryClient.invalidateQueries({ queryKey: salesProductKeys.registrationState(registeringSalesProductId) });
+        void queryClient.invalidateQueries({ queryKey: [...salesProductKeys.all, 'list'] });
+      }
     }
   };
 
@@ -636,6 +642,7 @@ function QuickProcessSelectedDialog({
             {/* 확인 창이 필요한 몰(쿠팡 WING)도 같은 줄로 선다. 다른 것은 누르면 확인 창이 뜬다는 것뿐이다. */}
             <MallQuickRegisterRows
               readiness={mallRegister.readiness}
+              registrationAccounts={mallRegister.registrationAccounts}
               results={mallRegister.results}
               runningMallKeys={mallRegister.runningMallKeys}
               isLoading={mallRegister.isLoading}

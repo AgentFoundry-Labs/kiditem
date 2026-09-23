@@ -11,6 +11,7 @@ import {
   type MallReadiness,
   type MallRegisterValues,
 } from '@/app/(channels)/_shared/mall-register-values';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import { MALL_REGISTRATION_ADAPTERS } from '@/app/(channels)/_shared/adapters';
 import type { MallPublishAdapter, MallPublishItem } from '@/app/(channels)/_shared/mall-publish-adapter';
 import { useProductDetail } from '../../_shared/hooks/useProductDetail';
@@ -33,6 +34,7 @@ const QUICK_REGISTER_READINESS_ADAPTERS: readonly MallPublishAdapter[] = [
   ...CONFIRMATION_ADAPTERS,
   ...FORM_MALL_ADAPTERS.filter((adapter) => !adapter.confirmation),
 ];
+const NO_ACCOUNTS: readonly RegistrationAccountState[] = [];
 const CONFIRMATION_MALL_KEYS: readonly string[] = CONFIRMATION_ADAPTERS.map((adapter) => adapter.mallKey);
 
 /**
@@ -170,6 +172,8 @@ export function useMallQuickRegister(input: {
     /** 누르면 확인 창을 여는 몰. */
     confirmationMallKeys: CONFIRMATION_MALL_KEYS,
     results,
+    /** 이 상품의 몰 계정별 등록 상태 — 등록 상태 reader 값(KID-320). 폼 채움 결과와 다른 사실이다. */
+    registrationAccounts: detail?.registrationAccounts ?? NO_ACCOUNTS,
     fillConfirmed,
     runningMallKeys,
     /** 저장된 값을 아직 못 읽었다. 이 동안은 버튼을 열지 않는다. */

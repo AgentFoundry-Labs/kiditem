@@ -77,11 +77,18 @@ vi.mock('@tanstack/react-query', () => ({
               id: 's1', code: '100300', ownCode: null, name: '애니멀 만능패드', status: 'active', salePrice: 5900,
               imageUrl: null, optionAxes: ['색상'], optionCount: 3, sellingOptionCount: 3, unlinkedOptionCount: 0,
               channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+              registrationAccounts: [],
             },
             {
               id: 's2', code: '100017', ownCode: null, name: '투명우산 그리기', status: 'active', salePrice: 2880,
               imageUrl: null, optionAxes: [], optionCount: 1, sellingOptionCount: 1, unlinkedOptionCount: 0,
               channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+              registrationAccounts: [{
+                channelAccountId: '11111111-1111-4111-8111-111111111111', channel: 'kidsnote', channelAccountName: '키즈노트',
+                registrationTargetId: null, channelListingId: null, externalListingId: null, state: 'registered',
+                soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null,
+                selectedDetailPageRevisionId: null, lastExecution: null,
+              }],
             },
           ],
           total: 2,
@@ -259,6 +266,20 @@ describe('판매상품에서 등록 (ADR-0014)', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
     expect(screen.getByText(/옵션 3개 상품입니다\. 키즈노트 옵션 채우기가 아직 없어 보내지 않습니다\./)).toBeInTheDocument();
+  });
+});
+
+describe('새 등록 — 등록 상태(KID-320)', () => {
+  it('상품 줄에 등록 상태 요약을 보이고, 이미 그 계정에 등록된 상품은 기본으로 보내지 않는다', () => {
+    render(<MallListingsPage />);
+    goToWizard('sales_product');
+    expect(screen.getByText('1몰 등록')).toBeInTheDocument();
+    selectProduct('애니멀 만능패드');
+    selectProduct('투명우산 그리기');
+    goNext();
+    fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
+    goNext();
+    expect(screen.getByText(/이 몰 계정에 이미 등록됨/)).toBeInTheDocument();
   });
 });
 
@@ -467,6 +488,27 @@ describe('등록 현황 (상품 × 몰 매트릭스)', () => {
     // 상품 2개 × 키즈노트 열 = 미등록 칸 2개. 필터 버튼의 '미등록'과 섞이지 않게
     // 표 안에서만 센다.
     expect(within(table).getAllByText('미등록')).toHaveLength(2);
+  });
+
+  it('판매상품이 있는 칸은 등록 상태 reader 의 계정 배지를, 없는 칸은 리스팅 상태를 보인다(KID-320)', () => {
+    withMatrix();
+    const rows = (matrixData as { rows: { cells: Record<string, unknown>[] }[] }).rows;
+    rows[0]!.cells[0] = {
+      ...rows[0]!.cells[0],
+      registration: {
+        channelAccountId: '99999999-9999-4999-8999-999999999999', channel: 'coupang', channelAccountName: '쿠팡',
+        registrationTargetId: null, channelListingId: null, externalListingId: '16290876620', state: 'registered',
+        soldOut: true, changedSinceRegistration: true, selectedThumbnailAssetId: null,
+        selectedDetailPageRevisionId: null, lastExecution: null,
+      },
+    };
+    render(<MallListingsPage />);
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('등록됨')).toBeInTheDocument();
+    expect(within(table).getByText('품절')).toBeInTheDocument();
+    expect(within(table).getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
+    // 판매상품 없는 칸(두 번째 줄)은 리스팅 상태 그대로다.
+    expect(within(table).getByText('확인필요')).toBeInTheDocument();
   });
 
   it('리스팅을 안 가져온 몰은 열에 미수집이 붙고 아래에 설명이 나온다', () => {

@@ -139,6 +139,21 @@ describe('MallQuickRegisterRows', () => {
 
   });
 
+  it('몰 줄마다 그 몰 계정의 등록 상태를 폼 채움 배지 옆에 보인다(KID-320)', () => {
+    renderRows({
+      registrationAccounts: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000001', channel: 'kidsnote', channelAccountName: '키즈노트',
+        registrationTargetId: null, channelListingId: null, externalListingId: null, state: 'registered',
+        soldOut: false, changedSinceRegistration: true, selectedThumbnailAssetId: null,
+        selectedDetailPageRevisionId: null, lastExecution: null,
+      }],
+    });
+    const row = rowOf('키즈노트').parentElement as HTMLElement;
+    expect(within(row).getByText('등록됨')).toBeInTheDocument();
+    expect(within(row).getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
+    expect(within(row).getByText('대기')).toBeInTheDocument();
+  });
+
   it('값을 묻는 칸이 없다 — 값은 상품 상세에 있다', () => {
     renderRows();
     expect(screen.queryAllByRole('textbox')).toHaveLength(0);

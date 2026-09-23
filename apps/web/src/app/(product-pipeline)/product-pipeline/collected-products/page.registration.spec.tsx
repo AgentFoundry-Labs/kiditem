@@ -8,7 +8,9 @@ const {
   startMock,
   runMallsMock,
   fillConfirmedMock,
+  invalidateMock,
 } = vi.hoisted(() => ({
+  invalidateMock: vi.fn(),
   pushMock: vi.fn(),
   toastMock: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
   startMock: vi.fn(),
@@ -21,7 +23,7 @@ vi.mock('sonner', () => ({ toast: toastMock }));
 
 // 몰 등록 흐름만 본다 — 목록 · 삭제 · AI 작업은 page.spec.tsx 가 실제 QueryClient 로 본다.
 vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => ({ invalidateQueries: invalidateMock }),
   useQuery: () => ({
     data: {
       items: [{ id: 'sales-product-1', sourceRecordId: 'record-1', name: '테스트 상품', status: 'draft', imageUrl: null }],
@@ -160,6 +162,23 @@ describe('SourcingPage 몰 등록', () => {
       expect.objectContaining({ description: expect.stringContaining('완료 안내를 확인하지 못했습니다.') }),
     ));
     expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it('re-reads the registration state and the list after a run that opened the fence (KID-320)', async () => {
+    startMock.mockResolvedValue([{
+      id: 'coupang#0', mallKey: 'coupang', mallName: '쿠팡 WING', channelAccountId: 'account-1', items: [ITEM],
+      values: VALUES, adapterValues: {}, status: 'reconciling',
+      outcome: { ok: false, confirmed: false, submitted: true, accepted: null, manualSteps: [], warnings: [], error: '확인 필요' },
+      error: null,
+    }]);
+    openCoupangConfirmation();
+
+    fireEvent.click(screen.getByRole('button', { name: '확인 창 등록 실행' }));
+
+    await waitFor(() => expect(invalidateMock).toHaveBeenCalledWith({
+      queryKey: ['sales-products', 'registration-state', 'sales-product-1'],
+    }));
+    expect(invalidateMock).toHaveBeenCalledWith({ queryKey: ['sales-products', 'list'] });
   });
 
   it('fills the form only through the quick-register hook when registration is not asked for', async () => {
