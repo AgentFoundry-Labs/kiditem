@@ -58,6 +58,7 @@ function serveDraftPages(pages: Record<number, ReturnType<typeof listResponse>>)
     if (parsed.pathname === '/api/products/sales-products') {
       return pages[Number(parsed.searchParams.get('page') ?? '1')] ?? listResponse([]);
     }
+    if (parsed.pathname.endsWith('/registration/state')) return { accounts: [] };
     if (parsed.pathname.startsWith('/api/products/sales-products/')) {
       return salesProductDraft({ id: parsed.pathname.split('/').pop()!, sourceRecordId: null, version: 3 });
     }

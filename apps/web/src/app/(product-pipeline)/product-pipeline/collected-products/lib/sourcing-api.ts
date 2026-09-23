@@ -9,7 +9,11 @@ import {
   contentWorkspacesApi,
   type SalesProductRegistrationMedia,
 } from '../../_shared/lib/content-workspaces-api';
-import type { SalesProduct, SalesProductUpdateInput } from '@kiditem/shared/sales-product';
+import type {
+  RegistrationAccountState,
+  SalesProduct,
+  SalesProductUpdateInput,
+} from '@kiditem/shared/sales-product';
 
 export interface SellpiaInventorySearchItem {
   masterProductId: string;
@@ -99,6 +103,11 @@ export interface ProductDetailResponse {
   registrationTarget: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
   registrationState: CandidateRegistrationState | null;
+  /**
+   * 몰 계정별 등록 상태 — Channels 등록 상태 reader(`…/registration/state`) 값 그대로다(KID-320).
+   * 등록 상태를 읽지 않은 호출(`productsApi.getDetail`)에서는 빈 목록이다.
+   */
+  registrationAccounts: RegistrationAccountState[];
   /** 판매상품 초안 id(= `id`). 등록상품 화면이 리스팅에서 만든 값에는 초안이 없어 `null` 이다. */
   salesProductId: string | null;
   /** 초안의 낙관적 동시성 버전. `salesProductApi.update`/`replaceOptions` 의 `expectedVersion`. */
@@ -645,6 +654,7 @@ export function composeProductDetail(
   draft: SalesProduct,
   sourceResponse: unknown | null,
   media: SalesProductRegistrationMedia,
+  registrationAccounts: readonly RegistrationAccountState[] = [],
 ): ProductDetailResponse {
   const p = (sourceResponse && typeof sourceResponse === 'object' ? sourceResponse : null) as Record<string, any> | null;
   const rawData = p ? ((p.rawData as Record<string, unknown>) || p.raw_data || {}) : null;
@@ -691,6 +701,7 @@ export function composeProductDetail(
     basicInfo: productBasicsFromSalesProduct(draft, { registrationImages, currentThumbnail }),
     registrationTarget,
     registrationState,
+    registrationAccounts: [...registrationAccounts],
     salesProductId: draft.id,
     salesProductVersion: draft.version,
     registrationImages,

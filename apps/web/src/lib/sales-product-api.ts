@@ -11,6 +11,7 @@ import {
   SalesProductMallSheetCategoryListSchema,
   SalesProductMallSheetListSchema,
   SalesProductPublicImagePendingSchema,
+  SalesProductRegistrationStateSchema,
   SalesProductSchema,
   type CoupangCatalogPlanResult,
   type SabangnetImportPreview,
@@ -27,6 +28,7 @@ import {
   type SalesProductMallSheetList,
   type SalesProductPublicImagePending,
   type SalesProductPublicImageSaveRequest,
+  type SalesProductRegistrationState,
   type SalesProductListQuery,
   type SalesProductListResponse,
   type SalesProductOptionsReplaceInput,
@@ -50,6 +52,8 @@ export const salesProductKeys = {
   all: ['sales-products'] as const,
   list: (query: Partial<SalesProductListQuery>) => ['sales-products', 'list', query] as const,
   detail: (id: string) => ['sales-products', 'detail', id] as const,
+  /** 몰 계정별 등록 상태(`…/registration/state`). `all` 무효화에 함께 걸린다. */
+  registrationState: (id: string) => ['sales-products', 'registration-state', id] as const,
   skuSearch: (search: string) => ['sales-products', 'sku-search', search] as const,
   mallAccounts: () => ['sales-products', 'mall-accounts'] as const,
   externalImages: () => ['sales-products', 'external-images'] as const,
@@ -82,6 +86,9 @@ export const salesProductApi = {
     apiClient.getParsed(`${BASE}${toQuery(query)}`, SalesProductListResponseSchema),
   get: (id: string): Promise<SalesProduct> =>
     apiClient.getParsed(`${BASE}/${id}`, SalesProductSchema),
+  /** 이 판매상품의 몰 계정별 등록 상태 — 등록 상태 reader 하나가 답한다(KID-320). */
+  registrationState: (id: string): Promise<SalesProductRegistrationState> =>
+    apiClient.getParsed(`${BASE}/${encodeURIComponent(id)}/registration/state`, SalesProductRegistrationStateSchema),
   update: async (id: string, body: SalesProductUpdateInput): Promise<SalesProduct> =>
     SalesProductSchema.parse(await apiClient.patch<unknown>(`${BASE}/${id}`, body)),
   /**

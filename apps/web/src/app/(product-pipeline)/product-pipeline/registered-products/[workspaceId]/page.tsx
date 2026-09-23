@@ -216,6 +216,7 @@ function channelListingToProductWorkspaceData(
     // 이 화면은 후보가 아니라 이미 등록된 리스팅이다 — 후보 울타리를 들고 오지 않는다
     // (초안이 없어 편집 · 등록 준비 · 반려가 열리지 않는다). 상태를 지어내지 않고 모른다고 둔다.
     registrationState: null,
+    registrationAccounts: [],
     // 이 화면은 판매상품 초안이 아니라 리스팅에서 값을 만든다 — 초안 id 로 이어지지 않는다.
     salesProductId: null,
     salesProductVersion: null,

@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
+import { SalesProductSchema } from '@kiditem/shared/sales-product';
 import {
   applyBasicsPriceToSalesProduct,
+  composeProductDetail,
   salesProductGenerationApi,
   productsApi,
   salesProductUpdateInputFromBasics,
@@ -239,8 +241,7 @@ describe('sourcing API', () => {
       expect(detail.name).toBe('직접 만든 상품');
       expect(detail.image_urls).toEqual(['https://cdn.example.com/draft.jpg']);
       expect(detail.raw_data).toBeNull();
-      expect(detail.registrationTarget).toBeNull();
-      expect(detail.registrationState).toBe('none');
+      expect(detail.registrationAccounts).toEqual([]);
     });
 
     it('원본 기록 응답은 원본 사실만 준다 — 등록 설정과 울타리 상태는 여기서 읽지 않는다(KID-313)', async () => {
@@ -252,8 +253,7 @@ describe('sourcing API', () => {
 
       const detail = await productsApi.getDetail(DRAFT_ID);
 
-      expect(detail.registrationState).toBe('none');
-      expect(detail.registrationTarget).toBeNull();
+      expect(detail.registrationAccounts).toEqual([]);
       expect(detail).not.toHaveProperty('contentWorkspaceId');
     });
 
@@ -284,7 +284,31 @@ describe('sourcing API', () => {
       expect(detail.sourceRecordId).toBe(CANDIDATE_ID);
       expect(detail.raw_data).toBeNull();
       expect(detail.image_urls).toEqual(['https://cdn.example.com/draft.jpg']);
-      expect(detail.registrationState).toBe('none');
+      expect(detail.registrationAccounts).toEqual([]);
+    });
+
+    it('carries the per-account registration state it is given — the one reader, not the source record', () => {
+      const account = {
+        channelAccountId: '00000000-0000-4000-8000-000000000001',
+        channel: 'mall-a',
+        channelAccountName: '몰 A',
+        registrationTargetId: '00000000-0000-4000-8000-0000000000a1',
+        channelListingId: null,
+        externalListingId: null,
+        state: 'confirming' as const,
+        soldOut: false,
+        changedSinceRegistration: false,
+        selectedThumbnailAssetId: null,
+        selectedDetailPageRevisionId: null,
+        lastExecution: null,
+      };
+      const detail = composeProductDetail(
+        SalesProductSchema.parse(salesProductDraftFixture()),
+        null,
+        EMPTY_MEDIA,
+        [account],
+      );
+      expect(detail.registrationAccounts).toEqual([account]);
     });
 
     it('still surfaces any other source-record error', async () => {
