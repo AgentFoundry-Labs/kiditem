@@ -543,7 +543,8 @@ function BatchProgressDialog({
                 </span>
               ) : (
                 <span>
-                  배치 완료 · 성공 <span className="text-violet-600">{okCount}</span>
+                  {/* 올린 것은 Wing 저장 전이라 성공이 아니다. */}
+                  배치 완료 · 올림 <span className="text-violet-600">{okCount}</span>
                   {failCount > 0 && (
                     <>
                       {' / '}

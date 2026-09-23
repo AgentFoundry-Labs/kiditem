@@ -119,4 +119,24 @@ describe('RegistrationPendingSection checking actions', () => {
     expect(await screen.findByRole('combobox', { name: '쿠팡 listing' })).toBeTruthy();
     expect(sendToExtension).not.toHaveBeenCalled();
   });
+
+  it('counts a batch upload as uploaded, never as success', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
+      return { items: [] };
+    });
+    vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+    vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href === '/api/channels/thumbnail-executions'
+      ? { executionId: EXECUTION, generationId: G1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
+      : { generationId: G1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null }));
+    renderSection();
+
+    fireEvent.click(await screen.findByRole('button', { name: '쿠팡 등록 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 1장 쿠팡 등록/ }));
+
+    const title = await screen.findByText(/배치 완료/);
+    expect(title.textContent).toContain('올림 1');
+    expect(title.textContent).not.toContain('성공');
+  });
 });
