@@ -8,7 +8,14 @@ import { zIsoDate } from './common.js';
  * 아니고, 단품의 셀피아 구성은 선언이다(연결한 채널 옵션의 빈 레시피를 채울 때만 복사된다).
  */
 
-export const SALES_PRODUCT_STATUSES = ['draft', 'active', 'paused', 'sold_out', 'unused', 'archived'] as const;
+/**
+ * 판매상품 상태는 셋뿐이고 저장 열 하나다(KID-313).
+ *
+ * `draft` 는 KID 가 없는 초안, `active` 는 KID 를 발급한 판매 상품, `archived` 는 판매를 접은 판매 상품이다.
+ * `draft` → `active` 는 KID 발급으로만 바뀌고 되돌아가지 않는다. 품절 · 일시중지는 상품이 아니라
+ * 옵션(`supplyStatus`)과 몰 열의 상태다. 초안은 보관하지 않고 지운다.
+ */
+export const SALES_PRODUCT_STATUSES = ['draft', 'active', 'archived'] as const;
 export const SalesProductStatusSchema = z.enum(SALES_PRODUCT_STATUSES);
 export type SalesProductStatus = z.infer<typeof SalesProductStatusSchema>;
 
@@ -300,7 +307,7 @@ export const SalesProductSchema = z.object({
   ownCode: z.string().nullable(),
   sabangnetGoodsNo: z.string().nullable(),
   /** 이 초안을 만든 원천 기록(수집상품) id. 후보를 지워도 초안은 남는다. */
-  sourceCandidateId: z.string().uuid().nullable(),
+  sourceRecordId: z.string().uuid().nullable(),
   /** 원천 장터(`1688` · `coupang` · `sabangnet` …). 초안을 만들 때 복사하고 바꾸지 않는다. */
   sourcePlatform: z.string().nullable(),
   sourceUrl: z.string().nullable(),
@@ -370,7 +377,7 @@ export const SalesProductListItemSchema = z.object({
   code: z.string().nullable(),
   ownCode: z.string().nullable(),
   /** 이 초안을 만든 원천 기록(수집상품) id. */
-  sourceCandidateId: z.string().uuid().nullable(),
+  sourceRecordId: z.string().uuid().nullable(),
   sourcePlatform: z.string().nullable(),
   sourceUrl: z.string().nullable(),
   name: z.string(),
