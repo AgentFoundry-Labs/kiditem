@@ -37,6 +37,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('RegistrationPendingSection checking actions', () => {
+  it('offers resend and not-applied but no confirmation while the upload itself is still running', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.startsWith('/api/thumbnail-analysis/generations')) return { items: [generation], total: 1 };
+      return { items: [{ generationId: G1, executionId: EXECUTION, status: 'executing', providerOutcome: 'uncertain', checkedAt: null, error: null, screenshotPath: null }] };
+    });
+    renderSection();
+
+    expect(await screen.findByRole('button', { name: '다시 보내기' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '반영 안 됨으로 표시' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '반영됨으로 표시' })).toBeNull();
+  });
+
   it('marks an unknown outcome as not applied on the same execution', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ generationId: G1, executionId: EXECUTION, success: false, screenshotPath: null });
     renderSection();

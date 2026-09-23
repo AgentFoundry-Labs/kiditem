@@ -385,17 +385,19 @@ function RegistrationPendingCard({
               Wing 저장 확인 필요
             </p>
             <div className="mt-1 flex flex-wrap gap-1">
-              <button
-                type="button"
-                disabled={checkingBusy}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onConfirmApplied(checking.registrationExecutionId!);
-                }}
-                className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
-              >
-                반영됨으로 표시
-              </button>
+              {checking.registrationExecutionStatus === 'reconciling' && (
+                <button
+                  type="button"
+                  disabled={checkingBusy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onConfirmApplied(checking.registrationExecutionId!);
+                  }}
+                  className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+                >
+                  반영됨으로 표시
+                </button>
+              )}
               <button
                 type="button"
                 disabled={checkingBusy}

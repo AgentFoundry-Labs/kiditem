@@ -25,10 +25,10 @@ describe('mergeThumbnailRegistration', () => {
     );
 
     expect(merged).toEqual([
-      { id: 'g1', registrationExecutionId: 'g1-execution', registrationStatus: 'registered', registrationError: null, registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
-      { id: 'g2', registrationExecutionId: 'g2-execution', registrationStatus: 'failed', registrationError: '로그인 필요', registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
-      { id: 'g3', registrationExecutionId: 'g3-execution', registrationStatus: 'checking', registrationError: 'port closed', registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
-      { id: 'g4', registrationExecutionId: null, registrationStatus: null, registrationError: null, registrationCheckedAt: null },
+      { id: 'g1', registrationExecutionId: 'g1-execution', registrationExecutionStatus: 'succeeded', registrationStatus: 'registered', registrationError: null, registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
+      { id: 'g2', registrationExecutionId: 'g2-execution', registrationExecutionStatus: 'failed', registrationStatus: 'failed', registrationError: '로그인 필요', registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
+      { id: 'g3', registrationExecutionId: 'g3-execution', registrationExecutionStatus: 'reconciling', registrationStatus: 'checking', registrationError: 'port closed', registrationCheckedAt: '2026-09-23T01:00:00.000Z' },
+      { id: 'g4', registrationExecutionId: null, registrationExecutionStatus: null, registrationStatus: null, registrationError: null, registrationCheckedAt: null },
     ]);
   });
 });
