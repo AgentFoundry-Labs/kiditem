@@ -19,8 +19,6 @@ export interface RegisterManualProductCommand {
   // 사방넷 신규등록의 가격정보 · 기본정보와 같은 칸. 수집상품을 거쳐 판매상품까지 간다.
   salePrice?: number;
   tagPrice?: number;
-  /** 사방넷 `원가`(공급가). */
-  costPrice?: number;
   brand?: string;
   manufacturer?: string;
   originCountry?: string;
