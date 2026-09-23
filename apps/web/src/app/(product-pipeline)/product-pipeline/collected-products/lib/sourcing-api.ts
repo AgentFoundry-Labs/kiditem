@@ -309,6 +309,7 @@ export interface ScrapeUrlResponse {
   skipped?: boolean;
   attempt: ScrapeUrlAttempt | null;
   candidateId?: string | null;
+  salesProductId?: string | null;
   href?: string | null;
 }
 
@@ -335,13 +336,16 @@ export type ScrapeUrlStatusResponse = { source: ScrapeUrlSourceStatus } & (
   | {
       status: 'available';
       candidateId: null;
+      salesProductId?: null;
       href: null;
       platform: '1688' | 'alibaba';
     }
   | {
       status: 'collected';
       candidateId: string;
-      href: string;
+      /** 수집상품 화면이 여는 판매상품 초안. 초안을 아직 못 찾았으면 `null` 이고 주소도 없다. */
+      salesProductId: string | null;
+      href: string | null;
     });
 
 /** Coerces backend Decimal/string `costCny` into a plain number. */

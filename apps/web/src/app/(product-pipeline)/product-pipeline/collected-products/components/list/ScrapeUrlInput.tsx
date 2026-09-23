@@ -84,13 +84,15 @@ export default function ScrapeUrlInput({
       {isDuplicate && (
         <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
           <span>이미 수집된 URL입니다.</span>
-          <a
-            href={duplicate.href}
-            className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800"
-          >
-            기존 상품 열기
-            <ExternalLink size={12} />
-          </a>
+          {duplicate.href && (
+            <a
+              href={duplicate.href}
+              className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800"
+            >
+              기존 상품 열기
+              <ExternalLink size={12} />
+            </a>
+          )}
         </div>
       )}
       {success && (
