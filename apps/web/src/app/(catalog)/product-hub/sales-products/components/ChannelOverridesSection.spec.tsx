@@ -146,8 +146,9 @@ describe('<ChannelOverridesSection />', () => {
     fireEvent.change(name, { target: { value: '몰 전용 이름' } });
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
 
+    // resolve 요청에는 targetId 가 없다 — 상품 × 몰계정당 활성 설정은 늘 하나라 고를 것이 없다(ADR-0022).
     await waitFor(() => expect(registrationTargetApi.resolve).toHaveBeenCalledWith({
-      salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID, targetId: TARGET_ID,
+      salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID,
     }));
     await waitFor(() => expect(registrationTargetApi.update).toHaveBeenCalledWith(TARGET_ID, expect.objectContaining({
       expectedVersion: 2,
@@ -157,17 +158,15 @@ describe('<ChannelOverridesSection />', () => {
     })));
   });
 
-  it('does not choose among multiple saved targets until the operator selects one', async () => {
-    vi.mocked(registrationTargetApi.list).mockResolvedValue([target, { ...target, id: '66666666-6666-4666-8666-666666666666' }]);
+  it('never renders a registration-setting picker — a product × mall account always has at most one', async () => {
+    vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
     vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
       channelAccountId: ACCOUNT_ID, mallKey: 'smartstore', mallName: '스마트스토어 본계정',
     }]);
     renderSection();
 
-    const select = await screen.findByRole('combobox', { name: '스마트스토어 본계정 등록 설정' });
-    expect(select).toHaveValue('');
-    expect(screen.getByLabelText('스마트스토어 본계정 몰 상품명')).toBeDisabled();
-    expect(screen.getByRole('button', { name: '저장' })).toBeDisabled();
+    expect(await screen.findByLabelText('스마트스토어 본계정 몰 상품명')).toBeEnabled();
+    expect(screen.queryByRole('combobox', { name: /등록 설정/ })).not.toBeInTheDocument();
   });
 
   it('edits a persistent target, keeps defaults blank, and excludes unchecked options', async () => {

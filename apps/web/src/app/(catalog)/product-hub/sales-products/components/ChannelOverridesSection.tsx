@@ -275,29 +275,20 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
     queryFn: salesProductApi.mallAccounts,
     staleTime: 5 * 60_000,
   });
-  const [selectedTargets, setSelectedTargets] = useState<Record<string, string>>({});
   const [drafts, setDrafts] = useState<Record<string, SimpleOverrideDraft>>({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const accountTargets = new Map<string, RegistrationTarget[]>();
-  for (const target of targets.data ?? []) {
-    accountTargets.set(target.channelAccountId, [...(accountTargets.get(target.channelAccountId) ?? []), target]);
-  }
+  // 상품 × 몰계정당 활성 등록 대상은 늘 하나다(ADR-0022) — 고를 것이 없다.
+  const accountTargets = new Map<string, RegistrationTarget>();
+  for (const target of targets.data ?? []) accountTargets.set(target.channelAccountId, target);
 
   const save = useMutation({
     mutationFn: async ({ account, draft }: { account: MallAccount; draft: SimpleOverrideDraft }) => {
       if (!draft.touched.displayName && !draft.touched.salePrice && !draft.touched.supplyPrice) {
         throw new Error('바뀐 몰별 값이 없습니다.');
       }
-      const targetId = accountTargets.get(account.channelAccountId)?.length === 1
-        ? accountTargets.get(account.channelAccountId)?.[0]?.id
-        : selectedTargets[account.channelAccountId];
-      if ((accountTargets.get(account.channelAccountId)?.length ?? 0) > 1 && !targetId) {
-        throw new Error('여러 등록 설정 중 사용할 설정을 먼저 고르세요.');
-      }
       const target = await registrationTargetApi.resolve({
         salesProductId: product.id,
         channelAccountId: account.channelAccountId,
-        ...(targetId ? { targetId } : {}),
       });
       return registrationTargetApi.update(target.id, simpleOverrideUpdate(target, draft));
     },
@@ -315,7 +306,6 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
     },
   });
 
-  const targetsFor = (accountId: string) => accountTargets.get(accountId) ?? [];
   const draftFor = (accountId: string, target: RegistrationTarget | undefined) => {
     const saved = drafts[accountId];
     if (saved && saved.targetId === target?.id) return saved;
@@ -349,11 +339,8 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
             </thead>
             <tbody>
               {(accounts.data ?? []).map((account) => {
-                const choices = targetsFor(account.channelAccountId);
-                const chosenId = choices.length === 1 ? choices[0]?.id : selectedTargets[account.channelAccountId];
-                const target = choices.find((candidate) => candidate.id === chosenId);
+                const target = accountTargets.get(account.channelAccountId);
                 const draft = draftFor(account.channelAccountId, target);
-                const needsChoice = choices.length > 1 && !target;
                 const supportsSupply = SUPPLY_PRICE_MALLS.has(account.mallKey);
                 const pending = save.isPending && save.variables?.account.channelAccountId === account.channelAccountId;
                 const currentSalePrices = target?.resolved.options.map((option) => option.salePrice)
@@ -363,26 +350,12 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                   <tr key={account.channelAccountId} className="border-b border-slate-100 align-top last:border-0">
                     <td className="px-3 py-2 font-medium text-slate-800">
                       {account.mallName}
-                      {choices.length > 1 ? (
-                        <select
-                          aria-label={`${account.mallName} 등록 설정`}
-                          value={selectedTargets[account.channelAccountId] ?? ''}
-                          onChange={(event) => {
-                            setSelectedTargets((current) => ({ ...current, [account.channelAccountId]: event.target.value }));
-                            setDrafts((current) => { const { [account.channelAccountId]: _discarded, ...rest } = current; return rest; });
-                          }}
-                          className="mt-1 block w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-xs"
-                        >
-                          <option value="">등록 설정 선택</option>
-                          {choices.map((candidate, index) => <option key={candidate.id} value={candidate.id}>등록 설정 {index + 1}</option>)}
-                        </select>
-                      ) : null}
                     </td>
                     <td className="px-2 py-1.5">
                       <input
                         aria-label={`${account.mallName} 몰 상품명`}
                         value={draft.displayName}
-                        disabled={needsChoice || pending}
+                        disabled={pending}
                         onChange={(event) => patchDraft(account.channelAccountId, target, {
                           displayName: event.target.value,
                           touched: { ...draft.touched, displayName: true },
@@ -396,7 +369,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                         aria-label={`${account.mallName} 판매가`}
                         inputMode="numeric"
                         value={draft.salePrice}
-                        disabled={needsChoice || pending}
+                        disabled={pending}
                         onChange={(event) => patchDraft(account.channelAccountId, target, {
                           salePrice: event.target.value,
                           touched: { ...draft.touched, salePrice: true },
@@ -411,7 +384,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                           aria-label={`${account.mallName} 공급가`}
                           inputMode="numeric"
                           value={draft.supplyPrice}
-                          disabled={needsChoice || pending}
+                          disabled={pending}
                           onChange={(event) => patchDraft(account.channelAccountId, target, {
                             supplyPrice: event.target.value,
                             touched: { ...draft.touched, supplyPrice: true },
@@ -425,7 +398,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                       <button
                         type="button"
                         className="btn-secondary btn-sm inline-flex items-center gap-1 disabled:opacity-40"
-                        disabled={needsChoice || pending || (!draft.touched.displayName && !draft.touched.salePrice && !draft.touched.supplyPrice)}
+                        disabled={pending || (!draft.touched.displayName && !draft.touched.salePrice && !draft.touched.supplyPrice)}
                         onClick={() => save.mutate({ account, draft })}
                       >
                         <Save size={13} aria-hidden />{pending ? '저장 중…' : '저장'}
