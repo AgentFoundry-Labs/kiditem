@@ -328,7 +328,7 @@ describe('상품 등록 (N × M)', () => {
     goNext();
     pickWingCategory();
 
-    fireEvent.click(screen.getByRole('button', { name: /4건 보내기/ }));
+    fireEvent.click(screen.getByRole('button', { name: /4건 등록 실행/ }));
 
     // 쿠팡 WING 도 폼 몰이다(KID-321) — 몰마다 상품 1건씩, 모두 등록 대상 실행을 지난다. 엑셀을 만들지 않는다.
     await waitFor(() => {
@@ -346,7 +346,7 @@ describe('상품 등록 (N × M)', () => {
     goNext();
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
-    fireEvent.click(screen.getByRole('button', { name: /1건 보내기/ }));
+    fireEvent.click(screen.getByRole('button', { name: /1건 등록 실행/ }));
 
     await waitFor(() => {
       expect(screen.getByText('결과 확인 필요')).toBeInTheDocument();
@@ -370,7 +370,7 @@ describe('상품 등록 (N × M)', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
     pickWingCategory();
-    fireEvent.click(screen.getByRole('button', { name: /2건 보내기/ }));
+    fireEvent.click(screen.getByRole('button', { name: /2건 등록 실행/ }));
 
     // 두 몰 모두 같은 실패를 보이고, 첫 몰의 실패가 둘째 몰을 멈추지 않는다.
     await waitFor(() => {

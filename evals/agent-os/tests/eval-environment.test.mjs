@@ -205,7 +205,7 @@ test('validates every versioned Agent OS evaluation case', () => {
   );
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /validated 12 Agent OS eval cases/);
+  assert.match(result.stdout, /validated 11 Agent OS eval cases/);
 });
 
 test('lists public case metadata without prompts or hidden grading policy', () => {
@@ -221,7 +221,6 @@ test('lists public case metadata without prompts or hidden grading policy', () =
     listed.map(({ id }) => id),
     [
       'advertising.operating-overview.v1',
-      'channel-operations.confirmed-listing.v1',
       'merchandising.listing-generation.v1',
       'runtime.general-chat-no-tool.v1',
       'runtime.two-turn-restart.v1',
@@ -285,7 +284,7 @@ test('migrates all existing risk cases to explicit state-first Agent policy', ()
   );
 });
 
-test('covers all six user-visible conversation profiles with executable intent cases', () => {
+test('covers the user-visible conversation profiles with executable intent cases', () => {
   const cases = loadEvalCases({
     casesDir: path.join(repoRoot, 'evals', 'agent-os', 'cases'),
     fixturesPath: path.join(repoRoot, 'evals', 'agent-os', 'fixtures', 'fixtures.json'),
@@ -300,7 +299,6 @@ test('covers all six user-visible conversation profiles with executable intent c
   assert.deepEqual(profiles, [
     null,
     'advertising',
-    'channel_operations',
     'merchandising',
     'sourcing',
     'supply',
@@ -347,7 +345,7 @@ test('binds every disposable fixture to its exact guarded seed profile without f
     'fixtures.json',
   );
   const fixtures = JSON.parse(readFileSync(fixturesPath, 'utf8'));
-  assert.equal(fixtures.length, 10);
+  assert.equal(fixtures.length, 9);
   for (const fixture of fixtures) {
     assert.equal(fixture.resetProfile, fixture.id);
   }
