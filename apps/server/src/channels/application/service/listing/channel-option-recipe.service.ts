@@ -47,8 +47,11 @@ implements ChannelOptionRecipePort {
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;
+    /** The recipe the caller loaded; a different current recipe is a conflict. */
+    expectedComponents: readonly ChannelRecipeComponentInput[];
     components: readonly ChannelRecipeComponentInput[];
   }) {
+    validateComponents(input.expectedComponents);
     validateComponents(input.components);
     return this.repository.replaceRecipe(input);
   }

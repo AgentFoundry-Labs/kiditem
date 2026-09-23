@@ -32,6 +32,7 @@ import type {
 import { readPreparedRegistrationRecipes } from '../repository/registration-execution.reader';
 import { preparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
 import { hashRegistrationSubmissionPayload } from '../../../domain/registration/registration-submission-payload';
+import { ListingException } from '../../../application/exception/listing.exception';
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -135,6 +136,8 @@ implements ChannelOptionRecipeRepositoryPort {
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;
+    /** The recipe the caller loaded; a different current recipe is a conflict. */
+    expectedComponents: readonly ChannelRecipeComponentInput[];
     components: readonly ChannelRecipeComponentInput[];
   }) {
     return this.prisma.$transaction(async (tx) => {
@@ -160,6 +163,9 @@ implements ChannelOptionRecipeRepositoryPort {
         },
       });
       if (!option) throw new NotFoundException('Channel listing option was not found');
+      if (!sameRecipe(option.inventoryComponents, input.expectedComponents)) {
+        throw new ListingException('conflict', 'The option recipe changed after it was loaded');
+      }
       const recipeChanged = !sameRecipe(option.inventoryComponents, input.components);
       if (recipeChanged) {
         await tx.channelListingOptionInventoryComponent.deleteMany({

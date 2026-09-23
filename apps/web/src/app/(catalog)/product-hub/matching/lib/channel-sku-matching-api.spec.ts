@@ -92,6 +92,7 @@ describe('channel product matching API', () => {
       channelListingId: LISTING_ID,
       options: [{
         channelListingOptionId: OPTION_ID,
+        expectedComponents: [{ masterProductId: '77777777-7777-4777-8777-777777777777', quantity: 1 }],
         components: [{
           masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 10,
@@ -100,7 +101,10 @@ describe('channel product matching API', () => {
     });
 
     expect(apiClient.put.mock.calls).toEqual([
-      [`/api/channels/options/${OPTION_ID}/inventory-components`, { components: [{ masterProductId: '66666666-6666-4666-8666-666666666666', quantity: 10 }] }],
+      [`/api/channels/options/${OPTION_ID}/inventory-components`, {
+        expectedComponents: [{ masterProductId: '77777777-7777-4777-8777-777777777777', quantity: 1 }],
+        components: [{ masterProductId: '66666666-6666-4666-8666-666666666666', quantity: 10 }],
+      }],
     ]);
   });
 

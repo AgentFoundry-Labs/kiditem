@@ -7,12 +7,13 @@ import { toast } from 'sonner';
 import type { ProductRecipeComponentCandidate } from '@kiditem/shared/product-operations';
 import type { ChannelOptionMatchingQueueRow, ChannelProductMatchingQueueRow } from '@kiditem/shared/channel-product-matching';
 import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
-import { friendlyError } from '@/lib/api-error';
+import { friendlyError, isApiError } from '@/lib/api-error';
 import { formatNumber } from '@/lib/utils';
 import {
   useRecipeComponentCandidates,
   useSaveProductInventoryMatching,
 } from '../hooks/useChannelSkuMappings';
+import { RECIPE_CHANGED_ELSEWHERE_MESSAGE } from '../lib/channel-sku-matching-api';
 
 type Props = {
   open: boolean;
@@ -61,6 +62,7 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
     if (recipeSignature(draft) === recipeSignature(optionRow.option.inventoryComponents)) return [];
     return [{
       channelListingOptionId: optionRow.option.id,
+      expectedComponents: loadedRecipe(optionRow),
       components: draft.map((component) => ({
         masterProductId: component.masterProductId,
         quantity: component.quantity!,
@@ -110,7 +112,7 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
       toast.success(`재고 매칭을 저장했습니다. 변경 옵션 ${changedOptions.length}개`);
       onOpenChange(false);
     } catch (error) {
-      toast.error(friendlyError(error) ?? '재고 매칭을 저장하지 못했습니다. 반영 상태를 새로고침해 확인해 주세요.');
+      toast.error(saveErrorMessage(error) ?? '재고 매칭을 저장하지 못했습니다. 반영 상태를 새로고침해 확인해 주세요.');
     }
   };
 
@@ -119,15 +121,16 @@ export function ProductLinkDialog({ open, onOpenChange, row, options }: Props) {
     try {
       await saveMutation.mutateAsync({
         channelListingId: row.listing.id,
-        options: options.map(({ option }) => ({
-          channelListingOptionId: option.id,
+        options: options.map((optionRow) => ({
+          channelListingOptionId: optionRow.option.id,
+          expectedComponents: loadedRecipe(optionRow),
           components: [],
         })),
       });
       toast.success('재고 매칭을 모두 해제했습니다.');
       onOpenChange(false);
     } catch (error) {
-      toast.error(friendlyError(error) ?? '재고 매칭을 해제하지 못했습니다.');
+      toast.error(saveErrorMessage(error) ?? '재고 매칭을 해제하지 못했습니다.');
     }
   };
 
@@ -234,6 +237,14 @@ function draftsFrom(options: ChannelOptionMatchingQueueRow[]): Record<string, Dr
       quantity: component.quantity,
     })),
   ]));
+}
+
+function loadedRecipe({ option }: ChannelOptionMatchingQueueRow) {
+  return option.inventoryComponents.map(({ masterProductId, quantity }) => ({ masterProductId, quantity }));
+}
+
+function saveErrorMessage(error: unknown): string | null {
+  return isApiError(error) && error.status === 409 ? RECIPE_CHANGED_ELSEWHERE_MESSAGE : friendlyError(error);
 }
 
 function optionSearch(row?: ChannelOptionMatchingQueueRow): string {

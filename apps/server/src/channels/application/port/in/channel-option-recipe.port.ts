@@ -48,6 +48,8 @@ export interface ChannelOptionRecipePort extends ChannelRecipeFactQueries {
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;
+    /** The recipe the caller loaded; a different current recipe is a conflict. */
+    expectedComponents: readonly ChannelRecipeComponentInput[];
     components: readonly ChannelRecipeComponentInput[];
   }): Promise<{ masterProductId: string | null }>;
   validateRecipeTargets(input: {

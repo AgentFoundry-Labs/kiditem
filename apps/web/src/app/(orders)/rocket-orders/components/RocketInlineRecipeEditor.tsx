@@ -10,7 +10,7 @@ import {
 } from "@kiditem/shared/product-operations";
 import type { RocketPurchasePreviewComponent } from "@kiditem/shared/rocket-purchase-preview";
 import { apiClient } from "@/lib/api-client";
-import { friendlyError } from "@/lib/api-error";
+import { friendlyError, isApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
 import { SellpiaOutOfStockToggle } from "@/components/SellpiaOutOfStockToggle";
 import { toast } from "sonner";
@@ -105,9 +105,12 @@ export function RocketInlineRecipeEditor({
         masterProductId,
         quantity,
       }));
+      // The recipe this editor loaded; the server answers 409 when it changed since.
+      const expectedComponents = (currentOption?.inventoryComponents ?? existingComponents)
+        .map(({ masterProductId, quantity }) => ({ masterProductId, quantity }));
       await apiClient.put(
         `/api/channels/options/${channelListingOptionId}/inventory-components`,
-        { components },
+        { expectedComponents, components },
       );
       return { mode: hasExistingRecipe ? ("replaced" as const) : ("created" as const) };
     },
@@ -168,7 +171,9 @@ export function RocketInlineRecipeEditor({
   const errorMessage = product.error
     ? "현재 Sellpia 재고 구성을 불러오지 못했습니다."
     : save.error
-      ? (friendlyError(save.error) ?? "Sellpia 재고 구성을 저장하지 못했습니다.")
+      ? (isApiError(save.error) && save.error.status === 409
+        ? "다른 곳에서 구성이 바뀌었습니다. 새로고침 후 다시 적용하세요."
+        : friendlyError(save.error) ?? "Sellpia 재고 구성을 저장하지 못했습니다.")
       : null;
 
   return (

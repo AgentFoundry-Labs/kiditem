@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient } from "@/lib/api-client";
+import { ApiError } from "@/lib/api-error";
 import { RocketInlineRecipeEditor } from "./RocketInlineRecipeEditor";
 
 vi.mock("@/lib/api-client", () => ({
@@ -185,6 +186,7 @@ describe("<RocketInlineRecipeEditor />", () => {
       expect(apiClient.put).toHaveBeenCalledWith(
         "/api/channels/options/55555555-5555-4555-8555-555555555555/inventory-components",
         {
+          expectedComponents: [],
           components: [
             {
               masterProductId: "66666666-6666-4666-8666-666666666666",
@@ -265,6 +267,10 @@ describe("<RocketInlineRecipeEditor />", () => {
     await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith(
       "/api/channels/options/55555555-5555-4555-8555-555555555555/inventory-components",
       {
+        expectedComponents: [{
+          masterProductId: "88888888-8888-4888-8888-888888888888",
+          quantity: 2,
+        }],
         components: [{
           masterProductId: candidate.masterProductId,
           quantity: 1,
@@ -272,5 +278,27 @@ describe("<RocketInlineRecipeEditor />", () => {
       },
     ));
     expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks the operator to refresh when the recipe changed elsewhere", async () => {
+    const onSaved = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(apiClient.put).mockRejectedValueOnce(new ApiError(409, "Conflict", "recipe changed"));
+    renderEditor({ onSaved });
+
+    fireEvent.change(
+      screen.getByRole("searchbox", {
+        name: "Sellpia 상품 코드 또는 상품명 검색",
+      }),
+      { target: { value: "9633-1" } },
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "9633-1 재고 추가" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "재고 연결하고 다시 계산" }),
+    );
+
+    expect(await screen.findByText("다른 곳에서 구성이 바뀌었습니다. 새로고침 후 다시 적용하세요.")).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });

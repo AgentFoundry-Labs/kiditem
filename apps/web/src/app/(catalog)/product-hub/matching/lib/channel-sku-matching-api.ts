@@ -112,9 +112,14 @@ export type ProductInventoryMatchingSaveInput = {
   channelListingId: string;
   options: Array<{
     channelListingOptionId: string;
+    /** The recipe the screen loaded; the server answers 409 when it changed since. */
+    expectedComponents: ReplaceChannelOptionInventoryInput['components'];
     components: ReplaceChannelOptionInventoryInput['components'];
   }>;
 };
+
+/** Shown when another screen changed the recipe after this one loaded it (409). */
+export const RECIPE_CHANGED_ELSEWHERE_MESSAGE = '다른 곳에서 구성이 바뀌었습니다. 새로고침 후 다시 적용하세요.';
 
 export async function saveProductInventoryMatching(
   input: ProductInventoryMatchingSaveInput,
@@ -123,7 +128,7 @@ export async function saveProductInventoryMatching(
     left.channelListingOptionId.localeCompare(right.channelListingOptionId))) {
     await apiClient.put(
       `/api/channels/options/${encodeURIComponent(option.channelListingOptionId)}/inventory-components`,
-      { components: option.components },
+      { expectedComponents: option.expectedComponents, components: option.components },
     );
   }
 }

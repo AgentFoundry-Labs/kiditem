@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { RequestMethod } from '@nestjs/common';
+import { BadRequestException, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChannelOptionRecipePort } from '../../../../application/port/in/channel-option-recipe.port';
 import type { ChannelOptionRecipeCandidateService } from '../../../../application/service/listing/channel-option-recipe-candidate.service';
@@ -40,6 +40,7 @@ describe('ChannelOptionRecipeController', () => {
     );
     const body: ReplaceChannelOptionRecipeDto = {
       components: [{ masterProductId, quantity: 2 }],
+      expectedComponents: [{ masterProductId, quantity: 1 }],
     };
 
     await expect(controller.replaceRecipe(organizationId, optionId, body))
@@ -48,6 +49,7 @@ describe('ChannelOptionRecipeController', () => {
       organizationId,
       channelListingOptionId: optionId,
       components: body.components,
+      expectedComponents: body.expectedComponents,
     });
 
     const query: ChannelOptionRecipeCandidateQueryDto = {
@@ -57,5 +59,17 @@ describe('ChannelOptionRecipeController', () => {
     };
     await controller.listCandidates(organizationId, query);
     expect(candidates.search).toHaveBeenCalledWith(organizationId, query);
+  });
+
+  it('rejects a replacement without the components the screen loaded', async () => {
+    const pipe = new ValidationPipe({ whitelist: true, transform: true });
+    const metadata = { type: 'body' as const, metatype: ReplaceChannelOptionRecipeDto };
+    const components = [{ masterProductId, quantity: 2 }];
+
+    await expect(pipe.transform({ components }, metadata)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(pipe.transform({ components, expectedComponents: [{ masterProductId, quantity: 0 }] }, metadata))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(pipe.transform({ components, expectedComponents: [] }, metadata))
+      .resolves.toEqual({ components, expectedComponents: [] });
   });
 });
