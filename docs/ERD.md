@@ -27,7 +27,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 |---|---:|
 | [Advertising](erd/advertising.md) | 11 |
 | [AgentOS](erd/agentos.md) | 1 |
-| [AI](erd/ai.md) | 21 |
+| [AI](erd/ai.md) | 10 |
 | [Analytics](erd/analytics.md) | 2 |
 | [Channels](erd/channels.md) | 19 |
 | [Core](erd/core.md) | 7 |
@@ -57,25 +57,14 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | CapabilityInvocation | AgentOS | `capability_invocations` | Exact request-driven mutation admission and replay receipt. |
 | AiDirectJob | AI | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
 | AiUsageRecord | AI | `ai_usage_records` | Append-only metering of one Gemini call: tokens and an estimated cost, attributed to the agent whose request or job made it. Cost is null when the model has no registered price. |
-| ContentAsset | AI | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
-| ContentGeneration | AI | `content_generations` | - |
-| ContentGenerationAssetUsage | AI | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
-| ContentGenerationGroup | AI | `content_generation_groups` | Same-input generation group owned by a content workspace. |
-| ContentGenerationSource | AI | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
+| ContentAsset | AI | `content_assets` | 워크스페이스가 소유한 관리 이미지 한 표(KID-313 W3a): 운영자 업로드 · AI 썸네일 후보 · 상세 이미지 · 몰 카탈로그 사진이 모두 여기 한 행이다. 대표이미지는 ContentWorkspace.current_thumbnail_asset_id 가 가리킨다. |
 | ContentWorkspace | AI | `content_workspaces` | Product content workspace owned by a sales product draft, its channel listing, or a direct detail page. |
-| ContentWorkspaceThumbnailSelection | AI | `content_workspace_thumbnail_selections` | Stable workspace-owned thumbnail adoption with optional generation provenance. |
-| DetailPageArtifact | AI | `detail_page_artifacts` | Workspace-owned editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
+| DetailPage | AI | `detail_pages` | 상세 페이지 하나(KID-313 W3b, ← content_generations + detail_page_artifacts): AI 생성 · 직접 작성 · 올린 파일 · 가져오기(사방넷) 어느 것이든 한 행이고, 그 이력은 detail_page_revisions 다. 워크스페이스에 여럿 있을 수 있고 몰로 가는 것은 ContentWorkspace.current_detail_page_revision_id 하나다. |
 | DetailPageImageArtifact | AI | `detail_page_image_artifacts` | Durable single-JPEG marketplace rendition for one immutable detail-page revision and renderer variant. |
 | DetailPageImageRenderIntent | AI | `detail_page_image_render_intents` | Short-lived organization-scoped claim that binds a browser renderer to one exact detail-page revision and object key. |
-| DetailPageRevision | AI | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
-| Thumbnail | AI | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
-| ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
-| ThumbnailGeneration | AI | `thumbnail_generations` | 상태: status=pending/running/succeeded/failed/cancelled, phase=ready/applied. method=generate/creative/auto. |
-| ThumbnailGenerationCandidate | AI | `thumbnail_generation_candidates` | 썸네일 생성 후보 이미지. 바이너리는 object storage 에 저장하고 DB 는 URL/key 메타데이터만 보관한다. |
-| ThumbnailGenerationEvent | AI | `thumbnail_generation_events` | ThumbnailGeneration 의 status/phase/attempt/error 전이 audit ledger. row 누적, 덮어쓰기 X. |
-| ThumbnailGenerationInputImage | AI | `thumbnail_generation_input_images` | 썸네일 편집/생성 입력 이미지. base64 원문 대신 object storage 참조와 역할 메타데이터만 저장한다. |
-| ThumbnailTracking | AI | `thumbnail_trackings` | - |
-| ThumbnailTrackingDailySnapshot | AI | `thumbnail_tracking_daily_snapshots` | 적용된 썸네일의 30일 매출/판매량 시계열 — playwriter 로 Wing vendor-inventory 검색해서 매일 한 row 씩 적재. |
+| DetailPageRevision | AI | `detail_page_revisions` | Append-only detail-page HTML revision. AI 결과(generated) · 편집(manual_edit) · 복제(duplicate) · 가져오기(imported)가 한 이력에 쌓이고, DetailPage.current_revision_id 와 ContentWorkspace.current_detail_page_revision_id 가 현재를 고른다. |
+| ListingThumbnailEvaluation | AI | `listing_thumbnail_evaluations` | 몰에 실제 등록된 리스팅 대표이미지 한 장당 평가 한 행(KID-313 W3a, Content 소유). channel_listing_id 는 교차 owner scalar id(FK 없음), image_url 은 channel_listings.image_url 그 시점 값. 이미지가 바뀌면 새 행이 생기고 옛 평가는 남는다. 규칙 검사는 저장하지 않고 계산한다. |
+| ThumbnailGeneration | AI | `thumbnail_generations` | 대표이미지 생성 job 하나(KID-313 W3a): status=pending/running/succeeded/failed/cancelled, method=generate/creative/auto/edit. 결과 후보는 content_assets(thumbnail_generation_id) 행이고 채택은 ContentWorkspace.current_thumbnail_asset_id 다. 입력 사진 · 편집 분석 · 원본 URL 은 input_meta 에 둔다. |
 | SellpiaProductMonthlySales | Analytics | `sellpia_product_monthly_sales` | SellpiaProductMonthlySales canonical state owned by analytics. |
 | SellpiaSalesDailySnapshot | Analytics | `sellpia_sales_daily_snapshots` | SellpiaSalesDailySnapshot canonical state owned by analytics. |
 | ChannelAccount | Channels | `channel_accounts` | ChannelAccount canonical state owned by channels. |
@@ -550,7 +539,9 @@ erDiagram
   ContentAsset {
     String id PK
     String organizationId FK
-    String originGenerationGroupId FK
+    String contentWorkspaceId FK
+    String source
+    String thumbnailGenerationId FK
     String createdByUserId FK
     String assetKey
     String url
@@ -569,91 +560,21 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  ContentGeneration {
-    String id PK
-    String organizationId FK
-    String generationGroupId FK
-    String contentWorkspaceId FK
-    String detailPageArtifactId FK
-    String contentType
-    String templateId
-    Json generationInput
-    Json generationResult
-    String generatedTitle
-    String generatedDescription
-    String generatedCopy
-    String status
-    Int retryCount
-    String errorMessage
-    String triggeredByUserId FK
-    Boolean isDeleted
-    DateTime deletedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ContentGenerationAssetUsage {
-    String id PK
-    String organizationId FK
-    String contentGenerationId FK
-    String contentAssetId FK
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ContentGenerationGroup {
-    String id PK
-    String organizationId FK
-    String groupType
-    String contentWorkspaceId FK
-    String baseContentGenerationId FK
-    String title
-    String inputFingerprint
-    Json metadata
-    String createdByUserId
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ContentGenerationSource {
-    String id PK
-    String organizationId FK
-    String contentGenerationId FK
-    String sourceType
-    String sourceCandidateId
-    String sourceContentGenerationId FK
-    String contentAssetId FK
-    String label
-    Int sortOrder
-    Json metadata
-    DateTime createdAt
-    DateTime updatedAt
-  }
   ContentWorkspace {
     String id PK
     String organizationId FK
     String ownerType
     String salesProductId
     String channelListingId
-    String originWorkspaceId FK
-    String displayName
     String normalizedTitle
     String status
-    String currentDetailPageArtifactId FK
+    String currentThumbnailAssetId FK
     String currentDetailPageRevisionId FK
-    String currentThumbnailSelectionId FK
     String createdByUserId FK
     Boolean isDeleted
     DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
-  }
-  ContentWorkspaceThumbnailSelection {
-    String id PK
-    String organizationId FK
-    String contentWorkspaceId FK
-    String contentAssetId FK
-    String sourceThumbnailGenerationId FK
-    String sourceThumbnailCandidateId FK
-    String createdByUserId FK
-    DateTime createdAt
   }
   CoupangDirectPoSnapshot {
     String id PK
@@ -839,16 +760,18 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  DetailPageArtifact {
+  DetailPage {
     String id PK
     String organizationId FK
     String contentWorkspaceId FK
-    String sourceContentGenerationId FK,UK
-    String currentRevisionId FK
+    String source
+    String templateId
     String title
     String status
-    Json metadata
-    String createdByUserId FK
+    Json generationInput
+    String errorMessage
+    String currentRevisionId FK
+    String triggeredByUserId FK
     Boolean isDeleted
     DateTime deletedAt
     DateTime createdAt
@@ -875,7 +798,7 @@ erDiagram
   DetailPageImageRenderIntent {
     String id PK
     String organizationId FK
-    String detailPageArtifactId FK
+    String detailPageId FK
     String revisionId FK
     String variant
     Int outputWidth
@@ -898,8 +821,7 @@ erDiagram
   DetailPageRevision {
     String id PK
     String organizationId FK
-    String artifactId FK
-    String contentGenerationId FK
+    String detailPageId FK
     String revisionType
     String html
     Json assetUrlMap
@@ -942,6 +864,18 @@ erDiagram
     Json metadata
     DateTime createdAt
     DateTime updatedAt
+  }
+  ListingThumbnailEvaluation {
+    String id PK
+    String organizationId FK
+    String channelListingId
+    String imageUrl
+    String grade
+    Int score
+    Json details
+    String method
+    String modelId
+    DateTime evaluatedAt
   }
   LiveCommerceBroadcastDailySnapshot {
     String id PK
@@ -2305,56 +2239,14 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  Thumbnail {
-    String id PK
-    String organizationId FK
-    String listingId
-    String imageUrl
-    String strategy
-    String status
-    Decimal ctr
-    Decimal prevClickRate
-    Int impressions
-    Int clicks
-    DateTime measuredAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ThumbnailAnalysis {
-    String id PK
-    String organizationId FK
-    String contentWorkspaceId FK,UK
-    String imageUrl
-    Int overallScore
-    String grade
-    Json scores
-    Json issues
-    Json suggestions
-    String method
-    String complianceGrade
-    Json complianceScores
-    Json imageSpec
-    Json recompose
-    DateTime qualityAnalyzedAt
-    DateTime complianceAnalyzedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   ThumbnailGeneration {
     String id PK
     String organizationId FK
     String contentWorkspaceId FK
-    String originalUrl
-    String selectedUrl
     String status
-    String phase
-    String grade
-    Int score
     String prompt
     String method
-    Json editAnalysis
     Json inputMeta
-    Int inputMetaVersion
     String errorMessage
     Int attemptCount
     String triggeredByUserId FK
@@ -2362,89 +2254,6 @@ erDiagram
     DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
-  }
-  ThumbnailGenerationCandidate {
-    String id PK
-    String organizationId FK
-    String generationId FK
-    String url
-    String storageKey
-    String filename
-    Int sortOrder
-    String mimeType
-    Int width
-    Int height
-    Int fileSize
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ThumbnailGenerationEvent {
-    String id PK
-    String organizationId FK
-    String generationId FK
-    String eventType
-    String fromStatus
-    String toStatus
-    String fromPhase
-    String toPhase
-    Int attemptNumber
-    String errorMessage
-    Json payload
-    String actorUserId FK
-    DateTime occurredAt
-    DateTime createdAt
-  }
-  ThumbnailGenerationInputImage {
-    String id PK
-    String organizationId FK
-    String generationId FK
-    String url
-    String storageKey
-    String role
-    String label
-    Int sortOrder
-    String source
-    String sourceRecordImageId
-    String sourceThumbnailCandidateId FK
-    String mimeType
-    Int width
-    Int height
-    Int fileSize
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ThumbnailTracking {
-    String id PK
-    String organizationId FK
-    String listingId
-    String generationId FK
-    String originalGrade
-    Int originalScore
-    DateTime appliedAt
-    Float ctrBefore
-    Float ctrAfter
-    Int reviewsBefore
-    Int reviewsAfter
-    Int salesBefore
-    Int salesAfter
-    DateTime markedInconclusiveAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ThumbnailTrackingDailySnapshot {
-    String id PK
-    String organizationId FK
-    String trackingId FK
-    DateTime capturedAt
-    DateTime capturedDate
-    Int unitsSold30d
-    Int unitsSold7d
-    Int revenueKrw
-    Int reviewCount
-    Float ratingAvg
-    Json rawCellTexts
-    String errorMessage
-    DateTime createdAt
   }
   TiktokCreativeTrendDailySnapshot {
     String id PK
@@ -2536,34 +2345,17 @@ erDiagram
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
-  ContentAsset ||--o{ ContentGenerationAssetUsage : "contentAsset"
-  ContentAsset o|--o{ ContentGenerationSource : "contentAsset"
-  ContentAsset ||--o{ ContentWorkspaceThumbnailSelection : "contentAsset"
-  ContentGeneration ||--o{ ContentGenerationAssetUsage : "contentGeneration"
-  ContentGeneration o|--o{ ContentGenerationGroup : "baseContentGeneration"
-  ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
-  ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
-  ContentGeneration o|--o| DetailPageArtifact : "sourceContentGeneration"
-  ContentGeneration o|--o{ DetailPageRevision : "contentGeneration"
-  ContentGenerationGroup o|--o{ ContentAsset : "originGenerationGroup"
-  ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
-  ContentWorkspace ||--o{ ContentGeneration : "contentWorkspace"
-  ContentWorkspace ||--o{ ContentGenerationGroup : "contentWorkspace"
-  ContentWorkspace o|--o{ ContentWorkspace : "originWorkspace"
-  ContentWorkspace ||--o{ ContentWorkspaceThumbnailSelection : "contentWorkspace"
-  ContentWorkspace ||--o{ DetailPageArtifact : "contentWorkspace"
-  ContentWorkspace ||--o{ ThumbnailAnalysis : "contentWorkspace"
+  ContentAsset o|--o{ ContentWorkspace : "currentThumbnailAsset"
+  ContentWorkspace ||--o{ ContentAsset : "contentWorkspace"
+  ContentWorkspace ||--o{ DetailPage : "contentWorkspace"
   ContentWorkspace ||--o{ ThumbnailGeneration : "contentWorkspace"
-  ContentWorkspaceThumbnailSelection o|--o| ContentWorkspace : "currentThumbnailSelection"
   CoupangDirectTransportReceipt ||--o{ CoupangDirectTransportConsumption : "receipt"
   CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
-  DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
-  DetailPageArtifact o|--o{ ContentWorkspace : "currentDetailPageArtifact"
-  DetailPageArtifact ||--o{ DetailPageImageRenderIntent : "detailPageArtifact"
-  DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
+  DetailPage ||--o{ DetailPageImageRenderIntent : "detailPage"
+  DetailPage ||--o{ DetailPageRevision : "detailPage"
   DetailPageImageArtifact o|--o{ DetailPageImageRenderIntent : "completedArtifact"
   DetailPageRevision o|--o{ ContentWorkspace : "currentDetailPageRevision"
-  DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
+  DetailPageRevision o|--o{ DetailPage : "currentRevision"
   DetailPageRevision ||--o{ DetailPageImageArtifact : "revision"
   DetailPageRevision ||--o{ DetailPageImageRenderIntent : "revision"
   MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
@@ -2581,12 +2373,7 @@ erDiagram
   Organization ||--o{ ChannelAdListingProductMonthlyFact : "organization"
   Organization ||--o{ ChannelAdTargetDailySnapshot : "organization"
   Organization ||--o{ ContentAsset : "organization"
-  Organization ||--o{ ContentGeneration : "organization"
-  Organization ||--o{ ContentGenerationAssetUsage : "organization"
-  Organization ||--o{ ContentGenerationGroup : "organization"
-  Organization ||--o{ ContentGenerationSource : "organization"
   Organization ||--o{ ContentWorkspace : "organization"
-  Organization ||--o{ ContentWorkspaceThumbnailSelection : "organization"
   Organization ||--o{ CoupangDirectPoSnapshot : "organization"
   Organization ||--o{ CoupangDirectTransportConsumption : "organization"
   Organization ||--o{ CoupangDirectTransportReceipt : "organization"
@@ -2598,11 +2385,12 @@ erDiagram
   Organization ||--o{ CoupangWingSalesRankDailySnapshot : "organization"
   Organization ||--o{ CoupangWingTrackedProduct : "organization"
   Organization ||--o{ CoupangWingTrackedProductDailySnapshot : "organization"
-  Organization ||--o{ DetailPageArtifact : "organization"
+  Organization ||--o{ DetailPage : "organization"
   Organization ||--o{ DetailPageImageArtifact : "organization"
   Organization ||--o{ DetailPageImageRenderIntent : "organization"
   Organization ||--o{ DetailPageRevision : "organization"
   Organization ||--o{ LegalEntity : "organization"
+  Organization ||--o{ ListingThumbnailEvaluation : "organization"
   Organization ||--o{ LiveCommerceBroadcastDailySnapshot : "organization"
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
   Organization ||--o{ MasterProduct : "organization"
@@ -2670,14 +2458,7 @@ erDiagram
   Organization ||--o{ SupplierPayment : "organization"
   Organization ||--o{ SupplierProduct : "organization"
   Organization ||--o{ SystemSetting : "organization"
-  Organization ||--o{ Thumbnail : "organization"
-  Organization ||--o{ ThumbnailAnalysis : "organization"
   Organization ||--o{ ThumbnailGeneration : "organization"
-  Organization ||--o{ ThumbnailGenerationCandidate : "organization"
-  Organization ||--o{ ThumbnailGenerationEvent : "organization"
-  Organization ||--o{ ThumbnailGenerationInputImage : "organization"
-  Organization ||--o{ ThumbnailTracking : "organization"
-  Organization ||--o{ ThumbnailTrackingDailySnapshot : "organization"
   Organization ||--o{ TiktokCreativeTrendDailySnapshot : "organization"
   Organization ||--o{ TodoItem : "organization"
   Organization ||--o{ TrendSeedKeyword : "organization"
@@ -2776,22 +2557,13 @@ erDiagram
   SupplierOfferSkuSnapshot o|--o{ SourcingDecisionBatchItem : "supplierOfferSkuSnapshot"
   SupplierOfferSkuSnapshot ||--o{ SourcingLaunchCandidate : "supplierOfferSkuSnapshot"
   SupplierOfferSkuSnapshot ||--o{ SupplierOfferPriceTier : "supplierOfferSkuSnapshot"
-  ThumbnailGeneration o|--o{ ContentWorkspaceThumbnailSelection : "sourceGeneration"
-  ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
-  ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
-  ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
-  ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
-  ThumbnailGenerationCandidate o|--o{ ContentWorkspaceThumbnailSelection : "sourceCandidate"
-  ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
-  ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
+  ThumbnailGeneration o|--o{ ContentAsset : "thumbnailGeneration"
   User ||--o{ AuthSession : "user"
   User o|--o{ CapabilityInvocation : "approvalDecidedByUser"
   User ||--o{ CapabilityInvocation : "initiatingUser"
   User o|--o{ ContentAsset : "createdByUser"
-  User o|--o{ ContentGeneration : "triggeredByUser"
   User o|--o{ ContentWorkspace : "createdByUser"
-  User o|--o{ ContentWorkspaceThumbnailSelection : "createdByUser"
-  User o|--o{ DetailPageArtifact : "createdByUser"
+  User o|--o{ DetailPage : "triggeredByUser"
   User o|--o{ DetailPageImageArtifact : "createdBy"
   User o|--o{ DetailPageImageRenderIntent : "claimedBy"
   User o|--o{ DetailPageImageRenderIntent : "requestedBy"
@@ -2812,7 +2584,6 @@ erDiagram
   User ||--o{ SourcingLaunchCandidate : "createdByUser"
   User ||--o{ SourcingReviewBatch : "requestedBy"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
-  User o|--o{ ThumbnailGenerationEvent : "actor"
   Warehouse ||--o{ StockTransfer : "fromWarehouse"
   Warehouse ||--o{ StockTransfer : "toWarehouse"
 ```

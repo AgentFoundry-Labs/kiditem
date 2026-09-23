@@ -1,90 +1,18 @@
 // ai.prisma — AI domain
 
 /// @namespace AI
-/// @describe CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템).
-model Thumbnail {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  listingId      String @map("listing_id") @db.Uuid
-
-  imageUrl      String   @map("image_url")
-  strategy      String   @default("standard")
-  status        String   @default("active")
-  ctr           Decimal? @db.Decimal(5, 4)
-  prevClickRate Decimal? @default(0) @map("prev_click_rate") @db.Decimal(5, 4)
-  impressions   Int      @default(0)
-  clicks        Int      @default(0)
-
-  measuredAt DateTime? @map("measured_at") @db.Timestamptz
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId])
-  @@index([listingId])
-  @@map("thumbnails")
-}
-
-/// @namespace AI
-/// @describe 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략.
-model ThumbnailAnalysis {
-  id                 String @id @default(uuid()) @db.Uuid
-  organizationId     String @map("organization_id") @db.Uuid
-  contentWorkspaceId String @unique @map("content_workspace_id") @db.Uuid
-
-  imageUrl     String @map("image_url")
-  overallScore Int    @default(0) @map("overall_score")
-  grade        String @default("F")
-  scores       Json? // { heroShot, composition, branding, mobile, differentiation }
-  issues       Json   @default("[]")
-  suggestions  Json   @default("[]")
-  method       String @default("ai") // "ai" | "rule"
-
-  complianceGrade  String? @map("compliance_grade") // PASS | WARN | FAIL
-  complianceScores Json?   @map("compliance_scores") // { violations, confidence, quality, violationCount }
-  imageSpec        Json?   @map("image_spec") // { width, height, aspectRatio, fileSizeKB, format, issues }
-  recompose        Json? // { kind, requiresChoice, options, recommended, reasoning }
-
-  qualityAnalyzedAt    DateTime? @map("quality_analyzed_at") @db.Timestamptz
-  complianceAnalyzedAt DateTime? @map("compliance_analyzed_at") @db.Timestamptz
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contentWorkspace ContentWorkspace @relation(fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
-
-  @@index([organizationId])
-  @@index([contentWorkspaceId])
-  @@index([grade])
-  @@index([complianceGrade])
-  @@map("thumbnail_analyses")
-}
-
-/// @namespace AI
-/// @describe 상태: status=pending/running/succeeded/failed/cancelled, phase=ready/applied. method=generate/creative/auto.
+/// @describe 대표이미지 생성 job 하나(KID-313 W3a): status=pending/running/succeeded/failed/cancelled, method=generate/creative/auto/edit. 결과 후보는 content_assets(thumbnail_generation_id) 행이고 채택은 ContentWorkspace.current_thumbnail_asset_id 다. 입력 사진 · 편집 분석 · 원본 URL 은 input_meta 에 둔다.
 model ThumbnailGeneration {
   id                 String @id @default(uuid()) @db.Uuid
   organizationId     String @map("organization_id") @db.Uuid
   contentWorkspaceId String @map("content_workspace_id") @db.Uuid
 
-  originalUrl      String?                         @map("original_url")
-  candidates       ThumbnailGenerationCandidate[]
-  inputImages      ThumbnailGenerationInputImage[]
-  events           ThumbnailGenerationEvent[]
-  selectedUrl      String?                         @map("selected_url")
-  status           String                          @default("pending")
-  phase            String?                         @map("phase")
-  grade            String                          @default("F")
-  score            Int                             @default(0)
-  prompt           String?
-  method           String                          @default("edit") @map("method")
-  editAnalysis     Json?                           @map("edit_analysis")
-  inputMeta        Json?                           @map("input_meta")
-  inputMetaVersion Int                             @default(1) @map("input_meta_version")
-  errorMessage     String?                         @map("error_message")
-  attemptCount     Int                             @default(0) @map("attempt_count")
+  status       String  @default("pending")
+  prompt       String?
+  method       String  @default("edit") @map("method")
+  inputMeta    Json?   @map("input_meta")
+  errorMessage String? @map("error_message")
+  attemptCount Int     @default(0) @map("attempt_count")
 
   triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
 
@@ -94,290 +22,18 @@ model ThumbnailGeneration {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization        Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contentWorkspace    ContentWorkspace                     @relation("ThumbnailGenerationContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  trackings           ThumbnailTracking[]
-  triggeredByUser     User?                                @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
-  thumbnailSelections ContentWorkspaceThumbnailSelection[] @relation("ContentWorkspaceThumbnailSelectionGeneration")
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contentWorkspace ContentWorkspace @relation("ThumbnailGenerationContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  triggeredByUser  User?            @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  assets           ContentAsset[]   @relation("ContentAssetThumbnailGeneration")
 
   @@unique([id, organizationId], map: "thumbnail_generations_id_org_key")
   @@index([organizationId])
   @@index([contentWorkspaceId])
   @@index([status])
-  @@index([method])
-  @@index([organizationId, isDeleted])
-  @@index([organizationId, contentWorkspaceId], map: "thumbnail_generations_org_content_workspace_idx")
   @@index([organizationId, contentWorkspaceId, isDeleted], map: "thumbnail_generations_org_content_workspace_deleted_idx")
-  @@index([organizationId, triggeredByUserId])
   @@index([triggeredByUserId])
   @@map("thumbnail_generations")
-}
-
-/// @namespace AI
-/// @describe 썸네일 생성 후보 이미지. 바이너리는 object storage 에 저장하고 DB 는 URL/key 메타데이터만 보관한다.
-model ThumbnailGenerationCandidate {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  generationId   String @map("generation_id") @db.Uuid
-
-  url        String
-  storageKey String? @map("storage_key")
-  filename   String?
-  sortOrder  Int     @default(0) @map("sort_order")
-
-  mimeType String? @map("mime_type")
-  width    Int?
-  height   Int?
-  fileSize Int?    @map("file_size")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization        Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generation          ThumbnailGeneration                  @relation(fields: [generationId], references: [id], onDelete: Cascade)
-  derivedInputs       ThumbnailGenerationInputImage[]
-  thumbnailSelections ContentWorkspaceThumbnailSelection[] @relation("ContentWorkspaceThumbnailSelectionCandidate")
-
-  @@unique([id, organizationId], map: "thumbnail_generation_candidates_id_org_key")
-  @@index([organizationId])
-  @@index([generationId])
-  @@index([organizationId, generationId])
-  @@index([generationId, sortOrder])
-  @@map("thumbnail_generation_candidates")
-}
-
-/// @namespace AI
-/// @describe 썸네일 편집/생성 입력 이미지. base64 원문 대신 object storage 참조와 역할 메타데이터만 저장한다.
-model ThumbnailGenerationInputImage {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  generationId   String @map("generation_id") @db.Uuid
-
-  url                        String
-  storageKey                 String? @map("storage_key")
-  role                       String  @default("product")
-  label                      String?
-  sortOrder                  Int     @default(0) @map("sort_order")
-  source                     String  @default("upload")
-  /// 원천 기록. sourcing.SourceRecordImage 의 id 이며 교차 owner 참조이므로 FK 가 없다.
-  sourceRecordImageId        String? @map("source_record_image_id") @db.Uuid
-  sourceThumbnailCandidateId String? @map("source_candidate_id") @db.Uuid
-
-  mimeType String? @map("mime_type")
-  width    Int?
-  height   Int?
-  fileSize Int?    @map("file_size")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization             Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generation               ThumbnailGeneration           @relation(fields: [generationId], references: [id], onDelete: Cascade)
-  sourceThumbnailCandidate ThumbnailGenerationCandidate? @relation(fields: [sourceThumbnailCandidateId], references: [id], onDelete: SetNull)
-
-  @@index([organizationId])
-  @@index([generationId])
-  @@index([sourceRecordImageId])
-  @@index([sourceThumbnailCandidateId])
-  @@index([organizationId, generationId])
-  @@index([generationId, role, sortOrder])
-  @@map("thumbnail_generation_input_images")
-}
-
-/// @namespace AI
-/// @describe ThumbnailGeneration 의 status/phase/attempt/error 전이 audit ledger. row 누적, 덮어쓰기 X.
-model ThumbnailGenerationEvent {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  generationId   String @map("generation_id") @db.Uuid
-
-  eventType     String  @map("event_type")
-  fromStatus    String? @map("from_status")
-  toStatus      String? @map("to_status")
-  fromPhase     String? @map("from_phase")
-  toPhase       String? @map("to_phase")
-  attemptNumber Int?    @map("attempt_number")
-  errorMessage  String? @map("error_message")
-  payload       Json?
-
-  actorUserId String? @map("actor_user_id") @db.Uuid
-
-  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generation   ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
-  actor        User?               @relation("ThumbnailGenerationEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
-
-  @@index([organizationId])
-  @@index([generationId])
-  @@index([generationId, occurredAt])
-  @@index([organizationId, generationId])
-  @@index([eventType])
-  @@index([actorUserId])
-  @@map("thumbnail_generation_events")
-}
-
-/// @namespace AI
-model ThumbnailTracking {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  listingId      String @map("listing_id") @db.Uuid
-  generationId   String @map("generation_id") @db.Uuid
-
-  originalGrade String   @map("original_grade") // S|A|B|C|F
-  originalScore Int      @default(0) @map("original_score")
-  appliedAt     DateTime @default(now()) @map("applied_at") @db.Timestamptz
-
-  // 성과 지표 (나중에 채워짐)
-  ctrBefore     Float? @map("ctr_before")
-  ctrAfter      Float? @map("ctr_after")
-  reviewsBefore Int?   @map("reviews_before")
-  reviewsAfter  Int?   @map("reviews_after")
-  salesBefore   Int?   @map("sales_before")
-  salesAfter    Int?   @map("sales_after")
-
-  // 운영자가 "결론 없음"으로 판단한 시각. tracking|measured|inconclusive 는 이 시각과 CTR 전후 값에서 파생한다.
-  markedInconclusiveAt DateTime? @map("marked_inconclusive_at") @db.Timestamptz
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization   Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generation     ThumbnailGeneration              @relation(fields: [generationId], references: [id], onDelete: Cascade)
-  dailySnapshots ThumbnailTrackingDailySnapshot[]
-
-  @@unique([listingId, generationId])
-  @@index([organizationId])
-  @@index([listingId])
-  @@index([generationId])
-  @@map("thumbnail_trackings")
-}
-
-/// @namespace AI
-/// @describe 적용된 썸네일의 30일 매출/판매량 시계열 — playwriter 로 Wing vendor-inventory 검색해서 매일 한 row 씩 적재.
-model ThumbnailTrackingDailySnapshot {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  trackingId     String   @map("tracking_id") @db.Uuid
-  capturedAt     DateTime @default(now()) @map("captured_at") @db.Timestamptz
-  capturedDate   DateTime @map("captured_date") @db.Date
-
-  // 정규화 추출값 (Wing DOM 에서 파싱) — null 가능 (스크래퍼가 못 찾으면)
-  unitsSold30d Int?   @map("units_sold_30d") // 최근 30일 누적 판매량
-  unitsSold7d  Int?   @map("units_sold_7d") // 최근 7일 누적 판매량
-  revenueKrw   Int?   @map("revenue_krw") // 매출 (KRW)
-  reviewCount  Int?   @map("review_count") // 리뷰 개수
-  ratingAvg    Float? @map("rating_avg") // 평균 별점
-
-  // 원본 row HTML/text — 패턴 분화 시 재파싱 가능하도록 보존
-  rawCellTexts Json? @map("raw_cell_texts")
-
-  // scrape 메타
-  errorMessage String? @map("error_message")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  tracking     ThumbnailTracking @relation(fields: [trackingId], references: [id], onDelete: Cascade)
-
-  @@unique([trackingId, capturedDate]) // 하루 한 row
-  @@index([organizationId])
-  @@index([trackingId])
-  @@index([capturedDate])
-  @@map("thumbnail_tracking_daily_snapshots")
-}
-
-/// @namespace AI
-model ContentGeneration {
-  id                   String    @id @default(uuid()) @db.Uuid
-  organizationId       String    @map("organization_id") @db.Uuid
-  generationGroupId    String    @map("generation_group_id") @db.Uuid
-  contentWorkspaceId   String    @map("content_workspace_id") @db.Uuid
-  detailPageArtifactId String?   @map("detail_page_artifact_id") @db.Uuid
-  contentType          String    @default("detail_page") @map("content_type")
-  templateId           String?   @map("template_id")
-  generationInput      Json      @default("{}") @map("generation_input")
-  generationResult     Json      @default("{}") @map("generation_result")
-  generatedTitle       String?   @map("generated_title")
-  generatedDescription String?   @map("generated_description")
-  generatedCopy        String?   @map("generated_copy")
-  status               String    @default("PENDING")
-  retryCount           Int       @default(0) @map("retry_count")
-  errorMessage         String?   @map("error_message")
-  triggeredByUserId    String?   @map("triggered_by_user_id") @db.Uuid
-  isDeleted            Boolean   @default(false) @map("is_deleted")
-  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization             Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generationGroup          ContentGenerationGroup        @relation("ContentGenerationGroupMembers", fields: [generationGroupId], references: [id], onDelete: Cascade)
-  contentWorkspace         ContentWorkspace              @relation("ContentGenerationContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  detailPageArtifact       DetailPageArtifact?           @relation("ContentGenerationDetailPageArtifact", fields: [detailPageArtifactId], references: [id], onDelete: SetNull)
-  triggeredByUser          User?                         @relation("ContentGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
-  assetUsages              ContentGenerationAssetUsage[]
-  sources                  ContentGenerationSource[]     @relation("ContentGenerationSources")
-  sourceLinks              ContentGenerationSource[]     @relation("ContentGenerationDerivedSources")
-  baseForGroups            ContentGenerationGroup[]      @relation("ContentGenerationGroupBase")
-  sourceDetailPageArtifact DetailPageArtifact?           @relation("DetailPageArtifactSourceGeneration")
-  detailPageRevisions      DetailPageRevision[]          @relation("DetailPageRevisionContentGeneration")
-
-  @@unique([id, organizationId], map: "content_generations_id_org_key")
-  @@index([organizationId])
-  @@index([generationGroupId])
-  @@index([contentWorkspaceId])
-  @@index([detailPageArtifactId])
-  @@index([organizationId, contentType])
-  @@index([organizationId, generationGroupId])
-  @@index([organizationId, contentWorkspaceId])
-  @@index([organizationId, detailPageArtifactId])
-  @@index([organizationId, isDeleted])
-  @@index([templateId])
-  @@index([organizationId, templateId])
-  @@index([status])
-  @@index([organizationId, triggeredByUserId])
-  @@index([triggeredByUserId])
-  @@map("content_generations")
-}
-
-/// @namespace AI
-/// @describe Workspace-owned editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history.
-model DetailPageArtifact {
-  id                        String    @id @default(uuid()) @db.Uuid
-  organizationId            String    @map("organization_id") @db.Uuid
-  contentWorkspaceId        String    @map("content_workspace_id") @db.Uuid
-  sourceContentGenerationId String?   @unique(map: "detail_page_artifacts_source_generation_key") @map("source_content_generation_id") @db.Uuid
-  currentRevisionId         String?   @map("current_revision_id") @db.Uuid
-  title                     String?
-  status                    String    @default("draft")
-  metadata                  Json      @default("{}")
-  createdByUserId           String?   @map("created_by_user_id") @db.Uuid
-  isDeleted                 Boolean   @default(false) @map("is_deleted")
-  deletedAt                 DateTime? @map("deleted_at") @db.Timestamptz
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization                Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contentWorkspace            ContentWorkspace              @relation("DetailPageArtifactContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sourceContentGeneration     ContentGeneration?            @relation("DetailPageArtifactSourceGeneration", fields: [sourceContentGenerationId], references: [id], onDelete: SetNull)
-  currentRevision             DetailPageRevision?           @relation("DetailPageArtifactCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
-  createdByUser               User?                         @relation("DetailPageArtifactCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  revisions                   DetailPageRevision[]          @relation("DetailPageArtifactRevisions")
-  contentGenerations          ContentGeneration[]           @relation("ContentGenerationDetailPageArtifact")
-  currentForContentWorkspaces ContentWorkspace[]            @relation("ContentWorkspaceCurrentArtifact")
-  imageRenderIntents          DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentDetailPageArtifact")
-
-  @@unique([id, organizationId], map: "detail_page_artifacts_id_org_key")
-  @@index([organizationId])
-  @@index([contentWorkspaceId])
-  @@index([currentRevisionId])
-  @@index([createdByUserId])
-  @@index([organizationId, contentWorkspaceId])
-  @@index([organizationId, status])
-  @@index([organizationId, isDeleted])
-  @@map("detail_page_artifacts")
 }
 
 /// @namespace AI
@@ -417,21 +73,19 @@ model AiDirectJob {
 model ContentWorkspace {
   id                          String    @id @default(uuid()) @db.Uuid
   organizationId              String    @map("organization_id") @db.Uuid
-  /// sales_product | channel_listing | direct_detail_page.
-  /// 이관(024)이 옮기지 못한 보관 줄에만 legacy `sourcing_candidate` 가 남는다 — 지운 후보에는
-  /// 옮겨 갈 초안이 없기 때문이다. 살아 있는 작업공간은 이 세 값뿐이므로, 목록은 빼는 조건이
-  /// 아니라 넣는 조건으로 걸러야 그 줄이 섞이지 않는다.
+  /// sales_product | channel_listing | direct_detail_page (KID-313 W3). 판매 상품 작업공간은 이름을 상품에서 읽는다.
   ownerType                   String    @map("owner_type")
   /// 작업공간 소유자. channels.SalesProduct 의 id 이며 교차 owner 참조이므로 FK 가 없다.
   salesProductId              String?   @map("sales_product_id") @db.Uuid
+  /// 몰 카탈로그 import 가 만드는 리스팅 소유 작업공간의 리스팅 id(교차 owner scalar). 판매 상품 작업공간은 null 이다 — 리스팅은 sales_product_id 로 상품 작업공간에 닿는다.
   channelListingId            String?   @map("channel_listing_id") @db.Uuid
-  originWorkspaceId           String?   @map("origin_workspace_id") @db.Uuid
-  displayName                 String    @map("display_name")
-  normalizedTitle             String    @map("normalized_title")
+  /// 직접 상세 작업공간의 중복 방지 제목. 판매 상품 · 리스팅 작업공간은 null.
+  normalizedTitle             String?   @map("normalized_title")
   status                      String    @default("active")
-  currentDetailPageArtifactId String?   @map("current_detail_page_artifact_id") @db.Uuid
+  /// 대표이미지의 유일한 자리(KID-313 W3a). 업로드본 · AI 후보 어느 쪽이든 content_assets 행 하나를 가리킨다.
+  currentThumbnailAssetId     String?   @map("current_thumbnail_asset_id") @db.Uuid
+  /// 몰로 가는 상세 HTML 의 유일한 포인터(KID-313 W3b).
   currentDetailPageRevisionId String?   @map("current_detail_page_revision_id") @db.Uuid
-  currentThumbnailSelectionId String?   @map("current_thumbnail_selection_id") @db.Uuid
   createdByUserId             String?   @map("created_by_user_id") @db.Uuid
   isDeleted                   Boolean   @default(false) @map("is_deleted")
   deletedAt                   DateTime? @map("deleted_at") @db.Timestamptz
@@ -439,105 +93,103 @@ model ContentWorkspace {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization              Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  originWorkspace           ContentWorkspace?                    @relation("ContentWorkspaceBranches", fields: [originWorkspaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  derivedWorkspaces         ContentWorkspace[]                   @relation("ContentWorkspaceBranches")
-  currentDetailPageArtifact DetailPageArtifact?                  @relation("ContentWorkspaceCurrentArtifact", fields: [currentDetailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  currentDetailPageRevision DetailPageRevision?                  @relation("ContentWorkspaceCurrentRevision", fields: [currentDetailPageRevisionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  currentThumbnailSelection ContentWorkspaceThumbnailSelection?  @relation("ContentWorkspaceCurrentThumbnail", fields: [currentThumbnailSelectionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  createdByUser             User?                                @relation("ContentWorkspaceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  contentGenerations        ContentGeneration[]                  @relation("ContentGenerationContentWorkspace")
-  detailPageArtifacts       DetailPageArtifact[]                 @relation("DetailPageArtifactContentWorkspace")
-  thumbnailAnalyses         ThumbnailAnalysis[]
-  thumbnailGenerations      ThumbnailGeneration[]                @relation("ThumbnailGenerationContentWorkspace")
-  thumbnailSelections       ContentWorkspaceThumbnailSelection[] @relation("ContentWorkspaceThumbnailSelections")
-  contentGenerationGroups   ContentGenerationGroup[]
+  organization              Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  currentThumbnailAsset     ContentAsset?       @relation("ContentWorkspaceCurrentThumbnail", fields: [currentThumbnailAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  currentDetailPageRevision DetailPageRevision? @relation("ContentWorkspaceCurrentRevision", fields: [currentDetailPageRevisionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdByUser             User?               @relation("ContentWorkspaceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  assets                    ContentAsset[]      @relation("ContentAssetWorkspace")
+  detailPages               DetailPage[]        @relation("DetailPageContentWorkspace")
+  thumbnailGenerations      ThumbnailGeneration[] @relation("ThumbnailGenerationContentWorkspace")
 
   @@unique([organizationId, ownerType, normalizedTitle], map: "content_workspaces_direct_title_unique", where: raw("owner_type = 'direct_detail_page' AND sales_product_id IS NULL AND channel_listing_id IS NULL AND status = 'active' AND is_deleted = false"))
   @@unique([organizationId, salesProductId], map: "content_workspaces_sales_product_active_key", where: raw("sales_product_id IS NOT NULL AND status = 'active' AND is_deleted = false"))
   @@unique([organizationId, channelListingId], map: "content_workspaces_listing_active_key", where: raw("channel_listing_id IS NOT NULL AND status = 'active' AND is_deleted = false"))
   @@unique([id, organizationId], map: "content_workspaces_id_org_key")
-  @@unique([currentThumbnailSelectionId, organizationId], map: "content_workspaces_current_thumbnail_key", where: raw("current_thumbnail_selection_id IS NOT NULL"))
   @@index([organizationId])
   @@index([salesProductId])
   @@index([channelListingId])
-  @@index([originWorkspaceId])
-  @@index([currentDetailPageArtifactId])
+  @@index([currentThumbnailAssetId])
   @@index([currentDetailPageRevisionId])
-  @@index([currentThumbnailSelectionId])
   @@index([createdByUserId])
   @@index([organizationId, status, isDeleted])
-  @@index([organizationId, normalizedTitle, status, isDeleted])
   @@index([organizationId, ownerType, normalizedTitle, status, isDeleted])
   @@index([organizationId, salesProductId, status, isDeleted])
   @@map("content_workspaces")
 }
 
 /// @namespace AI
-/// @describe Stable workspace-owned thumbnail adoption with optional generation provenance.
-model ContentWorkspaceThumbnailSelection {
-  id                          String   @id @default(uuid()) @db.Uuid
-  organizationId              String   @map("organization_id") @db.Uuid
-  contentWorkspaceId          String   @map("content_workspace_id") @db.Uuid
-  contentAssetId              String   @map("content_asset_id") @db.Uuid
-  sourceThumbnailGenerationId String?  @map("source_thumbnail_generation_id") @db.Uuid
-  sourceThumbnailCandidateId  String?  @map("source_thumbnail_candidate_id") @db.Uuid
-  createdByUserId             String?  @map("created_by_user_id") @db.Uuid
-  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz
+/// @describe 상세 페이지 하나(KID-313 W3b, ← content_generations + detail_page_artifacts): AI 생성 · 직접 작성 · 올린 파일 · 가져오기(사방넷) 어느 것이든 한 행이고, 그 이력은 detail_page_revisions 다. 워크스페이스에 여럿 있을 수 있고 몰로 가는 것은 ContentWorkspace.current_detail_page_revision_id 하나다.
+model DetailPage {
+  id                 String  @id @default(uuid()) @db.Uuid
+  organizationId     String  @map("organization_id") @db.Uuid
+  contentWorkspaceId String  @map("content_workspace_id") @db.Uuid
+  /// generated | manual | uploaded | imported — 이 상세 페이지가 어떻게 시작됐는가. 가져오기는 원천 이름을 revision.source 에 둔다.
+  source             String
+  templateId         String? @map("template_id")
+  title              String?
+  /// pending | processing | ready | failed (생성) · ready (그 외). AI 결과는 generated revision 으로 들어오며 sink 는 revision 없이 상태만 바꾸지 않는다.
+  status             String  @default("ready")
+  generationInput    Json    @default("{}") @map("generation_input")
+  errorMessage       String? @map("error_message")
+  currentRevisionId  String? @map("current_revision_id") @db.Uuid
+  triggeredByUserId  String? @map("triggered_by_user_id") @db.Uuid
+  isDeleted          Boolean   @default(false) @map("is_deleted")
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz
 
-  organization        Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contentWorkspace    ContentWorkspace              @relation("ContentWorkspaceThumbnailSelections", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  contentAsset        ContentAsset                  @relation(fields: [contentAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sourceGeneration    ThumbnailGeneration?          @relation("ContentWorkspaceThumbnailSelectionGeneration", fields: [sourceThumbnailGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sourceCandidate     ThumbnailGenerationCandidate? @relation("ContentWorkspaceThumbnailSelectionCandidate", fields: [sourceThumbnailCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  createdByUser       User?                         @relation("ContentWorkspaceThumbnailSelectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  currentForWorkspace ContentWorkspace?             @relation("ContentWorkspaceCurrentThumbnail")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  @@unique([id, organizationId], map: "content_workspace_thumbnail_selections_id_org_key")
+  organization     Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contentWorkspace ContentWorkspace              @relation("DetailPageContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  currentRevision  DetailPageRevision?           @relation("DetailPageCurrentRevision", fields: [currentRevisionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  triggeredByUser  User?                         @relation("DetailPageTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  revisions        DetailPageRevision[]          @relation("DetailPageRevisions")
+  renderIntents    DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentDetailPage")
+
+  @@unique([id, organizationId], map: "detail_pages_id_org_key")
   @@index([organizationId])
   @@index([contentWorkspaceId])
-  @@index([contentAssetId])
-  @@index([sourceThumbnailGenerationId])
-  @@index([sourceThumbnailCandidateId])
-  @@map("content_workspace_thumbnail_selections")
+  @@index([currentRevisionId])
+  @@index([triggeredByUserId])
+  @@index([organizationId, contentWorkspaceId, isDeleted])
+  @@index([organizationId, status])
+  @@index([templateId])
+  @@map("detail_pages")
 }
 
 /// @namespace AI
-/// @describe Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version.
+/// @describe Append-only detail-page HTML revision. AI 결과(generated) · 편집(manual_edit) · 복제(duplicate) · 가져오기(imported)가 한 이력에 쌓이고, DetailPage.current_revision_id 와 ContentWorkspace.current_detail_page_revision_id 가 현재를 고른다.
 model DetailPageRevision {
-  id                  String  @id @default(uuid()) @db.Uuid
-  organizationId      String  @map("organization_id") @db.Uuid
-  artifactId          String  @map("artifact_id") @db.Uuid
-  contentGenerationId String? @map("content_generation_id") @db.Uuid
-  revisionType        String  @default("manual_edit") @map("revision_type")
-  html                String  @db.Text
-  assetUrlMap         Json    @default("{}") @map("asset_url_map")
-  imageUrls           Json    @default("[]") @map("image_urls")
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  detailPageId   String  @map("detail_page_id") @db.Uuid
+  /// generated | manual_edit | duplicate | imported
+  revisionType   String  @default("manual_edit") @map("revision_type")
+  html           String  @db.Text
+  assetUrlMap    Json    @default("{}") @map("asset_url_map")
+  imageUrls      Json    @default("[]") @map("image_urls")
   /// 미러 원천에서 가져온 revision 이면 그 원천(`sabangnet`); 사람이 만든 revision 은 null (KID-313 W2, revision_type = imported).
-  source              String? @map("source")
+  source         String? @map("source")
   /// 원천이 준 원문의 digest(KID-304). 같은 원천의 마지막 imported revision 과 같으면 새 revision 을 만들지 않는다.
-  sourceDigest        String? @map("source_digest")
-  createdByUserId     String? @map("created_by_user_id") @db.Uuid
+  sourceDigest   String? @map("source_digest")
+  createdByUserId String? @map("created_by_user_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization                Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  artifact                    DetailPageArtifact            @relation("DetailPageArtifactRevisions", fields: [artifactId], references: [id], onDelete: Cascade)
-  contentGeneration           ContentGeneration?            @relation("DetailPageRevisionContentGeneration", fields: [contentGenerationId], references: [id], onDelete: SetNull)
+  detailPage                  DetailPage                    @relation("DetailPageRevisions", fields: [detailPageId, organizationId], references: [id, organizationId], onDelete: Cascade)
   createdByUser               User?                         @relation("DetailPageRevisionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  currentForArtifacts         DetailPageArtifact[]          @relation("DetailPageArtifactCurrentRevision")
+  currentForDetailPages       DetailPage[]                  @relation("DetailPageCurrentRevision")
   currentForContentWorkspaces ContentWorkspace[]            @relation("ContentWorkspaceCurrentRevision")
   imageArtifacts              DetailPageImageArtifact[]     @relation("DetailPageImageArtifactRevision")
   imageRenderIntents          DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentRevision")
 
   @@unique([id, organizationId], map: "detail_page_revisions_id_org_key")
   @@index([organizationId])
-  @@index([artifactId])
-  @@index([contentGenerationId])
+  @@index([detailPageId])
   @@index([createdByUserId])
-  @@index([organizationId, artifactId])
-  @@index([artifactId, createdAt])
-  @@index([artifactId, source, createdAt])
+  @@index([detailPageId, createdAt])
+  @@index([detailPageId, source, createdAt])
   @@map("detail_page_revisions")
 }
 
@@ -580,7 +232,7 @@ model DetailPageImageArtifact {
 model DetailPageImageRenderIntent {
   id                   String    @id @default(uuid()) @db.Uuid
   organizationId       String    @map("organization_id") @db.Uuid
-  detailPageArtifactId String    @map("detail_page_artifact_id") @db.Uuid
+  detailPageId         String    @map("detail_page_id") @db.Uuid
   revisionId           String    @map("revision_id") @db.Uuid
   variant              String
   outputWidth          Int       @map("output_width")
@@ -602,14 +254,14 @@ model DetailPageImageRenderIntent {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization       Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  detailPageArtifact DetailPageArtifact       @relation("DetailPageImageRenderIntentDetailPageArtifact", fields: [detailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  detailPage         DetailPage               @relation("DetailPageImageRenderIntentDetailPage", fields: [detailPageId, organizationId], references: [id, organizationId], onDelete: Cascade)
   revision           DetailPageRevision       @relation("DetailPageImageRenderIntentRevision", fields: [revisionId, organizationId], references: [id, organizationId], onDelete: Cascade)
   requestedBy        User?                    @relation("DetailPageImageRenderIntentRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
   claimedBy          User?                    @relation("DetailPageImageRenderIntentClaimedBy", fields: [claimedByUserId], references: [id], onDelete: SetNull)
   completedArtifact  DetailPageImageArtifact? @relation("DetailPageImageRenderIntentCompletedArtifact", fields: [completedArtifactId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
-  @@index([detailPageArtifactId])
+  @@index([detailPageId])
   @@index([revisionId])
   @@index([requestedByUserId])
   @@index([claimedByUserId])
@@ -620,83 +272,22 @@ model DetailPageImageRenderIntent {
 }
 
 /// @namespace AI
-/// @describe Same-input generation group owned by a content workspace.
-model ContentGenerationGroup {
-  id                      String  @id @default(uuid()) @db.Uuid
-  organizationId          String  @map("organization_id") @db.Uuid
-  groupType               String  @default("input_variation") @map("group_type")
-  contentWorkspaceId      String  @map("content_workspace_id") @db.Uuid
-  baseContentGenerationId String? @map("base_content_generation_id") @db.Uuid
-  title                   String?
-  inputFingerprint        String? @map("input_fingerprint")
-  metadata                Json    @default("{}")
-  createdByUserId         String? @map("created_by_user_id") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization          Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contentWorkspace      ContentWorkspace    @relation(fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  baseContentGeneration ContentGeneration?  @relation("ContentGenerationGroupBase", fields: [baseContentGenerationId], references: [id], onDelete: SetNull)
-  generations           ContentGeneration[] @relation("ContentGenerationGroupMembers")
-  originatingAssets     ContentAsset[]      @relation("ContentAssetOriginGenerationGroup")
-
-  @@unique([id, organizationId], map: "content_generation_groups_id_org_key")
-  @@index([organizationId])
-  @@index([organizationId, groupType])
-  @@index([contentWorkspaceId])
-  @@index([baseContentGenerationId])
-  @@index([inputFingerprint])
-  @@map("content_generation_groups")
-}
-
-/// @namespace AI
-/// @describe Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation.
-model ContentGenerationSource {
-  id                  String @id @default(uuid()) @db.Uuid
-  organizationId      String @map("organization_id") @db.Uuid
-  contentGenerationId String @map("content_generation_id") @db.Uuid
-
-  sourceType                String  @map("source_type")
-  /// 원천 기록. sourcing.SourcingCandidate 의 id 이며 교차 owner 참조이므로 FK 가 없다.
-  sourceCandidateId         String? @map("source_candidate_id") @db.Uuid
-  sourceContentGenerationId String? @map("source_content_generation_id") @db.Uuid
-  contentAssetId            String? @map("content_asset_id") @db.Uuid
-  label                     String?
-  sortOrder                 Int     @default(0) @map("sort_order")
-  metadata                  Json    @default("{}")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization            Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contentGeneration       ContentGeneration  @relation("ContentGenerationSources", fields: [contentGenerationId], references: [id], onDelete: Cascade)
-  sourceContentGeneration ContentGeneration? @relation("ContentGenerationDerivedSources", fields: [sourceContentGenerationId], references: [id], onDelete: SetNull)
-  contentAsset            ContentAsset?      @relation(fields: [contentAssetId], references: [id], onDelete: SetNull)
-
-  @@index([organizationId])
-  @@index([contentGenerationId])
-  @@index([organizationId, contentGenerationId])
-  @@index([organizationId, sourceType])
-  @@index([sourceCandidateId])
-  @@index([organizationId, sourceCandidateId])
-  @@index([sourceContentGenerationId])
-  @@index([contentAssetId])
-  @@map("content_generation_sources")
-}
-
-/// @namespace AI
-/// @describe Organization-scoped managed media with optional generation-group provenance.
+/// @describe 워크스페이스가 소유한 관리 이미지 한 표(KID-313 W3a): 운영자 업로드 · AI 썸네일 후보 · 상세 이미지 · 몰 카탈로그 사진이 모두 여기 한 행이다. 대표이미지는 ContentWorkspace.current_thumbnail_asset_id 가 가리킨다.
 model ContentAsset {
-  id                      String  @id @default(uuid()) @db.Uuid
-  organizationId          String  @map("organization_id") @db.Uuid
-  originGenerationGroupId String? @map("origin_generation_group_id") @db.Uuid
-  createdByUserId         String? @map("created_by_user_id") @db.Uuid
+  id                    String  @id @default(uuid()) @db.Uuid
+  organizationId        String  @map("organization_id") @db.Uuid
+  contentWorkspaceId    String  @map("content_workspace_id") @db.Uuid
+  /// upload | ai | detail_generation | catalog — 어디서 왔는가.
+  source                String
+  /// AI 후보이면 그 job. 다른 출처는 null.
+  thumbnailGenerationId String? @map("thumbnail_generation_id") @db.Uuid
+  createdByUserId       String? @map("created_by_user_id") @db.Uuid
 
   assetKey   String  @map("asset_key")
   url        String
   storageKey String? @map("storage_key")
   assetType  String  @default("image") @map("asset_type")
+  /// thumbnail | detail_source | detail_image | primary | detail | option — 워크스페이스 안에서 하는 일.
   role       String?
   label      String?
   sortOrder  Int     @default(0) @map("sort_order")
@@ -713,43 +304,47 @@ model ContentAsset {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization          Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  originGenerationGroup ContentGenerationGroup?              @relation("ContentAssetOriginGenerationGroup", fields: [originGenerationGroupId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  createdByUser         User?                                @relation("ContentAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  usages                ContentGenerationAssetUsage[]
-  generationSources     ContentGenerationSource[]
-  thumbnailSelections   ContentWorkspaceThumbnailSelection[]
+  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contentWorkspace     ContentWorkspace     @relation("ContentAssetWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  thumbnailGeneration  ThumbnailGeneration? @relation("ContentAssetThumbnailGeneration", fields: [thumbnailGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdByUser        User?                @relation("ContentAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  currentForWorkspaces ContentWorkspace[]   @relation("ContentWorkspaceCurrentThumbnail")
 
   @@unique([organizationId, assetKey])
   @@unique([id, organizationId], map: "content_assets_id_org_key")
   @@index([organizationId])
-  @@index([originGenerationGroupId])
+  @@index([contentWorkspaceId])
+  @@index([thumbnailGenerationId])
   @@index([createdByUserId])
+  @@index([organizationId, contentWorkspaceId, role, isDeleted])
   @@index([organizationId, assetType])
   @@map("content_assets")
 }
 
 /// @namespace AI
-/// @describe Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set.
-model ContentGenerationAssetUsage {
-  id                  String @id @default(uuid()) @db.Uuid
-  organizationId      String @map("organization_id") @db.Uuid
-  contentGenerationId String @map("content_generation_id") @db.Uuid
-  contentAssetId      String @map("content_asset_id") @db.Uuid
+/// @describe 몰에 실제 등록된 리스팅 대표이미지 한 장당 평가 한 행(KID-313 W3a, Content 소유). channel_listing_id 는 교차 owner scalar id(FK 없음), image_url 은 channel_listings.image_url 그 시점 값. 이미지가 바뀌면 새 행이 생기고 옛 평가는 남는다. 규칙 검사는 저장하지 않고 계산한다.
+model ListingThumbnailEvaluation {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  channelListingId String   @map("channel_listing_id") @db.Uuid
+  imageUrl         String   @map("image_url")
+  /// S | A | B | C | D | F
+  grade            String
+  score            Int
+  /// 5축 점수 · 준수 · issues · suggestions 한 JSON.
+  details          Json     @default("{}")
+  /// vision_model | rule
+  method           String
+  modelId          String?  @map("model_id")
+  evaluatedAt      DateTime @default(now()) @map("evaluated_at") @db.Timestamptz
 
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contentGeneration ContentGeneration @relation(fields: [contentGenerationId], references: [id], onDelete: Cascade)
-  contentAsset      ContentAsset      @relation(fields: [contentAssetId], references: [id], onDelete: Cascade)
-
-  @@unique([contentGenerationId, contentAssetId])
+  @@unique([organizationId, channelListingId, imageUrl], map: "listing_thumbnail_evaluations_listing_image_key")
+  @@unique([id, organizationId], map: "listing_thumbnail_evaluations_id_org_key")
   @@index([organizationId])
-  @@index([contentGenerationId])
-  @@index([contentAssetId])
-  @@index([organizationId, contentGenerationId])
-  @@map("content_generation_asset_usages")
+  @@index([organizationId, channelListingId, evaluatedAt])
+  @@map("listing_thumbnail_evaluations")
 }
 
 /// @namespace AI

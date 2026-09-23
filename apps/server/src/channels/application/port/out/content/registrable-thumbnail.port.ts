@@ -1,15 +1,15 @@
 export const CHANNEL_REGISTRABLE_THUMBNAIL_PORT = Symbol('CHANNEL_REGISTRABLE_THUMBNAIL_PORT');
 
-/** 몰에 올릴 수 있는 승인된 생성 썸네일(Content 소유). 찾지 못하면 Content 의 404/400 을 그대로 던진다. */
+/**
+ * 몰에 올릴 대표이미지 자산(Content 소유, KID-313 W3a). 열쇠는 판매 상품과 등록 대상이 고른 자산 id 이고,
+ * 고르지 않았으면 작업공간의 현재 대표이미지다. 찾지 못하면 Content 의 404/400 을 그대로 던진다.
+ * `thumbnail_update` 실행의 멱등 키 · 잠금은 (판매 상품, 계정, 자산 id) 로 잡는다 — 생성 job id 는 쓰지 않는다.
+ */
 export type RegistrableThumbnail = Readonly<{
-  generationId: string;
+  assetId: string;
   contentWorkspaceId: string;
-  salesProductId: string | null;
-  /** 작업공간이 listing 소유이면 그 listing. */
-  channelListingId: string | null;
-  /** 작업공간 이름. Wing 상품명은 Channels 가 listing 이름과 함께 정한다. */
-  workspaceDisplayName: string;
-  image: Readonly<{ url: string; assetId: string | null }>;
+  salesProductId: string;
+  image: Readonly<{ url: string; sha256: string | null }>;
 }>;
 
 export type ThumbnailImagePayload = Readonly<{
@@ -20,6 +20,10 @@ export type ThumbnailImagePayload = Readonly<{
 }>;
 
 export interface ChannelRegistrableThumbnailPort {
-  read(input: { organizationId: string; generationId: string }): Promise<RegistrableThumbnail>;
-  loadImage(input: { organizationId: string; generationId: string; url: string }): Promise<ThumbnailImagePayload>;
+  read(input: {
+    organizationId: string;
+    salesProductId: string;
+    selectedThumbnailAssetId: string | null;
+  }): Promise<RegistrableThumbnail>;
+  loadImage(input: { organizationId: string; assetId: string }): Promise<ThumbnailImagePayload>;
 }

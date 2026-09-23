@@ -20,28 +20,17 @@ model Organization {
   orders                             Order[]
   purchaseOrders                     PurchaseOrder[]
   purchaseOrderSubmissionAttempts    PurchaseOrderSubmissionAttempt[]
-  thumbnails                         Thumbnail[]
-  thumbnailAnalyses                  ThumbnailAnalysis[]
   thumbnailGenerations               ThumbnailGeneration[]
-  thumbnailGenerationCandidates      ThumbnailGenerationCandidate[]
-  thumbnailGenerationInputImages     ThumbnailGenerationInputImage[]
-  thumbnailGenerationEvents          ThumbnailGenerationEvent[]
-  thumbnailTrackings                 ThumbnailTracking[]
-  thumbnailTrackingDailySnapshots    ThumbnailTrackingDailySnapshot[]
   reviews                            Review[]
   alerts                             Alert[]
   todoItems                          TodoItem[]
 
   // Sourcing & Content
-  contentGenerations                  ContentGeneration[]
-  contentGenerationGroups             ContentGenerationGroup[]
-  contentGenerationSources            ContentGenerationSource[]
   contentAssets                       ContentAsset[]
-  contentGenerationAssetUsages        ContentGenerationAssetUsage[]
   contentWorkspaces                   ContentWorkspace[]
-  contentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[]
-  detailPageArtifacts                 DetailPageArtifact[]
+  detailPages                         DetailPage[]
   detailPageRevisions                 DetailPageRevision[]
+  listingThumbnailEvaluations         ListingThumbnailEvaluation[]
   detailPageImageArtifacts            DetailPageImageArtifact[]
   detailPageImageRenderIntents        DetailPageImageRenderIntent[]
   aiDirectJobs                        AiDirectJob[]
@@ -182,18 +171,15 @@ model User {
   authSessions                               AuthSession[]
   invitedOrganizationMemberships             OrganizationMembership[]                       @relation("OrganizationMembershipInviter")
   triggeredThumbnailGenerations              ThumbnailGeneration[]                          @relation("ThumbnailGenerationTriggeredBy")
-  thumbnailGenerationEvents                  ThumbnailGenerationEvent[]                     @relation("ThumbnailGenerationEventActor")
-  triggeredContentGenerations                ContentGeneration[]                            @relation("ContentGenerationTriggeredBy")
   createdContentAssets                       ContentAsset[]                                 @relation("ContentAssetCreatedBy")
   createdContentWorkspaces                   ContentWorkspace[]                             @relation("ContentWorkspaceCreatedBy")
-  createdContentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[]           @relation("ContentWorkspaceThumbnailSelectionCreatedBy")
   triggeredSourcingEvidenceIngestionRuns     SourcingEvidenceIngestionRun[]                 @relation("SourcingEvidenceIngestionRunTriggeredBy")
   requestedSourcingDecisionBatches           SourcingDecisionBatch[]                        @relation("SourcingDecisionBatchRequestedBy")
   requestedSourcingReviewBatches             SourcingReviewBatch[]                          @relation("SourcingReviewBatchRequestedBy")
   createdSourcingLaunchCandidates            SourcingLaunchCandidate[]                      @relation("SourcingLaunchCandidateCreatedBy")
   requestedProcurementTestIntents            ProcurementTestIntent[]                        @relation("ProcurementTestIntentRequestedBy")
   reviewedProcurementTestIntents             ProcurementTestIntent[]                        @relation("ProcurementTestIntentReviewedBy")
-  createdDetailPageArtifacts                 DetailPageArtifact[]                           @relation("DetailPageArtifactCreatedBy")
+  triggeredDetailPages                       DetailPage[]                                   @relation("DetailPageTriggeredBy")
   createdDetailPageRevisions                 DetailPageRevision[]                           @relation("DetailPageRevisionCreatedBy")
   createdDetailPageImageArtifacts            DetailPageImageArtifact[]                      @relation("DetailPageImageArtifactCreatedBy")
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")

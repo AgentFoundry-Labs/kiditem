@@ -8,14 +8,26 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
 
 ## Identity And Ledgers
 
-- `ContentWorkspace` is owned by one sales-product draft, channel listing, or
-  direct detail page. A draft has one active workspace; registration points that
-  workspace at its listing rather than cloning a second one. `ContentGeneration`
-  and its sources record generated content and provenance.
-- `DetailPageArtifact` plus append-only revisions owns editable HTML.
-  Render-intent and immutable image-artifact rows own bounded Wing JPEG output.
-- `ContentThumbnailSelection` is the workspace's managed current-thumbnail
-  pointer. `ThumbnailGeneration` is its generation ledger.
+- `ContentWorkspace` is owned by one selling product, one channel listing
+  (catalog import), or one direct detail page. A selling product has exactly one
+  active workspace, created in the product's own transaction; a product
+  workspace never carries a listing id (listings reach it through the product).
+  Content models are nine: workspace, asset, listing thumbnail evaluation,
+  thumbnail job, detail page, revision, detail image artifact, render intent,
+  direct job (KID-313 W3).
+- `ContentAsset` is the one table for uploads, AI thumbnail candidates, detail
+  images and catalog photos; `source` says where a row came from and
+  `thumbnailGenerationId` links an AI candidate to its job. The workspace's
+  `currentThumbnailAssetId` is the only representative-image pointer, and every
+  mall representative-image execution reads that asset.
+- `DetailPage` plus append-only revisions owns detail HTML; every start
+  (generated, manual, uploaded, imported) is one row and the AI result is a
+  `generated` revision. The workspace's `currentDetailPageRevisionId` is the
+  only pointer malls read. Render-intent and immutable image-artifact rows own
+  bounded marketplace JPEG output; Wing is one consumer.
+- `ListingThumbnailEvaluation` scores the representative image a mall actually
+  shows, one row per (listing, image URL) received from Channels; a changed
+  image gets a new row. `ThumbnailGeneration` is the job only.
 - `AiDirectJob` owns claims, leases, retries, checkpoints, cancellation, and
   recovery for thumbnail, detail-page, image-edit, and re-edit work.
 - Use `contentWorkspaceId` for media workspaces. Sourcing candidate and
