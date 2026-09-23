@@ -34,19 +34,21 @@ export interface RegistrableDetailPage {
   revisionId: string;
   revisionType: DetailPageRevisionType;
   html: string;
-  /** 몰이 따로 받는 추가 상세(사방넷 추가상품상세설명). 없으면 빈 배열. */
-  extraHtml: readonly string[];
   imageUrls: readonly string[];
 }
 
+/**
+ * 가져온 상세는 `detail_page_revisions.source` · `source_digest` 를 가진 `imported` revision 이다(KID-313 W2).
+ * 장부는 revision 행 자체다 — 아티팩트 metadata 나 별도 표에 두지 않는다. 사방넷 추가상품상세설명은
+ * 보내는 곳이 없어(기준 `df84ab399` 에서 몰 시트 · 등록 payload 모두 안 읽음) 가져오지 않는다.
+ */
 export interface ImportDetailPageInput {
   organizationId: string;
   salesProductId: string;
   /** 어느 원천에서 왔는가. 지금은 사방넷 하나. */
   source: 'sabangnet';
   html: string;
-  extraHtml: readonly string[];
-  /** 원천이 준 내용의 digest(KID-304). 같으면 revision 을 만들지 않는다. */
+  /** 원천이 준 상세 원문의 digest(KID-304 `#digest:상품상세설명`). 같은 원천의 마지막 imported revision 과 같으면 revision 을 만들지 않는다. */
   digest: string;
   createdByUserId: string | null;
 }
@@ -76,6 +78,15 @@ export interface RegistrationContentWorkspacePort {
     salesProductId: string;
     revisionId: string | null;
   }): Promise<RegistrableDetailPage | null>;
+  /**
+   * 여러 상품의 상세를 한 번에(몰 시트, 최대 1000 상품) — 상품 수만큼 쿼리하지 않는다. 상품마다 `revisionId`
+   * 를 주면 그 revision(그 상품 워크스페이스의 것이 아니면 거절), 없으면 현재 revision. 상세 없는 상품은
+   * map 에 없다.
+   */
+  readRegistrableDetailPages(input: {
+    organizationId: string;
+    requests: ReadonlyArray<{ salesProductId: string; revisionId: string | null }>;
+  }): Promise<ReadonlyMap<string, RegistrableDetailPage>>;
   /**
    * 가져온 상세 HTML 을 `imported` revision 으로 쌓는다. 워크스페이스는 상품과 같은 트랜잭션에서
    * `ensureSalesProductWorkspace` 로 이미 만들어져 있어야 한다(이름을 Content 가 모르므로 여기서 만들지 않는다).

@@ -513,6 +513,10 @@ model DetailPageRevision {
   html                String  @db.Text
   assetUrlMap         Json    @default("{}") @map("asset_url_map")
   imageUrls           Json    @default("[]") @map("image_urls")
+  /// 미러 원천에서 가져온 revision 이면 그 원천(`sabangnet`); 사람이 만든 revision 은 null (KID-313 W2, revision_type = imported).
+  source              String? @map("source")
+  /// 원천이 준 원문의 digest(KID-304). 같은 원천의 마지막 imported revision 과 같으면 새 revision 을 만들지 않는다.
+  sourceDigest        String? @map("source_digest")
   createdByUserId     String? @map("created_by_user_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -533,6 +537,7 @@ model DetailPageRevision {
   @@index([createdByUserId])
   @@index([organizationId, artifactId])
   @@index([artifactId, createdAt])
+  @@index([artifactId, source, createdAt])
   @@map("detail_page_revisions")
 }
 

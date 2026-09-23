@@ -45,12 +45,9 @@ export const TargetExecutionSnapshotSchema = z.object({
   detailPage: z.object({
     revisionId: z.string().uuid(),
     html: z.string(),
-    extraHtml: z.array(z.string()),
   }).strict().nullable(),
-  /** 등록 대상의 몰 전용 값(`RegistrationMallInputSchema`). */
+  /** 등록 대상의 몰 전용 값(`RegistrationMallInputSchema`). 몰 공급가는 `mallFields.supplyPrice` 다. */
   registrationInput: z.record(z.string(), z.unknown()),
-  /** 옵션 identity 목록. 공급가는 판매 상품에 없어 null 이다(KID-313 W2) — 몰 공급가는 mallFields 가 말한다. */
-  supplyPrices: z.array(z.object({ salesProductOptionId: z.string().uuid(), supplyPrice: z.number().int().min(0).max(1_000_000_000).nullable() })),
 });
 export type TargetExecutionSnapshot = z.infer<typeof TargetExecutionSnapshotSchema>;
 export const TargetExecutionResultSchema = z.object({
