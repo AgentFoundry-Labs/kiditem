@@ -9,12 +9,7 @@ import type { ContentAssetItem } from '@kiditem/shared/product-content';
 import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   type ContentAssetLibraryRepositoryPort,
-  type ContentAssetLibraryWriteScope,
   type ContentAssetRow,
-  type PersistedContentAssetRef,
-  type RecordDetailPageGeneratedAssetsInput,
-  type RecordDetailPageInputAssetsInput,
-  type SyncGenerationImageUsagesInput,
 } from '../port/out/repository/content-asset-library.repository.port';
 import type {
   SalesProductContentAssetPort,
@@ -38,8 +33,6 @@ export interface ContentAssetListQuery {
   contentWorkspaceId?: string | null;
   thumbnailGenerationId?: string | null;
 }
-
-export type { PersistedContentAssetRef };
 
 @Injectable()
 export class ContentAssetService implements SalesProductContentAssetPort {
@@ -187,39 +180,6 @@ export class ContentAssetService implements SalesProductContentAssetPort {
       );
     }
     return { ok: true };
-  }
-
-  recordDetailPageInputAssets(input: RecordDetailPageInputAssetsInput): Promise<PersistedContentAssetRef[]> {
-    return this.repository.recordDetailPageInputAssets(input);
-  }
-
-  recordDetailPageInputAssetsTx(
-    scope: ContentAssetLibraryWriteScope,
-    input: RecordDetailPageInputAssetsInput,
-  ): Promise<PersistedContentAssetRef[]> {
-    return this.repository.recordDetailPageInputAssetsInScope(scope, input);
-  }
-
-  recordDetailPageGeneratedAssets(input: RecordDetailPageGeneratedAssetsInput): Promise<void> {
-    return this.repository.recordDetailPageGeneratedAssets(input);
-  }
-
-  recordDetailPageGeneratedAssetsTx(
-    scope: ContentAssetLibraryWriteScope,
-    input: RecordDetailPageGeneratedAssetsInput,
-  ): Promise<void> {
-    return this.repository.recordDetailPageGeneratedAssetsInScope(scope, input);
-  }
-
-  syncGenerationImageUsages(input: SyncGenerationImageUsagesInput): Promise<PersistedContentAssetRef[]> {
-    return this.repository.syncGenerationImageUsages(input);
-  }
-
-  syncGenerationImageUsagesTx(
-    scope: ContentAssetLibraryWriteScope,
-    input: SyncGenerationImageUsagesInput,
-  ): Promise<PersistedContentAssetRef[]> {
-    return this.repository.syncGenerationImageUsagesInScope(scope, input);
   }
 
   async listAssets(

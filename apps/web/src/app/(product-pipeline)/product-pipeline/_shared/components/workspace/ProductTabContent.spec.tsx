@@ -11,31 +11,8 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
-vi.mock('./detail/ThumbnailGrid', () => ({
-  default: ({
-    onOpenThumbnailEditor,
-    onOpenThumbnailGeneration,
-  }: {
-    onOpenThumbnailEditor?: () => void;
-    onOpenThumbnailGeneration?: () => void;
-  }) => (
-    <div>
-      <button type="button" data-testid="thumbnail-generation" onClick={onOpenThumbnailGeneration}>
-        thumbnail-generation
-      </button>
-      <button type="button" data-testid="thumbnail-editor" onClick={onOpenThumbnailEditor}>
-        thumbnail-editor
-      </button>
-    </div>
-  ),
-}));
-
 vi.mock('./detail/TagEditor', () => ({
   default: () => <div data-testid="tag-editor" />,
-}));
-
-vi.mock('../../hooks/useGenerateSourcingThumbnail', () => ({
-  useSourcingThumbnailGenerations: () => ({ data: [] }),
 }));
 
 vi.mock('./thumbnail/ThumbnailWorkspaceTab', () => ({

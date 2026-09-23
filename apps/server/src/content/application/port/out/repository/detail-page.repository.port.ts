@@ -106,6 +106,11 @@ export interface DetailPageRepositoryPort {
     transaction: OwnerTransaction,
     input: { organizationId: string; detailPageId: string; title: string; generationResult: Record<string, unknown> },
   ): Promise<void>;
+  /** 보관하는 워크스페이스들의 현재 상세 포인터를 비운다. 호출자가 그 워크스페이스 행을 잠근 트랜잭션에서 부른다. */
+  clearWorkspacePointers(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; contentWorkspaceIds: readonly string[] },
+  ): Promise<void>;
   /** 운영자가 고른 revision 을 상세 페이지 · 워크스페이스의 현재로. 그 워크스페이스의 revision 이 아니면 BadRequest. */
   setCurrentRevision(
     transaction: OwnerTransaction,

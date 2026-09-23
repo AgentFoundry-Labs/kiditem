@@ -23,7 +23,7 @@ state.
 React Query + apiClient
   -> /api/sourcing/*
   -> /api/ai/*
-  -> /api/thumbnail-analysis/{generations,edit-jobs}  (thumbnail jobs + candidate assets)
+  -> /api/ai/thumbnail-jobs (list, :id, edit)  (thumbnail jobs + candidate assets)
   -> /api/ai/listing-thumbnails/*  (listing image evaluation)
   -> /api/thumbnail-editor/*
   -> /api/channels/listings/*

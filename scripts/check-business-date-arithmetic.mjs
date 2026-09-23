@@ -21,12 +21,8 @@ export const RECORDED_DAY_ARITHMETIC = Object.freeze({
     { lines: 1, reason: 'keyword attempt lease expiry (now + 24h)' },
   'apps/server/src/channels/adapter/out/repository/channel-catalog-collection.repository.adapter.ts':
     { lines: 1, reason: 'catalog attempt lease expiry (now + 24h)' },
-  'apps/server/src/content/adapter/out/repository/thumbnail-tracking.repository.adapter.ts':
-    { lines: 1, reason: 'rolling 30-day window over tracking instants' },
   'apps/server/src/content/application/service/thumbnail-generation.service.ts':
     { lines: 1, reason: '7-day auto-batch cooldown from now' },
-  'apps/server/src/content/application/service/thumbnail-tracking.service.ts':
-    { lines: 1, reason: 'whole days elapsed since an applied instant' },
   'apps/server/src/orders/services/order-collection.service.ts':
     { lines: 2, reason: 'spreadsheet serial dates (days since 1899-12-30)' },
   'apps/server/src/orders/services/reviews.service.ts':

@@ -1,10 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { DetailPageRepositoryPort } from '../../../../application/port/out/repository/detail-page.repository.port';
 import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../sales-product-workspace-archive.repository.adapter';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const SALES_PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const WORKSPACE_ID = '33333333-3333-4333-8333-333333333333';
 const ARCHIVED_AT = new Date('2026-05-15T08:00:00.000Z');
+
+/** 상세 포인터는 상세 페이지 저장소만 옮긴다 — 보관도 그 port 로 비운다. */
+function detailPages() {
+  return { clearWorkspacePointers: vi.fn().mockResolvedValue(undefined) };
+}
+
+function adapter(pages = detailPages()) {
+  return new SalesProductWorkspaceArchiveRepositoryAdapter(pages as unknown as DetailPageRepositoryPort);
+}
 
 describe('SalesProductWorkspaceArchiveRepositoryAdapter', () => {
   it('archives the draft workspace, its detail pages, its assets and its thumbnail jobs, and clears both current pointers', async () => {
@@ -18,7 +28,8 @@ describe('SalesProductWorkspaceArchiveRepositoryAdapter', () => {
       thumbnailGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 4 }) },
     };
 
-    await expect(new SalesProductWorkspaceArchiveRepositoryAdapter().archiveSalesProductWorkspace(scope, {
+    const pages = detailPages();
+    await expect(adapter(pages).archiveSalesProductWorkspace(scope, {
       organizationId: ORG,
       salesProductId: SALES_PRODUCT_ID,
       archivedAt: ARCHIVED_AT,
@@ -33,10 +44,12 @@ describe('SalesProductWorkspaceArchiveRepositoryAdapter', () => {
       where: { organizationId: ORG, id: { in: [WORKSPACE_ID] } },
       data: {
         status: 'archived',
-        currentDetailPageRevisionId: null,
         currentThumbnailAssetId: null,
         ...archived,
       },
+    });
+    expect(pages.clearWorkspacePointers).toHaveBeenCalledWith(expect.anything(), {
+      organizationId: ORG, contentWorkspaceIds: [WORKSPACE_ID],
     });
     // revision 은 지우지 않는다 — 몰 실행이 얼린 revision 이 그대로 읽힌다.
     expect(scope.detailPage.updateMany).toHaveBeenCalledWith({
@@ -66,7 +79,7 @@ describe('SalesProductWorkspaceArchiveRepositoryAdapter', () => {
       thumbnailGeneration: { updateMany: vi.fn() },
     };
 
-    await expect(new SalesProductWorkspaceArchiveRepositoryAdapter().archiveSalesProductWorkspace(scope, {
+    await expect(adapter().archiveSalesProductWorkspace(scope, {
       organizationId: ORG,
       salesProductId: SALES_PRODUCT_ID,
       archivedAt: ARCHIVED_AT,

@@ -64,7 +64,7 @@ Edit mode always sends `purpose: 'compliance'`; creative sends `'quality'`.
   `ThumbnailJobListResponse`.
 - `apiClient` calls `/api/thumbnail-editor/generate`,
   `/api/ai/content-workspaces`, `/api/ai/content-assets`, and
-  `/api/thumbnail-analysis/generations/*`.
+  `/api/ai/thumbnail-jobs/*`.
 - `_shared/hooks/useThumbnailJobs` and `useRepresentativeImage` provide jobs,
   candidate removal, adoption, and mall execution status.
 - Route helpers live in `_shared/lib/product-pipeline-routes.ts` and

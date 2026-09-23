@@ -37,7 +37,7 @@ beforeEach(() => {
   server.adopted = false;
   server.execution = null;
   vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-    if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
+    if (href.startsWith('/api/ai/thumbnail-jobs')) return jobResponse();
     return { items: server.execution ? [{ salesProductId: SP1, assetId: A1, executionId: EXECUTION, status: server.execution.status, providerOutcome: 'uncertain', checkedAt: null, error: null, screenshotPath: null }] : [] };
   });
   vi.mocked(apiClient.patch).mockImplementation(async (href: string) => {

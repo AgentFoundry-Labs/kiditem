@@ -72,7 +72,7 @@ function serveDraftPages(pages: Record<number, ReturnType<typeof listResponse>>)
       ];
     }
     if (url.startsWith('/api/ai/content-workspaces/by-sales-product/')) return { registrationImages: { primary: [], thumbnail: [], detail: [] }, currentThumbnail: null };
-    if (url.startsWith('/api/thumbnail-analysis/generations')) {
+    if (url.startsWith('/api/ai/thumbnail-jobs')) {
       return { items: [{ id: 'thumbnail-generation-1', status: 'running' }], total: 1 };
     }
     throw new Error(`unexpected get ${url}`);
@@ -230,8 +230,8 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
     // 모달의 몰 등록 줄이 여는 초안 상세 읽기는 빼고, 생성 진행 읽기만 센다.
     const progressUrls = api.get.mock.calls
       .map(([url]) => String(url))
-      .filter((url) => url.startsWith('/api/ai/detail-page') || url.startsWith('/api/thumbnail-analysis'));
-    expect(new Set(progressUrls)).toEqual(new Set(['/api/ai/detail-page', '/api/thumbnail-analysis/generations?limit=100']));
+      .filter((url) => url.startsWith('/api/ai/detail-page') || url.startsWith('/api/ai/thumbnail-jobs'));
+    expect(new Set(progressUrls)).toEqual(new Set(['/api/ai/detail-page', '/api/ai/thumbnail-jobs?limit=100']));
   });
 
   it('deletes a draft without a source record through the same route (S1)', async () => {

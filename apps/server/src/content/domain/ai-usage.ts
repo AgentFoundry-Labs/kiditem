@@ -7,8 +7,6 @@ import type { AiUsageAgentKey } from '@kiditem/shared/ai';
 const AGENT_BY_API_SEGMENT: Readonly<Record<string, AiUsageAgentKey>> = {
   sourcing: 'sourcing',
   ai: 'product',
-  'thumbnail-analysis': 'product',
-  'thumbnail-tracking': 'product',
   'thumbnail-editor': 'product',
   'thumbnail-auto': 'product',
   'text-ai': 'product',

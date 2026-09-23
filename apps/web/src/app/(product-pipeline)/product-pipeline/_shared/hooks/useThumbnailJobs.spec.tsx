@@ -38,7 +38,7 @@ beforeEach(() => {
     total: 2,
   };
   vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-    if (href.startsWith('/api/thumbnail-analysis/generations')) return jobsResponse;
+    if (href.startsWith('/api/ai/thumbnail-jobs')) return jobsResponse;
     return {
       items: [{
         salesProductId: SP1, assetId: A1, executionId: 'e1', status: 'reconciling', providerOutcome: 'uncertain',
@@ -72,7 +72,7 @@ describe('useThumbnailJobs', () => {
 
     const reads = vi.mocked(apiClient.get).mock.calls.map(([href]) => href);
     expect(reads).toEqual([
-      `/api/thumbnail-analysis/generations?contentWorkspaceId=${W1}&limit=24`,
+      `/api/ai/thumbnail-jobs?contentWorkspaceId=${W1}&limit=24`,
       `/api/channels/thumbnail-executions?salesProductIds=${SP1}`,
     ]);
   });
@@ -81,7 +81,7 @@ describe('useThumbnailJobs', () => {
     renderHook(() => useThumbnailJobs({ scope: 'direct-upload', limit: 8 }), { wrapper });
 
     await waitFor(() => {
-      expect(apiClient.get).toHaveBeenCalledWith('/api/thumbnail-analysis/generations?scope=direct-upload&limit=8');
+      expect(apiClient.get).toHaveBeenCalledWith('/api/ai/thumbnail-jobs?scope=direct-upload&limit=8');
     });
   });
 });
@@ -93,7 +93,7 @@ describe('thumbnail job mutations', () => {
 
     await act(async () => { await result.current.mutateAsync({ jobId: J1, assetId: A2 }); });
 
-    expect(apiClient.delete).toHaveBeenCalledWith(`/api/thumbnail-analysis/generations/${J1}/candidates`, { assetId: A2 });
+    expect(apiClient.delete).toHaveBeenCalledWith(`/api/ai/thumbnail-jobs/${J1}/candidates`, { assetId: A2 });
   });
 
   it('cancels a job through its durable owner endpoint', async () => {
@@ -102,6 +102,6 @@ describe('thumbnail job mutations', () => {
 
     await act(async () => { await result.current.mutateAsync(J2); });
 
-    expect(apiClient.post).toHaveBeenCalledWith(`/api/thumbnail-analysis/generations/${J2}/cancel`, { reason: '사용자 요청' });
+    expect(apiClient.post).toHaveBeenCalledWith(`/api/ai/thumbnail-jobs/${J2}/cancel`, { reason: '사용자 요청' });
   });
 });

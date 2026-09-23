@@ -40,8 +40,8 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
     );
   }
 
-  function workspaceData(salesProductId: string, title: string, organizationId = TEST_ORGANIZATION_ID) {
-    void title; // 판매 상품 작업공간은 이름을 갖지 않는다(KID-313 W3).
+  /** 판매 상품 작업공간은 이름을 갖지 않는다(KID-313 W3). */
+  function workspaceData(salesProductId: string, organizationId = TEST_ORGANIZATION_ID) {
     return {
       organizationId,
       ownerType: 'sales_product',
@@ -78,17 +78,17 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
 
   it('keeps one active workspace per sales product', async () => {
     const salesProductId = randomUUID();
-    await prisma.contentWorkspace.create({ data: workspaceData(salesProductId, 'Kids rain boots') });
+    await prisma.contentWorkspace.create({ data: workspaceData(salesProductId) });
 
     await expect(
-      prisma.contentWorkspace.create({ data: workspaceData(salesProductId, 'Kids rain boots retry') }),
+      prisma.contentWorkspace.create({ data: workspaceData(salesProductId) }),
     ).rejects.toThrow();
   });
 
   it('lets a second workspace open once the first is archived or deleted', async () => {
     const salesProductId = randomUUID();
     const first = await prisma.contentWorkspace.create({
-      data: workspaceData(salesProductId, 'Kids rain boots'),
+      data: workspaceData(salesProductId),
     });
     await prisma.contentWorkspace.update({
       where: { id: first.id },
@@ -96,7 +96,7 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
     });
 
     const second = await prisma.contentWorkspace.create({
-      data: workspaceData(salesProductId, 'Kids rain boots v2'),
+      data: workspaceData(salesProductId),
     });
     expect(second.salesProductId).toBe(salesProductId);
     expect(second.ownerType).toBe('sales_product');
@@ -104,10 +104,10 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
 
   it('scopes the active-workspace key to one organization', async () => {
     const salesProductId = randomUUID();
-    await prisma.contentWorkspace.create({ data: workspaceData(salesProductId, 'Shared draft') });
+    await prisma.contentWorkspace.create({ data: workspaceData(salesProductId) });
 
     const other = await prisma.contentWorkspace.create({
-      data: workspaceData(salesProductId, 'Shared draft', OTHER_ORGANIZATION_ID),
+      data: workspaceData(salesProductId, OTHER_ORGANIZATION_ID),
     });
     expect(other.organizationId).toBe(OTHER_ORGANIZATION_ID);
 

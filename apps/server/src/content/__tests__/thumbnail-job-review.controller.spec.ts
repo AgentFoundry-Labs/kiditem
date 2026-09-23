@@ -1,11 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { ThumbnailAnalysisGenerationReviewController } from '../adapter/in/http/thumbnail-analysis-generation-review.controller';
+import { ThumbnailJobReviewController } from '../adapter/in/http/thumbnail-job-review.controller';
 
-describe('ThumbnailAnalysisGenerationReviewController identity contract', () => {
+describe('ThumbnailJobReviewController identity contract', () => {
   it('rejects the retired masterId query instead of widening the list request', () => {
     const generationService = { findAll: vi.fn() };
-    const controller = new ThumbnailAnalysisGenerationReviewController(generationService as never);
+    const controller = new ThumbnailJobReviewController(generationService as never);
 
     expect(() =>
       controller.listGenerations(
@@ -29,7 +29,7 @@ describe('ThumbnailAnalysisGenerationReviewController identity contract', () => 
         preserved: false,
       }),
     };
-    const controller = new ThumbnailAnalysisGenerationReviewController(
+    const controller = new ThumbnailJobReviewController(
       generationService as never,
     );
 

@@ -251,7 +251,7 @@ export const queryKeys = {
     all: ['thumbnails'] as const,
     list: (params: Record<string, string>) => [...queryKeys.thumbnails.all, 'list', params] as const,
   },
-  /** 대표이미지 생성 job 목록(`/api/thumbnail-analysis/generations`) — job · 후보 자산 · 작업공간 요약. */
+  /** 대표이미지 생성 job 목록(`/api/ai/thumbnail-jobs`) — job · 후보 자산 · 작업공간 요약. */
   thumbnailJobs: {
     all: ['thumbnailJobs'] as const,
     list: (params?: Record<string, string>) => [...queryKeys.thumbnailJobs.all, 'list', params] as const,

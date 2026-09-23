@@ -5,13 +5,14 @@ import type { AuthUser } from '../../../../auth/auth.types';
 import { EditJobsDto, ReEditDto } from './dto/thumbnail-edit.dto';
 import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
 
-@Controller('thumbnail-analysis')
-export class ThumbnailAnalysisEditJobsController {
+/** 썸네일 편집 job 을 만든다(`/api/ai/thumbnail-jobs`). */
+@Controller('ai/thumbnail-jobs')
+export class ThumbnailJobsController {
   constructor(private readonly generationService: ThumbnailGenerationService) {}
 
   // ─── 편집 jobs (현재 main 에서는 unavailable) ────────────────────
 
-  @Post('edit-jobs')
+  @Post('edit')
   createEditJobs(
     @Body() body: EditJobsDto,
     @CurrentOrganization() organizationId: string,
@@ -26,7 +27,7 @@ export class ThumbnailAnalysisEditJobsController {
     );
   }
 
-  @Post('generations/:id/re-edit')
+  @Post(':id/re-edit')
   reEditGeneration(
     @Param('id') id: string,
     @Body() body: ReEditDto,

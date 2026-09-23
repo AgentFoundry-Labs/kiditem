@@ -100,7 +100,7 @@ export function useStartedGenerationProgress(started: readonly StartedGeneration
     enabled: hasThumbnail && cachedRunning(queryClient, 'thumbnail', started).length > 0,
     queryFn: async (): Promise<StatusRow[]> => {
       const response = await apiClient.get<ThumbnailJobListResponse>(
-        '/api/thumbnail-analysis/generations?limit=100',
+        '/api/ai/thumbnail-jobs?limit=100',
       );
       return response.items.map((row) => ({ id: row.id, status: row.status }));
     },

@@ -8,7 +8,7 @@ const api = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 
 const DETAIL_URL = '/api/ai/detail-page';
-const THUMBNAIL_URL = '/api/thumbnail-analysis/generations?limit=100';
+const THUMBNAIL_URL = '/api/ai/thumbnail-jobs?limit=100';
 
 let detailStatus = 'processing';
 let thumbnailStatus = 'running';

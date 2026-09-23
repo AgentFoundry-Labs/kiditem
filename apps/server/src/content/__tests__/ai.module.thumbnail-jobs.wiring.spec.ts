@@ -3,8 +3,8 @@ import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { AiModule } from '../ai.module';
 import { ListingThumbnailEvaluationController } from '../adapter/in/http/listing-thumbnail-evaluation.controller';
-import { ThumbnailAnalysisEditJobsController } from '../adapter/in/http/thumbnail-analysis-edit-jobs.controller';
-import { ThumbnailAnalysisGenerationReviewController } from '../adapter/in/http/thumbnail-analysis-generation-review.controller';
+import { ThumbnailJobsController } from '../adapter/in/http/thumbnail-jobs.controller';
+import { ThumbnailJobReviewController } from '../adapter/in/http/thumbnail-job-review.controller';
 
 const CONTROLLERS_KEY = 'controllers';
 const PATH_KEY = 'path';
@@ -18,17 +18,16 @@ function routeFor(controller: object, methodName: string) {
   };
 }
 
-describe('AiModule thumbnail-analysis route-family wiring', () => {
-  it('mounts thumbnail-analysis route families as separate controllers', () => {
+describe('AiModule thumbnail job route wiring', () => {
+  it('mounts the thumbnail job controllers under /api/ai/thumbnail-jobs and nothing under thumbnail-analysis', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, AiModule) ?? [];
 
-    for (const controller of [
-      ThumbnailAnalysisEditJobsController,
-      ThumbnailAnalysisGenerationReviewController,
-    ]) {
+    for (const controller of [ThumbnailJobsController, ThumbnailJobReviewController]) {
       expect(controllers).toContain(controller);
-      expect(Reflect.getMetadata(PATH_KEY, controller)).toBe('thumbnail-analysis');
+      expect(Reflect.getMetadata(PATH_KEY, controller)).toBe('ai/thumbnail-jobs');
     }
+    const paths = controllers.map((controller) => Reflect.getMetadata(PATH_KEY, controller as object) as string);
+    expect(paths.filter((path) => path.startsWith('thumbnail-analysis'))).toEqual([]);
   });
 
   it('evaluates the mall listing image instead of analysing a workspace (KID-313 W3a)', () => {
@@ -48,44 +47,19 @@ describe('AiModule thumbnail-analysis route-family wiring', () => {
     expect(paths.filter((path) => path === 'thumbnail-tracking')).toEqual([]);
   });
 
-  it('preserves moved generation and edit-job route URLs', () => {
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'listGenerations')).toEqual({
-      method: RequestMethod.GET,
-      path: 'generations',
-    });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'getGeneration')).toEqual({
-      method: RequestMethod.GET,
-      path: 'generations/:id',
-    });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'cancelGeneration')).toEqual({
-      method: RequestMethod.POST,
-      path: 'generations/:id/cancel',
-    });
+  it('serves the thumbnail jobs as one resource', () => {
+    expect(routeFor(ThumbnailJobReviewController.prototype, 'listGenerations')).toEqual({ method: RequestMethod.GET, path: '/' });
+    expect(routeFor(ThumbnailJobReviewController.prototype, 'getGeneration')).toEqual({ method: RequestMethod.GET, path: ':id' });
+    expect(routeFor(ThumbnailJobReviewController.prototype, 'cancelGeneration')).toEqual({ method: RequestMethod.POST, path: ':id/cancel' });
     // 후보 채택은 작업공간 대표이미지 route 하나다 — job 에 select · apply 단계가 없다(KID-313 W3a).
     for (const retired of ['selectCandidate', 'clearReadySelections', 'applyGeneration']) {
-      expect(Reflect.get(ThumbnailAnalysisGenerationReviewController.prototype, retired)).toBeUndefined();
+      expect(Reflect.get(ThumbnailJobReviewController.prototype, retired)).toBeUndefined();
     }
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'skipGeneration')).toEqual({
-      method: RequestMethod.PUT,
-      path: 'generations/:id/skip',
-    });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'deleteGeneration')).toEqual({
-      method: RequestMethod.DELETE,
-      path: 'generations/:id',
-    });
-    expect(routeFor(ThumbnailAnalysisGenerationReviewController.prototype, 'deleteCandidate')).toEqual({
-      method: RequestMethod.DELETE,
-      path: 'generations/:id/candidates',
-    });
-
-    expect(routeFor(ThumbnailAnalysisEditJobsController.prototype, 'createEditJobs')).toEqual({
-      method: RequestMethod.POST,
-      path: 'edit-jobs',
-    });
-    expect(routeFor(ThumbnailAnalysisEditJobsController.prototype, 'reEditGeneration')).toEqual({
-      method: RequestMethod.POST,
-      path: 'generations/:id/re-edit',
-    });
+    expect(routeFor(ThumbnailJobReviewController.prototype, 'skipGeneration')).toEqual({ method: RequestMethod.PUT, path: ':id/skip' });
+    expect(routeFor(ThumbnailJobReviewController.prototype, 'deleteGeneration')).toEqual({ method: RequestMethod.DELETE, path: ':id' });
+    expect(routeFor(ThumbnailJobReviewController.prototype, 'deleteCandidate')).toEqual({ method: RequestMethod.DELETE, path: ':id/candidates' });
+    expect(routeFor(ThumbnailJobsController.prototype, 'createEditJobs')).toEqual({ method: RequestMethod.POST, path: 'edit' });
+    expect(routeFor(ThumbnailJobsController.prototype, 'reEditGeneration')).toEqual({ method: RequestMethod.POST, path: ':id/re-edit' });
   });
 
   it('leaves mall submission to Channels: no Content route registers, verifies or clears a Wing upload', () => {

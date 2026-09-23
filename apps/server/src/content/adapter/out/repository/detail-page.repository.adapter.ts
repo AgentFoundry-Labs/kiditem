@@ -204,6 +204,17 @@ export class DetailPageRepositoryAdapter implements DetailPageRepositoryPort {
     });
   }
 
+  async clearWorkspacePointers(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; contentWorkspaceIds: readonly string[] },
+  ): Promise<void> {
+    if (input.contentWorkspaceIds.length === 0) return;
+    await ownerTransactionClient(transaction).contentWorkspace.updateMany({
+      where: { organizationId: input.organizationId, id: { in: [...input.contentWorkspaceIds] } },
+      data: { currentDetailPageRevisionId: null },
+    });
+  }
+
   async setCurrentRevision(
     transaction: OwnerTransaction,
     input: { organizationId: string; contentWorkspaceId: string; revisionId: string },

@@ -1,7 +1,5 @@
 import type { ListingThumbnailEvaluationMethod, ListingThumbnailGrade } from '../../../../domain/thumbnail/listing-thumbnail-grade';
 
-export const LISTING_THUMBNAIL_EVALUATION_PORT = Symbol('LISTING_THUMBNAIL_EVALUATION_PORT');
-
 /**
  * 몰에 실제 등록된 리스팅 대표이미지의 평가(KID-313 W3a, Content 소유 `listing_thumbnail_evaluations`).
  * 분석 대상은 Channels 가 보고한 `channel_listings.image_url` 이고 Content 는 리스팅 id 와 URL 만 받는다 —

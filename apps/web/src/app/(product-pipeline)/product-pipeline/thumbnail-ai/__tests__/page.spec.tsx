@@ -49,7 +49,7 @@ beforeEach(() => {
     if (href.startsWith('/api/channels/listings')) {
       return { items: [listing(L1, '곰돌이 우산', 'https://mall/a.jpg'), listing(L2, '토끼 컵', 'https://mall/b.jpg'), listing(L3, '사진 없는 컵', null)], total: 3, page: 1, limit: 50, marketCounts: [] };
     }
-    if (href.startsWith('/api/thumbnail-analysis/generations')) {
+    if (href.startsWith('/api/ai/thumbnail-jobs')) {
       return {
         items: [{ id: J1, contentWorkspaceId: W1, status: 'succeeded', method: 'edit', prompt: null, errorMessage: null, attemptCount: 1, createdAt: '2026-09-23T00:00:00.000Z', updatedAt: '2026-09-23T00:00:00.000Z' }],
         candidates: [{ id: A1, contentWorkspaceId: W1, source: 'ai', role: 'thumbnail', url: 'https://cdn/a1.png', label: null, sortOrder: 0, width: null, height: null, thumbnailGenerationId: J1, isCurrentThumbnail: false, createdAt: '2026-09-23T00:00:00.000Z' }],

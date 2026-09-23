@@ -123,6 +123,7 @@ describe('ContentWorkspaceService', () => {
     const summary = await contentWorkspaces.get(ORG, WORKSPACE_ID);
     expect(summary).toMatchObject({
       channelListingId: 'listing-1',
+      normalizedTitle: null,
       currentThumbnailAsset: { id: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
     });
     expect(summary).not.toHaveProperty('displayName');
@@ -168,6 +169,7 @@ describe('ContentWorkspaceService', () => {
     const repo = repository({
       ensureActiveWorkspace: vi.fn().mockResolvedValue({ id: WORKSPACE_ID }),
       getById: vi.fn().mockResolvedValue(workspace({
+        normalizedTitle: '키즈컵',
         currentDetailPageRevisionId: null,
         currentDetailPageRevision: null,
         detailPages: [],
@@ -182,6 +184,7 @@ describe('ContentWorkspaceService', () => {
       salesProductId: null,
     })).resolves.toMatchObject({
       id: WORKSPACE_ID,
+      normalizedTitle: '키즈컵',
       detailPageCount: 0,
       latestDetailPageId: null,
       latestStatus: null,

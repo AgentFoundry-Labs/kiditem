@@ -15,7 +15,6 @@ export interface EnsureContentWorkspaceInput {
 
 export interface ContentWorkspaceIdentity {
   id: string;
-  normalizedTitle: string | null;
 }
 
 /** 작업공간의 상세 페이지 한 행(KID-313 W3b) — 생성 · 직접 작성 · 올린 파일 · 가져오기 어느 것이든. */

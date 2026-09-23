@@ -9,6 +9,7 @@ import { SalesProductWorkspaceArchiveAdapter } from '../adapter/out/repository/s
 import { SourceRecordAdapter } from '../adapter/out/sourcing/source-record.adapter';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
 import { SalesProductWorkspaceArchiveService } from '../../content/application/service/sales-product-workspace-archive.service';
+import { DetailPageRepositoryAdapter } from '../../content/adapter/out/repository/detail-page.repository.adapter';
 import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../../content/adapter/out/repository/sales-product-workspace-archive.repository.adapter';
 import { SourceRecordRepositoryAdapter } from '../../sourcing/adapter/out/repository/source-record.repository.adapter';
 import { SalesProductDraftAdapter } from '../../sourcing/adapter/out/channels/sales-product-draft.adapter';
@@ -113,7 +114,9 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     useCase = new SalesProductUseCase(
       repository,
       new SalesProductWorkspaceArchiveAdapter(
-        new SalesProductWorkspaceArchiveService(new SalesProductWorkspaceArchiveRepositoryAdapter()),
+        new SalesProductWorkspaceArchiveService(new SalesProductWorkspaceArchiveRepositoryAdapter(
+          new DetailPageRepositoryAdapter(prisma as unknown as PrismaService),
+        )),
       ),
       new SourceRecordAdapter(records),
     );

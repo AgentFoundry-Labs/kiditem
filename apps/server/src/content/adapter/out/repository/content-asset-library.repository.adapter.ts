@@ -5,7 +5,6 @@ import type { ContentAssetSource } from '@kiditem/shared/product-content';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   hashContentAssetUrl,
-  workspaceImageAssetKey,
   workspaceThumbnailAssetKey,
 } from '../../../domain/content-asset-key';
 import {
@@ -14,16 +13,11 @@ import {
 } from '../../../application/port/out/storage/image-storage.port';
 import type {
   ContentAssetLibraryRepositoryPort,
-  ContentAssetLibraryWriteScope,
   ContentAssetListRepositoryInput,
   ContentAssetRow,
-  PersistedContentAssetRef,
-  RecordDetailPageGeneratedAssetsInput,
-  RecordDetailPageInputAssetsInput,
   ReplaceWorkspaceThumbnailGalleryInput,
   SalesProductContentAssetRow,
   SalesProductCurrentThumbnailRow,
-  SyncGenerationImageUsagesInput,
 } from '../../../application/port/out/repository/content-asset-library.repository.port';
 
 const assetRowSelect = {
@@ -97,70 +91,6 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
         data: { isDeleted: true, deletedAt: input.deletedAt },
       });
       return { status: deleted.count === 1 ? 'deleted' as const : 'not_found' as const };
-    });
-  }
-
-  recordDetailPageInputAssets(
-    input: RecordDetailPageInputAssetsInput,
-  ): Promise<PersistedContentAssetRef[]> {
-    return this.prisma.$transaction((tx) => this.recordDetailPageInputAssetsInScope(tx, input));
-  }
-
-  recordDetailPageInputAssetsInScope(
-    scope: ContentAssetLibraryWriteScope,
-    input: RecordDetailPageInputAssetsInput,
-  ): Promise<PersistedContentAssetRef[]> {
-    return this.upsertWorkspaceImageAssetsTx(scope, {
-      organizationId: input.organizationId,
-      contentWorkspaceId: requireWorkspaceId(input.contentWorkspaceId),
-      createdByUserId: input.createdByUserId,
-      imageUrls: input.imageUrls,
-      role: 'detail_source',
-    });
-  }
-
-  async recordDetailPageGeneratedAssets(input: RecordDetailPageGeneratedAssetsInput): Promise<void> {
-    return this.prisma.$transaction((tx) => this.recordDetailPageGeneratedAssetsInScope(tx, input));
-  }
-
-  async recordDetailPageGeneratedAssetsInScope(
-    scope: ContentAssetLibraryWriteScope,
-    input: RecordDetailPageGeneratedAssetsInput,
-  ): Promise<void> {
-    const entries = Object.entries(input.processedImages)
-      .filter((entry): entry is [string, string] => (
-        entry[0].trim().length > 0 && entry[1].trim().length > 0
-      ))
-      .sort(([a], [b]) => compareAssetRoles(a, b));
-    if (entries.length === 0) return;
-    const labelByUrl = new Map(entries.map(([key, url]) => [url, key]));
-    await this.upsertWorkspaceImageAssetsTx(scope, {
-      organizationId: input.organizationId,
-      contentWorkspaceId: requireWorkspaceId(input.contentWorkspaceId),
-      createdByUserId: null,
-      imageUrls: entries.map(([, url]) => url),
-      role: 'detail_image',
-      labelForUrl: (url) => labelByUrl.get(url) ?? null,
-    });
-  }
-
-  syncGenerationImageUsages(
-    input: SyncGenerationImageUsagesInput,
-  ): Promise<PersistedContentAssetRef[]> {
-    return this.prisma.$transaction((tx) => this.syncGenerationImageUsagesInScope(tx, input));
-  }
-
-  /** 편집한 상세 HTML 이 쓰는 사진을 워크스페이스 자산으로 기록한다. 사용 행은 없다 — 사용은 revision 의 image_urls 다. */
-  syncGenerationImageUsagesInScope(
-    scope: ContentAssetLibraryWriteScope,
-    input: SyncGenerationImageUsagesInput,
-  ): Promise<PersistedContentAssetRef[]> {
-    return this.upsertWorkspaceImageAssetsTx(scope, {
-      organizationId: input.organizationId,
-      contentWorkspaceId: requireWorkspaceId(input.contentWorkspaceId),
-      createdByUserId: input.createdByUserId,
-      imageUrls: input.imageUrls,
-      role: 'detail_image',
     });
   }
 
@@ -397,46 +327,6 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       return { urls: [...input.urls] };
     });
   }
-
-  private async upsertWorkspaceImageAssetsTx(
-    scope: ContentAssetLibraryWriteScope,
-    input: {
-      organizationId: string;
-      contentWorkspaceId: string;
-      createdByUserId: string | null;
-      imageUrls: string[];
-      role: string;
-      labelForUrl?: (url: string) => string | null;
-    },
-  ): Promise<PersistedContentAssetRef[]> {
-    const entries = normalizeImageUrls(input.imageUrls);
-    if (entries.length === 0) return [];
-    const data = entries.map(({ url, firstIndex }) => ({
-      organizationId: input.organizationId,
-      contentWorkspaceId: input.contentWorkspaceId,
-      source: 'detail_generation',
-      createdByUserId: input.createdByUserId,
-      assetKey: workspaceImageAssetKey(input.contentWorkspaceId, input.role, url),
-      url,
-      storageKey: this.imageStorage?.extractKey(url) ?? null,
-      assetType: 'image',
-      role: input.role,
-      label: input.labelForUrl?.(url) ?? null,
-      sortOrder: firstIndex,
-      metadata: { urlHash: hashContentAssetUrl(url) },
-    }));
-    await scope.contentAsset.createMany({ skipDuplicates: true, data });
-    return scope.contentAsset.findMany({
-      where: {
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.contentWorkspaceId,
-        assetKey: { in: data.map((item) => item.assetKey) },
-        isDeleted: false,
-      },
-      orderBy: { sortOrder: 'asc' },
-      select: { id: true, assetKey: true, url: true, role: true, label: true, sortOrder: true },
-    });
-  }
 }
 
 async function lockActiveWorkspace(
@@ -463,32 +353,4 @@ function toAssetRow(row: AssetRecord): ContentAssetRow {
     source: asset.source as ContentAssetSource,
     isCurrentThumbnail: contentWorkspace.currentThumbnailAssetId === asset.id,
   };
-}
-
-function requireWorkspaceId(contentWorkspaceId: string | undefined): string {
-  if (!contentWorkspaceId) {
-    throw new Error('content_asset_workspace_required: detail-page assets belong to a content workspace (KID-313).');
-  }
-  return contentWorkspaceId;
-}
-
-function normalizeImageUrls(imageUrls: string[]): Array<{ url: string; firstIndex: number }> {
-  const seen = new Map<string, number>();
-  for (const [index, raw] of imageUrls.entries()) {
-    const url = raw.trim();
-    if (!url || seen.has(url)) continue;
-    seen.set(url, index);
-  }
-  return [...seen.entries()].map(([url, firstIndex]) => ({ url, firstIndex }));
-}
-
-function compareAssetRoles(a: string, b: string): number {
-  const aNumber = Number(a);
-  const bNumber = Number(b);
-  const aIsNumber = Number.isInteger(aNumber) && a.trim() === String(aNumber);
-  const bIsNumber = Number.isInteger(bNumber) && b.trim() === String(bNumber);
-  if (aIsNumber && bIsNumber) return aNumber - bNumber;
-  if (aIsNumber) return -1;
-  if (bIsNumber) return 1;
-  return a.localeCompare(b);
 }

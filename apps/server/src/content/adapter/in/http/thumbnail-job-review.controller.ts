@@ -26,11 +26,11 @@ import {
  * 대표이미지 생성 job 목록 · 취소 · 삭제(KID-313 W3a). 응답은 job 과 그 후보(`ContentAssetItem`)다. 후보 채택은
  * `PATCH /ai/content-workspaces/:id/current-thumbnail` 하나다 — 옛 select · apply 두 단계는 없다.
  */
-@Controller('thumbnail-analysis')
-export class ThumbnailAnalysisGenerationReviewController {
+@Controller('ai/thumbnail-jobs')
+export class ThumbnailJobReviewController {
   constructor(private readonly generationService: ThumbnailGenerationService) {}
 
-  @Get('generations')
+  @Get()
   listGenerations(
     @CurrentOrganization() organizationId: string,
     @Query('productId') productId?: string,
@@ -66,12 +66,12 @@ export class ThumbnailAnalysisGenerationReviewController {
     });
   }
 
-  @Get('generations/:id')
+  @Get(':id')
   getGeneration(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
     return this.generationService.findOne(id, organizationId);
   }
 
-  @Post('generations/:id/cancel')
+  @Post(':id/cancel')
   cancelGeneration(
     @Param('id') id: string,
     @Body() body: CancelThumbnailGenerationDto,
@@ -86,7 +86,7 @@ export class ThumbnailAnalysisGenerationReviewController {
     });
   }
 
-  @Put('generations/:id/skip')
+  @Put(':id/skip')
   skipGeneration(
     @Param('id') id: string,
     @CurrentOrganization() organizationId: string,
@@ -94,12 +94,12 @@ export class ThumbnailAnalysisGenerationReviewController {
     return this.generationService.skipGeneration(id, organizationId);
   }
 
-  @Delete('generations/:id')
+  @Delete(':id')
   deleteGeneration(@Param('id') id: string, @CurrentOrganization() organizationId: string) {
     return this.generationService.deleteGeneration(id, organizationId);
   }
 
-  @Delete('generations/:id/candidates')
+  @Delete(':id/candidates')
   deleteCandidate(
     @Param('id') id: string,
     @Body() body: DeleteCandidateDto,

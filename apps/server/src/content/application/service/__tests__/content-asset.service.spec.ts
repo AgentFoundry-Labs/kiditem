@@ -10,10 +10,6 @@ function repository(
   overrides: Partial<ContentAssetLibraryRepositoryPort> = {},
 ): ContentAssetLibraryRepositoryPort {
   return {
-    recordDetailPageInputAssets: vi.fn(),
-    recordDetailPageGeneratedAssets: vi.fn(),
-    syncGenerationImageUsages: vi.fn(),
-    syncGenerationImageUsagesInScope: vi.fn(),
     listAssets: vi.fn(),
     listSalesProductAssets: vi.fn().mockResolvedValue([]),
     findSalesProductCurrentThumbnail: vi.fn().mockResolvedValue(null),

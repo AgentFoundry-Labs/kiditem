@@ -84,7 +84,7 @@ export class ContentWorkspaceService {
     rawTitle: string;
     salesProductId: string | null;
     channelListingId?: string | null;
-  }): Promise<{ id: string; normalizedTitle: string | null }> {
+  }): Promise<{ id: string }> {
     return this.ensureWorkspace(input);
   }
 
@@ -93,10 +93,7 @@ export class ContentWorkspaceService {
     return this.get(input.organizationId, workspace.id);
   }
 
-  private async ensureWorkspace(input: CreateContentWorkspaceInput): Promise<{
-    id: string;
-    normalizedTitle: string | null;
-  }> {
+  private async ensureWorkspace(input: CreateContentWorkspaceInput): Promise<{ id: string }> {
     const ownerType = ownerTypeFor(input);
     return this.repository.ensureActiveWorkspace({
       organizationId: input.organizationId,

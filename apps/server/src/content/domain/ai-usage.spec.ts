@@ -6,7 +6,7 @@ describe('AI usage attribution and pricing', () => {
   it.each([
     ['/api/sourcing/keyword-analysis', 'sourcing'],
     ['/api/ai/detail-page/123', 'product'],
-    ['/api/thumbnail-analysis?x=1', 'product'],
+    ['/api/ai/thumbnail-jobs?x=1', 'product'],
     ['/api/ads/ai-strategy', 'marketing'],
     ['/api/reviews/summary', 'cs'],
     ['/api/unknown-thing', null],

@@ -226,7 +226,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     queryKey: ['thumbnail-generation', generationDialog?.thumbnailGenerationId ?? 'noop'],
     queryFn: async () =>
       (await apiClient.get<ThumbnailJobListResponse>(
-        `/api/thumbnail-analysis/generations/${generationDialog?.thumbnailGenerationId}`,
+        `/api/ai/thumbnail-jobs/${generationDialog?.thumbnailGenerationId}`,
       )).items[0] ?? null,
     enabled: Boolean(generationDialog?.open && generationDialog.thumbnailGenerationId),
     refetchInterval: (query) => {

@@ -31,7 +31,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
 
   async ensureActiveWorkspace(
     input: EnsureContentWorkspaceInput,
-  ): Promise<{ id: string; normalizedTitle: string | null }> {
+  ): Promise<{ id: string }> {
     assertValidOwnerShape(input);
     const where = activeWorkspaceWhere(input);
     try {
@@ -179,7 +179,6 @@ implements ContentWorkspaceLifecycleRepositoryPort {
 
 const workspaceIdentitySelect = {
   id: true,
-  normalizedTitle: true,
 } as const;
 
 function findActiveWorkspace(

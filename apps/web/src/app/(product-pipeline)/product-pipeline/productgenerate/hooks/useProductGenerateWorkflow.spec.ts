@@ -45,7 +45,7 @@ describe('cancelProductGenerationChildren', () => {
       { reason: '사용자 요청' },
     );
     expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/thumbnail-analysis/generations/thumbnail-1/cancel',
+      '/api/ai/thumbnail-jobs/thumbnail-1/cancel',
       { reason: '사용자 요청' },
     );
   });

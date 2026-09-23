@@ -10,6 +10,7 @@ import type { SalesProductDraftPort } from '../sourcing/application/port/out/cro
 import { SalesProductWorkspaceArchiveAdapter } from '../channels/adapter/out/repository/sales-product-workspace-archive.adapter';
 import { SourceRecordAdapter } from '../channels/adapter/out/sourcing/source-record.adapter';
 import { SalesProductWorkspaceArchiveService } from '../content/application/service/sales-product-workspace-archive.service';
+import { DetailPageRepositoryAdapter } from '../content/adapter/out/repository/detail-page.repository.adapter';
 import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../content/adapter/out/repository/sales-product-workspace-archive.repository.adapter';
 import { SourceRecordRepositoryAdapter } from '../sourcing/adapter/out/repository/source-record.repository.adapter';
 import type { SalesProductWorkspaceArchivePort } from '../channels/application/port/out/ai/sales-product-workspace-archive.port';
@@ -22,7 +23,9 @@ import type { ChannelSourceRecordPort } from '../channels/application/port/out/s
 export function realDraftDeletionPorts(prisma: PrismaClient): [SalesProductWorkspaceArchivePort, ChannelSourceRecordPort] {
   return [
     new SalesProductWorkspaceArchiveAdapter(
-      new SalesProductWorkspaceArchiveService(new SalesProductWorkspaceArchiveRepositoryAdapter()),
+      new SalesProductWorkspaceArchiveService(new SalesProductWorkspaceArchiveRepositoryAdapter(
+        new DetailPageRepositoryAdapter(prisma as unknown as PrismaService),
+      )),
     ),
     new SourceRecordAdapter(new SourceRecordRepositoryAdapter(prisma as unknown as PrismaService)),
   ];

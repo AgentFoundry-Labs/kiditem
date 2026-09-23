@@ -424,7 +424,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
           elapsedMs,
           statements: statements.length,
           contentStatements: statements.filter((sql) =>
-            /content_workspaces|content_assets|content_generation_groups|content_workspace_thumbnail_selections/.test(
+            /content_workspaces|content_assets/.test(
               sql,
             ),
           ).length,
@@ -455,7 +455,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
           elapsedMs: Math.round(performance.now() - refreshStarted),
           statements: statements.length,
           contentStatements: statements.filter((sql) =>
-            /content_workspaces|content_assets|content_generation_groups|content_workspace_thumbnail_selections/.test(
+            /content_workspaces|content_assets/.test(
               sql,
             ),
           ).length,

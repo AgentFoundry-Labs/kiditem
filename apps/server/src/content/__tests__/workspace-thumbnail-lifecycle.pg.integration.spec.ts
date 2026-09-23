@@ -11,6 +11,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
 import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sales-product-workspace-archive.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 
@@ -57,7 +58,7 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     const workspaceRelease = new Promise<void>((resolve) => {
       releaseWorkspace = resolve;
     });
-    const archiveRepository = new SalesProductWorkspaceArchiveRepositoryAdapter();
+    const archiveRepository = new SalesProductWorkspaceArchiveRepositoryAdapter(new DetailPageRepositoryAdapter(prisma as unknown as PrismaService));
     const archivedAt = new Date('2026-07-13T02:00:00.000Z');
     const archive = prisma.$transaction(async (tx) => {
       let didPause = false;

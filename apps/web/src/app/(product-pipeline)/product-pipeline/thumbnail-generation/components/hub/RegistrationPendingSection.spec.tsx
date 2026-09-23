@@ -44,7 +44,7 @@ function renderSection() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-    if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
+    if (href.startsWith('/api/ai/thumbnail-jobs')) return jobResponse();
     return { items: [executionStatus({ error: 'port closed' })] };
   });
 });
@@ -53,7 +53,7 @@ afterEach(cleanup);
 describe('RegistrationPendingSection checking actions', () => {
   it('shows the failure of the adopted candidate and clears it for the sales product', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-      if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
+      if (href.startsWith('/api/ai/thumbnail-jobs')) return jobResponse();
       return { items: [executionStatus({ status: 'failed', providerOutcome: 'definitive_failure', error: '로그인 필요' })] };
     });
     vi.mocked(apiClient.delete).mockResolvedValue({ dismissed: true });
@@ -67,7 +67,7 @@ describe('RegistrationPendingSection checking actions', () => {
 
   it('offers resend and not-applied but no confirmation while the upload itself is still running', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-      if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
+      if (href.startsWith('/api/ai/thumbnail-jobs')) return jobResponse();
       return { items: [executionStatus({ status: 'executing' })] };
     });
     renderSection();
@@ -113,7 +113,7 @@ describe('RegistrationPendingSection checking actions', () => {
 
   it('lets the operator pick one of several Coupang listings in the batch result and upload with it', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-      if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
+      if (href.startsWith('/api/ai/thumbnail-jobs')) return jobResponse();
       if (href.includes('listing-choices')) return { items: [{ channelListingId: '00000000-0000-4000-8000-0000000000a2', channelName: 'B', channelAccountName: 'Wing', externalId: '2' }] };
       return { items: [] };
     });
@@ -130,7 +130,7 @@ describe('RegistrationPendingSection checking actions', () => {
 
   it('counts a batch upload as uploaded, never as success', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
-      if (href.startsWith('/api/thumbnail-analysis/generations')) return jobResponse();
+      if (href.startsWith('/api/ai/thumbnail-jobs')) return jobResponse();
       return { items: [] };
     });
     vi.mocked(detectExtensionId).mockResolvedValue('extension-1');

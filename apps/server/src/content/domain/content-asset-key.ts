@@ -11,11 +11,6 @@ export function workspaceThumbnailAssetKey(contentWorkspaceId: string, url: stri
   return `workspace-thumbnail:${contentWorkspaceId}:${hashContentAssetUrl(url).slice(0, 32)}`;
 }
 
-/** Key for a workspace image recorded under one role (detail-page inputs and outputs). */
-export function workspaceImageAssetKey(contentWorkspaceId: string, role: string, url: string): string {
-  return `workspace-image:${contentWorkspaceId}:${role}:${hashContentAssetUrl(url).slice(0, 32)}`;
-}
-
 /** Key for one AI candidate image of one thumbnail job. */
 export function thumbnailCandidateAssetKey(thumbnailGenerationId: string, url: string): string {
   return `ai-candidate:${thumbnailGenerationId}:${hashContentAssetUrl(url).slice(0, 32)}`;

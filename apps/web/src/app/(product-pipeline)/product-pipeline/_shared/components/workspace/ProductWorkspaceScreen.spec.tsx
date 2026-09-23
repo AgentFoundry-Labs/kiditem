@@ -471,7 +471,6 @@ describe('ProductWorkspaceScreen — 수집상품(판매상품 초안) 화면', 
     await screen.findByTestId('product-tab-content');
     // 원본 기록 응답에 무엇이 실려 와도 등록 설정은 원본 기록에서 읽지 않는다.
     await waitFor(() => expect(productEditHeaderProps.at(-1)?.registrationTarget).toBeNull());
-    expect(productEditHeaderProps.at(-1)?.selectedThumbnailGenerationId).not.toBe('thumb-generation-1');
     expect(productEditHeaderProps.at(-1)?.detailGenerationContentWorkspaceId).toBe(WORKSPACE_ID);
   });
 

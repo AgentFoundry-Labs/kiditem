@@ -9,7 +9,7 @@ import { AgentOsInteractionHttpModule } from '../agent-os/agent-os-interaction-h
 import { AgentOsHttpModule } from '../agent-os/agent-os-http.module';
 import { DetailPageEditorController } from '../content/adapter/in/http/detail-page-editor.controller';
 import { ImageAiController } from '../content/adapter/in/http/image-ai.controller';
-import { ThumbnailAnalysisGenerationReviewController } from '../content/adapter/in/http/thumbnail-analysis-generation-review.controller';
+import { ThumbnailJobReviewController } from '../content/adapter/in/http/thumbnail-job-review.controller';
 import { inspectStaticApplicationRootPolicy } from './application-root-policy';
 
 type ModuleLike =
@@ -48,7 +48,7 @@ describe('final application-root topology', () => {
     expect(controllers).toEqual(expect.arrayContaining([
       DetailPageEditorController,
       ImageAiController,
-      ThumbnailAnalysisGenerationReviewController,
+      ThumbnailJobReviewController,
     ]));
     expect(modules.map((module) => module.name)).not.toContain('OperationCancellationModule');
     expect(existsSync(join(serverSource, 'operation-cancellation/operation-cancellation.module.ts'))).toBe(false);

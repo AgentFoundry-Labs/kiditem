@@ -1,5 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import {
+  DETAIL_PAGE_REPOSITORY_PORT,
+  type DetailPageRepositoryPort,
+} from '../../../application/port/out/repository/detail-page.repository.port';
 import type {
   AiWorkspaceArchiveScope,
   ArchiveSalesProductWorkspaceInput,
@@ -10,11 +15,16 @@ import type { SalesProductWorkspaceArchiveRepositoryPort } from '../../../applic
 /**
  * 초안을 내리면 그 작업공간이 가진 것을 모두 보관한다(KID-313 W3). 작업공간이 자산 · 상세 페이지 · 썸네일 job 의
  * 유일한 소유자이므로 작업공간 id 로 따라간다. revision 은 지우지 않는다 — 실행이 얼린 revision 은 그대로 읽힌다.
- * 두 현재 포인터(상세 revision · 대표이미지 자산)는 비운다.
+ * 두 현재 포인터(상세 revision · 대표이미지 자산)는 비운다 — 상세 포인터는 그 유일한 writer 인 상세 페이지 저장소로.
  */
 @Injectable()
 export class SalesProductWorkspaceArchiveRepositoryAdapter
 implements SalesProductWorkspaceArchiveRepositoryPort {
+  constructor(
+    @Inject(DETAIL_PAGE_REPOSITORY_PORT)
+    private readonly detailPages: DetailPageRepositoryPort,
+  ) {}
+
   async archiveSalesProductWorkspace(
     scope: AiWorkspaceArchiveScope,
     input: ArchiveSalesProductWorkspaceInput,
@@ -25,11 +35,14 @@ implements SalesProductWorkspaceArchiveRepositoryPort {
       return { archivedDetailPages: 0, archivedContentAssets: 0, archivedThumbnailGenerations: 0 };
     }
     const archived = archiveData(input.archivedAt);
+    await this.detailPages.clearWorkspacePointers(ownerTransaction(tx), {
+      organizationId: input.organizationId,
+      contentWorkspaceIds: workspaceIds,
+    });
     await scope.contentWorkspace.updateMany({
       where: { organizationId: input.organizationId, id: { in: workspaceIds } },
       data: {
         status: 'archived',
-        currentDetailPageRevisionId: null,
         currentThumbnailAssetId: null,
         ...archived,
       },

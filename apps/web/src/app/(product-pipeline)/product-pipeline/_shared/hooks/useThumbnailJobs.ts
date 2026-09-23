@@ -67,7 +67,7 @@ export function useThumbnailJobs(
     queryKey: queryKeys.thumbnailJobs.list(Object.keys(queryParams).length > 0 ? queryParams : undefined),
     enabled: params.enabled ?? true,
     queryFn: async () => {
-      const href = qs ? `/api/thumbnail-analysis/generations?${qs}` : '/api/thumbnail-analysis/generations';
+      const href = qs ? `/api/ai/thumbnail-jobs?${qs}` : '/api/ai/thumbnail-jobs';
       return toThumbnailJobViews(await apiClient.get<ThumbnailJobListResponse>(href));
     },
     staleTime: 1000,
@@ -118,7 +118,7 @@ export function useThumbnailJob(jobId: string | null) {
     enabled: Boolean(jobId),
     queryFn: async () =>
       toThumbnailJobViews(
-        await apiClient.get<ThumbnailJobListResponse>(`/api/thumbnail-analysis/generations/${encodeURIComponent(jobId!)}`),
+        await apiClient.get<ThumbnailJobListResponse>(`/api/ai/thumbnail-jobs/${encodeURIComponent(jobId!)}`),
       )[0] ?? null,
     refetchInterval: (query) => {
       const job = query.state.data;
@@ -137,7 +137,7 @@ export function invalidateThumbnailJobs(queryClient: QueryClient) {
 export function useSkipThumbnailJob() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiClient.put(`/api/thumbnail-analysis/generations/${encodeURIComponent(id)}/skip`, {}),
+    mutationFn: (id: string) => apiClient.put(`/api/ai/thumbnail-jobs/${encodeURIComponent(id)}/skip`, {}),
     onSettled: () => invalidateThumbnailJobs(queryClient),
   });
 }
@@ -146,7 +146,7 @@ export function useCancelThumbnailJob() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.post(`/api/thumbnail-analysis/generations/${encodeURIComponent(id)}/cancel`, { reason: '사용자 요청' }),
+      apiClient.post(`/api/ai/thumbnail-jobs/${encodeURIComponent(id)}/cancel`, { reason: '사용자 요청' }),
     onSettled: () => invalidateThumbnailJobs(queryClient),
   });
 }
@@ -155,7 +155,7 @@ export function useCancelThumbnailJob() {
 export function useDeleteThumbnailJob() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiClient.delete(`/api/thumbnail-analysis/generations/${encodeURIComponent(id)}`),
+    mutationFn: (id: string) => apiClient.delete(`/api/ai/thumbnail-jobs/${encodeURIComponent(id)}`),
     onSettled: () => invalidateThumbnailJobs(queryClient),
   });
 }
@@ -166,7 +166,7 @@ export function useDeleteThumbnailCandidate() {
   return useMutation({
     mutationFn: ({ jobId, assetId }: { jobId: string; assetId: string }) =>
       apiClient.delete<{ ok: true; generationDeleted: boolean; remaining: number }>(
-        `/api/thumbnail-analysis/generations/${encodeURIComponent(jobId)}/candidates`,
+        `/api/ai/thumbnail-jobs/${encodeURIComponent(jobId)}/candidates`,
         { assetId },
       ),
     onSettled: () =>
@@ -188,7 +188,7 @@ export function useReEditThumbnailJob() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, purpose, variantKey }: ReEditParams) =>
-      apiClient.post(`/api/thumbnail-analysis/generations/${encodeURIComponent(id)}/re-edit`, {
+      apiClient.post(`/api/ai/thumbnail-jobs/${encodeURIComponent(id)}/re-edit`, {
         ...(purpose ? { purpose } : {}),
         ...(variantKey ? { variantKey } : {}),
       }),
@@ -200,7 +200,7 @@ export function useCreateThumbnailEditJobs() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (params: { contentWorkspaceIds: string[]; purpose?: 'compliance' | 'quality'; variantKey?: RecomposeVariantKey }) =>
-      apiClient.post<ThumbnailJob[]>('/api/thumbnail-analysis/edit-jobs', params),
+      apiClient.post<ThumbnailJob[]>('/api/ai/thumbnail-jobs/edit', params),
     onSettled: () => invalidateThumbnailJobs(queryClient),
   });
 }

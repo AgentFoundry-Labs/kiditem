@@ -38,7 +38,7 @@ export async function cancelProductGenerationChildren(input: {
   }
   if (input.thumbnailGenerationId) {
     cancellations.push(apiClient.post(
-      `/api/thumbnail-analysis/generations/${encodeURIComponent(input.thumbnailGenerationId)}/cancel`,
+      `/api/ai/thumbnail-jobs/${encodeURIComponent(input.thumbnailGenerationId)}/cancel`,
       { reason: '사용자 요청' },
     ));
   }

@@ -20,9 +20,8 @@ import { TextAiController } from './adapter/in/http/text-ai.controller';
 import { ListingThumbnailEvaluationController } from './adapter/in/http/listing-thumbnail-evaluation.controller';
 import { ListingThumbnailEvaluationRepositoryAdapter } from './adapter/out/repository/listing-thumbnail-evaluation.repository.adapter';
 import { ListingThumbnailEvaluationService } from './application/service/listing-thumbnail-evaluation.service';
-import { LISTING_THUMBNAIL_EVALUATION_PORT } from './application/port/in/thumbnail/listing-thumbnail-evaluation.port';
-import { ThumbnailAnalysisEditJobsController } from './adapter/in/http/thumbnail-analysis-edit-jobs.controller';
-import { ThumbnailAnalysisGenerationReviewController } from './adapter/in/http/thumbnail-analysis-generation-review.controller';
+import { ThumbnailJobsController } from './adapter/in/http/thumbnail-jobs.controller';
+import { ThumbnailJobReviewController } from './adapter/in/http/thumbnail-job-review.controller';
 import { ThumbnailAutoController } from './adapter/in/http/thumbnail-auto.controller';
 import { ThumbnailEditorController } from './adapter/in/http/thumbnail-editor.controller';
 // adapter/in/agent
@@ -293,7 +292,6 @@ export class AiAgentRuntimeModule {}
     ListingThumbnailEvaluationService,
     ListingThumbnailEvaluationRepositoryAdapter,
     { provide: LISTING_THUMBNAIL_EVALUATION_REPOSITORY_PORT, useExisting: ListingThumbnailEvaluationRepositoryAdapter },
-    { provide: LISTING_THUMBNAIL_EVALUATION_PORT, useExisting: ListingThumbnailEvaluationService },
     AiCatalogMediaPublicationRepositoryAdapter,
     CatalogDisplayMediaRepositoryAdapter,
     DetailPageContentGenerationSinkAdapter,
@@ -375,8 +373,8 @@ export class AiAgentRuntimeModule {}
     RenderImageController,
     TextAiController,
     ListingThumbnailEvaluationController,
-    ThumbnailAnalysisEditJobsController,
-    ThumbnailAnalysisGenerationReviewController,
+    ThumbnailJobsController,
+    ThumbnailJobReviewController,
     ThumbnailAutoController,
     ThumbnailEditorController,
   ],
@@ -398,7 +396,6 @@ export class AiAgentRuntimeModule {}
     SALES_PRODUCT_CONTENT_ASSET_PORT,
     CATALOG_MEDIA_PUBLICATION_PORT,
     CATALOG_DISPLAY_MEDIA_PORT,
-    LISTING_THUMBNAIL_EVALUATION_PORT,
   ],
 })
 export class AiModule {}
