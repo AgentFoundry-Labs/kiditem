@@ -59,8 +59,8 @@ export function useEditorData(contentWorkspaceId: string) {
           templateConfig = getTemplate(current.templateId.replace(/_/g, '-'));
           previewData = parsed;
         } catch {
-          // draftContent may contain only editor metadata such as editedHtml.
-          // In that case the editor can still boot from saved HTML below.
+          // draftContent may hold only editor metadata; the editor then boots
+          // from the saved revision HTML below.
         }
       }
 

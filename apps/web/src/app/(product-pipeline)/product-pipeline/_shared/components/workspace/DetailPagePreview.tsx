@@ -64,7 +64,6 @@ import type { ProductRegistrationPreviewData } from './preview/product-registrat
 interface Props {
   productId: string;
   detailPreviewHtml: string;
-  editedHtml?: string | null;
   templateCss: string;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
@@ -152,7 +151,6 @@ function renderGenerationEntryHtml(entry: KidsPlayfulGenerationItem, templateCss
 export default function DetailPagePreview({
   productId,
   detailPreviewHtml,
-  editedHtml = null,
   templateCss,
   hasSavedDetailPage,
   savedDetailPageGenerationId = null,
@@ -221,7 +219,7 @@ export default function DetailPagePreview({
   }, [detailEditorReturnHref, detailEditorSourceCandidateId, effectiveDetailPageGenerationId]);
 
   const hasCurrentSavedDetailPage =
-    hasSavedDetailPage ?? Boolean(effectiveDetailPageGenerationId || editedHtml);
+    hasSavedDetailPage ?? Boolean(effectiveDetailPageGenerationId);
 
   const savedDetailHtml = useMemo(() => {
     if (!hasCurrentSavedDetailPage) return null;
@@ -245,13 +243,9 @@ export default function DetailPagePreview({
     if (effectiveDetailPageGenerationId) {
       return null;
     }
-    if (isRenderableDetailHtml(editedHtml)) {
-      return ensureStyledDetailHtml(editedHtml, templateCss);
-    }
     return ensureStyledDetailHtml(detailPreviewHtml, templateCss);
   }, [
     detailPreviewHtml,
-    editedHtml,
     hasCurrentSavedDetailPage,
     effectiveDetailPageGenerationId,
     savedAgentEntry,
@@ -263,11 +257,9 @@ export default function DetailPagePreview({
   // ⚡ 깜빡임 방지: 의미적으로 같은 컨텐츠인 동안 srcDoc 안 갱신.
   const previewKey = effectiveDetailPageGenerationId
     ? `saved:${effectiveDetailPageGenerationId}:${selectedAgentEditedHtml?.savedAt ?? 'generated'}`
-    : editedHtml
-      ? `edited:${editedHtml.length}`
-      : hasCurrentSavedDetailPage
-        ? `default:${detailPreviewHtml.length}`
-        : 'empty';
+    : hasCurrentSavedDetailPage
+      ? `default:${detailPreviewHtml.length}`
+      : 'empty';
   const effectivePreviewHtml = useMemo(() => {
     return savedDetailHtml;
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -30,7 +30,6 @@ import type { ProductRegistrationPreviewData } from '../preview/product-registra
 interface DetailPageWorkspaceTabProps {
   productId: string;
   detailPreviewHtml: string;
-  editedHtml?: string | null;
   templateCss: string;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
@@ -60,7 +59,6 @@ interface DetailPageWorkspaceTabProps {
 export default function DetailPageWorkspaceTab({
   productId,
   detailPreviewHtml,
-  editedHtml,
   templateCss,
   hasSavedDetailPage,
   savedDetailPageGenerationId,
@@ -248,7 +246,6 @@ export default function DetailPageWorkspaceTab({
             <DetailPagePreview
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}
-              editedHtml={editedHtml}
               templateCss={templateCss}
               hasSavedDetailPage={hasSavedDetailPage}
               savedDetailPageGenerationId={selectedPreviewGenerationId}

@@ -81,7 +81,6 @@ const baseProps = {
   activeTab: 'basic' as const,
   detailPreviewHtml: '',
   editData,
-  editedHtml: null,
   imageUrls: [],
   nameLength: 5,
   onSelectAgent: vi.fn(),
