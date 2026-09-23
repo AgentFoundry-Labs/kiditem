@@ -123,6 +123,10 @@ describe('sales product draft deletion (PostgreSQL)', () => {
   it('deletes a collected draft with its options, public images, archived settings, workspace and source record in one commit', async () => {
     const admitted = await records.admit(sourceRecord(), drafts());
     await prisma.salesProduct.update({ where: { id: admitted.salesProductId }, data: { imageUrls: ['https://storage.example/mine.jpg'] } });
+    const [option] = await prisma.salesProductOption.findMany({ where: { salesProductId: admitted.salesProductId } });
+    await prisma.salesProductOptionComponent.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, salesProductOptionId: option!.id, masterProductId: randomUUID(), quantity: 2,
+    } });
     await prisma.salesProductPublicImage.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, sourceUrl: 'https://storage.example/mine.jpg', publicUrl: 'https://public.example/mine.jpg', host: 'kidsnote',
     } });
@@ -143,6 +147,7 @@ describe('sales product draft deletion (PostgreSQL)', () => {
 
     expect(await prisma.salesProduct.count()).toBe(0);
     expect(await prisma.salesProductOption.count()).toBe(0);
+    expect(await prisma.salesProductOptionComponent.count()).toBe(0);
     expect(await prisma.registrationTarget.count()).toBe(0);
     expect(await prisma.salesProductPublicImage.count()).toBe(0);
     expect(await prisma.sourceRecord.count()).toBe(0);
@@ -199,6 +204,28 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     });
 
     expect(await prisma.salesProduct.count()).toBe(2);
+    expect(await prisma.sourceRecord.count()).toBe(1);
+  });
+
+  it('refuses a draft with a registration execution still in flight and leaves it whole', async () => {
+    const admitted = await records.admit(sourceRecord(), drafts());
+    const account = await prisma.channelAccount.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', externalAccountId: randomUUID(), name: '쿠팡', status: 'active',
+    } });
+    const target = await prisma.registrationTarget.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: admitted.salesProductId, channelAccountId: account.id, registrationInput: {},
+    } });
+    await prisma.productRegistrationExecution.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, registrationTargetId: target.id, channelAccountId: account.id,
+      idempotencyKey: randomUUID(), requestHash: 'hash', status: 'executing',
+    } });
+
+    await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId)).rejects.toMatchObject({
+      kind: 'conflict', details: { reason: 'live_execution', message: '등록 실행이 남아 있어 초안을 지우지 않았습니다.' },
+    });
+
+    expect(await prisma.salesProduct.findUniqueOrThrow({ where: { id: admitted.salesProductId } })).toMatchObject({ status: 'draft' });
+    expect(await prisma.salesProductOption.count({ where: { salesProductId: admitted.salesProductId } })).toBeGreaterThan(0);
     expect(await prisma.sourceRecord.count()).toBe(1);
   });
 
