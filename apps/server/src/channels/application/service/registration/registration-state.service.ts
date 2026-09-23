@@ -6,22 +6,20 @@ import type {
   RegistrationStateAccountFacts,
   RegistrationStatePersistencePort,
 } from '../../port/out/persistence/registration-state.persistence.port';
-import type { ChannelRegistrableDetailPagePort } from '../../port/out/content/registrable-detail-page.port';
-import type { ChannelRegistrableThumbnailPort } from '../../port/out/content/registrable-thumbnail.port';
+import type { ChannelRegistrableContentFactsPort } from '../../port/out/content/registrable-content-facts.port';
 
 /**
  * 판매 상품 × 몰 계정의 등록 상태를 읽는 하나뿐인 reader(KID-313 결정 11, KID-320).
  *
- * Channels 행 사실(설정 · 리스팅 · 실행)은 persistence 포트로, 지금 콘텐츠(상세 revision · 대표이미지 자산)는
- * Content 포트로 한 번씩 읽고, 판정은 `decideRegistrationAccountState` 에 맡긴다. 지금 콘텐츠는 등록 대상이 고른
+ * Channels 행 사실(설정 · 리스팅 · 실행)은 persistence 포트로, 지금 콘텐츠(작업공간의 현재 상세 revision id ·
+ * 대표이미지 자산 id)는 Content 사실 포트로 한 번씩 읽고, 판정은 `decideRegistrationAccountState` 에 맡긴다. 지금 콘텐츠는 등록 대상이 고른
  * 값이 먼저이고, 없으면 작업공간의 현재 값이다 — 등록 실행이 얼릴 때와 같은 순서다. 화면 · 목록 · 매트릭스는
  * 실행 표를 조합하지 않고 이 결과만 싣는다.
  */
 export class RegistrationStateService implements RegistrationStatePort {
   constructor(
     private readonly persistence: RegistrationStatePersistencePort,
-    private readonly detailPages: ChannelRegistrableDetailPagePort,
-    private readonly thumbnails: ChannelRegistrableThumbnailPort,
+    private readonly contentFacts: ChannelRegistrableContentFactsPort,
   ) {}
 
   async readForSalesProducts(organizationId: string, salesProductIds: readonly string[]): Promise<Map<string, SalesProductRegistrationView>> {
@@ -30,17 +28,11 @@ export class RegistrationStateService implements RegistrationStatePort {
     if (facts.size === 0) return result;
 
     const productIds = [...facts.keys()];
-    const [pages, thumbnails] = await Promise.all([
-      this.detailPages.readMany({
-        organizationId,
-        products: productIds.map((salesProductId) => ({ salesProductId, selectedDetailPageRevisionId: null })),
-      }),
-      this.thumbnails.readCurrentAssetIds({ organizationId, salesProductIds: productIds }),
-    ]);
+    const content = await this.contentFacts.readCurrentContentIds({ organizationId, salesProductIds: productIds });
 
     for (const [salesProductId, product] of facts) {
-      const workspaceRevisionId = pages.get(salesProductId)?.revisionId ?? null;
-      const workspaceAssetId = thumbnails.get(salesProductId) ?? null;
+      const workspaceRevisionId = content.get(salesProductId)?.detailPageRevisionId ?? null;
+      const workspaceAssetId = content.get(salesProductId)?.thumbnailAssetId ?? null;
       const accounts = product.accounts
         .map((account) => toAccountState(account, {
           productVersion: product.productVersion,

@@ -114,31 +114,6 @@ describe('registrable thumbnail (PostgreSQL)', () => {
       .rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('reads the current representative asset id of many products at once, null when none or deleted', async () => {
-    const withImage = await productWorkspace();
-    const upload = await withImage.asset('upload', PNG_DATA_URL);
-    await prisma.contentWorkspace.update({ where: { id: withImage.workspace.id }, data: { currentThumbnailAssetId: upload.id } });
-    const withoutImage = await productWorkspace();
-    const deletedImage = await productWorkspace();
-    const deleted = await deletedImage.asset('upload', PNG_DATA_URL);
-    await prisma.contentWorkspace.update({ where: { id: deletedImage.workspace.id }, data: { currentThumbnailAssetId: deleted.id } });
-    await prisma.contentAsset.update({ where: { id: deleted.id }, data: { isDeleted: true } });
-    const foreign = await productWorkspace(OTHER_ORGANIZATION_ID);
-    const foreignUpload = await foreign.asset('upload', PNG_DATA_URL);
-    await prisma.contentWorkspace.update({ where: { id: foreign.workspace.id }, data: { currentThumbnailAssetId: foreignUpload.id } });
-
-    const current = await service.readCurrentThumbnailAssetIds({
-      organizationId: ORG,
-      salesProductIds: [withImage.salesProductId, withoutImage.salesProductId, deletedImage.salesProductId, foreign.salesProductId],
-    });
-
-    expect(current).toEqual(new Map([
-      [withImage.salesProductId, upload.id],
-      [withoutImage.salesProductId, null],
-      [deletedImage.salesProductId, null],
-    ]));
-  });
-
   it('loads the asset photo from a data URL or trusted storage with its digest', async () => {
     const { asset } = await productWorkspace();
     const inline = await asset('upload', PNG_DATA_URL);

@@ -32,9 +32,4 @@ export interface ChannelRegistrableThumbnailPort {
     selectedThumbnailAssetId: string | null;
   }): Promise<RegistrableThumbnail | null>;
   loadImage(input: { organizationId: string; assetId: string }): Promise<ThumbnailImagePayload>;
-  /**
-   * 판매 상품마다 작업공간의 현재 대표이미지 자산 id(등록 상태 reader 의 재전송 필요 비교, KID-320). 작업공간이 없는
-   * 상품은 맵에 없고, 현재 대표이미지가 없으면 null. 등록 대상이 고른 자산은 호출자가 먼저 본다.
-   */
-  readCurrentAssetIds(input: { organizationId: string; salesProductIds: readonly string[] }): Promise<ReadonlyMap<string, string | null>>;
 }

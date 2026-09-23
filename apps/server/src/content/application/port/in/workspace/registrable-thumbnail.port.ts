@@ -27,14 +27,6 @@ export interface RegistrableThumbnailPort {
     salesProductId: string;
     selectedThumbnailAssetId: string | null;
   }): Promise<RegistrableThumbnailView | null>;
-  /**
-   * 판매 상품마다 작업공간의 현재 대표이미지 자산 id(등록 상태의 "재전송 필요" 비교용, KID-320). 활성 작업공간이
-   * 있는 상품만 맵에 있고, 현재 대표이미지가 없거나 지워졌으면 null 이다. 상품 수와 무관한 쿼리 한 번이다.
-   */
-  readCurrentThumbnailAssetIds(input: {
-    organizationId: string;
-    salesProductIds: readonly string[];
-  }): Promise<ReadonlyMap<string, string | null>>;
   /** 자산의 사진을 크기·형식 검사 뒤 data URL 로 돌려준다. */
   loadThumbnailImage(input: { organizationId: string; assetId: string }): Promise<{
     dataUrl: string;

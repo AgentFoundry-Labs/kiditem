@@ -5,8 +5,7 @@ import type {
   RegistrationStatePersistencePort,
   RegistrationStateProductFacts,
 } from '../../../port/out/persistence/registration-state.persistence.port';
-import type { ChannelRegistrableDetailPagePort } from '../../../port/out/content/registrable-detail-page.port';
-import type { ChannelRegistrableThumbnailPort } from '../../../port/out/content/registrable-thumbnail.port';
+import type { ChannelRegistrableContentFactsPort } from '../../../port/out/content/registrable-content-facts.port';
 
 const PRODUCT = '00000000-0000-4000-8000-000000000001';
 const ACCOUNT = '00000000-0000-4000-8000-0000000000a1';
@@ -47,18 +46,17 @@ function setup(accounts: RegistrationStateAccountFacts[], content: { revisionId?
     readFacts: vi.fn(async (_organizationId: string, ids: readonly string[]) =>
       new Map(ids.includes(PRODUCT) ? [[PRODUCT, product]] : [])),
   };
-  const readMany = vi.fn(async () => new Map(content.revisionId === null
-    ? []
-    : [[PRODUCT, { revisionId: content.revisionId ?? REV_CURRENT, html: '<p/>', imageUrls: [] }]]));
-  const readCurrentAssetIds = vi.fn(async () => new Map([[PRODUCT, content.assetId === undefined ? ASSET_CURRENT : content.assetId]]));
-  const detailPages = { readMany } as unknown as ChannelRegistrableDetailPagePort;
-  const thumbnails = { readCurrentAssetIds } as unknown as ChannelRegistrableThumbnailPort;
-  return { service: new RegistrationStateService(persistence, detailPages, thumbnails), readMany, readCurrentAssetIds };
+  const readCurrentContentIds = vi.fn(async () => new Map([[PRODUCT, {
+    detailPageRevisionId: content.revisionId === undefined ? REV_CURRENT : content.revisionId,
+    thumbnailAssetId: content.assetId === undefined ? ASSET_CURRENT : content.assetId,
+  }]]));
+  const contentFacts: ChannelRegistrableContentFactsPort = { readCurrentContentIds };
+  return { service: new RegistrationStateService(persistence, contentFacts), readCurrentContentIds };
 }
 
 describe('registration state service', () => {
   it('reads a registered account unchanged when the frozen content is still the current one', async () => {
-    const { service, readMany, readCurrentAssetIds } = setup([registeredAccount()]);
+    const { service, readCurrentContentIds } = setup([registeredAccount()]);
 
     const view = (await service.readForSalesProducts('org', [PRODUCT])).get(PRODUCT)!;
 
@@ -83,9 +81,9 @@ describe('registration state service', () => {
         completedAt: '2026-09-24T00:01:00.000Z',
       },
     }]);
-    // 상세는 워크스페이스의 현재 revision 을, 대표이미지는 현재 자산 id 를 한 번에 읽는다.
-    expect(readMany).toHaveBeenCalledWith({ organizationId: 'org', products: [{ salesProductId: PRODUCT, selectedDetailPageRevisionId: null }] });
-    expect(readCurrentAssetIds).toHaveBeenCalledWith({ organizationId: 'org', salesProductIds: [PRODUCT] });
+    // 작업공간의 현재 상세 revision · 대표이미지 자산 id 를 한 번에 읽는다.
+    expect(readCurrentContentIds).toHaveBeenCalledTimes(1);
+    expect(readCurrentContentIds).toHaveBeenCalledWith({ organizationId: 'org', salesProductIds: [PRODUCT] });
   });
 
   it('marks re-send needed when the workspace representative image moved on', async () => {
@@ -137,9 +135,8 @@ describe('registration state service', () => {
   });
 
   it('asks Content nothing when no product was found', async () => {
-    const { service, readMany, readCurrentAssetIds } = setup([]);
+    const { service, readCurrentContentIds } = setup([]);
     expect((await service.readForSalesProducts('org', ['00000000-0000-4000-8000-00000000ffff'])).size).toBe(0);
-    expect(readMany).not.toHaveBeenCalled();
-    expect(readCurrentAssetIds).not.toHaveBeenCalled();
+    expect(readCurrentContentIds).not.toHaveBeenCalled();
   });
 });

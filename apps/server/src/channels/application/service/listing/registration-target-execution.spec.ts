@@ -38,7 +38,6 @@ function setup() {
       image: { url: 'https://storage.example.com/current.png', sha256: null },
     }),
     loadImage: vi.fn(),
-    readCurrentAssetIds: vi.fn(),
   };
   const service = new RegistrationExecutionService(executions as unknown as RegistrationExecutionRepositoryPort,
     products as unknown as SalesProductPort, targets as unknown as RegistrationTargetPort,
