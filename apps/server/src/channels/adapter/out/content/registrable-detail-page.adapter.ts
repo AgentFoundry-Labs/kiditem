@@ -60,6 +60,18 @@ export class RegistrableDetailPageAdapter implements ChannelRegistrableDetailPag
       ? { revisionId: result.revisionId, becameCurrent: result.becameCurrent }
       : { revisionId: null, becameCurrent: false };
   }
+
+  readImportedImageUrls(input: { organizationId: string }): Promise<ReadonlyMap<string, readonly string[]>> {
+    return this.content.readImportedDetailImageUrls(input);
+  }
+
+  rewriteImportedImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    replacements: ReadonlyMap<string, string>;
+  }): Promise<{ revisionsUpdated: number }> {
+    return this.content.rewriteImportedDetailImageUrls(input);
+  }
 }
 
 function toDetailHtml(page: RegistrableDetailPage): RegistrableDetailHtml {

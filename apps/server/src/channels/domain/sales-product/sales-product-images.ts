@@ -19,12 +19,13 @@ export interface PendingMirrorImage {
 }
 
 /**
- * 옮길 사진을 찾는 판매 상품 한 건. 상세 HTML 은 Content revision 이 정본이라 여기 없다(KID-313 W2) —
- * 상세 사진 옮기기는 Content 가 revision 을 새로 쌓는 길이 생길 때 그쪽에서 한다.
+ * 옮길 사진을 찾는 판매 상품 한 건. 상세 HTML 은 Content revision 이 정본이라 여기 없고, 가져온 상세가 쓰는 원천
+ * 사진 주소만 Content 에서 받아 온다(`detailImageUrls`, KID-319) — 옮긴 뒤 revision 을 바꿔 쓰는 것도 Content 다.
  */
 export interface SalesProductImageSnapshot {
   code: string | null;
   imageUrls: readonly string[];
+  detailImageUrls?: readonly string[];
 }
 
 function normalizeImageUrl(url: string): string | null {
@@ -98,7 +99,7 @@ function srcsetUrls(value: string): string[] {
 }
 
 export function imageReferenceUrls(product: SalesProductImageSnapshot): readonly string[] {
-  return product.imageUrls;
+  return [...product.imageUrls, ...(product.detailImageUrls ?? [])];
 }
 
 export function normalizeImageReferenceUrl(url: string): string | null {

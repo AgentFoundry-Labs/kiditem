@@ -28,8 +28,8 @@ import { ChannelsDocumentsAdapter } from '../adapter/out/documents/channel-docum
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { mirroredImageKey } from '../domain/sales-product/sales-product-images';
 import type { ChannelRegistrableDetailPagePort } from '../application/port/out/content/registrable-detail-page.port';
-import { DetailPageQueryRepositoryAdapter } from '../../content/adapter/out/repository/detail-page-query.repository.adapter';
-import { ContentAssetLibraryRepositoryAdapter } from '../../content/adapter/out/repository/content-asset-library.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../../content/adapter/out/repository/detail-page.repository.adapter';
+import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { SalesProductImageMirrorPort } from '../application/port/out/storage/sales-product-image-mirror.port';
 import type { ProductSourceReadPort } from '../../products/application/port/in/product-source-read.port';
 import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
@@ -694,7 +694,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
   let imageMirror: SalesProductImageService;
   let mirroredUrl: (url: string) => string;
   let detailPages: ChannelRegistrableDetailPagePort;
-  let editor: DetailPageQueryRepositoryAdapter;
+  let editor: DetailPageRepositoryAdapter;
 
   async function detail() {
     const { id } = await product();
@@ -704,7 +704,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
   async function revisions() {
     const { id } = await product();
     return prisma.detailPageRevision.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, artifact: { contentWorkspace: { salesProductId: id } } },
+      where: { organizationId: TEST_ORGANIZATION_ID, detailPage: { contentWorkspace: { salesProductId: id } } },
       orderBy: { createdAt: 'asc' },
       select: { revisionType: true, html: true },
     });
@@ -771,9 +771,9 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
       logger,
       integrity,
     );
-    imageMirror = new SalesProductImageService(repository, images, logger, integrity);
     detailPages = realRegistrableDetailPages(prismaService);
-    editor = new DetailPageQueryRepositoryAdapter(prismaService, new ContentAssetLibraryRepositoryAdapter(prismaService));
+    imageMirror = new SalesProductImageService(repository, images, logger, integrity, detailPages);
+    editor = new DetailPageRepositoryAdapter(prismaService);
   });
 
   afterAll(async () => {
@@ -882,7 +882,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     await service.import(TEST_ORGANIZATION_ID, file({ 상품상세설명: '<p>상세 1</p>', 추가상품상세설명_1: '<p>추가 1</p>' }), false);
     const imported = await product();
     await expect(prisma.detailPageRevision.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, artifact: { contentWorkspace: { salesProductId: imported.id } } },
+      where: { organizationId: TEST_ORGANIZATION_ID, detailPage: { contentWorkspace: { salesProductId: imported.id } } },
       select: { source: true, sourceDigest: true, html: true },
     })).resolves.toEqual([{ source: 'sabangnet', sourceDigest: integrity.sha256('<p>상세 1</p>'), html: '<p>상세 1</p>' }]);
     expect(imported.sourceRaw).toMatchObject({ '#digest:상품상세설명': integrity.sha256('<p>상세 1</p>') });
@@ -894,7 +894,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     await service.import(TEST_ORGANIZATION_ID, file({ 품번코드: '100018', 자체상품코드: 'OWN-100018', 상품상세설명: '', 추가상품상세설명_1: '<p>추가만</p>' }), false);
     const onlyExtra = await prisma.salesProduct.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID, sabangnetGoodsNo: '100018' } });
     await expect(prisma.detailPageRevision.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, artifact: { contentWorkspace: { salesProductId: onlyExtra.id } } },
+      where: { organizationId: TEST_ORGANIZATION_ID, detailPage: { contentWorkspace: { salesProductId: onlyExtra.id } } },
     })).resolves.toBe(0);
     await expect(detailPages.read({
       organizationId: TEST_ORGANIZATION_ID, salesProductId: onlyExtra.id, selectedDetailPageRevisionId: null,
@@ -903,17 +903,17 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
 
   it('keeps an operator-edited detail current across a reimport — the new file detail only joins the history', async () => {
     await service.import(TEST_ORGANIZATION_ID, file({}), false);
-    const generation = await prisma.contentGeneration.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, contentType: 'detail_page' },
+    const importedPage = await prisma.detailPage.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, source: 'imported' },
     });
-    await editor.saveEditedHtmlRevision({
+    await prisma.$transaction((tx) => editor.appendRevision(ownerTransaction(tx), {
       organizationId: TEST_ORGANIZATION_ID,
-      contentGenerationId: generation.id,
+      detailPageId: importedPage.id,
+      revisionType: 'manual_edit',
       html: '<p>운영자 상세</p>',
-      assetUrlMap: {},
       imageUrls: [],
-      savedAt: new Date(),
-    });
+      createdByUserId: null,
+    }));
 
     await reimport({ 상품상세설명: '<p>상세 2</p>' });
 
@@ -923,6 +923,31 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
       { revisionType: 'manual_edit', html: '<p>운영자 상세</p>' },
       { revisionType: 'imported', html: '<p>상세 2</p>' },
     ]);
+  });
+
+  it('moves the Sabangnet photos inside imported details with the product photos, keeping the source digest so a same-file reimport adds nothing', async () => {
+    const DETAIL_IMAGE = 'https://pic.sabangnet.co.kr/detail/100017_d1.jpg';
+    const html = `<p>상세</p><img src="${DETAIL_IMAGE}"><img src="${IMAGE_A}">`;
+    await service.import(TEST_ORGANIZATION_ID, file({ 상품상세설명: html }), false);
+
+    await expect(imageMirror.external(TEST_ORGANIZATION_ID)).resolves.toEqual({ images: 3, products: 1 });
+    const result = await imageMirror.mirror(TEST_ORGANIZATION_ID);
+
+    expect(result).toMatchObject({ mirrored: 3, failedCount: 0, remaining: 0 });
+    const [revision] = await prisma.detailPageRevision.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, source: 'sabangnet' },
+      select: { html: true, imageUrls: true, sourceDigest: true },
+    });
+    expect(revision).toEqual({
+      html: `<p>상세</p><img src="${mirroredUrl(DETAIL_IMAGE)}"><img src="${mirroredUrl(IMAGE_A)}">`,
+      imageUrls: [mirroredUrl(DETAIL_IMAGE), mirroredUrl(IMAGE_A)],
+      sourceDigest: integrity.sha256(html),
+    });
+    await expect(detail()).resolves.toMatchObject({ imageUrls: [mirroredUrl(DETAIL_IMAGE), mirroredUrl(IMAGE_A)] });
+    await expect(imageMirror.external(TEST_ORGANIZATION_ID)).resolves.toEqual({ images: 0, products: 0 });
+
+    await reimport({ 상품상세설명: html, 관리자메모: '사방넷 메모 2' });
+    await expect(revisions()).resolves.toHaveLength(1);
   });
 
   it('stores the mall template values a target can hold, and names a 25 000-character 상단추가문구 in an issue line instead', async () => {

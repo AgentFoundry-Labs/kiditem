@@ -20,9 +20,11 @@ import {
   type DetailPageStatus,
 } from '../../../domain/detail-page/detail-page-lifecycle';
 import {
+  DETAIL_PAGE_REVISION_TYPE,
   DetailPageRevisionTypeSchema,
   type DetailPageRevisionType,
 } from '../../../domain/detail-page/detail-page-revision-type';
+import { rewriteDetailHtmlImageUrls, rewriteImageUrlList } from '../../../domain/detail-page/detail-html-image-urls';
 
 type Client = Prisma.TransactionClient | PrismaService;
 
@@ -324,9 +326,33 @@ export class DetailPageRepositoryAdapter implements DetailPageRepositoryPort {
     transaction: OwnerTransaction,
     input: { organizationId: string; contentWorkspaceId: string; replacements: ReadonlyMap<string, string> },
   ): Promise<{ revisionsUpdated: number }> {
-    void transaction;
-    void input;
-    throw new Error('rewriteImportedImageUrls is not implemented yet.');
+    if (input.replacements.size === 0) return { revisionsUpdated: 0 };
+    const tx = ownerTransactionClient(transaction);
+    await lockWorkspace(tx, input.organizationId, input.contentWorkspaceId);
+    const revisions = await tx.detailPageRevision.findMany({
+      where: {
+        organizationId: input.organizationId,
+        source: { not: null },
+        revisionType: DETAIL_PAGE_REVISION_TYPE.imported,
+        detailPage: { organizationId: input.organizationId, contentWorkspaceId: input.contentWorkspaceId, isDeleted: false },
+      },
+      select: { id: true, html: true, imageUrls: true },
+    });
+    let revisionsUpdated = 0;
+    for (const revision of revisions) {
+      const rewritten = rewriteDetailHtmlImageUrls(revision.html, input.replacements);
+      const imageUrls = stringArray(revision.imageUrls);
+      const nextImageUrls = rewriteImageUrlList(imageUrls, input.replacements);
+      const urlsChanged = nextImageUrls.some((url, index) => url !== imageUrls[index]);
+      if (!rewritten.changed && !urlsChanged) continue;
+      // 원문 digest(source_digest)는 그대로 둔다 — 다음 가져오기는 원문끼리 비교한다.
+      await tx.detailPageRevision.updateMany({
+        where: { id: revision.id, organizationId: input.organizationId },
+        data: { html: rewritten.html, imageUrls: nextImageUrls },
+      });
+      revisionsUpdated += 1;
+    }
+    return { revisionsUpdated };
   }
 }
 

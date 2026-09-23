@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { SalesProductModule } from '../sales-product.module';
 import { SalesProductWorkspaceArchiveAdapter } from '../adapter/out/repository/sales-product-workspace-archive.adapter';
-import { RegistrationDraftAdapter } from '../adapter/out/persistence/registration-draft.adapter';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
 import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from '../application/port/out/ai/sales-product-workspace-archive.port';
 
@@ -31,16 +30,5 @@ describe('초안 콘텐츠 계약 배선', () => {
     // 주입 목록에 들어가야 usecase 의 보관 호출이 산다.
     expect(bindingFor(SalesProductModule, SalesProductUseCase)?.inject)
       .toContain(SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT);
-  });
-
-  /**
-   * 선택 주입이면 배선을 빠뜨려도 부트가 성공하고 고른 콘텐츠 검증만 조용히 꺼진다 — 그 상태를 알아챌
-   * 방법이 없다. 필수 주입이라야 빠진 배선이 부트에서 드러난다. 고른 대표이미지가 이 상품의 것인지는
-   * 이제 Content 가 자산 id 로 본다(KID-313 W2).
-   */
-  it('등록 동결은 콘텐츠 작업공간 계약을 선택 주입으로 받지 않는다', () => {
-    for (const consumer of [RegistrationDraftAdapter]) {
-      expect(Reflect.getMetadata('optional:paramtypes', consumer) ?? []).toEqual([]);
-    }
   });
 });

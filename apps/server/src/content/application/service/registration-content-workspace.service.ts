@@ -2,7 +2,6 @@ import type { OwnerTransaction } from '../../../common/owner-transaction';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
-  type AttachContentWorkspaceToListingInput,
   type CreateManualDetailPageInput,
   type CreateManualDetailPageResult,
   type EnsureSalesProductContentWorkspaceInput,
@@ -80,16 +79,22 @@ export class RegistrationContentWorkspaceService
     });
   }
 
+  readImportedDetailImageUrls(input: { organizationId: string }): Promise<ReadonlyMap<string, readonly string[]>> {
+    return this.repository.readImportedDetailImageUrls(input);
+  }
+
+  rewriteImportedDetailImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    replacements: ReadonlyMap<string, string>;
+  }): Promise<{ revisionsUpdated: number }> {
+    return this.repository.rewriteImportedDetailImageUrls(input);
+  }
+
   createManualDetailPage(input: CreateManualDetailPageInput): Promise<CreateManualDetailPageResult> {
     if (!input.html.trim()) throw new BadRequestException('상세 HTML 을 넣어 주세요.');
     return this.repository.createManualDetailPage({ ...input, imageUrls: extractImageSrcs(input.html) });
   }
 
-  attachToListing(
-    transaction: OwnerTransaction,
-    input: AttachContentWorkspaceToListingInput,
-  ): Promise<{ workspaceId: string }> {
-    return this.repository.attachToListing(transaction, input);
-  }
 }
 

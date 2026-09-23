@@ -3,8 +3,6 @@ import type { PrismaService } from '../prisma/prisma.service';
 import { RegistrationContentWorkspaceService } from '../content/application/service/registration-content-workspace.service';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../content/adapter/out/repository/registration-content-workspace.repository.adapter';
 import { DetailPageRepositoryAdapter } from '../content/adapter/out/repository/detail-page.repository.adapter';
-import { ChannelListingQueryService } from '../channels/application/service/listing/channel-listing-query.service';
-import { ChannelListingQueryPersistenceAdapter } from '../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { RegistrableDetailPageAdapter } from '../channels/adapter/out/content/registrable-detail-page.adapter';
 import type { RegistrationContentWorkspacePort } from '../content/application/port/in/workspace/registration-content-workspace.port';
 import type { ChannelRegistrableDetailPagePort } from '../channels/application/port/out/content/registrable-detail-page.port';
@@ -16,10 +14,6 @@ import type { ChannelRegistrableDetailPagePort } from '../channels/application/p
 export function realRegistrationContentWorkspace(prisma: PrismaClient | PrismaService): RegistrationContentWorkspacePort {
   return new RegistrationContentWorkspaceService(new RegistrationContentWorkspaceRepositoryAdapter(
     prisma as unknown as PrismaService,
-    new ChannelListingQueryService(
-      new ChannelListingQueryPersistenceAdapter(prisma as never),
-      { findForListings: async () => [] },
-    ),
     new DetailPageRepositoryAdapter(prisma as unknown as PrismaService),
   ));
 }

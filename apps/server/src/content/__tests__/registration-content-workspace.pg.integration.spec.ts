@@ -12,8 +12,6 @@ import {
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
 import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
-import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
-import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ImportDetailPageInput } from '../application/port/in/workspace/registration-content-workspace.port';
@@ -29,10 +27,6 @@ describe('registration content workspace (PG integration)', () => {
     detailPages = new DetailPageRepositoryAdapter(prisma as unknown as PrismaService);
     content = new RegistrationContentWorkspaceService(new RegistrationContentWorkspaceRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new ChannelListingQueryService(
-        new ChannelListingQueryPersistenceAdapter(prisma as never),
-        { findForListings: async () => [] },
-      ),
       detailPages,
     ));
   });

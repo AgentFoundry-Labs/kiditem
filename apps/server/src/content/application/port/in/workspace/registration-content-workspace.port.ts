@@ -73,12 +73,6 @@ export interface CreateManualDetailPageResult {
   detailPageId: string;
 }
 
-export interface AttachContentWorkspaceToListingInput {
-  organizationId: string;
-  salesProductId: string;
-  listingId: string;
-}
-
 export interface FindSalesProductContentWorkspaceInput {
   organizationId: string;
   salesProductId: string;
@@ -117,6 +111,20 @@ export interface RegistrationContentWorkspacePort {
    */
   createManualDetailPage(input: CreateManualDetailPageInput): Promise<CreateManualDetailPageResult>;
   /**
+   * 가져온(`source` 가 있는) revision 들이 쓰는 사진 주소 — 판매 상품별(KID-319). Channels 사진 옮기기가 대표 ·
+   * 추가 사진과 함께 옮길 원천 사진을 찾는 데 쓴다. 가져온 상세가 없는 상품은 map 에 없다.
+   */
+  readImportedDetailImageUrls(input: { organizationId: string }): Promise<ReadonlyMap<string, readonly string[]>>;
+  /**
+   * 옮긴 사진 주소로 그 판매 상품의 가져온 revision 들(HTML · `image_urls`)을 바꿔 쓴다(KID-319). `source_digest` 는
+   * 원문의 것이라 그대로 — 같은 파일을 다시 가져와도 새 revision 이 생기지 않는다. 작업공간이 없으면 0.
+   */
+  rewriteImportedDetailImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    replacements: ReadonlyMap<string, string>;
+  }): Promise<{ revisionsUpdated: number }>;
+  /**
    * Read-only lookup of the active workspace a sales-product draft already owns.
    *
    * `ensureSalesProductWorkspace` is the write path and runs inside
@@ -141,14 +149,5 @@ export interface RegistrationContentWorkspacePort {
   ensureSalesProductWorkspace(
     transaction: OwnerTransaction,
     input: EnsureSalesProductContentWorkspaceInput,
-  ): Promise<{ workspaceId: string }>;
-  /**
-   * Points the draft's own workspace at the listing registration produced.
-   * There is one workspace per draft and it keeps its content, so registration
-   * records the listing instead of cloning artifacts into a second workspace.
-   */
-  attachToListing(
-    transaction: OwnerTransaction,
-    input: AttachContentWorkspaceToListingInput,
   ): Promise<{ workspaceId: string }>;
 }

@@ -342,7 +342,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     const db = prisma as PrismaService;
     const [subject] = await new StockoutCheckPersistenceAdapter(db, new ProductTransactionalReadRepositoryAdapter()).readSubjects(ORG, [listing.id]);
     expect(subject?.activeExecutions).toEqual([]);
-    await expect(new RegistrationExecutionRepositoryAdapter(db, {} as never, channelAdapters()).prepareListingAvailability({
+    await expect(new RegistrationExecutionRepositoryAdapter(db, channelAdapters()).prepareListingAvailability({
       organizationId: ORG, requestedByUserId: USER,
       request: { channelAccountId: account.id, externalListingId: listing.externalId, kind: 'sold_out', optionCodes: ['option-1'], idempotencyKey: randomUUID() },
     })).resolves.toMatchObject({ status: 'prepared' });

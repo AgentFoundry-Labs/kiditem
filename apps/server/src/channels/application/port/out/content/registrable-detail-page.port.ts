@@ -41,4 +41,12 @@ export interface ChannelRegistrableDetailPagePort {
       createdByUserId: string | null;
     },
   ): Promise<{ revisionId: string | null; becameCurrent: boolean }>;
+  /** 가져온 상세 revision 들이 쓰는 원천 사진 주소 — 판매 상품별. 사진 옮기기가 옮길 것을 찾는 데 쓴다(KID-319). */
+  readImportedImageUrls(input: { organizationId: string }): Promise<ReadonlyMap<string, readonly string[]>>;
+  /** 옮긴 사진 주소로 그 상품의 가져온 상세 revision 들을 바꿔 쓴다. 원문 digest 는 Content 가 그대로 둔다. */
+  rewriteImportedImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    replacements: ReadonlyMap<string, string>;
+  }): Promise<{ revisionsUpdated: number }>;
 }

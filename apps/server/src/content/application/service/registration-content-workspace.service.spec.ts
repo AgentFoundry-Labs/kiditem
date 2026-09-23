@@ -13,7 +13,6 @@ describe('RegistrationContentWorkspaceService', () => {
     };
     const repository = {
       ensureSalesProductWorkspace: vi.fn(),
-      attachToListing: vi.fn(),
       validateSourceSelections: vi.fn(),
       resolveSourceSelections: vi.fn().mockResolvedValue(resolved),
     } as unknown as RegistrationContentWorkspaceRepositoryPort;
@@ -32,7 +31,6 @@ describe('RegistrationContentWorkspaceService', () => {
   it('ensures the sales-product draft workspace in the caller transaction', async () => {
     const repository = {
       ensureSalesProductWorkspace: vi.fn().mockResolvedValue({ workspaceId: 'source-workspace-1' }),
-      attachToListing: vi.fn(),
       validateSourceSelections: vi.fn().mockResolvedValue(undefined),
     } as unknown as RegistrationContentWorkspaceRepositoryPort;
     const service = new RegistrationContentWorkspaceService(repository);
@@ -49,32 +47,9 @@ describe('RegistrationContentWorkspaceService', () => {
     });
   });
 
-  it('points the draft workspace at its listing through the repository seam', async () => {
-    const repository = {
-      ensureSalesProductWorkspace: vi.fn(),
-      attachToListing: vi.fn().mockResolvedValue({ workspaceId: 'draft-workspace-1' }),
-      validateSourceSelections: vi.fn().mockResolvedValue(undefined),
-    } as unknown as RegistrationContentWorkspaceRepositoryPort;
-    const service = new RegistrationContentWorkspaceService(repository);
-
-    await expect(service.attachToListing(TX, {
-      organizationId: 'org-1',
-      salesProductId: 'sales-product-1',
-      listingId: 'listing-1',
-    })).resolves.toEqual({ workspaceId: 'draft-workspace-1' });
-    expect(repository.attachToListing).toHaveBeenCalledWith(TX, {
-      organizationId: 'org-1',
-      salesProductId: 'sales-product-1',
-      listingId: 'listing-1',
-    });
-
-  });
-
-
   it('exposes read-only source-selection validation through the incoming port', async () => {
     const repository = {
       ensureSalesProductWorkspace: vi.fn(),
-      attachToListing: vi.fn(),
       validateSourceSelections: vi.fn().mockResolvedValue(undefined),
     } as unknown as RegistrationContentWorkspaceRepositoryPort;
     const service = new RegistrationContentWorkspaceService(repository);
@@ -92,7 +67,6 @@ describe('RegistrationContentWorkspaceService', () => {
   it('allows pre-provider source validation without an ambient transaction', async () => {
     const repository = {
       ensureSalesProductWorkspace: vi.fn(),
-      attachToListing: vi.fn(),
       validateSourceSelections: vi.fn().mockResolvedValue(undefined),
     } as unknown as RegistrationContentWorkspaceRepositoryPort;
     const service = new RegistrationContentWorkspaceService(repository);

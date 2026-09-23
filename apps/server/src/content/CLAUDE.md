@@ -48,7 +48,7 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 - A leased worker performs provider/media work, checkpoints validated output,
   and invokes a sink that atomically projects terminal domain rows.
 - Executors return validated data and do not mutate AI tables. Sinks own
-  generation projection, asset usage, artifacts, and alert closure.
+  generation projection, generated-image assets, and alert closure.
 - Projecting jobs resume from checkpoints without another model call. Expired
   leases and held jobs follow the tested recovery policy; cancellation reaches
   the claiming worker through its heartbeat.
@@ -57,10 +57,13 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 
 ## Detail-Page Contract
 
-- Editor saves append a revision and update the artifact pointer; they do not
-  schedule a marketplace render or write legacy product/generation HTML fields.
-- An import never replaces a human edit (`manual_edit`, `duplicate`) as the
-  current revision; it only appends to history.
+- One detail-page id serves the editor, generation, history, and hub. A
+  generation is `ready` only with its recorded result; the first saved HTML of
+  a generated page is its `generated` revision, later saves are `manual_edit`.
+  Saves do not schedule a marketplace render.
+- A machine revision (`generated`, `imported`) never replaces a human one
+  (`manual_edit`, `duplicate`) as current; it only appends to history. Only
+  the detail-page repository moves the two current pointers.
 - A mall form's detail image reuses a verified matching artifact or
   synchronously renders the chosen immutable revision (the registration
   target's, else the current one) as the bounded 780px JPEG
@@ -68,8 +71,9 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
   Browser-extension capture and split/stitch rendering remain retired.
 - Missing saved HTML returns the explicit missing result. Callers do not
   substitute another image.
-- Registration attaches the listing to the draft's own workspace; selected
-  revision, HTML and managed media stay where they were made.
+- Registration does not touch the product workspace; listings reach it through
+  the selling product. Photo mirroring rewrites imported revisions in place and
+  keeps their source digest.
 - Product-less operator generation uses a direct workspace, not a synthetic
   sourcing candidate.
 

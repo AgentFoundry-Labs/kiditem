@@ -208,6 +208,35 @@ describe('detail page repository (PG integration)', () => {
     expect(revisions).toHaveLength(3);
   });
 
+  it('rewrites the photo addresses of imported revisions only, keeping their source digest', async () => {
+    const workspaceId = await workspace();
+    const imported = await create(workspaceId, { source: 'imported', status: 'ready', templateId: null });
+    const source = 'https://pic.sabangnet.co.kr/d/1.jpg';
+    const importedRevision = await append(imported.id, {
+      revisionType: 'imported', html: `<img src="${source}">`, imageUrls: [source], source: 'sabangnet', sourceDigest: 'digest-1',
+    });
+    const human = await append(imported.id, { revisionType: 'manual_edit', html: `<img src="${source}">`, imageUrls: [source] });
+
+    const result = await prisma.$transaction((tx) => pages.rewriteImportedImageUrls(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+      replacements: new Map([[source, 'https://storage.example/1.jpg']]),
+    }));
+
+    expect(result).toEqual({ revisionsUpdated: 1 });
+    await expect(prisma.detailPageRevision.findUniqueOrThrow({ where: { id: importedRevision.id } })).resolves.toMatchObject({
+      html: '<img src="https://storage.example/1.jpg">', imageUrls: ['https://storage.example/1.jpg'], sourceDigest: 'digest-1',
+    });
+    // 사람이 쓴 revision 은 사람의 것이다 — 가져온 것만 바꿔 쓴다.
+    await expect(prisma.detailPageRevision.findUniqueOrThrow({ where: { id: human.id } }))
+      .resolves.toMatchObject({ html: `<img src="${source}">` });
+    await expect(prisma.$transaction((tx) => pages.rewriteImportedImageUrls(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+      replacements: new Map([[source, 'https://storage.example/1.jpg']]),
+    }))).resolves.toEqual({ revisionsUpdated: 0 });
+  });
+
   it('soft-deletes a page and falls the workspace current back to another live page', async () => {
     const workspaceId = await workspace();
     const older = await create(workspaceId, { source: 'manual', status: 'ready', templateId: null });

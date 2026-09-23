@@ -10,15 +10,10 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import {
-  CHANNEL_LISTING_QUERY_PORT,
-  type ChannelListingQueryPort,
-} from '../../../../channels/application/port/in/listing/channel-listing-query.port';
-import {
   DETAIL_PAGE_REPOSITORY_PORT,
   type DetailPageRepositoryPort,
 } from '../../../application/port/out/repository/detail-page.repository.port';
 import type {
-  AttachContentWorkspaceToListingInput,
   CreateManualDetailPageInput,
   CreateManualDetailPageResult,
   ImportDetailPageInput,
@@ -41,8 +36,6 @@ export class RegistrationContentWorkspaceRepositoryAdapter
 {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(CHANNEL_LISTING_QUERY_PORT)
-    private readonly channelListings: ChannelListingQueryPort,
     @Inject(DETAIL_PAGE_REPOSITORY_PORT)
     private readonly detailPages: DetailPageRepositoryPort,
   ) {}
@@ -230,6 +223,46 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     });
   }
 
+  async readImportedDetailImageUrls(input: { organizationId: string }): Promise<ReadonlyMap<string, readonly string[]>> {
+    const revisions = await this.prisma.detailPageRevision.findMany({
+      where: {
+        organizationId: input.organizationId,
+        source: { not: null },
+        revisionType: DETAIL_PAGE_REVISION_TYPE.imported,
+        detailPage: {
+          organizationId: input.organizationId,
+          isDeleted: false,
+          contentWorkspace: { ownerType: 'sales_product', status: 'active', isDeleted: false },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { imageUrls: true, detailPage: { select: { contentWorkspace: { select: { salesProductId: true } } } } },
+    });
+    const byProduct = new Map<string, string[]>();
+    for (const revision of revisions) {
+      const salesProductId = revision.detailPage.contentWorkspace.salesProductId;
+      if (!salesProductId) continue;
+      const urls = byProduct.get(salesProductId) ?? [];
+      for (const url of stringArray(revision.imageUrls)) if (!urls.includes(url)) urls.push(url);
+      byProduct.set(salesProductId, urls);
+    }
+    return byProduct;
+  }
+
+  async rewriteImportedDetailImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    replacements: ReadonlyMap<string, string>;
+  }): Promise<{ revisionsUpdated: number }> {
+    const workspaceId = await this.findSalesProductWorkspaceId(input);
+    if (!workspaceId || input.replacements.size === 0) return { revisionsUpdated: 0 };
+    return this.detailPages.runInTransaction((transaction) => this.detailPages.rewriteImportedImageUrls(transaction, {
+      organizationId: input.organizationId,
+      contentWorkspaceId: workspaceId,
+      replacements: input.replacements,
+    }));
+  }
+
   async findSalesProductWorkspaceId(input: {
     organizationId: string;
     salesProductId: string;
@@ -273,74 +306,6 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     return { workspaceId: workspace.id };
   }
 
-  /**
-   * One workspace belongs to one draft and, once registered, to that draft's
-   * listing. Registration therefore records the listing on the draft's own
-   * workspace; nothing is cloned and no second workspace is created.
-   */
-  async attachToListing(
-    transaction: OwnerTransaction,
-    input: AttachContentWorkspaceToListingInput,
-  ): Promise<{ workspaceId: string }> {
-    const tx = ownerTransactionClient(transaction);
-    await this.channelListings.lockActiveOwner(transaction, {
-      organizationId: input.organizationId,
-      listingId: input.listingId,
-    });
-
-    const lockedRows = await tx.$queryRaw<Array<{
-      id: string;
-      channelListingId: string | null;
-    }>>(Prisma.sql`
-      SELECT id, channel_listing_id AS "channelListingId"
-      FROM content_workspaces
-      WHERE organization_id = ${input.organizationId}::uuid
-        AND sales_product_id = ${input.salesProductId}::uuid
-        AND status = 'active'
-        AND is_deleted = false
-      FOR UPDATE
-    `);
-    const workspace = lockedRows[0];
-    if (!workspace || lockedRows.length !== 1) {
-      throw new NotFoundException('Sales product content workspace not found.');
-    }
-    if (workspace.channelListingId === input.listingId) {
-      return { workspaceId: workspace.id };
-    }
-    if (workspace.channelListingId) {
-      throw new ConflictException(
-        'Sales product content workspace already belongs to another listing.',
-      );
-    }
-
-    let claimed: { count: number };
-    try {
-      claimed = await tx.contentWorkspace.updateMany({
-        where: {
-          id: workspace.id,
-          organizationId: input.organizationId,
-          channelListingId: null,
-          status: 'active',
-          isDeleted: false,
-        },
-        data: { channelListingId: input.listingId },
-      });
-    } catch (error) {
-      // `content_workspaces_listing_active_key`: another active workspace already
-      // speaks for this listing. That is a domain conflict, not a driver fault.
-      if (!isUniqueConstraintError(error)) throw error;
-      throw new ConflictException(
-        'Another active content workspace already belongs to this listing.',
-      );
-    }
-    if (claimed.count !== 1) {
-      throw new ConflictException(
-        'Content workspace changed while the listing was being attached.',
-      );
-    }
-    return { workspaceId: workspace.id };
-  }
-
   private async findSourceWorkspace(
     tx: Pick<Prisma.TransactionClient, 'contentWorkspace'>,
     input: Pick<RegistrationContentSelectionInput, 'organizationId' | 'sourceWorkspaceId'>,
@@ -371,13 +336,6 @@ function activeSalesProductWorkspaceWhere(input: {
     status: 'active',
     isDeleted: false,
   };
-}
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: unknown }).code === 'P2002';
 }
 
 async function lockActiveContentAsset(

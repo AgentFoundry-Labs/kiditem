@@ -31,13 +31,8 @@ describe('AI content ownership constraints (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const channelListings = new ChannelListingQueryService(
-      new ChannelListingQueryPersistenceAdapter(prisma as never),
-      { findForListings: async () => [] },
-    );
     registrationContent = new RegistrationContentWorkspaceRepositoryAdapter(
       prisma as unknown as PrismaService,
-      channelListings,
       new DetailPageRepositoryAdapter(prisma as unknown as PrismaService),
     );
   });
