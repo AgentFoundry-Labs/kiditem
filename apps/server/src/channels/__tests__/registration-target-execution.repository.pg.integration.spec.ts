@@ -78,6 +78,19 @@ describe('registration target execution repository (PostgreSQL)', () => {
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: thumbnail.id } })).toEqual(before);
   });
 
+  it('refuses a listing availability idempotency key in the thumbnail_update namespace, for prepare and for the key lookup', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true });
+    const listing = await prisma.channelListing.findUniqueOrThrow({ where: { id: fixture.listingId! } });
+    await expect(repository.prepareListingAvailability({
+      organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
+      request: { channelAccountId: fixture.accountId, externalListingId: listing.externalId, kind: 'sold_out', optionCodes: ['option-1'], idempotencyKey: 'thumbnail_update:capability-invocation:x' },
+    })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(repository.findListingAvailabilityByKey({
+      organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, idempotencyKey: 'thumbnail_update:capability-invocation:x',
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(await prisma.productRegistrationExecution.count()).toBe(0);
+  });
+
   it('refuses a target idempotency key in the thumbnail_update namespace', async () => {
     const fixture = await createFixture(prisma, targets, { listing: true });
     await expect(repository.prepareTarget({

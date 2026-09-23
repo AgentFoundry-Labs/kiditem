@@ -26,6 +26,7 @@ import {
 import { MALL_ADMIN_LISTING_READERS } from '@kiditem/shared/mall-admin-listings';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
+import { isReservedExecutionIdempotencyKey } from '../../../domain/registration/thumbnail-update';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration/registration-item-code';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -99,6 +100,7 @@ export class RegistrationExecutionRepositoryAdapter
     requestedByUserId: string | null;
     idempotencyKey: string;
   }): Promise<ListingAvailabilityExecution | null> {
+    assertClientIdempotencyKey(input.idempotencyKey);
     const execution = await this.prisma.productRegistrationExecution.findFirst({
       where: { organizationId: input.organizationId, idempotencyKey: input.idempotencyKey },
     });
@@ -114,6 +116,7 @@ export class RegistrationExecutionRepositoryAdapter
     requestedByUserId: string | null;
     request: PrepareListingAvailabilityInput;
   }): Promise<ListingAvailabilityExecution> {
+    assertClientIdempotencyKey(input.request.idempotencyKey);
     const parsedRequest = PrepareListingAvailabilityInputSchema.safeParse(input.request);
     if (!parsedRequest.success) throw new ConflictException('Listing availability request is invalid.');
     const request = parsedRequest.data;
@@ -458,10 +461,7 @@ export class RegistrationExecutionRepositoryAdapter
     request: PrepareTargetExecutionInput;
     snapshot: TargetExecutionSnapshot;
   }): Promise<TargetExecutionResult> {
-    // 대표이미지 반영(thumbnail_update) 실행과 같은 멱등 키 표를 쓴다. 그 이름공간의 키는 받지 않는다.
-    if (input.request.idempotencyKey.startsWith('thumbnail_update:')) {
-      throw new BadRequestException('Registration idempotency key uses a reserved prefix.');
-    }
+    assertClientIdempotencyKey(input.request.idempotencyKey);
     const intentHash = targetExecutionIntentHash(input.snapshot.targetId, input.request);
 
     try {
@@ -1048,6 +1048,7 @@ export class RegistrationExecutionRepositoryAdapter
   async prepare(
     input: PrepareRegistrationExecutionInput,
   ): Promise<RegistrationExecutionResult> {
+    assertClientIdempotencyKey(input.idempotencyKey);
     const requested = freezeProductRegistrationPayload({
       channelAccountId: input.channelAccountId,
       displayName: input.displayName,
@@ -2178,6 +2179,13 @@ function listingAvailabilityTerminalReplayMatches(
   return execution.status === 'failed'
     && execution.providerOutcome === 'definitive_failure'
     && report.outcome === 'not_submitted';
+}
+
+/** 클라이언트가 보낸 멱등 키. 대표이미지 반영의 이름공간은 받지 않는다. */
+function assertClientIdempotencyKey(idempotencyKey: string): void {
+  if (isReservedExecutionIdempotencyKey(idempotencyKey)) {
+    throw new BadRequestException('Registration idempotency key uses a reserved prefix.');
+  }
 }
 
 function assertTargetExecutionRow(execution: ProductRegistrationExecution): void {

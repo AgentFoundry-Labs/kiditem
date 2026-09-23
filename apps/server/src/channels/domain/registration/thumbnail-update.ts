@@ -63,6 +63,17 @@ export function resolveThumbnailAccount(input: {
 }
 
 /**
+ * 대표이미지 반영 실행이 쓰는 멱등 키 이름공간. 같은 표(`product_registration_executions`)의 다른
+ * 실행 입구는 클라이언트가 이 접두사의 키를 보내면 거절한다 — 두 이름공간이 같은 unique 키에서
+ * 부딪히지 않게.
+ */
+export const THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX = 'thumbnail_update:';
+
+export function isReservedExecutionIdempotencyKey(idempotencyKey: string): boolean {
+  return idempotencyKey.trim().startsWith(THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX);
+}
+
+/**
  * 실행 멱등 키. Agent 호출은 그 호출의 owner 키로 다시 와도 같은 실행이고, 화면 호출은
  * 누를 때마다 새 실행이다(같은 생성에 살아 있는 실행이 있으면 저장소가 막는다).
  */
@@ -72,8 +83,8 @@ export function thumbnailUpdateIdempotencyKey(input: {
   nonce: string;
 }): string {
   return input.ownerIdempotencyKey
-    ? `thumbnail_update:${input.ownerIdempotencyKey}`
-    : `thumbnail_update:${input.generationId}:${input.nonce}`;
+    ? `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${input.ownerIdempotencyKey}`
+    : `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${input.generationId}:${input.nonce}`;
 }
 
 export type ThumbnailReportTransition = Readonly<{
