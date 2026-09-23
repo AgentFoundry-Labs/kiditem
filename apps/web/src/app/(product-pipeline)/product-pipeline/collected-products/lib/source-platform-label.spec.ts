@@ -13,4 +13,9 @@ describe('sourcePlatformLabel', () => {
   it('keeps generated thumbnails distinct from product registration candidates', () => {
     expect(sourcePlatformLabel('kiditem-thumbnail')).toBe('썸네일 후보');
   });
+
+  it('labels the stored supplier platforms', () => {
+    expect(sourcePlatformLabel('ALIBABA_1688')).toBe('1688');
+    expect(sourcePlatformLabel('ALIBABA')).toBe('알리바바');
+  });
 });

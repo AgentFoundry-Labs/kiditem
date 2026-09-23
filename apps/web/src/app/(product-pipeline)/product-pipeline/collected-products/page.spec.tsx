@@ -117,9 +117,9 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
     expect(first.searchParams.get('limit')).toBe('20');
     expect(first.searchParams.has('sourcePlatform')).toBe(false);
 
-    fireEvent.click(screen.getByRole('button', { name: '쿠팡' }));
+    fireEvent.click(screen.getByRole('button', { name: '1688' }));
     await waitFor(() => {
-      expect(listUrls().some((url) => url.searchParams.get('sourcePlatform') === 'coupang')).toBe(true);
+      expect(listUrls().some((url) => url.searchParams.get('sourcePlatform') === 'ALIBABA_1688')).toBe(true);
     });
     // 원천 기록(수집상품) 목록은 읽지 않는다.
     expect(api.get.mock.calls.some(([url]) => String(url).startsWith('/api/sourcing/extension/products'))).toBe(false);
