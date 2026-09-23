@@ -9,7 +9,6 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { RegistrableThumbnailRepositoryAdapter } from '../adapter/out/repository/registrable-thumbnail.repository.adapter';
 import { RegistrableThumbnailService } from '../application/service/registrable-thumbnail.service';
@@ -26,10 +25,7 @@ describe('registrable thumbnail (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const repository = new RegistrableThumbnailRepositoryAdapter(
-      prisma as PrismaService,
-      channelFactTestPorts(prisma as PrismaService).listings,
-    );
+    const repository = new RegistrableThumbnailRepositoryAdapter(prisma as PrismaService);
     service = new RegistrableThumbnailService(repository, fakeStorageImageFetch(storage));
   });
   afterAll(async () => prisma?.$disconnect());
@@ -62,8 +58,8 @@ describe('registrable thumbnail (PostgreSQL)', () => {
     });
   }
 
-  it('reads the approved image with the decoded Coupang listing name and the workspace owner', async () => {
-    const { listing, workspace } = await listingWorkspace({ channelName: encodeURIComponent('쿠팡 상품명') });
+  it('reads the approved image with the workspace name and owner, without reading the Channels listing', async () => {
+    const { listing, workspace } = await listingWorkspace({ channelName: encodeURIComponent('쿠팡 상품명'), listingActive: false });
     const gen = await generation(workspace.id);
 
     await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: gen.id })).resolves.toEqual({
@@ -71,7 +67,7 @@ describe('registrable thumbnail (PostgreSQL)', () => {
       contentWorkspaceId: workspace.id,
       salesProductId: null,
       channelListingId: listing.id,
-      productName: '쿠팡 상품명',
+      workspaceDisplayName: '작업공간 이름',
       image: { url: PNG_DATA_URL, assetId: null },
     });
   });
@@ -86,12 +82,12 @@ describe('registrable thumbnail (PostgreSQL)', () => {
     await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: gen.id })).resolves.toMatchObject({
       salesProductId: product.id,
       channelListingId: null,
-      productName: '판매상품 작업공간',
+      workspaceDisplayName: '판매상품 작업공간',
       image: { url: 'http://storage.local/a.png' },
     });
   });
 
-  it('keeps the 404 and 400 answers for a missing generation, image, workspace or product name', async () => {
+  it('keeps the 404 answers for a missing generation, image or workspace', async () => {
     const { workspace } = await listingWorkspace({ channelName: null, displayName: '  ' });
     await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: '00000000-0000-4000-8000-000000000999' }))
       .rejects.toThrow(new NotFoundException('ThumbnailGeneration 00000000-0000-4000-8000-000000000999 not found'));
@@ -100,14 +96,12 @@ describe('registrable thumbnail (PostgreSQL)', () => {
     await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: noImage.id }))
       .rejects.toThrow(new NotFoundException('Generation not found or no selected image'));
 
-    const noName = await generation(workspace.id);
-    await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: noName.id }))
-      .rejects.toThrow(new BadRequestException('쿠팡 등록 상품명을 찾을 수 없습니다'));
-
-    const inactive = await listingWorkspace({ channelName: '이름', listingActive: false });
-    const orphan = await generation(inactive.workspace.id);
+    const archived = await prisma.contentWorkspace.create({
+      data: { organizationId: ORG, ownerType: 'direct_detail_page', displayName: '보관', normalizedTitle: 'archived', status: 'archived' },
+    });
+    const orphan = await generation(archived.id);
     await expect(service.readRegistrableThumbnail({ organizationId: ORG, generationId: orphan.id }))
-      .rejects.toThrow(new NotFoundException(`ContentWorkspace ${inactive.workspace.id} not found`));
+      .rejects.toThrow(new NotFoundException(`ContentWorkspace ${archived.id} not found`));
   });
 
   it('does not read another organization generation', async () => {

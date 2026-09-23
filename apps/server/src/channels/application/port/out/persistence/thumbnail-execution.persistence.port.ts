@@ -35,6 +35,8 @@ export interface ThumbnailExecutionPersistencePort {
   }): Promise<{
     listingAccountId: string | null;
     channelListingId: string | null;
+    /** 반영할 listing 의 쿠팡 이름. Wing 에서 상품을 찾는 이름이다. */
+    listingChannelName: string | null;
     /** 고르지 않았고 작업공간 listing 도 없을 때 판매상품의 살아 있는 쿠팡 listing 수(2 는 "여럿"). */
     productListingCount: number;
     activeCoupangAccountIds: string[];

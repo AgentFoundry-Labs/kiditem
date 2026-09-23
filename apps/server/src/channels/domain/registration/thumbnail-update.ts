@@ -16,6 +16,30 @@ export type ThumbnailUpdatePayload = Readonly<{
 }>;
 
 /**
+ * Wing 에서 상품을 찾는 이름. 쿠팡 listing 이름이 있으면 그 이름(URL 인코딩은 두 번까지 푼다),
+ * 없으면 작업공간 이름이다. 둘 다 비면 빈 문자열이고 호출자가 거절한다.
+ */
+export function thumbnailProductName(listingChannelName: string | null, workspaceDisplayName: string | null): string {
+  const listingName = listingChannelName?.trim();
+  return decodeProductName(listingName || workspaceDisplayName || '');
+}
+
+function decodeProductName(value: string): string {
+  let current = value.trim();
+  if (!/%[0-9A-Fa-f]{2}/.test(current)) return current;
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const decoded = decodeURIComponent(current).trim();
+      if (decoded === current) return decoded;
+      current = decoded;
+    } catch {
+      return current;
+    }
+  }
+  return current;
+}
+
+/**
  * 어느 쿠팡 계정의 실행인지. listing 이 있으면 그 계정이다. 판매상품에 쿠팡 listing 이 여럿이면
  * 고르지 않고 거절한다(운영자가 listing 을 고른다). listing 이 하나도 없을 때만 조직의 활성 쿠팡
  * 계정이 하나인지 본다 — 둘 이상이면 역시 listing 을 골라야 한다.

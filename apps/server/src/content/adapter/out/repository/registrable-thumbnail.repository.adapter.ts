@@ -1,7 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
-import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   RegistrableThumbnailGenerationRow,
@@ -11,11 +8,7 @@ import type {
 
 @Injectable()
 export class RegistrableThumbnailRepositoryAdapter implements RegistrableThumbnailRepositoryPort {
-  constructor(
-    private readonly prisma: PrismaService,
-    @Inject(CHANNEL_LISTING_QUERY_PORT)
-    private readonly channelListings: ChannelListingQueryPort,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findGeneration(generationId: string, organizationId: string): Promise<RegistrableThumbnailGenerationRow | null> {
     const generation = await this.prisma.thumbnailGeneration.findFirst({
@@ -46,24 +39,9 @@ export class RegistrableThumbnailRepositoryAdapter implements RegistrableThumbna
   }
 
   findRegistrableWorkspace(contentWorkspaceId: string, organizationId: string): Promise<RegistrableThumbnailWorkspaceRow | null> {
-    return this.prisma.$transaction(async (tx) => {
-      const workspace = await tx.contentWorkspace.findFirst({
-        where: { id: contentWorkspaceId, organizationId, isDeleted: false, status: 'active' },
-        select: { displayName: true, salesProductId: true, channelListingId: true },
-      });
-      if (!workspace) return null;
-      if (!workspace.channelListingId) {
-        return { ...workspace, listingChannelName: null };
-      }
-
-      const [listing] = await this.channelListings.readCatalogFacts(ownerTransaction(tx), {
-        organizationId,
-        listingIds: [workspace.channelListingId],
-        channels: ['coupang'],
-        activeOnly: true,
-      });
-      if (!listing) return null;
-      return { ...workspace, listingChannelName: listing.channelName };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    return this.prisma.contentWorkspace.findFirst({
+      where: { id: contentWorkspaceId, organizationId, isDeleted: false, status: 'active' },
+      select: { displayName: true, salesProductId: true, channelListingId: true },
+    });
   }
 }

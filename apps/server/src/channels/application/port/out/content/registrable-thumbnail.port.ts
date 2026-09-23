@@ -7,7 +7,8 @@ export type RegistrableThumbnail = Readonly<{
   salesProductId: string | null;
   /** 작업공간이 listing 소유이면 그 listing. */
   channelListingId: string | null;
-  productName: string;
+  /** 작업공간 이름. Wing 상품명은 Channels 가 listing 이름과 함께 정한다. */
+  workspaceDisplayName: string;
   image: Readonly<{ url: string; assetId: string | null }>;
 }>;
 

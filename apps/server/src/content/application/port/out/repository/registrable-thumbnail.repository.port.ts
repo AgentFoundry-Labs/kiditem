@@ -9,18 +9,13 @@ export interface RegistrableThumbnailGenerationRow {
 }
 
 export interface RegistrableThumbnailWorkspaceRow {
-  displayName: string | null;
+  displayName: string;
   salesProductId: string | null;
   channelListingId: string | null;
-  /** 작업공간 listing 이 살아 있는 쿠팡 listing 이면 그 이름. */
-  listingChannelName: string | null;
 }
 
 export interface RegistrableThumbnailRepositoryPort {
   findGeneration(generationId: string, organizationId: string): Promise<RegistrableThumbnailGenerationRow | null>;
-  /**
-   * 활성 작업공간. listing 소유 작업공간인데 그 listing 이 살아 있는 쿠팡 listing 이 아니면 null
-   * (몰에 올릴 곳이 없다).
-   */
+  /** 활성 작업공간. listing 이 살아 있는지는 Channels 가 본다. */
   findRegistrableWorkspace(contentWorkspaceId: string, organizationId: string): Promise<RegistrableThumbnailWorkspaceRow | null>;
 }

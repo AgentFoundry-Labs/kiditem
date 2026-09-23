@@ -29,6 +29,7 @@ import {
   THUMBNAIL_REPORTABLE_STATUSES,
   resolveThumbnailAccount,
   thumbnailConfirmationTransition,
+  thumbnailProductName,
   thumbnailReportTransition,
   thumbnailUpdateIdempotencyKey,
   type ThumbnailUpdatePayload,
@@ -240,6 +241,8 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     }));
     const account = resolveThumbnailAccount(evidence);
     if (!account.ok) throw new ChannelInputError(ACCOUNT_MESSAGES[account.reason]);
+    const productName = thumbnailProductName(evidence.listingChannelName, thumbnail.workspaceDisplayName);
+    if (!productName) throw new ChannelInputError('쿠팡 등록 상품명을 찾을 수 없습니다');
     const image = await this.content.loadImage({ organizationId, generationId, url: thumbnail.image.url });
     const frozen = freezeProductRegistrationPayload({
       kind: 'thumbnail_update',
@@ -247,7 +250,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       contentWorkspaceId: thumbnail.contentWorkspaceId,
       salesProductId: thumbnail.salesProductId,
       channelListingId: evidence.channelListingId,
-      productName: thumbnail.productName,
+      productName,
       image: { url: thumbnail.image.url, assetId: thumbnail.image.assetId, sha256: image.sha256 },
     } satisfies ThumbnailUpdatePayload as unknown as RegistrationSubmissionJson, (value) => this.integrity.sha256(value));
     return {

@@ -7,7 +7,7 @@ import {
   type RegistrableThumbnailRepositoryPort,
 } from '../port/out/repository/registrable-thumbnail.repository.port';
 import { MAX_FETCH_BYTES, parseDataImageUrl } from '../../domain/thumbnail-image-source';
-import { pickRegistrationImageUrl, pickRegistrationProductName } from '../../domain/registrable-thumbnail';
+import { pickRegistrationImageUrl } from '../../domain/registrable-thumbnail';
 
 /** 승인된 생성 썸네일과 그 사진을 내준다. 몰 반영 실행은 Channels 가 한다. */
 @Injectable()
@@ -30,15 +30,12 @@ export class RegistrableThumbnailService implements RegistrableThumbnailPort {
     const workspace = await this.repository.findRegistrableWorkspace(generation.contentWorkspaceId, organizationId);
     if (!workspace) throw new NotFoundException(`ContentWorkspace ${generation.contentWorkspaceId} not found`);
 
-    const productName = pickRegistrationProductName(workspace);
-    if (!productName) throw new BadRequestException('쿠팡 등록 상품명을 찾을 수 없습니다');
-
     return {
       generationId,
       contentWorkspaceId: generation.contentWorkspaceId,
       salesProductId: workspace.salesProductId,
       channelListingId: workspace.channelListingId,
-      productName,
+      workspaceDisplayName: workspace.displayName,
       image: { url, assetId: url === generation.selectedUrl ? generation.selectedAssetId : null },
     };
   }

@@ -3,6 +3,7 @@ import {
   THUMBNAIL_CONFIRMABLE_STATUSES,
   THUMBNAIL_REPORTABLE_STATUSES,
   thumbnailConfirmationTransition,
+  thumbnailProductName,
   acceptsThumbnailReport,
   resolveThumbnailAccount,
   thumbnailReportTransition,
@@ -71,5 +72,19 @@ describe('thumbnailConfirmationTransition', () => {
   it('is the only way to success and applies only to an upload waiting for the operator', () => {
     expect(thumbnailConfirmationTransition()).toEqual({ status: 'succeeded', providerOutcome: 'succeeded', errorCode: null, errorMessage: null });
     expect(THUMBNAIL_CONFIRMABLE_STATUSES).toEqual(['reconciling']);
+  });
+});
+
+describe('thumbnailProductName', () => {
+  it('uses the decoded Coupang listing name, else the workspace name', () => {
+    expect(thumbnailProductName(encodeURIComponent(encodeURIComponent('곰돌이 우산')), '작업공간')).toBe('곰돌이 우산');
+    expect(thumbnailProductName('  쿠팡 이름 ', '작업공간')).toBe('쿠팡 이름');
+    expect(thumbnailProductName(null, ' 작업공간 ')).toBe('작업공간');
+    expect(thumbnailProductName('   ', '작업공간')).toBe('작업공간');
+    expect(thumbnailProductName('%E0%A4%A', '작업공간')).toBe('%E0%A4%A');
+  });
+  it('is empty when neither name exists', () => {
+    expect(thumbnailProductName(null, '  ')).toBe('');
+    expect(thumbnailProductName('', null)).toBe('');
   });
 });

@@ -9,7 +9,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { RegistrableThumbnailRepositoryAdapter } from '../../content/adapter/out/repository/registrable-thumbnail.repository.adapter';
@@ -66,7 +65,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     runner = fakeRunner();
     const db = prisma as PrismaService;
     const content = new RegistrableThumbnailService(
-      new RegistrableThumbnailRepositoryAdapter(db, channelFactTestPorts(db).listings),
+      new RegistrableThumbnailRepositoryAdapter(db),
       fakeStorageImageFetch(new Map()),
     );
     service = new ThumbnailExecutionService(
@@ -392,6 +391,23 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       const picked = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: many.generation.id, channelListingId: many.listings[1]!.id });
       expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: picked.executionId } }))
         .toMatchObject({ channelAccountId: many.listings[1]!.channelAccountId, channelListingId: null, submissionPayloadJson: expect.objectContaining({ channelListingId: many.listings[1]!.id }) });
+    });
+
+    it('names the upload by the Coupang listing, else the workspace, and refuses when neither has a name', async () => {
+      const encoded = await listingGeneration();
+      await prisma.channelListing.update({ where: { id: encoded.listing.id }, data: { channelName: encodeURIComponent('인코딩 이름') } });
+      await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: encoded.generation.id }))
+        .resolves.toMatchObject({ productName: '인코딩 이름' });
+
+      const product = await salesProductGeneration({ listings: 1 });
+      await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: product.generation.id }))
+        .resolves.toMatchObject({ productName: '판매상품 작업공간' });
+
+      const unnamed = await listingGeneration();
+      await prisma.channelListing.update({ where: { id: unnamed.listing.id }, data: { channelName: null } });
+      await prisma.contentWorkspace.update({ where: { id: unnamed.workspace.id }, data: { displayName: '  ' } });
+      expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: unnamed.generation.id })))
+        .toEqual({ kind: 'invalid', message: '쿠팡 등록 상품명을 찾을 수 없습니다' });
     });
 
     it('refuses two Coupang listings of the product on one account instead of picking one', async () => {
