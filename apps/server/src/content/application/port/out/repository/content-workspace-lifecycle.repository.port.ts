@@ -80,6 +80,8 @@ export interface SelectableDetailPageGenerationSnapshot {
 
 export interface ContentWorkspaceLifecycleRepositoryPort {
   ensureActiveWorkspace(input: EnsureContentWorkspaceInput): Promise<ContentWorkspaceIdentity>;
+  /** 판매상품 초안의 살아 있는 작업공간. 아직 없으면 null — 읽기는 작업공간을 만들지 않는다. */
+  findActiveSalesProductWorkspaceId(input: { organizationId: string; salesProductId: string }): Promise<string | null>;
   findDuplicateByNormalizedTitle(input: {
     organizationId: string;
     normalizedTitle: string;

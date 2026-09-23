@@ -57,6 +57,14 @@ export class ContentWorkspaceController {
     return this.contentWorkspaces.checkDuplicate(organizationId, query.title);
   }
 
+  @Get('by-sales-product/:salesProductId')
+  getForSalesProduct(
+    @CurrentOrganization() organizationId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+  ) {
+    return this.contentWorkspaces.getForSalesProduct(organizationId, salesProductId);
+  }
+
   @Get(':workspaceId')
   get(
     @CurrentOrganization() organizationId: string,

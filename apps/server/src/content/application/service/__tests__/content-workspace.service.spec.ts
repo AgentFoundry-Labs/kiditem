@@ -13,6 +13,7 @@ function repository(
 ): ContentWorkspaceLifecycleRepositoryPort {
   return {
     ensureActiveWorkspace: vi.fn(),
+    findActiveSalesProductWorkspaceId: vi.fn(),
     findDuplicateByNormalizedTitle: vi.fn(),
     getById: vi.fn(),
     listActive: vi.fn(),
@@ -372,5 +373,30 @@ describe('ContentWorkspaceService', () => {
       detailPageArtifactId: selectedArtifactId,
       detailPageRevisionId: selectedRevisionId,
     });
+  });
+});
+
+describe('ContentWorkspaceService.getForSalesProduct', () => {
+  const SALES_PRODUCT_ID = '66666666-6666-4666-8666-666666666666';
+
+  it('answers null for a draft that has no workspace yet, without creating one', async () => {
+    const repo = repository({ findActiveSalesProductWorkspaceId: vi.fn().mockResolvedValue(null) });
+    const service = new ContentWorkspaceService(repo);
+
+    await expect(service.getForSalesProduct(ORG, SALES_PRODUCT_ID)).resolves.toEqual({ workspace: null });
+    expect(repo.ensureActiveWorkspace).not.toHaveBeenCalled();
+    expect(repo.getById).not.toHaveBeenCalled();
+  });
+
+  it('returns the summary of the draft workspace', async () => {
+    const repo = repository({
+      findActiveSalesProductWorkspaceId: vi.fn().mockResolvedValue(WORKSPACE_ID),
+      getById: vi.fn().mockResolvedValue(workspace({ ownerType: 'sales_product', salesProductId: SALES_PRODUCT_ID })),
+    });
+    const service = new ContentWorkspaceService(repo);
+
+    const result = await service.getForSalesProduct(ORG, SALES_PRODUCT_ID);
+    expect(result.workspace).toMatchObject({ id: WORKSPACE_ID, salesProductId: SALES_PRODUCT_ID });
+    expect(repo.findActiveSalesProductWorkspaceId).toHaveBeenCalledWith({ organizationId: ORG, salesProductId: SALES_PRODUCT_ID });
   });
 });

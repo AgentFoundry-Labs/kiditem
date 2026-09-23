@@ -97,6 +97,75 @@ describe('AI content ownership constraints (PG integration)', () => {
     })).toBe(0);
   });
 
+  function lifecycleRepository() {
+    return new ContentWorkspaceLifecycleRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      new ChannelListingQueryService(
+        new ChannelListingQueryPersistenceAdapter(prisma as never),
+        { findForListings: async () => [] },
+      ),
+      salesProductOwners(),
+    );
+  }
+
+  function draftWorkspaceInput(salesProductId: string, title: string) {
+    return {
+      organizationId: TEST_ORGANIZATION_ID,
+      ownerType: 'sales_product' as const,
+      salesProductId,
+      channelListingId: null,
+      originWorkspaceId: null,
+      displayName: title,
+      normalizedTitle: title.replace(/\s+/g, '').toLowerCase(),
+      createdByUserId: null,
+    };
+  }
+
+  it('reuses the one workspace of a draft after the draft is renamed', async () => {
+    const product = await prisma.salesProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: null, name: 'Old name' },
+    });
+    const repository = lifecycleRepository();
+
+    const first = await repository.ensureActiveWorkspace(draftWorkspaceInput(product.id, 'Old name'));
+    const renamed = await repository.ensureActiveWorkspace(draftWorkspaceInput(product.id, 'New name'));
+
+    expect(renamed.id).toBe(first.id);
+    expect(await prisma.contentWorkspace.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id },
+    })).toBe(1);
+  });
+
+  it('finds a draft workspace by its sales product and never another organization\'s', async () => {
+    const product = await prisma.salesProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: null, name: 'Draft' },
+    });
+    const foreign = await prisma.salesProduct.create({
+      data: { organizationId: OTHER_ORGANIZATION_ID, code: null, name: 'Foreign draft' },
+    });
+    await prisma.contentWorkspace.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        ownerType: 'sales_product',
+        salesProductId: foreign.id,
+        displayName: 'Foreign draft',
+        normalizedTitle: 'foreigndraft',
+      },
+    });
+    const repository = lifecycleRepository();
+
+    await expect(repository.findActiveSalesProductWorkspaceId({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id,
+    })).resolves.toBeNull();
+    const created = await repository.ensureActiveWorkspace(draftWorkspaceInput(product.id, 'Draft'));
+    await expect(repository.findActiveSalesProductWorkspaceId({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: product.id,
+    })).resolves.toBe(created.id);
+    await expect(repository.findActiveSalesProductWorkspaceId({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: foreign.id,
+    })).resolves.toBeNull();
+  });
+
   it('rejects cross-organization current-content pointers', async () => {
     const foreignWorkspace = await prisma.contentWorkspace.create({
       data: {
