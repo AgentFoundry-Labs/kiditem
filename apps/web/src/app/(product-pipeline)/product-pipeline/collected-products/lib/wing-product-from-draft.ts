@@ -5,7 +5,7 @@ import {
   type WingProduct,
   type WingProductDraftDefaults,
   type WingVariant,
-} from './wing-registration-excel';
+} from '../../../../(channels)/_shared/adapters/coupang-wing/wing-registration-excel';
 
 /**
  * 몰 중립 초안 → 쿠팡 WING 상품.

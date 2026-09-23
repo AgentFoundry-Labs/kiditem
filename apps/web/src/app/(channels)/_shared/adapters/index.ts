@@ -1,5 +1,5 @@
 import type { MallPublishAdapter } from '../mall-publish-adapter';
-import { coupangWingAdapter } from './coupang-wing.adapter';
+import { coupangWingAdapter } from './coupang-wing/coupang-wing.adapter';
 import { domeggookAdapter } from './domeggook.adapter';
 import { kidsnoteAdapter } from './kidsnote.adapter';
 import { onchAdapter } from './onch.adapter';
@@ -30,8 +30,8 @@ import { kakaoAdapter } from './kakao.adapter';
  * 매니페스트에 있지만 어댑터가 없는 몰은 화면에서 '경로 없음' 으로 보인다.
  *
  * 쿠팡 로켓은 이 목록에 없다 — 발주 전용 채널이라 몰 등록 마법사가 다루는 대상이 아니다.
- * 쿠팡 WING 은 엑셀을 만드는 수집상품 경로를 마법사에서 함께 보여 주되, 파일 생성은 등록
- * 확인과 구분한다.
+ * 쿠팡 WING 은 마켓(레지스트리 `kind: marketplace`)이라 몰 열에는 서지 않지만, 등록은 다른 폼 몰과 같은
+ * 등록 실행을 지난다(KID-321).
  */
 export const MALL_PUBLISH_ADAPTERS: readonly MallPublishAdapter[] = [
   kidsnoteAdapter,
@@ -55,7 +55,7 @@ export const MALL_PUBLISH_ADAPTERS: readonly MallPublishAdapter[] = [
   kakaoAdapter,
 ];
 
-/** #554 등록 마법사에서 선택할 수 있는 경로. WING은 파일 생성 경로라 상태 표의 몰 열은 아니다. */
+/** 등록 마법사 · 수집상품 화면에서 고를 수 있는 경로. WING 은 마켓이라 상태 표의 몰 열은 아니다. */
 export const MALL_REGISTRATION_ADAPTERS: readonly MallPublishAdapter[] = [
   ...MALL_PUBLISH_ADAPTERS,
   coupangWingAdapter,
@@ -66,8 +66,7 @@ const BY_REGISTRATION_KEY = new Map(MALL_REGISTRATION_ADAPTERS.map((adapter) => 
 /**
  * 상품이 올라가는 경로를 가진 어댑터 전부 — 마법사 목록에 쿠팡 WING 을 더한 것이다.
  *
- * 쿠팡 WING 은 파일 생성 경로지만 마법사에서 함께 고를 수 있다. 등록 확인은 별도 몰
- * 재조회가 필요하며, 엑셀 생성 결과는 작업 목록에만 남긴다.
+ * 쿠팡 WING 도 폼 몰과 같은 등록 실행으로 보낸다. 몰 열에는 서지 않는다.
  */
 const REGISTRATION_ADAPTERS: readonly MallPublishAdapter[] = [
   ...MALL_REGISTRATION_ADAPTERS,

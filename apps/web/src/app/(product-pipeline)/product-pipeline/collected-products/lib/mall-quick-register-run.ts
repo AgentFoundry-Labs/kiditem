@@ -68,6 +68,14 @@ export async function runOneMallRegistration(
     };
   }
   const base = { mallKey, mallName: adapter.mallName };
+  if (adapter.confirmation) {
+    return {
+      ...base,
+      status: 'blocked',
+      message: `${adapter.mallName}는 확인 창에서 계정과 값을 정한 뒤 보냅니다.`,
+      manualSteps: [],
+    };
+  }
   if (!item) {
     return { ...base, status: 'blocked', message: '보낼 상품이 없습니다.', manualSteps: [] };
   }

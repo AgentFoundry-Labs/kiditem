@@ -31,8 +31,8 @@ import {
   renderRegistrationDetailImage,
 } from './detail-page-image-api';
 import type { ProductBasics, ProductDetailResponse } from './sourcing-api';
-import type { WingProduct } from './wing-registration-excel';
-import { resolveWingCategories } from './wing-category-resolution';
+import type { WingProduct } from '../../../../(channels)/_shared/adapters/coupang-wing/wing-registration-excel';
+import { resolveWingCategories } from '../../../../(channels)/_shared/adapters/coupang-wing/wing-category-resolution';
 
 const { getSalesProductMock, replaceSalesProductOptionsMock } = vi.hoisted(() => ({
   getSalesProductMock: vi.fn(),
@@ -108,8 +108,8 @@ vi.mock('../../../../(channels)/_shared/registration-execution-api', () => ({
   },
 }));
 
-vi.mock('./wing-category-resolution', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./wing-category-resolution')>();
+vi.mock('../../../../(channels)/_shared/adapters/coupang-wing/wing-category-resolution', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../(channels)/_shared/adapters/coupang-wing/wing-category-resolution')>();
   return {
     ...actual,
     resolveWingCategories: vi.fn(),

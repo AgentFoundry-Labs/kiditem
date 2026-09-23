@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, Search, Store, X } from 'lucide-react';
 import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
 import { cn } from '@/lib/utils';
-import { WING_CATEGORY_DEFINITIONS } from '../../lib/wing-category-presets';
+import { WING_CATEGORY_DEFINITIONS } from '../../../../../(channels)/_shared/adapters/coupang-wing/wing-category-presets';
 import {
   validateWingRegistrationOverrides,
   WING_DISPLAY_NAME_MAX,

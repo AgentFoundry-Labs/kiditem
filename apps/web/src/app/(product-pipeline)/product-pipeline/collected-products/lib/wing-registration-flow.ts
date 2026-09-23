@@ -21,19 +21,19 @@ import {
   type ProductDetailResponse,
   type SellpiaInventorySearchItem,
 } from './sourcing-api';
-import { resolveWingCategories } from './wing-category-resolution';
+import { resolveWingCategories } from '../../../../(channels)/_shared/adapters/coupang-wing/wing-category-resolution';
 import {
   getWingCategoryDefinition,
   matchWingCategoryAlias,
   type WingCategoryKey,
-} from './wing-category-presets';
+} from '../../../../(channels)/_shared/adapters/coupang-wing/wing-category-presets';
 import {
   requestWingRegistrationWorkbook,
   WING_PRODUCT_DRAFT_DEFAULTS,
   type WingProductDraftDefaults,
   type WingProduct,
   type WingVariant,
-} from './wing-registration-excel';
+} from '../../../../(channels)/_shared/adapters/coupang-wing/wing-registration-excel';
 
 // 수집상품(SourcingCandidate) → 쿠팡 WING 일괄등록 엑셀 생성·다운로드 플로우.
 // 쿠팡 Open API 를 쓰지 않고, 확장이 WING 일괄등록 화면에 올릴 엑셀을 만든다.

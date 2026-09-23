@@ -192,8 +192,8 @@ describe('몰별 준비 상태', () => {
     }
   });
 
-  it('폼 방식이 아닌 몰은 이 흐름에 태우지 않는다', () => {
-    expect(getFormMallAdapter('coupang')).toBeNull();
+  it('폼 방식 몰만 이 흐름에 태운다 — 쿠팡 WING 도 레지스트리대로 폼 몰이다(KID-321)', () => {
+    expect(getFormMallAdapter('coupang')?.mallName).toBe('쿠팡 WING');
     expect(getFormMallAdapter('없는몰')).toBeNull();
     expect(getFormMallAdapter('11st')?.mallName).toBe('11번가');
   });

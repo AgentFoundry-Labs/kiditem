@@ -85,10 +85,16 @@ describe('몰 하나 실행', () => {
     expect(outcome).toMatchObject({ status: 'blocked', message: '보낼 상품이 없습니다.' });
   });
 
-  it('폼 방식이 아닌 몰은 이 흐름에 태우지 않는다', async () => {
-    const outcome = await runOneMallRegistration('coupang', item, filled());
+  it('모르는 몰은 이 흐름에 태우지 않는다', async () => {
+    const outcome = await runOneMallRegistration('없는몰', item, filled());
     expect(outcome.status).toBe('blocked');
     expect(outcome.message).toContain('어댑터가 없습니다');
+  });
+
+  it('확인 창이 필요한 몰(쿠팡 WING)은 버튼 하나로 보내지 않는다 — 확인 창에서 계정과 값을 정한다', async () => {
+    const outcome = await runOneMallRegistration('coupang', item, filled());
+    expect(outcome.status).toBe('blocked');
+    expect(outcome.message).toContain('확인 창');
   });
 });
 

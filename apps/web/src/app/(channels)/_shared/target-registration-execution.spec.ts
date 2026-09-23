@@ -30,6 +30,7 @@ function snapshot(): TargetExecutionSnapshot {
     } as unknown as TargetExecutionSnapshot['product'],
     detailPage: null,
     registrationInput: { mallCategory: null, mallFields: { smartstoreCategory: '50004643:기타감각발달완구' }, adapter: {} },
+    adapterPayload: {},
   };
 }
 
@@ -256,6 +257,64 @@ describe('executeTargetRegistration', () => {
     await executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
       mallKey: 'smartstore', adapter: adapter(send), client });
     expect(client.report).toHaveBeenCalledWith(EXECUTION_ID, expect.objectContaining({ outcome: 'uncertain' }));
+  });
+
+  it('reports a confirmed registration with the provider evidence the adapter observed, for the server to judge', async () => {
+    const send = vi.fn().mockResolvedValue({
+      ok: true,
+      submitted: true,
+      accepted: true,
+      productNo: '427011919',
+      providerEvidence: { providerAccountId: 'A00012345', externalListingId: '427011919' },
+      confirmed: false,
+      manualSteps: [],
+      warnings: [],
+    });
+    const client = {
+      prepare: vi.fn().mockResolvedValue(execution()),
+      start: vi.fn().mockResolvedValue(execution({
+        status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true,
+        expectedProviderAccountId: 'A00012345',
+      })),
+      report: vi.fn().mockResolvedValue(execution({ status: 'succeeded', providerOutcome: 'succeeded' })),
+    };
+    const confirming = adapter(send);
+    confirming.requiresOperatorSubmit = false;
+
+    await executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
+      mallKey: 'smartstore', adapter: confirming, client });
+
+    expect(send.mock.calls[0]![0].items[0].targetExecution.expectedProviderAccountId).toBe('A00012345');
+    expect(client.report).toHaveBeenCalledWith(EXECUTION_ID, {
+      leaseToken: LEASE,
+      payloadHash: 'hash-1',
+      outcome: 'confirmed',
+      evidence: {
+        channelAccountId: ACCOUNT_ID,
+        externalListingId: '427011919',
+        providerAccountId: 'A00012345',
+        observedStatus: 'confirmed',
+      },
+    });
+  });
+
+  it('never claims confirmation from a submission without provider evidence', async () => {
+    const send = vi.fn().mockResolvedValue({
+      ok: true, submitted: true, accepted: true, productNo: '427011919', confirmed: true, manualSteps: [], warnings: [],
+    });
+    const client = {
+      prepare: vi.fn().mockResolvedValue(execution()),
+      start: vi.fn().mockResolvedValue(execution({ status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true })),
+      report: vi.fn().mockResolvedValue(execution({ status: 'reconciling', providerOutcome: 'uncertain' })),
+    };
+    const submitting = adapter(send);
+    submitting.requiresOperatorSubmit = false;
+
+    const run = await executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
+      mallKey: 'smartstore', adapter: submitting, client });
+
+    expect(client.report).toHaveBeenCalledWith(EXECUTION_ID, expect.objectContaining({ outcome: 'submitted' }));
+    expect(run.outcome.confirmed).toBe(false);
   });
 
   it('does not resend when the report response is retried with the same intent', async () => {

@@ -131,7 +131,7 @@ export function valuesForTargetExecution(
 
 export function itemForTargetExecution(
   snapshot: TargetExecutionSnapshot,
-  execution: Pick<TargetExecutionResult, 'executionId' | 'payloadHash' | 'leaseToken'>,
+  execution: Pick<TargetExecutionResult, 'executionId' | 'payloadHash' | 'leaseToken' | 'expectedProviderAccountId'>,
 ): MallPublishItem {
   const firstOption = snapshot.product.options[0];
   if (!execution.leaseToken) throw new Error('등록 실행 lease가 없습니다. 외부 송신을 시작하지 않았습니다.');
@@ -147,6 +147,7 @@ export function itemForTargetExecution(
       payloadHash: execution.payloadHash,
       leaseToken: execution.leaseToken,
       snapshot,
+      expectedProviderAccountId: execution.expectedProviderAccountId ?? null,
     },
   };
 }
@@ -203,9 +204,11 @@ function reportOutcome(
   adapter: MallPublishAdapter,
   sent: MallSendOutcome,
 ): {
-  outcome: 'not_submitted' | 'uncertain' | 'submitted' | 'awaiting_approval';
+  outcome: 'not_submitted' | 'uncertain' | 'submitted' | 'awaiting_approval' | 'confirmed';
   evidence: {
     externalListingId?: string;
+    providerAccountId?: string;
+    observedUrl?: string;
     observedStatus: string;
     message?: string;
   };
@@ -232,6 +235,18 @@ function reportOutcome(
         observedStatus: 'submission_rejected',
         ...(sent.productNo ? { externalListingId: sent.productNo } : {}),
         ...(sent.error ? { message: sent.error } : {}),
+      },
+    };
+  }
+  // 몰 화면이 새 상품번호와 몰 계정을 보여 줬으면 확인으로 보고한다. 맞는 증거인지는 서버가 판정한다.
+  if (sent.providerEvidence) {
+    return {
+      outcome: 'confirmed',
+      evidence: {
+        externalListingId: sent.providerEvidence.externalListingId,
+        providerAccountId: sent.providerEvidence.providerAccountId,
+        ...(sent.providerEvidence.observedUrl ? { observedUrl: sent.providerEvidence.observedUrl } : {}),
+        observedStatus: 'confirmed',
       },
     };
   }

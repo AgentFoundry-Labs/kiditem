@@ -5,7 +5,7 @@ import {
 } from '../../collected-products/lib/wing-registration-flow';
 import {
   WING_PRODUCT_DRAFT_DEFAULTS,
-} from '../../collected-products/lib/wing-registration-excel';
+} from '../../../../(channels)/_shared/adapters/coupang-wing/wing-registration-excel';
 import { WING_NOTICE_ORDER, wingProductFromDraft } from '../../collected-products/lib/wing-product-from-draft';
 import {
   candidateToMallProductDraft,
