@@ -4,8 +4,7 @@ Before working in this directory, always read this document first rather than re
 
 `app/(product-pipeline)/product-pipeline/collected-products/` owns the collected
 product workspace for imported/manual `SourcingCandidate` rows. Each collected
-candidate has a `SalesProduct` draft from the moment of collection (ADR-0022,
-KID-310) — the workspace resolves (creates or reuses) an account-scoped
+candidate has a `SalesProduct` draft from the moment of collection (ADR-0022) — the workspace resolves (creates or reuses) an account-scoped
 `RegistrationTarget` for that draft, launches content-workspace-scoped
 detail/thumbnail generation, and opens the shared generated-content editor.
 
@@ -30,7 +29,7 @@ Do not reintroduce standalone sourcing or product-content routes.
   be copied into candidate status.
 - `SalesProduct` (status `draft` until a sell decision issues its KID) owns
   the reviewed input directly — name, pricing, options, media, and mall
-  defaults all live on it from collection onward (ADR-0022, KID-310).
+  defaults all live on it from collection onward (ADR-0022).
   `RegistrationTarget` owns the resolved per-`ChannelAccount` registration
   setting (options/price/category frozen at prepare time); at most one active
   target exists per (`SalesProduct`, `ChannelAccount`) pair.
@@ -66,7 +65,7 @@ include `returnTo`.
 The registration button requires an explicit `ChannelAccount` selection and
 resolves (creates or reuses) that pair's `RegistrationTarget` through
 `POST /api/channels/registration-targets/resolve` with `{ salesProductId,
-channelAccountId }` (`registrationTargetApi.resolve`, ADR-0022, KID-310).
+channelAccountId }` (`registrationTargetApi.resolve`, ADR-0022).
 Because the server caps active targets at one per (`SalesProduct`,
 `ChannelAccount`) pair, resolving is idempotent — pressing it again on an
 already-resolved pair reuses the same target instead of creating a duplicate,
@@ -81,7 +80,7 @@ listing/content-workspace identifiers.
 ## Mall Bulk Sheet
 
 [몰 대량등록] opens the shared mall bulk-sheet dialog directly with the
-`salesProductId` each selected card already carries (ADR-0022, KID-310) — a
+`salesProductId` each selected card already carries (ADR-0022) — a
 candidate's sales-product draft exists from collection, so there is no
 from-candidates conversion call. Cards without a linked `salesProductId`
 (not yet a draft) are skipped with a toast; it never changes candidate status.

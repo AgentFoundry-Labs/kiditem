@@ -14,8 +14,7 @@ hooks, route builders, preview helpers, and content workspace API wrappers.
 - Keep preview/sandbox/route/status helpers pure and covered by focused tests.
 - Content workspace and generation identity must preserve the distinction
   between product, sales product, content workspace, and generation ids.
-- Thumbnail ownership and history scoping use only `contentWorkspaceId`
-  (KID-310) — do not reintroduce `sourceCandidateId` as a query/ownership
+- Thumbnail ownership and history scoping use only `contentWorkspaceId` — do not reintroduce `sourceCandidateId` as a query/ownership
   parameter; it remains row-level provenance only. `channelListingId` remains
   the marketplace listing identity.
 
