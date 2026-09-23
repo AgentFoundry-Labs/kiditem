@@ -11,6 +11,7 @@ import type {
   DetailPageRevisionRow,
   DetailPageRow,
 } from '../../../application/port/out/repository/detail-page.repository.port';
+import { EDITOR_SAVE } from '../../../application/port/out/repository/detail-page.repository.port';
 import {
   canTransitionDetailPage,
   decideRevisionPointer,
@@ -106,24 +107,30 @@ export class DetailPageRepositoryAdapter implements DetailPageRepositoryPort {
     const locked = await lockWorkspaceOfPage(tx, input.organizationId, input.detailPageId);
     const page = await tx.detailPage.findFirstOrThrow({
       where: { id: input.detailPageId, organizationId: input.organizationId },
-      select: { currentRevision: { select: { revisionType: true } } },
+      select: { source: true, currentRevision: { select: { revisionType: true } } },
     });
+    // 편집기 저장의 종류는 잠금 안에서 정한다 — 현재가 없는 생성 페이지의 첫 저장만 웹이 그린 `generated` 다.
+    const revisionType: DetailPageRevisionType = input.revisionType !== EDITOR_SAVE
+      ? input.revisionType
+      : page.source === 'generated' && !page.currentRevision
+        ? DETAIL_PAGE_REVISION_TYPE.generated
+        : DETAIL_PAGE_REVISION_TYPE.manual_edit;
     const workspaceCurrentType = await revisionTypeOf(tx, input.organizationId, locked.currentRevisionId);
     const pagePointer = decideRevisionPointer({
       currentRevisionType: page.currentRevision ? parseRevisionType(page.currentRevision.revisionType) : null,
-      incomingRevisionType: input.revisionType,
+      incomingRevisionType: revisionType,
     });
     const workspacePointer = decideWorkspacePointer({
       pageAdvanced: pagePointer.advancePointer,
       workspaceCurrentRevisionType: workspaceCurrentType,
-      incomingRevisionType: input.revisionType,
+      incomingRevisionType: revisionType,
     });
 
     const revision = await tx.detailPageRevision.create({
       data: {
         organizationId: input.organizationId,
         detailPageId: input.detailPageId,
-        revisionType: input.revisionType,
+        revisionType,
         html: input.html,
         imageUrls: [...input.imageUrls],
         assetUrlMap: (input.assetUrlMap ?? {}) as Prisma.InputJsonValue,

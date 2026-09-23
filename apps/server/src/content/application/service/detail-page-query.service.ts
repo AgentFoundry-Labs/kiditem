@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { DetailPageWithRevisions } from '@kiditem/shared/product-content';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { moveSafetyLabelImagesToEnd } from '../../domain/detail-page-image-order';
@@ -15,6 +15,7 @@ import {
 } from '../port/out/storage/image-storage.port';
 import {
   DETAIL_PAGE_REPOSITORY_PORT,
+  EDITOR_SAVE,
   type DetailPageRepositoryPort,
   type DetailPageRow,
 } from '../port/out/repository/detail-page.repository.port';
@@ -173,23 +174,38 @@ export class DetailPageQueryService {
       throw new BadRequestException(error instanceof Error ? error.message : '상세페이지를 만들지 못했습니다.');
     }
     const title = input.title.trim().slice(0, 80) || '상세페이지';
-    const created = await this.detailPages.runInTransaction((transaction) => this.detailPages.create(transaction, {
-      organizationId: input.organizationId,
-      contentWorkspaceId: input.contentWorkspaceId,
-      source: 'uploaded',
-      templateId: null,
-      title,
-      status: 'ready',
-      generationInput: { imageUrls: [...input.imageUrls] },
-      triggeredByUserId: input.triggeredByUserId,
-    }));
-    await this.saveEditedHtml(created.id, input.organizationId, html, input.triggeredByUserId);
-    return { id: created.id, contentWorkspaceId: input.contentWorkspaceId };
+    // 사진을 먼저 옮기고(실패하면 페이지도 없다), 페이지와 그 revision 을 한 트랜잭션에 넣는다(W3 리뷰 S9).
+    const detailPageId = randomUUID();
+    const prepared = await this.prepareEditedHtml(input.organizationId, detailPageId, html);
+    await this.detailPages.runInTransaction(async (transaction) => {
+      await this.detailPages.create(transaction, {
+        id: detailPageId,
+        organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
+        source: 'uploaded',
+        templateId: null,
+        title,
+        status: 'ready',
+        generationInput: { imageUrls: [...input.imageUrls] },
+        triggeredByUserId: input.triggeredByUserId,
+      });
+      await this.detailPages.appendRevision(transaction, {
+        organizationId: input.organizationId,
+        detailPageId,
+        revisionType: DETAIL_PAGE_REVISION_TYPE.manual_edit,
+        html: prepared.html,
+        imageUrls: prepared.imageUrls,
+        assetUrlMap: prepared.assetUrlMap,
+        createdByUserId: input.triggeredByUserId,
+      });
+    });
+    void this.deleteTmpImagesBestEffort(prepared.tmpKeysToDelete);
+    return { id: detailPageId, contentWorkspaceId: input.contentWorkspaceId };
   }
 
   /**
-   * 편집 저장. 생성 페이지의 첫 저장은 웹 템플릿이 결과로 처음 그린 HTML 이라 `generated`, 그 밖은 사람의
-   * `manual_edit` 이다. 두 현재 포인터는 상세 페이지 저장소가 도메인 규칙으로 옮긴다.
+   * 편집 저장. 종류(생성 페이지의 첫 저장은 웹 템플릿이 결과로 처음 그린 HTML 이라 `generated`, 그 밖은 사람의
+   * `manual_edit`)와 두 현재 포인터는 상세 페이지 저장소가 워크스페이스 잠금 안에서 정한다.
    */
   async saveEditedHtml(
     id: string,
@@ -202,30 +218,33 @@ export class DetailPageQueryService {
     }
     const page = await this.detailPages.findById({ organizationId, detailPageId: id });
     if (!page) throw new NotFoundException('Detail page not found');
-    const promoted = await this.promoteEditableImageUrls({ organizationId, detailPageId: id, html });
-    const imageUrls = extractImageSrcs(promoted.html);
-    // 새 페이지의 첫 revision 은 늘 그 페이지의 현재가 되므로, 현재가 없으면 아직 저장한 적이 없다.
-    const revisionType = page.source === 'generated' && !page.currentRevisionId
-      ? DETAIL_PAGE_REVISION_TYPE.generated
-      : DETAIL_PAGE_REVISION_TYPE.manual_edit;
-    const revision = await this.detailPages.runInTransaction(async (transaction) => {
-      return this.detailPages.appendRevision(transaction, {
+    const prepared = await this.prepareEditedHtml(organizationId, id, html);
+    const revision = await this.detailPages.runInTransaction((transaction) =>
+      this.detailPages.appendRevision(transaction, {
         organizationId,
         detailPageId: id,
-        revisionType,
-        html: promoted.html,
-        imageUrls,
-        assetUrlMap: promoted.assetUrlMap,
+        revisionType: EDITOR_SAVE,
+        html: prepared.html,
+        imageUrls: prepared.imageUrls,
+        assetUrlMap: prepared.assetUrlMap,
         createdByUserId: savedByUserId ?? page.triggeredByUserId,
-      });
-    });
+      }));
 
-    void this.deleteTmpImagesBestEffort(promoted.tmpKeysToDelete);
+    void this.deleteTmpImagesBestEffort(prepared.tmpKeysToDelete);
     return {
       html: revision.html,
       savedAt: revision.createdAt.toISOString(),
-      assetUrlMap: promoted.assetUrlMap,
+      assetUrlMap: prepared.assetUrlMap,
     };
+  }
+
+  /** 편집한 임시 사진을 영구 키로 옮긴 HTML 과 그 사진 목록. 저장소 쓰기라 트랜잭션 밖에서 먼저 한다. */
+  private async prepareEditedHtml(organizationId: string, detailPageId: string, html: string) {
+    if (!isRenderableDetailHtml(html)) {
+      throw new BadRequestException('렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.');
+    }
+    const promoted = await this.promoteEditableImageUrls({ organizationId, detailPageId, html });
+    return { ...promoted, imageUrls: extractImageSrcs(promoted.html) };
   }
 
   async getEditedHtml(

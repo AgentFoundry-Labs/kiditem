@@ -95,6 +95,18 @@ describe('detail page editor (PG integration)', () => {
       .resolves.toMatchObject({ currentDetailPageRevisionId: expect.any(String) });
   });
 
+  it('labels exactly one of two concurrent first saves of a generated page as generated', async () => {
+    const workspaceId = await workspace();
+    const pageId = await readyGeneratedPage(workspaceId);
+
+    await Promise.all([
+      editor.saveEditedHtml(pageId, TEST_ORGANIZATION_ID, RENDERABLE('<p>자동 저장</p>')),
+      editor.saveEditedHtml(pageId, TEST_ORGANIZATION_ID, RENDERABLE('<p>운영자 저장</p>')),
+    ]);
+
+    expect((await revisionTypes(pageId)).sort()).toEqual(['generated', 'manual_edit']);
+  });
+
   it('copies a temporary edited image to a permanent key named after the detail page', async () => {
     const workspaceId = await workspace();
     const pageId = await readyGeneratedPage(workspaceId);
@@ -140,6 +152,25 @@ describe('detail page editor (PG integration)', () => {
     expect(await revisionTypes(uploaded.id)).toEqual(['manual_edit']);
     await expect(prisma.contentWorkspace.findUniqueOrThrow({ where: { id: workspaceId } }))
       .resolves.toMatchObject({ currentDetailPageRevisionId: page?.currentRevisionId });
+  });
+
+  it('leaves no uploaded page behind when its images cannot be stored', async () => {
+    const workspaceId = await workspace();
+    const failing = new DetailPageQueryService(
+      pages,
+      { suppressProductInfoWhenSafetyLabelExists: (result: unknown) => result } as never,
+      { ...storage, copy: async () => { throw new Error('storage down'); } } as unknown as ImageStoragePort,
+    );
+
+    await expect(failing.registerUploaded({
+      organizationId: TEST_ORGANIZATION_ID,
+      triggeredByUserId: TEST_USER_ID,
+      contentWorkspaceId: workspaceId,
+      title: '올린 상세',
+      imageUrls: ['https://storage.example/tmp/image-edits/u1.png'],
+    })).rejects.toThrow('storage down');
+
+    expect(await prisma.detailPage.count({ where: { contentWorkspaceId: workspaceId } })).toBe(0);
   });
 
   it('reads a page with its revision history, newest first, and says whether it is the one malls read', async () => {

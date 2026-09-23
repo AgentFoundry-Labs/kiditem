@@ -60,10 +60,17 @@ export interface CreateDetailPageInput {
   id?: string;
 }
 
+/**
+ * 편집기 저장(`editor_save`)은 종류를 저장소가 워크스페이스 잠금 안에서 정한다(W3 리뷰 S1): 현재 revision 이 없는
+ * 생성 페이지의 첫 저장만 `generated`, 나머지는 `manual_edit`. 잠금 밖에서 정하면 동시 첫 저장 둘이 모두 기계 것이 된다.
+ */
+export const EDITOR_SAVE = 'editor_save' as const;
+export type AppendRevisionKind = DetailPageRevisionType | typeof EDITOR_SAVE;
+
 export interface AppendRevisionInput {
   organizationId: string;
   detailPageId: string;
-  revisionType: DetailPageRevisionType;
+  revisionType: AppendRevisionKind;
   html: string;
   imageUrls: readonly string[];
   assetUrlMap?: Record<string, string>;
