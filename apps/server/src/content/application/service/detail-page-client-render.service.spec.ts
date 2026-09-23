@@ -18,7 +18,7 @@ const USER_ID = '22222222-2222-4222-8222-222222222222';
 const OTHER_USER_ID = '33333333-3333-4333-8333-333333333333';
 const WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
 const REVISION_ID = '55555555-5555-4555-8555-555555555555';
-const DETAIL_ARTIFACT_ID = '66666666-6666-4666-8666-666666666666';
+const DETAIL_PAGE_ID = '66666666-6666-4666-8666-666666666666';
 const INTENT_ID = '77777777-7777-4777-8777-777777777777';
 const IMAGE_ARTIFACT_ID = '88888888-8888-4888-8888-888888888888';
 const OBJECT_KEY =
@@ -29,8 +29,8 @@ const NOW = new Date('2026-07-26T00:00:00.000Z');
 
 function savedDetailPage(html = '<main><img src="/hero.jpg"></main>') {
   return {
-    revisionId: REVISION_ID,
-    artifactId: DETAIL_ARTIFACT_ID,
+    id: REVISION_ID,
+    detailPageId: DETAIL_PAGE_ID,
     html,
     createdAt: new Date('2026-07-25T00:00:00.000Z'),
   };
@@ -40,7 +40,7 @@ function intent(overrides: Record<string, unknown> = {}) {
   return {
     id: INTENT_ID,
     organizationId: ORG_ID,
-    detailPageArtifactId: DETAIL_ARTIFACT_ID,
+    detailPageId: DETAIL_PAGE_ID,
     revisionId: REVISION_ID,
     variant: DETAIL_PAGE_CLIENT_RENDER_VARIANT,
     outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
@@ -87,9 +87,8 @@ function imageArtifact(overrides: Record<string, unknown> = {}) {
 
 describe('DetailPageClientRenderService', () => {
   const detailPages = {
-    findWorkspaceCurrentDetailPageHtml: vi.fn(),
-    findWorkspaceDetailPageRevisionHtml: vi.fn(),
-    findDetailPageRevisionHtml: vi.fn(),
+    findWorkspaceRevision: vi.fn(),
+    findRevision: vi.fn(),
   };
   const images = {
     findArtifact: vi.fn(),
@@ -129,7 +128,7 @@ describe('DetailPageClientRenderService', () => {
   });
 
   it('저장 HTML이 없거나 비어 있으면 명시적인 missing을 반환한다', async () => {
-    detailPages.findWorkspaceCurrentDetailPageHtml
+    detailPages.findWorkspaceRevision
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(savedDetailPage('   '));
 
@@ -146,7 +145,7 @@ describe('DetailPageClientRenderService', () => {
   });
 
   it('현재 revision의 확정 artifact가 있으면 새 intent 없이 ready를 반환한다', async () => {
-    detailPages.findWorkspaceCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
+    detailPages.findWorkspaceRevision.mockResolvedValue(savedDetailPage());
     images.findArtifact.mockResolvedValue(imageArtifact({
       variant: 'wing-server-jpeg-v1',
       objectKey: SERVER_OBJECT_KEY,
@@ -173,7 +172,7 @@ describe('DetailPageClientRenderService', () => {
   /** KID-321: 등록 대상이 고른 revision 을 렌더한다 — 그 작업공간의 revision 일 때만. */
   it('고른 revision이 있으면 현재 revision 대신 그 revision의 확정 artifact를 쓴다', async () => {
     const chosen = '99999999-9999-4999-8999-999999999999';
-    detailPages.findWorkspaceDetailPageRevisionHtml.mockResolvedValue({ ...savedDetailPage(), revisionId: chosen });
+    detailPages.findWorkspaceRevision.mockResolvedValue({ ...savedDetailPage(), id: chosen });
     images.findArtifact.mockResolvedValue(imageArtifact({
       variant: 'wing-server-jpeg-v1', objectKey: SERVER_OBJECT_KEY,
       imageUrl: `https://cdn.example.com/${SERVER_OBJECT_KEY}`, rendererKind: 'server-puppeteer',
@@ -182,15 +181,14 @@ describe('DetailPageClientRenderService', () => {
     await expect(service.prepare({
       organizationId: ORG_ID, userId: USER_ID, contentWorkspaceId: WORKSPACE_ID, detailPageRevisionId: chosen,
     })).resolves.toMatchObject({ status: 'ready' });
-    expect(detailPages.findWorkspaceDetailPageRevisionHtml).toHaveBeenCalledWith({
+    expect(detailPages.findWorkspaceRevision).toHaveBeenCalledWith({
       organizationId: ORG_ID, contentWorkspaceId: WORKSPACE_ID, revisionId: chosen,
     });
-    expect(detailPages.findWorkspaceCurrentDetailPageHtml).not.toHaveBeenCalled();
     expect(images.findArtifact).toHaveBeenCalledWith(expect.objectContaining({ revisionId: chosen }));
   });
 
   it('고른 revision이 이 작업공간의 것이 아니면 400으로 거절하고 렌더하지 않는다', async () => {
-    detailPages.findWorkspaceDetailPageRevisionHtml.mockResolvedValue(null);
+    detailPages.findWorkspaceRevision.mockResolvedValue(null);
     await expect(service.prepare({
       organizationId: ORG_ID, userId: USER_ID, contentWorkspaceId: WORKSPACE_ID,
       detailPageRevisionId: '99999999-9999-4999-8999-999999999999',
@@ -200,7 +198,7 @@ describe('DetailPageClientRenderService', () => {
   });
 
   it('저장 revision을 서버에서 780px JPEG로 렌더하고 artifact를 확정한다', async () => {
-    detailPages.findWorkspaceCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
+    detailPages.findWorkspaceRevision.mockResolvedValue(savedDetailPage());
     images.findArtifact.mockResolvedValue(null);
     images.createIntent.mockImplementation(async (value) => intent(value));
     images.claimIntent.mockImplementation(async () => ({
@@ -248,7 +246,7 @@ describe('DetailPageClientRenderService', () => {
     });
     expect(images.createIntent).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORG_ID,
-      detailPageArtifactId: DETAIL_ARTIFACT_ID,
+      detailPageId: DETAIL_PAGE_ID,
       revisionId: REVISION_ID,
       objectKey: SERVER_OBJECT_KEY,
       variant: 'wing-server-jpeg-v1',
@@ -275,7 +273,7 @@ describe('DetailPageClientRenderService', () => {
   });
 
   it('서버 렌더 실패를 intent에 기록하고 빈 artifact로 진행하지 않는다', async () => {
-    detailPages.findWorkspaceCurrentDetailPageHtml.mockResolvedValue(savedDetailPage());
+    detailPages.findWorkspaceRevision.mockResolvedValue(savedDetailPage());
     images.findArtifact.mockResolvedValue(null);
     images.createIntent.mockImplementation(async (value) => intent({
       ...value,
@@ -427,12 +425,20 @@ describe('DetailPageClientRenderService', () => {
     });
   });
 
+  it('document는 렌더 의도의 상세 페이지가 아닌 revision을 렌더하지 않는다', async () => {
+    images.findIntent.mockResolvedValue(intent({ state: 'claimed', claimedByUserId: USER_ID }));
+    detailPages.findRevision.mockResolvedValue({ ...savedDetailPage(), detailPageId: '99999999-9999-4999-8999-999999999999' });
+
+    await expect(service.document({ organizationId: ORG_ID, userId: USER_ID, intentId: INTENT_ID }))
+      .rejects.toThrow('렌더할 상세페이지 revision을 찾을 수 없습니다.');
+  });
+
   it('document는 claimant에게 bound revision의 렌더 문서만 반환한다', async () => {
     images.findIntent.mockResolvedValue(intent({
       state: 'claimed',
       claimedByUserId: USER_ID,
     }));
-    detailPages.findDetailPageRevisionHtml.mockResolvedValue(savedDetailPage());
+    detailPages.findRevision.mockResolvedValue(savedDetailPage());
 
     const result = await service.document({
       organizationId: ORG_ID,
@@ -440,10 +446,9 @@ describe('DetailPageClientRenderService', () => {
       intentId: INTENT_ID,
     });
 
-    expect(detailPages.findDetailPageRevisionHtml).toHaveBeenCalledWith({
+    expect(detailPages.findRevision).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       revisionId: REVISION_ID,
-      artifactId: DETAIL_ARTIFACT_ID,
     });
     expect(result).toMatchObject({
       intentId: INTENT_ID,

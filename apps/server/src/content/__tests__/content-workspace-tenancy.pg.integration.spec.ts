@@ -17,7 +17,6 @@ import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { groupUrlAssetKey } from '../domain/content-asset-key';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
-import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
 import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
@@ -188,28 +187,30 @@ describe('AI content ownership constraints (PG integration)', () => {
     })).toBe(0);
   });
 
-  /** KID-321: 등록 대상이 고른 상세 revision 렌더는 그 작업공간 · 조직의 살아 있는 artifact revision 만 읽는다. */
+  /** KID-321 · W3b: 몰 상세 렌더는 그 작업공간 · 조직의 살아 있는 상세 페이지 revision 만 읽는다. */
   it('reads a chosen detail revision only from the workspace and organization that own it', async () => {
-    const detailPages = new DetailPageQueryRepositoryAdapter(prisma as unknown as PrismaService, {} as never);
+    const detailPages = new DetailPageRepositoryAdapter(prisma as unknown as PrismaService);
     const workspace = async (organizationId: string, title: string) => {
       const row = await prisma.contentWorkspace.create({
-        data: { organizationId, ownerType: 'direct_detail_page', displayName: title, normalizedTitle: `${title}-${randomUUID()}` },
+        data: { organizationId, ownerType: 'direct_detail_page', normalizedTitle: `${title}-${randomUUID()}` },
       });
-      const artifact = await prisma.detailPageArtifact.create({ data: { organizationId, contentWorkspaceId: row.id, title } });
-      const revision = await prisma.detailPageRevision.create({ data: { organizationId, artifactId: artifact.id, html: `<p>${title}</p>` } });
-      return { id: row.id, artifactId: artifact.id, revisionId: revision.id };
+      const page = await prisma.detailPage.create({ data: { organizationId, contentWorkspaceId: row.id, source: 'manual', title } });
+      const revision = await prisma.detailPageRevision.create({ data: { organizationId, detailPageId: page.id, html: `<p>${title}</p>` } });
+      await prisma.contentWorkspace.update({ where: { id: row.id }, data: { currentDetailPageRevisionId: revision.id } });
+      return { id: row.id, detailPageId: page.id, revisionId: revision.id };
     };
     const mine = await workspace(TEST_ORGANIZATION_ID, 'mine');
     const sibling = await workspace(TEST_ORGANIZATION_ID, 'sibling');
     const foreign = await workspace(OTHER_ORGANIZATION_ID, 'foreign');
-    const read = (contentWorkspaceId: string, revisionId: string, organizationId = TEST_ORGANIZATION_ID) =>
-      detailPages.findWorkspaceDetailPageRevisionHtml({ organizationId, contentWorkspaceId, revisionId });
+    const read = (contentWorkspaceId: string, revisionId: string | null, organizationId = TEST_ORGANIZATION_ID) =>
+      detailPages.findWorkspaceRevision({ organizationId, contentWorkspaceId, revisionId });
 
-    await expect(read(mine.id, mine.revisionId)).resolves.toMatchObject({ revisionId: mine.revisionId, artifactId: mine.artifactId, html: '<p>mine</p>' });
+    await expect(read(mine.id, mine.revisionId)).resolves.toMatchObject({ id: mine.revisionId, detailPageId: mine.detailPageId, html: '<p>mine</p>' });
+    await expect(read(mine.id, null)).resolves.toMatchObject({ id: mine.revisionId });
     await expect(read(mine.id, sibling.revisionId)).resolves.toBeNull();
     await expect(read(mine.id, foreign.revisionId)).resolves.toBeNull();
     await expect(read(foreign.id, foreign.revisionId)).resolves.toBeNull();
-    await prisma.detailPageArtifact.update({ where: { id: mine.artifactId }, data: { isDeleted: true } });
+    await prisma.detailPage.update({ where: { id: mine.detailPageId }, data: { isDeleted: true } });
     await expect(read(mine.id, mine.revisionId)).resolves.toBeNull();
   });
 

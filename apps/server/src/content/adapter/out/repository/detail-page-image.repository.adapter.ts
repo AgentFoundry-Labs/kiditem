@@ -46,7 +46,7 @@ export class DetailPageImageRepositoryAdapter
 
   async createIntent(input: {
     organizationId: string;
-    detailPageArtifactId: string;
+    detailPageId: string;
     revisionId: string;
     variant: string;
     outputWidth: number;

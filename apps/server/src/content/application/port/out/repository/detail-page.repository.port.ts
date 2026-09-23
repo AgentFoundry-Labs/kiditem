@@ -115,6 +115,15 @@ export interface DetailPageRepositoryPort {
   listByWorkspace(input: { organizationId: string; contentWorkspaceId: string | null }): Promise<DetailPageRow[]>;
   listRevisions(input: { organizationId: string; detailPageId: string }): Promise<DetailPageRevisionRow[]>;
   findRevision(input: { organizationId: string; revisionId: string }): Promise<(DetailPageRevisionRow & { contentWorkspaceId: string }) | null>;
+  /**
+   * 살아 있는 작업공간의 revision 하나 — `revisionId` 를 주면 그 revision(이 작업공간 · 조직의 살아 있는 상세 페이지의
+   * 것이어야 한다), 없으면 워크스페이스의 현재. 어느 쪽이든 없으면 null. 몰 상세 렌더가 쓴다.
+   */
+  findWorkspaceRevision(input: {
+    organizationId: string;
+    contentWorkspaceId: string;
+    revisionId: string | null;
+  }): Promise<DetailPageRevisionRow | null>;
   /** 가져온(`source`) revision 들의 사진 주소를 바꿔 쓴다(사방넷 → 우리 저장소, KID-319). digest 는 원문 것이라 그대로. */
   rewriteImportedImageUrls(
     transaction: OwnerTransaction,

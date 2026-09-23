@@ -30,9 +30,9 @@ import {
   type DetailPageImageRepositoryPort,
 } from '../port/out/repository/detail-page-image.repository.port';
 import {
-  DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-  type DetailPageQueryRepositoryPort,
-} from '../port/out/repository/detail-page-query.repository.port';
+  DETAIL_PAGE_REPOSITORY_PORT,
+  type DetailPageRepositoryPort,
+} from '../port/out/repository/detail-page.repository.port';
 import {
   DETAIL_PAGE_TEMPLATE_STYLES_PORT,
   type DetailPageTemplateStylesPort,
@@ -106,8 +106,8 @@ function statusArtifact(artifact: DetailPageImageArtifactRecord | null | undefin
 @Injectable()
 export class DetailPageClientRenderService {
   constructor(
-    @Inject(DETAIL_PAGE_QUERY_REPOSITORY_PORT)
-    private readonly detailPages: DetailPageQueryRepositoryPort,
+    @Inject(DETAIL_PAGE_REPOSITORY_PORT)
+    private readonly detailPages: DetailPageRepositoryPort,
     @Inject(DETAIL_PAGE_IMAGE_REPOSITORY_PORT)
     private readonly images: DetailPageImageRepositoryPort,
     @Inject(IMAGE_STORAGE_PORT)
@@ -127,16 +127,11 @@ export class DetailPageClientRenderService {
     /** 등록 대상이 고른 상세 revision(KID-321). 없으면 작업공간의 현재 revision. 이 작업공간의 것이 아니면 400. */
     detailPageRevisionId?: string | null;
   }): Promise<DetailPageClientRenderPrepareResponse> {
-    const saved = input.detailPageRevisionId
-      ? await this.detailPages.findWorkspaceDetailPageRevisionHtml({
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.contentWorkspaceId,
-        revisionId: input.detailPageRevisionId,
-      })
-      : await this.detailPages.findWorkspaceCurrentDetailPageHtml({
-        organizationId: input.organizationId,
-        contentWorkspaceId: input.contentWorkspaceId,
-      });
+    const saved = await this.detailPages.findWorkspaceRevision({
+      organizationId: input.organizationId,
+      contentWorkspaceId: input.contentWorkspaceId,
+      revisionId: input.detailPageRevisionId ?? null,
+    });
     if (!saved && input.detailPageRevisionId) {
       throw new BadRequestException('고른 상세 revision 이 이 작업공간의 것이 아닙니다.');
     }
@@ -157,7 +152,7 @@ export class DetailPageClientRenderService {
 
     const artifact = await this.images.findArtifact({
       organizationId: input.organizationId,
-      revisionId: saved.revisionId,
+      revisionId: saved.id,
       variant: SERVER_RENDER_VARIANT,
       outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
     });
@@ -166,11 +161,11 @@ export class DetailPageClientRenderService {
     const currentTime = this.now();
     const renderIntent = await this.images.createIntent({
       organizationId: input.organizationId,
-      detailPageArtifactId: saved.artifactId,
-      revisionId: saved.revisionId,
+      detailPageId: saved.detailPageId,
+      revisionId: saved.id,
       variant: SERVER_RENDER_VARIANT,
       outputWidth: DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
-      objectKey: serverObjectKey(input.organizationId, saved.revisionId),
+      objectKey: serverObjectKey(input.organizationId, saved.id),
       requestedByUserId: input.userId,
       expiresAt: new Date(currentTime.getTime() + INTENT_TTL_MS),
     });
@@ -313,12 +308,11 @@ export class DetailPageClientRenderService {
     await this.requireNotExpired(renderIntent, this.now());
     this.requireClaimant(renderIntent, input.userId);
 
-    const revision = await this.detailPages.findDetailPageRevisionHtml({
+    const revision = await this.detailPages.findRevision({
       organizationId: input.organizationId,
       revisionId: renderIntent.revisionId,
-      artifactId: renderIntent.detailPageArtifactId,
     });
-    if (!revision || !revision.html.trim()) {
+    if (!revision || revision.detailPageId !== renderIntent.detailPageId || !revision.html.trim()) {
       throw new NotFoundException('렌더할 상세페이지 revision을 찾을 수 없습니다.');
     }
 

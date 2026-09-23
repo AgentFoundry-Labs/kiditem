@@ -322,6 +322,28 @@ export class DetailPageRepositoryAdapter implements DetailPageRepositoryPort {
     return { ...toRevisionRow(row), contentWorkspaceId: row.detailPage.contentWorkspaceId };
   }
 
+  async findWorkspaceRevision(input: {
+    organizationId: string;
+    contentWorkspaceId: string;
+    revisionId: string | null;
+  }): Promise<DetailPageRevisionRow | null> {
+    const workspace = await this.prisma.contentWorkspace.findFirst({
+      where: { id: input.contentWorkspaceId, organizationId: input.organizationId, status: 'active', isDeleted: false },
+      select: { currentDetailPageRevisionId: true },
+    });
+    const revisionId = input.revisionId ?? workspace?.currentDetailPageRevisionId ?? null;
+    if (!workspace || !revisionId) return null;
+    const row = await this.prisma.detailPageRevision.findFirst({
+      where: {
+        id: revisionId,
+        organizationId: input.organizationId,
+        detailPage: { organizationId: input.organizationId, contentWorkspaceId: input.contentWorkspaceId, isDeleted: false },
+      },
+      select: REVISION_SELECT,
+    });
+    return row ? toRevisionRow(row) : null;
+  }
+
   async rewriteImportedImageUrls(
     transaction: OwnerTransaction,
     input: { organizationId: string; contentWorkspaceId: string; replacements: ReadonlyMap<string, string> },
