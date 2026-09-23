@@ -4,10 +4,10 @@ import {
   type SalesProductPort,
 } from '../../../../channels/application/port/in/sales-product.port';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import type { SalesProduct } from '@kiditem/shared/sales-product';
+import type { SalesProduct, SalesProductStatus } from '@kiditem/shared/sales-product';
 import type {
+  SalesProductDraftFacts,
   SalesProductDraftPort,
-  SalesProductDraftSourceFacts,
 } from '../../../application/port/out/cross-domain/sales-product-draft.port';
 
 /** Sourcing → Channels. 초안 행은 Channels 가 쓴다; 여기서는 그 공개 계약만 부른다. */
@@ -15,31 +15,23 @@ import type {
 export class SalesProductDraftAdapter implements SalesProductDraftPort {
   constructor(@Inject(SALES_PRODUCT_PORT) private readonly salesProducts: SalesProductPort) {}
 
-  async createFromSource(
+  findForSourceRecord(
     organizationId: string,
-    input: SalesProductDraftSourceFacts,
+    sourceRecordId: string,
     transaction?: OwnerTransaction,
-  ): Promise<{ salesProductId: string }> {
-    const draft = await this.salesProducts.createFromSource(organizationId, input, transaction);
-    return { salesProductId: draft.id };
+  ): Promise<{ salesProductId: string; status: SalesProductStatus } | null> {
+    return this.salesProducts.findForSourceRecord(organizationId, sourceRecordId, transaction);
   }
 
-  findDraftIdForSource(organizationId: string, candidateId: string): Promise<string | null> {
-    return this.salesProducts.findDraftIdForSource(organizationId, candidateId);
-  }
-
-  findDraftIdsForSources(
+  async createDraft(
+    transaction: OwnerTransaction,
     organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, string>> {
-    return this.salesProducts.findDraftIdsForSources(organizationId, candidateIds);
+    facts: SalesProductDraftFacts,
+  ): Promise<{ salesProductId: string }> {
+    return { salesProductId: await this.salesProducts.createDraft(organizationId, facts, transaction) };
   }
 
   getDraft(organizationId: string, salesProductId: string): Promise<SalesProduct> {
     return this.salesProducts.get(organizationId, salesProductId);
-  }
-
-  async retireForSource(transaction: OwnerTransaction, organizationId: string, candidateId: string) {
-    return this.salesProducts.retireDraftForSource(transaction, organizationId, candidateId);
   }
 }

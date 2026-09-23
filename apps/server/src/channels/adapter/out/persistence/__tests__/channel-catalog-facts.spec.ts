@@ -25,7 +25,6 @@ describe('Channels cross-owner fact query contracts', () => {
     expect(await listings.readCatalogFacts(transaction, { organizationId, listingIds: [] })).toEqual([]);
     expect(await listings.readCatalogFacts(transaction, { organizationId, accountIds: [] })).toEqual([]);
     expect(await listings.readExternalIdentities(transaction, { organizationId, accountId: 'account', optionExternalIds: [], activeOnly: true })).toEqual([]);
-    expect(await listings.readRegisteredCandidateIds(transaction, { organizationId, candidateIds: [] })).toEqual([]);
     expect(await recipes.readConfirmedCompositions(transaction, { organizationId, optionIds: [] })).toEqual([]);
     expect(tx.channelListing.findMany).not.toHaveBeenCalled();
     expect(tx.channelListingOption.findMany).not.toHaveBeenCalled();
@@ -62,18 +61,6 @@ describe('Channels cross-owner fact query contracts', () => {
     expect(query.where).not.toHaveProperty('isActive');
     expect(query.where.channelAccount).toEqual({ organizationId: 'org' });
     expect(outside.channelListing.findMany).not.toHaveBeenCalled();
-  });
-
-  it('reads sourcing provenance only through the selling product that owns the listing', async () => {
-    const { tx, listings, transaction } = fixture();
-    tx.channelListing.findMany.mockResolvedValue([
-      { salesProduct: { organizationId: 'org', sourceCandidateId: 'common' } },
-      { salesProduct: { organizationId: 'org', sourceCandidateId: 'common' } },
-      { salesProduct: null },
-      { salesProduct: { organizationId: 'other-org', sourceCandidateId: 'foreign' } },
-    ] as never);
-    expect(await listings.readRegisteredCandidateIds(transaction, { organizationId: 'org' })).toEqual(['common']);
-    expect(await listings.readRegisteredCandidateIds(transaction, { organizationId: 'org', candidateIds: ['common'] })).toEqual(['common']);
   });
 
   it('locks only the requested active organization owner and rejects a missing owner', async () => {

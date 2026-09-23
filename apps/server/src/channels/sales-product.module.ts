@@ -40,6 +40,9 @@ import { SalesProductWorkspaceArchiveAdapter } from './adapter/out/repository/sa
 import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from './application/port/out/ai/sales-product-workspace-archive.port';
 import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/sales-product-thumbnail-source.port';
 import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-product-thumbnail-source.adapter';
+import { SourcingSourceRecordModule } from '../sourcing/sourcing-source-record.module';
+import { SourceRecordAdapter } from './adapter/out/sourcing/source-record.adapter';
+import { CHANNEL_SOURCE_RECORD_PORT } from './application/port/out/sourcing/source-record.port';
 
 /**
  * 판매상품 · 단품(ADR-0020). 몰에 보낼 상품을 한 번 편집하는 등록용 정의이고, 재고 · ABC 는 건드리지 않는다.
@@ -50,7 +53,8 @@ import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-produ
 @Module({
   // AI 는 판매상품 초안을 읽고(작업공간 소유자 확인) Channels 는 초안을 내릴 때 AI 작업공간을
   // 보관한다 — 두 owner 가 서로의 공개 계약만 부르는 양방향 의존이라 forwardRef 로 푼다.
-  imports: [ProductCollectionRuntimeModule, ChannelCatalogModule, forwardRef(() => AiModule)],
+  // 초안을 지우면 그 원본 기록도 함께 지운다(KID-313) — 원본 기록 owner 는 Prisma 만 가져오는 작은 모듈이다.
+  imports: [ProductCollectionRuntimeModule, ChannelCatalogModule, forwardRef(() => AiModule), SourcingSourceRecordModule],
   controllers: [SalesProductController, RegistrationTargetController],
   providers: [
     { provide: SALES_PRODUCT_COUPANG_CATALOG_PORT, useExisting: SalesProductCoupangCatalogService },
@@ -72,6 +76,8 @@ import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-produ
     SalesProductWorkspaceArchiveAdapter,
     { provide: SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT, useExisting: SalesProductWorkspaceArchiveAdapter },
     SalesProductThumbnailSourceAdapter,
+    SourceRecordAdapter,
+    { provide: CHANNEL_SOURCE_RECORD_PORT, useExisting: SourceRecordAdapter },
     { provide: SALES_PRODUCT_THUMBNAIL_SOURCE_PORT, useExisting: SalesProductThumbnailSourceAdapter },
     { provide: SalesProductUseCase, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductUseCase>) => new SalesProductUseCase(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT, SALES_PRODUCT_THUMBNAIL_SOURCE_PORT] },
     { provide: SALES_PRODUCT_PORT, useExisting: SalesProductUseCase },

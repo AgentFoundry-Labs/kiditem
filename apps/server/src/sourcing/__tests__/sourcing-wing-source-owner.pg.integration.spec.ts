@@ -1,3 +1,4 @@
+import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -27,7 +28,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     await prisma.$connect();
     const service = new SourcingWingCatalogIngestService(
       new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-        new SourceFailureAlerts(prisma as never)),
+        new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort),
       new SourcingRecommendationSourceRepositoryAdapter(prisma as never),
     );
     controller = new SourcingWorkspaceController(undefined as never, service,

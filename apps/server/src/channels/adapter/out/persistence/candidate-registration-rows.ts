@@ -21,7 +21,7 @@ export const ACTIVE_PREPARATION_STATUSES = ['draft', 'submitting', 'failed'] as 
 export interface ConfirmedSalesProduct {
   id: string;
   name: string;
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   options: { id: string; salePrice: number }[];
 }
 
@@ -52,7 +52,7 @@ export async function requireConfirmedSalesProduct(
   const product = await tx.salesProduct.findFirstOrThrow({
     where: { id: salesProductId, organizationId },
     select: {
-      id: true, name: true, status: true, sourceCandidateId: true,
+      id: true, name: true, status: true, sourceRecordId: true,
       options: { where: { supplyStatus: { not: 'unused' } },
         orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
         select: { id: true, salePrice: true, supplyStatus: true } },
@@ -62,7 +62,7 @@ export async function requireConfirmedSalesProduct(
     return {
       id: product.id,
       name: product.name,
-      sourceCandidateId: product.sourceCandidateId,
+      sourceRecordId: product.sourceRecordId,
       options: requireConfirmedPrice({
         name: product.name,
         status: product.status as SalesProductStatus,
@@ -83,10 +83,10 @@ export async function requireConfirmedSalesProduct(
 export async function requireConfirmedProductForCandidate(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  sourceCandidateId: string,
+  sourceRecordId: string,
 ): Promise<ConfirmedSalesProduct> {
   const product = await tx.salesProduct.findFirst({
-    where: { organizationId, sourceCandidateId },
+    where: { organizationId, sourceRecordId },
     select: { id: true },
   });
   if (!product) {

@@ -13,7 +13,6 @@ import { ChannelActivityAdapter } from './adapter/out/alerts/channel-activity.ad
 import { CHANNEL_ACTIVITY_PORT } from './application/port/out/alerts/channel-activity.port';
 import { CATALOG_DISPLAY_MEDIA_PORT } from '../content/application/port/in/workspace/catalog-display-media.port';
 import { PRODUCT_AVAILABILITY_PORT } from '../products/application/port/in/product-availability.port';
-import { SourcingRegistrationSourceModule } from '../sourcing/sourcing-registration-source.module';
 import { ChannelsDocumentsAdapter } from './adapter/out/documents/channel-documents.adapter';
 import { CHANNEL_DOCUMENTS_PORT } from './application/port/out/documents/channel-documents.port';
 import { ListingContentAdapter } from './adapter/out/content/listing-content.adapter';
@@ -113,7 +112,7 @@ import { WING_THUMBNAIL_RUNNER_PORT } from './application/port/out/automation/wi
 import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/content/registrable-thumbnail.port';
 
 @Module({
-  imports: [SourcingRegistrationSourceModule, AiListingContentQueryModule, ChannelCatalogModule, SalesProductModule,
+  imports: [AiListingContentQueryModule, ChannelCatalogModule, SalesProductModule,
     AiModule,
     InventoryModule,
     ProductCollectionRuntimeModule,

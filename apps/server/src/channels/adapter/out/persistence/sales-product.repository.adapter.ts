@@ -1215,44 +1215,17 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return written;
   }
 
-  async findIdBySourceCandidate(
+  async findForSourceRecord(
     organizationId: string,
-    candidateId: string,
+    sourceRecordId: string,
     transaction?: OwnerTransaction,
-  ): Promise<string | null> {
+  ): Promise<{ salesProductId: string; status: SalesProductStatus } | null> {
     const client = transaction ? ownerTransactionClient(transaction) as Tx : this.prisma;
     const row = await client.salesProduct.findFirst({
-      where: { organizationId, sourceRecordId: candidateId },
-      select: { id: true },
+      where: { organizationId, sourceRecordId },
+      select: { id: true, status: true },
     });
-    return row?.id ?? null;
-  }
-
-  async findIdsBySourceCandidates(
-    organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, string>> {
-    const ids = [...new Set(candidateIds.filter(Boolean))];
-    if (ids.length === 0) return new Map();
-    const rows = await this.prisma.salesProduct.findMany({
-      where: { organizationId, sourceRecordId: { in: ids } },
-      select: { id: true, sourceRecordId: true },
-    });
-    return new Map(rows.flatMap((row) => (row.sourceRecordId ? [[row.sourceRecordId, row.id] as const] : [])));
-  }
-
-  /**
-   * 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다.
-   *
-   * 몰에 올라가 있거나(활성 몰 상품) 살아 있는 등록 실행이 있으면 내리지 않는다 — 몰에 있는
-   * 상품의 기준을 잃으면 수정 보내기 · 품절을 어디에 걸지 모른다. 그래도 후보 거절은 막지 않는다.
-   */
-  async retireDraftForSource(
-    transaction: OwnerTransaction,
-    organizationId: string,
-    candidateId: string,
-  ): Promise<SalesProductDraftRetireRow> {
-    return retireDraftWhere(ownerTransactionClient(transaction) as Tx, organizationId, { sourceRecordId: candidateId });
+    return row ? { salesProductId: row.id, status: row.status as SalesProductStatus } : null;
   }
 
   async retireDraft(
@@ -2012,7 +1985,7 @@ async function readMasterProductCodesInTransaction(
 async function retireDraftWhere(
   tx: Tx,
   organizationId: string,
-  identity: { sourceRecordId: string } | { id: string },
+  identity: { id: string },
 ): Promise<SalesProductDraftRetireRow> {
   const product = await tx.salesProduct.findFirst({
     where: { organizationId, ...identity },

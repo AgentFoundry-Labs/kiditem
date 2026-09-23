@@ -29,7 +29,7 @@ export class SetSourcingCollectionSourceEnabledDto {
 export class CreateLaunchCandidateDto {
   @IsOptional()
   @IsUUID()
-  sourceCandidateId?: string | null;
+  sourceRecordId?: string | null;
 
   @IsUUID()
   supplierOfferSkuSnapshotId!: string;

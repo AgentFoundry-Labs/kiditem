@@ -11,12 +11,13 @@ export function normalizeSourcingVariantKey(value: unknown): string {
 }
 
 /**
- * One Sourcing-owned canonical candidate identity across every ingress.
+ * One Sourcing-owned canonical source-record identity across every ingress (KID-313: the
+ * `(organization, platform, identity)` key is unique, so the same source is never collected twice).
  * Alibaba product IDs are collector provenance, not a stable supplier identity;
  * Alibaba therefore uses its already-normalized supplier URL.  1688 has a
  * canonical offer ID, with that same safe URL only as a fallback when absent.
  */
-export function canonicalSourcingCandidateIdentity(input: {
+export function canonicalSourceRecordIdentity(input: {
   sourcePlatform: string;
   sourceUrl: string;
   /** Parsed from the normalized supplier URL; raw provider IDs remain provenance only. */
@@ -42,23 +43,22 @@ export function canonicalSourcingCandidateIdentity(input: {
     .digest('hex');
 }
 
-/** Canonical supplier URL used only for a durable candidate identity/lock. */
+/** Canonical supplier URL used only for a durable source-record identity/lock. */
 export function canonicalSupplierIdentityUrl(sourceUrl: string): string {
-  if (!sourceUrl.trim()) throw new TypeError('sourcing_candidate_identity_source_url_required');
+  if (!sourceUrl.trim()) throw new TypeError('source_record_identity_source_url_required');
   return parseAllowedSupplierUrl(sourceUrl).normalizedUrl;
 }
 
-/** Shared transaction-lock coordinate for every canonical candidate writer. */
-export function sourcingCandidateIdentityLockKey(input: {
+/** Shared transaction-lock coordinate for every source-record writer (admission and its deletion). */
+export function sourceRecordIdentityLockKey(input: {
   organizationId: string;
   sourcePlatform: string;
-  sourceIdentityHash?: string | null;
-  sourceUrl: string;
+  sourceIdentityHash: string;
 }): string {
   return [
     'sourcing-source-identity',
     input.organizationId,
     input.sourcePlatform,
-    input.sourceIdentityHash ?? input.sourceUrl,
+    input.sourceIdentityHash,
   ].join(':');
 }

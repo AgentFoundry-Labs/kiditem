@@ -5,43 +5,49 @@ import {
   type SourcingFinalDiscoveryCapabilityPort,
 } from '../../../application/port/in/capability/sourcing-final-discovery-capability.port';
 import {
-  SOURCING_CANDIDATE_REPOSITORY_PORT,
-  type SourcingCandidateRepositoryPort,
-} from '../../../application/port/out/repository/sourcing-candidate.repository.port';
+  SOURCE_RECORD_REPOSITORY_PORT,
+  type SourceRecordRepositoryPort,
+} from '../../../application/port/out/repository/source-record.repository.port';
+import {
+  SALES_PRODUCT_DRAFT_PORT,
+  type SalesProductDraftPort,
+} from '../../../application/port/out/cross-domain/sales-product-draft.port';
 import {
   SOURCING_BROWSER_SCRAPE_PORT,
   type SourcingBrowserScrapePort,
 } from '../../../application/port/out/runtime/sourcing-browser-scrape.port';
 import { extractSupplierOfferId, parseAllowedSupplierUrl } from '../../../domain/supplier-source-url-policy';
 import {
-  canonicalSourcingCandidateIdentity,
+  canonicalSourceRecordIdentity,
   normalizeSourcingVariantKey,
-} from '../../../domain/sourcing-candidate-identity';
+} from '../../../domain/source-record-identity';
 import type { SourcingSourceSnapshot } from '../../../application/port/in/capability/sourcing-final-capability.port';
-import { SourcingCollectedDraftService } from '../../../application/service/sourcing-collected-draft.service';
+import { refusalForSourceUrl } from '../../../application/service/source-record-refusal';
 
 /** Owner bridge for final discovery capabilities; raw browser records never cross this boundary. */
 @Injectable()
 export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDiscoveryCapabilityPort {
   constructor(
-    @Inject(SOURCING_CANDIDATE_REPOSITORY_PORT)
-    private readonly candidates: SourcingCandidateRepositoryPort,
+    @Inject(SOURCE_RECORD_REPOSITORY_PORT)
+    private readonly records: SourceRecordRepositoryPort,
     @Inject(SOURCING_BROWSER_SCRAPE_PORT)
     private readonly browser: SourcingBrowserScrapePort,
-    private readonly collectedDrafts: SourcingCollectedDraftService,
+    @Inject(SALES_PRODUCT_DRAFT_PORT)
+    private readonly drafts: SalesProductDraftPort,
   ) {}
 
-  /** 이미 수집한 URL 이면 그 원천 기록과, 운영자가 여는 판매상품 초안을 함께 알린다. */
+  /**
+   * 이미 수집한 URL 이면 그 원본 기록과, 운영자가 여는 초안 · 판매 상품을 함께 알린다. 결정은 입장과
+   * 같은 규칙이다(KID-313). Agent 계약의 `candidateId` 는 원본 기록 id 다.
+   */
   async duplicateCheck(input: { organizationId: string; sourceUrl: string }) {
     const supplier = parseAllowedSupplierUrl(input.sourceUrl);
-    const existing = await this.candidates.findActiveBySourceUrl({
-      organizationId: input.organizationId,
-      sourceUrl: supplier.normalizedUrl,
-    });
-    const salesProductId = existing
-      ? (await this.collectedDrafts.findDraftIds(input.organizationId, [existing.id])).get(existing.id) ?? null
-      : null;
-    return { duplicate: Boolean(existing), candidateId: existing?.id ?? null, salesProductId };
+    const refusal = await refusalForSourceUrl(this.records, this.drafts, input.organizationId, supplier.normalizedUrl);
+    return {
+      duplicate: refusal !== null,
+      candidateId: refusal?.existing.sourceRecordId ?? null,
+      salesProductId: refusal?.existing.salesProductId ?? null,
+    };
   }
 
   async scrapeProductUrl(input: { sourceUrl: string }): Promise<SourcingSourceSnapshot> {
@@ -85,21 +91,23 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
     const variantKeyNormalized = normalizeSourcingVariantKey(
       input.snapshot.variantKeyNormalized,
     );
-    const receipt = await this.candidates.upsertSourcedWithIdempotencyReceipt({
+    const admitted = await this.records.admitOnce({
+      organizationId: input.organizationId,
       capabilityKey: 'sourcing.ingestCandidate',
+      idempotencyKey: input.idempotencyKey,
       requestHash: input.requestHash,
+    }, {
       organizationId: input.organizationId,
       sourceUrl: supplier.normalizedUrl,
       sourcePlatform: platform,
       externalOfferId,
       variantKeyNormalized,
-      sourceIdentityHash: canonicalSourcingCandidateIdentity({
+      sourceIdentityHash: canonicalSourceRecordIdentity({
         sourcePlatform: platform,
         sourceUrl: supplier.normalizedUrl,
         validatedExternalOfferId: externalOfferId,
         variantKeyNormalized,
       }),
-      idempotencyKey: input.idempotencyKey,
       rawData: {
         source: 'agent_final_scrape',
         contentHash: input.snapshot.contentHash,
@@ -113,10 +121,9 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
       costCny: input.snapshot.price,
       triggeredByUserId: input.initiatingUserId,
       images: input.snapshot.images.map((url, sortOrder) => ({ url, role: 'product', label: null, sortOrder, source: 'agent-final-scrape', isPrimary: sortOrder === 0 })),
-    });
-    // 수집한 상품의 편집 정본은 초안이다. 재시도에서도 같은 초안을 돌려준다(초안 보장은 멱등).
-    const drafts = await this.collectedDrafts.ensureDraftsForCandidates(input.organizationId, [receipt.candidateId]);
-    return { candidateId: receipt.candidateId, salesProductId: drafts.get(receipt.candidateId) ?? null };
+    }, this.drafts);
+    // 원본 기록과 그 초안은 한 커밋이다. 재시도(같은 키 · 같은 요청)는 처음 결과를 돌려준다.
+    return { candidateId: admitted.sourceRecordId, salesProductId: admitted.salesProductId };
   }
 }
 

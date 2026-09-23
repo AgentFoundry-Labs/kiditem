@@ -29,7 +29,7 @@ async function seedDraft(prisma: PrismaClient, sourceUrl: string, name: string) 
     data: { organizationId: TEST_ORGANIZATION_ID, sourceUrl, sourcePlatform: 'test', name },
   });
   return prisma.salesProduct.create({
-    data: { organizationId: TEST_ORGANIZATION_ID, name, sourceCandidateId: candidate.id },
+    data: { organizationId: TEST_ORGANIZATION_ID, name, sourceRecordId: candidate.id },
   });
 }
 

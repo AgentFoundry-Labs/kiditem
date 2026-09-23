@@ -59,7 +59,7 @@ describe('ChannelListingDeletionOperation (PG integration)', () => {
       },
     });
     const draft = await prisma.salesProduct.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, name: 'Test product', sourceCandidateId: candidate.id },
+      data: { organizationId: TEST_ORGANIZATION_ID, name: 'Test product', sourceRecordId: candidate.id },
     });
     listingId = (
       await prisma.channelListing.create({

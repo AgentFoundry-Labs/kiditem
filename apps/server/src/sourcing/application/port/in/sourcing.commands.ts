@@ -1,32 +1,3 @@
-export interface ReceiveExtensionDataInput extends Record<string, unknown> {
-  page_type?: 'detail' | 'description' | 'search' | string;
-  source_url?: string;
-  source_platform?: string;
-  title?: string;
-  description?: string;
-  description_text?: string;
-  images?: string[];
-  description_images?: string[];
-  detail_images?: string[];
-  category_name?: string;
-  tags?: string[];
-  price?: number | string;
-  price_min?: number | string;
-  price_max?: number | string;
-  priceRange?: string;
-  offer?: Record<string, unknown>;
-  skuProps?: unknown[];
-  priceRanges?: unknown[];
-  moq?: number | string;
-  supplier_name?: string;
-  product_id?: string;
-  specs?: Array<{ key?: string; value?: string }>;
-  sku_attrs?: unknown[];
-  sku_list?: unknown[];
-  price_tiers?: unknown[];
-  total_found?: number;
-}
-
 export interface RegisterManualProductCommand {
   title: string;
   category?: string;
@@ -73,22 +44,4 @@ export interface CreateProductGenerationCommand extends RegisterManualProductCom
   templateId?: 'kids-playful' | 'bold-vertical';
   detailImageCount?: '2' | '3' | '4' | '5' | '6';
   usageSectionMode?: 'include' | 'exclude';
-}
-
-export interface PromoteCandidateCommand {
-  options: Array<{
-    optionName: string;
-    legacyCode?: string;
-    barcode?: string;
-  }>;
-  selectedThumbnailUrl?: string;
-  selectedThumbnailGenerationCandidateId?: string;
-  selectedDetailPageGenerationId?: string;
-  selectedDetailPageArtifactId?: string;
-  selectedDetailPageRevisionId?: string;
-  skipPostPromotionHooks?: boolean;
-}
-
-export interface RejectCandidateCommand {
-  reason?: string;
 }

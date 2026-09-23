@@ -794,9 +794,9 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     const [left, right] = await Promise.all([draft(), draft()]);
 
     expect(new Set([left.id, right.id]).size).toBe(1);
-    expect(await prisma.salesProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId } }))
+    expect(await prisma.salesProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID, sourceRecordId: candidateId } }))
       .toBe(1);
-    const row = await prisma.salesProduct.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId } });
+    const row = await prisma.salesProduct.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID, sourceRecordId: candidateId } });
     expect(row).toMatchObject({ status: 'draft', description: '수집한 설명', sourcePlatform: '1688' });
     const options = await prisma.salesProductOption.findMany({ where: { salesProductId: row.id } });
     expect(options.map((option) => option.salePrice)).toEqual([null]);
@@ -848,7 +848,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
 
     expect(left.id).toBe(right.id);
     expect(await prisma.salesProduct.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, sourceCandidateId: candidateId },
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceRecordId: candidateId },
     })).toBe(1);
     expect(await prisma.salesProductOption.count({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: left.id },

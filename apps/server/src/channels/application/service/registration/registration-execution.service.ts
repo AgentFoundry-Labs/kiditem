@@ -140,13 +140,6 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
     return this.executions.reportTarget({ organizationId, executionId, requestedByUserId: userId, report: input });
   }
 
-  cancelUnstartedExecutions(
-    tx: ChannelsRepositoryTransaction,
-    input: { organizationId: string; sourceCandidateId: string; cancelledAt: Date },
-  ): Promise<number> {
-    return this.executions.cancelUnstartedExecutions(tx, input);
-  }
-
   async prepareWingRegistration(
     organizationId: string,
     salesProductId: string,

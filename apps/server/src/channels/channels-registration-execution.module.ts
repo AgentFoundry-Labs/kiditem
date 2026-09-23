@@ -13,7 +13,7 @@ import { SalesProductModule } from './sales-product.module';
 import { ChannelCatalogModule } from './channel-catalog.module';
 import { RegistrationTargetExecutionController } from './adapter/in/web/registration-target-execution.controller';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SourcingRegistrationSourceModule } from '../sourcing/sourcing-registration-source.module';
+import { AiModule } from '../content/ai.module';
 import { ChannelsModule } from './channels.module';
 import { ChannelRegistrationExecutionController } from './adapter/in/web/channel-registration-execution.controller';
 import { RegistrationExecutionRepositoryAdapter } from './adapter/out/repository/registration-execution.repository.adapter';
@@ -36,7 +36,7 @@ import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/s
  * 합쳤다 — 등록 실행 서비스가 이미 그 모듈을 가져왔었다.
  */
 @Module({
-  imports: [ProductCollectionRuntimeModule, PrismaModule, ChannelsModule, SourcingRegistrationSourceModule, SalesProductModule, ChannelCatalogModule],
+  imports: [ProductCollectionRuntimeModule, PrismaModule, ChannelsModule, AiModule, SalesProductModule, ChannelCatalogModule],
   controllers: [StockoutCheckController, ChannelRegistrationExecutionController, RegistrationTargetExecutionController],
   providers: [
     StockoutCheckPersistenceAdapter,

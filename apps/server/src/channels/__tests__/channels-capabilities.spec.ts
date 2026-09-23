@@ -42,7 +42,7 @@ describe("Channels final capability definitions", () => {
     ).toBe(true);
 
     for (const [field, value] of Object.entries({
-      sourceCandidateId: "00000000-0000-4000-8000-000000000013",
+      sourceRecordId: "00000000-0000-4000-8000-000000000013",
       channelAccountId: "00000000-0000-4000-8000-000000000014",
       submissionKey: "submission-key",
       submissionPayloadHash: "b".repeat(64),

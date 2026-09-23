@@ -34,8 +34,9 @@ content capability.
 - Channels owns each option's complete `ChannelListingOptionInventoryComponent`
   recipe, keyed by MasterProduct UUID and positive quantity. Products owns
   physical `MasterProduct.currentStock`; Channels never mutates it (ADR-0017).
-- Registration provenance lives on `SalesProduct.sourceCandidateId` and is immutable.
-  A listing and a registration target reach their source through that selling product.
+- Source provenance lives on `SalesProduct.sourceRecordId` and is immutable.
+  A listing and a registration target reach their source through that selling product;
+  source facts are read through Sourcing's `SourceRecordPort`.
 
 The model authority is
 [prisma/models/channels.prisma](../../../../prisma/models/channels.prisma);
@@ -48,7 +49,7 @@ sync, registration, matching, and capacity behavior is executable in
   (`ProductRegistrationExecution`), which opens the transaction, writes the
   execution row itself. The fence identity is
   `{organizationId, salesProductId, channelAccountId}`: a collected product and a
-  directly authored one enter the same door, and `SalesProduct.sourceCandidateId`
+  directly authored one enter the same door, and `SalesProduct.sourceRecordId`
   is provenance the execution history keeps, never a key (ADR-0022). Channels also owns reusable registration targets:
   successful execution does not close the target, and new intent creates a new
   frozen execution. A form fill without submission returns only the

@@ -90,7 +90,7 @@ function toServerFrozenRegistration(
   return {
     executionId: frozen.executionId,
     preparationId: frozen.preparationId,
-    sourceCandidateId: frozen.sourceCandidateId,
+    sourceRecordId: frozen.sourceRecordId,
     salesProductId: frozen.salesProductId,
     channelAccountId: frozen.channelAccountId,
     submissionKey: frozen.submissionKey,

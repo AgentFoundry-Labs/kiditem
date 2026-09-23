@@ -19,7 +19,7 @@ interface Row {
   name: string;
   imageUrls: string[];
   description: string;
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   sourcePlatform: string | null;
   sourceUrl: string | null;
   sourceRaw: Record<string, unknown> | null;
@@ -46,17 +46,17 @@ function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {
     findInvalidMasterProductIds: async () => [],
     listCodesWithPrefix: async () => [],
     findIdBySourceCandidate: async (_org: string, candidateId: string) =>
-      rows.find((row) => row.sourceCandidateId === candidateId)?.id ?? null,
+      rows.find((row) => row.sourceRecordId === candidateId)?.id ?? null,
     get: async (_org: string, id: string) => {
       const row = rows.find((candidate) => candidate.id === id);
       return row ? (row as unknown as SalesProduct) : null;
     },
     create: async (_org: string, record: SalesProductCreateRecord, plan: SalesProductOptionReplacementPlan) => {
       plans.push(plan);
-      if (record.sourceCandidateId === options.raceOn) {
+      if (record.sourceRecordId === options.raceOn) {
         rows.push({
           id: 'raced', code: 'KID00009999', version: 1, status: 'draft', name: record.name,
-          imageUrls: [], description: '', sourceCandidateId: options.raceOn!, sourcePlatform: null,
+          imageUrls: [], description: '', sourceRecordId: options.raceOn!, sourcePlatform: null,
           sourceUrl: null, sourceRaw: null, optionAxes: [], options: [],
         });
         throw new Error('unique violation');
@@ -70,7 +70,7 @@ function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {
         name: record.name,
         imageUrls: record.imageUrls,
         description: record.description,
-        sourceCandidateId: record.sourceCandidateId ?? null,
+        sourceRecordId: record.sourceRecordId ?? null,
         sourcePlatform: record.sourcePlatform ?? null,
         sourceUrl: record.sourceUrl ?? null,
         sourceRaw: record.sourceRaw,
@@ -109,7 +109,7 @@ function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {
       return true;
     },
     retireDraftForSource: async (_tx: unknown, _org: string, candidateId: string) => {
-      const row = rows.find((candidate) => candidate.sourceCandidateId === candidateId);
+      const row = rows.find((candidate) => candidate.sourceRecordId === candidateId);
       if (!row) return { salesProductId: null, retired: false, activeListingCount: 0, activeExecutionCount: 0 };
       if (row.name === '몰에 올라간 상품') {
         return { salesProductId: row.id, retired: false, activeListingCount: 1, activeExecutionCount: 0 };
@@ -145,7 +145,7 @@ describe('SalesProductUseCase.createFromSource', () => {
       status: 'draft',
       name: '비눗방울총',
       description: '수집한 설명',
-      sourceCandidateId: CANDIDATE,
+      sourceRecordId: CANDIDATE,
       sourcePlatform: '1688',
       sourceUrl: 'https://detail.1688.com/offer/1.html',
       optionAxes: [],

@@ -101,7 +101,7 @@ describe('registration execution fence (PG integration)', () => {
       data: {
         id: SALES_PRODUCT_ID,
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
+        sourceRecordId: candidateId,
         code: 'CANDIDATE-REGISTRATION-FENCE',
         name: 'Kids rain boots',
       },
@@ -686,7 +686,7 @@ describe('registration execution fence (PG integration)', () => {
         ownerTransaction(transaction),
         {
           organizationId: TEST_ORGANIZATION_ID,
-          sourceCandidateId: candidateId,
+          sourceRecordId: candidateId,
         },
       );
     });
@@ -729,13 +729,13 @@ describe('registration execution fence (PG integration)', () => {
         ownerTx,
         {
           organizationId: TEST_ORGANIZATION_ID,
-          sourceCandidateId: candidateId,
+          sourceRecordId: candidateId,
           cancelledAt,
         },
       );
       await drafts.assertCandidateTerminalTransitionAllowed(ownerTx, {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
+        sourceRecordId: candidateId,
       });
       return count;
     });
@@ -778,14 +778,14 @@ describe('registration execution fence (PG integration)', () => {
         ownerTx,
         {
           organizationId: TEST_ORGANIZATION_ID,
-          sourceCandidateId: candidateId,
+          sourceRecordId: candidateId,
           cancelledAt: new Date('2026-07-30T12:00:00.000Z'),
         },
       );
       expect(cancelled).toBe(0);
       return drafts.assertCandidateTerminalTransitionAllowed(ownerTx, {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
+        sourceRecordId: candidateId,
       });
     })).rejects.toBeInstanceOf(ConflictException);
 
@@ -934,7 +934,7 @@ describe('registration execution fence (PG integration)', () => {
     );
     expect(frozen).toMatchObject({
       salesProductId: DIRECT_SALES_PRODUCT_ID,
-      sourceCandidateId: null,
+      sourceRecordId: null,
     });
 
     await repository.recordProviderResult(
@@ -954,7 +954,7 @@ describe('registration execution fence (PG integration)', () => {
     await expect(candidateRepository.runInTransaction(async (_transaction, ownerTx) =>
       repository.cancelUnstartedExecutions(ownerTx, {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
+        sourceRecordId: candidateId,
         cancelledAt: new Date('2026-07-30T12:00:00.000Z'),
       }))).resolves.toBe(0);
   });
@@ -981,7 +981,7 @@ describe('registration execution fence (PG integration)', () => {
       TEST_ORGANIZATION_ID, prepared.preparationId, prepared.executionId,
     )).resolves.toMatchObject({
       salesProductId: SALES_PRODUCT_ID,
-      sourceCandidateId: candidateId,
+      sourceRecordId: candidateId,
     });
 
     // 그래도 거절된 원천으로 새 준비를 열지는 않는다.

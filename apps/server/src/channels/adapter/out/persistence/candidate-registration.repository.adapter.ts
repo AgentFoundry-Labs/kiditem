@@ -8,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { Prisma, type RegistrationTarget } from '@prisma/client';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
-import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../../sourcing/application/port/in/registration-source.port';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type RegistrationContentWorkspacePort,
@@ -58,7 +57,6 @@ export class ProductPreparationRepositoryAdapter
   implements CandidateRegistrationPort
 {
   constructor(private readonly prisma: PrismaService,
-    @Inject(REGISTRATION_SOURCE_PORT) private readonly source: RegistrationSourcePort,
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly contentWorkspaces: RegistrationContentWorkspacePort,
     @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
@@ -94,13 +92,13 @@ export class ProductPreparationRepositoryAdapter
 
     // 후보 → 초안(판매상품). owner 를 넘는 조인이 아니라 Channels 안의 조인이다.
     const drafts = await this.prisma.salesProduct.findMany({
-      where: { organizationId, sourceCandidateId: { in: ids } },
-      select: { id: true, sourceCandidateId: true },
+      where: { organizationId, sourceRecordId: { in: ids } },
+      select: { id: true, sourceRecordId: true },
     });
     const byProduct = await this.readForSalesProducts(organizationId, drafts.map((draft) => draft.id));
     for (const draft of drafts) {
       const registration = byProduct.get(draft.id);
-      if (draft.sourceCandidateId && registration) result.set(draft.sourceCandidateId, registration);
+      if (draft.sourceRecordId && registration) result.set(draft.sourceRecordId, registration);
     }
     return result;
   }
@@ -118,9 +116,9 @@ export class ProductPreparationRepositoryAdapter
 
     const drafts = await this.prisma.salesProduct.findMany({
       where: { organizationId, id: { in: ids } },
-      select: { id: true, sourceCandidateId: true },
+      select: { id: true, sourceRecordId: true },
     });
-    const candidateByProduct = new Map(drafts.map((draft) => [draft.id, draft.sourceCandidateId]));
+    const candidateByProduct = new Map(drafts.map((draft) => [draft.id, draft.sourceRecordId]));
     for (const draft of drafts) result.set(draft.id, { preparations: [], registrationState: 'none' });
     if (candidateByProduct.size === 0) return result;
     const targetRows = await this.prisma.registrationTarget.findMany({
@@ -182,7 +180,7 @@ export class ProductPreparationRepositoryAdapter
       product.preparations.push({
         id: row.id,
         salesProductId: row.salesProductId,
-        sourceCandidateId: candidateByProduct.get(row.salesProductId) ?? null,
+        sourceRecordId: candidateByProduct.get(row.salesProductId) ?? null,
         channelAccountId: row.channelAccountId,
         channelListingId: execution?.channelListingId ?? null,
         displayName: row.displayName,
@@ -206,13 +204,13 @@ export class ProductPreparationRepositoryAdapter
 
   async assertCandidateTerminalTransitionAllowed(
     transaction: OwnerTransaction,
-    input: { organizationId: string; sourceCandidateId: string },
+    input: { organizationId: string; sourceRecordId: string },
   ): Promise<void> {
     const tx = ownerTransactionClient(transaction);
     const preparations = await tx.registrationTarget.findMany({
       where: {
         organizationId: input.organizationId,
-        salesProduct: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId },
+        salesProduct: { organizationId: input.organizationId, sourceRecordId: input.sourceRecordId },
         archivedAt: null,
       },
       select: {

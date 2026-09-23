@@ -28,7 +28,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
         displayName: true,
         channelName: true,
         channelAccountId: true,
-        salesProduct: { select: { sourceCandidateId: true } },
+        salesProduct: { select: { sourceRecordId: true } },
         isActive: true,
         channelAccount: { select: { channel: true } },
       },
@@ -40,7 +40,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
       displayName: row.displayName ?? row.channelName,
       channel: row.channelAccount.channel,
       channelAccountId: row.channelAccountId,
-      sourceCandidateId: row.salesProduct?.sourceCandidateId ?? null,
+      sourceRecordId: row.salesProduct?.sourceRecordId ?? null,
       isActive: row.isActive,
     };
   }

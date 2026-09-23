@@ -27,7 +27,7 @@ export interface FrozenRegistrationSubmission {
   /** 등록 설정의 주인(판매상품 초안). */
   salesProductId: string;
   /** 그 초안을 만든 원천 기록. 직접 만든 상품이면 null. */
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   channelAccountId: string;
   /** AI 콘텐츠 작업공간. 등록 설정 줄에 저장하지 않는다. */
   sourceContentWorkspaceId: string | null;
@@ -107,19 +107,6 @@ export interface RegistrationExecutionRepositoryPort {
   listTarget(input: { organizationId: string; targetId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult[]>;
   getTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult>;
   reportTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null; report: ReportTargetExecutionInput }): Promise<TargetExecutionResult>;
-
-  /**
-   * 후보 삭제 준비. 제출 흔적이 전혀 없는 외부 등록 의사만 취소한다.
-   * 호출자(Sourcing)의 트랜잭션에서 실행되어 후보 종료와 함께 커밋된다.
-   */
-  cancelUnstartedExecutions(
-    tx: ChannelsRepositoryTransaction,
-    input: {
-      organizationId: string;
-      sourceCandidateId: string;
-      cancelledAt: Date;
-    },
-  ): Promise<number>;
 
   prepare(
     input: PrepareRegistrationExecutionInput,

@@ -1584,7 +1584,7 @@ async function createFixture(
       boxSetQuantity: null,
       registrationDefaults: null,
       kcStatus: 'unknown' as const,
-      sourceCandidateId: null,
+      sourceRecordId: null,
       name: '공통 상품',
       shortName: null,
       englishName: null,

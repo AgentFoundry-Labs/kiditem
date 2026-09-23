@@ -27,7 +27,7 @@ function frozenSubmission(
     executionId: 'execution-1',
     preparationId: PREPARATION_ID,
     salesProductId: SALES_PRODUCT_ID,
-    sourceCandidateId: CANDIDATE_ID,
+    sourceRecordId: CANDIDATE_ID,
     channelAccountId: ACCOUNT_ID,
     sourceContentWorkspaceId: WORKSPACE_ID,
     displayName: 'Kids rain boots',
@@ -176,10 +176,10 @@ describe('RegistrationExecutionService', () => {
     const { service, executions, drafts } = setup({
       executions: {
         loadFrozenSubmission: vi.fn().mockResolvedValue(
-          frozenSubmission({ sourceCandidateId: null, sourceContentWorkspaceId: null }),
+          frozenSubmission({ sourceRecordId: null, sourceContentWorkspaceId: null }),
         ),
         recordProviderResult: vi.fn().mockResolvedValue(
-          frozenSubmission({ sourceCandidateId: null, providerOutcome: 'succeeded' }),
+          frozenSubmission({ sourceRecordId: null, providerOutcome: 'succeeded' }),
         ),
       },
     });

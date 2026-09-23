@@ -51,7 +51,7 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
     ];
     const prisma = {
       salesProduct: {
-        findMany: vi.fn().mockResolvedValue([{ id: 'draft-1', sourceCandidateId: 'candidate-1' }]),
+        findMany: vi.fn().mockResolvedValue([{ id: 'draft-1', sourceRecordId: 'candidate-1' }]),
       },
       registrationTarget: {
         findMany: vi.fn().mockResolvedValue(preparationRows),
@@ -74,7 +74,7 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
     const candidate = result.get('candidate-1');
 
     expect(prisma.salesProduct.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { organizationId: 'org-1', sourceCandidateId: { in: ['candidate-1'] } },
+      where: { organizationId: 'org-1', sourceRecordId: { in: ['candidate-1'] } },
     }));
     expect(prisma.registrationTarget.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: {
@@ -93,7 +93,7 @@ describe('ProductPreparationRepositoryAdapter candidate reads', () => {
     expect(candidate?.preparations[0]).toMatchObject({
       id: 'preparation-1',
       salesProductId: 'draft-1',
-      sourceCandidateId: 'candidate-1',
+      sourceRecordId: 'candidate-1',
       displayName: null,
       channelListingId: null,
       status: 'failed',

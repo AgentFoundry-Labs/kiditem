@@ -12,10 +12,6 @@ import type { ChannelListingQueryPersistencePort } from '../../port/out/persiste
 export class ChannelListingQueryService implements ChannelListingQueryPort {
   constructor(private readonly persistence: ChannelListingQueryPersistencePort, private readonly content: ChannelListingContentPort) {}
 
-  readRegisteredCandidateIds(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['readRegisteredCandidateIds']>[1]) {
-    return this.persistence.readRegisteredCandidateIds(transaction, input);
-  }
-
   readOptionCandidates(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['readOptionCandidates']>[1]) {
     return this.persistence.readOptionCandidates(transaction, input);
   }

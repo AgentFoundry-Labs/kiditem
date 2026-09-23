@@ -61,7 +61,7 @@ describe('sales product registration state (PostgreSQL)', () => {
       preparations: [{
         id: target.id,
         salesProductId: direct.id,
-        sourceCandidateId: null,
+        sourceRecordId: null,
         channelAccountId: accountId,
         status: 'draft',
         selectedThumbnailUrl: 'https://cdn.example.com/t.png',
@@ -91,7 +91,7 @@ describe('sales product registration state (PostgreSQL)', () => {
     const accountId = await account(TEST_ORGANIZATION_ID);
     const candidateId = randomUUID();
     const draft = await prisma.salesProduct.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, code: null, name: '수집 초안', sourceCandidateId: candidateId },
+      data: { organizationId: TEST_ORGANIZATION_ID, code: null, name: '수집 초안', sourceRecordId: candidateId },
     });
     await prisma.registrationTarget.create({
       data: { organizationId: TEST_ORGANIZATION_ID, salesProductId: draft.id, channelAccountId: accountId },
@@ -100,7 +100,7 @@ describe('sales product registration state (PostgreSQL)', () => {
     const byCandidate = await registrations.readForCandidates(TEST_ORGANIZATION_ID, [candidateId]);
 
     expect(byCandidate.get(candidateId)?.preparations).toEqual([
-      expect.objectContaining({ salesProductId: draft.id, sourceCandidateId: candidateId }),
+      expect.objectContaining({ salesProductId: draft.id, sourceRecordId: candidateId }),
     ]);
   });
 });

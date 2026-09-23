@@ -734,7 +734,7 @@ async function availabilityListingWhere(
     isActive: true,
     OR: [
       // 수집에서 만든 초안이 붙은 몰 상품은 늘 우리 목록이다.
-      { salesProduct: { organizationId, sourceCandidateId: { not: null } } },
+      { salesProduct: { organizationId, sourceRecordId: { not: null } } },
       ...(completedRunIds.length > 0 ? [{ lastImportRunId: { in: completedRunIds } }] : []),
       {
         options: {

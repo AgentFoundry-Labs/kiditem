@@ -51,16 +51,15 @@ export class SourcingLaunchCandidateRepositoryAdapter
         return { kind: 'target_channel_account_invalid' };
       }
 
-      if (command.sourceCandidateId !== null) {
-        const sourceCandidate = await tx.sourcingCandidate.findFirst({
+      if (command.sourceRecordId !== null) {
+        const sourceRecord = await tx.sourceRecord.findFirst({
           where: {
-            id: command.sourceCandidateId,
+            id: command.sourceRecordId,
             organizationId: command.organizationId,
-            isDeleted: false,
           },
           select: { id: true },
         });
-        if (!sourceCandidate) return { kind: 'source_candidate_not_found' };
+        if (!sourceRecord) return { kind: 'source_record_not_found' };
       }
 
       const latest = await tx.sourcingLaunchCandidate.findFirst({
@@ -74,7 +73,7 @@ export class SourcingLaunchCandidateRepositoryAdapter
       const row = await tx.sourcingLaunchCandidate.create({
         data: {
           organizationId: command.organizationId,
-          sourceCandidateId: command.sourceCandidateId,
+          sourceRecordId: command.sourceRecordId,
           supplierOfferSkuSnapshotId: command.supplierOfferSkuSnapshotId,
           targetChannelAccountId: command.targetChannelAccountId,
           supersedesLaunchCandidateId: latest?.id ?? null,
@@ -195,7 +194,7 @@ function toRecord(row: LaunchCandidateRow): SourcingLaunchCandidateRecord {
     candidateKey: row.candidateSeriesKey,
     version: row.revision,
     identityHash: row.identityHash,
-    sourceCandidateId: row.sourceCandidateId,
+    sourceRecordId: row.sourceRecordId,
     supplierOfferSkuSnapshotId: row.supplierOfferSkuSnapshotId,
     targetChannelAccountId: row.targetChannelAccountId,
     productConceptVersionKey: row.productConceptVersionKey,

@@ -949,114 +949,6 @@ export class RegistrationExecutionRepositoryAdapter
     }, TARGET_EXECUTION_TRANSACTION_OPTIONS);
   }
 
-  async cancelUnstartedExecutions(
-    transaction: ChannelsRepositoryTransaction,
-    input: {
-      organizationId: string;
-      sourceCandidateId: string;
-      cancelledAt: Date;
-    },
-  ): Promise<number> {
-    const tx = ownerTransactionClient(transaction);
-    // 후보는 Sourcing 의 이름이다. 울타리는 그 후보가 만든 판매상품으로만 움직인다.
-    const salesProductId = await this.drafts.findSalesProductIdForSource(transaction, {
-      organizationId: input.organizationId,
-      sourceCandidateId: input.sourceCandidateId,
-    });
-    if (!salesProductId) return 0;
-    const preparationIds = await this.drafts.findDraftIds(transaction, {
-      organizationId: input.organizationId,
-      salesProductId,
-      isDeleted: false,
-      fenceIdle: true,
-    });
-    const identities = preparationIds.length === 0 ? [] : await tx.productRegistrationExecution.findMany({
-      where: {
-        organizationId: input.organizationId,
-        executionKind: 'external_wing',
-        status: 'prepared',
-        providerOutcome: 'not_attempted',
-        providerSubmissionId: null,
-        externalListingId: null,
-        resultJson: { equals: Prisma.DbNull },
-        leaseToken: null,
-        leaseClaimedAt: null,
-        startedAt: null,
-        completedAt: null,
-        registrationTargetId: { in: preparationIds },
-      },
-      select: { id: true, registrationTargetId: true },
-    });
-
-    let cancelled = 0;
-    for (const identity of identities) {
-      const preparationId = identity.registrationTargetId;
-      if (preparationId === null) continue;
-      await this.drafts.lockDraft(transaction, {
-        organizationId: input.organizationId,
-        preparationId,
-      });
-      await lockExecution(tx, input.organizationId, identity.id);
-      const current = await tx.productRegistrationExecution.findFirst({
-        where: {
-          id: identity.id,
-          organizationId: input.organizationId,
-          registrationTargetId: preparationId,
-        },
-      });
-      if (!current || current.registrationTargetId === null) continue;
-      const draft = current
-        ? await this.drafts.loadDraft(transaction, {
-          organizationId: input.organizationId,
-          preparationId: current.registrationTargetId,
-        })
-        : null;
-      if (!draft || !isUnstartedExternalRegistrationIntent(
-        current,
-        draft,
-        input.organizationId,
-        salesProductId,
-      )) {
-        continue;
-      }
-
-      const execution = await tx.productRegistrationExecution.updateMany({
-        where: {
-          id: current.id,
-          organizationId: input.organizationId,
-          status: 'prepared',
-          providerOutcome: 'not_attempted',
-          providerSubmissionId: null,
-          externalListingId: null,
-          resultJson: { equals: Prisma.DbNull },
-          leaseToken: null,
-          leaseClaimedAt: null,
-          startedAt: null,
-          completedAt: null,
-        },
-        data: {
-          status: 'cancelled',
-          completedAt: input.cancelledAt,
-          leaseToken: null,
-          leaseClaimedAt: null,
-        },
-      });
-      if (execution.count !== 1) continue;
-
-      const draftCancelled = await this.drafts.closeDraft(transaction, {
-        organizationId: input.organizationId, preparationId: current.registrationTargetId,
-        salesProductId, closedAt: input.cancelledAt, archive: true,
-      });
-      if (draftCancelled !== 1) {
-        throw new ConflictException(
-          'Registration preparation changed while candidate deletion was being prepared.',
-        );
-      }
-      cancelled += 1;
-    }
-    return cancelled;
-  }
-
   async prepare(
     input: PrepareRegistrationExecutionInput,
   ): Promise<RegistrationExecutionResult> {
@@ -2397,7 +2289,7 @@ function toFrozenSubmission(
     executionId: execution.id,
     preparationId: draft.preparationId,
     salesProductId: draft.salesProductId,
-    sourceCandidateId: draft.sourceCandidateId,
+    sourceRecordId: draft.sourceRecordId,
     channelAccountId: frozenChannelAccountId,
     sourceContentWorkspaceId: draft.sourceContentWorkspaceId,
     displayName: frozenRequiredString(payload, 'displayName'),

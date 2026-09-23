@@ -31,7 +31,7 @@ export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
   sabangnetGoodsNo: string | null;
   optionAxes: string[];
   sourceRaw: Record<string, unknown> | null;
-  /** 이 초안을 만든 원천 기록(수집상품) id. */
+  /** 이 초안을 만든 원본 기록(SourceRecord) id. 직접 작성 · 사방넷은 없다. */
   sourceRecordId?: string | null;
   /** 원천 장터와 주소. 초안을 만들 때만 쓰고 바꾸지 않는다. */
   sourcePlatform?: string | null;
@@ -228,27 +228,12 @@ export interface SalesProductRepositoryPort {
   listMallCategoryPaths(
     organizationId: string,
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]>;
-  /** 원천 기록 id → 그 후보에서 만든 초안 id(있으면). 초안은 후보당 하나다. */
-  findIdBySourceCandidate(
+  /** 이 원본 기록을 가리키는 판매 상품과 그 상태(원본 하나에 상품 하나). 없으면 null. */
+  findForSourceRecord(
     organizationId: string,
-    candidateId: string,
+    sourceRecordId: string,
     transaction?: OwnerTransaction,
-  ): Promise<string | null>;
-  /** 배치판. 수집상품 목록이 후보마다 초안을 되읽으면 N+1 이다. 초안이 없는 후보는 맵에 없다. */
-  findIdsBySourceCandidates(
-    organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, string>>;
-  /**
-   * 후보에서 만든 초안을 `unused` 로 내린다. 활성 몰 상품이나 살아 있는 등록 실행이 있으면 내리지
-   * 않고 그 수를 돌려준다 — 후보 거절을 막지는 않는다.
-   */
-  /** 부르는 쪽의 트랜잭션에서 실행한다 — 후보 종료와 한 커밋이다. */
-  retireDraftForSource(
-    transaction: OwnerTransaction,
-    organizationId: string,
-    candidateId: string,
-  ): Promise<SalesProductDraftRetireRow>;
+  ): Promise<{ salesProductId: string; status: SalesProductStatus } | null>;
   /** 판매상품으로 찾은 초안을 내린다(원천 기록이 없는 초안의 삭제). 규칙은 retireDraftForSource 와 같다. */
   retireDraft(
     transaction: OwnerTransaction,

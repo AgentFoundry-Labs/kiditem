@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalSourcingCandidateIdentity } from './sourcing-candidate-identity';
+import { canonicalSourceRecordIdentity } from './source-record-identity';
 
-describe('canonicalSourcingCandidateIdentity', () => {
+describe('canonicalSourceRecordIdentity', () => {
   it('uses a normalized Alibaba supplier URL rather than extension product-id provenance', () => {
-    const agent = canonicalSourcingCandidateIdentity({
+    const agent = canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA',
       sourceUrl: 'https://www.alibaba.com/product-detail/kid-toy_123.html',
       validatedExternalOfferId: null,
       variantKeyNormalized: '',
     });
-    const extension = canonicalSourcingCandidateIdentity({
+    const extension = canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA',
       sourceUrl: 'https://www.alibaba.com/product-detail/kid-toy_123.html',
       validatedExternalOfferId: 'supplier-product-id-123',
@@ -20,20 +20,20 @@ describe('canonicalSourcingCandidateIdentity', () => {
   });
 
   it('keeps normalized supplier variants distinct and uses the 1688 offer identity when present', () => {
-    const base = canonicalSourcingCandidateIdentity({
+    const base = canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA_1688',
       sourceUrl: 'https://detail.1688.com/offer/607635921546.html',
       validatedExternalOfferId: '607635921546',
       variantKeyNormalized: 'blue set',
     });
 
-    expect(canonicalSourcingCandidateIdentity({
+    expect(canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA_1688',
       sourceUrl: 'https://detail.1688.com/offer/607635921546.html?spm=extension',
       validatedExternalOfferId: '607635921546',
       variantKeyNormalized: 'blue set',
     })).toBe(base);
-    expect(canonicalSourcingCandidateIdentity({
+    expect(canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA_1688',
       sourceUrl: 'https://detail.1688.com/offer/607635921546.html',
       validatedExternalOfferId: '607635921546',
@@ -42,13 +42,13 @@ describe('canonicalSourcingCandidateIdentity', () => {
   });
 
   it('uses the same Alibaba identity for equivalent tracking and host spellings while retaining the normalized variant', () => {
-    const tracked = canonicalSourcingCandidateIdentity({
+    const tracked = canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA',
       sourceUrl: 'https://ALIBABA.com/product-detail/kid-toy_123.html?spm=feed&utm_source=ad',
       validatedExternalOfferId: null,
       variantKeyNormalized: '  Blue   Set ',
     });
-    const direct = canonicalSourcingCandidateIdentity({
+    const direct = canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA',
       sourceUrl: 'https://www.alibaba.com/product-detail/kid-toy_123.html',
       validatedExternalOfferId: 'untrusted-product-id',
@@ -56,7 +56,7 @@ describe('canonicalSourcingCandidateIdentity', () => {
     });
 
     expect(tracked).toBe(direct);
-    expect(canonicalSourcingCandidateIdentity({
+    expect(canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA',
       sourceUrl: 'https://www.alibaba.com/product-detail/kid-toy_123.html',
       validatedExternalOfferId: null,

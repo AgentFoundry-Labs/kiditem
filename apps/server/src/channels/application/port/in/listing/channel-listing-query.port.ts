@@ -66,7 +66,7 @@ export interface ChannelListingSummary {
   brand: string | null;
   manufacturer: string | null;
   channelPrice: number | null;
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   contentWorkspaceId: string | null;
   status: string | null;
   exposureStatus: string | null;
@@ -104,7 +104,7 @@ export interface ChannelCatalogFact {
   createdAt: Date;
   /** 이 몰 상품을 만든 판매상품 초안. KidItem 이 등록해 만든 줄인지 가른다(KID-310). */
   salesProductId: string | null;
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   isActive: boolean;
   status: string | null;
   rawJson: unknown;
@@ -123,10 +123,6 @@ export interface ChannelCatalogFact {
 }
 
 export interface ChannelListingFactQueries {
-  readRegisteredCandidateIds(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; candidateIds?: readonly string[] },
-  ): Promise<string[]>;
   readOptionCandidates(
     transaction: OwnerTransaction,
     input: {
@@ -238,7 +234,7 @@ export interface ChannelListingFactQueries {
     input: { organizationId: string; listingId: string },
   ): Promise<{
     id: string;
-    sourceCandidateId: string | null;
+    sourceRecordId: string | null;
     accountId: string;
   }>;
   assertOwnedIds(

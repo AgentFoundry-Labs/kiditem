@@ -26,7 +26,7 @@ export interface CandidateRegistrationPort {
    */
   assertCandidateTerminalTransitionAllowed(
     tx: OwnerTransaction,
-    input: { organizationId: string; sourceCandidateId: string },
+    input: { organizationId: string; sourceRecordId: string },
   ): Promise<void>;
 
 }
@@ -41,7 +41,7 @@ export interface ProductPreparationRow {
   /** 등록 설정의 주인. 초안 · 판매상품 하나가 곧 등록 대상이다. */
   salesProductId: string;
   /** 초안을 만든 원천 기록. 직접 작성 · 사방넷 초안은 없다. */
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   channelAccountId: string;
   channelListingId: string | null;
   displayName: string | null;

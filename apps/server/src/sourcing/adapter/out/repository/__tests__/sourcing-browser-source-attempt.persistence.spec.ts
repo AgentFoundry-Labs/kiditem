@@ -4,6 +4,7 @@ import {
   mapTrendTypedRecordsToAuthorizedOutput,
 } from '../../../../application/service/sourcing-collection-mappers';
 import { persistBrowserSourceAttemptFacts } from '../sourcing-browser-source-attempt.persistence';
+import { unusedSalesProductDraftPort } from '../../../../../test-helpers/sales-product-draft-port';
 
 const PERMIT = {
   runId: '00000000-0000-4000-8000-000000000001',
@@ -95,7 +96,8 @@ describe('persistBrowserSourceAttemptFacts', () => {
       PERMIT,
       output,
       new Date('2026-09-04T00:00:00.000Z'),
-    )).resolves.toEqual({ duplicateCount: 0, staleDiscardedCount: 0 });
+      unusedSalesProductDraftPort,
+    )).resolves.toEqual({ duplicateCount: 0, staleDiscardedCount: 0, admitted: [] });
 
     expect(tx.$queryRaw).not.toHaveBeenCalled();
     expect(observations.findMany).toHaveBeenCalledTimes(2);
@@ -162,7 +164,8 @@ describe('persistBrowserSourceAttemptFacts', () => {
       TIKTOK_PERMIT,
       output,
       capturedAt,
-    )).resolves.toEqual({ duplicateCount: 0, staleDiscardedCount: 0 });
+      unusedSalesProductDraftPort,
+    )).resolves.toEqual({ duplicateCount: 0, staleDiscardedCount: 0, admitted: [] });
 
     expect(tiktokCreative.createMany).toHaveBeenCalledWith({
       data: [expect.objectContaining({

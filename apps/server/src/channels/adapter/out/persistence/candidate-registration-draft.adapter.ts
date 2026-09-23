@@ -2,7 +2,6 @@ import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type RegistrationTarget } from '@prisma/client';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
-import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../../sourcing/application/port/in/registration-source.port';
 import { readRegistrationExecutionFacts } from '../repository/registration-execution.reader';
 import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
 import { canStartRegistration } from '../../../domain/sales-product/sales-product-status';
@@ -43,13 +42,12 @@ const channelIntegrity = new ChannelIntegrityAdapter();
 
 /**
  * Channels 소유 등록 설정을 실행 울타리의 같은 트랜잭션에서 처리한다(ADR-0020).
- * 후보 자격과 콘텐츠 provenance는 Sourcing의 공개 포트로 확인하며,
- * 등록 설정과 실행 상태의 변경 권한은 Channels에 둔다.
+ * 콘텐츠 provenance 는 Content 의 공개 포트로 확인하며, 등록 설정과 실행 상태의 변경 권한은
+ * Channels 에 둔다. 원본 기록은 불변 사실이라 등록이 그 자격을 묻지 않는다(KID-313).
  */
 @Injectable()
 export class RegistrationDraftAdapter implements RegistrationDraftPort {
   constructor(
-    @Inject(REGISTRATION_SOURCE_PORT) private readonly source: RegistrationSourcePort,
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly contentWorkspaces: RegistrationContentWorkspacePort,
     @Inject(SALES_PRODUCT_THUMBNAIL_SOURCE_PORT)
@@ -60,9 +58,6 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     input: { organizationId: string; salesProductId: string },
   ): Promise<void> {
-    const sourceCandidateId = await this.sourceOf(tx, input);
-    // 후보 거절도 후보 행을 먼저 잠근다. 두 경로가 같은 순서로 잠가야 서로를 기다리지 않는다.
-    if (sourceCandidateId) await this.source.lock(tx, input.organizationId, sourceCandidateId);
     await lockSalesProduct(client(tx), input.organizationId, input.salesProductId);
   }
 
@@ -72,7 +67,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
   ): Promise<void> {
     const product = await client(tx).salesProduct.findFirst({
       where: { id: input.salesProductId, organizationId: input.organizationId },
-      select: { name: true, status: true, sourceCandidateId: true },
+      select: { name: true, status: true },
     });
     if (!product) throw new NotFoundException('판매상품을 찾지 못했습니다.');
     // 몰에 보내는 것은 KID 를 받은 판매 상품(active)뿐이다(KID-313).
@@ -81,32 +76,6 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
         ? `'${product.name}' 은(는) 보관한 판매상품이라 몰에 보내지 않습니다.`
         : `'${product.name}' 은(는) 아직 판매상품코드(KID)가 없는 초안입니다. 등록 설정을 만들어 KID 를 받은 뒤 다시 시도하세요.`);
     }
-    // 원천에서 온 상품은 그 후보가 살아 있어야 한다. 직접 작성한 상품에는 볼 후보가 없다.
-    if (product.sourceCandidateId) {
-      await this.source.requireActive(tx, input.organizationId, product.sourceCandidateId);
-    }
-  }
-
-  async findSalesProductIdForSource(
-    tx: ChannelsRepositoryTransaction,
-    input: { organizationId: string; sourceCandidateId: string },
-  ): Promise<string | null> {
-    const product = await client(tx).salesProduct.findFirst({
-      where: { organizationId: input.organizationId, sourceCandidateId: input.sourceCandidateId },
-      select: { id: true },
-    });
-    return product?.id ?? null;
-  }
-
-  private async sourceOf(
-    tx: ChannelsRepositoryTransaction,
-    input: { organizationId: string; salesProductId: string },
-  ): Promise<string | null> {
-    const product = await client(tx).salesProduct.findFirst({
-      where: { id: input.salesProductId, organizationId: input.organizationId },
-      select: { sourceCandidateId: true },
-    });
-    return product?.sourceCandidateId ?? null;
   }
 
   async lockDraft(
@@ -134,10 +103,10 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     row: Pick<RegistrationTarget, 'organizationId' | 'salesProductId' | 'displayName'>,
     options: { ensure?: boolean } = {},
-  ): Promise<{ sourceCandidateId: string | null; sourceContentWorkspaceId: string | null; productName: string }> {
+  ): Promise<{ sourceRecordId: string | null; sourceContentWorkspaceId: string | null; productName: string }> {
     const product = await client(tx).salesProduct.findFirst({
       where: { id: row.salesProductId, organizationId: row.organizationId },
-      select: { name: true, sourceCandidateId: true },
+      select: { name: true, sourceRecordId: true },
     });
     const workspaceId = options.ensure
       ? (await this.contentWorkspaces.ensureSalesProductWorkspace(tx, {
@@ -151,7 +120,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
         salesProductId: row.salesProductId,
       });
     return {
-      sourceCandidateId: product?.sourceCandidateId ?? null,
+      sourceRecordId: product?.sourceRecordId ?? null,
       sourceContentWorkspaceId: workspaceId,
       productName: product?.name ?? '',
     };
@@ -245,7 +214,7 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       },
     });
     return toFrozenDraft(tx, row, {
-      sourceCandidateId: product.sourceCandidateId,
+      sourceRecordId: product.sourceRecordId,
       sourceContentWorkspaceId,
       productName: product.name,
     });
@@ -393,7 +362,7 @@ function buildSubmissionPayload(row: RegistrationTarget, productName: string): R
 async function toFrozenDraft(
   tx: Prisma.TransactionClient,
   row: RegistrationTarget,
-  context: { sourceCandidateId: string | null; sourceContentWorkspaceId: string | null; productName: string },
+  context: { sourceRecordId: string | null; sourceContentWorkspaceId: string | null; productName: string },
 ): Promise<FrozenRegistrationDraft> {
   assertRegistrationIdentity(row);
   const [execution] = await readRegistrationExecutionFacts(tx, { organizationId: row.organizationId, registrationTargetIds: [row.id] });
@@ -401,7 +370,7 @@ async function toFrozenDraft(
     preparationId: row.id,
     organizationId: row.organizationId,
     salesProductId: row.salesProductId,
-    sourceCandidateId: context.sourceCandidateId,
+    sourceRecordId: context.sourceRecordId,
     channelAccountId: row.channelAccountId,
     sourceContentWorkspaceId: context.sourceContentWorkspaceId,
     // 표시명은 설정이 덮어쓴 값이고, 없으면 판매상품 이름이다.

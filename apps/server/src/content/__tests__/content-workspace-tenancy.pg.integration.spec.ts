@@ -214,14 +214,14 @@ describe('AI content ownership constraints (PG integration)', () => {
         title: 'Foreign selected detail page',
       },
     });
-    const localCandidate = await prisma.sourcingCandidate.create({
+    const localCandidate = await prisma.sourceRecord.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceUrl: `https://example.com/candidate/${randomUUID()}`,
         sourcePlatform: 'ALIBABA_1688',
+        sourceIdentityHash: randomUUID(),
         rawData: {},
         name: 'Local preparation candidate',
-        status: 'sourced',
       },
     });
     const localAccount = await prisma.channelAccount.create({
@@ -236,7 +236,7 @@ describe('AI content ownership constraints (PG integration)', () => {
     const localProduct = await prisma.salesProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: localCandidate.id,
+        sourceRecordId: localCandidate.id,
         code: 'LOCAL-PREPARATION-CANDIDATE',
         name: 'Local preparation candidate',
       },

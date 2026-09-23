@@ -36,7 +36,7 @@ describe('RegistrationDraftAdapter 대표 사진 울타리', () => {
       salesProduct: {
         findFirst: vi.fn().mockResolvedValue({
           name: '상품',
-          sourceCandidateId: 'candidate-1',
+          sourceRecordId: 'candidate-1',
           imageUrls: draftImageUrls,
         }),
       },
