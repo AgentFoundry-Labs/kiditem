@@ -236,7 +236,7 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
       WHERE table_schema = current_schema()
         AND (
           (table_name = 'content_generation_sources' AND column_name = 'source_candidate_id')
-          OR (table_name = 'thumbnail_generation_input_images' AND column_name = 'candidate_image_id')
+          OR (table_name = 'thumbnail_generation_input_images' AND column_name = 'source_record_image_id')
         )
       ORDER BY table_name
     `);
@@ -261,7 +261,7 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
           'detail_page_image_render_intents',
           'thumbnail_generation_input_images'
         )
-        AND parent.relname IN ('sourcing_candidates', 'sourcing_candidate_images')
+        AND parent.relname IN ('source_records', 'source_record_images')
     `);
     expect(crossOwnerForeignKeys).toEqual([]);
   });

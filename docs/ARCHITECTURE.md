@@ -633,9 +633,10 @@ Notable route subtrees:
   inherit tabs from retired hub screens.
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
-  owns `/product-pipeline/collected-products`, the 1688/imported plus manual
-  product-registration `SourcingCandidate` inbox, candidate detail route
-  entries, candidate-scoped generated content links, and the fixed WING category
+  owns `/product-pipeline/collected-products`, the inbox of `SalesProduct`
+  drafts (collected ones point at an immutable `SourceRecord`, directly
+  authored ones have none — KID-313), draft detail route entries, draft-scoped
+  generated content links, and the fixed WING category
   registry used at registration confirmation. WING category selection uses the
   saved `RegistrationTarget.registrationInput.wingCategoryKey` or an exact
   source-category alias; it does not read registered `ChannelListing` rows or
@@ -913,7 +914,7 @@ Neither owner writes Channels targets or executions, and registration never
 creates a source `MasterProduct`.
 
 ```text
-optional SourcingCandidate provenance
+optional SourceRecord provenance (immutable; deleted with its draft)
   -> Channels SalesProduct + options
   -> reusable RegistrationTarget + selected options
   -> frozen ProductRegistrationExecution + approval evidence
