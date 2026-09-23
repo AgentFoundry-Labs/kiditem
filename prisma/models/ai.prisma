@@ -159,8 +159,8 @@ model ThumbnailGenerationInputImage {
   label                      String?
   sortOrder                  Int     @default(0) @map("sort_order")
   source                     String  @default("upload")
-  /// 원천 기록. sourcing.CandidateImage 의 id 이며 교차 owner 참조이므로 FK 가 없다.
-  candidateImageId           String? @map("candidate_image_id") @db.Uuid
+  /// 원천 기록. sourcing.SourceRecordImage 의 id 이며 교차 owner 참조이므로 FK 가 없다.
+  sourceRecordImageId        String? @map("source_record_image_id") @db.Uuid
   sourceThumbnailCandidateId String? @map("source_candidate_id") @db.Uuid
 
   mimeType String? @map("mime_type")
@@ -177,7 +177,7 @@ model ThumbnailGenerationInputImage {
 
   @@index([organizationId])
   @@index([generationId])
-  @@index([candidateImageId])
+  @@index([sourceRecordImageId])
   @@index([sourceThumbnailCandidateId])
   @@index([organizationId, generationId])
   @@index([generationId, role, sortOrder])
