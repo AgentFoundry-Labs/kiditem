@@ -10,8 +10,9 @@ import type { DataMigration } from '../types';
  *
  * Each attempt becomes one execution. An Agent attempt keeps the runtime key
  * `thumbnail_update:<owner key>`, so the same owner-key replay finds it; a browser
- * attempt is keyed `thumbnail_update:legacy:<attempt id>`. A rerun inserts nothing. `uploaded` is a success and
- * `failed` a definitive failure. A live attempt with an owner key (Agent) is an
+ * attempt is keyed `thumbnail_update:legacy:<attempt id>`. A rerun inserts nothing. `uploaded` and `registered`
+ * are a success (what the old screen showed; the confirm-after-save rule applies
+ * only to executions created after the cutover) and `failed` a definitive failure. A live attempt with an owner key (Agent) is an
  * unknown outcome left `reconciling`; one without (an old browser prepare the old
  * screen showed as not registered) ends as a definitive failure. The frozen
  * payload is rebuilt from the generation, its workspace and its selected image
@@ -224,7 +225,11 @@ function legacyTransition(attempt: Pick<LegacyAttempt, 'status' | 'ownerIdempote
   errorCode: 'thumbnail_rejected' | 'thumbnail_outcome_unknown' | null;
   errorMessage: string | null;
 } {
-  if (attempt.status === 'uploaded') return { status: 'succeeded', providerOutcome: 'succeeded', errorCode: null, errorMessage: null };
+  // 옛 화면은 uploaded · registered 를 등록됨으로 보였다. owner 키가 있어도 그대로 성공으로 둔다 —
+  // 저장을 운영자가 확인해야 성공인 규칙은 이관 뒤 새로 만든 실행에만 적용한다.
+  if (attempt.status === 'uploaded' || attempt.status === 'registered') {
+    return { status: 'succeeded', providerOutcome: 'succeeded', errorCode: null, errorMessage: null };
+  }
   if (attempt.status === 'failed') {
     return { status: 'failed', providerOutcome: 'definitive_failure', errorCode: 'thumbnail_rejected', errorMessage: attempt.errorMessage };
   }

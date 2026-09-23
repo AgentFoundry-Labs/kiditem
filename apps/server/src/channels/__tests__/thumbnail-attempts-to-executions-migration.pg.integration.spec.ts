@@ -189,6 +189,20 @@ describe('v0.1.31:026 thumbnail registration attempts → thumbnail_update execu
     expect(result.rows[0]).toMatchObject({ organizationId: OTHER_ORGANIZATION_ID, status: 'reconciling', createdAt: new Date('2026-09-02T00:00:00Z') });
   }, 60_000);
 
+  it('keeps what the operator saw: every legacy uploaded or registered attempt, with or without an owner key, becomes succeeded', async () => {
+    const result = await withLegacyAttempts(async (tx) => {
+      const ids: string[] = [];
+      for (const [status, ownerKey] of [['uploaded', null], ['uploaded', 'capability-invocation:u'], ['registered', null], ['registered', 'capability-invocation:r']] as const) {
+        const listed = await listingGeneration(tx);
+        ids.push(await attempt(tx, { generationId: listed.generation.id, status, ownerKey, requestHash: ownerKey ? 'e'.repeat(64) : null }));
+      }
+      const run = await migration.run(tx, { target: 'office' });
+      return { run, rows: await executions(tx) };
+    });
+    expect(result.run.details).toMatchObject({ moved: 4, movedByStatus: { succeeded: 4, failed: 0, reconciling: 0 } });
+    expect(result.rows.map((row) => [row.status, row.providerOutcome])).toEqual(Array(4).fill(['succeeded', 'succeeded']));
+  }, 60_000);
+
   it('ends an unreported browser attempt as failed and keeps only owner-keyed live attempts reconciling', async () => {
     const result = await withLegacyAttempts(async (tx) => {
       const listed = await listingGeneration(tx);
