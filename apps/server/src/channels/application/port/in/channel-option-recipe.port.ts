@@ -37,6 +37,19 @@ export interface ChannelRecipeFactQueries {
   findListingsBySourceProducts(transaction: OwnerTransaction, input: { organizationId: string; masterProductIds: readonly string[]; activeOnly: boolean }): Promise<Array<{ listingId: string; masterProductId: string | null }>>;
 }
 
+/**
+ * The only writer of channel option recipes, their SalesProductOption link and KID.
+ *
+ * Failure semantics — a failure changes no state, so no hold marker is stored:
+ * - Manual replace rolls back on any failure; an `expectedComponents` mismatch is 409.
+ * - Automatic matching skips a conflicting option and reports it in
+ *   `conflictingChannelListingOptionIds`; confirmed recipes are never rewritten.
+ * - A registration confirmation that conflicts fails its execution transaction with 409.
+ * - An uncertain provider outcome leaves recipes untouched; readers hold those options
+ *   through `compositionUnconfirmed` until the execution resolves.
+ * Use `applyPreservingRecipes` without a caller transaction and the `…InTransaction`
+ * methods inside an owner transaction.
+ */
 export interface ChannelOptionRecipePort extends ChannelRecipeFactQueries {
   /**
    * Called only by the execution owner after a confirmed external composition change.
