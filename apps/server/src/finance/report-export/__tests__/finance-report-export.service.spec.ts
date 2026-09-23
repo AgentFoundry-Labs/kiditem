@@ -44,6 +44,7 @@ function buildService() {
         id: LISTING,
         listingName: '등록 상품',
         thumbnailUrl: null,
+        imageUrl: null,
         detailPageRevisionId: null,
         channel: 'coupang',
         channelAccountId: null,

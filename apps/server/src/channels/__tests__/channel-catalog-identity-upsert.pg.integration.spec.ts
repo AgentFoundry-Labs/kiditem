@@ -7,6 +7,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import {
+  upsertChannelCatalogBasics,
   upsertChannelCatalogIdentities,
   type ChannelCatalogIdentityProduct,
 } from '../adapter/out/repository/channel-catalog-identity-upsert';
@@ -154,6 +155,36 @@ describe('channel catalog identity upsert (PG integration)', () => {
       where: { listingId: seeded.id },
       select: { modelNumber: true, barcode: true },
     })).resolves.toEqual({ modelNumber: 'MODEL-77', barcode: null });
+  });
+
+  it('records the Coupang catalog primary image as the mall-reported listing image on every import, and keeps it when an import carries none', async () => {
+    const primary = (sourceUrl: string, sortOrder: number) => ({ sourceUrl, role: 'primary' as const, sortOrder, externalOptionId: null });
+    const detail = { sourceUrl: 'https://img/detail.jpg', role: 'detail' as const, sortOrder: 0, externalOptionId: null };
+    const importOnce = (products: ChannelCatalogIdentityProduct[]) => prisma.$transaction((tx) => upsertChannelCatalogIdentities(tx, {
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId, lastImportRunId: null,
+      rawSource: 'coupang_catalog_browser', unobservedOptionFields: [], products,
+    }));
+    const basics = (products: ChannelCatalogIdentityProduct[]) => prisma.$transaction((tx) => upsertChannelCatalogBasics(tx, {
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId, lastImportRunId: null, rawSource: 'coupang_catalog_basics', products,
+    }));
+    const images = () => prisma.channelListing.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channelAccountId }, orderBy: { externalId: 'asc' }, select: { externalId: true, imageUrl: true },
+    });
+
+    await importOnce([
+      { ...product('P-A', {}), media: [detail, primary('https://img/a-2.jpg', 2), primary('https://img/a-1.jpg', 1)] },
+      product('P-B', {}),
+    ]);
+    expect(await images()).toEqual([{ externalId: 'P-A', imageUrl: 'https://img/a-1.jpg' }, { externalId: 'P-B', imageUrl: null }]);
+
+    await basics([
+      { ...product('P-A', {}), media: [primary('https://img/a-new.jpg', 0)] },
+      { ...product('P-B', {}), media: [primary('https://img/b.jpg', 0)] },
+    ]);
+    expect(await images()).toEqual([{ externalId: 'P-A', imageUrl: 'https://img/a-new.jpg' }, { externalId: 'P-B', imageUrl: 'https://img/b.jpg' }]);
+
+    await importOnce([product('P-A', {}), { ...product('P-B', {}), media: [detail] }]);
+    expect(await images()).toEqual([{ externalId: 'P-A', imageUrl: 'https://img/a-new.jpg' }, { externalId: 'P-B', imageUrl: 'https://img/b.jpg' }]);
   });
 });
 

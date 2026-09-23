@@ -26,7 +26,10 @@ const EVALUATION_MODELS = [
   { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
 ] as const;
 
-/** 리스팅 평가: 몰이 보여 주는 대표이미지를 모델로 채점하고, 낮은 등급은 AI 편집으로 넘긴다. */
+/**
+ * 리스팅 평가: 몰이 보고한 대표이미지(`imageUrl`, 우리 작업공간의 `thumbnailUrl` 이 아니다)를 모델로 채점하고,
+ * 낮은 등급은 AI 편집으로 넘긴다(KID-313 결정, 2026-09-23 14:46). 몰 사진이 없는 리스팅은 평가하지 않는다.
+ */
 export function ListingEvaluationTab({ onEditStarted }: { onEditStarted?: () => void }) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -39,7 +42,7 @@ export function ListingEvaluationTab({ onEditStarted }: { onEditStarted?: () => 
   });
   const items = useMemo(() => listings.data?.items ?? [], [listings.data]);
   const listingImages = useMemo(
-    () => items.map((item) => ({ channelListingId: item.id, imageUrl: item.thumbnailUrl })),
+    () => items.map((item) => ({ channelListingId: item.id, imageUrl: item.imageUrl })),
     [items],
   );
   const current = useCurrentListingEvaluations(listingImages);
@@ -55,13 +58,13 @@ export function ListingEvaluationTab({ onEditStarted }: { onEditStarted?: () => 
       toast.error('평가 모델을 먼저 고르세요');
       return;
     }
-    const withImage = targets.filter((item) => item.thumbnailUrl);
+    const withImage = targets.filter((item) => item.imageUrl);
     setEvaluatingIds((prev) => new Set([...prev, ...withImage.map((item) => item.id)]));
     let failed = 0;
     // 모델 호출은 한 장씩 차례로 한다 — 동시에 보내 API 한도를 넘기지 않는다.
     for (const item of withImage) {
       try {
-        await evaluate.mutateAsync({ channelListingId: item.id, imageUrl: item.thumbnailUrl!, modelId });
+        await evaluate.mutateAsync({ channelListingId: item.id, imageUrl: item.imageUrl!, modelId });
       } catch {
         failed += 1;
       } finally {
@@ -94,7 +97,7 @@ export function ListingEvaluationTab({ onEditStarted }: { onEditStarted?: () => 
     );
   };
 
-  const unevaluated = items.filter((item) => item.thumbnailUrl && !evaluationByListing.has(item.id));
+  const unevaluated = items.filter((item) => item.imageUrl && !evaluationByListing.has(item.id));
   const summary = current.data?.summary;
 
   if (listings.isError) {
@@ -164,7 +167,7 @@ export function ListingEvaluationTab({ onEditStarted }: { onEditStarted?: () => 
               item={item}
               evaluation={evaluationByListing.get(item.id) ?? null}
               evaluating={evaluatingIds.has(item.id)}
-              canEvaluate={Boolean(modelId && item.thumbnailUrl)}
+              canEvaluate={Boolean(modelId && item.imageUrl)}
               editPending={editJobs.isPending}
               onEvaluate={() => runEvaluation([item])}
               onEdit={() => startEdit(item)}
@@ -197,7 +200,7 @@ function ListingEvaluationRow({
   onEvaluate: () => void;
   onEdit: () => void;
 }) {
-  const image = resolveImageUrl(item.thumbnailUrl);
+  const image = resolveImageUrl(item.imageUrl);
   const suggestions = Array.isArray(evaluation?.details.suggestions) ? (evaluation.details.suggestions as unknown[]) : [];
   return (
     <li data-testid={`listing-evaluation-${item.id}`} className="flex items-center gap-3 px-4 py-3">
@@ -227,7 +230,7 @@ function ListingEvaluationRow({
             <span className="text-xs font-semibold tabular-nums text-slate-700">{evaluation.score}점</span>
           </>
         ) : (
-          <span className="text-xs text-slate-400">{item.thumbnailUrl ? '미평가' : '이미지 없음'}</span>
+          <span className="text-xs text-slate-400">{item.imageUrl ? '미평가' : '몰 대표이미지 없음'}</span>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">

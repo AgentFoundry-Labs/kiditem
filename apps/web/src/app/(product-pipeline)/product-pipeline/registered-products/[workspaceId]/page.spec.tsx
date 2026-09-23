@@ -11,7 +11,7 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     id: 'listing-1',
     listingName: '자석 다트게임',
     thumbnailUrl: 'https://cdn.example.com/listing.png',
-    detailPageArtifactId: null,
+    imageUrl: null, salesProductId: null,
     detailPageRevisionId: null,
     channel: 'coupang',
     channelAccountId: 'account-1',

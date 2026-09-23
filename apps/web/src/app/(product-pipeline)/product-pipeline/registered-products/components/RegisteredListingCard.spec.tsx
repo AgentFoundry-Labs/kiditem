@@ -8,7 +8,7 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
     id: 'listing-1',
     listingName: '자석 다트게임',
     thumbnailUrl: 'https://cdn.example.com/product.jpg',
-    detailPageArtifactId: null,
+    imageUrl: null, salesProductId: null,
     detailPageRevisionId: null,
     channel: 'coupang',
     channelAccountId: 'account-1',

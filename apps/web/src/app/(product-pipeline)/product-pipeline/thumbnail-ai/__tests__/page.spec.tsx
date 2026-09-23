@@ -18,14 +18,16 @@ vi.mock('next/navigation', () => ({
 
 const L1 = '00000000-0000-4000-8000-0000000000d1';
 const L2 = '00000000-0000-4000-8000-0000000000d2';
+const L3 = '00000000-0000-4000-8000-0000000000d3';
 const W1 = '00000000-0000-4000-8000-000000000001';
 const J1 = '00000000-0000-4000-8000-0000000000a1';
 const A1 = '00000000-0000-4000-8000-0000000000b1';
 
-const listing = (id: string, listingName: string, thumbnailUrl: string | null) => ({
-  id, listingName, thumbnailUrl, detailPageArtifactId: null, detailPageRevisionId: null, channel: 'coupang', channelAccountId: null,
+// 몰이 보고한 대표이미지(imageUrl)와 우리 작업공간의 대표이미지(thumbnailUrl)는 다르다 — 평가는 몰 것을 본다.
+const listing = (id: string, listingName: string, imageUrl: string | null) => ({
+  id, listingName, imageUrl, thumbnailUrl: `https://cdn/ours-${id.slice(-2)}.png`, detailPageRevisionId: null, channel: 'coupang', channelAccountId: null,
   channelAccountName: '본점', externalId: id.slice(-2), channelName: listingName, category: null, brand: null, manufacturer: null,
-  channelPrice: null, sourceRecordId: null, contentWorkspaceId: W1, status: 'active', exposureStatus: null, optionCount: 1,
+  channelPrice: null, salesProductId: null, sourceRecordId: null, contentWorkspaceId: W1, status: 'active', exposureStatus: null, optionCount: 1,
   mappingStatus: 'matched', createdAt: '2026-09-23T00:00:00.000Z', updatedAt: '2026-09-23T00:00:00.000Z',
 });
 
@@ -45,7 +47,7 @@ beforeEach(() => {
   searchParams.value = new URLSearchParams();
   vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
     if (href.startsWith('/api/channels/listings')) {
-      return { items: [listing(L1, '곰돌이 우산', 'https://mall/a.jpg'), listing(L2, '토끼 컵', 'https://mall/b.jpg')], total: 2, page: 1, limit: 50, marketCounts: [] };
+      return { items: [listing(L1, '곰돌이 우산', 'https://mall/a.jpg'), listing(L2, '토끼 컵', 'https://mall/b.jpg'), listing(L3, '사진 없는 컵', null)], total: 3, page: 1, limit: 50, marketCounts: [] };
     }
     if (href.startsWith('/api/thumbnail-analysis/generations')) {
       return {
@@ -87,8 +89,18 @@ describe('thumbnail AI page', () => {
       listings: [
         { channelListingId: L1, imageUrl: 'https://mall/a.jpg' },
         { channelListingId: L2, imageUrl: 'https://mall/b.jpg' },
+        { channelListingId: L3, imageUrl: null },
       ],
     });
+  });
+
+  it('cannot evaluate a listing whose mall reported no representative image', async () => {
+    renderPage();
+
+    const row = await screen.findByTestId(`listing-evaluation-${L3}`);
+    fireEvent.change(screen.getByRole('combobox', { name: '평가 모델' }), { target: { value: 'gemini-3.1-flash-lite' } });
+    expect(within(row).getByText('몰 대표이미지 없음')).toBeTruthy();
+    expect((within(row).getByRole('button', { name: '평가' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('evaluates a listing image only after the operator picks a model', async () => {

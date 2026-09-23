@@ -91,6 +91,7 @@ export async function upsertChannelCatalogBasics(
         manufacturer: product.manufacturer,
         brand: product.brand,
         productStatus: product.productStatus,
+        imageUrl: primaryImageUrl(product),
         rawJson: {
           ...product.raw,
           source: input.rawSource,
@@ -101,7 +102,7 @@ export async function upsertChannelCatalogBasics(
       INSERT INTO channel_listings (
         id, organization_id, channel_account_id, external_id,
         channel_name, display_name, category, manufacturer, brand,
-        status, raw_json, last_import_run_id, is_active, created_at, updated_at
+        status, image_url, raw_json, last_import_run_id, is_active, created_at, updated_at
       )
       SELECT
         (record->>'id')::uuid,
@@ -114,6 +115,7 @@ export async function upsertChannelCatalogBasics(
         record->>'manufacturer',
         record->>'brand',
         record->>'productStatus',
+        record->>'imageUrl',
         record->'rawJson',
         ${input.lastImportRunId}::uuid,
         TRUE,
@@ -128,6 +130,7 @@ export async function upsertChannelCatalogBasics(
         manufacturer = COALESCE(EXCLUDED.manufacturer, channel_listings.manufacturer),
         brand = COALESCE(EXCLUDED.brand, channel_listings.brand),
         status = COALESCE(EXCLUDED.status, channel_listings.status),
+        image_url = COALESCE(EXCLUDED.image_url, channel_listings.image_url),
         raw_json = COALESCE(channel_listings.raw_json, '{}'::jsonb) || EXCLUDED.raw_json,
         last_import_run_id = EXCLUDED.last_import_run_id,
         is_active = TRUE,
@@ -562,6 +565,17 @@ export async function updateChannelCatalogDetails(
       options: listing.options,
     })),
   };
+}
+
+/**
+ * 몰이 보고한 대표이미지(`channel_listings.image_url`) = 이번 수집이 준 카탈로그 `primary` 사진 중 첫 번째
+ * (KID-313 W3 리뷰 M3). 리스팅 대표이미지 평가가 이것을 본다. 사진을 주지 않은 수집은 남긴 값을 지우지 않는다.
+ */
+function primaryImageUrl(product: ChannelCatalogIdentityProduct): string | null {
+  const primary = (product.media ?? [])
+    .filter((item) => item.role === 'primary' && item.sourceUrl.trim())
+    .sort((left, right) => left.sortOrder - right.sortOrder)[0];
+  return primary?.sourceUrl ?? null;
 }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {
@@ -1101,12 +1115,12 @@ export async function upsertChannelCatalogIdentities(
   for (let offset = 0; offset < input.products.length; offset += UPSERT_BATCH_SIZE) {
     const payload = JSON.stringify(input.products
       .slice(offset, offset + UPSERT_BATCH_SIZE)
-      .map((product) => ({ id: randomUUID(), ...product })));
+      .map((product) => ({ id: randomUUID(), ...product, imageUrl: primaryImageUrl(product) })));
     await tx.$executeRaw`
       INSERT INTO channel_listings (
         id, organization_id, channel_account_id, external_id,
         channel_name, display_name, category, manufacturer, brand,
-        status, raw_json, last_import_run_id, is_active, created_at, updated_at
+        status, image_url, raw_json, last_import_run_id, is_active, created_at, updated_at
       )
       SELECT
         (record->>'id')::uuid,
@@ -1119,6 +1133,7 @@ export async function upsertChannelCatalogIdentities(
         record->>'manufacturer',
         record->>'brand',
         record->>'productStatus',
+        record->>'imageUrl',
         record->'raw',
         ${input.lastImportRunId}::uuid,
         TRUE,
@@ -1133,6 +1148,7 @@ export async function upsertChannelCatalogIdentities(
         manufacturer = COALESCE(EXCLUDED.manufacturer, channel_listings.manufacturer),
         brand = COALESCE(EXCLUDED.brand, channel_listings.brand),
         status = COALESCE(EXCLUDED.status, channel_listings.status),
+        image_url = COALESCE(EXCLUDED.image_url, channel_listings.image_url),
         raw_json = ${listingRawJsonReplacementSql},
         last_import_run_id = COALESCE(
           EXCLUDED.last_import_run_id,

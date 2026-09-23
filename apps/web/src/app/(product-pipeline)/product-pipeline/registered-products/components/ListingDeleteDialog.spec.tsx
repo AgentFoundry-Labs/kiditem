@@ -4,7 +4,7 @@ import ListingDeleteDialog from './ListingDeleteDialog';
 
 const listing = {
   id: '11111111-1111-4111-8111-111111111111', listingName: '과일바구니', thumbnailUrl: null,
-  detailPageArtifactId: null, detailPageRevisionId: null, channel: 'coupang', channelAccountId: 'account',
+  imageUrl: null, salesProductId: null, detailPageRevisionId: null, channel: 'coupang', channelAccountId: 'account',
   channelAccountName: '쿠팡', externalId: '16311428128', channelName: null, channelPrice: null,
   category: null, brand: null, manufacturer: null,
   sourceRecordId: 'candidate', contentWorkspaceId: null, status: 'active', exposureStatus: null,

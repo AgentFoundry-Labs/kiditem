@@ -50,8 +50,10 @@ export type RegisteredListingSort = 'newest' | 'oldest' | 'name_asc';
 export interface RegisteredChannelListing {
   id: string;
   listingName: string;
+  /** 우리 작업공간의 현재 대표이미지. */
   thumbnailUrl: string | null;
-  detailPageArtifactId: string | null;
+  /** 몰이 보고한 대표이미지(수집마다 갱신). 리스팅 대표이미지 평가가 본다. */
+  imageUrl: string | null;
   detailPageRevisionId: string | null;
   channel: string;
   channelAccountId: string | null;
@@ -62,6 +64,7 @@ export interface RegisteredChannelListing {
   brand: string | null;
   manufacturer: string | null;
   channelPrice: number | null;
+  salesProductId: string | null;
   sourceRecordId: string | null;
   contentWorkspaceId: string | null;
   status: string | null;

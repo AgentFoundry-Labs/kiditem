@@ -8,6 +8,7 @@ const activeListing: ChannelListingSummary = {
   id: 'active-listing',
   listingName: 'Active item',
   thumbnailUrl: null,
+  imageUrl: null,
   detailPageRevisionId: null,
   channel: 'coupang',
   channelAccountId: 'account-1',
