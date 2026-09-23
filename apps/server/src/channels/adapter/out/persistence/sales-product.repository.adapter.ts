@@ -4,6 +4,7 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { readSalesProductOptionExecutionCounts } from '../repository/registration-execution.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
+import { SalesProductStatusError, assertStatusInvariant } from '../../../domain/sales-product/sales-product-status';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -196,20 +197,19 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       options: { some: { supplyStatus: { not: 'unused' }, components: { none: {} } } },
     };
     /**
-     * 미등록 = 어느 몰에도 올라간 적 없는 판매상품. 수집상품에서 만든 것과 직접 만든 것을 가리지 않는다.
+     * 미등록 = KID 를 받은 판매 상품 중 어느 몰에도 올라간 적 없는 것. 수집상품에서 만든 것과 직접
+     * 만든 것을 가리지 않는다. 초안은 KID 가 없어 몰에 갈 수 없으니 여기 오지 않는다(KID-313).
      *
      * 몰에서 내린(비활성) 상품은 돌아오지 않는다 — 비활성화는 등록된 상태에서 내린 것이지 등록하지
      * 않은 것이 아니다(사장님 2026-09-23).
      */
     const unregistered: Prisma.SalesProductWhereInput = {
+      status: 'active',
       channelListings: { none: {} },
     };
-    /** 아직 판매가를 정하지 않은 초안. */
+    /** KID 를 아직 받지 않은 초안. 수집상품 화면이 이것만 보인다(KID-313). */
     const draftOnly: Prisma.SalesProductWhereInput = { status: 'draft' };
-    /** 수집상품 화면: 몰에 없고 내리지 않은 상품. 판매가를 정해 `active` 가 돼도 몰에 오를 때까지 남는다. */
-    const preparing: Prisma.SalesProductWhereInput = {
-      AND: [unregistered, { status: { notIn: ['archived', 'unused'] } }],
-    };
+    const preparing = draftOnly;
     const focusWhere = query.focus === 'with_options'
       ? withOptions
       : query.focus === 'unlinked'
@@ -233,7 +233,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           id: true,
           code: true,
           ownCode: true,
-          sourceCandidateId: true,
+          sourceRecordId: true,
           sourcePlatform: true,
           sourceUrl: true,
           name: true,
@@ -258,7 +258,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         id: row.id,
         code: row.code,
         ownCode: row.ownCode,
-        sourceCandidateId: row.sourceCandidateId,
+        sourceRecordId: row.sourceRecordId,
         sourcePlatform: row.sourcePlatform,
         sourceUrl: row.sourceUrl,
         name: row.name,
@@ -360,6 +360,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     plan: SalesProductOptionReplacementPlan,
     transaction?: OwnerTransaction,
   ): Promise<string> {
+    assertRecordStatus(record);
     const write = async (tx: Tx) => {
       const product = await tx.salesProduct.create({
         data: { organizationId, ...createData(record) },
@@ -385,11 +386,16 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     patch: Partial<SalesProductBasicsRecord>,
   ): Promise<boolean> {
     try {
-      const updated = await this.prisma.salesProduct.updateMany({
-        where: { id: salesProductId, organizationId, version: expectedVersion },
-        data: { ...basicsData(patch), version: { increment: 1 } },
-      });
-      if (updated.count === 1) return true;
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const written = await tx.salesProduct.updateMany({
+          where: { id: salesProductId, organizationId, version: expectedVersion },
+          data: { ...basicsData(patch), version: { increment: 1 } },
+        });
+        if (written.count !== 1) return false;
+        if (patch.status !== undefined) await assertStoredStatus(tx, organizationId, salesProductId);
+        return true;
+      }, TRANSACTION_OPTIONS);
+      if (updated) return true;
     } catch (error) {
       throw translateUniqueViolation(error);
     }
@@ -524,13 +530,12 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     expectedVersion: number;
     optionAxes: string[];
     plan: SalesProductOptionReplacementPlan;
-    status: SalesProductStatus;
   }): Promise<boolean> {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const bumped = await tx.salesProduct.updateMany({
           where: { id: input.salesProductId, organizationId: input.organizationId, version: input.expectedVersion },
-          data: { optionAxes: input.optionAxes, status: input.status, version: { increment: 1 } },
+          data: { optionAxes: input.optionAxes, version: { increment: 1 } },
         });
         if (bumped.count !== 1) return false;
         await applyPlan(tx, input.organizationId, input.salesProductId, input.plan);
@@ -1217,7 +1222,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   ): Promise<string | null> {
     const client = transaction ? ownerTransactionClient(transaction) as Tx : this.prisma;
     const row = await client.salesProduct.findFirst({
-      where: { organizationId, sourceCandidateId: candidateId },
+      where: { organizationId, sourceRecordId: candidateId },
       select: { id: true },
     });
     return row?.id ?? null;
@@ -1230,10 +1235,10 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     const ids = [...new Set(candidateIds.filter(Boolean))];
     if (ids.length === 0) return new Map();
     const rows = await this.prisma.salesProduct.findMany({
-      where: { organizationId, sourceCandidateId: { in: ids } },
-      select: { id: true, sourceCandidateId: true },
+      where: { organizationId, sourceRecordId: { in: ids } },
+      select: { id: true, sourceRecordId: true },
     });
-    return new Map(rows.flatMap((row) => (row.sourceCandidateId ? [[row.sourceCandidateId, row.id] as const] : [])));
+    return new Map(rows.flatMap((row) => (row.sourceRecordId ? [[row.sourceRecordId, row.id] as const] : [])));
   }
 
   /**
@@ -1247,7 +1252,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
     candidateId: string,
   ): Promise<SalesProductDraftRetireRow> {
-    return retireDraftWhere(ownerTransactionClient(transaction) as Tx, organizationId, { sourceCandidateId: candidateId });
+    return retireDraftWhere(ownerTransactionClient(transaction) as Tx, organizationId, { sourceRecordId: candidateId });
   }
 
   async retireDraft(
@@ -1303,7 +1308,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           for (const write of chunk) {
             const existing = await tx.salesProduct.findFirst({
               where: { organizationId, ...(write.create.sabangnetGoodsNo ? { sabangnetGoodsNo: write.create.sabangnetGoodsNo } : { ownCode: write.create.ownCode }) },
-              select: { id: true, version: true },
+              select: { id: true, version: true, status: true },
             });
             let productId: string;
             if (existing && (write.mode === 'preserve' || !write.existingProductId)) {
@@ -1320,6 +1325,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                 where: { id: existing.id, organizationId, version: write.expectedVersion },
                 data: {
                   ...basicsData(write.create),
+                  // 보관은 되돌리지 않는다(KID-313) — 사방넷이 공급중이라 해도 보관한 상품은 보관이다.
+                  status: existing.status === 'archived' ? 'archived' : write.create.status,
                   // 바깥 식별자는 빈 값으로 덮지 않는다 — 품번코드 없이 온 줄(대량등록 양식)도 지금 품번을 지킨다.
                   sabangnetGoodsNo: write.create.sabangnetGoodsNo ?? undefined,
                   optionAxes: write.create.optionAxes,
@@ -1328,9 +1335,11 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                 },
               });
               await applyPlan(tx, organizationId, existing.id, write.plan);
+              await assertStoredStatus(tx, organizationId, existing.id);
               productId = existing.id;
               result.updated += 1;
             } else {
+              assertRecordStatus(write.create);
               const product = await tx.salesProduct.create({
                 data: { organizationId, ...createData(write.create) },
                 select: { id: true },
@@ -1406,7 +1415,7 @@ function createData(record: SalesProductCreateRecord): Omit<Prisma.SalesProductU
     sabangnetGoodsNo: record.sabangnetGoodsNo,
     optionAxes: record.optionAxes,
     sourceRaw: (record.sourceRaw as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
-    sourceCandidateId: record.sourceCandidateId ?? null,
+    sourceRecordId: record.sourceRecordId ?? null,
     sourcePlatform: record.sourcePlatform ?? null,
     sourceUrl: record.sourceUrl ?? null,
   };
@@ -1667,7 +1676,26 @@ function compositionKey(components: readonly { masterProductId: string; quantity
   return JSON.stringify(components.map(item => [item.masterProductId, item.quantity]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 
+/** 저장 직전: 상태와 KID 가 맞는지(`code IS NULL ⇔ draft`). */
+function assertRecordStatus(record: { name: string; code: string | null; status: SalesProductStatus }): void {
+  try {
+    assertStatusInvariant(record);
+  } catch (error) {
+    throw translateUniqueViolation(error);
+  }
+}
+
+/** 쓴 직후: 저장된 줄의 상태와 KID 가 맞는지. 어긋나면 던져 트랜잭션을 되돌린다. */
+async function assertStoredStatus(tx: Tx, organizationId: string, salesProductId: string): Promise<void> {
+  const row = await tx.salesProduct.findFirstOrThrow({
+    where: { id: salesProductId, organizationId },
+    select: { name: true, code: true, status: true },
+  });
+  assertRecordStatus({ ...row, status: row.status as SalesProductStatus });
+}
+
 function translateUniqueViolation(error: unknown): unknown {
+  if (error instanceof SalesProductStatusError) return new ConflictException(error.message);
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
     const target = JSON.stringify(error.meta?.target ?? '');
     if (target.includes('option_code')) return new ConflictException('단품코드가 다른 판매상품과 겹칩니다.');
@@ -1699,7 +1727,7 @@ function toSalesProduct(
     code: row.code,
     ownCode: row.ownCode,
     sabangnetGoodsNo: row.sabangnetGoodsNo,
-    sourceCandidateId: row.sourceCandidateId,
+    sourceRecordId: row.sourceRecordId,
     sourcePlatform: row.sourcePlatform,
     sourceUrl: row.sourceUrl,
     name: row.name,
@@ -1984,7 +2012,7 @@ async function readMasterProductCodesInTransaction(
 async function retireDraftWhere(
   tx: Tx,
   organizationId: string,
-  identity: { sourceCandidateId: string } | { id: string },
+  identity: { sourceRecordId: string } | { id: string },
 ): Promise<SalesProductDraftRetireRow> {
   const product = await tx.salesProduct.findFirst({
     where: { organizationId, ...identity },

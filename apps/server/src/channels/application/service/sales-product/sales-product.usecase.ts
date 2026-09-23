@@ -14,7 +14,6 @@ import {
   type SalesProduct,
   type SalesProductListResponse,
   type SalesProductMallCategories,
-  type SalesProductStatus,
 } from '@kiditem/shared/sales-product';
 import {
   planSalesProductOptionReplacement,
@@ -24,9 +23,8 @@ import {
 import {
   clampDraftText,
   planDraftOptions,
-  resolveSalesProductStatus,
-  type SalesProductPricedOption,
 } from '../../../domain/sales-product/sales-product-draft';
+import { SalesProductStatusError, statusAfterArchive } from '../../../domain/sales-product/sales-product-status';
 import { issueSalesProductOptionCodes } from './sales-product-code';
 import type { SalesProductWorkspaceArchivePort } from '../../port/out/ai/sales-product-workspace-archive.port';
 import {
@@ -84,9 +82,7 @@ export class SalesProductUseCase implements SalesProductPort {
       options: input.options.map(toDraft),
     }));
     const id = await this.repository.create(organizationId, {
-      ...basicsRecord(input),
-      // 판매가를 다 채우지 않은 채로 만들면 초안이다. 저장할 때마다 같은 규칙으로 다시 판정한다.
-      status: resolveSalesProductStatus({ current: input.status ?? 'active', options: plan.writes }),
+      ...basicsRecord({ ...input, status: 'draft' }),
       code: null,
       sabangnetGoodsNo: null,
       optionAxes: input.optionAxes,
@@ -250,20 +246,20 @@ export class SalesProductUseCase implements SalesProductPort {
 
   async update(organizationId: string, salesProductId: string, body: unknown): Promise<SalesProduct> {
     const input = parseOrBadRequest(SalesProductUpdateInputSchema, body, '판매상품 내용이 올바르지 않습니다.');
-    const { expectedVersion, ...patch } = input;
+    const { expectedVersion, status, ...patch } = input;
     const state = await this.repository.readOptionState(organizationId, salesProductId);
     if (!state) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+    // 화면이 바꿀 수 있는 상태는 보관뿐이다(KID-313). 초안은 보관하지 않고 지운다.
+    const nextStatus = status === 'archived'
+      ? statusOrConflict(() => statusAfterArchive({ name: state.productName, status: state.status }))
+      : undefined;
     const updated = await this.repository.updateBasics(
       organizationId,
       salesProductId,
       expectedVersion,
       {
         ...(patch as Partial<SalesProductBasicsRecord>),
-        // 기본 칸만 고쳐도 상태는 옵션 판매가가 정한다.
-        status: resolveSalesProductStatus({
-          current: (patch.status as SalesProductStatus | undefined) ?? state.status,
-          options: pricedOptions(state.options),
-        }),
+        ...(nextStatus ? { status: nextStatus } : {}),
       },
     );
     if (!updated) throw new ConflictException(VERSION_CONFLICT);
@@ -291,8 +287,6 @@ export class SalesProductUseCase implements SalesProductPort {
       expectedVersion: input.expectedVersion,
       optionAxes: input.optionAxes,
       plan,
-      // 저장이 곧 "판매가 확인"이다 — 팔 옵션에 값이 다 차면 여기서 active 로 올라간다.
-      status: resolveSalesProductStatus({ current: state.status, options: plan.writes }),
     });
     if (!applied) throw new ConflictException(VERSION_CONFLICT);
     return this.get(organizationId, salesProductId);
@@ -330,14 +324,13 @@ function toDraft(option: {
   return { ...option };
 }
 
-function pricedOptions(
-  options: readonly { supplyStatus?: string; salePrice?: number | null; id: string }[],
-): SalesProductPricedOption[] {
-  return options.map((option) => ({
-    id: option.id,
-    supplyStatus: (option.supplyStatus ?? 'selling') as SalesProductPricedOption['supplyStatus'],
-    salePrice: option.salePrice ?? null,
-  }));
+function statusOrConflict<T>(decide: () => T): T {
+  try {
+    return decide();
+  } catch (error) {
+    if (error instanceof SalesProductStatusError) throw new ConflictException(error.message);
+    throw error;
+  }
 }
 
 /** 원천 원문(원가 위안 포함)을 초안에 얼려 둔다. 편집 화면은 읽지 않는다. */

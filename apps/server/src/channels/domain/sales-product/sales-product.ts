@@ -202,15 +202,17 @@ function blankToNull(value: string | null | undefined): string | null {
 
 // ── 사방넷 숫자 코드 → 우리 어휘 ───────────────────────────────────────
 
-/** 사방넷 상품상태: 대기중 1 · 공급중 2 · 일시중지 3 · 완전품절 4 · 미사용 5 · 삭제 6 · 자료없음 7. */
+/**
+ * 사방넷 상품상태: 대기중 1 · 공급중 2 · 일시중지 3 · 완전품절 4 · 미사용 5 · 삭제 6 · 자료없음 7.
+ *
+ * 사방넷 상품은 품번코드를 코드로 가져오므로 초안(`draft`)이 되지 않는다(KID-313). 미사용 · 삭제만
+ * 판매를 접은 보관이고, 나머지는 판매 상품이다 — 품절 · 일시중지는 단품 공급상태와 몰 쪽 상태가 말한다.
+ */
 export function salesProductStatusFromSabangnet(code: string | null | undefined): SalesProductStatus {
   switch (String(code ?? '').trim()) {
-    case '2': return 'active';
-    case '3': return 'paused';
-    case '4': return 'sold_out';
-    case '5': return 'unused';
+    case '5':
     case '6': return 'archived';
-    default: return 'draft';
+    default: return 'active';
   }
 }
 

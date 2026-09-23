@@ -5,6 +5,8 @@ import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { REGISTRATION_SOURCE_PORT, type RegistrationSourcePort } from '../../../../sourcing/application/port/in/registration-source.port';
 import { readRegistrationExecutionFacts } from '../repository/registration-execution.reader';
 import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
+import { canStartRegistration } from '../../../domain/sales-product/sales-product-status';
+import type { SalesProductStatus } from '@kiditem/shared/sales-product';
 import {
   freezeProductRegistrationPayload,
   type RegistrationSubmissionJson,
@@ -73,10 +75,11 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
       select: { name: true, status: true, sourceCandidateId: true },
     });
     if (!product) throw new NotFoundException('판매상품을 찾지 못했습니다.');
-    if (product.status === 'archived' || product.status === 'unused') {
-      throw new ConflictException(
-        `'${product.name}' 은(는) 보관한 판매상품입니다. 다시 쓰려면 판매상품에서 상태를 되돌리세요.`,
-      );
+    // 몰에 보내는 것은 KID 를 받은 판매 상품(active)뿐이다(KID-313).
+    if (!canStartRegistration(product.status as SalesProductStatus)) {
+      throw new ConflictException(product.status === 'archived'
+        ? `'${product.name}' 은(는) 보관한 판매상품이라 몰에 보내지 않습니다.`
+        : `'${product.name}' 은(는) 아직 판매상품코드(KID)가 없는 초안입니다. 등록 설정을 만들어 KID 를 받은 뒤 다시 시도하세요.`);
     }
     // 원천에서 온 상품은 그 후보가 살아 있어야 한다. 직접 작성한 상품에는 볼 후보가 없다.
     if (product.sourceCandidateId) {

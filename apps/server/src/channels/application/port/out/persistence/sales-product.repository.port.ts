@@ -32,7 +32,7 @@ export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
   optionAxes: string[];
   sourceRaw: Record<string, unknown> | null;
   /** 이 초안을 만든 원천 기록(수집상품) id. */
-  sourceCandidateId?: string | null;
+  sourceRecordId?: string | null;
   /** 원천 장터와 주소. 초안을 만들 때만 쓰고 바꾸지 않는다. */
   sourcePlatform?: string | null;
   sourceUrl?: string | null;
@@ -141,8 +141,6 @@ export interface SalesProductRepositoryPort {
     expectedVersion: number;
     optionAxes: string[];
     plan: SalesProductOptionReplacementPlan;
-    /** 저장 뒤 상태. 팔 옵션에 값이 다 차면 `active`, 아니면 `draft` 다. */
-    status: SalesProductStatus;
   }): Promise<boolean>;
   /** 이 조직의 활성 셀피아 SKU 가 맞는지. 아닌 id 를 돌려준다. */
   findInvalidMasterProductIds(organizationId: string, skuIds: readonly string[]): Promise<string[]>;

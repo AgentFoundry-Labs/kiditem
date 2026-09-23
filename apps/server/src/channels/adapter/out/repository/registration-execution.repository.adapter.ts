@@ -26,6 +26,8 @@ import {
 import { MALL_ADMIN_LISTING_READERS } from '@kiditem/shared/mall-admin-listings';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
+import { canStartRegistration } from '../../../domain/sales-product/sales-product-status';
+import type { SalesProductStatus } from '@kiditem/shared/sales-product';
 import { isReservedExecutionIdempotencyKey } from '../../../domain/registration/thumbnail-update';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration/registration-item-code';
@@ -583,9 +585,9 @@ export class RegistrationExecutionRepositoryAdapter
         if (options.length !== new Set(snapshotOptionIds).size) {
           throw new ConflictException('Frozen registration options no longer belong to the sales product.');
         }
-        if (frozen.payload.kind === 'register'
-          && (product.status === 'archived' || product.status === 'unused')) {
-          throw new ConflictException('Archived or unused sales products cannot start a new registration.');
+        // 새 등록은 KID 를 받은 판매 상품(active)만 연다 — 초안은 코드가 없고 보관은 판매를 접었다(KID-313).
+        if (frozen.payload.kind === 'register' && !canStartRegistration(product.status as SalesProductStatus)) {
+          throw new ConflictException('Only a selling product with a KID can start a new registration.');
         }
         if (frozen.payload.kind === 'register'
           && options.some((option) => option.supplyStatus === 'unused')) {

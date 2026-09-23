@@ -6,41 +6,17 @@ import {
 } from '@kiditem/shared/sales-product';
 
 /**
- * 판매상품 초안 규칙 — 순수 함수만 둔다(KID-310).
+ * 판매상품 초안 규칙 — 순수 함수만 둔다(KID-310 · KID-313).
  *
- * 수집상품과 판매상품은 공존하지 않는다. 수집 · 직접 작성 모두 판매상품 하나를 `draft` 로 만들고,
- * 썸네일 · 상세 · 정보 · 가격을 거기서 손본다. "판매가 확인"은 별도 버튼이 아니라 저장이다 —
- * 판매 옵션에 값이 다 차면 저장이 상태를 `active` 로 올린다.
+ * 수집 · 직접 작성 모두 판매상품 하나를 `draft` 로 만들고, 썸네일 · 상세 · 정보 · 가격을 거기서
+ * 손본다. 상태는 가격이 아니라 KID 가 정한다(`sales-product-status.ts`) — 여기는 가격 게이트와
+ * 원천 글 · 옵션을 초안 칸에 맞추는 규칙만 둔다.
  */
-
-/** 저장할 때마다 다시 판정하는 상태. */
-const DERIVED_STATUSES = ['draft', 'active'] as const;
 
 export interface SalesProductPricedOption {
   id: string;
   supplyStatus: SalesProductOptionSupplyStatus;
   salePrice: number | null;
-}
-
-/** 상태 판정에는 값만 있으면 된다 — 저장 전 계획(PlannedOptionWrite)도 그대로 넘긴다. */
-export type SalesProductOptionPrice = Pick<SalesProductPricedOption, 'supplyStatus' | 'salePrice'>;
-
-/**
- * 저장 뒤 상태. 판매(selling) 옵션에 판매가가 하나라도 비어 있으면 `draft`, 값이 다 차 있으면
- * `active` 다.
- *
- * 팔 옵션이 하나도 없는 것은 "값이 비었다"와 다른 사실이라 상태를 바꾸지 않는다 — 팔던 상품의
- * 옵션을 모두 내렸다고 이미 몰에 올라간 상품이 초안으로 돌아가면 안 된다.
- * `paused` · `sold_out` · `unused` · `archived` 는 사람이 정한 상태라 값이 차도 건드리지 않는다.
- */
-export function resolveSalesProductStatus(input: {
-  current: SalesProductStatus;
-  options: readonly SalesProductOptionPrice[];
-}): SalesProductStatus {
-  if (!(DERIVED_STATUSES as readonly string[]).includes(input.current)) return input.current;
-  const selling = input.options.filter((option) => option.supplyStatus === 'selling');
-  if (selling.length === 0) return input.current;
-  return selling.some((option) => option.salePrice === null) ? 'draft' : 'active';
 }
 
 export class SalesProductDraftError extends Error {}
@@ -49,27 +25,25 @@ export class SalesProductDraftError extends Error {}
  * 등록 동결 · 몰 엑셀 · 품절 송신이 함께 쓰는 단일 가격 게이트. 값이 확정된 판매 옵션을 돌려주고,
  * 아니면 한 가지 오류로 거절한다 — 세 화면이 같은 문장을 보여야 사장님이 어디를 고칠지 안다.
  *
- * 묻는 것은 **아직 초안인가**이지 지금 팔고 있는가가 아니다. 잠시 내려둔 상품(`paused`)과 품절
- * 표시를 한 상품(`sold_out`)은 값이 확정된 상품이고, 품절 송신이 다루는 것이 바로 그 상품이다.
+ * 묻는 것은 가격뿐이다. 초안인지는 KID 가 말하고(몰 엑셀은 값이 찬 초안에 그 자리에서 KID 를
+ * 발급한다), 보관한 상품만 상태로 거절한다 — 판매를 접은 상품이다.
  */
-const UNCONFIRMED_STATUSES = new Set<SalesProductStatus>(['draft', 'archived', 'unused']);
-
 export function requireConfirmedPrice(product: {
   name: string;
   status: SalesProductStatus;
   options: readonly SalesProductPricedOption[];
 }): { id: string; salePrice: number }[] {
-  if (product.status === 'archived' || product.status === 'unused') {
+  if (product.status === 'archived') {
     throw new SalesProductDraftError(
-      `'${product.name}' 은(는) 보관한 판매상품입니다. 다시 쓰려면 판매상품에서 상태를 되돌리세요.`,
+      `'${product.name}' 은(는) 보관한 판매상품이라 몰에 보내지 않습니다.`,
     );
   }
   const selling = product.options.filter((option) => option.supplyStatus === 'selling');
   const confirmed = selling.filter((option): option is SalesProductPricedOption & { salePrice: number } =>
     option.salePrice !== null && option.salePrice > 0);
-  if (UNCONFIRMED_STATUSES.has(product.status) || selling.length === 0 || confirmed.length !== selling.length) {
+  if (selling.length === 0 || confirmed.length !== selling.length) {
     throw new SalesProductDraftError(
-      `'${product.name}' 은(는) 아직 판매가를 정하지 않은 초안입니다. 판매상품에서 팔 옵션의 판매가를 채운 뒤 다시 시도하세요.`,
+      `'${product.name}' 은(는) 아직 판매가를 정하지 않은 상품입니다. 판매상품에서 팔 옵션의 판매가를 채운 뒤 다시 시도하세요.`,
     );
   }
   return confirmed.map((option) => ({ id: option.id, salePrice: option.salePrice }));

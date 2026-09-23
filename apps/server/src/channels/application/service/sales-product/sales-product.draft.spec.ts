@@ -100,11 +100,10 @@ function setup(rows: Row[] = [], options: { raceOn?: string } = {}) {
         }
         : null;
     },
-    applyOptionPlan: async (input: { salesProductId: string; expectedVersion: number; optionAxes: string[]; plan: SalesProductOptionReplacementPlan; status: string }) => {
+    applyOptionPlan: async (input: { salesProductId: string; expectedVersion: number; optionAxes: string[]; plan: SalesProductOptionReplacementPlan }) => {
       const row = rows.find((candidate) => candidate.id === input.salesProductId);
       if (!row || row.version !== input.expectedVersion) return false;
       row.optionAxes = input.optionAxes;
-      row.status = input.status;
       row.version += 1;
       write(row, input.plan);
       return true;
@@ -218,21 +217,8 @@ describe('SalesProductUseCase.createFromSource', () => {
 });
 
 describe('SalesProductUseCase.replaceOptions', () => {
-  it('판매가를 비워 둘 수 있고 그 저장은 상품을 draft 로 둔다', async () => {
-    const { rows, service } = setup();
-    const draft = await service.createFromSource(ORG, { ...source, optionNames: ['빨강', '파랑'] });
-    await service.replaceOptions(ORG, draft.id, {
-      expectedVersion: rows[0]!.version,
-      optionAxes: ['옵션'],
-      options: [
-        { values: ['빨강'], salePrice: 9900 },
-        { values: ['파랑'], salePrice: null },
-      ],
-    });
-    expect(rows[0]!.status).toBe('draft');
-  });
-
-  it('팔 옵션에 값이 다 차면 저장이 상품을 active 로 올린다 — 별도 확정 버튼이 없다', async () => {
+  /** 상태는 가격이 아니라 KID 가 정한다(KID-313). 값을 다 채워도 초안은 초안이다. */
+  it('판매가를 다 채워도 상태를 건드리지 않는다 — 초안은 KID 를 받을 때 판매 상품이 된다', async () => {
     const { rows, service } = setup();
     const draft = await service.createFromSource(ORG, { ...source, optionNames: ['빨강', '파랑'] });
     await service.replaceOptions(ORG, draft.id, {
@@ -243,19 +229,8 @@ describe('SalesProductUseCase.replaceOptions', () => {
         { values: ['파랑'], salePrice: 10900 },
       ],
     });
-    expect(rows[0]!.status).toBe('active');
-  });
-
-  it('사람이 정한 상태(보관)는 값이 차도 올리지 않는다', async () => {
-    const { rows, service } = setup();
-    const draft = await service.createFromSource(ORG, source);
-    rows[0]!.status = 'archived';
-    await service.replaceOptions(ORG, draft.id, {
-      expectedVersion: rows[0]!.version,
-      optionAxes: [],
-      options: [{ values: [], salePrice: 9900 }],
-    });
-    expect(rows[0]!.status).toBe('archived');
+    expect(rows[0]!.status).toBe('draft');
+    expect(rows[0]!.options.map((option) => option.salePrice)).toEqual([9900, 10900]);
   });
 });
 

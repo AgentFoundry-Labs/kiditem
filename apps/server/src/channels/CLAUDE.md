@@ -156,10 +156,11 @@ sync, registration, matching, and capacity behavior is executable in
 - Marketplace transport preserves its existing per-provider stock behavior. Internal capacity does not replace the submitted stock value or mutate source stock.
 - 몰 대량등록 엑셀은 상품 × 몰 계정의 하나뿐인 등록 설정으로 확인 · 파일 · 분류 저장을 한다.
   설정이 없으면 공통값으로 계산한다.
-- 수집과 직접 작성 모두 판매상품 초안(`status='draft'`) 하나를 만든다. 저장할 때마다 팔 옵션의
-  판매가로 상태를 다시 판정하고(`domain/sales-product/sales-product-draft.ts`), 등록 동결 · 몰
-  엑셀 파일 · 품절 송신은 같은 게이트(`requireConfirmedPrice`)로 초안을 거절한다
-  ([ADR-0022](../../../../docs/adr/0022-sales-product-draft-exists-from-collection.md)).
+- 판매상품 상태는 `draft` · `active` · `archived` 셋이고 `draft ⇔ code IS NULL` 이다
+  (`domain/sales-product/sales-product-status.ts`, KID-313). `draft → active` 는 KID 발급
+  (`sales-product-code-rows.ts`)만 하고 되돌아가지 않으며, 사람은 `archived` 로만 바꾼다. 모든 상태
+  쓰기는 `assertStatusInvariant` 를 지난다. 가격은 상태가 아니라 등록 동결 · 몰 엑셀 파일 · 품절
+  송신이 함께 쓰는 게이트(`requireConfirmedPrice`)가 묻는다.
 - 몰 시트가 몰별로 다시 보는 `salePrice <= 0` 검사는 그대로 둔다. 같은 게이트를 두 번 보는 것이
   아니라, 몰마다 다른 최소가 · 배수 규칙을 그 몰 어댑터가 말해 주는 자리다.
 

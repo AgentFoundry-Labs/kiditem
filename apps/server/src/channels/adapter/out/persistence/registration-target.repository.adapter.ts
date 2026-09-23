@@ -329,7 +329,7 @@ async function validateReferences(
   salesProductId: string,
   channelAccountId: string,
   options: { allowArchivedProduct?: boolean } = {},
-): Promise<{ status: string; sourceCandidateId: string | null }> {
+): Promise<{ status: string; sourceRecordId: string | null }> {
   // Serialize new references with option archive/delete/composition planning.
   await tx.$queryRaw(Prisma.sql`
     SELECT id FROM sales_products
@@ -346,7 +346,7 @@ async function validateReferences(
 
   const product = await tx.salesProduct.findFirst({
     where: { id: salesProductId, organizationId },
-    select: { id: true, status: true, sourceCandidateId: true },
+    select: { id: true, status: true, sourceRecordId: true },
   });
   if (!product) {
     throw new RegistrationTargetException('invalid', '판매상품이 이 조직에 속하지 않습니다.');
@@ -362,7 +362,7 @@ async function validateReferences(
   if (!account) {
     throw new RegistrationTargetException('invalid', '활성 채널 계정이 이 조직에 속하지 않습니다.');
   }
-  return { status: product.status, sourceCandidateId: product.sourceCandidateId };
+  return { status: product.status, sourceRecordId: product.sourceRecordId };
 }
 
 async function validateSelectedOptions(
