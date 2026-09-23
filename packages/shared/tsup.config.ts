@@ -9,6 +9,7 @@ export default defineConfig({
     'src/sourcing/index.ts',
     'src/channel-listing.ts',
     'src/registration-execution.ts',
+    'src/thumbnail-execution.ts',
     'src/order.ts',
     'src/inventory.ts',
     'src/ai.ts',
