@@ -115,52 +115,6 @@ export const ThumbnailScoresSchema = z.object({
   differentiation: z.number(),
 });
 
-export const ThumbnailAnalysisResultSchema = z.object({
-  id: z.string(),
-  contentWorkspaceId: z.string().nullable(),
-  productName: z.string(),
-  imageUrl: z.string().nullable(),
-  overallScore: z.number(),
-  grade: z.string(),
-  scores: ThumbnailScoresSchema.nullable(),
-  issues: z.array(z.object({ type: z.string(), severity: z.string(), message: z.string() })),
-  suggestions: z.array(z.string()),
-  method: z.string(),
-  analyzed: z.boolean(),
-  qualityAnalyzed: z.boolean(),
-  complianceAnalyzed: z.boolean(),
-  complianceGrade: z.string().nullable(),
-  complianceScores: ComplianceScoresSchema.nullable(),
-  imageSpec: ImageSpecSchema.nullable().optional(),
-  recompose: RecomposeVariantClassificationSchema.nullable().optional(),
-  createdAt: z.string().optional(),
-  ctr: z.number().nullable().optional(),
-});
-
-export const ThumbnailAnalysisSummarySchema = z.object({
-  total: z.number(),
-  analyzed: z.number(),
-  partialCount: z.number(),
-  unclassifiedCount: z.number(),
-  gradeDistribution: z.object({
-    S: z.number(),
-    A: z.number(),
-    B: z.number(),
-    C: z.number(),
-    F: z.number(),
-  }),
-  complianceDistribution: z.object({
-    PASS: z.number(),
-    WARN: z.number(),
-    FAIL: z.number(),
-  }),
-});
-
-export const ThumbnailAnalysisListResponseSchema = ThumbnailAnalysisSummarySchema.extend({
-  allResults: z.array(ThumbnailAnalysisResultSchema),
-  unclassified: z.array(ThumbnailAnalysisResultSchema),
-});
-
 export const EditAnalysisResultSchema = z.object({
   complianceGrade: z.string(),
   complianceScores: z.record(z.string(), z.unknown()).nullable(),
@@ -236,9 +190,6 @@ export const UpdateThumbnailTrackingMetricsSchema = z
 export type ThumbnailScores = z.infer<typeof ThumbnailScoresSchema>;
 export type EditAnalysisResult = z.infer<typeof EditAnalysisResultSchema>;
 export type ComplianceScores = z.infer<typeof ComplianceScoresSchema>;
-export type ThumbnailAnalysisResult = z.infer<typeof ThumbnailAnalysisResultSchema>;
-export type ThumbnailAnalysisSummary = z.infer<typeof ThumbnailAnalysisSummarySchema>;
-export type ThumbnailAnalysisListResponse = z.infer<typeof ThumbnailAnalysisListResponseSchema>;
 export type ThumbnailTrackingRecord = z.infer<typeof ThumbnailTrackingRecordSchema>;
 export type ThumbnailTrackingListResponse = z.infer<typeof ThumbnailTrackingListResponseSchema>;
 export type UpdateThumbnailTrackingMetrics = z.infer<typeof UpdateThumbnailTrackingMetricsSchema>;

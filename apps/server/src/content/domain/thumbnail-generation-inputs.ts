@@ -1,6 +1,5 @@
 import {
   RECOMPOSE_KINDS,
-  type EditAnalysisResult,
   type RecomposeKind,
   type RecomposeVariantKey,
 } from '@kiditem/shared/ai';
@@ -11,22 +10,10 @@ import type {
 } from './model/thumbnail-editor';
 
 /**
- * Pure helpers for `ThumbnailGenerationService`. No Prisma client access; only
- * shape transforms and parsing on already-fetched analysis / inputMeta JSON
- * blobs. This is the home for the recompose-kind probe, the per-violation edit
- * suggestion extractor, the analysis → API shape adapter, and the input-role /
- * edit-case classification used when scheduling edit jobs.
+ * Pure helpers for thumbnail re-edit jobs. No Prisma client access; only
+ * parsing of already-fetched `inputMeta` JSON: the recompose-kind probe and the
+ * input-role / edit-case classification used when scheduling edit jobs.
  */
-
-export type ThumbnailAnalysisContext = {
-  recompose: ThumbnailJsonValue | null;
-  complianceGrade: string | null;
-  complianceScores: ThumbnailJsonValue | null;
-  overallScore: number;
-  grade: string;
-  qualityAnalyzedAt: Date | null;
-  complianceAnalyzedAt: Date | null;
-};
 
 export type ThumbnailJsonValue =
   | string
@@ -43,8 +30,8 @@ function isRecomposeKind(value: unknown): value is RecomposeKind {
 /**
  * Probe an arbitrary JSON blob for a `recompose.kind` (nested) or `kind`
  * (direct) field, returning the canonical `RecomposeKind` or `null`. Used to
- * recover prompt-routing context from `inputMeta`, `editAnalysis`, or stored
- * `ThumbnailAnalysis.recompose` payloads when re-editing a job.
+ * recover prompt-routing context from `inputMeta` or its edit analysis when
+ * re-editing a job.
  */
 export function findRecomposeKindIn(
   value: ThumbnailJsonValue | null | undefined,
@@ -58,72 +45,6 @@ export function findRecomposeKindIn(
   }
   const directKind = object.kind;
   return isRecomposeKind(directKind) ? directKind : null;
-}
-
-export function extractRecomposeKind(value: ThumbnailJsonValue | null): RecomposeKind | null {
-  return findRecomposeKindIn(value);
-}
-
-/**
- * Pull the per-violation `editSuggestions` map out of a stored
- * `complianceScores` JSON blob, dropping empty / non-string entries. Returns
- * null when nothing usable survived so callers can branch cleanly on absence.
- */
-export function extractEditSuggestions(
-  complianceScores: ThumbnailJsonValue | null | undefined,
-): Record<string, string> | null {
-  if (
-    !complianceScores ||
-    typeof complianceScores !== 'object' ||
-    Array.isArray(complianceScores)
-  ) {
-    return null;
-  }
-  const obj = complianceScores as Record<string, unknown>;
-  const raw = obj.editSuggestions;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (typeof value === 'string' && value.trim()) {
-      out[key] = value.trim();
-    }
-  }
-  return Object.keys(out).length ? out : null;
-}
-
-/**
- * Build the public `editAnalysis` payload that satisfies
- * `EditAnalysisResultSchema` (non-null grade/score). Returns null when there is
- * no usable analysis context to project.
- */
-export function toEditAnalysis(
-  analysis: ThumbnailAnalysisContext | null,
-): EditAnalysisResult | null {
-  if (!analysis) return null;
-  return {
-    complianceGrade: analysis.complianceGrade ?? 'UNKNOWN',
-    complianceScores:
-      (analysis.complianceScores as Record<string, unknown> | null) ?? null,
-    overallScore: analysis.overallScore,
-    grade: analysis.grade,
-  };
-}
-
-/**
- * Project the analysis context plus the extracted edit-suggestion map into the
- * `inputMeta.analysisContext` blob that future re-edits will read back.
- */
-export function toAnalysisContextJson(
-  analysis: ThumbnailAnalysisContext | null,
-  editSuggestions: Record<string, string> | null,
-): ThumbnailJsonValue {
-  return {
-    complianceGrade: analysis?.complianceGrade ?? null,
-    complianceScores: analysis?.complianceScores ?? null,
-    overallScore: analysis?.overallScore ?? null,
-    grade: analysis?.grade ?? null,
-    editSuggestions: editSuggestions ?? null,
-  };
 }
 
 /**

@@ -12,10 +12,12 @@ export interface ThumbnailVisionProviderPort {
   fetchImageBytes(imageUrl: string): Promise<ImageBytes>;
   fetchTrustedStorageImage(imageUrl: string): Promise<FetchedImage>;
   assertConfigured(): void;
+  /** `options.model` 이 있으면 그 모델로 부른다(호출자가 고른 모델). 없으면 설정된 vision 모델. */
   callVisionForJsonArray<T>(
     contents: ThumbnailVisionContents,
     errorCode: string,
     signal?: AbortSignal,
+    options?: { model?: string },
   ): Promise<T[]>;
   callVerifyForJsonObject<T>(
     contents: ThumbnailVisionContents,

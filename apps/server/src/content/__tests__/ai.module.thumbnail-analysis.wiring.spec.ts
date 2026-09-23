@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { AiModule } from '../ai.module';
-import { ThumbnailAnalysisController } from '../adapter/in/http/thumbnail-analysis.controller';
+import { ListingThumbnailEvaluationController } from '../adapter/in/http/listing-thumbnail-evaluation.controller';
 import { ThumbnailAnalysisEditJobsController } from '../adapter/in/http/thumbnail-analysis-edit-jobs.controller';
 import { ThumbnailAnalysisGenerationReviewController } from '../adapter/in/http/thumbnail-analysis-generation-review.controller';
 
@@ -23,13 +23,26 @@ describe('AiModule thumbnail-analysis route-family wiring', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, AiModule) ?? [];
 
     for (const controller of [
-      ThumbnailAnalysisController,
       ThumbnailAnalysisEditJobsController,
       ThumbnailAnalysisGenerationReviewController,
     ]) {
       expect(controllers).toContain(controller);
       expect(Reflect.getMetadata(PATH_KEY, controller)).toBe('thumbnail-analysis');
     }
+  });
+
+  it('evaluates the mall listing image instead of analysing a workspace (KID-313 W3a)', () => {
+    const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, AiModule) ?? [];
+    expect(controllers).toContain(ListingThumbnailEvaluationController);
+    expect(Reflect.getMetadata(PATH_KEY, ListingThumbnailEvaluationController)).toBe('ai/listing-thumbnails');
+    expect(routeFor(ListingThumbnailEvaluationController.prototype, 'evaluate')).toEqual({
+      method: RequestMethod.POST,
+      path: ':channelListingId/evaluate',
+    });
+    expect(routeFor(ListingThumbnailEvaluationController.prototype, 'current')).toEqual({
+      method: RequestMethod.POST,
+      path: 'current',
+    });
   });
 
   it('preserves moved generation and edit-job route URLs', () => {

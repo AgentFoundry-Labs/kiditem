@@ -57,7 +57,11 @@ export class ThumbnailVisionAiService {
 
   // ─── Public API ─────────────────────────────────────────────────────────
 
-  async analyzeQuality(items: ThumbnailAiItem[], signal?: AbortSignal): Promise<Map<string, AiAnalysisResult>> {
+  async analyzeQuality(
+    items: ThumbnailAiItem[],
+    signal?: AbortSignal,
+    options?: { model?: string },
+  ): Promise<Map<string, AiAnalysisResult>> {
     const results = new Map<string, AiAnalysisResult>();
     if (items.length === 0) return results;
     this.adapter.throwIfAborted(signal);
@@ -93,6 +97,7 @@ export class ThumbnailVisionAiService {
       },
       'thumbnail_ai_invalid_quality_response',
       signal,
+      options,
     );
 
     for (let i = 0; i < parsed.length; i++) {

@@ -75,8 +75,9 @@ export class GeminiThumbnailVisionAdapter implements ThumbnailVisionProviderPort
     contents: ThumbnailVisionContents,
     errorCode: string,
     signal?: AbortSignal,
+    options?: { model?: string },
   ): Promise<T[]> {
-    const text = await this.callVisionRaw(contents, signal);
+    const text = await this.callVisionRaw(contents, signal, options?.model);
     return this.extractJsonArray<T>(text, errorCode);
   }
 
@@ -150,16 +151,18 @@ export class GeminiThumbnailVisionAdapter implements ThumbnailVisionProviderPort
   private async callVisionRaw(
     contents: ThumbnailVisionContents,
     signal?: AbortSignal,
+    requestedModel?: string,
   ): Promise<string> {
     const client = this.getClient();
+    const model = requestedModel?.trim() || requireGeminiVisionModel();
     const response = await this.raceWithAbort(
       client.models.generateContent({
-        model: requireGeminiVisionModel(),
+        model,
         contents: contents.contents,
       }),
       signal,
     );
-    aiUsageMeter.recordGemini({ model: requireGeminiVisionModel(), operation: 'thumbnail_vision', usage: response.usageMetadata });
+    aiUsageMeter.recordGemini({ model, operation: 'thumbnail_vision', usage: response.usageMetadata });
     return response.text ?? '';
   }
 
