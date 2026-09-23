@@ -23,9 +23,11 @@ export class ListingContentQueryRepositoryAdapter implements ListingContentQuery
   async findForListings(input: ListingContentRequest): Promise<ListingContentView[]> {
     const listings = [...new Map(input.listings.map((listing) => [listing.id, listing])).values()];
     if (listings.length === 0) return [];
-    const workspaceIdByListing = await resolveListingWorkspaceIds(this.prisma, { organizationId: input.organizationId, listings });
+    const workspaceIdsByListing = await resolveListingWorkspaceIds(this.prisma, { organizationId: input.organizationId, listings });
+    const resolvedIds = [...new Set([...workspaceIdsByListing.values()].map((ids) => ids.resolved))];
+    const catalogIds = [...new Set([...workspaceIdsByListing.values()].flatMap((ids) => ids.catalog ? [ids.catalog] : []))];
     const workspaces = await this.prisma.contentWorkspace.findMany({
-        where: { organizationId: input.organizationId, id: { in: [...new Set(workspaceIdByListing.values())] } },
+        where: { organizationId: input.organizationId, id: { in: resolvedIds } },
         select: {
           id: true,
           currentDetailPageRevisionId: true,
@@ -46,7 +48,8 @@ export class ListingContentQueryRepositoryAdapter implements ListingContentQuery
         },
       });
     const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
-    const assets = input.includeProviderMedia && workspaces.length > 0
+    // 몰 카탈로그 사진은 카탈로그 import 가 쓰는 리스팅 소유 작업공간에만 있다 — 상품 작업공간이 이겨도 거기서 읽는다.
+    const assets = input.includeProviderMedia && catalogIds.length > 0
       ? await this.prisma.contentAsset.findMany({
         where: {
           organizationId: input.organizationId,
@@ -54,7 +57,7 @@ export class ListingContentQueryRepositoryAdapter implements ListingContentQuery
           role: { in: ['primary', 'detail', 'option'] },
           isDeleted: false,
           source: 'catalog',
-          contentWorkspaceId: { in: workspaces.map((workspace) => workspace.id) },
+          contentWorkspaceId: { in: catalogIds },
         },
         orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
         select: {
@@ -63,16 +66,17 @@ export class ListingContentQueryRepositoryAdapter implements ListingContentQuery
       })
       : [];
     return listings.map((listing) => {
-      const workspaceId = workspaceIdByListing.get(listing.id);
-      const workspace = workspaceId ? workspaceById.get(workspaceId) : undefined;
+      const ids = workspaceIdsByListing.get(listing.id);
+      const workspace = ids ? workspaceById.get(ids.resolved) : undefined;
+      const catalogWorkspaceId = ids?.catalog ?? null;
       return {
         listingId: listing.id,
         workspaceId: workspace?.id ?? null,
         detailPageRevisionId: workspace?.currentDetailPageRevisionId ?? null,
         thumbnailUrl: liveAssetUrl(workspace?.currentThumbnailAsset ?? null),
         workspaceImageUrl: workspace?.assets.find(asset => Boolean(asset.url))?.url ?? null,
-        providerMedia: workspace ? assets.flatMap((asset) => {
-          if (asset.contentWorkspaceId !== workspace.id) return [];
+        providerMedia: catalogWorkspaceId ? assets.flatMap((asset) => {
+          if (asset.contentWorkspaceId !== catalogWorkspaceId) return [];
           const metadata = jsonRecord(asset.metadata);
           if (!asset.url.trim() || metadata?.active === false
             || !isChannelProviderMetadata(metadata, listing.channel)) return [];
@@ -93,13 +97,14 @@ type ListingRef = { id: string; salesProductId: string | null };
 /**
  * 리스팅이 보여 주는 작업공간(KID-313 W3 리뷰 M1). 판매 상품의 활성 작업공간이 먼저다 — 등록은 리스팅을 상품
  * 작업공간에 붙이지 않고, 리스팅은 `salesProductId` 로 그곳에 닿는다. 상품 작업공간이 없으면(카탈로그 import 로만
- * 생긴 리스팅) 리스팅 소유 작업공간을 쓴다. 상품 작업공간에서 리스팅 id 를 찾지 않는다.
+ * 생긴 리스팅) 리스팅 소유 작업공간을 쓴다(`resolved`). 상품 작업공간에서 리스팅 id 를 찾지 않는다. 몰 카탈로그
+ * 사진은 늘 리스팅 소유 작업공간에 있으므로 그 id 도 따로 돌려준다(`catalog`).
  */
 async function resolveListingWorkspaceIds(
   prisma: Prisma.TransactionClient,
   input: { organizationId: string; listings: readonly ListingRef[] },
-): Promise<Map<string, string>> {
-  const result = new Map<string, string>();
+): Promise<Map<string, { resolved: string; catalog: string | null }>> {
+  const result = new Map<string, { resolved: string; catalog: string | null }>();
   if (input.listings.length === 0) return result;
   const salesProductIds = [...new Set(input.listings.flatMap((listing) => listing.salesProductId ? [listing.salesProductId] : []))];
   const rows = await prisma.contentWorkspace.findMany({
@@ -117,8 +122,9 @@ async function resolveListingWorkspaceIds(
   const byProduct = new Map(rows.filter((row) => row.ownerType === 'sales_product').map((row) => [row.salesProductId, row.id]));
   const byListing = new Map(rows.filter((row) => row.ownerType === 'channel_listing').map((row) => [row.channelListingId, row.id]));
   for (const listing of input.listings) {
-    const workspaceId = (listing.salesProductId ? byProduct.get(listing.salesProductId) : undefined) ?? byListing.get(listing.id);
-    if (workspaceId) result.set(listing.id, workspaceId);
+    const catalog = byListing.get(listing.id) ?? null;
+    const resolved = (listing.salesProductId ? byProduct.get(listing.salesProductId) : undefined) ?? catalog;
+    if (resolved) result.set(listing.id, { resolved, catalog });
   }
   return result;
 }
@@ -134,12 +140,12 @@ async function latestThumbnails(
   const workspaceIdByListing = await resolveListingWorkspaceIds(prisma, input);
   if (workspaceIdByListing.size === 0) return [];
   const workspaces = await prisma.contentWorkspace.findMany({
-    where: { organizationId: input.organizationId, id: { in: [...new Set(workspaceIdByListing.values())] } },
+    where: { organizationId: input.organizationId, id: { in: [...new Set([...workspaceIdByListing.values()].map((ids) => ids.resolved))] } },
     select: { id: true, currentThumbnailAsset: { select: { url: true, isDeleted: true } } },
   });
   const assetByWorkspace = new Map(workspaces.map((workspace) => [workspace.id, workspace.currentThumbnailAsset]));
   return input.listings.flatMap((listing) => {
-    const workspaceId = workspaceIdByListing.get(listing.id);
+    const workspaceId = workspaceIdByListing.get(listing.id)?.resolved;
     const imageUrl = liveAssetUrl(workspaceId ? assetByWorkspace.get(workspaceId) ?? null : null);
     return imageUrl ? [{ listingId: listing.id, imageUrl }] : [];
   });

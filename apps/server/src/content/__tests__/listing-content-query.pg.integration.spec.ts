@@ -110,6 +110,26 @@ describe('AI listing content owner query (PG integration)', () => {
     }))).toEqual([{ listingId: catalogListing.id, imageUrl: catalogThumb.url }]);
   });
 
+  it('shows the product workspace pointers and the listing catalog workspace provider media when both exist', async () => {
+    const product = await prisma.salesProduct.create({ data: { organizationId: ORG, code: null, name: '둘 다 있는 상품' } });
+    const productWs = await prisma.contentWorkspace.create({ data: { organizationId: ORG, ownerType: 'sales_product', salesProductId: product.id } });
+    const productThumb = await representative(productWs.id, 'product-thumb');
+    const listing = await productListing(product.id);
+    const catalogWs = await workspace(listing.id);
+    await asset(catalogWs.id, 'catalog-primary', {
+      source: 'catalog', assetType: 'image', role: 'primary', sortOrder: 0, metadata: { sourceType: 'coupang_catalog' },
+    });
+
+    expect(await content.findForListings({
+      organizationId: ORG, listings: [{ id: listing.id, channel: 'coupang', salesProductId: product.id }], includeProviderMedia: true,
+    })).toMatchObject([{
+      listingId: listing.id,
+      workspaceId: productWs.id,
+      thumbnailUrl: productThumb.url,
+      providerMedia: [{ sourceUrl: 'https://cdn/catalog-primary', role: 'primary', sortOrder: 0, externalOptionIds: [] }],
+    }]);
+  });
+
   it('never reads a listing id off a product workspace', async () => {
     const listingId = randomUUID();
     await prisma.contentWorkspace.create({ data: {

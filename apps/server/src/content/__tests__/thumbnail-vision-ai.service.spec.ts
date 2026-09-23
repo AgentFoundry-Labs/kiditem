@@ -283,3 +283,27 @@ describe('ThumbnailVisionAiService failure and fetch behavior', () => {
     );
   });
 });
+
+describe('ThumbnailVisionAiService quality scores', () => {
+  it('returns no result for an item whose entry has no finite 0–100 overall score', async () => {
+    const provider = {
+      assertConfigured: () => undefined,
+      throwIfAborted: () => undefined,
+      raceWithAbort: <T,>(promise: Promise<T>) => promise,
+      fetchImageBytes: async () => ({ data: 'AAAA', mimeType: 'image/png' }),
+      callVisionForJsonArray: async () => [
+        { index: 0 },
+        { index: 1, overallScore: 150 },
+        { index: 2, overallScore: '80' },
+        { index: 3, overallScore: 72, suggestions: ['더 밝게'] },
+      ],
+    };
+    const service = new ThumbnailVisionAiService(provider as never, { complianceParts: () => [] } as never, {} as never);
+    const item = (id: string) => ({ contentWorkspaceId: id, productName: '', imageUrl: `https://example.com/${id}.jpg`, category: null });
+
+    const results = await service.analyzeQuality([item('none'), item('over'), item('text'), item('ok')]);
+
+    expect([...results.keys()]).toEqual(['ok']);
+    expect(results.get('ok')).toMatchObject({ overallScore: 72, suggestions: ['더 밝게'] });
+  });
+});

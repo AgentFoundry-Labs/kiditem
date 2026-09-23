@@ -103,8 +103,10 @@ export class ThumbnailVisionAiService {
     for (let i = 0; i < parsed.length; i++) {
       const entry = parsed[i];
       const idx = entry.index ?? i;
+      // 점수 없는 항목을 0점으로 채우지 않는다 — 결과가 빠지면 호출자가 저장하지 않고 다시 시도하게 한다.
+      const overallScore = entry.overallScore;
+      if (typeof overallScore !== 'number' || !Number.isFinite(overallScore) || overallScore < 0 || overallScore > 100) continue;
       if (idx < validItems.length) {
-        const overallScore = entry.overallScore ?? 0;
         results.set(validItems[idx].item.contentWorkspaceId, {
           overallScore,
           grade: scoreToGrade(overallScore),
