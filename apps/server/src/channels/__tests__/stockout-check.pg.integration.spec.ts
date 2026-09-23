@@ -53,6 +53,29 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
     await prisma.channelListingOptionInventoryComponent.deleteMany({ where: { channelListingOptionId: f.option.id } });
     expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'unknown' }]);
   });
+  it('holds only the option of an uncertain composition change as unknown and keeps it out of any stockout action', async () => {
+    const f = await fixture();
+    const sibling = await prisma.channelListingOption.create({ data: { organizationId: ORG, listingId: f.listing.id, externalOptionId: 'sibling-external', rawJson: { registrationType: 'NORMAL' }, status: 'active', safetyStock: 2 } });
+    await prisma.channelListingOptionInventoryComponent.create({ data: { organizationId: ORG, channelListingOptionId: sibling.id, masterProductId: f.product.id, quantity: 2 } });
+    expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'eligible', optionCodes: ['option-external', 'sibling-external'].sort() }]);
+
+    const execution = await prisma.productRegistrationExecution.create({ data: {
+      organizationId: ORG, channelAccountId: f.account.id, channelListingId: f.listing.id, executionKind: 'composition_change',
+      idempotencyKey: randomUUID(), requestHash: 'composition-request', status: 'reconciling', providerOutcome: 'uncertain',
+      submissionPayloadJson: { kind: 'composition_change', optionTransitions: [{ channelListingOptionId: f.option.id, salesProductOptionId: randomUUID() }] },
+    } });
+
+    const [subject] = await persistence.readSubjects(ORG, [f.listing.id]);
+    expect(subject!.options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: f.option.id, compositionUnconfirmed: true }),
+      expect.objectContaining({ id: sibling.id, compositionUnconfirmed: false, capacity: 2, safetyStock: 2 }),
+    ]));
+    expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'active_execution', optionCodes: [] }]);
+    await expect(service.prepare(ORG, USER, { listingId: f.listing.id, idempotencyKey: randomUUID() })).rejects.toThrow('active_execution');
+    expect(await prisma.productRegistrationExecution.count({ where: { organizationId: ORG, executionKind: 'sold_out' } })).toBe(0);
+    await prisma.productRegistrationExecution.update({ where: { id: execution.id }, data: { status: 'failed', providerOutcome: 'definitive_failure' } });
+    expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'eligible', optionCodes: ['option-external', 'sibling-external'].sort() }]);
+  });
   it('freezes the stockout policy and refuses start after stock recovery without claiming a lease', async () => {
     const f = await fixture();
     const input = { listingId: f.listing.id, idempotencyKey: randomUUID() };
