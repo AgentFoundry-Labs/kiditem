@@ -271,6 +271,23 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     expect(runner.calls).toBe(1);
   });
 
+  it('refuses the same owner key for a different generation without running the upload', async () => {
+    const first = await listingGeneration();
+    const second = await listingGeneration();
+    const ownerIdempotencyKey = `capability-invocation:${randomUUID()}`;
+    await service.runOnServer({
+      organizationId: ORG, requestedByUserId: USER, generationId: first.generation.id,
+      owner: { ownerIdempotencyKey, requestHash: canonicalOwnerInputHash({ generationId: first.generation.id }) },
+    });
+
+    expect(await rejection(service.runOnServer({
+      organizationId: ORG, requestedByUserId: USER, generationId: second.generation.id,
+      owner: { ownerIdempotencyKey, requestHash: canonicalOwnerInputHash({ generationId: second.generation.id }) },
+    }))).toMatchObject({ kind: 'conflict' });
+    expect(runner.calls).toBe(1);
+    expect(await prisma.productRegistrationExecution.count({ where: { executionKind: 'thumbnail_update' } })).toBe(1);
+  });
+
   it('turns a runner crash into an unknown outcome, rethrows it and answers the owner replay as pending reconciliation', async () => {
     const { generation } = await listingGeneration();
     const owner = { ownerIdempotencyKey: `capability-invocation:${randomUUID()}`, requestHash: canonicalOwnerInputHash({ generationId: generation.id }) };
