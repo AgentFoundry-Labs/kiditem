@@ -6,7 +6,8 @@ import { ThumbnailEditorDto } from './dto/thumbnail-editor.dto';
 import { ThumbnailEditorAiService } from '../../../application/service/thumbnail-editor-ai.service';
 import type { ThumbnailEditorInputImage, ThumbnailInputRole } from '../../../domain/model/thumbnail-editor';
 import { ThumbnailGenerationService } from '../../../application/service/thumbnail-generation.service';
-import { resolveThumbnailGenerationSubject } from '../../../domain/thumbnail-generation-subject';
+import { resolveThumbnailGenerationSubject, ThumbnailGenerationSubjectError } from '../../../domain/thumbnail-generation-subject';
+import { ContentWorkspaceService } from '../../../application/service/content-workspace.service';
 import {
   buildThumbnailGenerateDirectInput,
   buildThumbnailGenerationInputMeta,
@@ -24,6 +25,7 @@ export class ThumbnailEditorController {
   constructor(
     private readonly editorAi: ThumbnailEditorAiService,
     private readonly generationService: ThumbnailGenerationService,
+    private readonly contentWorkspaces: ContentWorkspaceService,
   ) {}
 
   /**
@@ -48,12 +50,27 @@ export class ThumbnailEditorController {
     @CurrentUser() authUser?: AuthUser,
   ): Promise<EnqueueResponse> {
     const mode = body.mode ?? 'edit';
-    const subject = resolveThumbnailGenerationSubject(body);
-    const workspace = subject.contentWorkspaceId
-      ? await this.generationService.findWorkspaceForThumbnailEditor(subject.contentWorkspaceId, organizationId)
+    let subject: ReturnType<typeof resolveThumbnailGenerationSubject>;
+    try {
+      subject = resolveThumbnailGenerationSubject(body);
+    } catch (error) {
+      if (error instanceof ThumbnailGenerationSubjectError) throw new BadRequestException(error.message);
+      throw error;
+    }
+    // 초안에서 연 편집은 초안의 작업공간에 묶는다. 판매상품이 이 조직 것인지는 작업공간 보장이 확인한다.
+    const workspaceId = subject.salesProductId
+      ? (await this.contentWorkspaces.ensureForGeneration({
+        organizationId,
+        triggeredByUserId: authUser?.id ?? null,
+        rawTitle: body.productName?.trim() || '상품 콘텐츠 작업',
+        salesProductId: subject.salesProductId,
+      })).id
+      : subject.contentWorkspaceId;
+    const workspace = workspaceId
+      ? await this.generationService.findWorkspaceForThumbnailEditor(workspaceId, organizationId)
       : null;
-    if (subject.contentWorkspaceId && !workspace) {
-      throw new NotFoundException(`ContentWorkspace ${subject.contentWorkspaceId} not found`);
+    if (workspaceId && !workspace) {
+      throw new NotFoundException(`ContentWorkspace ${workspaceId} not found`);
     }
 
     const inputs = await this.resolveInputs(body, organizationId);
@@ -123,7 +140,7 @@ export class ThumbnailEditorController {
       inputMeta,
       method: mode === 'creative' ? 'creative' : 'generate',
       originalUrl: inputs[0]?.url ?? '',
-      contentWorkspaceId: subject.contentWorkspaceId,
+      contentWorkspaceId: workspaceId,
       directPayload,
     });
     return {
