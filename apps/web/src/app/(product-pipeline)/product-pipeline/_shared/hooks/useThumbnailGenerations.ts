@@ -12,15 +12,13 @@ export function useGenerationList(
   params: {
     scope?: ThumbnailGenerationListScope;
     limit?: number;
-    sourceCandidateId?: string | null;
     contentWorkspaceId?: string | null;
   } = {},
 ) {
   const queryParams: Record<string, string> = {};
+  // 생성 목록은 콘텐츠 작업공간으로만 좁힌다 — 서버가 sourceCandidateId 를 더 이상 받지 않는다(KID-310).
   if (params.contentWorkspaceId) {
     queryParams.contentWorkspaceId = params.contentWorkspaceId;
-  } else if (params.sourceCandidateId) {
-    queryParams.sourceCandidateId = params.sourceCandidateId;
   }
   if (params.scope && params.scope !== 'workspace-bound') queryParams.scope = params.scope;
   if (params.limit) queryParams.limit = String(params.limit);

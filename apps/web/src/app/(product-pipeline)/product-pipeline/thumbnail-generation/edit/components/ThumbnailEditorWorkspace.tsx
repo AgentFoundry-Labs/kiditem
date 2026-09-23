@@ -260,12 +260,11 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
    */
   useEffect(() => {
     if (generationId || generationIdParam) return; // 이미 있으면 skip
-    if (!contentWorkspaceId && !sourceCandidateId) return;
+    // 생성 항목은 콘텐츠 작업공간으로만 이어진다(KID-310) — 그 id가 없으면 자동 감지할 것이 없다.
+    if (!contentWorkspaceId) return;
     const activeGen = pollingGenerations.find(
       (g) =>
-        (contentWorkspaceId
-          ? g.contentWorkspaceId === contentWorkspaceId
-          : g.sourceCandidateId === sourceCandidateId) &&
+        g.contentWorkspaceId === contentWorkspaceId &&
         (g.status === 'pending' || g.status === 'running'),
     );
     if (activeGen) {
@@ -275,7 +274,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
       router.replace(`?${next.toString()}`, { scroll: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentWorkspaceId, sourceCandidateId, pollingGenerations.length, generationId, generationIdParam]);
+  }, [contentWorkspaceId, pollingGenerations.length, generationId, generationIdParam]);
 
   const { historyCandidates, recommendedCandidateUrl } = useEditorHistory({
     sourceCandidateId,

@@ -27,9 +27,9 @@ export function useEditorHistory({
   selectedCandidateUrl,
   setSelectedCandidateUrl,
 }: Args) {
-  const hasOwnerScope = Boolean(contentWorkspaceId || sourceCandidateId);
+  const hasOwnerScope = Boolean(contentWorkspaceId);
   const { data: allGenerations = [] } = useGenerationList(
-    hasOwnerScope ? { contentWorkspaceId, sourceCandidateId, limit: 24 } : { scope: 'direct-upload', limit: 24 },
+    hasOwnerScope ? { contentWorkspaceId, limit: 24 } : { scope: 'direct-upload', limit: 24 },
   );
 
   const historyCandidates = useMemo<HistoryCandidate[]>(() => {
@@ -57,10 +57,9 @@ export function useEditorHistory({
       push({ ...c, method: currentMethod, createdAt: nowIso, generationId });
     }
     if (hasOwnerScope) {
+      // 생성 항목은 콘텐츠 작업공간으로만 이어진다(KID-310).
       const workspaceGens = allGenerations
-        .filter((g) =>
-          contentWorkspaceId ? g.contentWorkspaceId === contentWorkspaceId : g.sourceCandidateId === sourceCandidateId,
-        )
+        .filter((g) => g.contentWorkspaceId === contentWorkspaceId)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       for (const gen of workspaceGens) {
         for (const c of gen.candidates ?? []) {
@@ -97,12 +96,10 @@ export function useEditorHistory({
   ]);
 
   const recommendedCandidateUrl = useMemo(() => {
-    if (!contentWorkspaceId && !sourceCandidateId) return null;
+    if (!contentWorkspaceId) return null;
     const scored = allGenerations.filter(
       (g) =>
-        (contentWorkspaceId
-          ? g.contentWorkspaceId === contentWorkspaceId
-          : g.sourceCandidateId === sourceCandidateId) &&
+        g.contentWorkspaceId === contentWorkspaceId &&
         typeof g.score === 'number' &&
         g.score > 0,
     );
