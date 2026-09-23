@@ -171,9 +171,6 @@ export const EditAnalysisResultSchema = z.object({
 export const THUMBNAIL_PHASES = ['ready', 'applied'] as const;
 export type ThumbnailPhase = (typeof THUMBNAIL_PHASES)[number];
 
-export const THUMBNAIL_REGISTRATION_STATUSES = ['uploaded', 'registered', 'failed'] as const;
-export type ThumbnailRegistrationStatus = (typeof THUMBNAIL_REGISTRATION_STATUSES)[number];
-
 export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
   contentWorkspaceId: z.string(),
@@ -198,9 +195,6 @@ export const ThumbnailGenerationItemSchema = z.object({
   errorMessage: z.string().nullable().optional(),
   attemptCount: z.number().int().nonnegative().optional(),
   triggeredByUserId: z.string().uuid().nullable().optional(),
-  registrationStatus: z.enum(THUMBNAIL_REGISTRATION_STATUSES).nullable().optional(),
-  registrationCheckedAt: z.string().nullable().optional(),
-  registrationError: z.string().nullable().optional(),
   createdAt: z.string(),
   contentWorkspace: z.object({
     id: z.string(),

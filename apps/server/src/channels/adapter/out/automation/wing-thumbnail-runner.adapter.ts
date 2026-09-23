@@ -1,51 +1,45 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { spawnPlaywriter } from './playwriter-cli';
+import * as fs from 'node:fs';
+import { spawnPlaywriter } from '../../../../content/adapter/out/wing/playwriter-cli';
+import type { WingThumbnailRunnerPort } from '../../../application/port/out/automation/wing-thumbnail-runner.port';
 
 const WING_BASE =
   'https://wing.coupang.com/vendor-inventory/list?salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1';
 
 const PLAYWRITER_TIMEOUT_MS = 120_000;
 const PLAYWRITER_RUN_TIMEOUT_MS = 90_000;
-const PLAYWRITER_STATUS_TIMEOUT_MS = 5_000;
-
-export interface WingUploadInput {
-  productName: string;
-  imagePath: string;
-  screenshotPath: string;
-}
-
-export interface WingUploadResult {
-  success: boolean;
-  error?: string;
-}
-
-export interface PlaywriterStatus {
-  connected: boolean;
-  error?: string;
-}
+const DATA_URL_PATTERN = /^data:([^;]+);base64,(.+)$/;
 
 /**
- * External automation adapter for Coupang Wing thumbnail uploads.
- *
- * Encapsulates the Playwriter `spawn` lifecycle, the dynamic Wing search URL,
- * and the inline browser-automation script. No Prisma access, no tenant
- * concept — the service decides which generation/workspace/attempt to register
- * and hands this adapter the resolved product name + image path.
+ * 개발 서버의 Playwriter 로 Wing 대표이미지를 올린다(Agent 경로 전용). 운영(`NODE_ENV=production`)
+ * 에서는 막혀 있고, 막힘은 호출자가 503 으로 알린다. 받은 data URL 을 임시 파일로 쓰고
+ * Wing 상품 수정 화면의 대표 dropzone 에 넣는다.
  */
 @Injectable()
-export class WingAutomationRunner {
-  private readonly logger = new Logger(WingAutomationRunner.name);
+export class WingThumbnailRunnerAdapter implements WingThumbnailRunnerPort {
+  private readonly logger = new Logger(WingThumbnailRunnerAdapter.name);
 
-  runWingUpload(input: WingUploadInput): Promise<WingUploadResult> {
-    if (isServerAutomationBlocked()) {
-      return Promise.resolve({
-        success: false,
-        error: '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.',
-      });
+  isBlocked(): boolean {
+    return process.env.NODE_ENV === 'production';
+  }
+
+  async upload(input: { productName: string; image: { dataUrl: string; filename: string } }): Promise<
+    | { outcome: 'succeeded'; screenshotPath: string | null }
+    | { outcome: 'definitive_failure'; error: string }
+  > {
+    if (this.isBlocked()) {
+      return { outcome: 'definitive_failure', error: '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.' };
     }
-    const { productName, imagePath, screenshotPath } = input;
+    const parsed = DATA_URL_PATTERN.exec(input.image.dataUrl);
+    if (!parsed) return { outcome: 'definitive_failure', error: '대표이미지 데이터가 없습니다' };
+    const safeName = input.image.filename.replace(/[^A-Za-z0-9._-]/g, '_');
+    const imagePath = `/tmp/wing-upload-input-${safeName}`;
+    const screenshotPath = `/tmp/wing-upload-${safeName.replace(/\.[^.]+$/, '')}.png`;
+    await fs.promises.writeFile(imagePath, Buffer.from(parsed[2]!, 'base64'));
+
+    this.logger.log(`Wing 자동화 시작: ${input.productName}`);
     return new Promise((resolve) => {
-      const code = this.buildScript(productName, imagePath, screenshotPath);
+      const code = this.buildScript(input.productName, imagePath, screenshotPath);
       const proc = spawnPlaywriter(['-s', '1', '--timeout', String(PLAYWRITER_RUN_TIMEOUT_MS), '-e', code], {
         timeout: PLAYWRITER_TIMEOUT_MS,
       });
@@ -62,53 +56,15 @@ export class WingAutomationRunner {
       proc.on('close', () => {
         this.logger.log(`playwriter stdout: ${stdout.trim()}`);
         if (stdout.includes('SUCCESS')) {
-          resolve({ success: true });
+          resolve({ outcome: 'succeeded', screenshotPath });
         } else {
           const message = stdout.match(/ERROR:(.+)/)?.[1]?.trim() || stderr.trim() || 'Unknown error';
-          resolve({ success: false, error: message });
+          resolve({ outcome: 'definitive_failure', error: message });
         }
       });
 
       proc.on('error', (err: Error) => {
-        resolve({ success: false, error: err.message });
-      });
-    });
-  }
-
-  checkPlaywriterStatus(): Promise<PlaywriterStatus> {
-    if (isServerAutomationBlocked()) {
-      return Promise.resolve({
-        connected: false,
-        error: '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.',
-      });
-    }
-    return new Promise((resolve) => {
-      const proc = spawnPlaywriter(['session', 'list'], {
-        timeout: PLAYWRITER_STATUS_TIMEOUT_MS,
-      });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout?.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString();
-      });
-      proc.stderr?.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
-      proc.on('close', (code) => {
-        if (code !== 0) {
-          resolve({
-            connected: false,
-            error: stderr.trim() || 'playwriter not found',
-          });
-          return;
-        }
-        const lines = stdout
-          .split('\n')
-          .filter((line) => line.trim() && !line.startsWith('-') && !line.startsWith('ID'));
-        resolve({ connected: lines.length > 0 });
-      });
-      proc.on('error', (err: Error) => {
-        resolve({ connected: false, error: err.message });
+        resolve({ outcome: 'definitive_failure', error: err.message });
       });
     });
   }
@@ -216,6 +172,3 @@ export class WingAutomationRunner {
   }
 }
 
-function isServerAutomationBlocked(): boolean {
-  return process.env.NODE_ENV === 'production';
-}

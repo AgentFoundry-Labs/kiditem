@@ -23,12 +23,10 @@ import { TextAiController } from './adapter/in/http/text-ai.controller';
 import { ThumbnailAnalysisController } from './adapter/in/http/thumbnail-analysis.controller';
 import { ThumbnailAnalysisEditJobsController } from './adapter/in/http/thumbnail-analysis-edit-jobs.controller';
 import { ThumbnailAnalysisGenerationReviewController } from './adapter/in/http/thumbnail-analysis-generation-review.controller';
-import { ThumbnailAnalysisWingController } from './adapter/in/http/thumbnail-analysis-wing.controller';
 import { ThumbnailAutoController } from './adapter/in/http/thumbnail-auto.controller';
 import { ThumbnailEditorController } from './adapter/in/http/thumbnail-editor.controller';
 import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-tracking.controller';
 // adapter/in/agent
-import { AiWingRegistrationCapabilityAdapter } from './adapter/in/agent/ai-wing-registration-capability.adapter';
 // adapter/out
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/direct-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thumbnail-generation-sink.adapter';
@@ -61,8 +59,7 @@ import { SalesProductWorkspaceArchiveRepositoryAdapter } from './adapter/out/rep
 import { ThumbnailAnalysisRepositoryAdapter } from './adapter/out/repository/thumbnail-analysis.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from './adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { ThumbnailTrackingRepositoryAdapter } from './adapter/out/repository/thumbnail-tracking.repository.adapter';
-import { ThumbnailWingRepositoryAdapter } from './adapter/out/repository/thumbnail-wing.repository.adapter';
-import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner';
+import { RegistrableThumbnailRepositoryAdapter } from './adapter/out/repository/registrable-thumbnail.repository.adapter';
 // application/service
 import { ImageAiService } from './application/service/image-ai.service';
 import { ImageEditDirectGenerationExecutorService } from './application/service/image-edit-direct-generation-executor.service';
@@ -99,7 +96,7 @@ import { ThumbnailGenerationService } from './application/service/thumbnail-gene
 import { ThumbnailRecomposeService } from './application/service/thumbnail-recompose.service';
 import { ThumbnailTrackingService } from './application/service/thumbnail-tracking.service';
 import { ThumbnailVisionAiService } from './application/service/thumbnail-vision-ai.service';
-import { ThumbnailWingService } from './application/service/thumbnail-wing.service';
+import { RegistrableThumbnailService } from './application/service/registrable-thumbnail.service';
 import { ContentArchiveService } from './application/service/content-archive.service';
 import { ContentGenerationRerunService } from './application/service/content-generation-rerun.service';
 import { ContentWorkspaceService } from './application/service/content-workspace.service';
@@ -122,7 +119,7 @@ import {
   resolveAiDirectJobRuntimeConfig,
 } from './application/service/ai-direct-job.config';
 // application/port — in
-import { AI_WING_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/wing-registration.port';
+import { REGISTRABLE_THUMBNAIL_PORT } from './application/port/in/workspace/registrable-thumbnail.port';
 import {
   AI_GENERATION_CANCELLATION_PORT,
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
@@ -162,12 +159,11 @@ import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
   THUMBNAIL_TRACKING_REPOSITORY_PORT,
-  THUMBNAIL_WING_REPOSITORY_PORT,
+  REGISTRABLE_THUMBNAIL_REPOSITORY_PORT,
 } from './application/port/out/repository';
 import {
   AI_DIRECT_JOB_WAKE_PORT,
   DETAIL_PAGE_TEMPLATE_STYLES_PORT,
-  WING_AUTOMATION_PORT,
 } from './application/port/out/runtime';
 import {
   DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
@@ -270,29 +266,18 @@ export class AiProductGenerationRuntimeModule {}
     DetailPageResultRefinerService,
     BoldVerticalRefinerService,
     KidsPlayfulRefinerService,
-    ThumbnailWingService,
-    AiWingRegistrationCapabilityAdapter,
     DetailPageGeminiMediaAdapter,
-    ThumbnailWingRepositoryAdapter,
-    WingAutomationRunner,
-    { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
+    RegistrableThumbnailRepositoryAdapter,
+    RegistrableThumbnailService,
     { provide: DETAIL_PAGE_MEDIA_PORT, useExisting: DetailPageGeminiMediaAdapter },
-    {
-      provide: THUMBNAIL_WING_REPOSITORY_PORT,
-      useExisting: ThumbnailWingRepositoryAdapter,
-    },
-    {
-      provide: AI_WING_REGISTRATION_CAPABILITY_PORT,
-      useExisting: AiWingRegistrationCapabilityAdapter,
-    },
+    { provide: REGISTRABLE_THUMBNAIL_REPOSITORY_PORT, useExisting: RegistrableThumbnailRepositoryAdapter },
+    // 몰 반영 실행(Channels)이 읽는 승인 썸네일과 그 사진.
+    { provide: REGISTRABLE_THUMBNAIL_PORT, useExisting: RegistrableThumbnailService },
   ],
   exports: [
     AiProductGenerationRuntimeModule,
-    ThumbnailWingService,
     DETAIL_PAGE_MEDIA_PORT,
-    THUMBNAIL_WING_REPOSITORY_PORT,
-    WING_AUTOMATION_PORT,
-    AI_WING_REGISTRATION_CAPABILITY_PORT,
+    REGISTRABLE_THUMBNAIL_PORT,
   ],
 })
 export class AiAgentRuntimeModule {}
@@ -449,7 +434,6 @@ export class AiAgentRuntimeModule {}
     ThumbnailAnalysisController,
     ThumbnailAnalysisEditJobsController,
     ThumbnailAnalysisGenerationReviewController,
-    ThumbnailAnalysisWingController,
     ThumbnailAutoController,
     ThumbnailEditorController,
     ThumbnailTrackingController,

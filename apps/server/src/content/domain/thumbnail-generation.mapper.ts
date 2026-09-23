@@ -2,8 +2,9 @@ import type { EditAnalysisResult, ThumbnailGenerationItem, ThumbnailPhase } from
 
 /**
  * Prisma row → public `ThumbnailGenerationItem` projection. Owns the status /
- * phase normalization, the registration-attempt collapse, and the candidate
+ * phase normalization and the candidate
  * shape used by `/api/thumbnail-analysis/generations*` and the editor flow.
+ * Mall registration state is Channels-owned (`/api/channels/thumbnail-executions`).
  */
 
 export type GenerationWorkspaceSummary = {
@@ -25,14 +26,6 @@ export type GenerationCandidateRow = {
   fileSize: number | null;
 };
 
-export type GenerationRegistrationAttemptRow = {
-  status: string;
-  errorMessage: string | null;
-  finishedAt: Date | null;
-  updatedAt: Date;
-  createdAt: Date;
-};
-
 export type GenerationRow = {
   id: string;
   createdAt: Date;
@@ -51,22 +44,11 @@ export type GenerationRow = {
   attemptCount: number;
   triggeredByUserId: string | null;
   candidates: GenerationCandidateRow[];
-  registrationAttempts: GenerationRegistrationAttemptRow[];
   contentWorkspace?: GenerationWorkspaceSummary | null;
 };
 
 const ALLOWED_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const;
 const ALLOWED_PHASES: ThumbnailPhase[] = ['ready', 'applied'];
-
-function toRegistrationStatus(status: string | undefined): ThumbnailGenerationItem['registrationStatus'] {
-  if (status === 'uploaded' || status === 'registered' || status === 'failed') return status;
-  return null;
-}
-
-function registrationCheckedAt(attempt: GenerationRegistrationAttemptRow | undefined): string | null {
-  if (!attempt) return null;
-  return (attempt.finishedAt ?? attempt.updatedAt ?? attempt.createdAt).toISOString();
-}
 
 export function toThumbnailGenerationItem(
   row: GenerationRow,
@@ -100,9 +82,6 @@ export function toThumbnailGenerationItem(
     errorMessage: row.errorMessage,
     attemptCount: row.attemptCount,
     triggeredByUserId: row.triggeredByUserId ?? null,
-    registrationStatus: toRegistrationStatus(row.registrationAttempts[0]?.status),
-    registrationCheckedAt: registrationCheckedAt(row.registrationAttempts[0]),
-    registrationError: row.registrationAttempts[0]?.errorMessage ?? null,
     contentWorkspace: {
       id: contentWorkspace?.id ?? row.contentWorkspaceId,
       name: contentWorkspace?.name ?? '',

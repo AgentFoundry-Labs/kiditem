@@ -102,6 +102,15 @@ import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application
 import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-manual-match.repository.port';
 import { ChannelsWingThumbnailCapabilityAdapter } from './adapter/in/agent/channels-wing-thumbnail-capability.adapter';
 import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/capability/wing-thumbnail.port';
+import { ThumbnailExecutionController } from './adapter/in/web/thumbnail-execution.controller';
+import { ThumbnailExecutionPersistenceAdapter } from './adapter/out/persistence/thumbnail-execution.persistence.adapter';
+import { WingThumbnailRunnerAdapter } from './adapter/out/automation/wing-thumbnail-runner.adapter';
+import { RegistrableThumbnailAdapter } from './adapter/out/content/registrable-thumbnail.adapter';
+import { ThumbnailExecutionService } from './application/service/registration/thumbnail-execution.service';
+import { CHANNELS_THUMBNAIL_EXECUTION_PORT } from './application/port/in/thumbnail-execution.port';
+import { THUMBNAIL_EXECUTION_PERSISTENCE_PORT } from './application/port/out/persistence/thumbnail-execution.persistence.port';
+import { WING_THUMBNAIL_RUNNER_PORT } from './application/port/out/automation/wing-thumbnail-runner.port';
+import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/content/registrable-thumbnail.port';
 
 @Module({
   imports: [SourcingRegistrationSourceModule, AiListingContentQueryModule, ChannelCatalogModule, SalesProductModule,
@@ -130,6 +139,7 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     MallPublishingController,
     CoupangWingInventoryExportController,
     CoupangWingRegistrationExportController,
+    ThumbnailExecutionController,
   ],
   providers: [
     { provide: MALL_PUBLISHING_PORT, useExisting: MallPublishingService },
@@ -171,6 +181,15 @@ import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/c
     ChannelsProductMappingGenerationAdapter,
     { provide: CHANNELS_PRODUCT_MAPPING_GENERATION_PORT, useExisting: ChannelsProductMappingGenerationAdapter },
     ChannelsWingThumbnailCapabilityAdapter,
+    // 대표이미지 몰 반영 실행(thumbnail_update). Content 는 승인 사진만 준다.
+    ThumbnailExecutionPersistenceAdapter,
+    WingThumbnailRunnerAdapter,
+    RegistrableThumbnailAdapter,
+    { provide: THUMBNAIL_EXECUTION_PERSISTENCE_PORT, useExisting: ThumbnailExecutionPersistenceAdapter },
+    { provide: WING_THUMBNAIL_RUNNER_PORT, useExisting: WingThumbnailRunnerAdapter },
+    { provide: CHANNEL_REGISTRABLE_THUMBNAIL_PORT, useExisting: RegistrableThumbnailAdapter },
+    { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, WING_THUMBNAIL_RUNNER_PORT, CHANNEL_INTEGRITY_PORT] },
+    { provide: CHANNELS_THUMBNAIL_EXECUTION_PORT, useExisting: ThumbnailExecutionService },
     ChannelDashboardRepositoryAdapter,
     ChannelListingRepositoryAdapter,
     ListingRegistrationPersistenceAdapter,

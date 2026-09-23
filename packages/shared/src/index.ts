@@ -129,7 +129,6 @@ export {
   RECOMPOSE_VARIANT_KEYS,
   RECOMPOSE_KINDS,
   THUMBNAIL_PHASES,
-  THUMBNAIL_REGISTRATION_STATUSES,
   THUMBNAIL_TRACKING_STATUSES,
 } from './schemas/thumbnails.js';
 export type {
@@ -151,7 +150,6 @@ export type {
   RecomposeVariantKey,
   RecomposeKind,
   ThumbnailPhase,
-  ThumbnailRegistrationStatus,
   ThumbnailTrackingStatus,
 } from './schemas/thumbnails.js';
 

@@ -10,33 +10,33 @@ import {
   useGenerationList,
   useBatchWingRegister,
   useClearRegistrationError,
+  type ThumbnailGenerationListItem,
   type WingBatchItemResult,
 } from '../../../_shared/hooks/useThumbnailGenerations';
 import { thumbnailGenerationEditHref } from '../../../_shared/lib/product-pipeline-routes';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 
-function isPendingRegistration(g: ThumbnailGenerationItem): boolean {
+/** 적용했지만 아직 몰에 반영되지 않은 생성. 결과를 모르는 실행(`checking`)도 여기 남겨 보이게 한다. */
+function isPendingRegistration(g: ThumbnailGenerationListItem): boolean {
   if (g.phase !== 'applied') return false;
-  const rs = g.registrationStatus;
-  return rs == null || rs === 'failed';
+  return g.registrationStatus !== 'registered';
 }
 
-function previewUrl(g: ThumbnailGenerationItem): string | null {
+function previewUrl(g: ThumbnailGenerationListItem): string | null {
   return g.selectedUrl ?? g.candidates?.[0]?.url ?? g.originalUrl ?? null;
 }
 
 type RegGroup = {
   contentWorkspaceId: string;
-  representative: ThumbnailGenerationItem;
-  items: ThumbnailGenerationItem[];
+  representative: ThumbnailGenerationListItem;
+  items: ThumbnailGenerationListItem[];
 };
 
-function groupByProduct(items: ThumbnailGenerationItem[]): RegGroup[] {
-  const map = new Map<string, ThumbnailGenerationItem[]>();
+function groupByProduct(items: ThumbnailGenerationListItem[]): RegGroup[] {
+  const map = new Map<string, ThumbnailGenerationListItem[]>();
   for (const g of items) {
     if (!g.contentWorkspaceId) continue;
     const bucket = map.get(g.contentWorkspaceId);
@@ -289,6 +289,7 @@ function RegistrationPendingCard({
   const preview = previewUrl(item);
   const resolved = preview ? resolveImageUrl(preview) : null;
   const anyFailed = group.items.some((i) => i.registrationStatus === 'failed');
+  const anyChecking = group.items.some((i) => i.registrationStatus === 'checking');
   const firstError = group.items.find((i) => i.registrationStatus === 'failed')?.registrationError ?? null;
   const fullSelected = selectedCount === group.items.length;
   const partialSelected = selectedCount > 0 && !fullSelected;
@@ -335,6 +336,11 @@ function RegistrationPendingCard({
       </div>
       <div className="px-1 py-1 bg-white">
         <p className="text-[11px] font-bold text-gray-900 truncate">{productName}</p>
+        {!anyFailed && anyChecking && (
+          <p className="mt-0.5 text-[10px] font-bold text-amber-600 truncate" title="몰에 반영됐는지 아직 모릅니다">
+            확인 중
+          </p>
+        )}
         {anyFailed && (
           <div className="flex items-start gap-1 mt-0.5">
             <p className="text-[10px] font-bold text-rose-600 truncate flex-1" title={firstError ?? undefined}>
@@ -375,7 +381,7 @@ function BatchProgressDialog({
   isRunning: boolean;
   runningIds: string[];
   results: WingBatchItemResult[] | null;
-  itemsById: Map<string, ThumbnailGenerationItem>;
+  itemsById: Map<string, ThumbnailGenerationListItem>;
 }) {
   const okCount = results?.filter((r) => r.success).length ?? 0;
   const failCount = results ? results.length - okCount : 0;

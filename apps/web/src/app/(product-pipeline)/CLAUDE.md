@@ -25,6 +25,7 @@ React Query + apiClient
   -> /api/thumbnail-analysis/*
   -> /api/thumbnail-editor/*
   -> /api/channels/listings/*
+  -> /api/channels/thumbnail-executions  (Wing thumbnail upload: prepare, report, latest status)
 ```
 
 ## State Rules

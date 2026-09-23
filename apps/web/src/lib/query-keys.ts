@@ -258,6 +258,11 @@ export const queryKeys = {
     generations: (params?: Record<string, string>) => [...queryKeys.thumbnailAnalysis.all, 'generations', params] as const,
     tracking: () => [...queryKeys.thumbnailAnalysis.all, 'tracking'] as const,
   },
+  /** 대표이미지 몰 반영 실행(Channels 소유). 생성 id 목록마다 가장 최근 실행. */
+  thumbnailExecutions: {
+    all: ['thumbnailExecutions'] as const,
+    latest: (generationIds: readonly string[]) => [...queryKeys.thumbnailExecutions.all, 'latest', [...generationIds]] as const,
+  },
   channelAccounts: {
     all: ['channelAccounts'] as const,
     active: () => [...queryKeys.channelAccounts.all, 'active'] as const,

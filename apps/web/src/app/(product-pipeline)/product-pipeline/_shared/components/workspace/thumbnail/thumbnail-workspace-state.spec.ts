@@ -3,6 +3,7 @@ import {
   buildThumbnailSourceOptions,
   classifyProductWingStatus,
   getGeneratedThumbnailOptions,
+  thumbnailRegistrationState,
   type ThumbnailWorkspaceGeneration,
 } from './thumbnail-workspace-state';
 
@@ -106,5 +107,32 @@ describe('thumbnail workspace state', () => {
       label: 'Wing 등록 완료',
       generationId: 'generation-registered',
     });
+  });
+
+  it('shows a mall execution whose outcome is not known yet as its own checking state', () => {
+    expect(classifyProductWingStatus({
+      hasContentWorkspace: true,
+      generations: [{
+        ...readyGeneration,
+        id: 'generation-checking',
+        phase: 'applied',
+        registrationStatus: 'checking',
+      }],
+    })).toEqual({
+      kind: 'checking',
+      label: 'Wing 반영 확인 중',
+      generationId: 'generation-checking',
+    });
+  });
+
+  it('maps the Channels execution status to the screen registration state', () => {
+    expect(thumbnailRegistrationState('succeeded')).toBe('registered');
+    expect(thumbnailRegistrationState('failed')).toBe('failed');
+    expect(thumbnailRegistrationState('executing')).toBe('checking');
+    expect(thumbnailRegistrationState('reconciling')).toBe('checking');
+    expect(thumbnailRegistrationState('prepared')).toBe('checking');
+    expect(thumbnailRegistrationState('cancelled')).toBeNull();
+    expect(thumbnailRegistrationState(null)).toBeNull();
+    expect(thumbnailRegistrationState(undefined)).toBeNull();
   });
 });
