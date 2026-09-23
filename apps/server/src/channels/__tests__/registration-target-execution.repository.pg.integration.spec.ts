@@ -858,6 +858,49 @@ describe('registration target execution repository (PostgreSQL)', () => {
     await expect(readChannelOptions(prisma, change.channelOptionIds)).resolves.toEqual(before);
   });
 
+  it('refuses a registration confirmation that would create a channel option without an issued KID', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const snapshot = {
+      ...fixture.snapshot,
+      product: {
+        ...fixture.snapshot.product,
+        options: fixture.snapshot.product.options.map((option) => ({ ...option, optionCode: null })),
+      },
+    };
+    const prepared = await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: requestFor('target-unissued-create-1'),
+      snapshot,
+    });
+    const started = await repository.startTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+    });
+
+    await expect(repository.reportTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      executionId: prepared.executionId,
+      requestedByUserId: TEST_USER_ID,
+      report: {
+        leaseToken: started.leaseToken!,
+        payloadHash: started.payloadHash,
+        outcome: 'confirmed',
+        evidence: {
+          channelAccountId: fixture.accountId,
+          providerAccountId: 'vendor-1',
+          externalListingId: 'provider-listing-unissued',
+          options: [{ salesProductOptionId: fixture.optionId, externalOptionId: 'provider-option-unissued' }],
+        },
+      },
+    })).rejects.toThrow(ConflictException);
+
+    await expect(prisma.channelListingOption.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'provider-option-unissued' },
+    })).resolves.toBe(0);
+  });
+
   it('leaves an existing link and recipe untouched when the provider result is unresolved', async () => {
     const fixture = await createFixture(prisma, targets, {
       listing: true,

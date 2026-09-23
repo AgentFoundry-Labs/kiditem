@@ -2967,8 +2967,7 @@ async function resolveTargetConfirmationListing(
         listingId,
         externalOptionId: evidence.externalOptionId,
         salesProductOptionId: commonOption.id,
-        // 등록 확정 경로는 KID 발급 뒤에만 도달한다.
-        kidItemCode: commonOption.optionCode ?? '',
+        kidItemCode: issuedKidItemCode(commonOption),
         ...(evidence.sellerSku !== undefined ? { sellerSku: evidence.sellerSku } : {}),
       },
       select: { id: true, externalOptionId: true, salesProductOptionId: true },
