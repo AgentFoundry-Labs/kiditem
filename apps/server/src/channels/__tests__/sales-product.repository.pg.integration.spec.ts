@@ -1,4 +1,3 @@
-import { ownerTransaction } from '../../prisma/owner-transaction';
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -738,38 +737,6 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     expect((await repository.list(TEST_ORGANIZATION_ID, listQuery('preparing'))).items).toEqual([]);
   });
 
-  it('retires a draft without a source record and archives its content workspace in the same commit', async () => {
-    const product = await createProduct(prisma, TEST_ORGANIZATION_ID);
-    const archived: string[] = [];
-    const useCase = new SalesProductUseCase(repository, {
-      archiveSalesProductWorkspace: async (_transaction: unknown, input: { salesProductId: string }) => {
-        archived.push(input.salesProductId);
-      },
-    } as never);
-
-    await expect(useCase.retireDraft(TEST_ORGANIZATION_ID, product.productId))
-      .resolves.toEqual({ salesProductId: product.productId, retired: true, blockedReason: null });
-
-    expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: product.productId } })).status).toBe('unused');
-    expect(archived).toEqual([product.productId]);
-  });
-
-  it('keeps a draft a mall carries and says why, and never retires another organization\'s draft', async () => {
-    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    const listed = await createProduct(prisma, TEST_ORGANIZATION_ID);
-    await prisma.channelListing.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: accountId, salesProductId: listed.productId,
-        externalId: `ext-${randomUUID()}`, isActive: true },
-    });
-    const foreign = await createProduct(prisma, OTHER_ORGANIZATION_ID);
-
-    await expect(service.retireDraft(TEST_ORGANIZATION_ID, listed.productId)).resolves.toMatchObject({
-      retired: false, blockedReason: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
-    });
-    await expect(service.retireDraft(TEST_ORGANIZATION_ID, foreign.productId)).rejects.toThrow('판매상품을 찾지 못했습니다.');
-    expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: foreign.productId } })).status).not.toBe('unused');
-  });
-
   it('never lets another organization see its unregistered products', async () => {
     const mine = await createProduct(prisma, TEST_ORGANIZATION_ID);
     await createProduct(prisma, OTHER_ORGANIZATION_ID);
@@ -780,118 +747,15 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     expect(unregistered.summary.unregistered).toBe(1);
   });
 
-  it('answers one draft when the same collected product arrives twice at once', async () => {
-    const candidateId = randomUUID();
-    const draft = () => service.createFromSource(TEST_ORGANIZATION_ID, {
-      candidateId,
-      name: '비눗방울총',
-      description: '수집한 설명',
-      imageUrls: ['https://img.example.com/a.jpg'],
-      sourcePlatform: '1688',
-      sourceUrl: 'https://detail.1688.com/offer/1.html',
-    });
-
-    const [left, right] = await Promise.all([draft(), draft()]);
-
-    expect(new Set([left.id, right.id]).size).toBe(1);
-    expect(await prisma.salesProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID, sourceRecordId: candidateId } }))
-      .toBe(1);
-    const row = await prisma.salesProduct.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID, sourceRecordId: candidateId } });
-    expect(row).toMatchObject({ status: 'draft', description: '수집한 설명', sourcePlatform: '1688' });
-    const options = await prisma.salesProductOption.findMany({ where: { salesProductId: row.id } });
-    expect(options.map((option) => option.salePrice)).toEqual([null]);
-    // KID 는 팔기로 정한 순간에 발급한다(ADR-0022). 수집 초안은 아직 '미발급'이다.
-    expect(row.code).toBeNull();
-    expect(options[0]!.optionCode).toBeNull();
-  });
-
   it('lets the collected-products tabs filter drafts by their source platform without a Sourcing join', async () => {
-    await service.createFromSource(TEST_ORGANIZATION_ID, { candidateId: randomUUID(), name: '1688 상품', sourcePlatform: '1688' });
-    await service.createFromSource(TEST_ORGANIZATION_ID, { candidateId: randomUUID(), name: '쿠팡 상품', sourcePlatform: 'coupang' });
+    await service.createDraft(TEST_ORGANIZATION_ID, { sourceRecordId: randomUUID(), name: '1688 상품', sourcePlatform: '1688' });
+    await service.createDraft(TEST_ORGANIZATION_ID, { sourceRecordId: randomUUID(), name: '쿠팡 상품', sourcePlatform: 'coupang' });
 
     const tab = await repository.list(TEST_ORGANIZATION_ID, { ...listQuery('all'), sourcePlatform: '1688' });
 
     expect(tab.items.map((item) => item.name)).toEqual(['1688 상품']);
     expect(tab.items[0]).toMatchObject({ sourcePlatform: '1688', status: 'draft', salePrice: null });
     expect(tab.summary.draft).toBe(1);
-  });
-
-  it('keeps the edited draft when the same collected product is captured again', async () => {
-    const candidateId = randomUUID();
-    const first = await service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '수집 이름' });
-    await service.update(TEST_ORGANIZATION_ID, first.id, { expectedVersion: first.version, name: '사람이 고친 이름' });
-
-    const again = await service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '다시 수집한 이름' });
-
-    expect(again).toMatchObject({ id: first.id, code: first.code, name: '사람이 고친 이름' });
-  });
-
-  /** 초안 내리기는 부르는 쪽(Sourcing)의 트랜잭션에서 돈다. 여기서는 spec 이 그 역할을 한다. */
-  function retireDraft(organizationId: string, candidateId: string) {
-    return prisma.$transaction((tx) =>
-      service.retireDraftForSource(ownerTransaction(tx), organizationId, candidateId));
-  }
-
-  /**
-   * 같은 후보를 두 입구(Agent · 확장)가 동시에 담는다.
-   *
-   * 유일키에 기대면 진 쪽이 아직 커밋되지 않은 승자를 조회하다 못 찾고 그대로 던진다 — 수집이
-   * 실패로 보인다. 후보 id 로 직렬화해 두 번째가 첫 커밋 뒤에 읽게 한다.
-   */
-  it('⭐ 같은 후보를 동시에 담아도 초안은 하나이고 둘 다 그것을 돌려받는다', async () => {
-    const candidateId = randomUUID();
-
-    const [left, right] = await Promise.all([
-      service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '동시 수집' }),
-      service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '동시 수집' }),
-    ]);
-
-    expect(left.id).toBe(right.id);
-    expect(await prisma.salesProduct.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, sourceRecordId: candidateId },
-    })).toBe(1);
-    expect(await prisma.salesProductOption.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: left.id },
-    })).toBe(1);
-  });
-
-  it('sends the draft to unused when its source candidate is rejected, and keeps it when a mall holds it', async () => {
-    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    const candidateId = randomUUID();
-    const draft = await service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '버려진 상품' });
-
-    await expect(retireDraft(TEST_ORGANIZATION_ID, candidateId))
-      .resolves.toMatchObject({ salesProductId: draft.id, retired: true, blockedReason: null });
-    expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: draft.id } })).status).toBe('unused');
-
-    const listedCandidateId = randomUUID();
-    const listed = await service.createFromSource(TEST_ORGANIZATION_ID, { candidateId: listedCandidateId, name: '몰에 올라간 상품' });
-    await prisma.channelListing.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: accountId,
-        salesProductId: listed.id,
-        externalId: `ext-${randomUUID()}`,
-        isActive: true,
-      },
-    });
-
-    const blocked = await retireDraft(TEST_ORGANIZATION_ID, listedCandidateId);
-
-    expect(blocked).toMatchObject({ salesProductId: listed.id, retired: false });
-    expect(blocked.blockedReason).toContain('몰');
-    expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: listed.id } })).status).toBe('draft');
-  });
-
-  it('never touches another organization draft for the same source candidate id', async () => {
-    const candidateId = randomUUID();
-    const mine = await service.createFromSource(TEST_ORGANIZATION_ID, { candidateId, name: '우리 초안' });
-    const theirs = await service.createFromSource(OTHER_ORGANIZATION_ID, { candidateId, name: '남의 초안' });
-
-    await retireDraft(TEST_ORGANIZATION_ID, candidateId);
-
-    expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: mine.id } })).status).toBe('unused');
-    expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: theirs.id } })).status).toBe('draft');
   });
 
   it('keeps a standalone product whole when it is archived, and drops it from the default list', async () => {

@@ -51,7 +51,7 @@ import type {
   SalesProductBasicsRecord,
   SalesProductChannelOverrideRecord,
   SalesProductCreateRecord,
-  SalesProductDraftRetireRow,
+  SalesProductDraftDeletionFacts,
   SalesProductImportCurrent,
   SalesProductImportResult,
   SalesProductOptionState,
@@ -1228,12 +1228,68 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return row ? { salesProductId: row.id, status: row.status as SalesProductStatus } : null;
   }
 
-  async retireDraft(
+  async readDraftDeletionFacts(
     transaction: OwnerTransaction,
     organizationId: string,
     salesProductId: string,
-  ): Promise<SalesProductDraftRetireRow> {
-    return retireDraftWhere(ownerTransactionClient(transaction) as Tx, organizationId, { id: salesProductId });
+  ): Promise<SalesProductDraftDeletionFacts | null> {
+    const tx = ownerTransactionClient(transaction) as Tx;
+    const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM sales_products
+      WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
+      FOR UPDATE
+    `);
+    if (locked.length !== 1) return null;
+    const product = await tx.salesProduct.findFirstOrThrow({
+      where: { id: salesProductId, organizationId },
+      select: { status: true, sourceRecordId: true },
+    });
+    const [activeListingCount, liveExecutionCount] = await Promise.all([
+      tx.channelListing.count({ where: { organizationId, salesProductId, isActive: true } }),
+      tx.productRegistrationExecution.count({
+        where: {
+          organizationId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+          preparation: { salesProductId },
+        },
+      }),
+    ]);
+    return {
+      status: product.status as SalesProductStatus,
+      sourceRecordId: product.sourceRecordId,
+      hasActiveListing: activeListingCount > 0,
+      hasLiveExecution: liveExecutionCount > 0,
+    };
+  }
+
+  /**
+   * 초안 줄을 지운다 — 옵션 · 구성(외래키가 함께 지운다), 등록 설정과 그 옵션 선택, 이 상품만 쓰던
+   * 공개 사진. 부르는 쪽이 `readDraftDeletionFacts` 로 줄을 잠그고 삭제 가부를 정한 뒤에 부른다.
+   */
+  async deleteDraftRows(transaction: OwnerTransaction, organizationId: string, salesProductId: string): Promise<void> {
+    const tx = ownerTransactionClient(transaction) as Tx;
+    const product = await tx.salesProduct.findFirstOrThrow({
+      where: { id: salesProductId, organizationId },
+      select: { imageUrls: true },
+    });
+    const sharedImages = product.imageUrls.length === 0 ? [] : await tx.salesProduct.findMany({
+      where: { organizationId, id: { not: salesProductId }, imageUrls: { hasSome: product.imageUrls } },
+      select: { imageUrls: true },
+    });
+    const stillShown = new Set(sharedImages.flatMap((row) => row.imageUrls));
+    const ownImages = product.imageUrls.filter((url) => !stillShown.has(url));
+    try {
+      await tx.registrationTarget.deleteMany({ where: { organizationId, salesProductId } });
+      if (ownImages.length > 0) {
+        await tx.salesProductPublicImage.deleteMany({ where: { organizationId, sourceUrl: { in: ownImages } } });
+      }
+      await tx.salesProduct.deleteMany({ where: { id: salesProductId, organizationId } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        throw new ConflictException('등록 실행 기록이 남아 있어 초안을 지우지 않았습니다.');
+      }
+      throw error;
+    }
   }
 
   runInTransaction<T>(work: (transaction: OwnerTransaction) => Promise<T>): Promise<T> {
@@ -1978,40 +2034,3 @@ async function readMasterProductCodesInTransaction(
   return new Map(identities.map((identity) => [identity.masterProductId, identity.code]));
 }
 
-/**
- * 초안을 `unused` 로 내린다. 몰에 올라가 있거나 살아 있는 등록 실행이 있으면 그대로 두고 이유만
- * 돌려준다. 원천 기록으로 찾든(후보 거절 · 삭제) 판매상품으로 찾든 규칙은 하나다.
- */
-async function retireDraftWhere(
-  tx: Tx,
-  organizationId: string,
-  identity: { id: string },
-): Promise<SalesProductDraftRetireRow> {
-  const product = await tx.salesProduct.findFirst({
-    where: { organizationId, ...identity },
-    select: { id: true, status: true },
-  });
-  if (!product) {
-    return { salesProductId: null, retired: false, activeListingCount: 0, activeExecutionCount: 0 };
-  }
-  const [activeListingCount, activeExecutionCount] = await Promise.all([
-    tx.channelListing.count({ where: { organizationId, salesProductId: product.id, isActive: true } }),
-    tx.productRegistrationExecution.count({
-      where: {
-        organizationId,
-        status: { in: ['prepared', 'executing', 'reconciling'] },
-        preparation: { salesProductId: product.id },
-      },
-    }),
-  ]);
-  if (activeListingCount > 0 || activeExecutionCount > 0) {
-    return { salesProductId: product.id, retired: false, activeListingCount, activeExecutionCount };
-  }
-  if (product.status !== 'unused') {
-    await tx.salesProduct.updateMany({
-      where: { id: product.id, organizationId },
-      data: { status: 'unused', version: { increment: 1 } },
-    });
-  }
-  return { salesProductId: product.id, retired: true, activeListingCount: 0, activeExecutionCount: 0 };
-}

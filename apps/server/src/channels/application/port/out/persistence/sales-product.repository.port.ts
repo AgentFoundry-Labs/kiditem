@@ -55,12 +55,12 @@ export interface SalesProductOptionState {
   options: ExistingSalesProductOption[];
 }
 
-/** 후보 거절 · 삭제가 초안을 `unused` 로 내린 결과. */
-export interface SalesProductDraftRetireRow {
-  salesProductId: string | null;
-  retired: boolean;
-  activeListingCount: number;
-  activeExecutionCount: number;
+/** 초안 삭제 가부를 정하는 사실. 줄을 잠근 뒤 읽는다. */
+export interface SalesProductDraftDeletionFacts {
+  status: SalesProductStatus;
+  sourceRecordId: string | null;
+  hasActiveListing: boolean;
+  hasLiveExecution: boolean;
 }
 
 export interface SabangnetImportProductWrite {
@@ -234,13 +234,15 @@ export interface SalesProductRepositoryPort {
     sourceRecordId: string,
     transaction?: OwnerTransaction,
   ): Promise<{ salesProductId: string; status: SalesProductStatus } | null>;
-  /** 판매상품으로 찾은 초안을 내린다(원천 기록이 없는 초안의 삭제). 규칙은 retireDraftForSource 와 같다. */
-  retireDraft(
+  /** 초안 삭제: 판매상품 줄을 잠그고 삭제 가부의 사실을 읽는다. 없는 상품(다른 조직 포함)이면 null. */
+  readDraftDeletionFacts(
     transaction: OwnerTransaction,
     organizationId: string,
     salesProductId: string,
-  ): Promise<SalesProductDraftRetireRow>;
-  /** 초안 내리기와 그 작업공간 보관을 한 커밋에 묶는다. 트랜잭션은 persistence 만 연다. */
+  ): Promise<SalesProductDraftDeletionFacts | null>;
+  /** 초안 줄 · 옵션 · 등록 설정 · 이 상품만 쓰던 공개 사진을 지운다. */
+  deleteDraftRows(transaction: OwnerTransaction, organizationId: string, salesProductId: string): Promise<void>;
+  /** 초안 삭제와 원본 기록 · 작업공간 정리를 한 커밋에 묶는다. 트랜잭션은 persistence 만 연다. */
   runInTransaction<T>(work: (transaction: OwnerTransaction) => Promise<T>): Promise<T>;
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(있는 것만). */
   readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>>;

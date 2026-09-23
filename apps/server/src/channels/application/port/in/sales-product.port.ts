@@ -48,11 +48,10 @@ export interface SalesProductDraftSource {
   normalPrice?: number | null;
 }
 
-/** 초안 내리기의 결과. */
-export interface SalesProductDraftRetireResult {
-  salesProductId: string | null;
-  retired: boolean;
-  blockedReason: string | null;
+/** 초안 삭제의 결과. 막히면 409 로 이유를 말한다. */
+export interface SalesProductDraftDeletionResult {
+  salesProductId: string;
+  deleted: true;
 }
 
 /** Channels' shared authoring capability. Editing does not submit to a marketplace. */
@@ -75,8 +74,11 @@ export interface SalesProductPort {
     sourceRecordId: string,
     transaction?: OwnerTransaction,
   ): Promise<{ salesProductId: string; status: SalesProductStatus } | null>;
-  /** 원천 기록이 없는 초안을 내린다(수집상품 화면의 삭제). 몰에 있거나 등록 실행이 살아 있으면 이유만 돌려준다. */
-  retireDraft(organizationId: string, salesProductId: string): Promise<SalesProductDraftRetireResult>;
+  /**
+   * 초안을 지운다 — 초안 줄 · 옵션 · 등록 설정 · 공개 사진 · 작업공간과 그 원본 기록까지 한 커밋이다
+   * (KID-313). 판매 상품 · 몰 상품이 딸린 초안 · 살아 있는 등록 실행이 있는 초안은 409 로 거절한다.
+   */
+  deleteDraft(organizationId: string, salesProductId: string): Promise<SalesProductDraftDeletionResult>;
   /**
    * 팔기로 정한 시점에 KID 를 발급한다(상품 + 파는 단품). 멱등이다 — 이미 있으면 그대로 둔다.
    * 부르는 곳은 첫 등록 설정 생성 · 몰 엑셀 파일 · 직접 작성뿐이다(ADR-0022).

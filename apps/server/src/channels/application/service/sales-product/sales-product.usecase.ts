@@ -1,7 +1,7 @@
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { SalesProductThumbnailSourcePort } from '../../port/out/ai/sales-product-thumbnail-source.port';
 import type {
-  SalesProductDraftRetireResult,
+  SalesProductDraftDeletionResult,
   SalesProductDraftSource,
   SalesProductPort,
 } from '../../port/in/sales-product.port';
@@ -25,7 +25,13 @@ import {
   clampDraftText,
   planDraftOptions,
 } from '../../../domain/sales-product/sales-product-draft';
-import { SalesProductStatusError, statusAfterArchive } from '../../../domain/sales-product/sales-product-status';
+import {
+  SalesProductStatusError,
+  draftDeletion,
+  statusAfterArchive,
+  type DraftDeletionBlock,
+} from '../../../domain/sales-product/sales-product-status';
+import type { ChannelSourceRecordPort } from '../../port/out/sourcing/source-record.port';
 import { issueSalesProductOptionCodes } from './sales-product-code';
 import type { SalesProductWorkspaceArchivePort } from '../../port/out/ai/sales-product-workspace-archive.port';
 import {
@@ -35,6 +41,13 @@ import {
 } from '../../port/out/persistence/sales-product.repository.port';
 
 const VERSION_CONFLICT = '다른 곳에서 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장하세요.';
+
+/** 초안 삭제를 막는 이유마다 운영자에게 보이는 문장. 몰 · 실행 문장은 예전 삭제 화면과 같다. */
+const DRAFT_DELETION_REFUSALS: Record<DraftDeletionBlock, string> = {
+  not_draft: '판매 상품은 삭제하지 않고 보관합니다',
+  active_listing: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
+  live_execution: '등록 실행이 남아 있어 판매상품을 미사용으로 내리지 않았습니다.',
+};
 
 /**
  * Channels 판매상품 · 옵션의 쓰기 계약(ADR-0020). 공유 입력 계약을 검증하고 원천 상품은
@@ -47,6 +60,7 @@ export class SalesProductUseCase implements SalesProductPort {
     private readonly repository: SalesProductRepositoryPort,
     private readonly workspaceArchive?: SalesProductWorkspaceArchivePort,
     private readonly thumbnails?: SalesProductThumbnailSourcePort,
+    private readonly sourceRecords?: ChannelSourceRecordPort,
   ) {}
 
   /** 목록 줄의 사진은 운영자가 저장한 대표 썸네일이 있으면 그것, 없으면 초안의 첫 사진이다. */
@@ -178,29 +192,31 @@ export class SalesProductUseCase implements SalesProductPort {
   }
 
   /**
-   * 원천 기록이 없는 초안(직접 작성 · 사방넷)을 수집상품 화면에서 지운다. 원천 기록이 있는 초안은
-   * 후보 삭제가 이 규칙을 같은 트랜잭션에서 부른다. 몰에 있거나 살아 있는 등록 실행이 있으면 내리지 않는다.
+   * 초안을 지운다(KID-313). 초안만 지울 수 있고 판매 상품은 보관한다. 몰 상품이나 살아 있는 등록
+   * 실행이 딸린 초안도 지우지 않는다.
+   *
+   * 한 트랜잭션에서 초안 줄 · 옵션 · 등록 설정 · 공개 사진을 지우고, 콘텐츠 작업공간을 정리하고,
+   * 원본 기록을 지운다 — 그래야 같은 원본의 재수집이 새 수집이 된다.
    */
-  async retireDraft(organizationId: string, salesProductId: string): Promise<SalesProductDraftRetireResult> {
-    const result = await this.repository.runInTransaction(async (transaction) => {
-      const row = await this.repository.retireDraft(transaction, organizationId, salesProductId);
-      if (row.retired && row.salesProductId) {
-        await this.workspaceArchive?.archiveSalesProductWorkspace(transaction, {
-          organizationId,
-          salesProductId: row.salesProductId,
-          archivedAt: new Date(),
-        });
+  async deleteDraft(organizationId: string, salesProductId: string): Promise<SalesProductDraftDeletionResult> {
+    await this.repository.runInTransaction(async (transaction) => {
+      const facts = await this.repository.readDraftDeletionFacts(transaction, organizationId, salesProductId);
+      if (!facts) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+      const decision = draftDeletion(facts);
+      if (!decision.allowed) {
+        throw new ConflictException({ message: DRAFT_DELETION_REFUSALS[decision.reason], reason: decision.reason });
       }
-      return row;
+      await this.repository.deleteDraftRows(transaction, organizationId, salesProductId);
+      await this.workspaceArchive?.archiveSalesProductWorkspace(transaction, {
+        organizationId,
+        salesProductId,
+        archivedAt: new Date(),
+      });
+      if (facts.sourceRecordId) {
+        await this.sourceRecords?.deleteForDraft(transaction, { organizationId, sourceRecordId: facts.sourceRecordId });
+      }
     });
-    if (result.salesProductId === null) throw new NotFoundException('판매상품을 찾지 못했습니다.');
-    return {
-      salesProductId: result.salesProductId,
-      retired: result.retired,
-      blockedReason: result.retired ? null : result.activeListingCount > 0
-        ? '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.'
-        : '등록 실행이 남아 있어 판매상품을 미사용으로 내리지 않았습니다.',
-    };
+    return { salesProductId, deleted: true };
   }
 
   async update(organizationId: string, salesProductId: string, body: unknown): Promise<SalesProduct> {

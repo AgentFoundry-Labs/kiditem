@@ -79,7 +79,7 @@ import { CHANNEL_SOURCE_RECORD_PORT } from './application/port/out/sourcing/sour
     SourceRecordAdapter,
     { provide: CHANNEL_SOURCE_RECORD_PORT, useExisting: SourceRecordAdapter },
     { provide: SALES_PRODUCT_THUMBNAIL_SOURCE_PORT, useExisting: SalesProductThumbnailSourceAdapter },
-    { provide: SalesProductUseCase, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductUseCase>) => new SalesProductUseCase(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT, SALES_PRODUCT_THUMBNAIL_SOURCE_PORT] },
+    { provide: SalesProductUseCase, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductUseCase>) => new SalesProductUseCase(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT, SALES_PRODUCT_THUMBNAIL_SOURCE_PORT, CHANNEL_SOURCE_RECORD_PORT] },
     { provide: SALES_PRODUCT_PORT, useExisting: SalesProductUseCase },
     { provide: SabangnetProductImportService, useFactory: (...dependencies: ConstructorParameters<typeof SabangnetProductImportService>) => new SabangnetProductImportService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, PRODUCT_SOURCE_READ_PORT, SALES_PRODUCT_LINK_PORT, SALES_PRODUCT_IMAGE_MIRROR_PORT, CHANNEL_DOCUMENTS_PORT, CHANNEL_ACTIVITY_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: SalesProductLinkService, useFactory: (...dependencies: ConstructorParameters<typeof SalesProductLinkService>) => new SalesProductLinkService(...dependencies), inject: [SALES_PRODUCT_REPOSITORY_PORT, CHANNEL_OPTION_RECIPE_PORT, CHANNEL_ACTIVITY_PORT] },
