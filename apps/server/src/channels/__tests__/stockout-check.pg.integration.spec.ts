@@ -53,7 +53,7 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
     await prisma.channelListingOptionInventoryComponent.deleteMany({ where: { channelListingOptionId: f.option.id } });
     expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'unknown' }]);
   });
-  it('holds only the option of an uncertain composition change as unknown and keeps it out of any stockout action', async () => {
+  it('marks the uncertain composition option compositionUnconfirmed and blocks the whole listing while that execution is active', async () => {
     const f = await fixture();
     const sibling = await prisma.channelListingOption.create({ data: { organizationId: ORG, listingId: f.listing.id, externalOptionId: 'sibling-external', rawJson: { registrationType: 'NORMAL' }, status: 'active', safetyStock: 2 } });
     await prisma.channelListingOptionInventoryComponent.create({ data: { organizationId: ORG, channelListingOptionId: sibling.id, masterProductId: f.product.id, quantity: 2 } });
