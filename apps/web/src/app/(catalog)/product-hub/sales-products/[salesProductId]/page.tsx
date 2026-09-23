@@ -1,10 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { use, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Save, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SALES_PRODUCT_DELIVERY_FEE_TYPES,
@@ -14,7 +13,6 @@ import {
 } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
-import { useStore } from '@/store/useStore';
 import { ChannelListingsSection } from '../components/ChannelListingsSection';
 import { ChannelOverridesSection } from '../components/ChannelOverridesSection';
 import { OptionTableEditor } from '../components/OptionTableEditor';
@@ -38,7 +36,6 @@ import {
   SALES_PRODUCT_STATUS_TONE,
   TAX_TYPE_LABEL,
 } from '../lib/sales-product-labels';
-import { salesProductDemoteState, salesProductStatusText } from '../lib/sales-product-demote';
 
 const SECTIONS = [
   { id: 'basics', label: '기본 정보' },
@@ -129,63 +126,23 @@ function Editor({ product }: { product: SalesProduct }) {
   const set = <K extends keyof BasicsDraft>(key: K, value: BasicsDraft[K]) =>
     setBasics((current) => ({ ...current, [key]: value }));
 
-  // 수집상품으로 되돌리기 — 수집상품에서 만든 판매상품만. 지우지 않고 내려 두어, 다시 올리면 같은 코드로 되살아난다.
-  const router = useRouter();
-  const showConfirm = useStore((store) => store.showConfirm);
-  const demoteState = salesProductDemoteState(product);
-  const demote = useMutation({
-    mutationFn: () => salesProductApi.demoteToCandidate(product.id, product.version),
-    onSuccess: (next) => {
-      queryClient.setQueryData(salesProductKeys.detail(product.id), next);
-      void queryClient.invalidateQueries({ queryKey: [...salesProductKeys.all, 'list'] });
-      toast.success(`${product.code}을(를) 수집상품으로 되돌렸습니다.`);
-      router.push('/product-hub/sales-products');
-    },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '수집상품으로 되돌리지 못했습니다.'),
-  });
-  const askDemote = () => showConfirm({
-    title: '수집상품으로 되돌릴까요?',
-    message: `${product.code} ${product.name}이(가) 판매상품 목록과 몰 대량등록에서 빠집니다. 지우지는 않아서 코드와 몰별 값이 남고, `
-      + '수집상품 화면에서 다시 [몰 대량등록]을 누르면 그대로 되살아납니다.',
-    confirmText: '되돌리기',
-    onConfirm: () => demote.mutate(),
-  });
-
   return (
     <div className="space-y-5 pb-24">
       <BackLink />
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="font-mono">판매상품코드 {product.code}</span>
+            {/* 판매 결정 전 초안은 코드가 없다(KID 발급 시점 B) — 빈 칸 대신 분명히 미발급이라 말한다. */}
+            <span className="font-mono">판매상품코드 {product.code ?? '미발급'}</span>
             {product.sabangnetGoodsNo && <span>· 사방넷 품번 {product.sabangnetGoodsNo}</span>}
             <span className={cn('rounded-full px-2 py-0.5 font-semibold', SALES_PRODUCT_STATUS_TONE[product.status])}>
-              {salesProductStatusText(product)}
+              {SALES_PRODUCT_STATUS_LABEL[product.status]}
             </span>
             {product.sourceCandidateId && <span>· 수집상품에서 만듦</span>}
           </div>
           <h1 className="page-title mt-1 truncate" title={product.name}>{product.name}</h1>
         </div>
-        {(demoteState.kind === 'ready' || demoteState.kind === 'blocked') && (
-          <button
-            type="button"
-            className="btn-secondary inline-flex shrink-0 items-center gap-1.5 disabled:opacity-50"
-            disabled={demoteState.kind === 'blocked' || dirty || demote.isPending}
-            title={demoteState.kind === 'blocked' ? demoteState.reason : dirty ? '고친 내용을 저장한 뒤 되돌리세요.' : undefined}
-            onClick={askDemote}
-          >
-            <Undo2 size={16} aria-hidden />
-            {demote.isPending ? '되돌리는 중…' : '수집상품으로 되돌리기'}
-          </button>
-        )}
       </header>
-
-      {demoteState.kind === 'demoted' && (
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          수집상품으로 되돌린 판매상품입니다 — 판매상품 목록과 몰 대량등록에서 빠져 있습니다. 수집상품 화면에서 이 상품을 골라
-          [몰 대량등록]을 누르면 같은 코드({product.code})와 몰별 값 그대로 다시 올라옵니다.
-        </p>
-      )}
 
       <nav aria-label="편집 칸" className="sticky top-0 z-10 -mx-1 flex flex-wrap gap-1 bg-slate-50/90 px-1 py-2 backdrop-blur">
         {SECTIONS.map((section) => (
@@ -237,6 +194,40 @@ function Editor({ product }: { product: SalesProduct }) {
               {basics.keywords.length}개
               {basics.keywords.length < 5 && ' — 온채널 대량등록은 5개 이상이 필요합니다.'}
             </p>
+          </Field>
+          {/* KID-310: 수집·직접 작성 초안이 채우는 칸 — 전에는 후보에만 있어 여기서 못 고쳤다. */}
+          <Field label="상품 설명" wide>
+            <textarea
+              value={basics.description}
+              onChange={(event) => set('description', event.target.value)}
+              rows={3}
+              className={inputClass}
+            />
+          </Field>
+          <Field label="주요 타겟">
+            <input value={basics.targetAudience ?? ''} onChange={(event) => set('targetAudience', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="사용 연령">
+            <input value={basics.ageGroup ?? ''} onChange={(event) => set('ageGroup', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="제품 사이즈">
+            <input value={basics.productSize ?? ''} onChange={(event) => set('productSize', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="색상 구성(쉼표로)">
+            <input
+              value={basics.colorVariantNames.join(', ')}
+              onChange={(event) => set('colorVariantNames', event.target.value.split(',').map((word) => word.trim()).filter(Boolean))}
+              className={inputClass}
+            />
+          </Field>
+          <Field label="박스 묶음 수량">
+            <input
+              type="number"
+              min={1}
+              value={basics.boxSetQuantity ?? ''}
+              onChange={(event) => set('boxSetQuantity', event.target.value === '' ? null : Math.max(1, Math.round(Number(event.target.value))))}
+              className={cn(inputClass, 'text-right tabular-nums')}
+            />
           </Field>
         </div>
       </Section>

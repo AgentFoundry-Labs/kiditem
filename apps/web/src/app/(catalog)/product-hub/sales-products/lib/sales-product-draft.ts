@@ -47,6 +47,8 @@ export const BASIC_FIELDS = [
   'name', 'shortName', 'ownCode', 'modelName', 'modelNo', 'brand', 'manufacturer', 'originCountry', 'status',
   'taxType', 'deliveryFeeType', 'deliveryFee', 'keywords', 'imageUrls',
   'detailHtml', 'noticeCategory', 'noticeValues', 'certifications', 'adminMemo',
+  // KID-310: 수집·직접 작성 초안이 채우는 칸(전에는 후보에만 있었다).
+  'description', 'targetAudience', 'ageGroup', 'productSize', 'colorVariantNames', 'boxSetQuantity',
 ] as const;
 export type BasicField = (typeof BASIC_FIELDS)[number];
 export type BasicsDraft = Pick<SalesProduct, BasicField>;
@@ -63,8 +65,9 @@ export function basicsFromProduct(product: SalesProduct): BasicsDraft {
 
 export function optionsFromProduct(product: SalesProduct): OptionTableDraft {
   const activeOptions = product.options.filter((option) => option.supplyStatus !== 'unused');
+  // 판매가를 아직 정하지 않은 초안 옵션(null)은 0으로 편집을 시작한다 — 입력칸의 빈 값과 같은 뜻이다.
   const baseSalePrice = activeOptions.length > 0
-    ? Math.min(...activeOptions.map((option) => option.salePrice))
+    ? Math.min(...activeOptions.map((option) => option.salePrice ?? 0))
     : 0;
   return {
     axes: [...product.optionAxes],
@@ -72,11 +75,11 @@ export function optionsFromProduct(product: SalesProduct): OptionTableDraft {
     rows: product.options.map((option) => ({
       rowKey: nextRowKey(),
       id: option.id,
-      optionCode: option.optionCode,
+      optionCode: option.optionCode ?? undefined,
       values: [...option.values],
       alias: option.alias ?? '',
       barcode: option.barcode ?? '',
-      salePrice: option.salePrice,
+      salePrice: option.salePrice ?? 0,
       normalPrice: option.normalPrice,
       supplyStatus: option.supplyStatus,
       safetyStock: option.safetyStock,

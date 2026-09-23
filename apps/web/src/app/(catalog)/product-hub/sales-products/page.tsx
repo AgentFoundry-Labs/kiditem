@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { Suspense, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { FileSpreadsheet, Layers, Link2Off, Package, PackageOpen, Search, Store } from 'lucide-react';
-import type { SalesProductListQuery } from '@kiditem/shared/sales-product';
+import { FileQuestion, FileSpreadsheet, Layers, Link2Off, Package, PackageOpen, Search, Store } from 'lucide-react';
+import type { SalesProductListQuery, SalesProductStatus } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { ExternalImagesNotice } from './components/ExternalImagesNotice';
@@ -13,16 +13,26 @@ import { MallPriceAdoptionNotice } from './components/MallPriceAdoptionNotice';
 import { MallSheetDialog } from '@/components/mall-sheet/MallSheetDialog';
 import { SabangnetImportDialog } from './components/SabangnetImportDialog';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
-import { formatWon, SALES_PRODUCT_STATUS_TONE } from './lib/sales-product-labels';
-import { salesProductStatusText } from './lib/sales-product-demote';
+import { formatWon, SALES_PRODUCT_STATUS_LABEL, SALES_PRODUCT_STATUS_TONE } from './lib/sales-product-labels';
 
 type Focus = SalesProductListQuery['focus'];
+type StatusFilter = SalesProductStatus | 'all';
 
 const FOCUS_TABS: { value: Focus; label: string }[] = [
   { value: 'all', label: '전체' },
   { value: 'with_options', label: '옵션 상품' },
   { value: 'unlinked', label: '셀피아 연결 필요' },
   { value: 'unregistered', label: '아직 몰에 없음' },
+];
+
+/** 판매 결정 전 초안(status=draft)을 다른 상태와 같은 줄에서 바로 고를 수 있게 한다(KID-310). */
+const STATUS_TABS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: '전체' },
+  { value: 'draft', label: '초안(미발급)' },
+  { value: 'active', label: '공급중' },
+  { value: 'paused', label: '일시중지' },
+  { value: 'sold_out', label: '완전품절' },
+  { value: 'unused', label: '미사용' },
 ];
 
 const PAGE_SIZE = 50;
@@ -44,26 +54,34 @@ function SalesProductsContent() {
   const pathname = usePathname();
   const params = useSearchParams();
   const focus = (FOCUS_TABS.some((tab) => tab.value === params.get('focus')) ? params.get('focus') : 'all') as Focus;
+  const status = (STATUS_TABS.some((tab) => tab.value === params.get('status')) ? params.get('status') : 'all') as StatusFilter;
   const search = params.get('q') ?? '';
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1);
   const [draft, setDraft] = useState(search);
   const [importing, setImporting] = useState(false);
   const [makingSheet, setMakingSheet] = useState(false);
 
-  const query = { focus, query: search || undefined, page, limit: PAGE_SIZE };
+  const query = {
+    focus,
+    ...(status !== 'all' ? { status } : {}),
+    query: search || undefined,
+    page,
+    limit: PAGE_SIZE,
+  };
   const list = useQuery({
     queryKey: salesProductKeys.list(query),
     queryFn: () => salesProductApi.list(query),
     placeholderData: (previous) => previous,
   });
 
-  const navigate = (next: { focus?: Focus; q?: string; page?: number }) => {
+  const navigate = (next: { focus?: Focus; status?: StatusFilter; q?: string; page?: number }) => {
     const search = new URLSearchParams(params.toString());
     const set = (key: string, value: string | undefined) => {
       if (value) search.set(key, value);
       else search.delete(key);
     };
     if (next.focus !== undefined) set('focus', next.focus === 'all' ? undefined : next.focus);
+    if (next.status !== undefined) set('status', next.status === 'all' ? undefined : next.status);
     if (next.q !== undefined) set('q', next.q.trim() || undefined);
     set('page', next.page && next.page > 1 ? String(next.page) : undefined);
     const text = search.toString();
@@ -97,8 +115,16 @@ function SalesProductsContent() {
       <ExternalImagesNotice />
       <MallPriceAdoptionNotice />
 
-      <section aria-label="판매상품 요약" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard icon={Package} label="판매상품" value={data?.summary.total} active={focus === 'all'} onClick={() => navigate({ focus: 'all' })} />
+      <section aria-label="판매상품 요약" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <SummaryCard icon={Package} label="판매상품" value={data?.summary.total} active={focus === 'all' && status === 'all'} onClick={() => navigate({ focus: 'all', status: 'all' })} />
+        <SummaryCard
+          icon={FileQuestion}
+          label="초안(미발급)"
+          value={data?.summary.draft}
+          tone="warn"
+          active={status === 'draft'}
+          onClick={() => navigate({ status: 'draft' })}
+        />
         <SummaryCard icon={Layers} label="옵션 상품" value={data?.summary.withOptions} active={focus === 'with_options'} onClick={() => navigate({ focus: 'with_options' })} />
         <SummaryCard
           icon={Link2Off}
@@ -119,19 +145,35 @@ function SalesProductsContent() {
 
       <section aria-label="판매상품 목록" className="table-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-          <div className="flex gap-1" role="tablist" aria-label="보기">
-            {FOCUS_TABS.map((tab) => (
-              <button
-                key={tab.value}
-                type="button"
-                role="tab"
-                aria-selected={focus === tab.value}
-                className={cn('tab', focus === tab.value ? 'tab-active' : 'tab-inactive')}
-                onClick={() => navigate({ focus: tab.value })}
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-1" role="tablist" aria-label="보기">
+              {FOCUS_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={focus === tab.value}
+                  className={cn('tab', focus === tab.value ? 'tab-active' : 'tab-inactive')}
+                  onClick={() => navigate({ focus: tab.value })}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1" role="tablist" aria-label="상태">
+              {STATUS_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={status === tab.value}
+                  className={cn('tab btn-sm', status === tab.value ? 'tab-active' : 'tab-inactive')}
+                  onClick={() => navigate({ status: tab.value })}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
           <form
             className="flex items-center gap-2"
@@ -194,7 +236,7 @@ function SalesProductsContent() {
                           <div className="h-10 w-10 rounded bg-slate-100" aria-hidden />
                         )}
                       </td>
-                      <td className="px-2 py-2 font-mono text-xs text-slate-600">{item.code}</td>
+                      <td className="px-2 py-2 font-mono text-xs text-slate-600">{item.code ?? '미발급'}</td>
                       <td className="max-w-0 px-2 py-2">
                         <Link
                           href={`/product-hub/sales-products/${item.id}`}
@@ -224,7 +266,7 @@ function SalesProductsContent() {
                       <td className="px-2 py-2 text-right tabular-nums text-slate-800">{formatWon(item.salePrice)}</td>
                       <td className="px-4 py-2 text-center">
                         <span className={cn('inline-flex rounded-full px-2 py-0.5 text-xs font-semibold', SALES_PRODUCT_STATUS_TONE[item.status])}>
-                          {salesProductStatusText(item)}
+                          {SALES_PRODUCT_STATUS_LABEL[item.status]}
                         </span>
                       </td>
                     </tr>

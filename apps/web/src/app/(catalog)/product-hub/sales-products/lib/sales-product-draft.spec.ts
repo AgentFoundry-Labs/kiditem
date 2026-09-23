@@ -36,6 +36,14 @@ function product(overrides: Partial<SalesProduct> = {}): SalesProduct {
     originRegion: null,
     keywords: ['패드'],
     standardCategory: null,
+    description: '',
+    targetAudience: null,
+    ageGroup: null,
+    productSize: null,
+    colorVariantNames: [],
+    boxSetQuantity: null,
+    registrationDefaults: null,
+    kcStatus: 'unknown',
     status: 'active',
     taxType: 'taxable',
     deliveryFeeType: 'collect_or_prepay',
@@ -94,6 +102,22 @@ describe('sales product editor draft', () => {
     expect(basicsPatch(current, basicsFromProduct(current))).toBeNull();
     expect(basicsPatch(current, draft)).toEqual({ keywords: ['패드', '만능패드'] });
     expect(commonNormalPrice(optionsFromProduct(current))).toEqual({ value: 9000, mixed: false });
+  });
+
+  // KID-310: 수집·직접 작성 초안이 채우는 칸 — 전에는 후보에만 있어 이 편집기에서 못 고쳤다.
+  it('편집기가 설명·대상·연령·크기·색상·묶음 칸도 바뀐 것만 보낸다', () => {
+    const current = product({
+      description: '실내용 놀이 매트',
+      targetAudience: '유아',
+      ageGroup: '3세 이상',
+      productSize: '100x100cm',
+      colorVariantNames: ['핑크', '블루'],
+      boxSetQuantity: 2,
+    });
+    const draft = { ...basicsFromProduct(current), productSize: '120x120cm', boxSetQuantity: 3 };
+
+    expect(basicsPatch(current, basicsFromProduct(current))).toBeNull();
+    expect(basicsPatch(current, draft)).toEqual({ productSize: '120x120cm', boxSetQuantity: 3 });
   });
 
   it('adds only missing combinations and keeps the linked row as it was', () => {

@@ -64,7 +64,7 @@ describe('판매상품 목록 화면', () => {
       total: 1,
       page: 1,
       limit: 50,
-      summary: { total: 4, withOptions: 2, withUnlinkedOptions: 1, unregistered: 3 },
+      summary: { total: 4, withOptions: 2, withUnlinkedOptions: 1, unregistered: 3, draft: 1 },
     });
   });
 
@@ -79,18 +79,31 @@ describe('판매상품 목록 화면', () => {
     expect(navigation.replace).toHaveBeenCalledWith('/product-hub/sales-products?focus=unregistered');
   });
 
-  it('되돌린 상품 줄은 원시 상태 대신 수집상품으로 되돌림으로 읽는다', async () => {
+  // KID-310: 되돌리기(demote)는 사라졌다 — archived 는 단순 보관 표식이다.
+  it('보관한 상품 줄은 보관으로 읽는다', async () => {
     listQuery.mockResolvedValue({
       items: [listItem({ status: 'archived', sourceCandidateId: '22222222-2222-4222-8222-222222222222' })],
       total: 1,
       page: 1,
       limit: 50,
-      summary: { total: 1, withOptions: 0, withUnlinkedOptions: 0, unregistered: 0 },
+      summary: { total: 1, withOptions: 0, withUnlinkedOptions: 0, unregistered: 0, draft: 0 },
     });
     renderPage();
-    expect(await screen.findByText('수집상품으로 되돌림')).toBeInTheDocument();
-    expect(screen.queryByText('삭제')).not.toBeInTheDocument();
-    expect(screen.queryByText('보관')).not.toBeInTheDocument();
+    expect(await screen.findByText('보관')).toBeInTheDocument();
+  });
+
+  // KID-310: 판매 옵션 중 하나라도 가격이 없으면 초안이다 — 코드는 아직 없다(미발급).
+  it('아직 KID 를 발급받지 않은 초안 줄은 코드가 미발급으로 보인다', async () => {
+    listQuery.mockResolvedValue({
+      items: [listItem({ status: 'draft', code: null, salePrice: null })],
+      total: 1,
+      page: 1,
+      limit: 50,
+      summary: { total: 1, withOptions: 0, withUnlinkedOptions: 0, unregistered: 1, draft: 1 },
+    });
+    renderPage();
+    expect(await screen.findByText('미발급')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: '초안(미발급)' })).toBeInTheDocument();
   });
 
   it('주소의 미등록 조건을 그대로 서버에 묻는다', async () => {

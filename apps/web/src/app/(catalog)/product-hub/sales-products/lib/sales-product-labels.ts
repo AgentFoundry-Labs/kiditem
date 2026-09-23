@@ -7,13 +7,14 @@ import type {
 
 /** 사방넷에서 쓰던 말 그대로 — 사장님이 익숙한 이름. */
 export const SALES_PRODUCT_STATUS_LABEL: Record<SalesProductStatus, string> = {
-  draft: '대기중',
+  /** 판매 옵션 중 하나라도 가격이 없다 — 수집·직접 작성 직후의 초안(KID-310). */
+  draft: '초안(미발급)',
   active: '공급중',
   paused: '일시중지',
   sold_out: '완전품절',
   unused: '미사용',
-  /** 목록에서 내려 둔 상태. 되돌리기가 쓰는 표식이라 화면은 `salesProductStatusText` 로 읽는다. */
-  archived: '내림',
+  /** 단순 보관 — 되돌림 표식이 아니다(KID-310). */
+  archived: '보관',
 };
 
 export const SALES_PRODUCT_STATUS_TONE: Record<SalesProductStatus, string> = {

@@ -20,6 +20,17 @@ import { SellpiaSkuPicker } from './SellpiaSkuPicker';
 const UI_MAX_AXES = Math.min(2, SALES_PRODUCT_MAX_OPTION_AXES);
 
 /**
+ * 줄 이름표.
+ *
+ * 서버에 있는 단품인데 KID 가 아직 없으면(판매 결정 전 초안) '미발급' — '새 단품'과는
+ * 다른 사실이다. 화면에 아직 저장하지 않은 줄(`id` 없음)만 '새 단품'이라 말한다.
+ */
+function optionRowLabel(row: OptionRowDraft): string {
+  if (row.optionCode) return row.optionCode;
+  return row.id ? '미발급' : '새 단품';
+}
+
+/**
  * 옵션표(단품) — 사방넷 신규등록의 '단품(옵션)정보'.
  *
  * 1. 옵션 이름(색상 · 사이즈)과 값(쉼표로 여러 개)을 적고 '조합 만들기'를 누르면 없는 조합만 더한다.
@@ -166,7 +177,7 @@ export function OptionTableEditor({
               const component = row.components[0];
               return (
                 <tr key={row.rowKey} className={cn('border-b border-slate-100', row.supplyStatus === 'unused' && 'bg-slate-50 text-slate-400')}>
-                  <td className="px-3 py-1.5 font-mono text-xs text-slate-500">{row.optionCode ?? '새 단품'}</td>
+                  <td className="px-3 py-1.5 font-mono text-xs text-slate-500">{optionRowLabel(row)}</td>
                   {value.axes.map((_, index) => (
                     <td key={index} className="px-2 py-1.5">
                       <input
@@ -175,7 +186,7 @@ export function OptionTableEditor({
                           values: row.values.map((item, at) => (at === index ? event.target.value : item)),
                         })}
                         className="w-full min-w-[90px] rounded border border-slate-200 px-2 py-1 text-sm"
-                        aria-label={`${row.optionCode ?? '새 단품'} ${value.axes[index]}`}
+                        aria-label={`${optionRowLabel(row)} ${value.axes[index]}`}
                       />
                     </td>
                   ))}
@@ -241,7 +252,7 @@ export function OptionTableEditor({
                         Math.round(Number(event.target.value) || 0),
                       ))}
                       className="w-full rounded border border-slate-200 px-2 py-1 text-right text-sm tabular-nums"
-                      aria-label={`${row.optionCode ?? '새 단품'} 추가금액`}
+                      aria-label={`${optionRowLabel(row)} 추가금액`}
                     />
                   </td>
                   <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">
@@ -257,7 +268,7 @@ export function OptionTableEditor({
                       })}
                       placeholder="없음"
                       className="w-full rounded border border-slate-200 px-2 py-1 text-right text-sm tabular-nums"
-                      aria-label={`${row.optionCode ?? '새 단품'} 선택 정상가`}
+                      aria-label={`${optionRowLabel(row)} 선택 정상가`}
                     />
                   </td>
                   <td className="px-2 py-1.5">
@@ -265,7 +276,7 @@ export function OptionTableEditor({
                       value={row.barcode}
                       onChange={(event) => updateRow(row.rowKey, { barcode: event.target.value })}
                       className="w-full rounded border border-slate-200 px-2 py-1 font-mono text-xs"
-                      aria-label={`${row.optionCode ?? '새 단품'} 바코드`}
+                      aria-label={`${optionRowLabel(row)} 바코드`}
                     />
                   </td>
                   <td className="px-2 py-1.5 text-center">
@@ -273,7 +284,7 @@ export function OptionTableEditor({
                       value={row.supplyStatus}
                       onChange={(event) => updateRow(row.rowKey, { supplyStatus: event.target.value as OptionRowDraft['supplyStatus'] })}
                       className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', OPTION_SUPPLY_TONE[row.supplyStatus])}
-                      aria-label={`${row.optionCode ?? '새 단품'} 상태`}
+                      aria-label={`${optionRowLabel(row)} 상태`}
                     >
                       {(Object.keys(OPTION_SUPPLY_LABEL) as OptionRowDraft['supplyStatus'][]).map((status) => (
                         <option key={status} value={status}>{OPTION_SUPPLY_LABEL[status]}</option>
@@ -287,7 +298,7 @@ export function OptionTableEditor({
                         onClick={() => removeRow(row)}
                         title={row.linkedChannelOptionCount > 0 ? '몰에 올라간 옵션이라 지우지 않고 미사용으로 둡니다.' : '이 줄 지우기'}
                         className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"
-                        aria-label={`${row.optionCode ?? '새 단품'} 지우기`}
+                        aria-label={`${optionRowLabel(row)} 지우기`}
                       >
                         <Trash2 size={14} />
                       </button>
