@@ -21,6 +21,7 @@ import { productTransactionalRead } from './product-transactional-read.fake';
 import * as XLSX from 'xlsx';
 import { SabangnetProductImportService } from '../application/service/collection/sabangnet-product-import.service';
 import { SalesProductLinkService } from '../application/service/sales-product/sales-product-link.service';
+import { SalesProductImageService } from '../application/service/sales-product/sales-product-image.service';
 import { ChannelsDocumentsAdapter } from '../adapter/out/documents/channel-documents.adapter';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { mirroredImageKey } from '../domain/sales-product/sales-product-images';
@@ -894,6 +895,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
   const integrity = new ChannelIntegrityAdapter();
   let prisma: PrismaClient;
   let service: SabangnetProductImportService;
+  let imageMirror: SalesProductImageService;
   let mirroredUrl: (url: string) => string;
 
   type Row = Partial<Record<(typeof HEADERS)[number], string | number>>;
@@ -938,10 +940,11 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     );
     const logger = { log() {}, warn() {} };
     // 사진 저장소는 바깥 경계다 — 옮긴 주소만 정해 준다.
-    const images = {
-      mirror: async () => undefined,
+    const images: SalesProductImageMirrorPort = {
+      mirror: async ({ key }) => ({ ok: true, url: `https://storage.example/${key}` }),
       urlFor: (key: string) => `https://storage.example/${key}`,
-    } as unknown as SalesProductImageMirrorPort;
+      isOwnedUrl: (url: string) => url.startsWith('https://storage.example/'),
+    };
     mirroredUrl = (url) => images.urlFor(mirroredImageKey(TEST_ORGANIZATION_ID, url, integrity.sha256)!);
     // 셀피아 상품은 Products 소유다. 이 시험은 단품 연결을 보지 않으므로 빈 목록이면 된다.
     const sourceProducts = { listActiveForMatching: async () => [] } as unknown as ProductSourceReadPort;
@@ -954,6 +957,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
       logger,
       integrity,
     );
+    imageMirror = new SalesProductImageService(repository, images, logger, integrity, new ChannelsDocumentsAdapter());
   });
 
   afterAll(async () => {
@@ -1038,6 +1042,32 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
       name: '투명우산 그리기',
       adminMemo: '사방넷 메모 1',
       sourceRaw: expect.objectContaining({ 상품명: '다른 이름' }),
+    });
+  });
+
+  it('takes a new file detail after the mirror job rewrote the imported detail images', async () => {
+    const imported = `<p><img src="${IMAGE_A}"></p>`;
+    await service.import(TEST_ORGANIZATION_ID, file({ 상품상세설명: imported }), false);
+    await imageMirror.mirror(TEST_ORGANIZATION_ID);
+    await expect(product()).resolves.toMatchObject({ detailHtml: `<p><img src="${mirroredUrl(IMAGE_A)}"></p>` });
+
+    const { preview } = await reimport({ 상품상세설명: '<p>상세 2</p>' });
+
+    expect(preview.existingChanges[0]!.preserved).not.toContain('detailHtml');
+    await expect(product()).resolves.toMatchObject({ detailHtml: '<p>상세 2</p>' });
+  });
+
+  it('keeps an operator-edited detail across a mirror and a reimport', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({}), false);
+    const imported = await product();
+    const edited = `<p>운영자 상세 <img src="${IMAGE_A}"></p>`;
+    await prisma.salesProduct.update({ where: { id: imported.id }, data: { detailHtml: edited } });
+    await imageMirror.mirror(TEST_ORGANIZATION_ID);
+
+    await reimport({ 상품상세설명: '<p>상세 2</p>' });
+
+    await expect(product()).resolves.toMatchObject({
+      detailHtml: `<p>운영자 상세 <img src="${mirroredUrl(IMAGE_A)}"></p>`,
     });
   });
 

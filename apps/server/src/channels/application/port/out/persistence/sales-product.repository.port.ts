@@ -231,7 +231,7 @@ export interface SalesProductRepositoryPort {
   /** 가져오기: 자체상품코드 → 판매상품코드(이미 있는 것만). */
   findCodesByOwnCodes(organizationId: string, ownCodes: readonly string[]): Promise<Map<string, string>>;
   /** 사진 옮기기: 이 조직 판매상품의 사진 주소와 버전. */
-  listImageUrls(organizationId: string): Promise<{ id: string; code: string | null; version: number; imageUrls: string[]; detailHtml: string | null; extraDetailHtml: string[] }[]>;
+  listImageUrls(organizationId: string): Promise<{ id: string; code: string | null; version: number; imageUrls: string[]; detailHtml: string | null; extraDetailHtml: string[]; sourceRaw: unknown }[]>;
   /** 버전이 같을 때만 사진 주소를 바꾸고 버전을 올린다. 버전이 다르면 false. */
   replaceImageUrls(input: {
     organizationId: string;
@@ -240,6 +240,8 @@ export interface SalesProductRepositoryPort {
     imageUrls: string[];
     detailHtml?: string | null;
     extraDetailHtml?: string[];
+    /** 상세를 고치면서 옮긴 원문(기준값 디지스트). 주면 같은 문장에서 쓴다. */
+    sourceRaw?: Record<string, unknown>;
   }): Promise<boolean>;
   /**
    * 쿠팡상품정보 수정요청: 윙 옵션 ID → 그 옵션과 이어진 우리 단품 · 판매상품이 아는 값.

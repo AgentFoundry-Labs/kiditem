@@ -948,6 +948,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     imageUrls: string[];
     detailHtml: string | null;
     extraDetailHtml: string[];
+    sourceRaw: unknown;
   }[]> {
     return this.prisma.salesProduct.findMany({
       where: { organizationId },
@@ -958,6 +959,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         imageUrls: true,
         detailHtml: true,
         extraDetailHtml: true,
+        sourceRaw: true,
       },
       orderBy: { code: 'asc' },
     });
@@ -970,6 +972,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     imageUrls: string[];
     detailHtml?: string | null;
     extraDetailHtml?: string[];
+    sourceRaw?: Record<string, unknown>;
   }): Promise<boolean> {
     const result = await this.prisma.salesProduct.updateMany({
       where: { id: input.salesProductId, organizationId: input.organizationId, version: input.expectedVersion },
@@ -977,6 +980,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         imageUrls: input.imageUrls,
         ...(input.detailHtml !== undefined ? { detailHtml: input.detailHtml } : {}),
         ...(input.extraDetailHtml !== undefined ? { extraDetailHtml: input.extraDetailHtml } : {}),
+        ...(input.sourceRaw !== undefined ? { sourceRaw: input.sourceRaw as Prisma.InputJsonValue } : {}),
         version: { increment: 1 },
       },
     });

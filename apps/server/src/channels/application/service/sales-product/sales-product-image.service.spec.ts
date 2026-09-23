@@ -1,4 +1,5 @@
 import { ChannelIntegrityAdapter } from '../../../adapter/out/integrity/channel-integrity.adapter';
+import { ChannelsDocumentsAdapter } from '../../../adapter/out/documents/channel-documents.adapter';
 import { describe, expect, it } from 'vitest';
 import { SalesProductImageService } from './sales-product-image.service';
 import type { SalesProductRepositoryPort } from '../../port/out/persistence/sales-product.repository.port';
@@ -56,7 +57,7 @@ function setup(options: {
       ? { ok: false, reason: '빈 파일' }
       : { ok: true, url: `http://storage.local/${key}` }),
   };
-  return { rows, service: new SalesProductImageService(repository, mirror, { log() {}, warn() {} }, channelIntegrity) };
+  return { rows, service: new SalesProductImageService(repository, mirror, { log() {}, warn() {} }, channelIntegrity, new ChannelsDocumentsAdapter()) };
 }
 
 describe('SalesProductImageService', () => {
