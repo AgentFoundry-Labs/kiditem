@@ -10,6 +10,7 @@ import {
   Matches,
   Max,
   MaxLength,
+  MinLength,
   Min,
   Validate,
   type ValidationArguments,
@@ -62,6 +63,14 @@ export class CreateContentWorkspaceDto {
   @IsUUID()
   salesProductId?: string;
 
+}
+
+/** 상세가 없는 판매상품에 허브가 처음 쓰는 상세 HTML — 편집기 저장과 같은 상한. */
+export class CreateManualDetailPageDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2_000_000)
+  html!: string;
 }
 
 export class SelectContentWorkspaceDetailPageDto {

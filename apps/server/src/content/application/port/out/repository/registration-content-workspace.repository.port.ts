@@ -1,6 +1,8 @@
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   AttachContentWorkspaceToListingInput,
+  CreateManualDetailPageInput,
+  CreateManualDetailPageResult,
   EnsureSalesProductContentWorkspaceInput,
   FindSalesProductContentWorkspaceInput,
   ImportDetailPageInput,
@@ -49,6 +51,9 @@ export interface RegistrationContentWorkspaceRepositoryPort {
     transaction: OwnerTransaction,
     input: ImportDetailPageInput & { imageUrls: readonly string[] },
   ): Promise<ImportDetailPageResult>;
+  createManualDetailPage(
+    input: CreateManualDetailPageInput & { imageUrls: readonly string[] },
+  ): Promise<CreateManualDetailPageResult>;
   attachToListing(
     transaction: OwnerTransaction,
     input: AttachContentWorkspaceToListingInput,

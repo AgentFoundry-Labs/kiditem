@@ -57,6 +57,21 @@ export type ImportDetailPageResult =
   | { kind: 'skipped'; reason: 'unchanged'; workspaceId: string; currentRevisionId: string | null }
   | { kind: 'appended'; workspaceId: string; revisionId: string; becameCurrent: boolean };
 
+/** 상세가 없는 판매상품 작업공간에 사람이 첫 상세를 직접 쓴다(허브). */
+export interface CreateManualDetailPageInput {
+  organizationId: string;
+  salesProductId: string;
+  html: string;
+  createdByUserId: string | null;
+}
+
+export interface CreateManualDetailPageResult {
+  workspaceId: string;
+  revisionId: string;
+  /** 허브가 상세를 읽고 고치는 생성 id(작업공간의 현재 상세 생성). */
+  contentGenerationId: string;
+}
+
 export interface AttachContentWorkspaceToListingInput {
   organizationId: string;
   salesProductId: string;
@@ -94,6 +109,12 @@ export interface RegistrationContentWorkspacePort {
    * caller 의 트랜잭션 안에서 실행된다 — 사방넷 가져오기가 상품 저장과 함께 커밋한다.
    */
   importDetailPage(transaction: OwnerTransaction, input: ImportDetailPageInput): Promise<ImportDetailPageResult>;
+  /**
+   * 상세가 없는 판매상품 작업공간에 첫 상세를 만든다 — 가져오기와 같은 모양의 상세 그릇(`metadata.source =
+   * 'manual'`)과 `manual_edit` revision 을 만들고 현재로 삼는다. 이미 상세가 있으면 Conflict: 그때는 허브가
+   * 그 상세의 저장(edited-html)으로 고친다. 작업공간이 없으면 NotFound.
+   */
+  createManualDetailPage(input: CreateManualDetailPageInput): Promise<CreateManualDetailPageResult>;
   /**
    * Read-only lookup of the active workspace a sales-product draft already owns.
    *

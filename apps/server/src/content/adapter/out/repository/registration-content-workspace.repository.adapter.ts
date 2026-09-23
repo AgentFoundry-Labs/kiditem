@@ -15,6 +15,8 @@ import {
 } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type {
   AttachContentWorkspaceToListingInput,
+  CreateManualDetailPageInput,
+  CreateManualDetailPageResult,
   ImportDetailPageInput,
   ImportDetailPageResult,
   RegistrableDetailPage,
@@ -191,7 +193,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       orderBy: { createdAt: 'asc' },
       select: { id: true, sourceContentGenerationId: true },
     });
-    const artifact = existing ?? await createImportArtifact(tx, {
+    const artifact = existing ?? await createDetailPageContainer(tx, {
       organizationId: input.organizationId,
       workspaceId: workspace.id,
       source: artifactSource,
@@ -232,6 +234,57 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       revisionId: revision.id,
       becameCurrent: decision.advancePointer,
     };
+  }
+
+  async createManualDetailPage(
+    input: CreateManualDetailPageInput & { imageUrls: readonly string[] },
+  ): Promise<CreateManualDetailPageResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string; displayName: string; hasDetail: boolean }>>(Prisma.sql`
+        SELECT id, display_name AS "displayName",
+          (current_detail_page_artifact_id IS NOT NULL OR current_detail_page_revision_id IS NOT NULL) AS "hasDetail"
+        FROM content_workspaces
+        WHERE organization_id = ${input.organizationId}::uuid
+          AND sales_product_id = ${input.salesProductId}::uuid
+          AND owner_type = 'sales_product'
+          AND status = 'active'
+          AND is_deleted = false
+        FOR UPDATE
+      `);
+      const workspace = locked[0];
+      if (!workspace) throw new NotFoundException('Sales product content workspace not found.');
+      if (workspace.hasDetail) {
+        throw new ConflictException('이미 상세 페이지가 있습니다. 그 상세를 고쳐 저장하세요.');
+      }
+      const artifact = await createDetailPageContainer(tx, {
+        organizationId: input.organizationId,
+        workspaceId: workspace.id,
+        source: 'manual',
+        title: workspace.displayName,
+        createdByUserId: input.createdByUserId,
+      });
+      const revision = await tx.detailPageRevision.create({
+        data: {
+          organizationId: input.organizationId,
+          artifactId: artifact.id,
+          contentGenerationId: artifact.sourceContentGenerationId,
+          revisionType: DETAIL_PAGE_REVISION_TYPE.manual_edit,
+          html: input.html,
+          imageUrls: [...input.imageUrls],
+          createdByUserId: input.createdByUserId,
+        },
+        select: { id: true },
+      });
+      await tx.detailPageArtifact.updateMany({
+        where: { id: artifact.id, organizationId: input.organizationId },
+        data: { currentRevisionId: revision.id },
+      });
+      await tx.contentWorkspace.updateMany({
+        where: { id: workspace.id, organizationId: input.organizationId },
+        data: { currentDetailPageArtifactId: artifact.id, currentDetailPageRevisionId: revision.id },
+      });
+      return { workspaceId: workspace.id, revisionId: revision.id, contentGenerationId: artifact.sourceContentGenerationId! };
+    });
   }
 
   async findSalesProductWorkspaceId(input: {
@@ -516,8 +569,11 @@ function stringArray(value: Prisma.JsonValue | undefined): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
-/** 가져오기 전용 상세페이지 버전. 올린 상세페이지처럼 돌릴 작업이 없으니 `COMPLETED` 로 연다. */
-async function createImportArtifact(
+/**
+ * 상세 그릇 하나(생성 묶음 · 생성 · 아티팩트) — 가져오기와 허브의 첫 상세가 같은 모양을 쓴다. `source` 가 어디서
+ * 왔는지 말한다. 돌릴 생성 작업이 없으니 `COMPLETED` 로 연다.
+ */
+async function createDetailPageContainer(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; workspaceId: string; source: string; title: string; createdByUserId: string | null },
 ): Promise<{ id: string; sourceContentGenerationId: string | null }> {

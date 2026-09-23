@@ -54,6 +54,20 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
     },
     onError: (error) => toast.error(isApiError(error) ? error.detail : '상세를 저장하지 못했습니다.'),
   });
+  // 상세가 아직 없으면 첫 상세를 직접 쓴다 — 그 뒤로는 위의 저장이 새 revision 을 쌓는다.
+  const create = useMutation({
+    mutationFn: () => contentWorkspacesApi.createManualDetailPage(salesProductId, html),
+    onSuccess: async () => {
+      setDraft(null);
+      await invalidate();
+      toast.success('상세를 저장했습니다.');
+    },
+    onError: async (error) => {
+      toast.error(isApiError(error) ? error.detail : '상세를 저장하지 못했습니다.');
+      // 그 사이 상세가 생겼으면(409) 다시 읽어 그 상세를 고치게 한다.
+      await invalidate();
+    },
+  });
   const select = useMutation({
     mutationFn: (contentGenerationId: string) =>
       contentWorkspacesApi.selectCurrentDetailPage(workspace.data!.id, contentGenerationId),
@@ -67,8 +81,32 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
   if (workspace.isPending) return <p className="text-sm text-slate-400">상세를 불러오는 중…</p>;
   if (workspace.isError) return <p className="text-sm text-red-600">상세를 불러오지 못했습니다.</p>;
   const versions = (workspace.data?.history ?? []).filter((item) => item.contentType === 'detail_page');
-  if (!workspace.data || generationId === null) {
+  if (!workspace.data) {
     return <p className="text-sm text-slate-500">아직 상세 페이지가 없습니다. 상세페이지 생성이나 사방넷 가져오기로 만듭니다.</p>;
+  }
+  if (generationId === null) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-slate-500">아직 상세 페이지가 없습니다. 여기에 HTML 을 직접 쓰거나, 상세페이지 생성 · 사방넷 가져오기로 만듭니다.</p>
+        <textarea
+          aria-label="상세 HTML"
+          value={html}
+          onChange={(event) => setDraft(event.target.value)}
+          rows={8}
+          className={cn(inputClass, 'font-mono text-xs')}
+        />
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="btn-secondary btn-sm inline-flex items-center gap-1 disabled:opacity-40"
+            disabled={create.isPending || !html.trim()}
+            onClick={() => create.mutate()}
+          >
+            <Save size={13} aria-hidden />{create.isPending ? '저장 중…' : '상세 저장'}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

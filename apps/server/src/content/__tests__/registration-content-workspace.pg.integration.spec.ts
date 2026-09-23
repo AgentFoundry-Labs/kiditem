@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -170,6 +171,41 @@ describe('registration content workspace (PG integration)', () => {
     await expect(prisma.detailPageRevision.count({
       where: { organizationId: TEST_ORGANIZATION_ID, revisionType: 'imported' },
     })).resolves.toBe(3);
+  });
+
+  it('writes a first detail page by hand into a workspace with none, and refuses a second one', async () => {
+    const { salesProductId, workspaceId } = await ensureWorkspace();
+
+    const created = await content.createManualDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, html: '<p>직접 쓴 상세 <img src="https://cdn.example/a.jpg"></p>', createdByUserId: TEST_USER_ID,
+    });
+
+    expect(created.workspaceId).toBe(workspaceId);
+    await expect(content.readRegistrableDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, revisionId: null,
+    })).resolves.toMatchObject({
+      revisionId: created.revisionId,
+      revisionType: 'manual_edit',
+      html: '<p>직접 쓴 상세 <img src="https://cdn.example/a.jpg"></p>',
+      imageUrls: ['https://cdn.example/a.jpg'],
+    });
+    await expect(prisma.contentWorkspace.findUniqueOrThrow({
+      where: { id: workspaceId }, select: { currentDetailPageArtifact: { select: { metadata: true, sourceContentGenerationId: true } } },
+    })).resolves.toEqual({ currentDetailPageArtifact: { metadata: { source: 'manual' }, sourceContentGenerationId: created.contentGenerationId } });
+    // 허브가 읽는 길(현재 상세 생성의 저장된 HTML)로도 같은 글이 보인다.
+    await expect(detailPages.getEditedHtml({ organizationId: TEST_ORGANIZATION_ID, id: created.contentGenerationId }))
+      .resolves.toMatchObject({ detailPageArtifact: { currentRevision: { html: '<p>직접 쓴 상세 <img src="https://cdn.example/a.jpg"></p>' } } });
+
+    await expect(content.createManualDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId, html: '<p>또 쓴 상세</p>', createdByUserId: TEST_USER_ID,
+    })).rejects.toBeInstanceOf(ConflictException);
+    await expect(prisma.detailPageRevision.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(1);
+  });
+
+  it('has no manual first detail page for a product without a workspace', async () => {
+    await expect(content.createManualDetailPage({
+      organizationId: TEST_ORGANIZATION_ID, salesProductId: randomUUID(), html: '<p>상세</p>', createdByUserId: null,
+    })).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('reads the revision a target selected instead of the current one', async () => {

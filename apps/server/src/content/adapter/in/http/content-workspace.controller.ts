@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -6,7 +6,12 @@ import { ContentAssetService } from '../../../application/service/content-asset.
 import { ContentWorkspaceService } from '../../../application/service/content-workspace.service';
 import { ContentWorkspaceThumbnailSelectionService } from '../../../application/service/content-workspace-thumbnail-selection.service';
 import {
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+  type RegistrationContentWorkspacePort,
+} from '../../../application/port/in/workspace/registration-content-workspace.port';
+import {
   CreateContentWorkspaceDto,
+  CreateManualDetailPageDto,
   DuplicateContentWorkspaceQueryDto,
   ListContentWorkspacesQueryDto,
   ReplaceContentWorkspaceThumbnailGalleryDto,
@@ -20,6 +25,8 @@ export class ContentWorkspaceController {
     private readonly contentWorkspaces: ContentWorkspaceService,
     private readonly thumbnailSelections: ContentWorkspaceThumbnailSelectionService,
     private readonly contentAssets: ContentAssetService,
+    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
+    private readonly registrationContent: RegistrationContentWorkspacePort,
   ) {}
 
   @Get()
@@ -72,6 +79,25 @@ export class ContentWorkspaceController {
     @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
   ) {
     return this.contentAssets.loadRegistrationMedia({ organizationId, salesProductId });
+  }
+
+  /**
+   * 상세가 없는 판매상품에 첫 상세를 직접 쓴다(`manual_edit` revision, 현재가 된다). 이미 상세가 있으면 409 —
+   * 그때는 그 상세 생성의 edited-html 저장으로 고친다.
+   */
+  @Post('by-sales-product/:salesProductId/manual-detail-page')
+  createManualDetailPage(
+    @CurrentOrganization() organizationId: string,
+    @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: CreateManualDetailPageDto,
+  ) {
+    return this.registrationContent.createManualDetailPage({
+      organizationId,
+      salesProductId,
+      html: body.html,
+      createdByUserId: user.id ?? null,
+    });
   }
 
   @Get(':workspaceId')

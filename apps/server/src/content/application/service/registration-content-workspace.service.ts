@@ -3,6 +3,8 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type AttachContentWorkspaceToListingInput,
+  type CreateManualDetailPageInput,
+  type CreateManualDetailPageResult,
   type EnsureSalesProductContentWorkspaceInput,
   type FindSalesProductContentWorkspaceInput,
   type ImportDetailPageInput,
@@ -82,6 +84,11 @@ export class RegistrationContentWorkspaceService
       ...input,
       imageUrls: extractImageSrcs(input.html),
     });
+  }
+
+  createManualDetailPage(input: CreateManualDetailPageInput): Promise<CreateManualDetailPageResult> {
+    if (!input.html.trim()) throw new BadRequestException('상세 HTML 을 넣어 주세요.');
+    return this.repository.createManualDetailPage({ ...input, imageUrls: extractImageSrcs(input.html) });
   }
 
   attachToListing(
