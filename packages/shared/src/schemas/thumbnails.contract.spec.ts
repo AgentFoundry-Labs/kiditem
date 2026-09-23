@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   ThumbnailJobListResponseSchema,
-  ThumbnailTrackingRecordSchema,
-  UpdateThumbnailTrackingMetricsSchema,
 } from './thumbnails';
 import * as thumbnailContracts from './thumbnails';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
-const LISTING_ID = '22222222-2222-4222-8222-222222222222';
 
 describe('thumbnail identity contracts', () => {
   it('does not export the retired product-bound list contract', () => {
@@ -51,37 +48,14 @@ describe('thumbnail identity contracts', () => {
     expect(parsed.items[0]).not.toHaveProperty('selectedUrl');
   });
 
-  it('uses ChannelListing as the tracking identity', () => {
-    const parsed = ThumbnailTrackingRecordSchema.parse({
-      id: 'tracking-1',
-      channelListingId: LISTING_ID,
-      productName: 'Channel product',
-      generationId: 'generation-1',
-      originalGrade: 'B',
-      originalScore: 70,
-      appliedAt: '2026-07-14T00:00:00.000Z',
-      daysElapsed: 0,
-      status: 'tracking',
-      ctrBefore: null,
-      ctrAfter: null,
-      ctrChange: null,
-      reviewsBefore: null,
-      reviewsAfter: null,
-      salesBefore: null,
-      salesAfter: null,
-    });
-
-    expect(parsed.channelListingId).toBe(LISTING_ID);
-    expect(parsed).not.toHaveProperty('productId');
-  });
-});
-
-describe('thumbnail tracking update contract', () => {
-  it('takes the operator inconclusive mark instead of a tracking status', () => {
-    expect(UpdateThumbnailTrackingMetricsSchema.parse({ ctrAfter: 2.4, inconclusive: true }))
-      .toEqual({ ctrAfter: 2.4, inconclusive: true });
-    expect(UpdateThumbnailTrackingMetricsSchema.parse({ inconclusive: false }))
-      .toEqual({ inconclusive: false });
-    expect(UpdateThumbnailTrackingMetricsSchema.safeParse({ status: 'inconclusive' }).success).toBe(false);
+  it('no longer publishes post-apply CTR tracking or workspace analysis contracts', () => {
+    for (const retired of [
+      'ThumbnailTrackingRecordSchema',
+      'UpdateThumbnailTrackingMetricsSchema',
+      'ThumbnailAnalysisResultSchema',
+      'ThumbnailAnalysisSummarySchema',
+    ]) {
+      expect(thumbnailContracts).not.toHaveProperty(retired);
+    }
   });
 });

@@ -116,15 +116,11 @@ export {
   ImageSpecIssueSchema,
   ThumbnailJobListResponseSchema,
   ThumbnailJobWorkspaceSummarySchema,
-  ThumbnailTrackingRecordSchema,
-  ThumbnailTrackingListResponseSchema,
-  UpdateThumbnailTrackingMetricsSchema,
   EditAnalysisResultSchema,
   RecomposeVariantOptionSchema,
   RecomposeVariantClassificationSchema,
   RECOMPOSE_VARIANT_KEYS,
   RECOMPOSE_KINDS,
-  THUMBNAIL_TRACKING_STATUSES,
 } from './thumbnails.js';
 export type {
   ThumbnailScores,
@@ -133,15 +129,11 @@ export type {
   ImageSpecIssue,
   ThumbnailJobListResponse,
   ThumbnailJobWorkspaceSummary,
-  ThumbnailTrackingRecord,
-  ThumbnailTrackingListResponse,
-  UpdateThumbnailTrackingMetrics,
   EditAnalysisResult,
   RecomposeVariantOption,
   RecomposeVariantClassification,
   RecomposeVariantKey,
   RecomposeKind,
-  ThumbnailTrackingStatus,
 } from './thumbnails.js';
 
 // Ads (Plan B2b — listingId-primary)

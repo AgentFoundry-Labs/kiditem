@@ -54,7 +54,6 @@ function repository(
       mappingStatusRows: [],
       snapshot: { collected: true, generation: '1', verifiedAt: '2026-09-01T00:00:00.000Z' },
     }),
-    countLowCtrThumbnails: vi.fn().mockResolvedValue(0),
     findReviewCountsForProducts: vi.fn().mockResolvedValue([]),
     ...overrides,
   };
@@ -147,6 +146,8 @@ describe('DashboardInventoryService', () => {
     })).getSummary(buildDashboardContext(), '11111111-1111-4111-8111-111111111111');
 
     expect(result.warnings).toMatchObject({ outOfStockSkus: 7, mappingAttentionSkus: 3 });
+    // 낮은 CTR 썸네일 수는 쓰는 곳이 없는 `thumbnails` 표를 읽었다(KID-313 W3a) — 경고에서 뺐다.
+    expect(result.warnings).not.toHaveProperty('lowCtrProducts');
     expect(result.channelLinkedProducts).toBe(8);
     expect(result).not.toHaveProperty('mappingStatusCounts');
     expect(result.gradeChanges).toEqual({

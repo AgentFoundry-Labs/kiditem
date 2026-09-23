@@ -43,6 +43,9 @@ describe('AiModule thumbnail-analysis route-family wiring', () => {
       method: RequestMethod.POST,
       path: 'current',
     });
+    // 적용 후 CTR 추적(Wing 판매 스크랩)은 없다 — 리스팅 평가가 대신한다.
+    const paths = controllers.map((controller) => Reflect.getMetadata(PATH_KEY, controller as object) as string);
+    expect(paths.filter((path) => path === 'thumbnail-tracking')).toEqual([]);
   });
 
   it('preserves moved generation and edit-job route URLs', () => {

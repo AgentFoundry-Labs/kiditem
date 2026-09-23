@@ -8,7 +8,7 @@ import { withListingProductSummary } from '../../../../../channels/domain/listin
 // reads behind the inventory tile: grade counts, unread alerts, active
 // product counts, per-listing profit metrics (shared helper), inventory
 // Sellpia zero-stock and channel-SKU mapping-attention counts, current grade history,
-// low-CTR thumbnail count, and A-grade master products with their
+// and A-grade master products with their
 // channel-listing review counts.
 //
 // 2-hop joins (A-grade review fetch) bind organization on both
@@ -339,12 +339,6 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
       },
       { isolationLevel: "RepeatableRead" },
     );
-  }
-
-  async countLowCtrThumbnails(organizationId: string): Promise<number> {
-    return this.prisma.thumbnail.count({
-      where: { organizationId, ctr: { lt: 1.5, gt: 0 } },
-    });
   }
 
   async findReviewCountsForProducts(

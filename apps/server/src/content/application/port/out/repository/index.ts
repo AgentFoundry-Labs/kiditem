@@ -8,7 +8,6 @@ export * from './product-generation-context.repository.port';
 export * from './registration-content-workspace.repository.port';
 export * from './sales-product-workspace-archive.repository.port';
 export * from './thumbnail-generation-ledger.repository.port';
-export * from './thumbnail-tracking.repository.port';
 export * from './registrable-thumbnail.repository.port';
 export * from './ai-direct-job.repository.port';
 export * from './catalog-display-media.repository.port';

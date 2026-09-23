@@ -80,24 +80,23 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       masterProductId: officialA.id,
       quantity: 1,
     } });
-    await prisma.thumbnail.createMany({ data: [
-      { organizationId: ORG, listingId: listing.id, imageUrl: 'https://example.com/a.jpg' },
-      { organizationId: ORG, listingId: staleListing.id, imageUrl: 'https://example.com/stale.jpg' },
-    ] });
     const workspace = await prisma.contentWorkspace.create({ data: {
       organizationId: ORG,
       ownerType: 'channel_listing',
       channelListingId: listing.id,
-      displayName: 'Official A workspace',
-      normalizedTitle: 'official-a-workspace',
     } });
-    await prisma.contentWorkspace.create({ data: {
+    const staleWorkspace = await prisma.contentWorkspace.create({ data: {
       organizationId: ORG,
       ownerType: 'channel_listing',
       channelListingId: staleListing.id,
-      displayName: 'Stale cache workspace',
-      normalizedTitle: 'stale-cache-workspace',
     } });
+    // 리스팅 대표이미지는 리스팅 작업공간의 현재 대표이미지 자산이다(KID-313 W3a).
+    for (const [row, url] of [[workspace, 'https://example.com/a.jpg'], [staleWorkspace, 'https://example.com/stale.jpg']] as const) {
+      const asset = await prisma.contentAsset.create({ data: {
+        organizationId: ORG, contentWorkspaceId: row.id, source: 'catalog', assetKey: `seed:${row.id}`, url, role: 'primary',
+      } });
+      await prisma.contentWorkspace.update({ where: { id: row.id }, data: { currentThumbnailAssetId: asset.id } });
+    }
     await seedOfficialEvaluation(prisma, officialA.id);
 
     const reviewRun = await prisma.sourceImportRun.create({ data: {

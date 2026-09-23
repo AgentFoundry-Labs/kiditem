@@ -138,7 +138,6 @@ export function buildMockDashboardInventoryRepo(): MockDashboardInventoryRepo {
     countActiveProducts: vi.fn(),
     fetchPerListingMetrics: vi.fn(),
     readInventoryAvailabilityFacts: vi.fn(),
-    countLowCtrThumbnails: vi.fn(),
     findReviewCountsForProducts: vi.fn(),
   };
 }

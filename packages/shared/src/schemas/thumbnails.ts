@@ -142,54 +142,6 @@ export const ThumbnailJobListResponseSchema = z.object({
 }).strict();
 export type ThumbnailJobListResponse = z.infer<typeof ThumbnailJobListResponseSchema>;
 
-// ─── 트래킹 ──────────────────────────────────────────────
-
-/** Derived by the server from the operator's inconclusive mark and the CTR before and after; never stored. */
-export const THUMBNAIL_TRACKING_STATUSES = ['tracking', 'measured', 'inconclusive'] as const;
-export type ThumbnailTrackingStatus = (typeof THUMBNAIL_TRACKING_STATUSES)[number];
-
-export const ThumbnailTrackingRecordSchema = z.object({
-  id: z.string(),
-  channelListingId: z.string(),
-  productName: z.string(),
-  generationId: z.string(),
-  originalGrade: z.string(),
-  originalScore: z.number(),
-  appliedAt: z.string(),
-  daysElapsed: z.number(),
-  status: z.enum(THUMBNAIL_TRACKING_STATUSES),
-  ctrBefore: z.number().nullable(),
-  ctrAfter: z.number().nullable(),
-  ctrChange: z.number().nullable(),
-  reviewsBefore: z.number().nullable(),
-  reviewsAfter: z.number().nullable(),
-  salesBefore: z.number().nullable(),
-  salesAfter: z.number().nullable(),
-});
-
-export const ThumbnailTrackingListResponseSchema = z.object({
-  items: z.array(ThumbnailTrackingRecordSchema),
-  total: z.number(),
-  page: z.number(),
-  limit: z.number(),
-});
-
-export const UpdateThumbnailTrackingMetricsSchema = z
-  .object({
-    ctrBefore: z.number().optional(),
-    ctrAfter: z.number().optional(),
-    reviewsBefore: z.number().optional(),
-    reviewsAfter: z.number().optional(),
-    salesBefore: z.number().optional(),
-    salesAfter: z.number().optional(),
-    /** true marks the tracking inconclusive (결론 없음) and keeps an earlier mark; false clears it. */
-    inconclusive: z.boolean().optional(),
-  })
-  .strict();
-
 export type ThumbnailScores = z.infer<typeof ThumbnailScoresSchema>;
 export type EditAnalysisResult = z.infer<typeof EditAnalysisResultSchema>;
 export type ComplianceScores = z.infer<typeof ComplianceScoresSchema>;
-export type ThumbnailTrackingRecord = z.infer<typeof ThumbnailTrackingRecordSchema>;
-export type ThumbnailTrackingListResponse = z.infer<typeof ThumbnailTrackingListResponseSchema>;
-export type UpdateThumbnailTrackingMetrics = z.infer<typeof UpdateThumbnailTrackingMetricsSchema>;
