@@ -30,6 +30,7 @@ import {
   type SalesProductImageMirrorPort,
 } from '../../port/out/storage/sales-product-image-mirror.port';
 import { mirroredImageKey, preferMirroredImageUrls } from '../../../domain/sales-product/sales-product-images';
+import { isDraft } from '../../../domain/sales-product/sales-product-status';
 import {
   buildSabangnetImportPlan,
   planSabangnetMallValues,
@@ -199,6 +200,17 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         : null;
       const product = { ...planned, create: merge?.merged ?? incoming };
       const state = sourceKeys.map((key) => states.get(key)).find(Boolean);
+      // 자체코드가 같은 초안은 사방넷 상품이 아니다 — 초안은 KID 가 없어 이 줄로 덮으면 판매 상품이
+      // 코드 없이 생긴다. 줄을 넘기고 어느 초안과 겹쳤는지 말한다(KID-313).
+      if (state && isDraft(state.status)) {
+        issues.push({
+          kind: 'products',
+          row: 0,
+          code: sourceKeys.find((key) => states.get(key)?.productId === state.productId) ?? '',
+          message: `초안 '${state.productName}' 과 자체상품코드가 같아 이 줄을 넘겼습니다. 초안의 자체코드를 고치거나 초안을 지운 뒤 다시 가져오세요.`,
+        });
+        continue;
+      }
       // 사방넷에서 옮긴 상품은 품번코드를 이미 들고 온다. 없으면 어느 줄이 문제인지 말한다.
       const importedCode = product.create.code;
       if (!importedCode) {

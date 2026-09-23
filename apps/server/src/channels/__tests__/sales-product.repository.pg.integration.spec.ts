@@ -1049,6 +1049,34 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     });
   });
 
+  it('never matches a draft by own code — the row becomes an issue naming the draft and the rest of the file still lands', async () => {
+    const draft = await prisma.salesProduct.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, status: 'draft', name: '직접 작성 초안', ownCode: 'OWN-1',
+    } });
+    const row = (goodsNo: string, ownCode: string, name: string) => HEADERS.map((header) => ({
+      품번코드: goodsNo, 상품명: name, 자체상품코드: ownCode, 판매가: 1000, '옵션제목(1)': '단품', '옵션상세명칭(1)': '단품',
+    } as Row)[header] ?? '');
+    const sheet = XLSX.utils.aoa_to_sheet([HEADERS, row('200001', 'OWN-1', '초안과 같은 자체코드'), row('200002', 'OWN-2', '새 상품')]);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, 'Sheet1');
+    const files = [{ originalname: 'products.xlsx', buffer: XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer }];
+
+    const preview = await service.import(TEST_ORGANIZATION_ID, files, true);
+    expect(preview.existingChanges).toEqual([]);
+    const saved = await service.import(TEST_ORGANIZATION_ID, files, false, [{
+      salesProductId: draft.id, expectedVersion: draft.version,
+    }]);
+
+    expect(saved.issues).toContainEqual(expect.objectContaining({
+      kind: 'products', code: 'OWN-1', message: expect.stringContaining('직접 작성 초안'),
+    }));
+    expect(saved.products).toMatchObject({ created: 1, updated: 0 });
+    expect(await prisma.salesProduct.findFirstOrThrow({ where: { ownCode: 'OWN-2' } }))
+      .toMatchObject({ status: 'active', code: expect.stringMatching(/^KID\d{8}$/) });
+    expect(await prisma.salesProduct.findUniqueOrThrow({ where: { id: draft.id } }))
+      .toMatchObject({ status: 'draft', code: null, name: '직접 작성 초안', sabangnetGoodsNo: null, version: draft.version });
+  });
+
   it('keeps the Sabangnet goods number when a reimported row carries only the own code', async () => {
     await service.import(TEST_ORGANIZATION_ID, file({}), false);
     const imported = await product();
