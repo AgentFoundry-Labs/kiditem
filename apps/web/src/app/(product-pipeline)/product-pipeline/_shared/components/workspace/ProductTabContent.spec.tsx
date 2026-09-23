@@ -35,7 +35,6 @@ vi.mock('./detail/TagEditor', () => ({
 }));
 
 vi.mock('../../hooks/useGenerateSourcingThumbnail', () => ({
-  useGenerateSourcingThumbnail: () => ({ isPending: false, mutateAsync: vi.fn() }),
   useSourcingThumbnailGenerations: () => ({ data: [] }),
 }));
 

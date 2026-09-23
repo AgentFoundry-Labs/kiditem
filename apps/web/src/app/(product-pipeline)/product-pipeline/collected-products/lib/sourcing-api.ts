@@ -5,7 +5,6 @@ import {
   type SourcingCandidateStatus,
 } from '@kiditem/shared/sourcing';
 import { apiClient } from '@/lib/api-client';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { salesProductApi } from '@/lib/sales-product-api';
 import {
   contentWorkspacesApi,
@@ -29,9 +28,6 @@ export interface ExternalWingSellpiaMatchPreview {
   sellpiaMatch: (SellpiaInventorySearchItem & { quantity: number }) | null;
   proposals: Array<SellpiaInventorySearchItem & { recommendedQuantity: number | null }>;
 }
-
-export const isInProgress = (s: string | undefined | null): boolean =>
-  s === 'pending' || s === 'processing';
 
 /**
  * 수집후보 하나의 등록 상태. **울타리**(`ProductRegistrationExecution`)가 근거다.
@@ -121,11 +117,6 @@ interface ProductListResponse {
 }
 
 export type SourcingSort = 'newest' | 'oldest' | 'name_asc';
-
-interface ThumbnailGenerationListResponse {
-  items: ThumbnailGenerationItem[];
-  total: number;
-}
 
 /**
  * 수집상품 화면 하나. `id` 는 판매상품 초안 id 다(KID-310 · ADR-0022) — 원천 기록(수집상품)
@@ -505,15 +496,6 @@ function normalizeCurrentThumbnail(value: unknown): SalesProductCurrentThumbnail
   };
 }
 
-const SALE_PRICE_SOURCES: readonly SalePriceSource[] = ['input', 'none'];
-
-/** 서버가 값을 안 줬거나 모르는 값이면 출처 미상 → `none`. 추측하지 않는다. */
-function normalizeSalePriceSource(value: unknown): SalePriceSource {
-  return SALE_PRICE_SOURCES.includes(value as SalePriceSource)
-    ? (value as SalePriceSource)
-    : 'none';
-}
-
 /** `{ 키: 문자열 }` 만 남긴다. 구버전 응답에는 아예 없을 수 있다. */
 function normalizeStringMap(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -522,105 +504,6 @@ function normalizeStringMap(value: unknown): Record<string, string> {
     if (typeof entry === 'string') result[key] = entry;
   }
   return result;
-}
-
-/** `{ 몰키: { 칸키: 문자열 } }`. 빈 몰은 담지 않는다. */
-function normalizeStringMapMap(value: unknown): Record<string, Record<string, string>> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const result: Record<string, Record<string, string>> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    const inner = normalizeStringMap(entry);
-    if (Object.keys(inner).length > 0) result[key] = inner;
-  }
-  return result;
-}
-
-function normalizeProductBasics(
-  value: unknown,
-  fallback: {
-    name: string;
-    category: string;
-    description?: string | null;
-    tags?: string[];
-    thumbnailUrls: string[];
-    preparation: ProductPreparationSelection | null;
-  },
-): ProductBasics {
-  const basics = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  const tags = Array.isArray(basics.tags)
-    ? basics.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '')
-    : fallback.tags ?? [];
-  const keywords = Array.isArray(basics.keywords)
-    ? basics.keywords.filter((keyword): keyword is string => typeof keyword === 'string' && keyword.trim() !== '')
-    : [];
-  const optionNames = Array.isArray(basics.optionNames)
-    ? basics.optionNames.filter((option): option is string => typeof option === 'string' && option.trim() !== '')
-    : [];
-  const explicitThumbnailUrls = collectImageUrls(basics.thumbnailPreviewUrls);
-  const thumbnailUrls = collectImageUrls(basics.thumbnailUrls, fallback.thumbnailUrls);
-  const numberOrZero = (item: unknown) => typeof item === 'number' && Number.isFinite(item) ? item : 0;
-  return {
-    name: typeof basics.name === 'string' && basics.name.trim() ? basics.name.trim() : fallback.name,
-    category: typeof basics.category === 'string' && basics.category.trim() ? basics.category.trim() : fallback.category,
-    description: typeof basics.description === 'string' ? basics.description : fallback.description ?? '',
-    target: typeof basics.target === 'string' ? basics.target : '',
-    ageGroup: typeof basics.ageGroup === 'string' ? basics.ageGroup : '',
-    tags,
-    keywords,
-    optionNames,
-    kcCertificationStatus: typeof basics.kcCertificationStatus === 'string' ? basics.kcCertificationStatus : '',
-    kcCertificationNumber: typeof basics.kcCertificationNumber === 'string' ? basics.kcCertificationNumber : '',
-    kcCertificationImageUrl: typeof basics.kcCertificationImageUrl === 'string' ? basics.kcCertificationImageUrl : '',
-    productSize: typeof basics.productSize === 'string' ? basics.productSize : '',
-    colorVariantStatus: typeof basics.colorVariantStatus === 'string' ? basics.colorVariantStatus : '',
-    colorVariantNames: typeof basics.colorVariantNames === 'string' ? basics.colorVariantNames : '',
-    boxSetStatus: typeof basics.boxSetStatus === 'string' ? basics.boxSetStatus : '',
-    boxSetQuantity: typeof basics.boxSetQuantity === 'string' ? basics.boxSetQuantity : '',
-    originalPrice: numberOrZero(basics.originalPrice),
-    salePrice: numberOrZero(basics.salePrice),
-    salePriceSource: normalizeSalePriceSource(basics.salePriceSource),
-    discountRate: numberOrZero(basics.discountRate),
-    rocketBundleQuantity: numberOrZero(basics.rocketBundleQuantity),
-    rocketUnitCost: numberOrZero(basics.rocketUnitCost),
-    // 사방넷 신규등록과 같은 칸. 여기서 빠뜨리면 화면이 값을 들고도 '미입력'으로 보인다.
-    costPrice: numberOrZero(basics.costPrice),
-    brand: typeof basics.brand === 'string' ? basics.brand : '',
-    manufacturer: typeof basics.manufacturer === 'string' ? basics.manufacturer : '',
-    originCountry: typeof basics.originCountry === 'string' ? basics.originCountry : '',
-    modelName: typeof basics.modelName === 'string' ? basics.modelName : '',
-    ownCode: typeof basics.ownCode === 'string' ? basics.ownCode : '',
-    taxType: typeof basics.taxType === 'string' ? basics.taxType : '',
-    deliveryFee: numberOrZero(basics.deliveryFee),
-    deliveryFeeType: typeof basics.deliveryFeeType === 'string' ? basics.deliveryFeeType : '',
-    certificationIssuer: typeof basics.certificationIssuer === 'string' ? basics.certificationIssuer : '',
-    certificationField: typeof basics.certificationField === 'string' ? basics.certificationField : '',
-    thumbnailUrls,
-    thumbnailPreviewUrls: explicitThumbnailUrls,
-    registrationImages: normalizeRegistrationImages(basics.registrationImages),
-    mallRegisterValues: normalizeStringMapMap(basics.mallRegisterValues),
-    mallRegisterShared: normalizeStringMap(basics.mallRegisterShared),
-    selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,
-    selectedThumbnailGenerationId:
-      typeof basics.selectedThumbnailGenerationId === 'string'
-        ? basics.selectedThumbnailGenerationId
-        : fallback.preparation?.selectedThumbnailGenerationId ?? null,
-    selectedThumbnailGenerationCandidateId:
-      typeof basics.selectedThumbnailGenerationCandidateId === 'string'
-        ? basics.selectedThumbnailGenerationCandidateId
-        : fallback.preparation?.selectedThumbnailGenerationCandidateId ?? null,
-    selectedDetailPageGenerationId:
-      typeof basics.selectedDetailPageGenerationId === 'string'
-        ? basics.selectedDetailPageGenerationId
-        : fallback.preparation?.selectedDetailPageGenerationId ?? null,
-    selectedDetailPageArtifactId:
-      typeof basics.selectedDetailPageArtifactId === 'string'
-        ? basics.selectedDetailPageArtifactId
-        : fallback.preparation?.selectedDetailPageArtifactId ?? null,
-    selectedDetailPageRevisionId:
-      typeof basics.selectedDetailPageRevisionId === 'string'
-        ? basics.selectedDetailPageRevisionId
-        : fallback.preparation?.selectedDetailPageRevisionId ?? null,
-  };
 }
 
 /**
@@ -938,17 +821,6 @@ export const sourcingApi = {
   async scrapeUrlStatus(url: string): Promise<ScrapeUrlStatusResponse> {
     const qs = new URLSearchParams({ url });
     return apiClient.get<ScrapeUrlStatusResponse>(`/api/sourcing/scrape-url/status?${qs}`);
-  },
-};
-
-export const productThumbnailGenerationApi = {
-  async list(params?: { limit?: number }): Promise<ThumbnailGenerationListResponse> {
-    const qs = new URLSearchParams({ limit: String(params?.limit ?? 100) });
-    return apiClient.get<ThumbnailGenerationListResponse>(`/api/thumbnail-analysis/generations?${qs}`);
-  },
-
-  async delete(id: string): Promise<{ ok: true }> {
-    return apiClient.delete<{ ok: true }>(`/api/thumbnail-analysis/generations/${encodeURIComponent(id)}`);
   },
 };
 
