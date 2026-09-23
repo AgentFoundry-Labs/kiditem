@@ -388,10 +388,20 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
 
       const many = await salesProductGeneration({ listings: 2 });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: many.generation.id })))
-        .toEqual({ kind: 'invalid', message: '쿠팡 계정이 여럿입니다 — listing을 고르세요' });
+        .toEqual({ kind: 'invalid', message: '쿠팡 listing 이 여럿입니다 — listing을 고르세요' });
       const picked = await service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: many.generation.id, channelListingId: many.listings[1]!.id });
       expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: picked.executionId } }))
         .toMatchObject({ channelAccountId: many.listings[1]!.channelAccountId, channelListingId: null, submissionPayloadJson: expect.objectContaining({ channelListingId: many.listings[1]!.id }) });
+    });
+
+    it('refuses two Coupang listings of the product on one account instead of picking one', async () => {
+      const product = await salesProductGeneration({ listings: 1 });
+      await prisma.channelListing.create({
+        data: { organizationId: ORG, channelAccountId: product.listings[0]!.channelAccountId, externalId: randomUUID(), salesProductId: product.product.id },
+      });
+      expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, generationId: product.generation.id })))
+        .toEqual({ kind: 'invalid', message: '쿠팡 listing 이 여럿입니다 — listing을 고르세요' });
+      expect(await prisma.productRegistrationExecution.count({ where: { executionKind: 'thumbnail_update' } })).toBe(0);
     });
 
     it('falls back to the single active Coupang account and refuses none or several', async () => {

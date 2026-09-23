@@ -16,18 +16,22 @@ export type ThumbnailUpdatePayload = Readonly<{
 }>;
 
 /**
- * 어느 쿠팡 계정의 실행인지. listing 이 있으면 그 계정, 없으면 조직의 활성 쿠팡 계정이
- * 하나일 때만 그 계정이다 — 둘 이상이면 운영자가 listing 을 골라야 한다.
+ * 어느 쿠팡 계정의 실행인지. listing 이 있으면 그 계정이다. 판매상품에 쿠팡 listing 이 여럿이면
+ * 고르지 않고 거절한다(운영자가 listing 을 고른다). listing 이 하나도 없을 때만 조직의 활성 쿠팡
+ * 계정이 하나인지 본다 — 둘 이상이면 역시 listing 을 골라야 한다.
  */
 export type ThumbnailAccountResolution =
   | Readonly<{ ok: true; channelAccountId: string }>
-  | Readonly<{ ok: false; reason: 'no_coupang_account' | 'ambiguous_coupang_account' }>;
+  | Readonly<{ ok: false; reason: 'no_coupang_account' | 'ambiguous_coupang_account' | 'ambiguous_coupang_listing' }>;
 
 export function resolveThumbnailAccount(input: {
   listingAccountId: string | null;
+  /** 고르지 않았을 때 판매상품의 살아 있는 쿠팡 listing 수. 모르면 0 으로 본다. */
+  productListingCount?: number;
   activeCoupangAccountIds: readonly string[];
 }): ThumbnailAccountResolution {
   if (input.listingAccountId) return { ok: true, channelAccountId: input.listingAccountId };
+  if ((input.productListingCount ?? 0) > 1) return { ok: false, reason: 'ambiguous_coupang_listing' };
   const accounts = [...new Set(input.activeCoupangAccountIds)];
   if (accounts.length === 0) return { ok: false, reason: 'no_coupang_account' };
   if (accounts.length > 1) return { ok: false, reason: 'ambiguous_coupang_account' };

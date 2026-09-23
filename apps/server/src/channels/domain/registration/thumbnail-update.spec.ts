@@ -18,6 +18,10 @@ describe('resolveThumbnailAccount', () => {
     expect(resolveThumbnailAccount({ listingAccountId: null, activeCoupangAccountIds: ['a2', 'a2'] }))
       .toEqual({ ok: true, channelAccountId: 'a2' });
   });
+  it('refuses to guess among several Coupang listings of the product', () => {
+    expect(resolveThumbnailAccount({ listingAccountId: null, productListingCount: 2, activeCoupangAccountIds: ['a2'] }))
+      .toEqual({ ok: false, reason: 'ambiguous_coupang_listing' });
+  });
   it('refuses when there is no or more than one Coupang account', () => {
     expect(resolveThumbnailAccount({ listingAccountId: null, activeCoupangAccountIds: [] }))
       .toEqual({ ok: false, reason: 'no_coupang_account' });

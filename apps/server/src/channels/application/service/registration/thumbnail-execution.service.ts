@@ -41,6 +41,7 @@ export const OPERATOR_NOT_APPLIED_MESSAGE = '운영자가 반영되지 않았다
 const ACCOUNT_MESSAGES = {
   no_coupang_account: '쿠팡 계정이 없습니다',
   ambiguous_coupang_account: '쿠팡 계정이 여럿입니다 — listing을 고르세요',
+  ambiguous_coupang_listing: '쿠팡 listing 이 여럿입니다 — listing을 고르세요',
 } as const;
 
 /**

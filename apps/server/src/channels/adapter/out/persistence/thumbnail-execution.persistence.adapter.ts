@@ -43,9 +43,10 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       channelAccount: { channel: COUPANG_CHANNEL, status: 'active' },
     } satisfies Prisma.ChannelListingWhereInput;
     const select = { id: true, channelAccountId: true, salesProductId: true } as const;
-    const evidence = (listing: { id: string; channelAccountId: string } | null) => ({
+    const evidence = (listing: { id: string; channelAccountId: string } | null, productListingCount = listing ? 1 : 0) => ({
       listingAccountId: listing?.channelAccountId ?? null,
       channelListingId: listing?.id ?? null,
+      productListingCount,
       activeCoupangAccountIds,
     });
 
@@ -69,6 +70,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
         take: 2,
       });
       if (listings.length === 1) return evidence(listings[0]!);
+      if (listings.length > 1) return evidence(null, listings.length);
     }
     return evidence(null);
   }

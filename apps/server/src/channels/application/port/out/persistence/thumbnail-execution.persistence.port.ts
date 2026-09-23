@@ -32,7 +32,13 @@ export interface ThumbnailExecutionPersistencePort {
     pickedListingId: string | null;
     workspaceListingId: string | null;
     salesProductId: string | null;
-  }): Promise<{ listingAccountId: string | null; channelListingId: string | null; activeCoupangAccountIds: string[] }>;
+  }): Promise<{
+    listingAccountId: string | null;
+    channelListingId: string | null;
+    /** 고르지 않았고 작업공간 listing 도 없을 때 판매상품의 살아 있는 쿠팡 listing 수(2 는 "여럿"). */
+    productListingCount: number;
+    activeCoupangAccountIds: string[];
+  }>;
   /** 새 실행을 `executing` 으로 만든다. owner 키가 이미 있으면 그 실행을 `replay` 로 돌려준다. */
   createExecuting(input: {
     organizationId: string;
