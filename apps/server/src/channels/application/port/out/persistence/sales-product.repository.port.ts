@@ -173,13 +173,16 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     codes: readonly string[],
   ): Promise<Map<string, SalesProductImportCurrent>>;
-  /** 몰 가격 가져오기 후보: 판매상품(단품 추가금액 · 몰별 값)과 이어진 활성 몰 옵션의 가격. */
+  /** 몰 가격 가져오기 후보: 판매상품(버전 · 단품 판매가)과 이어진 활성 몰 옵션의 가격. */
   readMallPriceCandidates(organizationId: string): Promise<{
     products: (MallPriceCandidateProduct & { code: string | null; name: string })[];
     listingOptions: MallPriceCandidateListingOption[];
   }>;
-  /** 명시한 대상·버전에 옵션별 최종가를 반영한다. 없거나 바뀐 대상은 거부한다. */
-  setChannelOverrideSalePrices(
+  /**
+   * 채택한 몰 가격을 판매 상품 단품 판매가로 쓴다(KID-313 W2). 판매 상품 버전이 같을 때만 쓰고 버전을 올린다.
+   * 버전이 다르거나 그 상품의 단품이 아니면 모두 되돌린다.
+   */
+  applyMallPriceAdoption(
     organizationId: string,
     writes: readonly MallPriceAdoptionWrite[],
   ): Promise<number>;

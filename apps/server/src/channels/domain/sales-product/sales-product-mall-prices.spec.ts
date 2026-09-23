@@ -4,39 +4,35 @@ import { planMallPriceAdoption, type MallPriceCandidateProduct } from './sales-p
 function product(overrides: Partial<MallPriceCandidateProduct> = {}): MallPriceCandidateProduct {
   return {
     id: 'p-1',
+    version: 3,
     options: [
       { id: 'o-blue', salePrice: 5_000, normalPrice: 6_000 },
       { id: 'o-big', salePrice: 5_500, normalPrice: 6_500 },
     ],
-    targets: [{
-      id: 'target-1',
-      channelAccountId: 'acc-1',
-      version: 3,
-      selectedOptions: [
-        { salesProductOptionId: 'o-blue', salePrice: null, normalPrice: null, supplyPrice: null },
-        { salesProductOptionId: 'o-big', salePrice: null, normalPrice: null, supplyPrice: null },
-      ],
-    }],
     ...overrides,
   };
 }
 
+/**
+ * 몰 가격 채택은 판매 상품 옵션의 판매가를 몰에 걸린 값으로 맞춘다(KID-313 W2). 등록 대상은 가격을
+ * 갖지 않으므로, 몰마다 다른 가격이면 하나를 고를 근거가 없다.
+ */
 describe('planMallPriceAdoption', () => {
-  it('writes each selected option final price to the one existing target', () => {
+  it('writes the observed mall price to each selling product option that differs', () => {
     const plan = planMallPriceAdoption({
       products: [product()],
       listingOptions: [
         { channelAccountId: 'acc-1', salesProductOptionId: 'o-blue', salePrice: 5_200 },
+        { channelAccountId: 'acc-2', salesProductOptionId: 'o-blue', salePrice: 5_200 },
         { channelAccountId: 'acc-1', salesProductOptionId: 'o-big', salePrice: 6_100 },
       ],
     });
 
+    expect(plan.conflicts).toEqual([]);
     expect(plan.writes).toEqual([{
       salesProductId: 'p-1',
-      channelAccountId: 'acc-1',
-      salePrice: 5_200,
-      targetId: 'target-1',
       expectedVersion: 3,
+      channelAccountIds: ['acc-1', 'acc-2'],
       optionPrices: [
         { salesProductOptionId: 'o-blue', salePrice: 5_200 },
         { salesProductOptionId: 'o-big', salePrice: 6_100 },
@@ -44,61 +40,46 @@ describe('planMallPriceAdoption', () => {
     }]);
   });
 
-  it('keeps matching option prices unchanged without deriving a base or extra price', () => {
+  it('counts a product whose options already carry the mall price as unchanged', () => {
     const plan = planMallPriceAdoption({
-      products: [product({
-        targets: [{
-          id: 'target-1',
-          channelAccountId: 'acc-1',
-          version: 4,
-          selectedOptions: [
-            { salesProductOptionId: 'o-blue', salePrice: 5_000, normalPrice: null, supplyPrice: null },
-            { salesProductOptionId: 'o-big', salePrice: 5_500, normalPrice: null, supplyPrice: null },
-          ],
-        }],
-      })],
+      products: [product()],
       listingOptions: [
         { channelAccountId: 'acc-1', salesProductOptionId: 'o-blue', salePrice: 5_000 },
         { channelAccountId: 'acc-1', salesProductOptionId: 'o-big', salePrice: 5_500 },
       ],
     });
 
-    expect(plan.writes).toEqual([]);
-    expect(plan.unchanged).toBe(1);
+    expect(plan).toEqual({ writes: [], conflicts: [], unchanged: 1 });
   });
 
-  it('reports duplicate prices for the same option instead of guessing', () => {
+  it('makes no plan for a product whose option sells at different prices in different malls', () => {
     const plan = planMallPriceAdoption({
       products: [product()],
       listingOptions: [
         { channelAccountId: 'acc-1', salesProductOptionId: 'o-blue', salePrice: 5_200 },
-        { channelAccountId: 'acc-1', salesProductOptionId: 'o-blue', salePrice: 5_300 },
+        { channelAccountId: 'acc-2', salesProductOptionId: 'o-blue', salePrice: 5_900 },
+        { channelAccountId: 'acc-1', salesProductOptionId: 'o-big', salePrice: 6_100 },
       ],
     });
 
     expect(plan.writes).toEqual([]);
     expect(plan.conflicts).toEqual([{
       salesProductId: 'p-1',
-      channelAccountId: 'acc-1',
+      channelAccountIds: ['acc-1', 'acc-2'],
       reason: 'options_disagree',
-      prices: [5_200, 5_300],
+      prices: [5_200, 5_900],
     }]);
   });
 
-  it('reports missing or multiple targets without creating or selecting one', () => {
-    const missing = planMallPriceAdoption({
-      products: [product({ targets: [] })],
-      listingOptions: [{ channelAccountId: 'acc-1', salesProductOptionId: 'o-blue', salePrice: 5_200 }],
+  it('ignores mall options without a price or without a selling product option', () => {
+    const plan = planMallPriceAdoption({
+      products: [product()],
+      listingOptions: [
+        { channelAccountId: 'acc-1', salesProductOptionId: 'o-blue', salePrice: null },
+        { channelAccountId: 'acc-1', salesProductOptionId: 'someone-else', salePrice: 9_000 },
+      ],
     });
-    expect(missing.writes).toEqual([]);
-    expect(missing.conflicts).toHaveLength(1);
 
-    const baseTarget = product().targets[0]!;
-    const multiple = planMallPriceAdoption({
-      products: [product({ targets: [baseTarget, { ...baseTarget, id: 'target-2' }] })],
-      listingOptions: [{ channelAccountId: 'acc-1', salesProductOptionId: 'o-blue', salePrice: 5_200 }],
-    });
-    expect(multiple.writes).toEqual([]);
-    expect(multiple.conflicts).toHaveLength(1);
+    expect(plan).toEqual({ writes: [], conflicts: [], unchanged: 0 });
   });
 });

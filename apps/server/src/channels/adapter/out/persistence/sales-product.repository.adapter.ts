@@ -766,24 +766,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           id: true,
           code: true,
           name: true,
+          version: true,
           options: { select: { id: true, salePrice: true, normalPrice: true } },
-          registrationTargets: {
-            where: { archivedAt: null },
-            select: {
-              id: true,
-              channelAccountId: true,
-              version: true,
-              selectedOptions: {
-                orderBy: { sortOrder: 'asc' },
-                select: {
-                  salesProductOptionId: true,
-                  salePrice: true,
-                  normalPrice: true,
-                  supplyPrice: true,
-                },
-              },
-            },
-          },
         },
       }),
       this.prisma.$queryRaw<{ channel_account_id: string; sales_product_option_id: string; sale_price: number | null }[]>(Prisma.sql`
@@ -796,11 +780,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       `),
     ]);
     return {
-      products: products.map(({ registrationTargets, ...product }) => ({
-        ...product,
-        options: product.options,
-        targets: registrationTargets,
-      })),
+      products,
       listingOptions: listingOptions.map((row) => ({
         channelAccountId: row.channel_account_id,
         salesProductOptionId: row.sales_product_option_id,
@@ -809,85 +789,57 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     };
   }
 
-  async setChannelOverrideSalePrices(
+  /**
+   * 몰 가격 채택을 판매 상품 단품 판매가로 쓴다(KID-313 W2). 한 트랜잭션이다 — 한 줄이라도 버전이 다르거나
+   * 그 상품의 단품이 아니면 아무것도 쓰지 않는다.
+   */
+  async applyMallPriceAdoption(
     organizationId: string,
     writes: readonly MallPriceAdoptionWrite[],
   ): Promise<number> {
     if (!Array.isArray(writes)) throw new ConflictException('가격 반영 목록이 올바르지 않습니다.');
-    const adoptionWrites = writes as readonly MallPriceAdoptionWrite[];
-    const targetIds = new Set<string>();
-    for (const write of adoptionWrites) {
-      if (typeof write !== 'object' || write === null || Array.isArray(write)) {
-        throw new ConflictException('가격 반영 줄이 올바르지 않습니다.');
+    const productIds = new Set<string>();
+    for (const write of writes) {
+      if (typeof write?.salesProductId !== 'string' || write.salesProductId.trim().length === 0) {
+        throw new ConflictException('가격을 반영할 판매상품이 없습니다.');
       }
-      if (typeof write.targetId !== 'string' || write.targetId.trim().length === 0) {
-        throw new ConflictException('가격을 반영할 등록 대상이 없습니다.');
-      }
-      if (targetIds.has(write.targetId)) {
-        throw new ConflictException('같은 등록 대상에 가격 반영 줄이 여러 개입니다.');
-      }
-      targetIds.add(write.targetId);
+      if (productIds.has(write.salesProductId)) throw new ConflictException('같은 판매상품에 가격 반영 줄이 여러 개입니다.');
+      productIds.add(write.salesProductId);
       if (!Number.isSafeInteger(write.expectedVersion) || write.expectedVersion < 0) {
-        throw new ConflictException('등록 대상 버전이 올바르지 않습니다.');
-      }
-      if (!Number.isSafeInteger(write.salePrice) || write.salePrice < 0 || write.salePrice > MAX_MONEY) {
-        throw new ConflictException('대표 판매가가 올바르지 않습니다.');
+        throw new ConflictException('판매상품 버전이 올바르지 않습니다.');
       }
       if (!Array.isArray(write.optionPrices) || write.optionPrices.length === 0) {
-        throw new ConflictException('옵션별 최종 판매가가 없습니다.');
+        throw new ConflictException('옵션 판매가가 없습니다.');
       }
       const optionIds = new Set<string>();
       for (const optionPrice of write.optionPrices) {
-        if (typeof optionPrice !== 'object' || optionPrice === null || Array.isArray(optionPrice)) {
-          throw new ConflictException('옵션별 최종 판매가가 올바르지 않습니다.');
-        }
-        if (typeof optionPrice.salesProductOptionId !== 'string' || optionPrice.salesProductOptionId.trim().length === 0) {
-          throw new ConflictException('옵션별 최종 판매가의 단품이 올바르지 않습니다.');
-        }
-        if (optionIds.has(optionPrice.salesProductOptionId)) {
-          throw new ConflictException('같은 단품의 최종 판매가가 여러 개입니다.');
+        if (typeof optionPrice?.salesProductOptionId !== 'string' || optionIds.has(optionPrice.salesProductOptionId)) {
+          throw new ConflictException('같은 단품의 판매가가 여러 개이거나 단품이 없습니다.');
         }
         optionIds.add(optionPrice.salesProductOptionId);
         if (!Number.isSafeInteger(optionPrice.salePrice) || optionPrice.salePrice < 0 || optionPrice.salePrice > MAX_MONEY) {
-          throw new ConflictException('옵션별 최종 판매가가 올바르지 않습니다.');
+          throw new ConflictException('옵션 판매가가 올바르지 않습니다.');
         }
       }
     }
 
-    for (let start = 0; start < adoptionWrites.length; start += MALL_VALUES_CHUNK) {
-      const chunk = adoptionWrites.slice(start, start + MALL_VALUES_CHUNK);
-      for (const write of chunk) {
-        const target = await this.registrationTargets.get(organizationId, write.targetId);
-        if (!target) throw new ConflictException('등록 대상이 다른 곳에서 삭제되었습니다.');
-        if (target.salesProductId !== write.salesProductId || target.channelAccountId !== write.channelAccountId) {
-          throw new ConflictException('등록 대상이 다른 상품 또는 몰 계정에 속합니다.');
-        }
-        if (target.version !== write.expectedVersion) {
-          throw new ConflictException('등록 대상이 다른 곳에서 변경되었습니다.');
-        }
-        const selectedOptionIds = new Set(target.selectedOptions.map((option) => option.salesProductOptionId));
-        const byOption = new Map(write.optionPrices.map((option) => [option.salesProductOptionId, option.salePrice]));
-        for (const optionId of byOption.keys()) {
-          if (!selectedOptionIds.has(optionId)) {
-            throw new ConflictException('등록 대상에 선택되지 않은 단품의 가격은 반영할 수 없습니다.');
-          }
-        }
-        await this.registrationTargets.update(organizationId, target.id, {
-          expectedVersion: write.expectedVersion,
-          displayName: target.displayName,
-          registrationInput: target.registrationInput,
-          selectedOptions: target.selectedOptions.map((option) => ({
-            salesProductOptionId: option.salesProductOptionId,
-            salePrice: byOption.has(option.salesProductOptionId)
-              ? byOption.get(option.salesProductOptionId)!
-              : option.salePrice,
-            normalPrice: option.normalPrice,
-            supplyPrice: option.supplyPrice,
-          })),
+    await this.prisma.$transaction(async (tx) => {
+      for (const write of writes) {
+        const bumped = await tx.salesProduct.updateMany({
+          where: { id: write.salesProductId, organizationId, version: write.expectedVersion },
+          data: { version: { increment: 1 } },
         });
+        if (bumped.count !== 1) throw new ConflictException('판매상품이 다른 곳에서 변경되었습니다.');
+        for (const optionPrice of write.optionPrices) {
+          const updated = await tx.salesProductOption.updateMany({
+            where: { id: optionPrice.salesProductOptionId, organizationId, salesProductId: write.salesProductId },
+            data: { salePrice: optionPrice.salePrice },
+          });
+          if (updated.count !== 1) throw new ConflictException('그 판매상품의 단품이 아닙니다.');
+        }
       }
-    }
-    return adoptionWrites.length;
+    }, TRANSACTION_OPTIONS);
+    return writes.length;
   }
 
   async readProductIdsByCodes(organizationId: string, codes: readonly string[]): Promise<Map<string, string>> {

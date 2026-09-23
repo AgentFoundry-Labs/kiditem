@@ -63,135 +63,79 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('updates only explicitly supplied option prices and accepts zero', async () => {
+  it('writes the adopted mall price to the selling product options, accepts zero and leaves other options alone', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
-    const targetId = await targets.create(TEST_ORGANIZATION_ID, {
-      salesProductId: productId,
-      channelAccountId: accountId,
-      registrationInput: mallInput(),
-      selectedOptions: [selected(options[0]!.id, { salePrice: 1_500 }), selected(options[1]!.id, { salePrice: 2_500 })],
-    });
+    const version = (await prisma.salesProduct.findUniqueOrThrow({ where: { id: productId } })).version;
 
-    await expect(repository.setChannelOverrideSalePrices(TEST_ORGANIZATION_ID, [write({
+    await expect(repository.applyMallPriceAdoption(TEST_ORGANIZATION_ID, [write({
       salesProductId: productId,
-      channelAccountId: accountId,
-      targetId,
-      expectedVersion: 1,
-      salePrice: 0,
+      expectedVersion: version,
+      channelAccountIds: [accountId],
       optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 0 }],
     })])).resolves.toBe(1);
 
-    await expect(targets.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
-      version: 2,
-      selectedOptions: [
-        { salesProductOptionId: options[0]!.id, salePrice: 0 },
-        { salesProductOptionId: options[1]!.id, salePrice: 2_500 },
-      ],
-    });
+    await expect(prisma.salesProductOption.findMany({
+      where: { salesProductId: productId },
+      orderBy: { sortOrder: 'asc' },
+      select: { salePrice: true, normalPrice: true },
+    })).resolves.toEqual([{ salePrice: 0, normalPrice: 5_000 }, { salePrice: 4_000, normalPrice: null }]);
+    await expect(prisma.salesProduct.findUniqueOrThrow({ where: { id: productId } }))
+      .resolves.toMatchObject({ version: version + 1 });
   });
 
-  it('rejects a stale target version without changing the target', async () => {
+  it('rejects a stale product version, a foreign option and another organization without changing any price', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
-    const targetId = await targets.create(TEST_ORGANIZATION_ID, {
-      salesProductId: productId,
-      channelAccountId: accountId,
-      registrationInput: mallInput(),
-      selectedOptions: [selected(options[0]!.id)],
-    });
+    const other = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const foreign = await createProduct(prisma, OTHER_ORGANIZATION_ID);
+    const version = (await prisma.salesProduct.findUniqueOrThrow({ where: { id: productId } })).version;
+    const base = { salesProductId: productId, expectedVersion: version, channelAccountIds: [accountId] };
 
-    await expect(repository.setChannelOverrideSalePrices(TEST_ORGANIZATION_ID, [write({
-      salesProductId: productId,
-      channelAccountId: accountId,
-      targetId,
-      expectedVersion: 0,
+    await expect(repository.applyMallPriceAdoption(TEST_ORGANIZATION_ID, [write({
+      ...base, expectedVersion: version - 1,
       optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 1_000 }],
-    })])).rejects.toThrow('등록 대상이 다른 곳에서 변경되었습니다.');
-
-    await expect(targets.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
-      version: 1,
-      selectedOptions: [{ salesProductOptionId: options[0]!.id, salePrice: null }],
-    });
-  });
-
-  it('rejects duplicate target and option writes before applying a last-wins value', async () => {
-    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
-    const targetId = await targets.create(TEST_ORGANIZATION_ID, {
-      salesProductId: productId,
-      channelAccountId: accountId,
-      registrationInput: mallInput(),
-      selectedOptions: [selected(options[0]!.id)],
-    });
-    const baseWrite = write({
-      salesProductId: productId,
-      channelAccountId: accountId,
-      targetId,
-      expectedVersion: 1,
-      optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 1_000 }],
-    });
-
-    await expect(repository.setChannelOverrideSalePrices(TEST_ORGANIZATION_ID, [
-      write({ ...baseWrite, salePrice: 1_000_000_001 }),
-    ])).rejects.toThrow('대표 판매가가 올바르지 않습니다.');
-    await expect(repository.setChannelOverrideSalePrices(TEST_ORGANIZATION_ID, [
-      write({ ...baseWrite, optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 1_000_000_001 }] }),
-    ])).rejects.toThrow('옵션별 최종 판매가가 올바르지 않습니다.');
-
-    await expect(repository.setChannelOverrideSalePrices(TEST_ORGANIZATION_ID, [
-      baseWrite,
-      write({ ...baseWrite, optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 2_000 }] }),
-    ])).rejects.toThrow(ConflictException);
-    await expect(repository.setChannelOverrideSalePrices(TEST_ORGANIZATION_ID, [
-      write({ ...baseWrite, optionPrices: [
-        { salesProductOptionId: options[0]!.id, salePrice: 1_000 },
-        { salesProductOptionId: options[0]!.id, salePrice: 2_000 },
-      ] }),
-    ])).rejects.toThrow(ConflictException);
-
-    await expect(targets.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
-      version: 1,
-      selectedOptions: [{ salesProductOptionId: options[0]!.id, salePrice: null }],
-    });
-  });
-
-  /** 등록 설정은 상품 × 몰 계정당 하나다(KID-310 · ADR-0022). 그래도 고칠 설정은 불러야 한다. */
-  it('requires the caller to name the setting it is writing, and fences organizations', async () => {
-    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
-    const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
-    const firstTargetId = await targets.create(TEST_ORGANIZATION_ID, {
-      salesProductId: productId,
-      channelAccountId: accountId,
-      registrationInput: mallInput(),
-      selectedOptions: [selected(options[0]!.id)],
-    });
-
-    await expect(repository.setChannelOverrideSalePrices(TEST_ORGANIZATION_ID, [write({
-      salesProductId: productId,
-      channelAccountId: accountId,
-      targetId: undefined as unknown as string,
-      expectedVersion: 1,
-      optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 1_000 }],
+    })])).rejects.toThrow('판매상품이 다른 곳에서 변경되었습니다.');
+    await expect(repository.applyMallPriceAdoption(TEST_ORGANIZATION_ID, [write({
+      ...base, optionPrices: [{ salesProductOptionId: other.options[0]!.id, salePrice: 1_000 }],
     })])).rejects.toThrow(ConflictException);
-    await expect(targets.get(TEST_ORGANIZATION_ID, firstTargetId)).resolves.toMatchObject({ version: 1 });
-
-    const otherAccountId = await createAccount(prisma, OTHER_ORGANIZATION_ID);
-    const otherProduct = await createProduct(prisma, OTHER_ORGANIZATION_ID);
-    const otherTargetId = await targets.create(OTHER_ORGANIZATION_ID, {
-      salesProductId: otherProduct.productId,
-      channelAccountId: otherAccountId,
-      registrationInput: mallInput(),
-      selectedOptions: [selected(otherProduct.options[0]!.id)],
-    });
-    await expect(repository.setChannelOverrideSalePrices(TEST_ORGANIZATION_ID, [write({
-      salesProductId: otherProduct.productId,
-      channelAccountId: otherAccountId,
-      targetId: otherTargetId,
-      expectedVersion: 1,
-      optionPrices: [{ salesProductOptionId: otherProduct.options[0]!.id, salePrice: 1_000 }],
+    await expect(repository.applyMallPriceAdoption(TEST_ORGANIZATION_ID, [write({
+      salesProductId: foreign.productId, expectedVersion: 1, channelAccountIds: [accountId],
+      optionPrices: [{ salesProductOptionId: foreign.options[0]!.id, salePrice: 1_000 }],
     })])).rejects.toThrow(ConflictException);
-    await expect(targets.get(OTHER_ORGANIZATION_ID, otherTargetId)).resolves.toMatchObject({ version: 1 });
+    await expect(repository.applyMallPriceAdoption(TEST_ORGANIZATION_ID, [write({
+      ...base, optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 1_000_000_001 }],
+    })])).rejects.toThrow('옵션 판매가가 올바르지 않습니다.');
+
+    await expect(prisma.salesProductOption.findMany({
+      where: { salesProductId: { in: [productId, other.productId, foreign.productId] } },
+      select: { salePrice: true },
+    })).resolves.toEqual(expect.not.arrayContaining([{ salePrice: 1_000 }]));
+  });
+
+  it('reads each selling product with its version and the prices of the mall options linked to it', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const listing = await prisma.channelListing.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: accountId, externalId: `ext-${productId}`, isActive: true },
+    });
+    await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID, listingId: listing.id,
+        externalOptionId: 'opt-1', salePrice: 3_300, isActive: true, salesProductOptionId: options[0]!.id,
+      },
+    });
+
+    const candidates = await repository.readMallPriceCandidates(TEST_ORGANIZATION_ID);
+
+    expect(candidates.products).toContainEqual(expect.objectContaining({
+      id: productId,
+      version: expect.any(Number),
+      options: expect.arrayContaining([expect.objectContaining({ id: options[0]!.id, salePrice: 3_000 })]),
+    }));
+    expect(candidates.listingOptions).toEqual([
+      { channelAccountId: accountId, salesProductOptionId: options[0]!.id, salePrice: 3_300 },
+    ]);
   });
 
   it('reports the one registration setting of each mall, and only this organization\'s', async () => {
@@ -336,11 +280,8 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
   });
 });
 
-function write(input: Omit<MallPriceAdoptionWrite, 'salePrice'> & Partial<Pick<MallPriceAdoptionWrite, 'salePrice'>>): MallPriceAdoptionWrite {
-  return {
-    ...input,
-    salePrice: input.salePrice ?? input.optionPrices[0]!.salePrice,
-  };
+function write(input: MallPriceAdoptionWrite): MallPriceAdoptionWrite {
+  return input;
 }
 
 function mallInput(overrides: Partial<RegistrationMallInput> = {}): RegistrationMallInput {
