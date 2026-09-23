@@ -140,9 +140,10 @@ describe('sales product draft deletion (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID, salesProductId: admitted.salesProductId, channelAccountId: account.id,
       registrationInput: {}, archivedAt: new Date(),
     } });
-    const workspace = await prisma.contentWorkspace.create({ data: {
+    // 초안을 만든 트랜잭션이 작업공간도 만들었다(KID-313 W2) — 지울 때 그것이 보관된다.
+    const workspace = await prisma.contentWorkspace.findFirstOrThrow({ where: {
       organizationId: TEST_ORGANIZATION_ID, ownerType: 'sales_product', salesProductId: admitted.salesProductId,
-      displayName: '지울 초안', normalizedTitle: '지울초안',
+      status: 'active', isDeleted: false,
     } });
 
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId))
