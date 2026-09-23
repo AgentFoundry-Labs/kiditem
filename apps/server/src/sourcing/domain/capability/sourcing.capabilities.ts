@@ -61,7 +61,7 @@ export const SOURCING_CAPABILITIES = [
   {
     key: 'sourcing.ingestCandidate', ownerDomain: 'sourcing', ownerInputPort: 'sourcing.ingestCandidate',
     description:
-      'Persist a snapshot returned by sourcing.scrapeProductUrl in this same turn as a sourcing candidate and its ' +
+      'Persist a snapshot returned by sourcing.scrapeProductUrl in the same live provider turn as a sourcing candidate and its ' +
       'selling-product draft; the result is the candidateId. The snapshot must be passed back unchanged (the content ' +
       'hash is verified) and an offer that already has a candidate returns that candidate. It does not register ' +
       'anything on a mall.',
