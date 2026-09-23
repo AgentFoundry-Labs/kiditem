@@ -257,6 +257,7 @@ describe('SourcingService — candidate ingest', () => {
   });
 
   it('manual product registration creates collected-product candidate', async () => {
+    drafts.findDraftIdsForSources.mockResolvedValueOnce(new Map([['cand-1', DRAFT_ID]]));
     const result = await service.registerManualProduct(
       {
         title: '바삭바삭 수제왁스팝',
@@ -304,7 +305,9 @@ describe('SourcingService — candidate ingest', () => {
       ok: true,
       product_count: 1,
       candidateId: 'cand-1',
-      href: '/product-pipeline/collected-products/cand-1',
+      salesProductId: DRAFT_ID,
+      // 화면은 초안으로 열린다 — 후보 id 주소는 열리지 않는다.
+      href: `/product-pipeline/collected-products/${DRAFT_ID}`,
     });
   });
 

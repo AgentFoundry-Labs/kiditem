@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { collectedDraftHref } from '../../domain/collected-draft-href';
 import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, type SourcingBrowserSourceAttempt, type SourcingBrowserSourceAttemptRepositoryPort } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT, type SourcingCandidateRepositoryPort } from '../port/out/repository/sourcing-candidate.repository.port';
 import { SOURCING_BROWSER_SCRAPE_PORT, type SourcingBrowserScrapePort } from '../port/out/runtime/sourcing-browser-scrape.port';
@@ -19,10 +20,13 @@ export class SourcingScrapeUrlService {
   ) {}
 
   /** 수집한 상품은 편집할 초안을 갖는다(KID-310). 커밋 뒤에 보장한다 — 멱등이다. */
+  /** 수집 결과의 후보에 초안을 보장하고, 화면 주소가 가리킬 초안 id 와 함께 돌려준다. */
   private async ensureDraft(organizationId: string, attempt: SourcingBrowserSourceAttempt) {
     const candidateId = attempt.scrapeUrlResult?.candidateId;
-    if (candidateId) await this.collectedDrafts.ensureDraftsForCandidates(organizationId, [candidateId]);
-    return attempt;
+    const drafts = candidateId
+      ? await this.collectedDrafts.ensureDraftsForCandidates(organizationId, [candidateId])
+      : new Map<string, string>();
+    return { attempt, salesProductId: candidateId ? drafts.get(candidateId) ?? null : null };
   }
 
   async collect(input: { organizationId: string; userId: string | null; sourceUrl: string; idempotencyKey: string }) {
@@ -34,9 +38,12 @@ export class SourcingScrapeUrlService {
       sourceKey: plan.source, idempotencyKey, requestFingerprint: checksum });
     if (replay) return scrapeResponse(await this.ensureDraft(input.organizationId, replay));
     const existing = await this.candidates.findActiveBySourceUrl({ organizationId: input.organizationId, sourceUrl: plan.sourceUrl });
-    if (existing) await this.collectedDrafts.ensureDraftsForCandidates(input.organizationId, [existing.id]);
-    if (existing) return { ok: true, skipped: true, message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
-      candidateId: existing.id, product_id: existing.id, href: `/product-pipeline/collected-products/${encodeURIComponent(existing.id)}`, attempt: null };
+    if (existing) {
+      const draftId = (await this.collectedDrafts.ensureDraftsForCandidates(input.organizationId, [existing.id])).get(existing.id) ?? null;
+      return { ok: true, skipped: true, message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
+        candidateId: existing.id, product_id: existing.id, salesProductId: draftId,
+        href: draftId ? collectedDraftHref(draftId) : null, attempt: null };
+    }
     const { attempt, created } = await this.attempts.beginAttempt({ organizationId: input.organizationId,
       sourceKey: plan.source, scopeKey: 'product-url', targetKey: hashCollectionRequest(plan.sourceUrl),
       idempotencyKey, requestFingerprint: checksum,
@@ -66,7 +73,7 @@ export class SourcingScrapeUrlService {
       const failed = await this.attempts.failAttempt({ organizationId: input.organizationId, attemptId: attempt.attemptId,
         attemptToken: attempt.attemptToken, code: 'SOURCE_SCRAPE_FAILED',
         message: (error instanceof Error ? error.message : 'URL 수집에 실패했습니다.').slice(0, 1000) });
-      return scrapeResponse(failed);
+      return scrapeResponse({ attempt: failed, salesProductId: null });
     }
   }
 
@@ -77,8 +84,9 @@ export class SourcingScrapeUrlService {
         targetKey: hashCollectionRequest(plan.sourceUrl), currentPlanChecksum: hashCollectionRequest(plan) }),
       this.candidates.findActiveBySourceUrl({ organizationId, sourceUrl: plan.sourceUrl }),
     ]);
-    return { status: candidate ? 'collected' : 'available', candidateId: candidate?.id ?? null,
-      href: candidate ? `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}` : null,
+    const draftId = candidate ? (await this.collectedDrafts.findDraftIds(organizationId, [candidate.id])).get(candidate.id) ?? null : null;
+    return { status: candidate ? 'collected' : 'available', candidateId: candidate?.id ?? null, salesProductId: draftId,
+      href: draftId ? collectedDraftHref(draftId) : null,
       platform: plan.platform, source: { ...source, latestAttempt: publicAttempt(source.latestAttempt), latestComplete: publicAttempt(source.latestComplete) } };
   }
 }
@@ -99,11 +107,14 @@ function publicAttempt(attempt: SourcingBrowserSourceAttempt | null) {
   return publicValue;
 }
 
-function scrapeResponse(attempt: SourcingBrowserSourceAttempt) {
+function scrapeResponse(
+  { attempt, salesProductId }: { attempt: SourcingBrowserSourceAttempt; salesProductId: string | null },
+) {
   const result = attempt.scrapeUrlResult;
   return { ok: attempt.state !== 'FAILED', skipped: false,
     message: attempt.state === 'FAILED' ? attempt.errorMessage ?? 'URL 수집에 실패했습니다.' : attempt.state === 'RUNNING' ? 'URL을 수집하고 있습니다.'
       : '상품 수집이 완료되었습니다.',
-    candidateId: result?.candidateId ?? null, product_id: result?.candidateId ?? null, href: result?.href ?? null,
+    candidateId: result?.candidateId ?? null, product_id: result?.candidateId ?? null, salesProductId,
+    href: salesProductId ? collectedDraftHref(salesProductId) : null,
     attempt: publicAttempt(attempt) };
 }

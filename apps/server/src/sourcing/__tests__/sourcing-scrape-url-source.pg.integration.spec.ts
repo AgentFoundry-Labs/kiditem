@@ -199,6 +199,11 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     expect(await prisma.salesProductOption.count({
       where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: draft.id },
     })).toBe(1);
+    // 화면은 초안으로 열린다 — 응답 주소는 후보가 아니라 초안을 가리킨다.
+    expect(collected).toMatchObject({
+      salesProductId: draft.id,
+      href: `/product-pipeline/collected-products/${draft.id}`,
+    });
   });
 
   it('⭐ 같은 상품을 다시 수집해도 초안은 하나다', async () => {
