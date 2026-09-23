@@ -8,11 +8,15 @@ import type {
   ThumbnailExecutionPersistencePort,
   ThumbnailExecutionRow,
 } from '../../../application/port/out/persistence/thumbnail-execution.persistence.port';
-import type { ThumbnailReportTransition, ThumbnailUpdatePayload } from '../../../domain/registration/thumbnail-update';
+import {
+  THUMBNAIL_REPORTABLE_STATUSES,
+  acceptsThumbnailReport,
+  type ThumbnailReportTransition,
+  type ThumbnailUpdatePayload,
+} from '../../../domain/registration/thumbnail-update';
 
 const COUPANG_CHANNEL = 'coupang';
 const LIVE_STATUSES = ['prepared', 'executing', 'reconciling'] as const;
-const REPORTABLE_STATUSES = ['executing', 'reconciling'] as const;
 
 /**
  * 대표이미지 몰 반영 실행의 저장소. `ProductRegistrationExecution` 중
@@ -128,7 +132,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       if (!current) return { mode: 'not_found' as const };
       const terminal = input.transition.status !== 'reconciling';
       const updated = await tx.productRegistrationExecution.updateMany({
-        where: { ...where, status: { in: [...REPORTABLE_STATUSES] } },
+        where: { ...where, status: { in: [...THUMBNAIL_REPORTABLE_STATUSES] } },
         data: {
           status: input.transition.status,
           providerOutcome: input.transition.providerOutcome,
@@ -154,7 +158,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       select: { status: true, submissionPayloadJson: true },
     });
     if (!row) return { mode: 'not_found' as const };
-    if (!(REPORTABLE_STATUSES as readonly string[]).includes(row.status)) {
+    if (!acceptsThumbnailReport(row.status as OperationStatus)) {
       return { mode: 'finished' as const, status: row.status as OperationStatus };
     }
     return { mode: 'live' as const, payload: row.submissionPayloadJson as unknown as ThumbnailUpdatePayload };

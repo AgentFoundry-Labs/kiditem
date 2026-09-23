@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  THUMBNAIL_REPORTABLE_STATUSES,
   acceptsThumbnailReport,
   resolveThumbnailAccount,
   thumbnailReportTransition,
@@ -48,5 +49,9 @@ describe('thumbnailReportTransition', () => {
     expect(acceptsThumbnailReport('succeeded')).toBe(false);
     expect(acceptsThumbnailReport('failed')).toBe(false);
     expect(acceptsThumbnailReport('prepared')).toBe(false);
+  });
+  it('publishes the reportable states as the one list the store filters by', () => {
+    expect([...THUMBNAIL_REPORTABLE_STATUSES].sort()).toEqual(['executing', 'reconciling']);
+    for (const status of THUMBNAIL_REPORTABLE_STATUSES) expect(acceptsThumbnailReport(status)).toBe(true);
   });
 });

@@ -72,6 +72,8 @@ export function thumbnailReportTransition(report: ThumbnailExecutionReportReques
 }
 
 /** 보고를 받을 수 있는 상태. 끝난 실행에 온 보고는 거절한다(`reconciling` 은 한 번 더 받는다). */
+export const THUMBNAIL_REPORTABLE_STATUSES = ['executing', 'reconciling'] as const satisfies readonly OperationStatus[];
+
 export function acceptsThumbnailReport(status: OperationStatus): boolean {
-  return status === 'executing' || status === 'reconciling';
+  return (THUMBNAIL_REPORTABLE_STATUSES as readonly OperationStatus[]).includes(status);
 }
