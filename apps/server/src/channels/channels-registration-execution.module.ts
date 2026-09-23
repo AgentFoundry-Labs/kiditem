@@ -21,7 +21,7 @@ import { RegistrationExecutionService } from './application/service/registration
 import { REGISTRATION_EXECUTION_PORT } from './application/port/in/capability/registration-execution.port';
 import { REGISTRATION_EXECUTION_REPOSITORY_PORT, type RegistrationExecutionRepositoryPort } from './application/port/out/repository/registration-execution.repository.port';
 import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-product-thumbnail-source.adapter';
-import { RegistrationDraftAdapter } from './adapter/out/persistence/candidate-registration-draft.adapter';
+import { RegistrationDraftAdapter } from './adapter/out/persistence/registration-draft.adapter';
 import { RegistrationStateRepositoryAdapter } from './adapter/out/persistence/registration-state.repository.adapter';
 import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
 import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/sales-product-thumbnail-source.port';

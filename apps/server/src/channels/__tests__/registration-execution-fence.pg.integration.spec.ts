@@ -14,7 +14,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 import { hashRegistrationSubmissionPayload } from '../domain/registration/registration-submission-payload';
-import { RegistrationDraftAdapter } from '../adapter/out/persistence/candidate-registration-draft.adapter';
+import { RegistrationDraftAdapter } from '../adapter/out/persistence/registration-draft.adapter';
 import { REGISTRATION_EXECUTION_LEASE_MS } from '../domain/registration/registration-execution-state';
 import { ownerTransaction, ownerTransactionClient } from '../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../common/owner-transaction';

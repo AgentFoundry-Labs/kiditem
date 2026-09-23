@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
-import { RegistrationDraftAdapter } from './candidate-registration-draft.adapter';
+import { RegistrationDraftAdapter } from './registration-draft.adapter';
 
 /**
  * 몰에 얼려 나가는 대표 사진은 그 판매상품의 사진이어야 한다(KID-310).

@@ -4,7 +4,7 @@ import { SalesProductModule } from '../sales-product.module';
 import { ChannelsRegistrationExecutionModule } from '../channels-registration-execution.module';
 import { SalesProductWorkspaceArchiveAdapter } from '../adapter/out/repository/sales-product-workspace-archive.adapter';
 import { SalesProductThumbnailSourceAdapter } from '../adapter/out/ai/sales-product-thumbnail-source.adapter';
-import { RegistrationDraftAdapter } from '../adapter/out/persistence/candidate-registration-draft.adapter';
+import { RegistrationDraftAdapter } from '../adapter/out/persistence/registration-draft.adapter';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
 import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from '../application/port/out/ai/sales-product-workspace-archive.port';
 import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from '../application/port/out/ai/sales-product-thumbnail-source.port';
