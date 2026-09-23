@@ -81,7 +81,6 @@ export interface SabangnetProductRow {
   stockManaged: boolean;
   imageUrls: string[];
   detailHtml: string | null;
-  extraDetailHtml: string[];
   certification: {
     number: string;
     issuer: string | null;

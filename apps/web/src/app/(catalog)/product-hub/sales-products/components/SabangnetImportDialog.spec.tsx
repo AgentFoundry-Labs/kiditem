@@ -36,7 +36,7 @@ function makePreview(dryRun: boolean): SabangnetImportPreview {
         changed: true,
         baselineOnly: false,
         preserved: ['noticeCategory', 'noticeValues', 'certifications', 'kcStatus'],
-        updated: ['detailHtml', 'extraDetailHtml'],
+        updated: ['imageUrls'],
       },
       {
         salesProductId: PRODUCT_TWO,
@@ -125,7 +125,7 @@ describe('<SabangnetImportDialog />', () => {
     renderDialog();
     await uploadAndPreview(user);
 
-    expect(screen.getByText('편집값 유지: 고시·KC · 갱신: 상세')).toBeInTheDocument();
+    expect(screen.getByText('편집값 유지: 고시·KC · 갱신: 사진')).toBeInTheDocument();
     expect(screen.getAllByText(/편집값 유지|갱신:/)).toHaveLength(1);
   });
 

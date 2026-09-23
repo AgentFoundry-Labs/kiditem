@@ -47,6 +47,8 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 
 - Editor saves append a revision and update the artifact pointer; they do not
   schedule a marketplace render or write legacy product/generation HTML fields.
+- An import never replaces a human edit (`manual_edit`, `duplicate`) as the
+  current revision; it only appends to history.
 - Wing preparation reuses a verified matching artifact or synchronously renders
   the immutable revision as the bounded 780px `wing-server-jpeg-v1` JPEG.
   Browser-extension capture and split/stitch rendering remain retired.

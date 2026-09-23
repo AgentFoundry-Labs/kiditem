@@ -46,24 +46,8 @@ export const SABANGNET_UNCARRIED_FIELDS = [
 
 const UNCARRIED = new Set<SabangnetReimportField>(SABANGNET_UNCARRIED_FIELDS);
 
-/** 상세 HTML 디지스트. 빈 상세는 빈 문자열이다. 추가 상세는 칸마다의 디지스트를 쉼표로 잇는다. */
-export interface SabangnetDetailDigests {
-  detailHtml: string;
-  extraDetailHtml: string;
-}
-
 export interface SabangnetReimportBaseline {
   basics: SabangnetReimportBasics;
-}
-
-export function sabangnetDetailDigests(
-  detail: { detailHtml: string | null; extraDetailHtml: readonly string[] },
-  sha256: (value: string) => string,
-): SabangnetDetailDigests {
-  return {
-    detailHtml: detail.detailHtml ? sha256(detail.detailHtml) : '',
-    extraDetailHtml: detail.extraDetailHtml.map((html) => sha256(html)).join(','),
-  };
 }
 
 export interface SabangnetReimportMerge<T extends SabangnetReimportBasics> {

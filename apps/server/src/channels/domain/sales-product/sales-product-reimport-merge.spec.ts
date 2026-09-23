@@ -1,12 +1,9 @@
-import { ChannelIntegrityAdapter } from '../../adapter/out/integrity/channel-integrity.adapter';
 import { describe, expect, it } from 'vitest';
 import {
   mergeSabangnetReimport,
-  sabangnetDetailDigests,
   type SabangnetReimportBasics,
 } from './sales-product-reimport-merge';
 
-const sha256 = new ChannelIntegrityAdapter().sha256;
 
 function basics(overrides: Partial<SabangnetReimportBasics> = {}): SabangnetReimportBasics {
   return {
@@ -170,16 +167,5 @@ describe('Sabangnet reimport three-way merge', () => {
     expect(result.merged.ownCode).toBe('OWN-1');
     expect(result.updated).toEqual([]);
     expect(result.preserved).toEqual([]);
-  });
-
-  it('digests an empty detail as empty so a missing and a blank detail agree', () => {
-    expect(sabangnetDetailDigests({ detailHtml: null, extraDetailHtml: [] }, sha256))
-      .toEqual({ detailHtml: '', extraDetailHtml: '' });
-    expect(sabangnetDetailDigests({ detailHtml: 'x', extraDetailHtml: ['x', 'y'] }, sha256))
-      .toEqual({
-        detailHtml: '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881',
-        extraDetailHtml: '2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881,'
-          + 'a1fce4363854ff888cff4b8e7875d600c2682390412a8cf79b37d0b11148b0fa',
-      });
   });
 });

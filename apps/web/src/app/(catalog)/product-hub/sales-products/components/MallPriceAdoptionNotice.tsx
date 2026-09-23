@@ -10,7 +10,6 @@ import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 
 const CONFLICT_LABEL: Record<SalesProductMallPriceAdoption['conflictSamples'][number]['reason'], string> = {
   options_disagree: '옵션 · 몰 상품마다 가격이 달라 하나로 정할 수 없음',
-  below_extra_price: '몰 가격이 추가금액보다 작음',
 };
 
 /**

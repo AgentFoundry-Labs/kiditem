@@ -576,9 +576,8 @@ export type SalesProductMallCategories = z.infer<typeof SalesProductMallCategori
 /**
  * 몰 가격을 단품 판매가로 가져오지 못한 까닭.
  * - `options_disagree`: 같은 단품이 몰 · 몰 상품마다 다른 값으로 팔린다(단품 판매가는 하나다).
- * - `below_extra_price`: 옛 몰별 값 계산의 까닭. 지금 계획은 만들지 않는다.
  */
-export const SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS = ['options_disagree', 'below_extra_price'] as const;
+export const SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS = ['options_disagree'] as const;
 export const SalesProductMallPriceConflictReasonSchema = z.enum(SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS);
 
 export const SalesProductMallPriceAdoptionSchema = z.object({

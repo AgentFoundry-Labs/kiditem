@@ -40,7 +40,6 @@ import {
 } from './sabangnet-product-import.plan';
 import {
   mergeSabangnetReimport,
-  sabangnetDetailDigests,
   sameImportValue,
   type SabangnetReimportBaseline,
 } from '../../../domain/sales-product/sales-product-reimport-merge';
@@ -353,11 +352,7 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
     detail: { html: string } | null,
   ): SabangnetImportProductWrite['detail'] {
     if (!detail) return null;
-    const digests = sabangnetDetailDigests(
-      { detailHtml: detail.html, extraDetailHtml: [] },
-      (value) => this.integrity.sha256(value),
-    );
-    return { html: detail.html, digest: digests.detailHtml };
+    return { html: detail.html, digest: this.integrity.sha256(detail.html) };
   }
 }
 

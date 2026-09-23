@@ -19,7 +19,6 @@ import type { SabangnetProductRow, SabangnetOptionRow, SabangnetChannelOverrideR
 export type { SabangnetProductRow, SabangnetOptionRow, SabangnetChannelOverrideRow, SabangnetSendRecordRow, SabangnetMallCategoryRow, SabangnetMallTemplateRow, ParsedSabangnetWorkbook } from '../../../../application/port/out/documents/channel-document.models';
 
 import { ChannelIntegrityAdapter } from '../../integrity/channel-integrity.adapter';
-import { sabangnetDetailDigests } from '../../../../domain/sales-product/sales-product-reimport-merge';
 
 export class SabangnetWorkbookFormatError extends Error {}
 
@@ -175,11 +174,10 @@ const EXCLUDED_RAW = new Set(['상품상세설명', '추가상품상세설명_1'
 
 /**
  * 원문에 상세 대신 남기는 디지스트 키. 머리 이름은 '#' 으로 시작하지 않아 사방넷 칸과 겹치지 않는다.
- * 값은 `sabangnetDetailDigests` 가 만든다(빈 상세는 빈 문자열).
+ * 값은 상품상세설명의 sha256 이고 빈 상세는 빈 문자열이다. 추가상품상세설명은 보내는 곳이 없어 원문에도 남기지 않는다.
  */
 export const SABANGNET_DETAIL_DIGEST_KEYS = {
   detailHtml: '#digest:상품상세설명',
-  extraDetailHtml: '#digest:추가상품상세설명',
 } as const;
 
 const integrity = new ChannelIntegrityAdapter();
@@ -282,9 +280,6 @@ function productRowFromCells(
       .map((at) => (at >= 0 ? cellText(cells[at]) : ''))
       .filter((url) => /^https?:\/\//i.test(url)))],
     detailHtml: textOrNull(get(['상품상세설명'])),
-    extraDetailHtml: ['추가상품상세설명_1', '추가상품상세설명_2', '추가상품상세설명_3']
-      .map((header) => cellText(get([header])))
-      .filter(Boolean),
     certification: certNumber
       ? {
         number: certNumber,
@@ -318,9 +313,7 @@ function parseProducts(table: SheetTable): { rows: SabangnetProductRow[]; issues
       continue;
     }
     // 상세 HTML 은 원문에 담지 않고 디지스트만 남긴다 — 다시 가져올 때 사람이 고쳤는지 가르는 기준값이다.
-    const digests = sabangnetDetailDigests(parsed, integrity.sha256);
-    parsed.raw[SABANGNET_DETAIL_DIGEST_KEYS.detailHtml] = digests.detailHtml;
-    parsed.raw[SABANGNET_DETAIL_DIGEST_KEYS.extraDetailHtml] = digests.extraDetailHtml;
+    parsed.raw[SABANGNET_DETAIL_DIGEST_KEYS.detailHtml] = parsed.detailHtml ? integrity.sha256(parsed.detailHtml) : '';
     rows.push(parsed);
   }
   return { rows, issues };

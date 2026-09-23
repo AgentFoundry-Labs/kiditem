@@ -47,16 +47,17 @@ describe('Channels document boundary', () => {
       return parsed.rows[0]!;
     }
 
-    it('keeps a digest of each mapped detail in the raw row instead of the HTML itself', () => {
+    it('keeps only the 상품상세설명 digest in the raw row — no HTML, and nothing of 추가상품상세설명 that nothing sends', () => {
       const row = parse(cells);
 
       expect(row.raw['#digest:상품상세설명']).toBe(sha256('<p>상세</p>'));
-      expect(row.raw['#digest:추가상품상세설명']).toBe(sha256('<p>추가</p>'));
+      expect(Object.keys(row.raw).filter((key) => key.startsWith('#digest:'))).toEqual(['#digest:상품상세설명']);
       expect(Object.values(row.raw)).not.toContain('<p>상세</p>');
+      expect(Object.values(row.raw)).not.toContain('<p>추가</p>');
+      expect(row).not.toHaveProperty('extraDetailHtml');
 
       const blank = parse(cells.map((cell, index) => (headers[index]!.includes('상세설명') ? '' : cell)));
       expect(blank.raw['#digest:상품상세설명']).toBe('');
-      expect(blank.raw['#digest:추가상품상세설명']).toBe('');
     });
 
     it('reads a stored raw row back into the row the file produced', () => {
@@ -64,7 +65,7 @@ describe('Channels document boundary', () => {
 
       const source = documents.readSabangnetProductSource(JSON.parse(JSON.stringify(row.raw)));
 
-      const { raw: _raw, row: _line, detailHtml: _detail, extraDetailHtml: _extra, ...facts } = row;
+      const { raw: _raw, row: _line, detailHtml: _detail, ...facts } = row;
       expect(source).toMatchObject(facts);
     });
 

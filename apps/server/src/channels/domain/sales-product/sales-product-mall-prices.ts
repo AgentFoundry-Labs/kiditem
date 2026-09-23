@@ -20,7 +20,7 @@ export interface MallPriceCandidateListingOption {
 }
 
 /** 기존 public 결과 스키마를 유지하는 동안 세부 충돌은 하나의 이유로 투영한다. */
-export type MallPriceConflictReason = 'options_disagree' | 'below_extra_price';
+export type MallPriceConflictReason = 'options_disagree';
 
 export interface MallPriceAdoptionWrite {
   salesProductId: string;

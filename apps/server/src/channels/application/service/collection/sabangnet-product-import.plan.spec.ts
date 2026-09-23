@@ -129,8 +129,8 @@ describe('Sabangnet workbook import', () => {
       products,
       options,
       overrides: [
-        { ...elevenStreet, salePrice: 3100, name: '11번가 이름', promoText: '무료배송', noticeCategory: '035', detailHtml: null },
-        { ...elevenStreet, shopCode: 'shop0387', shopName: '보리보리', salePrice: 3200, name: null, promoText: null, noticeCategory: null, detailHtml: null },
+        { ...elevenStreet, salePrice: 3100, name: '11번가 이름', promoText: '무료배송', noticeCategory: '035', priceRateBp: 10_400, costPrice: null, detailHtml: null },
+        { ...elevenStreet, shopCode: 'shop0387', shopName: '보리보리', salePrice: 3200, name: null, promoText: null, noticeCategory: null, priceRateBp: null, costPrice: 1500, detailHtml: null },
       ],
       skus: [],
       accounts: [{ id: 'acc-11st', channel: '11st' }],
@@ -139,7 +139,7 @@ describe('Sabangnet workbook import', () => {
     const lines = plan.issues.filter((issue) => issue.kind === 'channel_overrides' && issue.code === elevenStreet.goodsNo);
     expect(lines).toHaveLength(1);
     expect(lines[0]!.message).toBe(
-      `몰별 값은 더 이상 받지 않음 — 판매가(${elevenStreet.shopName} · 보리보리) · 상품명(${elevenStreet.shopName}) · 홍보문(${elevenStreet.shopName}) · 고시(${elevenStreet.shopName}). 판매 상품 한 곳에서 고칩니다.`,
+      `몰별 값은 더 이상 받지 않음 — 판매가(${elevenStreet.shopName} · 보리보리) · 적용율(${elevenStreet.shopName}) · 원가(보리보리) · 상품명(${elevenStreet.shopName}) · 홍보문(${elevenStreet.shopName}) · 고시(${elevenStreet.shopName}). 판매 상품 한 곳에서 고칩니다.`,
     );
     expect(plan.products[1]!.overrides[0]!.data).not.toHaveProperty('salePrice');
     expect(plan.products[1]!.overrides[0]!.data).not.toHaveProperty('promoText');
@@ -150,7 +150,7 @@ describe('Sabangnet workbook import', () => {
     const plan = buildSabangnetImportPlan({
       products,
       options,
-      overrides: [{ ...elevenStreet, salePrice: null, name: null, promoText: null, noticeCategory: null, detailHtml: null, stockPercent: 50 }],
+      overrides: [{ ...elevenStreet, salePrice: null, priceRateBp: null, costPrice: null, name: null, promoText: null, noticeCategory: null, detailHtml: null, stockPercent: 50 }],
       skus: [],
       accounts: [{ id: 'acc-11st', channel: '11st' }],
     });
@@ -161,12 +161,6 @@ describe('Sabangnet workbook import', () => {
     const plan = buildSabangnetImportPlan({ products, options, overrides: [], skus: [], accounts: [] });
     expect(plan.products[0]!.create).not.toHaveProperty('detailHtml');
     expect(plan.products[0]!.detail).toEqual({ html: products[0]!.detailHtml });
-  });
-
-  it('imports no detail for a row that carries only the extra detail — nothing sends 추가상품상세설명', () => {
-    const onlyExtra = { ...products[0]!, detailHtml: null, extraDetailHtml: ['<p>추가 상세</p>'] };
-    const plan = buildSabangnetImportPlan({ products: [onlyExtra], options, overrides: [], skus: [], accounts: [] });
-    expect(plan.products[0]!.detail).toBeNull();
   });
 
   it('reads the Sabangnet percentage rate into basis points', () => {

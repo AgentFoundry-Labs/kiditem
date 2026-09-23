@@ -387,12 +387,14 @@ function planOverrides(
 
 const IGNORED_MALL_VALUES = [
   ['판매가', (row: SabangnetChannelOverrideRow) => row.salePrice !== null],
+  ['적용율', (row: SabangnetChannelOverrideRow) => row.priceRateBp !== null],
+  ['원가', (row: SabangnetChannelOverrideRow) => row.costPrice !== null],
   ['상품명', (row: SabangnetChannelOverrideRow) => Boolean(row.name?.trim())],
   ['홍보문', (row: SabangnetChannelOverrideRow) => Boolean(row.promoText?.trim())],
   ['고시', (row: SabangnetChannelOverrideRow) => Boolean(row.noticeCategory?.trim())],
 ] as const;
 
-/** 한 상품의 몰별 값 줄에서 받지 않은 상품 사실 — `판매가(11번가 · 보리보리) · 상품명(11번가)` 처럼 한 줄. */
+/** 한 상품의 몰별 값 줄에서 받지 않은 상품 사실(판매가 · 적용율 · 원가 · 상품명 · 홍보문 · 고시) — `판매가(11번가 · 보리보리) · 상품명(11번가)` 처럼 한 줄. */
 function ignoredMallValuesIssue(rows: readonly SabangnetChannelOverrideRow[]): SabangnetImportIssue | null {
   const parts = IGNORED_MALL_VALUES.flatMap(([label, carries]) => {
     const malls = [...new Set(rows.filter(carries).map((row) => row.shopName?.trim() || row.shopCode))];
