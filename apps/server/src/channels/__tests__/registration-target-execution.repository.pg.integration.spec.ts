@@ -1490,6 +1490,7 @@ async function createFixture(
       id: productId,
       organizationId: TEST_ORGANIZATION_ID,
       code: `SP-${productId.slice(0, 8)}`,
+      status: 'active',
       name: '공통 상품',
       version: 1,
     },

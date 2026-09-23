@@ -85,6 +85,7 @@ describe('registration execution fence (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         sourceRecordId: candidateId,
         code: 'CANDIDATE-REGISTRATION-FENCE',
+        status: 'active',
         name: 'Kids rain boots',
       },
     });
@@ -1017,6 +1018,7 @@ describe('registration execution fence (PG integration)', () => {
         id: DIRECT_SALES_PRODUCT_ID,
         organizationId: TEST_ORGANIZATION_ID,
         code: 'DIRECTLY-AUTHORED-FENCE',
+        status: 'active',
         name: 'Direct rain boots',
       },
     });

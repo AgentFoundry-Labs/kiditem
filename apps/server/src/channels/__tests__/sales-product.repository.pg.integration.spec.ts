@@ -483,6 +483,7 @@ async function createProduct(prisma: PrismaClient, organizationId: string) {
       id: productId,
       organizationId,
       code: `SP-${productId.slice(0, 8)}`,
+      status: 'active',
       name: '공통 상품',
     },
   });
@@ -832,6 +833,12 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: draft.productId } })).status).toBe('draft');
   });
 
+  it('lands a raw insert without a code as a draft — the column default never makes an uncoded selling product', async () => {
+    const row = await prisma.salesProduct.create({ data: { organizationId: TEST_ORGANIZATION_ID, name: '코드 없는 줄' } });
+
+    expect(row).toMatchObject({ code: null, status: 'draft' });
+  });
+
   it('refuses a write whose status and KID disagree and leaves no row', async () => {
     await expect(repository.create(TEST_ORGANIZATION_ID, {
       ...emptyBasics('코드 없는 판매 상품'),
@@ -1077,7 +1084,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     const imported = await product();
     // 다른 판매상품의 자체상품코드가 이 상품의 사방넷 품번과 같다 — 파일 줄이 어느 상품인지 정할 수 없다.
     await prisma.salesProduct.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, code: 'KID-OTHER', name: '다른 상품', ownCode: GOODS_NO },
+      data: { organizationId: TEST_ORGANIZATION_ID, code: 'KID-OTHER', status: 'active', name: '다른 상품', ownCode: GOODS_NO },
     });
 
     await expect(service.import(TEST_ORGANIZATION_ID, file({ 상품명: '바뀐 이름' }), false, [{

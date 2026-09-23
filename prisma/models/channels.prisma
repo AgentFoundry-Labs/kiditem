@@ -424,10 +424,9 @@ model SalesProduct {
   boxSetQuantity       Int?     @map("box_set_quantity")
   /// 몰 공통 등록 문서 입력값. 몰별 값은 RegistrationTarget.registrationInput 이다.
   registrationDefaults Json?    @map("registration_defaults")
-  /// draft | active | paused | sold_out | unused | archived.
-  /// `draft` 는 판매(selling) 옵션 중 판매가가 비어 있다는 뜻이다 — 저장할 때마다 다시 판정한다.
-  /// paused · sold_out · unused · archived 는 사람이 정한 상태라 그대로 둔다.
-  status               String   @default("active")
+  /// draft | active | archived (KID-313). `draft ⇔ code IS NULL` — KID 발급이 active 로 올리고,
+  /// 사람은 archived 로만 바꾼다. 기본값은 draft 라 코드 없이 들어온 줄이 판매 상품이 되지 않는다.
+  status               String   @default("draft")
   /// taxable | tax_free | zero_rated | unknown
   taxType              String   @default("taxable") @map("tax_type")
   /// free | collect | prepay | collect_or_prepay
