@@ -337,8 +337,6 @@ model ContentGeneration {
   generatedTitle       String?   @map("generated_title")
   generatedDescription String?   @map("generated_description")
   generatedCopy        String?   @map("generated_copy")
-  editedHtml           String?   @map("edited_html")
-  editedHtmlSavedAt    DateTime? @map("edited_html_saved_at") @db.Timestamptz
   status               String    @default("PENDING")
   retryCount           Int       @default(0) @map("retry_count")
   errorMessage         String?   @map("error_message")

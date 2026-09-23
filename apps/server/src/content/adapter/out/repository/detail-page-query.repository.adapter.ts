@@ -132,8 +132,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         generatedTitle: true,
         generatedDescription: true,
         generatedCopy: true,
-        editedHtml: true,
-        editedHtmlSavedAt: true,
         status: true,
         triggeredByUserId: true,
         detailPageArtifact: {
@@ -237,8 +235,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           generatedTitle: input.duplicateTitle,
           generatedDescription: input.source.generatedDescription,
           generatedCopy: input.source.generatedCopy,
-          editedHtml: input.source.editedHtml,
-          editedHtmlSavedAt: input.source.editedHtmlSavedAt,
           status: input.source.status === 'FAILED' ? 'READY' : input.source.status,
         },
       });
@@ -501,8 +497,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
       where: { id: input.id, organizationId: input.organizationId, isDeleted: false },
       select: {
         id: true,
-        editedHtml: true,
-        editedHtmlSavedAt: true,
         detailPageArtifact: {
           select: {
             isDeleted: true,

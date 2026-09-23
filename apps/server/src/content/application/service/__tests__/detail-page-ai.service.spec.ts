@@ -27,8 +27,6 @@ function makeRepository() {
     generatedTitle: '자석 다트게임',
     generatedDescription: null,
     generatedCopy: null,
-    editedHtml: null,
-    editedHtmlSavedAt: null,
     status: 'PROCESSING',
     retryCount: 0,
     errorMessage: null,

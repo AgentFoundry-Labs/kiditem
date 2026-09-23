@@ -177,16 +177,7 @@ export class DetailPageQueryService {
         savedAt: currentRevision.createdAt.toISOString(),
       };
     }
-    if (!isRenderableDetailHtml(row.editedHtml)) {
-      return {
-        html: null,
-        savedAt: null,
-      };
-    }
-    return {
-      html: row.editedHtml,
-      savedAt: row.editedHtmlSavedAt?.toISOString() ?? null,
-    };
+    return { html: null, savedAt: null };
   }
 
   toDto(row: DetailPageGenerationSnapshot): DetailPageGenerationDto {
