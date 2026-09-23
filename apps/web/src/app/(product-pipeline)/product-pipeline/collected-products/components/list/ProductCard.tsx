@@ -4,6 +4,7 @@ import { Loader2, Sparkles, Wand2 } from 'lucide-react';
 import type { SalesProductListItem } from '@kiditem/shared/sales-product';
 import { cn } from '@/lib/utils';
 import { ProductInboxCardShell } from '@/app/(product-pipeline)/product-pipeline/_shared/components/inbox/ProductInboxCardShell';
+import { RegistrationStateBadge } from '@/app/(channels)/_shared/components/RegistrationStateBadge';
 import { sourcePlatformLabel } from '../../lib/source-platform-label';
 
 interface Props {
@@ -71,6 +72,10 @@ export default function ProductCard({
           <span className="w-fit rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white backdrop-blur-sm">
             {sourceLabel}
           </span>
+          {/* 몰 등록 상태는 목록이 등록 상태 reader 에서 싣고 온다(KID-320). 아직 계정이 없으면 그리지 않는다. */}
+          {product.registrationAccounts.length > 0 && (
+            <RegistrationStateBadge accounts={product.registrationAccounts} />
+          )}
         </div>
       }
       deleteAction={{

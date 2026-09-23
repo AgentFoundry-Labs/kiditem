@@ -3,6 +3,7 @@ import {
   CoupangCatalogStageSchema,
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 
@@ -71,6 +72,11 @@ export interface RegisteredChannelListing {
   exposureStatus: string | null;
   optionCount: number;
   mappingStatus: 'matched' | 'unmatched' | 'needs_review';
+  /**
+   * 이 리스팅 계정에서 판매상품의 등록 상태 — 등록 상태 reader 값(KID-320). 판매상품 없는 리스팅이거나
+   * 옛 응답이면 null/없음이고, 그때만 몰 원문 상태를 보인다.
+   */
+  registration?: RegistrationAccountState | null;
   createdAt: string;
   updatedAt: string;
   providerDetail?: RegisteredChannelListingProviderDetail;

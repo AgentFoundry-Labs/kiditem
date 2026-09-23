@@ -46,7 +46,7 @@ function detail(overrides: Partial<ProductDetailResponse> = {}): ProductDetailRe
     image_urls: ['https://cdn/src-1.jpg'],
     images: [{ url: 'https://cdn/src-1.jpg' }],
     contentWorkspaceId: 'ws-1',
-    registrationTarget: null,
+    registrationAccounts: [],
     created_at: '2026-09-01T00:00:00.000Z',
     updated_at: '2026-09-01T00:00:00.000Z',
     basicInfo: {

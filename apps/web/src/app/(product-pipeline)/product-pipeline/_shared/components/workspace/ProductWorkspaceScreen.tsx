@@ -27,7 +27,6 @@ import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/produ
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
   applyBasicsPriceToSalesProduct,
-  registrationStateFromPreparation,
   salesProductUpdateInputFromBasics,
   type UpdateProductBasicsInput,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
@@ -52,6 +51,9 @@ import ProductEditHeader from './detail/ProductEditHeader';
 import MobilePreview from './preview/MobilePreview';
 import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
 import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
+
+const NO_REGISTRATION_ACCOUNTS: readonly RegistrationAccountState[] = [];
 
 interface ProductWorkspaceScreenProps {
   productId: string;
@@ -143,14 +145,8 @@ export function ProductWorkspaceScreen({
   const queryError = initialWorkspaceData ? null : productDetailQuery.error;
 
   const product = fetchedData?.product ?? null;
-  const registrationTarget = product?.registrationTarget ?? null;
-  /**
-   * 등록이 시작됐는가는 울타리가 답한다(ADR-0014). 초안 행의 `status` 는 거울이라
-   * 울타리와 어긋날 수 있고, 어긋난 거울을 믿으면 이미 보낸 등록의 초안을 계속 고치게
-   * 된다. 울타리 값이 없는 구버전 응답에서만 거울로 환산한다.
-   */
-  const registrationState = product?.registrationState
-    ?? registrationStateFromPreparation(registrationTarget?.status ?? null);
+  /** 몰 계정별 등록 상태 — Channels 등록 상태 reader 하나가 답한다(KID-320). */
+  const registrationAccounts = product?.registrationAccounts ?? NO_REGISTRATION_ACCOUNTS;
   // 편집 정본은 판매상품 초안이다(KID-310 · ADR-0022) — 수집 시점부터 있으므로
   // 등록 설정(RegistrationTarget) 유무와 무관하게 늘 이 id 로 저장한다.
   const salesProductId = product?.salesProductId ?? null;
@@ -162,8 +158,7 @@ export function ProductWorkspaceScreen({
   const effectiveContentWorkspaceId = listingContentWorkspaceId ?? draftWorkspace.workspaceId;
   const detailGenerationContentWorkspaceId = effectiveContentWorkspaceId;
   const contentQueriesEnabled = generationHistoryQueryEnabled && !!effectiveContentWorkspaceId;
-  const effectiveSavedDetailPageGenerationId =
-    savedDetailPageGenerationId ?? registrationTarget?.selectedDetailPageGenerationId ?? null;
+  const effectiveSavedDetailPageGenerationId = savedDetailPageGenerationId;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
   const { data: fallbackTemplateCss = '' } = useQuery({
     queryKey: ['template-styles-css'],
@@ -573,8 +568,7 @@ export function ProductWorkspaceScreen({
         productId={productId}
         salesProductId={salesProductId}
         sourceRecordId={product?.sourceRecordId ?? null}
-        registrationTarget={registrationTarget}
-        registrationState={registrationState}
+        registrationAccounts={registrationAccounts}
         basicInfo={product?.basicInfo ?? null}
         costCny={product?.cost_cny ?? null}
         isEditComplete={isEditComplete}

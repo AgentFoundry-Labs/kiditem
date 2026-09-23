@@ -32,6 +32,42 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
 }
 
 describe('RegisteredListingCard', () => {
+  it('shows the account registration state from the reader, not the raw listing status', () => {
+    render(
+      <RegisteredListingCard
+        listing={listingFixture({
+          status: 'APPROVED',
+          salesProductId: 'sales-product-1',
+          registration: {
+            channelAccountId: '00000000-0000-4000-8000-000000000001',
+            channel: 'coupang',
+            channelAccountName: '쿠팡 본계정',
+            registrationTargetId: null,
+            channelListingId: '00000000-0000-4000-8000-0000000000c1',
+            externalListingId: 'seller-product-1',
+            state: 'registered',
+            soldOut: true,
+            changedSinceRegistration: true,
+            selectedThumbnailAssetId: null,
+            selectedDetailPageRevisionId: null,
+            lastExecution: null,
+          },
+        })}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('등록됨')).toBeInTheDocument();
+    expect(screen.getByText('품절')).toBeInTheDocument();
+    expect(screen.getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
+    expect(screen.queryByText('APPROVED')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the raw listing status only for a listing without a sales product', () => {
+    render(<RegisteredListingCard listing={listingFixture({ status: 'APPROVED', registration: null })} onOpen={vi.fn()} />);
+    expect(screen.getByText('APPROVED')).toBeInTheDocument();
+  });
+
   it('renders listing-owned content and mapping state', () => {
     const onOpen = vi.fn();
 

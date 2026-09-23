@@ -22,7 +22,39 @@ function renderCard(props: Partial<Parameters<typeof ProductCard>[0]> = {}) {
   );
 }
 
+function account(state: 'registered' | 'submitting' | 'unregistered', changedSinceRegistration = false) {
+  return {
+    channelAccountId: '00000000-0000-4000-8000-000000000001',
+    channel: 'mall-a',
+    channelAccountName: '몰 A',
+    registrationTargetId: null,
+    channelListingId: null,
+    externalListingId: null,
+    state,
+    soldOut: false,
+    changedSinceRegistration,
+    selectedThumbnailAssetId: null,
+    selectedDetailPageRevisionId: null,
+    lastExecution: null,
+  };
+}
+
 describe('ProductCard', () => {
+  it('shows the product registration summary from the accounts the list carries', () => {
+    renderCard({
+      product: salesProductDraftListItem({
+        registrationAccounts: [account('registered', true), account('registered'), account('unregistered')],
+      }),
+    });
+
+    expect(screen.getByText('2몰 등록 · 1 변경됨')).toBeInTheDocument();
+  });
+
+  it('shows no registration badge for a draft with no account yet', () => {
+    renderCard({ product: salesProductDraftListItem({ registrationAccounts: [] }) });
+    expect(screen.queryByText('미등록')).toBeNull();
+  });
+
   it('runs no request of its own — progress comes from the list', () => {
     renderCard();
 

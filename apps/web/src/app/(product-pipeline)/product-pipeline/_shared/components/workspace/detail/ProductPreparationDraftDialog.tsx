@@ -7,6 +7,8 @@ import type { ChannelAccountOption } from '@/app/(product-pipeline)/product-pipe
 interface ProductPreparationDraftDialogProps {
   open: boolean;
   accounts: ChannelAccountOption[];
+  /** 등록 준비를 열 수 없는 계정 → 그 상태 이름(등록됨 · 전송 중 …). 등록 상태 reader 값이다. */
+  unavailableAccounts?: Record<string, string>;
   isLoading: boolean;
   isSubmitting: boolean;
   errorMessage?: string | null;
@@ -17,6 +19,7 @@ interface ProductPreparationDraftDialogProps {
 export default function ProductPreparationDraftDialog({
   open,
   accounts,
+  unavailableAccounts = {},
   isLoading,
   isSubmitting,
   errorMessage = null,
@@ -31,7 +34,9 @@ export default function ProductPreparationDraftDialog({
 
   if (!open) return null;
 
-  const hasSelectedAccount = accounts.some((account) => account.id === channelAccountId);
+  const hasSelectedAccount = accounts.some(
+    (account) => account.id === channelAccountId && !unavailableAccounts[account.id],
+  );
 
   return (
     <div
@@ -70,11 +75,14 @@ export default function ProductPreparationDraftDialog({
             className="h-10 rounded-md border border-slate-200 px-3 text-sm"
           >
             <option value="">계정을 선택하세요</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name} · {account.channel}
-              </option>
-            ))}
+            {accounts.map((account) => {
+              const unavailable = unavailableAccounts[account.id];
+              return (
+                <option key={account.id} value={account.id} disabled={Boolean(unavailable)}>
+                  {account.name} · {account.channel}{unavailable ? ` (${unavailable})` : ''}
+                </option>
+              );
+            })}
           </select>
         </label>
 

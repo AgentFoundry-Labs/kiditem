@@ -249,9 +249,11 @@ function serveCollectedDraft(input: {
   candidate?: Record<string, unknown>;
   detailPages?: ReturnType<typeof completedDetailPage>[];
   draft?: Parameters<typeof salesProductDraft>[0];
+  registrationAccounts?: unknown[];
 }) {
   api.getParsed.mockImplementation(async (url: string) => {
     if (url === routes.draft) return salesProductDraft(input.draft);
+    if (url === `${routes.draft}/registration/state`) return { accounts: input.registrationAccounts ?? [] };
     throw new Error(`unexpected getParsed ${url}`);
   });
   api.get.mockImplementation(async (url: string) => {
@@ -463,29 +465,33 @@ describe('ProductWorkspaceScreen — 수집상품(판매상품 초안) 화면', 
     ));
   });
 
-  it('reads no registration target from the source record — a source record carries none (KID-313)', async () => {
+  it('gives the header the per-account state from the one reader, never from the source record (KID-313 · KID-320)', async () => {
+    const account = {
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      channel: 'mall-a',
+      channelAccountName: '몰 A',
+      registrationTargetId: '00000000-0000-4000-8000-0000000000a1',
+      channelListingId: null,
+      externalListingId: null,
+      state: 'confirming',
+      soldOut: false,
+      changedSinceRegistration: false,
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      lastExecution: null,
+    };
     serveCollectedDraft({
       workspace: workspaceSummary(),
-      candidate: {
-        registrationTarget: {
-          id: 'prep-1',
-          sourceRecordId: 'candidate-1',
-          channelAccountId: 'account-1',
-          channelListingId: 'listing-1',
-          status: 'registered',
-          selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
-          selectedThumbnailGenerationId: 'thumb-generation-1',
-          selectedThumbnailGenerationCandidateId: 'thumb-candidate-1',
-          selectedDetailPageGenerationId: 'detail-generation-1',
-          updatedAt: '2026-05-20T01:02:03.000Z',
-        },
-      },
+      // 원본 기록 응답에 무엇이 실려 와도 등록 상태는 원본 기록에서 읽지 않는다.
+      candidate: { registrationTarget: { id: 'prep-1', status: 'registered' }, registrationState: 'registered' },
+      registrationAccounts: [account],
     });
     renderCollected();
 
     await screen.findByTestId('product-tab-content');
-    // 원본 기록 응답에 무엇이 실려 와도 등록 설정은 원본 기록에서 읽지 않는다.
-    await waitFor(() => expect(productEditHeaderProps.at(-1)?.registrationTarget).toBeNull());
+    await waitFor(() => expect(productEditHeaderProps.at(-1)?.registrationAccounts).toEqual([account]));
+    expect(productEditHeaderProps.at(-1)).not.toHaveProperty('registrationTarget');
+    expect(productEditHeaderProps.at(-1)).not.toHaveProperty('registrationState');
     expect(productEditHeaderProps.at(-1)?.detailGenerationContentWorkspaceId).toBe(WORKSPACE_ID);
   });
 

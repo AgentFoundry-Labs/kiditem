@@ -242,6 +242,8 @@ describe('sourcing API', () => {
       expect(detail.image_urls).toEqual(['https://cdn.example.com/draft.jpg']);
       expect(detail.raw_data).toBeNull();
       expect(detail.registrationAccounts).toEqual([]);
+      expect(detail).not.toHaveProperty('registrationTarget');
+      expect(detail).not.toHaveProperty('registrationState');
     });
 
     it('원본 기록 응답은 원본 사실만 준다 — 등록 설정과 울타리 상태는 여기서 읽지 않는다(KID-313)', async () => {

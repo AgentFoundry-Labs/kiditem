@@ -193,6 +193,38 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     ));
   });
 
+  it('gives the header this listing account\'s registration state from the listing summary (KID-320)', () => {
+    const registration = {
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      channel: 'coupang',
+      channelAccountName: '쿠팡 본계정',
+      registrationTargetId: null,
+      channelListingId: '00000000-0000-4000-8000-0000000000c1',
+      externalListingId: 'seller-product-1',
+      state: 'registered' as const,
+      soldOut: false,
+      changedSinceRegistration: true,
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      lastExecution: null,
+    };
+    (listing as unknown as RegisteredChannelListing).registration = registration;
+    try {
+      render(<RegisteredWorkspaceDetailPage />);
+      const product = (productWorkspaceProps.at(-1)?.initialWorkspaceData as { product: Record<string, unknown> }).product;
+      expect(product.registrationAccounts).toEqual([registration]);
+      expect(product).not.toHaveProperty('registrationState');
+    } finally {
+      (listing as unknown as RegisteredChannelListing).registration = undefined;
+    }
+  });
+
+  it('leaves the registration state empty for a listing without a sales product', () => {
+    render(<RegisteredWorkspaceDetailPage />);
+    const product = (productWorkspaceProps.at(-1)?.initialWorkspaceData as { product: Record<string, unknown> }).product;
+    expect(product.registrationAccounts).toEqual([]);
+  });
+
   it('renders an explicit uncaptured price without replacing it with zero', () => {
     (listing as unknown as RegisteredChannelListing).channelPrice = null;
     render(<RegisteredWorkspaceDetailPage />);

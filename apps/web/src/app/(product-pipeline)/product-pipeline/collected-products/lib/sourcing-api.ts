@@ -1,7 +1,3 @@
-import {
-  ProductPreparationStatusSchema,
-  type ProductPreparationProjection,
-} from '@kiditem/shared/sourcing';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { salesProductApi } from '@/lib/sales-product-api';
@@ -21,53 +17,6 @@ export interface SellpiaInventorySearchItem {
   name: string;
   optionName: string | null;
   currentStock: number;
-}
-
-/**
- * 수집후보 하나의 등록 상태. **울타리**(`ProductRegistrationExecution`)가 근거다.
- *
- * 초안 행(`RegistrationTarget.status`)은 거울이라 울타리와 어긋날 수 있다 — 어긋난
- * 거울을 믿으면 이미 마켓에 올라간 상품에 '등록 준비' 버튼이 다시 열린다(ADR-0014).
- */
-export type CandidateRegistrationState =
-  | 'none'
-  | 'preparing'
-  | 'confirming'
-  | 'failed'
-  | 'registered';
-
-const CANDIDATE_REGISTRATION_STATES: readonly CandidateRegistrationState[] = [
-  'none',
-  'preparing',
-  'confirming',
-  'failed',
-  'registered',
-];
-
-/** 서버가 준 등록 상태. 구버전 응답에는 없어서 `null` 로 정규화한다. */
-export function normalizeRegistrationState(value: unknown): CandidateRegistrationState | null {
-  return CANDIDATE_REGISTRATION_STATES.find((state) => state === value) ?? null;
-}
-
-/**
- * 울타리 값이 없는 응답에서만 쓰는 거울 환산.
- *
- * 초안(`draft`)과 취소(`cancelled`)는 아직 아무것도 보내지 않은 것이라 `none` 이다 —
- * 초안이 있다는 사실 자체는 초안 행이 답한다.
- */
-export function registrationStateFromPreparation(
-  status: ProductPreparationSelection['status'] | null,
-): CandidateRegistrationState {
-  switch (status) {
-    case 'submitting':
-      return 'confirming';
-    case 'registered':
-      return 'registered';
-    case 'failed':
-      return 'failed';
-    default:
-      return 'none';
-  }
 }
 
 export type SourcingSort = 'newest' | 'oldest' | 'name_asc';
@@ -100,9 +49,6 @@ export interface ProductDetailResponse {
    * 계산한다. 편집은 여기로 보내지 않는다(전부 `salesProductApi.update`/`replaceOptions`).
    */
   basicInfo: ProductBasics;
-  registrationTarget: ProductPreparationSelection | null;
-  /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
-  registrationState: CandidateRegistrationState | null;
   /**
    * 몰 계정별 등록 상태 — Channels 등록 상태 reader(`…/registration/state`) 값 그대로다(KID-320).
    * 등록 상태를 읽지 않은 호출(`productsApi.getDetail`)에서는 빈 목록이다.
@@ -254,14 +200,6 @@ export type UpdateProductBasicsInput = Partial<Pick<
   basePreparationUpdatedAt?: string | null;
 };
 
-export type ProductPreparationSelection = Omit<
-  ProductPreparationProjection,
-  'updatedAt'
-> & {
-  registrationInput: Record<string, unknown>;
-  updatedAt: string | null;
-};
-
 /**
  * URL 수집 결과. 원본 기록과 그 초안은 수집 종료와 한 커밋에 생긴다(KID-313). 이미 수집한 원본이면
  * 서버가 409 `{ reason, existing }` 로 답하므로 이 응답에는 오지 않는다.
@@ -393,52 +331,6 @@ function rawDataWithImageFallback(
     images: imageUrls,
     imageUrls,
     image_urls: imageUrls,
-  };
-}
-
-function normalizeProductPreparation(value: unknown): ProductPreparationSelection | null {
-  if (!value || typeof value !== 'object') return null;
-  const prep = value as Record<string, unknown>;
-  const id = typeof prep.id === 'string' ? prep.id : null;
-  if (!id) return null;
-  const registrationInput = prep.registrationInput
-    && typeof prep.registrationInput === 'object'
-    && !Array.isArray(prep.registrationInput)
-    ? { ...prep.registrationInput as Record<string, unknown> }
-    : {};
-  return {
-    id,
-    sourceRecordId: typeof prep.sourceRecordId === 'string' ? prep.sourceRecordId : null,
-    channelAccountId: typeof prep.channelAccountId === 'string' ? prep.channelAccountId : null,
-    sourceContentWorkspaceId: typeof prep.sourceContentWorkspaceId === 'string'
-      ? prep.sourceContentWorkspaceId
-      : typeof prep.contentWorkspaceId === 'string'
-        ? prep.contentWorkspaceId
-        : null,
-    channelListingId: typeof prep.channelListingId === 'string'
-      ? prep.channelListingId
-      : typeof prep.listingId === 'string'
-        ? prep.listingId
-        : null,
-    status: ProductPreparationStatusSchema.parse(prep.status),
-    registrationInput,
-    selectedThumbnailUrl: normalizeImageUrl(prep.selectedThumbnailUrl),
-    selectedThumbnailGenerationId: typeof prep.selectedThumbnailGenerationId === 'string'
-      ? prep.selectedThumbnailGenerationId
-      : null,
-    selectedThumbnailGenerationCandidateId: typeof prep.selectedThumbnailGenerationCandidateId === 'string'
-      ? prep.selectedThumbnailGenerationCandidateId
-      : null,
-    selectedDetailPageGenerationId: typeof prep.selectedDetailPageGenerationId === 'string'
-      ? prep.selectedDetailPageGenerationId
-      : null,
-    selectedDetailPageArtifactId: typeof prep.selectedDetailPageArtifactId === 'string'
-      ? prep.selectedDetailPageArtifactId
-      : null,
-    selectedDetailPageRevisionId: typeof prep.selectedDetailPageRevisionId === 'string'
-      ? prep.selectedDetailPageRevisionId
-      : null,
-    updatedAt: typeof prep.updatedAt === 'string' ? prep.updatedAt : null,
   };
 }
 
@@ -675,10 +567,8 @@ export function composeProductDetail(
   const sourcePlatform = draft.sourcePlatform ?? '';
   const registrationImages = normalizeRegistrationImages(media.registrationImages);
   const currentThumbnail = normalizeCurrentThumbnail(media.currentThumbnail);
-  // 원본 기록 응답은 원본 사실만 준다(KID-313). 등록 설정과 울타리 상태는 Channels 읽기
-  // (`…/registration/state`)가 줄 자리다 — 그 전까지 이 화면은 등록 없음으로 연다.
-  const registrationTarget = null;
-  const registrationState: CandidateRegistrationState = 'none';
+  // 원본 기록 응답은 원본 사실만 준다(KID-313). 몰 계정별 등록 상태는 Channels 등록 상태 reader
+  // (`…/registration/state`)가 답하고, 호출한 쪽이 넘긴다(KID-320).
   return {
     id: draft.id,
     name: draft.name,
@@ -699,8 +589,6 @@ export function composeProductDetail(
     image_urls: images,
     images: p && Array.isArray(p.images) ? p.images : [],
     basicInfo: productBasicsFromSalesProduct(draft, { registrationImages, currentThumbnail }),
-    registrationTarget,
-    registrationState,
     registrationAccounts: [...registrationAccounts],
     salesProductId: draft.id,
     salesProductVersion: draft.version,
