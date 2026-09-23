@@ -340,7 +340,8 @@ function sabangnetDetail(row: SabangnetProductRow): PlannedSabangnetProduct['det
 
 /**
  * 몰별 값 줄 → 등록 대상에 둘 몰 전용 값. 등록 대상은 상품 사실(이름 · 가격 · 상세 · 홍보문 · 고시)을
- * 갖지 않으므로(KID-313 W2) 그 칸은 옮기지 않고, 몰별 상세는 받지 않는다고 줄마다 알린다.
+ * 갖지 않으므로(KID-313 W2) 그 칸은 옮기지 않는다. 몰별 상세는 줄마다, 버린 몰별 값은 상품마다 한 줄로
+ * 어느 몰의 무엇인지 알린다 — 조용히 버리지 않는다.
  */
 function planOverrides(
   rows: readonly SabangnetChannelOverrideRow[],
@@ -348,6 +349,8 @@ function planOverrides(
   skippedByShop: Record<string, number>,
   issues: SabangnetImportIssue[],
 ): PlannedSabangnetProduct['overrides'] {
+  const ignored = ignoredMallValuesIssue(rows);
+  if (ignored) issues.push(ignored);
   const byAccount = new Map<string, { shopCode: string; data: SalesProductChannelOverrideRecord }>();
   const sorted = [...rows].sort((left, right) => shopPriority(left.shopCode) - shopPriority(right.shopCode));
   for (const row of sorted) {
@@ -378,6 +381,28 @@ function planOverrides(
     });
   }
   return [...byAccount.entries()].map(([channelAccountId, value]) => ({ channelAccountId, ...value }));
+}
+
+const IGNORED_MALL_VALUES = [
+  ['판매가', (row: SabangnetChannelOverrideRow) => row.salePrice !== null],
+  ['상품명', (row: SabangnetChannelOverrideRow) => Boolean(row.name?.trim())],
+  ['홍보문', (row: SabangnetChannelOverrideRow) => Boolean(row.promoText?.trim())],
+  ['고시', (row: SabangnetChannelOverrideRow) => Boolean(row.noticeCategory?.trim())],
+] as const;
+
+/** 한 상품의 몰별 값 줄에서 받지 않은 상품 사실 — `판매가(11번가 · 보리보리) · 상품명(11번가)` 처럼 한 줄. */
+function ignoredMallValuesIssue(rows: readonly SabangnetChannelOverrideRow[]): SabangnetImportIssue | null {
+  const parts = IGNORED_MALL_VALUES.flatMap(([label, carries]) => {
+    const malls = [...new Set(rows.filter(carries).map((row) => row.shopName?.trim() || row.shopCode))];
+    return malls.length ? [`${label}(${malls.join(' · ')})`] : [];
+  });
+  if (parts.length === 0) return null;
+  return {
+    kind: 'channel_overrides',
+    row: rows[0]!.row,
+    code: rows[0]!.goodsNo,
+    message: `몰별 값은 더 이상 받지 않음 — ${parts.join(' · ')}. 판매 상품 한 곳에서 고칩니다.`,
+  };
 }
 
 function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[]> {

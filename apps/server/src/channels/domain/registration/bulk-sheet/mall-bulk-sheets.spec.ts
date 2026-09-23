@@ -509,6 +509,21 @@ describe('Icecream mall sheet', () => {
   });
 });
 
+describe('mall promo text', () => {
+  it('takes the promo text from the target\'s mall-only value mallFields.promoText, trimmed, and none when it is blank', () => {
+    const input = source();
+    input.overrides = [
+      { mallKey: 'teacher-mall', adapterValues: { categoryCode: '00010001', promoText: '  무료배송  ' } },
+      { mallKey: 'gmarket', adapterValues: { sabangnetCategoryPath: '장난감/완구 > 감각발달완구 > 기타감각발달완구', promoText: '   ' } },
+    ];
+
+    expect(run(teachervilleSheet, input, { supplyRate: '80' }).rows[0]!.간략설명).toBe('무료배송');
+    const esm = toMallSheetProduct(input, esmSheet, lookup);
+    expect(esm.malls.gmarket!.promoText).toBeNull();
+    expect(esm.malls.auction!.promoText).toBeNull();
+  });
+});
+
 describe('Teacherville supply price', () => {
   it.each([null, 2200, 0])('uses an explicit supply price %s before the confirmed export rate', (supplyPrice) => {
     const input = source();

@@ -251,7 +251,8 @@ export function toMallSheetProduct(
       selectedOptionCodes: selected.map((option) => option.code ?? ''),
       name: joinText([values[KEYS.namePrefix], mallDisplayName(source.name), values[KEYS.nameSuffix]], ' '),
       nameIsMallSpecific: false,
-      promoText: null,
+      // 홍보문은 몰 전용 값이다(`mallFields.promoText`) — 판매 상품에 없다.
+      promoText: values.promoText?.trim() || null,
       detailHtml: withPublicDetailImages(
         joinText([values[KEYS.detailTop], source.detailHtml, values[KEYS.detailBottom]], '\n') || null,
         publicCopies,

@@ -123,6 +123,40 @@ describe('Sabangnet workbook import', () => {
     }));
   });
 
+  it('reports once per product which per-mall values it ignores, naming the malls, and stores none of them', () => {
+    const elevenStreet = overrides.find((override) => override.shopCode === 'shop0464')!;
+    const plan = buildSabangnetImportPlan({
+      products,
+      options,
+      overrides: [
+        { ...elevenStreet, salePrice: 3100, name: '11번가 이름', promoText: '무료배송', noticeCategory: '035', detailHtml: null },
+        { ...elevenStreet, shopCode: 'shop0387', shopName: '보리보리', salePrice: 3200, name: null, promoText: null, noticeCategory: null, detailHtml: null },
+      ],
+      skus: [],
+      accounts: [{ id: 'acc-11st', channel: '11st' }],
+    });
+
+    const lines = plan.issues.filter((issue) => issue.kind === 'channel_overrides' && issue.code === elevenStreet.goodsNo);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.message).toBe(
+      `몰별 값은 더 이상 받지 않음 — 판매가(${elevenStreet.shopName} · 보리보리) · 상품명(${elevenStreet.shopName}) · 홍보문(${elevenStreet.shopName}) · 고시(${elevenStreet.shopName}). 판매 상품 한 곳에서 고칩니다.`,
+    );
+    expect(plan.products[1]!.overrides[0]!.data).not.toHaveProperty('salePrice');
+    expect(plan.products[1]!.overrides[0]!.data).not.toHaveProperty('promoText');
+  });
+
+  it('reports nothing for a product whose mall rows carry only mall-only values', () => {
+    const elevenStreet = overrides.find((override) => override.shopCode === 'shop0464')!;
+    const plan = buildSabangnetImportPlan({
+      products,
+      options,
+      overrides: [{ ...elevenStreet, salePrice: null, name: null, promoText: null, noticeCategory: null, detailHtml: null, stockPercent: 50 }],
+      skus: [],
+      accounts: [{ id: 'acc-11st', channel: '11st' }],
+    });
+    expect(plan.issues.filter((issue) => issue.kind === 'channel_overrides')).toEqual([]);
+  });
+
   it('carries the product detail to the content revision instead of the product', () => {
     const plan = buildSabangnetImportPlan({ products, options, overrides: [], skus: [], accounts: [] });
     expect(plan.products[0]!.create).not.toHaveProperty('detailHtml');
