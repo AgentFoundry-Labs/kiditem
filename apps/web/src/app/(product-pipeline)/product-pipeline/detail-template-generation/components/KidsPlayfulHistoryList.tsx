@@ -37,7 +37,6 @@ import {
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/preview-sandbox';
 import {
   detailPageEditorHref,
-  registeredProductDetailHref,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
 import {
   ensureStyledDetailHtml,
@@ -348,14 +347,9 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
   const isPreviewLoading = isEntryLoading || templateCss == null || !editedHtmlLoaded;
   const editorHref = useMemo(
     () => {
-      // 생성 이력은 판매상품 초안 id 를 모른다 — 원천 기록 id 로 수집상품 화면을 열지 않는다(KID-310).
-      const returnTo = previewEntry.contentWorkspaceId
-        ? registeredProductDetailHref(previewEntry.contentWorkspaceId)
-        : null;
-      return detailPageEditorHref({
-        generationId: previewEntry.id,
-        returnTo,
-      });
+      // 생성 이력은 판매상품 초안 id 도 리스팅 id 도 모른다 — 작업공간 id 로 화면 주소를 만들지
+      // 않는다(닫으면 기본 목록으로 간다, KID-310).
+      return detailPageEditorHref({ generationId: previewEntry.id });
     },
     [previewEntry],
   );

@@ -16,7 +16,6 @@ import { isApiError } from '@/lib/api-error';
 import { useContentWorkspaceImages } from '../../_shared/hooks/useContentWorkspaceImages';
 import {
   detailPageEditorHref,
-  registeredProductDetailHref,
 } from '../../_shared/lib/product-pipeline-routes';
 import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
@@ -736,11 +735,12 @@ export function resolveProductGenerationDialogPhase(input: {
   return null;
 }
 
-/** 생성 이력은 판매상품 초안 id 를 모른다 — 원천 기록 id 로 수집상품 화면을 열지 않는다(KID-310). */
+/**
+ * 생성 이력은 판매상품 초안 id 도 리스팅 id 도 모른다 — 작업공간 id 로 화면 주소를 만들지 않는다
+ * (닫으면 기본 목록으로 간다, KID-310).
+ */
 function buildGenerationEditorUrl(item: KidsPlayfulGenerationItem): string | undefined {
-  const contentWorkspaceId = item.contentWorkspaceId ?? null;
-  const returnTo = contentWorkspaceId ? registeredProductDetailHref(contentWorkspaceId) : null;
-  return detailPageEditorHref({ generationId: item.id, returnTo });
+  return detailPageEditorHref({ generationId: item.id });
 }
 
 function mergeSourceReferences(

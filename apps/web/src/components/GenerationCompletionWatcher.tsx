@@ -11,7 +11,6 @@ import {
 } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import {
   detailPageEditorHref,
-  registeredProductDetailHref,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -55,14 +54,9 @@ export default function GenerationCompletionWatcher() {
         notifiedGenerationIdsRef.current.add(entry.id);
 
         const isBoldVertical = entry.templateId === 'bold-vertical';
-        // 생성 이력은 판매상품 초안 id 를 모른다 — 원천 기록 id 로 수집상품 화면을 열지 않는다(KID-310).
-        const returnTo = entry.contentWorkspaceId
-          ? registeredProductDetailHref(entry.contentWorkspaceId)
-          : null;
-        const editorUrl = detailPageEditorHref({
-          generationId: entry.id,
-          returnTo,
-        });
+        // 생성 이력은 판매상품 초안 id 도 리스팅 id 도 모른다 — 작업공간 id 로 화면 주소를 만들지
+        // 않는다(닫으면 기본 목록으로 간다, KID-310).
+        const editorUrl = detailPageEditorHref({ generationId: entry.id });
         showDetailGenerationToast({
           status: current === 'cancelled' ? 'cancelled' : current === 'completed' ? 'completed' : 'failed',
           productLabel: entry.productName || '상세페이지',
