@@ -52,8 +52,6 @@ function product(overrides: Partial<SalesProduct> = {}): SalesProduct {
     optionAxes: ['색상'],
     stockManaged: false,
     imageUrls: [],
-    detailHtml: null,
-    extraDetailHtml: [],
     noticeCategory: null,
     noticeValues: [],
     certifications: [],

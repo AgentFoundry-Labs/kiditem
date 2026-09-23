@@ -14,6 +14,7 @@ import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { ChannelListingsSection } from '../components/ChannelListingsSection';
 import { ChannelOverridesSection } from '../components/ChannelOverridesSection';
+import { ContentDetailSection } from '../components/ContentDetailSection';
 import { OptionTableEditor } from '../components/OptionTableEditor';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
@@ -296,7 +297,7 @@ function Editor({ product }: { product: SalesProduct }) {
       </Section>
 
       <Section id="detail" title="상세">
-        <DetailEditor value={basics.detailHtml ?? ''} onChange={(value) => set('detailHtml', value || null)} />
+        <ContentDetailSection salesProductId={product.id} />
       </Section>
 
       <Section id="notice" title="고시 · 인증">
@@ -460,21 +461,3 @@ function ImagesEditor({ value, onChange }: { value: string[]; onChange: (value: 
   );
 }
 
-function DetailEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const [preview, setPreview] = useState(false);
-  return (
-    <div className="space-y-2">
-      <div className="flex gap-1">
-        <button type="button" className={cn('tab', !preview ? 'tab-active' : 'tab-inactive')} onClick={() => setPreview(false)}>HTML</button>
-        <button type="button" className={cn('tab', preview ? 'tab-active' : 'tab-inactive')} onClick={() => setPreview(true)}>미리보기</button>
-      </div>
-      {preview ? (
-        <div className="max-h-[480px] overflow-y-auto rounded-lg border border-slate-200 p-3">
-          <iframe title="상세 미리보기" sandbox="" srcDoc={value} className="h-[440px] w-full" />
-        </div>
-      ) : (
-        <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={8} className={cn(inputClass, 'font-mono text-xs')} />
-      )}
-    </div>
-  );
-}

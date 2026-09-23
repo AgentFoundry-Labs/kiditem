@@ -345,7 +345,9 @@ export function resolveWingCategoryKey(detail: ProductDetailResponse): WingCateg
   const preparation = detail.registrationTarget as
     | ({ registrationInput?: Record<string, unknown> } & object)
     | null;
-  const savedKey = preparation?.registrationInput?.wingCategoryKey;
+  // 윙 값은 등록 대상의 쿠팡 어댑터 칸에 산다(KID-313 W2, KID-321 이 몰 중립으로 옮길 때까지).
+  const adapter = preparation?.registrationInput?.adapter as Record<string, Record<string, unknown> | undefined> | undefined;
+  const savedKey = adapter?.coupang?.wingCategoryKey;
   if (typeof savedKey === 'string') {
     const saved = getWingCategoryDefinition(savedKey);
     if (saved) return saved.key;

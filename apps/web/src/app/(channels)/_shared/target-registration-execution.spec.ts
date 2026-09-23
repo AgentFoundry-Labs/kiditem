@@ -28,6 +28,7 @@ function snapshot(): TargetExecutionSnapshot {
       options: [{ id: OPTION_ID, salePrice: 9900 }],
       channelOverrides: [{ mallKey: 'smartstore', adapterValues: { quantity: '2' } }],
     } as unknown as TargetExecutionSnapshot['product'],
+    detailPage: null,
     registrationInput: { smartstoreCategory: '50004643:기타감각발달완구' },
     supplyPrices: [{ salesProductOptionId: OPTION_ID, supplyPrice: 4000 }],
   };

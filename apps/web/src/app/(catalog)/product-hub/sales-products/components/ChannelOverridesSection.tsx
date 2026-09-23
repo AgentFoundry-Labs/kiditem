@@ -20,33 +20,33 @@ import { SUPPLY_PRICE_MALLS } from '../lib/mall-supply-price';
 import { formatWon } from '../lib/sales-product-labels';
 import { registrationTargetApi, registrationTargetKeys } from '@/lib/registration-target-api';
 import { TargetExecutionConfirmationForm } from './TargetExecutionConfirmationForm';
-import type {
-  RegistrationTarget,
-  RegistrationTargetUpdateInput,
-  SalesProduct,
-  TargetExecutionResult,
+import {
+  RegistrationMallInputSchema,
+  type RegistrationMallInput,
+  type RegistrationTarget,
+  type RegistrationTargetUpdateInput,
+  type SalesProduct,
+  type TargetExecutionResult,
 } from '@kiditem/shared/sales-product';
 
+/** 등록 대상은 옵션을 고르기만 한다 — 이름 · 가격은 판매 상품 한 곳에 있다(KID-313 W2). */
 interface TargetOptionDraft {
   salesProductOptionId: string;
   selected: boolean;
-  salePrice: string;
-  normalPrice: string;
-  supplyPrice: string;
 }
 
 interface TargetDraft {
   channelAccountId: string;
-  displayName: string;
+  /** 몰 전용 값(mallCategory · mallFields · adapter) JSON. */
   registrationInput: string;
+  selectedThumbnailAssetId: string | null;
+  selectedDetailPageRevisionId: string | null;
   options: TargetOptionDraft[];
 }
 
-type MallAccount = Awaited<ReturnType<typeof salesProductApi.mallAccounts>>[number];
+const EMPTY_MALL_INPUT: RegistrationMallInput = { mallCategory: null, mallFields: {}, adapter: {} };
 
-function textPrice(value: number | null | undefined): string {
-  return value === null || value === undefined ? '' : String(value);
-}
+type MallAccount = Awaited<ReturnType<typeof salesProductApi.mallAccounts>>[number];
 
 function draftOf(
   product: SalesProduct,
@@ -56,9 +56,6 @@ function draftOf(
   const selectedById = new Map(
     (target?.selectedOptions ?? product.options.filter((option) => option.supplyStatus !== 'unused').map((option) => ({
       salesProductOptionId: option.id,
-      salePrice: null,
-      normalPrice: null,
-      supplyPrice: null,
     }))).map((option) => [option.salesProductOptionId, option]),
   );
   const selectedIds = [...selectedById.keys()];
@@ -70,19 +67,12 @@ function draftOf(
 
   return {
     channelAccountId,
-    displayName: target?.displayName ?? '',
-    registrationInput: JSON.stringify(target?.registrationInput ?? {}, null, 2),
+    registrationInput: JSON.stringify(target?.registrationInput ?? EMPTY_MALL_INPUT, null, 2),
+    selectedThumbnailAssetId: target?.selectedThumbnailAssetId ?? null,
+    selectedDetailPageRevisionId: target?.selectedDetailPageRevisionId ?? null,
     options: optionIds.flatMap((salesProductOptionId) => {
-      const option = optionById.get(salesProductOptionId);
-      if (!option) return [];
-      const selected = selectedById.get(salesProductOptionId);
-      return [{
-        salesProductOptionId,
-        selected: selected !== undefined,
-        salePrice: textPrice(selected?.salePrice),
-        normalPrice: textPrice(selected?.normalPrice),
-        supplyPrice: textPrice(selected?.supplyPrice),
-      }];
+      if (!optionById.has(salesProductOptionId)) return [];
+      return [{ salesProductOptionId, selected: selectedById.has(salesProductOptionId) }];
     }),
   };
 }
@@ -97,33 +87,34 @@ function parseNullableMoney(value: string, label: string): number | null {
   return parsed;
 }
 
-function parseRegistrationInput(value: string): Record<string, unknown> {
+/** 몰 전용 값 JSON. 상품 사실(이름 · 가격 · 상세 …)은 서버가 키 이름과 함께 거절한다. */
+function parseRegistrationInput(value: string): RegistrationMallInput {
   const text = value.trim();
-  if (!text) return {};
+  if (!text) return EMPTY_MALL_INPUT;
   let parsed: unknown;
   try {
     parsed = JSON.parse(text) as unknown;
   } catch {
-    throw new Error('provider document는 올바른 JSON이어야 합니다.');
+    throw new Error('몰 전용 값은 올바른 JSON이어야 합니다.');
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('provider document는 JSON 객체여야 합니다.');
+    throw new Error('몰 전용 값은 JSON 객체여야 합니다.');
   }
-  return parsed as Record<string, unknown>;
+  const result = RegistrationMallInputSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error('몰 전용 값에는 mallCategory · mallFields · adapter 만 둡니다. 이름 · 가격 · 상세는 판매상품에서 고치세요.');
+  }
+  return result.data;
 }
 
 function editableInput(draft: TargetDraft): Omit<RegistrationTargetUpdateInput, 'expectedVersion'> {
   return {
-    displayName: draft.displayName.trim() || null,
     registrationInput: parseRegistrationInput(draft.registrationInput),
+    selectedThumbnailAssetId: draft.selectedThumbnailAssetId,
+    selectedDetailPageRevisionId: draft.selectedDetailPageRevisionId,
     selectedOptions: draft.options
       .filter((option) => option.selected)
-      .map((option) => ({
-        salesProductOptionId: option.salesProductOptionId,
-        salePrice: parseNullableMoney(option.salePrice, '판매가 override'),
-        normalPrice: parseNullableMoney(option.normalPrice, '정상가 override'),
-        supplyPrice: parseNullableMoney(option.supplyPrice, '공급가 override'),
-      })),
+      .map((option) => ({ salesProductOptionId: option.salesProductOptionId })),
   };
 }
 
@@ -213,33 +204,21 @@ function compositionApiError(error: unknown): string {
     : error instanceof Error ? error.message : '구성 변경 실행을 기록하지 못했습니다.';
 }
 
+/** 몰마다 고르는 값: 몰 카테고리와 몰 공급가(`mallFields.supplyPrice`). 판매가는 판매상품 값이다. */
 interface SimpleOverrideDraft {
   targetId?: string;
-  displayName: string;
-  salePrice: string;
+  category: string;
   supplyPrice: string;
-  touched: { displayName: boolean; salePrice: boolean; supplyPrice: boolean };
+  touched: { category: boolean; supplyPrice: boolean };
 }
 
-function sharedPrice(values: readonly (number | null | undefined)[]): string {
-  if (values.length === 0 || values.some((value) => value === null || value === undefined)) return '';
-  const first = values[0];
-  return values.every((value) => value === first) ? String(first) : '';
-}
-
-function simpleDraftOf(
-  product: SalesProduct,
-  target: RegistrationTarget | undefined,
-): SimpleOverrideDraft {
-  const resolved = target?.resolved.options ?? product.options
-    .filter((option) => option.supplyStatus !== 'unused')
-    .map((option) => ({ salePrice: option.salePrice, supplyPrice: null as number | null }));
+function simpleDraftOf(target: RegistrationTarget | undefined): SimpleOverrideDraft {
+  const supplyPrice = target?.registrationInput.mallFields.supplyPrice;
   return {
     ...(target ? { targetId: target.id } : {}),
-    displayName: target?.displayName ?? '',
-    salePrice: sharedPrice(resolved.map((option) => option.salePrice)),
-    supplyPrice: sharedPrice(resolved.map((option) => option.supplyPrice)),
-    touched: { displayName: false, salePrice: false, supplyPrice: false },
+    category: target?.registrationInput.mallCategory?.key ?? '',
+    supplyPrice: supplyPrice === null || supplyPrice === undefined ? '' : String(supplyPrice),
+    touched: { category: false, supplyPrice: false },
   };
 }
 
@@ -247,18 +226,22 @@ function simpleOverrideUpdate(
   target: RegistrationTarget,
   draft: SimpleOverrideDraft,
 ): RegistrationTargetUpdateInput {
-  const displayName = draft.touched.displayName ? draft.displayName.trim() || null : target.displayName;
-  const salePrice = draft.touched.salePrice ? parseNullableMoney(draft.salePrice, '판매가') : undefined;
+  const input = target.registrationInput;
+  const category = draft.category.trim();
+  const mallCategory = draft.touched.category
+    ? (category ? { key: category, label: null } : null)
+    : input.mallCategory;
+  const { supplyPrice: _currentSupplyPrice, ...otherFields } = input.mallFields;
   const supplyPrice = draft.touched.supplyPrice ? parseNullableMoney(draft.supplyPrice, '공급가') : undefined;
+  const mallFields = !draft.touched.supplyPrice
+    ? input.mallFields
+    : supplyPrice === null || supplyPrice === undefined ? otherFields : { ...otherFields, supplyPrice: String(supplyPrice) };
   return {
     expectedVersion: target.version,
-    displayName,
-    registrationInput: target.registrationInput,
-    selectedOptions: target.selectedOptions.map((option) => ({
-      ...option,
-      ...(salePrice !== undefined || draft.touched.salePrice ? { salePrice: salePrice ?? null } : {}),
-      ...(supplyPrice !== undefined || draft.touched.supplyPrice ? { supplyPrice: supplyPrice ?? null } : {}),
-    })),
+    registrationInput: { ...input, mallCategory, mallFields },
+    selectedThumbnailAssetId: target.selectedThumbnailAssetId,
+    selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
+    selectedOptions: target.selectedOptions,
   };
 }
 
@@ -282,7 +265,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
 
   const save = useMutation({
     mutationFn: async ({ account, draft }: { account: MallAccount; draft: SimpleOverrideDraft }) => {
-      if (!draft.touched.displayName && !draft.touched.salePrice && !draft.touched.supplyPrice) {
+      if (!draft.touched.category && !draft.touched.supplyPrice) {
         throw new Error('바뀐 몰별 값이 없습니다.');
       }
       const target = await registrationTargetApi.resolve({
@@ -308,7 +291,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
   const draftFor = (accountId: string, target: RegistrationTarget | undefined) => {
     const saved = drafts[accountId];
     if (saved && saved.targetId === target?.id) return saved;
-    return simpleDraftOf(product, target);
+    return simpleDraftOf(target);
   };
   const patchDraft = (accountId: string, target: RegistrationTarget | undefined, patch: Partial<SimpleOverrideDraft>) => {
     const current = draftFor(accountId, target);
@@ -317,7 +300,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-500">몰마다 다른 상품명과 가격을 선택 입력합니다. 비워 두면 공통 판매상품 값을 사용합니다.</p>
+      <p className="text-xs text-slate-500">몰마다 카테고리와 공급가만 따로 정합니다. 상품명 · 판매가 · 상세는 판매상품 한 곳에서 고칩니다.</p>
       {targets.isError || accounts.isError ? (
         <p className="text-sm text-red-600">몰별 값을 불러오지 못했습니다.</p>
       ) : accounts.isPending || targets.isPending ? (
@@ -330,7 +313,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
                 <th className="w-48 px-3 py-2 text-left font-semibold">쇼핑몰</th>
-                <th className="px-2 py-2 text-left font-semibold">몰 상품명</th>
+                <th className="px-2 py-2 text-left font-semibold">몰 카테고리</th>
                 <th className="w-32 px-2 py-2 text-left font-semibold">판매가</th>
                 <th className="w-32 px-2 py-2 text-left font-semibold">공급가</th>
                 <th className="w-20 px-3 py-2" aria-label="저장" />
@@ -344,7 +327,9 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                 const pending = save.isPending && save.variables?.account.channelAccountId === account.channelAccountId;
                 const currentSalePrices = target?.resolved.options.map((option) => option.salePrice)
                   ?? product.options.filter((option) => option.supplyStatus !== 'unused').map((option) => option.salePrice);
-                const salePricePlaceholder = new Set(currentSalePrices).size > 1 ? '옵션별 기본값 유지' : '공통 판매가';
+                const salePriceLabel = new Set(currentSalePrices).size > 1
+                  ? '옵션별 판매가'
+                  : currentSalePrices[0] === null || currentSalePrices[0] === undefined ? '—' : formatWon(currentSalePrices[0]);
                 return (
                   <tr key={account.channelAccountId} className="border-b border-slate-100 align-top last:border-0">
                     <td className="px-3 py-2 font-medium text-slate-800">
@@ -352,30 +337,19 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                     </td>
                     <td className="px-2 py-1.5">
                       <input
-                        aria-label={`${account.mallName} 몰 상품명`}
-                        value={draft.displayName}
+                        aria-label={`${account.mallName} 몰 카테고리`}
+                        value={draft.category}
                         disabled={pending}
                         onChange={(event) => patchDraft(account.channelAccountId, target, {
-                          displayName: event.target.value,
-                          touched: { ...draft.touched, displayName: true },
+                          category: event.target.value,
+                          touched: { ...draft.touched, category: true },
                         })}
-                        placeholder={product.name}
+                        placeholder="사방넷 분류 또는 몰 분류 경로"
                         className="w-full rounded border border-slate-200 px-2 py-1 text-sm disabled:bg-slate-50"
                       />
                     </td>
-                    <td className="px-2 py-1.5">
-                      <input
-                        aria-label={`${account.mallName} 판매가`}
-                        inputMode="numeric"
-                        value={draft.salePrice}
-                        disabled={pending}
-                        onChange={(event) => patchDraft(account.channelAccountId, target, {
-                          salePrice: event.target.value,
-                          touched: { ...draft.touched, salePrice: true },
-                        })}
-                        placeholder={salePricePlaceholder}
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-sm tabular-nums disabled:bg-slate-50"
-                      />
+                    <td className="px-2 py-2 text-sm tabular-nums text-slate-600" aria-label={`${account.mallName} 판매가`}>
+                      {salePriceLabel}
                     </td>
                     {supportsSupply ? (
                       <td className="px-2 py-1.5">
@@ -397,7 +371,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
                       <button
                         type="button"
                         className="btn-secondary btn-sm inline-flex items-center gap-1 disabled:opacity-40"
-                        disabled={pending || (!draft.touched.displayName && !draft.touched.salePrice && !draft.touched.supplyPrice)}
+                        disabled={pending || (!draft.touched.category && !draft.touched.supplyPrice)}
                         onClick={() => save.mutate({ account, draft })}
                       >
                         <Save size={13} aria-hidden />{pending ? '저장 중…' : '저장'}
@@ -776,7 +750,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
         같은 채널 계정에도 등록 대상을 여러 개 둘 수 있습니다. 가격 override를 비워 두면 옵션 기본값을 사용하고, 선택하지 않은 옵션은 외부 송신에서 제외됩니다.
       </p>
       <div className="overflow-x-auto rounded-xl border border-slate-200">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[480px] text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
             <tr>
               <th className="w-44 px-3 py-2 text-left font-semibold">쇼핑몰 계정</th>
@@ -814,15 +788,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
                       {accountLabel(accountById.get(target.channelAccountId), target.channelAccountId)}
                       <span className="mt-0.5 block font-mono text-[10px] font-normal text-slate-400">{target.id.slice(0, 8)}</span>
                     </td>
-                    <td className="px-2 py-1.5">
-                      <input
-                        value={draft.displayName}
-                        onChange={(event) => setDrafts((current) => ({ ...current, [target.id]: { ...draft, displayName: event.target.value } }))}
-                        placeholder={product.name}
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
-                        aria-label={`${accountLabel(accountById.get(target.channelAccountId), target.channelAccountId)} 등록 이름`}
-                      />
-                    </td>
+                    <td className="px-2 py-2 text-slate-600">{product.name}</td>
                     <td className="px-2 py-2 text-center tabular-nums text-slate-600">
                       <button type="button" className="text-purple-700 hover:underline" onClick={() => setOpenTargetId(open ? null : target.id)}>
                         {selectedCount(draft)} / {product.options.length}
@@ -930,7 +896,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
                     {accountLabel(accountById.get(newDraft.channelAccountId), newDraft.channelAccountId)}
                     <span className="mt-0.5 block text-[10px] font-normal text-purple-600">새 등록 대상</span>
                   </td>
-                  <td className="px-2 py-1.5 text-slate-500">{newDraft.displayName || product.name}</td>
+                  <td className="px-2 py-1.5 text-slate-500">{product.name}</td>
                   <td className="px-2 py-2 text-center tabular-nums text-slate-600">{selectedCount(newDraft)} / {product.options.length}</td>
                   <td className="px-2 py-2 text-center text-xs text-slate-400">—</td>
                   <td className="px-3 py-1.5 text-right">
@@ -1001,7 +967,7 @@ function TargetEditor({
       parseRegistrationInput(draft.registrationInput);
       return null;
     } catch (error) {
-      return error instanceof Error ? error.message : 'provider document를 확인하세요.';
+      return error instanceof Error ? error.message : '몰 전용 값을 확인하세요.';
     }
   }, [draft.registrationInput]);
   const canSave = !documentError;
@@ -1011,18 +977,8 @@ function TargetEditor({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">등록 이름 override</span>
-          <input
-            value={draft.displayName}
-            onChange={(event) => onChange({ ...draft, displayName: event.target.value })}
-            placeholder={product.name}
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm"
-          />
-          <span className="mt-1 block text-[11px] text-slate-400">비워 두면 판매상품 이름을 사용합니다.</span>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">provider document (JSON)</span>
+        <label className="block lg:col-span-2">
+          <span className="mb-1 block text-xs font-medium text-slate-500">몰 전용 값 (JSON · mallCategory · mallFields · adapter)</span>
           <textarea
             value={draft.registrationInput}
             onChange={(event) => onChange({ ...draft, registrationInput: event.target.value })}
@@ -1036,17 +992,14 @@ function TargetEditor({
       <div>
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-xs font-semibold text-slate-600">외부 송신 옵션 · {selected.size}개 선택</p>
-          <p className="text-[11px] text-slate-400">가격 override를 비워 두면 각 옵션의 기본값을 그대로 사용합니다.</p>
+          <p className="text-[11px] text-slate-400">가격은 판매상품 옵션 값 그대로 나갑니다.</p>
         </div>
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full min-w-[480px] text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
                 <th className="w-14 px-2 py-2 text-center font-semibold">선택</th>
                 <th className="px-2 py-2 text-left font-semibold">옵션</th>
-                <th className="w-32 px-2 py-2 text-right font-semibold">판매가 override</th>
-                <th className="w-32 px-2 py-2 text-right font-semibold">정상가 override</th>
-                <th className="w-32 px-2 py-2 text-right font-semibold">공급가 override</th>
                 <th className="w-20 px-2 py-2 text-center font-semibold">순서</th>
               </tr>
             </thead>
@@ -1074,44 +1027,8 @@ function TargetEditor({
                       <span className="font-mono text-xs text-slate-500">{option.optionCode}</span>
                       <span className="ml-2 text-slate-700">{option.values.join(' / ') || '단품'}</span>
                       <span className="mt-0.5 block text-[11px] text-slate-400">
-                        기본 판매가 {formatWon(option.salePrice)} · 정상가 {option.normalPrice === null ? '—' : formatWon(option.normalPrice)}
+                        판매가 {formatWon(option.salePrice)} · 정상가 {option.normalPrice === null ? '—' : formatWon(option.normalPrice)}
                       </span>
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <input
-                        type="number"
-                        min={0}
-                        value={row.salePrice}
-                        disabled={!row.selected}
-                        onChange={(event) => update({ salePrice: event.target.value })}
-                        placeholder={String(option.salePrice)}
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-right tabular-nums disabled:bg-slate-100"
-                        aria-label={`${option.optionCode} 판매가 override`}
-                      />
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <input
-                        type="number"
-                        min={0}
-                        value={row.normalPrice}
-                        disabled={!row.selected}
-                        onChange={(event) => update({ normalPrice: event.target.value })}
-                        placeholder={option.normalPrice === null ? '없음' : String(option.normalPrice)}
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-right tabular-nums disabled:bg-slate-100"
-                        aria-label={`${option.optionCode} 정상가 override`}
-                      />
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <input
-                        type="number"
-                        min={0}
-                        value={row.supplyPrice}
-                        disabled={!row.selected}
-                        onChange={(event) => update({ supplyPrice: event.target.value })}
-                        placeholder="미지정"
-                        className="w-full rounded border border-slate-200 px-2 py-1 text-right tabular-nums disabled:bg-slate-100"
-                        aria-label={`${option.optionCode} 공급가 override`}
-                      />
                     </td>
                     <td className="px-2 py-1.5 text-center">
                       {row.selected && (

@@ -126,6 +126,8 @@ export function salesProductToMallProductDraft(
   product: SalesProduct,
   mallKey: string,
   registrationInput: RegistrationInput = {},
+  /** 콘텐츠의 상세 revision HTML — 대상 실행이 동결한 `detailPage.html`(KID-313 W2). */
+  detailHtml: string | null = null,
 ): MallProductDraft {
   const override = product.channelOverrides.find((item) => item.mallKey === mallKey);
   const content = recordValue(registrationInput.content);
@@ -205,7 +207,7 @@ export function salesProductToMallProductDraft(
     representativeImageUrl,
     additionalImageUrls,
     detailImageUrls: targetDetailImageUrls
-      ?? detailImageUrlsFromHtml(targetDetailHtml ?? override?.detailHtml ?? product.detailHtml),
+      ?? detailImageUrlsFromHtml(targetDetailHtml ?? detailHtml),
     keywords: (targetKeywords ?? product.keywords).slice(0, 20),
     notice: {
       category: SABANGNET_NOTICE_CATEGORY[noticeCategory ?? ''] ?? noticeCategory ?? KIDITEM_MALL_DRAFT_DEFAULTS.noticeCategory,
@@ -232,6 +234,7 @@ export async function prepareRegistration(
       product,
       mallKey,
       item.targetExecution?.snapshot.registrationInput,
+      item.targetExecution?.snapshot.detailPage?.html ?? null,
     );
     if (draft.variants.length === 0) throw new Error('보낼 단품이 없습니다. 모든 단품이 미사용입니다.');
     if (draft.detailImageUrls.length === 0) throw new Error('상세 이미지가 없습니다. 판매상품 상세에 이미지를 넣으세요.');

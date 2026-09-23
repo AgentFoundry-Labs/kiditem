@@ -16,6 +16,8 @@ const { elevenstFormFromDraft } = await import('../../(product-pipeline)/product
 
 const ACCOUNT = '33333333-3333-4333-8333-333333333333';
 
+const DETAIL_HTML = '<center><img src="http://kiditem.diskn.com/a"></center><img alt="" src=\'https://kiditem.diskn.com/b\' />';
+
 function product(): SalesProduct {
   return {
     id: '11111111-1111-4111-8111-111111111111',
@@ -50,8 +52,6 @@ function product(): SalesProduct {
     optionAxes: ['색상'],
     stockManaged: false,
     imageUrls: ['https://img.example/1.jpg', 'https://img.example/2.jpg'],
-    detailHtml: '<center><img src="http://kiditem.diskn.com/a"></center><img alt="" src=\'https://kiditem.diskn.com/b\' />',
-    extraDetailHtml: [],
     noticeCategory: '023',
     noticeValues: [],
     certifications: [],
@@ -72,7 +72,6 @@ function product(): SalesProduct {
       mallName: '보리보리',
       salePrice: 6200,
       name: '애니멀 만능패드 (보리보리)',
-      detailHtml: null,
       promoText: null,
       noticeCategory: null,
       stockPercent: null,
@@ -107,7 +106,7 @@ function option(code: string, value: string, supplyStatus: SalesProduct['options
 
 describe('sales product → mall draft', () => {
   it('reads detail image urls out of the stored HTML', () => {
-    expect(detailImageUrlsFromHtml(product().detailHtml)).toEqual(['http://kiditem.diskn.com/a', 'https://kiditem.diskn.com/b']);
+    expect(detailImageUrlsFromHtml(DETAIL_HTML)).toEqual(['http://kiditem.diskn.com/a', 'https://kiditem.diskn.com/b']);
     expect(detailImageUrlsFromHtml(null)).toEqual([]);
   });
 
@@ -192,6 +191,7 @@ describe('sales product → mall draft', () => {
           channelListingId: null,
           applyCompositionTemplate: false,
           product: targetProduct,
+          detailPage: { revisionId: '88888888-8888-4888-8888-888888888888', html: DETAIL_HTML, extraHtml: [] },
           registrationInput: {},
           supplyPrices: targetProduct.options.map((option) => ({
             salesProductOptionId: option.id,

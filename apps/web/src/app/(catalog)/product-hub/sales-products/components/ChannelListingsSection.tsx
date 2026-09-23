@@ -193,7 +193,7 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
                   {targetsQuery.isPending ? '등록 설정을 읽는 중…' : targetsQuery.isError ? '등록 설정 조회 실패' : candidates.length === 0 ? (
                     listing.options.length === 1 && single ? `공통 판매가 ${formatWon(single.expected)}` : '공통 판매가 기준'
                   ) : (
-                    <span className="mb-1 block text-slate-500">{target?.displayName || target?.resolved.name || '등록 설정 1개'}</span>
+                    <span className="mb-1 block text-slate-500">{target?.resolved.name || '등록 설정 1개'}</span>
                   )}
                   {!target ? null : differing.length > 0 ? (
                     <ul className="space-y-0.5">

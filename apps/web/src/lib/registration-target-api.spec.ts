@@ -16,12 +16,13 @@ const target = {
   salesProductId: PRODUCT_ID,
   channelAccountId: ACCOUNT_ID,
   version: 3,
-  displayName: null,
-  registrationInput: { provider: 'document' },
-  selectedOptions: [{ salesProductOptionId: OPTION_ID, salePrice: null, normalPrice: 12_000, supplyPrice: null }],
+  registrationInput: { mallCategory: null, mallFields: {}, adapter: {} },
+  selectedThumbnailAssetId: null,
+  selectedDetailPageRevisionId: null,
+  selectedOptions: [{ salesProductOptionId: OPTION_ID }],
   resolved: {
     name: '동물 블록',
-    options: [{ salesProductOptionId: OPTION_ID, code: '100-0001', values: ['파랑'], salePrice: 5900, normalPrice: 12_000, supplyPrice: null }],
+    options: [{ salesProductOptionId: OPTION_ID, code: '100-0001', values: ['파랑'], salePrice: 5900, normalPrice: 12_000 }],
   },
 };
 
@@ -52,13 +53,14 @@ describe('registration target API', () => {
     });
   });
 
-  it('writes nullable overrides, selected option order, and provider document through update only', async () => {
+  it('writes the mall values, selected content ids and selected option order through update only', async () => {
     vi.mocked(apiClient.put).mockResolvedValue(target);
 
     const editable = {
-      displayName: '파랑 블록',
-      registrationInput: { provider: 'document' },
-      selectedOptions: [{ salesProductOptionId: OPTION_ID, salePrice: null, normalPrice: 12_000, supplyPrice: 2500 }],
+      registrationInput: { mallCategory: { key: '완구>블록', label: null }, mallFields: { supplyPrice: '2500' }, adapter: {} },
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      selectedOptions: [{ salesProductOptionId: OPTION_ID }],
     };
     await registrationTargetApi.update(TARGET_ID, { ...editable, expectedVersion: 3 });
 
