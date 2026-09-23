@@ -45,7 +45,7 @@ const VERSION_CONFLICT = '다른 곳에서 먼저 고쳤습니다. 새로 불러
 /** 초안 삭제를 막는 이유마다 운영자에게 보이는 문장. 판매 상품은 지우지 않고 보관한다(KID-313). */
 const DRAFT_DELETION_REFUSALS: Record<DraftDeletionBlock, string> = {
   not_draft: '판매 중인 상품이라 지우지 않고 보관합니다.',
-  active_listing: '몰에 올라가 있어 초안을 지우지 않았습니다.',
+  listing: '몰 상품과 이어져 있어 초안을 지우지 않았습니다.',
   live_execution: '등록 실행이 남아 있어 초안을 지우지 않았습니다.',
 };
 

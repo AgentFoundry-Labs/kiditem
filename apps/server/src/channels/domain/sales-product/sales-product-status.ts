@@ -54,10 +54,10 @@ export function statusAfterArchive(product: { name: string; status: SalesProduct
   return 'archived';
 }
 
-export type DraftDeletionBlock = 'not_draft' | 'active_listing' | 'live_execution';
+export type DraftDeletionBlock = 'not_draft' | 'listing' | 'live_execution';
 
 /**
- * 초안 삭제 가부. 초안만 지울 수 있고, 몰에 올라간 리스팅이나 끝나지 않은 실행이 딸려 있으면
+ * 초안 삭제 가부. 초안만 지울 수 있고, 몰 상품(내린 것 포함)이나 끝나지 않은 실행이 딸려 있으면
  * 지우지 않는다(초안은 KID 가 없어 둘 다 없어야 정상이지만, 관문은 사실을 믿지 가정을 믿지
  * 않는다). 삭제는 원본 기록(SourceRecord)과 콘텐츠 워크스페이스를 같은 트랜잭션에서 함께 지운다.
  */
@@ -65,11 +65,12 @@ export function draftDeletion(input: {
   status: SalesProductStatus;
   /** KID 가 있으면 상태가 무엇이든 판매 상품이다 — 옛 행은 코드를 지닌 채 `draft` 로 남아 있을 수 있다. */
   hasCode: boolean;
-  hasActiveListing: boolean;
+  /** 몰 상품(활성이든 내렸든)이 이 줄을 가리킨다 — 지우면 몰 상품이 가리킬 곳을 잃는다. */
+  hasListing: boolean;
   hasLiveExecution: boolean;
 }): { allowed: true } | { allowed: false; reason: DraftDeletionBlock } {
   if (input.status !== 'draft' || input.hasCode) return { allowed: false, reason: 'not_draft' };
-  if (input.hasActiveListing) return { allowed: false, reason: 'active_listing' };
+  if (input.hasListing) return { allowed: false, reason: 'listing' };
   if (input.hasLiveExecution) return { allowed: false, reason: 'live_execution' };
   return { allowed: true };
 }

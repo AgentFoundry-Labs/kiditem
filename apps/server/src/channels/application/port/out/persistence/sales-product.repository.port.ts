@@ -60,7 +60,7 @@ export interface SalesProductDraftDeletionFacts {
   status: SalesProductStatus;
   hasCode: boolean;
   sourceRecordId: string | null;
-  hasActiveListing: boolean;
+  hasListing: boolean;
   hasLiveExecution: boolean;
 }
 

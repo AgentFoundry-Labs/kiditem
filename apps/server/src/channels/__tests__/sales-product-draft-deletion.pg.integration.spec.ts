@@ -200,10 +200,27 @@ describe('sales product draft deletion (PostgreSQL)', () => {
       externalId: `ext-${randomUUID()}`, isActive: true,
     } });
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId)).rejects.toMatchObject({
-      kind: 'conflict', details: { reason: 'active_listing', message: '몰에 올라가 있어 초안을 지우지 않았습니다.' },
+      kind: 'conflict', details: { reason: 'listing', message: '몰 상품과 이어져 있어 초안을 지우지 않았습니다.' },
     });
 
     expect(await prisma.salesProduct.count()).toBe(2);
+    expect(await prisma.sourceRecord.count()).toBe(1);
+  });
+
+  it('refuses a draft a mall listing still points at even after the listing was deactivated', async () => {
+    const admitted = await records.admit(sourceRecord(), drafts());
+    const account = await prisma.channelAccount.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', externalAccountId: randomUUID(), name: '쿠팡', status: 'active',
+    } });
+    await prisma.channelListing.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.id, salesProductId: admitted.salesProductId,
+      externalId: `ext-${randomUUID()}`, isActive: false,
+    } });
+
+    await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId)).rejects.toMatchObject({
+      kind: 'conflict', details: { reason: 'listing', message: '몰 상품과 이어져 있어 초안을 지우지 않았습니다.' },
+    });
+    expect(await prisma.salesProduct.count({ where: { id: admitted.salesProductId } })).toBe(1);
     expect(await prisma.sourceRecord.count()).toBe(1);
   });
 

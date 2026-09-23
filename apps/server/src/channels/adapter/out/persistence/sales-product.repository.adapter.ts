@@ -1248,8 +1248,9 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       where: { id: salesProductId, organizationId },
       select: { status: true, code: true, sourceRecordId: true },
     });
-    const [activeListingCount, liveExecutionCount] = await Promise.all([
-      tx.channelListing.count({ where: { organizationId, salesProductId, isActive: true } }),
+    const [listingCount, liveExecutionCount] = await Promise.all([
+      // 내린 몰 상품도 이 줄을 가리킨다(외래키 Restrict) — 활성 여부를 가리지 않고 센다.
+      tx.channelListing.count({ where: { organizationId, salesProductId } }),
       tx.productRegistrationExecution.count({
         where: {
           organizationId,
@@ -1262,7 +1263,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       status: product.status as SalesProductStatus,
       hasCode: product.code !== null,
       sourceRecordId: product.sourceRecordId,
-      hasActiveListing: activeListingCount > 0,
+      hasListing: listingCount > 0,
       hasLiveExecution: liveExecutionCount > 0,
     };
   }
@@ -1291,7 +1292,9 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       await tx.salesProduct.deleteMany({ where: { id: salesProductId, organizationId } });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-        throw new ConflictException('등록 실행 기록이 남아 있어 초안을 지우지 않았습니다.');
+        // 거절 사유를 미리 본 뒤에도 남는 참조: 등록 설정을 붙든 끝난 등록 실행 기록, 또는 다른 몰
+        // 상품의 옵션이 이 초안의 단품을 가리키는 연결.
+        throw new ConflictException('끝난 등록 실행 기록이나 몰 상품 옵션이 이 초안을 가리키고 있어 지우지 않았습니다.');
       }
       throw error;
     }
