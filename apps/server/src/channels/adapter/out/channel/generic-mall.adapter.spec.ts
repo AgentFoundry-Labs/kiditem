@@ -36,9 +36,8 @@ describe('GenericMallChannelAdapter', () => {
       .toEqual({ ok: false, reason: 'account_mismatch' });
     expect(adapter.validateConfirmationEvidence(account('s-1'), 's-1', evidence()))
       .toEqual({ ok: false, reason: 'missing_account' });
-    // 준비 뒤 계정 식별자가 바뀌었다.
-    expect(adapter.validateConfirmationEvidence(account('s-9'), 's-1', evidence({ providerAccountId: 's-1' })))
-      .toEqual({ ok: false, reason: 'account_mismatch' });
+    // 기준은 준비가 얼린 식별자다 — 그 뒤 바뀐 살아 있는 계정 값이 아니다.
+    expect(adapter.validateConfirmationEvidence(account('s-9'), 's-1', evidence({ providerAccountId: 's-1' }))).toEqual({ ok: true });
     // 준비가 식별자를 얼리지 않았으면 증거가 댄 식별자는 맞출 대상이 없다.
     expect(adapter.validateConfirmationEvidence(account(), null, evidence({ providerAccountId: 's-1' })))
       .toEqual({ ok: false, reason: 'account_mismatch' });

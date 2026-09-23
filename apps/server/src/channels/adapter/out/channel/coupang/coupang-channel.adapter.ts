@@ -49,13 +49,11 @@ export class CoupangChannelAdapter implements ChannelAdapter {
   }
 
   validateConfirmationEvidence(
-    account: ChannelAccountIdentity,
+    _account: ChannelAccountIdentity,
     expectedProviderAccountId: string | null,
     evidence: ConfirmationEvidenceInput,
   ): ProviderEvidenceDecision {
     return decideConfirmationEvidence({
-      account,
-      accountProviderId: this.providerAccountId(account),
       expectedProviderAccountId,
       evidence,
       isTrustedAdminUrl: (url) => url.origin === WING_ADMIN_ORIGIN,

@@ -9,6 +9,7 @@ import {
   REGISTRATION_EXECUTION_REPOSITORY_PORT,
   type FrozenRegistrationSubmission,
   type RegistrationExecutionRepositoryPort,
+  type TargetExecutionIntent,
 } from '../../port/out/repository/registration-execution.repository.port';
 import {
   CHANNEL_REGISTRATION_PORT,
@@ -18,7 +19,7 @@ import {
   REGISTRATION_DRAFT_PORT,
   type RegistrationDraftPort,
 } from '../../port/out/persistence/registration-draft.port';
-import type { PrepareTargetExecutionInput, ReportTargetExecutionInput, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
+import type { PrepareTargetExecutionInput, ReportTargetExecutionInput } from '@kiditem/shared/sales-product';
 import type { ChannelRegistrableDetailPagePort } from '../../port/out/content/registrable-detail-page.port';
 import type { ChannelsRepositoryTransaction } from '../../port/out/transaction/repository-transaction';
 import type {
@@ -105,12 +106,16 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
         throw new RegistrationTargetException('invalid', '이 몰 또는 판매가는 현재 가격 전송 범위에 포함되지 않습니다.');
       }
     }
-    const detail = await this.detailPages.read({
-      organizationId,
-      salesProductId: target.salesProductId,
-      selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
-    });
-    const snapshot: TargetExecutionSnapshot = {
+    // 상세는 새 상품 문서를 보내는 실행(등록 · 구성 전환)만 얼린다 — 나머지 kind 는 읽지도 않는다.
+    const detail = input.kind === 'register' || input.kind === 'composition_change'
+      ? await this.detailPages.read({
+        organizationId,
+        salesProductId: target.salesProductId,
+        selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
+      })
+      : null;
+    // 몰마다 다른 준비 사실(`adapterPayload`)은 fence 가 준비 트랜잭션 안에서 채널 어댑터로 채운다.
+    const snapshot: TargetExecutionIntent = {
       targetId, targetVersion: target.version, channelAccountId: target.channelAccountId,
       kind: input.kind, channelListingId: input.channelListingId ?? null,
       ...(input.updateFields ? { updateFields: input.updateFields } : {}),

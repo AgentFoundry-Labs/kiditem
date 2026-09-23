@@ -7,6 +7,12 @@ import type { ProductPreparationStatus } from '@kiditem/shared/sourcing';
 import type { ChannelsRepositoryTransaction } from '../transaction/repository-transaction';
 import type { RegistrationExecutionProviderOutcome } from '../../../../domain/registration/registration-execution-state';
 
+/**
+ * 애플리케이션이 모은 실행 의도 — 동결 스냅샷에서 채널 어댑터가 준비 트랜잭션 안에서 채우는
+ * `adapterPayload` 만 빠진다(KID-321).
+ */
+export type TargetExecutionIntent = Omit<TargetExecutionSnapshot, 'adapterPayload'>;
+
 export const REGISTRATION_EXECUTION_REPOSITORY_PORT = Symbol(
   'REGISTRATION_EXECUTION_REPOSITORY_PORT',
 );
@@ -91,7 +97,7 @@ export interface RegistrationExecutionRepositoryPort {
   /** Persist this server-resolved snapshot only if target and common product versions still match. */
   prepareTarget(input: {
     organizationId: string; requestedByUserId: string | null; request: PrepareTargetExecutionInput;
-    snapshot: TargetExecutionSnapshot;
+    snapshot: TargetExecutionIntent;
   }): Promise<TargetExecutionResult>;
   startTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult>;
   listTarget(input: { organizationId: string; targetId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult[]>;

@@ -22,8 +22,8 @@ import {
   type ReportTargetExecutionInput,
   type TargetExecutionResult,
   type TargetExecutionSnapshot,
+  type RegistrationMallInput,
 } from '@kiditem/shared/sales-product';
-import { MALL_ADMIN_LISTING_READERS } from '@kiditem/shared/mall-admin-listings';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
 import { canStartRegistration } from '../../../domain/sales-product/sales-product-status';
@@ -32,6 +32,7 @@ import { isReservedExecutionIdempotencyKey } from '../../../domain/registration/
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration/registration-item-code';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { applyPreparedRecipeToOptions } from '../persistence/registered-option-recipes';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import {
   freezeProductRegistrationPayload,
@@ -66,6 +67,7 @@ import type {
   RegistrationExecutionRegisteredResult,
   RegistrationExecutionRepositoryPort,
   RegistrationExecutionResult,
+  TargetExecutionIntent,
 } from '../../../application/port/out/repository/registration-execution.repository.port';
 
 const channelIntegrity = new ChannelIntegrityAdapter();
@@ -242,7 +244,7 @@ export class RegistrationExecutionRepositoryAdapter
             channelAccountId: account.id,
             channelListingId: listing.id,
             executionKind: request.kind,
-            expectedProviderAccountId: account.vendorId?.trim() || account.externalAccountId?.trim() || null,
+            expectedProviderAccountId: adapter.providerAccountId(account),
             idempotencyKey: request.idempotencyKey,
             requestHash: intentHash,
             submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
@@ -328,7 +330,7 @@ export class RegistrationExecutionRepositoryAdapter
         && execution.externalListingId === null
         && execution.resultJson === null;
       if (!fresh) return listingAvailabilityResult(execution, false);
-      assertListingAvailabilityAccount(execution, snapshot, scope.account);
+      assertListingAvailabilityAccount(execution, snapshot, scope.account, this.adapters);
       await assertFrozenAvailabilityOptions(tx, input.organizationId, snapshot, this.adapters.get(snapshot.mallKey));
       if (snapshot.stockoutPolicy) {
         if (!input.assertInventoryStockout) {
@@ -395,8 +397,8 @@ export class RegistrationExecutionRepositoryAdapter
       if (scope.listing.externalId !== snapshot.externalListingId) {
         throw new ConflictException('Canonical listing identity changed during availability execution.');
       }
-      assertListingAvailabilityAccount(execution, snapshot, scope.account);
-      await assertTargetProviderEvidence(tx, execution, input.report);
+      assertListingAvailabilityAccount(execution, snapshot, scope.account, this.adapters);
+      await assertTargetProviderEvidence(tx, execution, input.report, this.adapters, null);
       const adapter = this.adapters.get(snapshot.mallKey);
       const byOption = isOptionLevelAvailability(snapshot);
       if (input.report.outcome === 'confirmed' && byOption) {
@@ -478,7 +480,7 @@ export class RegistrationExecutionRepositoryAdapter
     organizationId: string;
     requestedByUserId: string | null;
     request: PrepareTargetExecutionInput;
-    snapshot: TargetExecutionSnapshot;
+    snapshot: TargetExecutionIntent;
   }): Promise<TargetExecutionResult> {
     assertClientIdempotencyKey(input.request.idempotencyKey);
     const intentHash = targetExecutionIntentHash(input.snapshot.targetId, input.request);
@@ -504,23 +506,23 @@ export class RegistrationExecutionRepositoryAdapter
         // Replay is deliberately checked before resolving or validating the
         // caller's snapshot. A repeated intent must return the old server
         // snapshot even when the target/product has since been edited.
-        const frozen = freezeTargetExecutionSnapshot(input.snapshot);
-        assertTargetRequestMatchesSnapshot(input.request, frozen.payload);
+        const intent = input.snapshot;
+        assertTargetRequestMatchesSnapshot(input.request, intent);
         // Refuse before any provider call: a confirmation could not record an option without its KID.
-        if (frozen.payload.product.options.some((option) => option.optionCode === null)) {
+        if (intent.product.options.some((option) => option.optionCode === null)) {
           throw new ConflictException('A KID must be issued before registration for every selected sales product option.');
         }
 
         await tx.$queryRaw(Prisma.sql`
           SELECT id
           FROM registration_targets
-          WHERE id = ${frozen.payload.targetId}::uuid
+          WHERE id = ${intent.targetId}::uuid
             AND organization_id = ${input.organizationId}::uuid
           FOR UPDATE
         `);
         const target = await tx.registrationTarget.findFirst({
           where: {
-            id: frozen.payload.targetId,
+            id: intent.targetId,
             organizationId: input.organizationId,
             archivedAt: null,
           },
@@ -539,10 +541,10 @@ export class RegistrationExecutionRepositoryAdapter
           throw new NotFoundException('Registration target not found.');
         }
         if (target.version !== input.request.expectedVersion
-          || target.version !== frozen.payload.targetVersion) {
+          || target.version !== intent.targetVersion) {
           throw new ConflictException('Registration target changed while it was being prepared.');
         }
-        if (target.channelAccountId !== frozen.payload.channelAccountId) {
+        if (target.channelAccountId !== intent.channelAccountId) {
           throw new ConflictException('Registration target account does not match the frozen execution.');
         }
 
@@ -552,9 +554,10 @@ export class RegistrationExecutionRepositoryAdapter
             organizationId: input.organizationId,
             status: 'active',
           },
-          select: { id: true, vendorId: true, externalAccountId: true },
+          select: { id: true, channel: true, vendorId: true, externalAccountId: true },
         });
         if (!account) throw new ConflictException('Registration target account is not active.');
+        const adapter = this.adapters.get(account.channel);
 
         await tx.$queryRaw(Prisma.sql`
           SELECT id
@@ -571,13 +574,13 @@ export class RegistrationExecutionRepositoryAdapter
           },
           select: { id: true, version: true, status: true },
         });
-        if (!product || product.id !== frozen.payload.product.id
-          || product.version !== frozen.payload.product.version) {
+        if (!product || product.id !== intent.product.id
+          || product.version !== intent.product.version) {
           throw new ConflictException('Sales product changed while the execution was being prepared.');
         }
 
         const targetOptionIds = target.selectedOptions.map((option) => option.salesProductOptionId);
-        const snapshotOptionIds = frozen.payload.product.options.map((option) => option.id);
+        const snapshotOptionIds = intent.product.options.map((option) => option.id);
         if (!sameStringArray(targetOptionIds, snapshotOptionIds)) {
           throw new ConflictException('Registration target options changed while the execution was being prepared.');
         }
@@ -593,18 +596,18 @@ export class RegistrationExecutionRepositoryAdapter
           throw new ConflictException('Frozen registration options no longer belong to the sales product.');
         }
         // 새 등록은 KID 를 받은 판매 상품(active)만 연다 — 초안은 코드가 없고 보관은 판매를 접었다(KID-313).
-        if (frozen.payload.kind === 'register' && !canStartRegistration(product.status as SalesProductStatus)) {
+        if (intent.kind === 'register' && !canStartRegistration(product.status as SalesProductStatus)) {
           throw new ConflictException('Only a selling product with a KID can start a new registration.');
         }
-        if (frozen.payload.kind === 'register'
+        if (intent.kind === 'register'
           && options.some((option) => option.supplyStatus === 'unused')) {
           throw new ConflictException('Unused sales product options cannot start a new registration.');
         }
 
-        if (frozen.payload.channelListingId) {
+        if (intent.channelListingId) {
           const listing = await tx.channelListing.findFirst({
             where: {
-              id: frozen.payload.channelListingId,
+              id: intent.channelListingId,
               organizationId: input.organizationId,
               channelAccountId: target.channelAccountId,
             },
@@ -612,6 +615,26 @@ export class RegistrationExecutionRepositoryAdapter
           });
           if (!listing) throw new ConflictException('Registration listing does not belong to the target account.');
         }
+
+        // 몰마다 다른 실행 시점 사실은 채널 어댑터가 이 트랜잭션 안에서 얼린다(KID-321). 대상에는 쓰지 않는다.
+        const adapterPayload = await adapter.prepareAdapterPayload(ownerTransaction(tx), {
+          organizationId: input.organizationId,
+          channelAccountId: account.id,
+          account: { id: account.id, channel: account.channel, vendorId: account.vendorId, externalAccountId: account.externalAccountId },
+          salesProductId: target.salesProductId,
+          registrationTargetId: target.id,
+          kind: intent.kind,
+          registrationInput: intent.registrationInput as RegistrationMallInput,
+          adapterValues: intent.adapterValues ?? {},
+          channelListingId: intent.channelListingId,
+          product: intent.product,
+        });
+        // 상세는 새 상품 문서를 보내는 실행만 얼린다 — 가격 수정 · 품절 · 재개는 상세를 보내지 않는다.
+        const frozen = freezeTargetExecutionSnapshot({
+          ...intent,
+          detailPage: intent.kind === 'register' || intent.kind === 'composition_change' ? intent.detailPage : null,
+          adapterPayload,
+        });
 
         await assertFrozenTargetOptionTransitions(
           tx,
@@ -627,7 +650,7 @@ export class RegistrationExecutionRepositoryAdapter
             channelAccountId: target.channelAccountId,
             channelListingId: frozen.payload.channelListingId,
             executionKind: frozen.payload.kind,
-            expectedProviderAccountId: account.vendorId?.trim() || account.externalAccountId?.trim() || null,
+            expectedProviderAccountId: adapter.providerAccountId(account),
             idempotencyKey: input.request.idempotencyKey,
             requestHash: intentHash,
             submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
@@ -716,10 +739,10 @@ export class RegistrationExecutionRepositoryAdapter
       `);
       const account = await tx.channelAccount.findFirst({
         where: { id: target.channelAccountId, organizationId: input.organizationId, status: 'active' },
-        select: { vendorId: true, externalAccountId: true },
+        select: { id: true, channel: true, vendorId: true, externalAccountId: true },
       });
       if (!account) throw new ConflictException('Registration target account is not active.');
-      const providerIdentity = account.vendorId?.trim() || account.externalAccountId?.trim() || null;
+      const providerIdentity = this.adapters.get(account.channel).providerAccountId(account);
       if (providerIdentity !== execution.expectedProviderAccountId) {
         throw new ConflictException('Registration target provider account changed after execution preparation.');
       }
@@ -891,7 +914,7 @@ export class RegistrationExecutionRepositoryAdapter
         throw new ConflictException('A registration with provider identity cannot be reported as not submitted.');
       }
 
-      await assertTargetProviderEvidence(tx, execution, input.report);
+      await assertTargetProviderEvidence(tx, execution, input.report, this.adapters, externalListingId);
 
       const evidenceJson = targetReportEvidenceJson(input.report);
       const data: Prisma.ProductRegistrationExecutionUpdateInput = {
@@ -931,6 +954,7 @@ export class RegistrationExecutionRepositoryAdapter
           input.report,
           resolved,
         );
+        if (snapshot.kind === 'register') await this.completeFirstRegistration(tx, input.organizationId, snapshot, resolved);
         data.channelListing = {
           connect: {
             id_organizationId_channelAccountId: {
@@ -953,6 +977,39 @@ export class RegistrationExecutionRepositoryAdapter
       });
       return targetExecutionResult(updated, false);
     }, TARGET_EXECUTION_TRANSACTION_OPTIONS);
+  }
+
+  /**
+   * 새 몰 상품을 확인한 `register` 만의 뒷일(KID-321, 몰 중립):
+   *  - 판매 상품의 첫 몰 상품이 이 확인으로 생겼으면 콘텐츠 작업공간을 그 몰 상품에 붙인다(작업공간은 처음
+   *    붙은 몰 상품을 가리킨다 — 둘째 몰 등록은 그대로 둔다).
+   *  - 어댑터가 준비 때 셀피아 매칭을 얼렸으면 그 레시피를 업체상품코드가 같은 몰 옵션에 건다.
+   * 둘 다 확인과 같은 트랜잭션이다.
+   */
+  private async completeFirstRegistration(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    snapshot: TargetExecutionSnapshot,
+    resolved: TargetConfirmation,
+  ): Promise<void> {
+    const handle = ownerTransaction(tx);
+    if (resolved.created) {
+      const otherListings = await tx.channelListing.count({
+        where: { organizationId, salesProductId: snapshot.product.id, id: { not: resolved.listingId } },
+      });
+      if (otherListings === 0) {
+        await this.drafts.attachContentToListing(handle, {
+          organizationId,
+          salesProductId: snapshot.product.id,
+          listingId: resolved.listingId,
+        });
+      }
+    }
+    const recipe = preparedRegistrationRecipe(snapshot);
+    if (recipe) {
+      if (!this.recipes) throw new ConflictException('Channel option recipe capability is unavailable.');
+      await applyPreparedRecipeToOptions(handle, this.recipes, { organizationId, channelListingId: resolved.listingId, recipe });
+    }
   }
 
   async prepare(
@@ -1754,10 +1811,11 @@ function assertAvailabilityOptionSupport(
 function assertListingAvailabilityAccount(
   execution: ProductRegistrationExecution,
   snapshot: ListingAvailabilitySnapshot,
-  account: { channel: string; vendorId: string | null; externalAccountId: string | null },
+  account: { id: string; channel: string; vendorId: string | null; externalAccountId: string | null },
+  adapters: ChannelAdapterRegistryPort,
 ): void {
   assertListingAvailabilitySupported(account.channel, snapshot.kind);
-  const identity = account.vendorId?.trim() || account.externalAccountId?.trim() || null;
+  const identity = adapters.get(account.channel).providerAccountId(account);
   if (account.channel !== snapshot.mallKey || identity !== execution.expectedProviderAccountId) {
     throw new ConflictException('Listing availability provider account changed after preparation.');
   }
@@ -2265,7 +2323,7 @@ function targetExecutionIntentHash(
 
 function assertTargetRequestMatchesSnapshot(
   request: PrepareTargetExecutionInput,
-  snapshot: TargetExecutionSnapshot,
+  snapshot: TargetExecutionIntent,
 ): void {
   if (snapshot.targetVersion !== request.expectedVersion
     || snapshot.kind !== request.kind
@@ -2340,77 +2398,67 @@ function targetTerminalReplayMatches(
     && externalListingId === null;
 }
 
+const EVIDENCE_REJECTIONS = {
+  account_mismatch: 'Provider account evidence does not match the selected account.',
+  untrusted_url: 'Observed provider URL is outside the registered admin origin.',
+  invalid_listing_id: 'Provider listing identity does not match the channel listing id format.',
+  missing_account: 'Confirmed registration requires the frozen provider account identity.',
+} as const;
+
+/**
+ * 몰이 보여 준 증거가 이 실행의 계정 · 몰 관리자 화면 · 몰 상품 id 형식에 맞는가 — 판정은 그 계정 채널의
+ * 어댑터가 한다(KID-321). 확인(`confirmed`)은 준비가 얼린 계정 식별자, 신뢰하는 관리자 URL, 또는 앞선
+ * 보고의 같은 증거 중 하나가 있어야 한다.
+ */
 async function assertTargetProviderEvidence(
   tx: Prisma.TransactionClient,
   execution: ProductRegistrationExecution,
-  report: ReportTargetExecutionInput,
+  report: ReportTargetExecutionInput | ReportListingAvailabilityInput,
+  adapters: ChannelAdapterRegistryPort,
+  /** 몰 상품 id 형식을 볼 id. 가용성 실행은 얼린 canonical listing 과 같은지 따로 보므로 넘기지 않는다. */
+  checkedListingId: string | null,
 ): Promise<void> {
   const providerAccountId = report.evidence.providerAccountId?.trim() || null;
   const observedUrl = report.evidence.observedUrl?.trim() || null;
-  const needsAccount = report.outcome === 'confirmed' || providerAccountId !== null || observedUrl !== null;
-  if (!needsAccount) return;
+  const externalListingId = checkedListingId?.trim() || null;
+  const confirmed = report.outcome === 'confirmed';
+  if (!confirmed && providerAccountId === null && observedUrl === null && externalListingId === null) return;
 
   const account = await tx.channelAccount.findFirst({
     where: { id: execution.channelAccountId, organizationId: execution.organizationId },
-    select: { channel: true, vendorId: true, externalAccountId: true },
+    select: { id: true, channel: true, vendorId: true, externalAccountId: true },
   });
   if (!account) throw new ConflictException('Registration execution account no longer exists.');
-
-  const configuredProviderAccountId = execution.expectedProviderAccountId;
-  if (providerAccountId !== null
-    && (!configuredProviderAccountId || providerAccountId !== configuredProviderAccountId)) {
-    throw new ConflictException('Provider account evidence does not match the selected account.');
+  const adapter = adapters.get(account.channel);
+  const decision = adapter.validateConfirmationEvidence(account, execution.expectedProviderAccountId, {
+    providerAccountId, observedUrl, externalListingId,
+  });
+  // 확인이 아닌 보고는 계정 식별자를 빼도 된다 — 있는 값만 맞으면 된다.
+  if (!decision.ok && (confirmed || decision.reason !== 'missing_account')) {
+    throw new ConflictException(EVIDENCE_REJECTIONS[decision.reason]);
   }
-  const trustedObservedUrl = observedUrl !== null
-    && isTrustedProviderAdminUrl(account.channel, observedUrl);
-  if (observedUrl !== null && !trustedObservedUrl) {
-    throw new ConflictException('Observed provider URL is outside the registered admin origin.');
-  }
-  if (report.outcome !== 'confirmed') return;
-  if (configuredProviderAccountId && providerAccountId !== configuredProviderAccountId) {
-    throw new ConflictException('Confirmed registration requires the frozen provider account identity.');
-  }
-
-  const priorEvidence = targetPriorProviderEvidence(execution.resultJson, account.channel, configuredProviderAccountId);
-  if (providerAccountId === null && !trustedObservedUrl && !priorEvidence) {
+  if (!confirmed || providerAccountId !== null || observedUrl !== null) return;
+  if (!targetPriorProviderEvidence(execution, account, adapter)) {
     throw new ConflictException('Confirmed registration requires provider account or trusted product evidence.');
   }
 }
 
-function isTrustedProviderAdminUrl(channel: string, observedUrl: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(observedUrl);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  if (channel === 'coupang') return parsed.origin === 'https://wing.coupang.com' && !parsed.username && !parsed.password;
-  const reader = MALL_ADMIN_LISTING_READERS[channel as keyof typeof MALL_ADMIN_LISTING_READERS];
-  if (!reader) return false;
-  try {
-    const allowed = new URL(reader.origin);
-    return parsed.origin === allowed.origin && !parsed.username && !parsed.password;
-  } catch {
-    return false;
-  }
-}
-
+/** 앞선 보고가 이미 이 몰의 계정 식별자나 신뢰하는 관리자 URL 을 남겼는가. */
 function targetPriorProviderEvidence(
-  value: Prisma.JsonValue | null,
-  channel: string,
-  configuredProviderAccountId: string | null,
+  execution: ProductRegistrationExecution,
+  account: { id: string; channel: string; vendorId: string | null; externalAccountId: string | null },
+  adapter: ChannelAdapter,
 ): boolean {
+  const value = execution.resultJson;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const evidence = value as Record<string, unknown>;
-  const providerAccountId = typeof evidence.providerAccountId === 'string'
-    ? evidence.providerAccountId.trim()
-    : '';
-  if (providerAccountId && configuredProviderAccountId && providerAccountId === configuredProviderAccountId) {
-    return true;
-  }
-  const observedUrl = typeof evidence.observedUrl === 'string' ? evidence.observedUrl.trim() : '';
-  return Boolean(observedUrl && isTrustedProviderAdminUrl(channel, observedUrl));
+  const providerAccountId = typeof evidence.providerAccountId === 'string' ? evidence.providerAccountId.trim() || null : null;
+  const observedUrl = typeof evidence.observedUrl === 'string' ? evidence.observedUrl.trim() || null : null;
+  if (providerAccountId === null && observedUrl === null) return false;
+  const decision = adapter.validateConfirmationEvidence(account, execution.expectedProviderAccountId, {
+    providerAccountId, observedUrl, externalListingId: null,
+  });
+  return decision.ok || (decision.reason === 'missing_account' && observedUrl !== null);
 }
 
 function targetReportEvidenceJson(report: ReportTargetExecutionInput): Prisma.InputJsonValue {
@@ -2453,6 +2501,8 @@ type TargetConfirmedOption = {
 
 type TargetConfirmation = {
   listingId: string;
+  /** 이 확인이 몰 상품 행을 새로 만들었는가. */
+  created: boolean;
   options: TargetConfirmedOption[];
 };
 
@@ -2568,6 +2618,7 @@ async function resolveTargetConfirmationListing(
   }
 
   let listingId = existingIdentity?.id ?? null;
+  const created = listingId === null;
   if (!listingId) {
     if (snapshot.kind === 'composition_change') {
       throw new ConflictException('Composition changes require an existing channel listing.');
@@ -2675,7 +2726,7 @@ async function resolveTargetConfirmationListing(
     )) {
       throw new ConflictException('Confirmed composition omitted a frozen option transition.');
     }
-    return { listingId, options: confirmedOptions };
+    return { listingId, created, options: confirmedOptions };
   }
 
   const confirmedOptions: TargetConfirmedOption[] = [];
@@ -2734,7 +2785,7 @@ async function resolveTargetConfirmationListing(
       commonOption,
     });
   }
-  return { listingId, options: confirmedOptions };
+  return { listingId, created, options: confirmedOptions };
 }
 
 async function applyTargetConfirmationRecipes(

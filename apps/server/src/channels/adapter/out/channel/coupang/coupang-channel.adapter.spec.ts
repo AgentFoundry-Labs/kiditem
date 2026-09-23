@@ -59,8 +59,6 @@ describe('CoupangChannelAdapter', () => {
     expect(decide({ providerAccountId: null })).toEqual({ ok: false, reason: 'missing_account' });
     expect(decide({ externalListingId: 'W-123' })).toEqual({ ok: false, reason: 'invalid_listing_id' });
     expect(decide({ externalListingId: '12345' })).toEqual({ ok: false, reason: 'invalid_listing_id' });
-    expect(adapter.validateConfirmationEvidence(account('A00099999'), 'A00012345', evidence()))
-      .toEqual({ ok: false, reason: 'account_mismatch' });
   });
 
   it('sends seller stock only for normal options, refuses Rocket Growth options and waits on an unknown type', () => {

@@ -222,6 +222,16 @@ export class RegistrationDraftAdapter implements RegistrationDraftPort {
     return updated.count;
   }
 
+  async attachContentToListing(
+    tx: ChannelsRepositoryTransaction,
+    input: { organizationId: string; salesProductId: string; listingId: string },
+  ): Promise<{ workspaceId: string } | null> {
+    // 작업공간이 없는 판매 상품(옛 행)은 붙일 것이 없다 — 몰에 올라간 등록 확인을 막지 않는다.
+    const workspaceId = await this.contentWorkspaces.findSalesProductWorkspaceId(input);
+    if (!workspaceId) return null;
+    return this.contentWorkspaces.attachToListing(tx, input);
+  }
+
   branchContentToListing(
     tx: ChannelsRepositoryTransaction,
     input: {

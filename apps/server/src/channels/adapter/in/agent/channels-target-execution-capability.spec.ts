@@ -13,7 +13,7 @@ const response: TargetExecutionResult = {
   externalListingId: null, result: null,
   payload: {
     targetId: id(5), targetVersion: 1, channelAccountId: id(6), kind: 'register',
-    channelListingId: null, applyCompositionTemplate: false, registrationInput: {}, detailPage: null,
+    channelListingId: null, applyCompositionTemplate: false, registrationInput: {}, adapterPayload: {}, detailPage: null,
     product: {
       id: id(7), code: 'KID00000001', ownCode: null, sabangnetGoodsNo: null, sourceRecordId: null,
       sourcePlatform: null, sourceUrl: null,
