@@ -193,7 +193,7 @@ describe('registration execution reader (PostgreSQL)', () => {
   it('does not count a failed thumbnail upload as a registration failure', async () => {
     await prisma.productRegistrationExecution.createMany({
       data: [
-        execution(EXECUTION_IDS[0], '50000000-0000-4000-8000-000000000001', SECOND_ACCOUNT_ID, 'failed', '2026-09-01T00:00:00.000Z'),
+        execution(EXECUTION_IDS[0], '50000000-0000-4000-8000-000000000004', SECOND_ACCOUNT_ID, 'failed', '2026-09-01T00:00:00.000Z'),
         {
           id: EXECUTION_IDS[1], organizationId: TEST_ORGANIZATION_ID, channelAccountId: SECOND_ACCOUNT_ID,
           executionKind: 'thumbnail_update', idempotencyKey: 'reader-thumbnail', requestHash: 'a'.repeat(64),
