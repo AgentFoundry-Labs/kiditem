@@ -43,6 +43,34 @@ function generateRequests() {
   return api.post.mock.calls.filter(([url]) => url === '/api/ai/detail-page/generate');
 }
 
+describe('ProductEditHeader 반려', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.get.mockResolvedValue([]);
+    api.post.mockResolvedValue({ status: 'rejected' });
+  });
+
+  it('rejects through the draft’s source record (M4)', async () => {
+    renderHeader({ contentWorkspaceId: null, sourceCandidateId: 'candidate-1' });
+
+    fireEvent.click(screen.getByRole('button', { name: '반려' }));
+    fireEvent.change(screen.getByPlaceholderText('반려 사유 (선택)'), { target: { value: '중복' } });
+    fireEvent.click(screen.getByRole('button', { name: '확인' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      '/api/sourcing/candidates/candidate-1/reject',
+      { reason: '중복' },
+    ));
+  });
+
+  it('keeps reject disabled with a visible reason for a draft without a source record (M4)', () => {
+    renderHeader({ contentWorkspaceId: null, sourceCandidateId: null });
+
+    expect(screen.getByRole('button', { name: '반려' })).toBeDisabled();
+    expect(screen.getByText('원천 기록이 없는 초안은 반려할 수 없습니다.')).toBeInTheDocument();
+  });
+});
+
 describe('ProductEditHeader 상세페이지 생성', () => {
   beforeEach(() => {
     vi.clearAllMocks();

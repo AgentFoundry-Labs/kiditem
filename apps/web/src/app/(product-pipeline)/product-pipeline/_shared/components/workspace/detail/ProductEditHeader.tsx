@@ -35,6 +35,9 @@ import {
 import { getInlineGenerationProgressLabel } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
 import ProductPreparationDraftDialog from './ProductPreparationDraftDialog';
 
+/** 반려는 원천 기록(수집상품)의 소싱 판단이다 — 직접 작성 · 사방넷 초안에는 반려할 원천이 없다. */
+const NO_SOURCE_REJECT_REASON = '원천 기록이 없는 초안은 반려할 수 없습니다.';
+
 interface ProductEditHeaderProps {
   productName: string;
   productId: string;
@@ -142,7 +145,7 @@ export default function ProductEditHeader({
 
   const rejectMutation = useMutation({
     mutationFn: (reason: string | undefined) => {
-      if (!sourceCandidateId) throw new Error('원천 기록이 없는 초안은 반려할 수 없습니다.');
+      if (!sourceCandidateId) throw new Error(NO_SOURCE_REJECT_REASON);
       return candidatesApi.reject(sourceCandidateId, reason && reason.trim() ? reason.trim() : undefined);
     },
     onSuccess: () => {
@@ -385,11 +388,17 @@ export default function ProductEditHeader({
                     ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
                     : 'cursor-not-allowed border-rose-100 text-rose-300',
                 )}
-                title="후보 반려"
+                title={sourceCandidateId ? '후보 반려' : NO_SOURCE_REJECT_REASON}
+                aria-describedby={sourceCandidateId ? undefined : 'reject-disabled-reason'}
               >
                 <XCircle size={12} />
                 반려
               </button>
+            )}
+            {!sourceCandidateId && preparationStatus === null && !registrationStarted && (
+              <span id="reject-disabled-reason" className="text-[10px] font-medium text-slate-500">
+                {NO_SOURCE_REJECT_REASON}
+              </span>
             )}
             {preparationStatus === null && !registrationStarted && rejectInputOpen && (
               <div className="flex items-center gap-1.5">
