@@ -131,9 +131,25 @@ registered, and whether that has been verified. It does not answer how to sign
 in or how to fill a form — that is the extension's spec, keyed the same way.
 _Avoid_: mall registry, mall list
 
+**Source record**:
+The immutable facts one collection took from a source: the source's own
+name, images, cost and raw data, and where it came from. Written only by the
+source owner. Operators never edit, reject or delete one directly; it is the
+provenance a draft points at, not a row on any screen.
+_Avoid_: candidate, sourcing candidate, collected product
+
+**Draft**:
+A selling product that has no KID yet. It is the row the collected-products
+screen shows and the unit every preparation job (thumbnail, detail page,
+basics, price, KC, category) works on. A draft is either worked on or deleted;
+it never becomes anything other than a selling product.
+_Avoid_: collected product, candidate, preparation
+
 **Selling product**:
 A common marketplace authoring definition with reusable selling options and content, distinct from a source inventory product.
-_Avoid_: master inventory, source SKU
+A draft becomes one when its KID is issued, and never goes back: a selling
+product that stops selling is archived, not returned to draft.
+_Avoid_: master inventory, source SKU, registered product
 
 **Registration target**:
 A persistent set of selected options and marketplace-specific values for one selling product and channel account. Multiple separate targets may use the same product and account.
