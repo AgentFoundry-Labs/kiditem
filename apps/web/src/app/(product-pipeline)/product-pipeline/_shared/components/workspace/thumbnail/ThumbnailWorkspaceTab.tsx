@@ -17,6 +17,8 @@ import type { ProductEditState } from '../../../lib/product-workspace-types';
 interface ThumbnailWorkspaceTabProps {
   editData: ProductEditState;
   contentWorkspaceId?: string | null;
+  /** 이 화면의 판매상품 초안. 작업공간이 아직 없으면 편집기가 이 id 로 결과를 초안에 붙인다. */
+  salesProductId?: string | null;
   thumbnailUrl?: string | null;
   selectedRegistrationThumbnailUrl: string | null;
   /** 실제로 저장된 대표 썸네일. `등록 대표` 배지의 유일한 근거다(폴백 없음). */
@@ -35,6 +37,7 @@ interface ThumbnailWorkspaceTabProps {
 export default function ThumbnailWorkspaceTab({
   editData,
   contentWorkspaceId = null,
+  salesProductId = null,
   thumbnailUrl = null,
   selectedRegistrationThumbnailUrl,
   savedRepresentativeThumbnailUrl = null,
@@ -150,6 +153,7 @@ export default function ThumbnailWorkspaceTab({
       extraParams: {
         uploadKey,
         contentWorkspaceId,
+        salesProductId: contentWorkspaceId ? null : salesProductId,
         fullPage: '1',
       },
     });

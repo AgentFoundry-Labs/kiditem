@@ -61,6 +61,8 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
   const searchParams = useSearchParams();
   const router = useRouter();
   const contentWorkspaceId = searchParams.get('contentWorkspaceId');
+  // 작업공간이 아직 없는 판매상품 초안에서 연 편집 — 결과는 서버가 그 초안의 작업공간에 붙인다.
+  const salesProductId = contentWorkspaceId ? null : searchParams.get('salesProductId');
   const imageUrlParam = searchParams.get('imageUrl');
   const uploadKeyParam = searchParams.get('uploadKey');
   const productNameParam = searchParams.get('productName')?.trim() ?? '';
@@ -326,7 +328,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
       const dto = buildGenerateThumbnailDto({
         mode,
         slots,
-        subject: thumbnailSubjectFromParams({ contentWorkspaceId }),
+        subject: thumbnailSubjectFromParams({ contentWorkspaceId, salesProductId }),
         contentWorkspaceId,
         supplementaryLabel,
         pieceCount,

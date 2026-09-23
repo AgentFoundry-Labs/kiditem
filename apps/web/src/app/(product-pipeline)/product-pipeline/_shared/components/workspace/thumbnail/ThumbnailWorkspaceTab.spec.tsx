@@ -89,6 +89,52 @@ describe('ThumbnailWorkspaceTab', () => {
     expect(pushMock.mock.calls[0][0]).toContain('fullPage=1');
   });
 
+  it('opens the editor for a draft without a workspace yet with the sales-product id (f08a10b95)', () => {
+    render(
+      <ThumbnailWorkspaceTab
+        editData={editData}
+        contentWorkspaceId={null}
+        salesProductId="sales-product-1"
+        thumbnailUrl={null}
+        selectedRegistrationThumbnailUrl={null}
+        thumbnailPreviewImages={editData.thumbnails}
+        onPreviewThumbnail={vi.fn()}
+        onThumbnailPreviewImagesChange={vi.fn()}
+        onSaveThumbnailConfiguration={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '썸네일 미리보기 이미지 1' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 이미지 편집하기/ }));
+    const href = new URL(pushMock.mock.calls[0][0], 'http://kiditem.local');
+    expect(href.searchParams.get('salesProductId')).toBe('sales-product-1');
+    expect(href.searchParams.has('contentWorkspaceId')).toBe(false);
+  });
+
+  it('prefers the existing workspace over the sales-product id', () => {
+    render(
+      <ThumbnailWorkspaceTab
+        editData={editData}
+        contentWorkspaceId="workspace-1"
+        salesProductId="sales-product-1"
+        thumbnailUrl={null}
+        selectedRegistrationThumbnailUrl={null}
+        thumbnailPreviewImages={editData.thumbnails}
+        onPreviewThumbnail={vi.fn()}
+        onThumbnailPreviewImagesChange={vi.fn()}
+        onSaveThumbnailConfiguration={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '썸네일 미리보기 이미지 1' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 이미지 편집하기/ }));
+    const href = new URL(pushMock.mock.calls[0][0], 'http://kiditem.local');
+    expect(href.searchParams.get('contentWorkspaceId')).toBe('workspace-1');
+    expect(href.searchParams.has('salesProductId')).toBe(false);
+  });
+
   it('shows only product-scoped result and status language', () => {
     render(
       <ThumbnailWorkspaceTab

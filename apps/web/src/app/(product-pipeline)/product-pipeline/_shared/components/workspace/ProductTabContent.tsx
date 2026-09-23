@@ -46,6 +46,8 @@ interface Props {
   selectedAgentId: string | null;
   /** 이 화면의 콘텐츠 작업공간. 없으면(첫 생성 전) 콘텐츠를 읽지 않는다. */
   contentWorkspaceId?: string | null;
+  /** 이 화면의 판매상품 초안(등록상품 화면에는 없다). */
+  salesProductId?: string | null;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
   agentHistory?: GenerationHistoryItem[];
@@ -96,6 +98,7 @@ export default function ProductTabContent({
   selectedBoldVerticalId,
   selectedAgentId,
   contentWorkspaceId,
+  salesProductId = null,
   hasSavedDetailPage,
   savedDetailPageGenerationId,
   agentHistory,
@@ -263,6 +266,7 @@ export default function ProductTabContent({
         <ThumbnailWorkspaceTab
           editData={editData}
           contentWorkspaceId={contentWorkspaceId}
+          salesProductId={salesProductId}
           thumbnailUrl={thumbnailUrl}
           selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
           savedRepresentativeThumbnailUrl={savedRepresentativeThumbnailUrl}

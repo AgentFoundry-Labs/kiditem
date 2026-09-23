@@ -659,6 +659,7 @@ export function ProductWorkspaceScreen({
               selectedBoldVerticalId={selectedBoldVerticalId}
               selectedAgentId={selectedAgentId}
               contentWorkspaceId={effectiveContentWorkspaceId}
+              salesProductId={salesProductId}
               hasSavedDetailPage={hasSavedDetailPage}
               savedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
               agentHistory={agentHistory}

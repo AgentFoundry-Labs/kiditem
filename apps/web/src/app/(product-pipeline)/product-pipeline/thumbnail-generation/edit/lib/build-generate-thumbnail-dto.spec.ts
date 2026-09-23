@@ -124,6 +124,39 @@ describe('buildGenerateThumbnailDto', () => {
     expect(dto).not.toHaveProperty('sourceCandidateId');
   });
 
+  it('sends the sales-product id, not a workspace, for work opened from a draft without a workspace', () => {
+    const slots: Slot[] = [
+      {
+        id: 'slot-product',
+        kind: 'product',
+        label: 'Main product',
+        role: 'product',
+        value: 'https://cdn.example.com/source.jpg',
+        source: 'upload',
+      },
+    ];
+
+    const dto = buildGenerateThumbnailDto({
+      mode: 'edit',
+      slots,
+      subject: { kind: 'sales-product-draft', salesProductId: 'sales-product-1' },
+      contentWorkspaceId: null,
+      supplementaryLabel: '박스',
+      pieceCount: null,
+      imageOnly: true,
+      userPrompt: '',
+      sceneType: 'white-studio',
+      styleType: 'minimal',
+      productDescription: '',
+      productName: '쭉쭉붙이는터치등',
+      effectiveProductImage: null,
+      layout: 'auto',
+    });
+
+    expect(dto.salesProductId).toBe('sales-product-1');
+    expect(dto.contentWorkspaceId).toBeUndefined();
+  });
+
   it('accepts ThumbnailSubject as the identity Interface', () => {
     const subject: ThumbnailSubject = {
       kind: 'content-workspace',
