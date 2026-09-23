@@ -8,8 +8,9 @@ import type { DataMigration } from '../types';
  * (`product_registration_executions`, `execution_kind = 'thumbnail_update'`),
  * before the schema push drops the attempt table.
  *
- * Each attempt becomes one execution keyed `thumbnail_update:legacy:<attempt id>`
- * (so a rerun inserts nothing). `uploaded` is a success, `failed` a definitive
+ * Each attempt becomes one execution. An Agent attempt keeps the runtime key
+ * `thumbnail_update:<owner key>`, so the same owner-key replay finds it; a browser
+ * attempt is keyed `thumbnail_update:legacy:<attempt id>`. A rerun inserts nothing. `uploaded` is a success, `failed` a definitive
  * failure, and anything else is an unknown outcome left `reconciling`. The frozen
  * payload is rebuilt from the generation, its workspace and its selected image
  * (`sha256: 'legacy'` — the bytes were never hashed). The account is the
@@ -88,7 +89,7 @@ export const moveThumbnailRegistrationAttemptsToExecutionsMigration: DataMigrati
         ) VALUES (
           gen_random_uuid(), ${attempt.organizationId}::uuid, ${account.channelAccountId}::uuid,
           NULL, 'thumbnail_update',
-          ${`thumbnail_update:legacy:${attempt.id}`}, ${attempt.requestHash ?? payloadHash}, ${attempt.ownerIdempotencyKey},
+          ${executionIdempotencyKey(attempt)}, ${attempt.requestHash ?? payloadHash}, ${attempt.ownerIdempotencyKey},
           ${JSON.stringify(payload)}::jsonb, ${payloadHash},
           ${transition.status}, ${transition.providerOutcome}, ${JSON.stringify(resultJson)}::jsonb,
           ${transition.errorCode}, ${transition.status === 'succeeded' ? null : attempt.errorMessage},
@@ -166,7 +167,10 @@ async function readAttempts(tx: Prisma.TransactionClient): Promise<LegacyAttempt
       EXISTS (
         SELECT 1 FROM product_registration_executions e
         WHERE e.organization_id = a.organization_id
-          AND e.idempotency_key = 'thumbnail_update:legacy:' || a.id::text
+          AND e.idempotency_key = CASE
+            WHEN a.owner_idempotency_key IS NOT NULL THEN 'thumbnail_update:' || a.owner_idempotency_key
+            ELSE 'thumbnail_update:legacy:' || a.id::text
+          END
       ) AS "alreadyMoved",
       w.id::text AS "workspaceId",
       w.display_name AS "workspaceDisplayName",
@@ -194,6 +198,16 @@ async function readAttempts(tx: Prisma.TransactionClient): Promise<LegacyAttempt
       ON l.id = w.channel_listing_id AND l.organization_id = w.organization_id
     ORDER BY a.created_at, a.id
   `;
+}
+
+/**
+ * Agent 시도는 런타임과 같은 `thumbnail_update:<owner key>` 를 써서 같은 owner 키의 재생이 이 실행을
+ * 찾게 한다. 화면 시도는 `thumbnail_update:legacy:<attempt id>` 다.
+ */
+function executionIdempotencyKey(attempt: LegacyAttempt): string {
+  return attempt.ownerIdempotencyKey
+    ? `thumbnail_update:${attempt.ownerIdempotencyKey}`
+    : `thumbnail_update:legacy:${attempt.id}`;
 }
 
 function legacyTransition(status: string): {

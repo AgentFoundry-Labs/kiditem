@@ -8,6 +8,15 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
+import type { PrismaService } from '../../prisma/prisma.service';
+import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
+import { RegistrableThumbnailRepositoryAdapter } from '../../content/adapter/out/repository/registrable-thumbnail.repository.adapter';
+import { RegistrableThumbnailService } from '../../content/application/service/registrable-thumbnail.service';
+import { fakeStorageImageFetch } from '../../content/__tests__/helpers/fake-storage-image-fetch';
+import { RegistrableThumbnailAdapter } from '../adapter/out/content/registrable-thumbnail.adapter';
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import { ThumbnailExecutionPersistenceAdapter } from '../adapter/out/persistence/thumbnail-execution.persistence.adapter';
+import { ThumbnailExecutionService } from '../application/service/registration/thumbnail-execution.service';
 import { moveThumbnailRegistrationAttemptsToExecutionsMigration as migration } from '../../../../../scripts/data-migrations/v0.1.31/026_move_thumbnail_registration_attempts_to_executions';
 
 const ROLLBACK = new Error('rollback legacy schema');
@@ -151,7 +160,8 @@ describe('v0.1.31:026 thumbnail registration attempts → thumbnail_update execu
     expect(running).toMatchObject({
       status: 'reconciling', providerOutcome: 'uncertain', lastErrorCode: 'thumbnail_outcome_unknown', lastErrorMessage: 'port closed',
       ownerIdempotencyKey: 'capability-invocation:x', requestHash: 'a'.repeat(64), completedAt: null,
-      idempotencyKey: `thumbnail_update:legacy:${result.running}`,
+      // owner 키가 있으면 런타임과 같은 멱등 키라 Agent 재생이 이 실행을 찾는다.
+      idempotencyKey: 'thumbnail_update:capability-invocation:x',
     });
   }, 60_000);
 
@@ -198,6 +208,46 @@ describe('v0.1.31:026 thumbnail registration attempts → thumbnail_update execu
       status: 'reconciling', channelListingId: null,
       submissionPayloadJson: expect.objectContaining({ channelListingId: result.busy.listing.id }),
     });
+  }, 60_000);
+
+  it('keeps an Agent owner key replayable: after the move the same key and hash answer the recorded result without an upload', async () => {
+    const generationRef: { id?: string } = {};
+    const ownerKey = `capability-invocation:${randomUUID()}`;
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`CREATE TABLE thumbnail_registration_attempts (
+          id uuid PRIMARY KEY, organization_id uuid NOT NULL, generation_id uuid NOT NULL, status text NOT NULL,
+          owner_idempotency_key text, request_hash text, error_message text, screenshot_url text, external_id text,
+          started_at timestamptz, finished_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+        )`;
+        const listed = await listingGeneration(tx);
+        generationRef.id = listed.generation.id;
+        await attempt(tx, {
+          generationId: listed.generation.id, status: 'uploaded', ownerKey,
+          requestHash: canonicalOwnerInputHash({ generationId: listed.generation.id }), screenshot: '/tmp/legacy.png',
+        });
+        await migration.run(tx, { target: 'office' });
+      }, { timeout: 30_000 });
+
+      const db = prisma as PrismaService;
+      let uploads = 0;
+      const service = new ThumbnailExecutionService(
+        new RegistrableThumbnailAdapter(new RegistrableThumbnailService(new RegistrableThumbnailRepositoryAdapter(db), fakeStorageImageFetch(new Map()))),
+        new ThumbnailExecutionPersistenceAdapter(db),
+        { isBlocked: () => false, upload: async () => { uploads += 1; return { outcome: 'uploaded_pending_save', screenshotPath: null }; } },
+        new ChannelIntegrityAdapter(),
+      );
+      const generationId = generationRef.id!;
+      await expect(service.runOnServer({
+        organizationId: ORG, requestedByUserId: null, generationId,
+        owner: { ownerIdempotencyKey: ownerKey, requestHash: canonicalOwnerInputHash({ generationId }) },
+      })).resolves.toMatchObject({ generationId, success: true, status: 'succeeded', screenshotPath: '/tmp/legacy.png' });
+      expect(uploads).toBe(0);
+      expect(await prisma.productRegistrationExecution.findFirstOrThrow({ where: { executionKind: 'thumbnail_update' } }))
+        .toMatchObject({ idempotencyKey: `thumbnail_update:${ownerKey}`, ownerIdempotencyKey: ownerKey });
+    } finally {
+      await prisma.$executeRaw`DROP TABLE IF EXISTS thumbnail_registration_attempts`;
+    }
   }, 60_000);
 
   it('moves nothing twice and reports the earlier move on a rerun', async () => {

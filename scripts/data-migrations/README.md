@@ -285,7 +285,8 @@ deployment data-loss policy.
 `026_move_thumbnail_registration_attempts_to_executions` runs before the schema
 push drops `thumbnail_registration_attempts`. Each attempt becomes one
 `product_registration_executions` row with `execution_kind='thumbnail_update'`
-and idempotency key `thumbnail_update:legacy:<attempt id>`: `uploaded` becomes
+and idempotency key `thumbnail_update:<owner key>` for an Agent attempt (so the
+same owner-key replay finds it) or `thumbnail_update:legacy:<attempt id>`: `uploaded` becomes
 `succeeded`, `failed` becomes a `definitive_failure`, and anything else an
 `uncertain` execution left `reconciling`. The listing stays in the frozen payload
 only (`channel_listing_id` is NULL), so a moved row never takes a listing's live
