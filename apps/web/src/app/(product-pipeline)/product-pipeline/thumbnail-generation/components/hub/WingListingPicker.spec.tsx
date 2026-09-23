@@ -52,4 +52,20 @@ describe('WingListingPicker', () => {
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(apiClient.get).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/listing-choices?generationId=${G1}`);
   });
+
+  it('keeps the picker open when the upload with the chosen listing did not reach Wing', async () => {
+    vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
+    // 확장은 올렸다고 답했지만 서버는 그 보고를 받아들이지 않은 경우(도달 안 함).
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+    vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href === '/api/channels/thumbnail-executions'
+      ? { executionId: EXECUTION, generationId: G1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
+      : { generationId: G1, executionId: EXECUTION, success: false, status: 'failed', screenshotPath: null, error: '로그인 필요' }));
+    const onDone = renderPicker();
+
+    fireEvent.click(await screen.findByRole('button', { name: '이 listing 으로 올리기' }));
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/report`, expect.anything()));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(onDone).not.toHaveBeenCalled();
+  });
 });

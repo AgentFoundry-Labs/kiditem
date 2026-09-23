@@ -43,8 +43,11 @@ export function WingListingPicker({ generationId, onDone }: { generationId: stri
         onClick={() => {
           register.mutate({ generationId, channelListingId: selected }, {
             onSuccess: (result) => {
-              if (wingUploadReached(result)) toast.success('Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요');
-              else toast.error(result.error ?? 'Wing 업로드 실패');
+              if (!wingUploadReached(result)) {
+                toast.error(result.error ?? 'Wing 업로드 실패');
+                return;
+              }
+              toast.success('Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요');
               onDone();
             },
             onError: (error) => toast.error(error instanceof Error ? error.message : 'Wing 업로드 실패'),
