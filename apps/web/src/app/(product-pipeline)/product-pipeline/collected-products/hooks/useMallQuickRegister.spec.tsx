@@ -1,22 +1,21 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { queryKeys } from '@/lib/query-keys';
+import {
+  DRAFT_ID,
+  EMPTY_REGISTRATION_MEDIA,
+  draftRoutes,
+  salesProductDraft,
+  sourcingCandidateResponse,
+} from '@/test/fixtures/sales-product-draft';
 
-const mockGetDetail = vi.hoisted(() => vi.fn());
-
-vi.mock(
-  '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api',
-  async (importOriginal) => ({
-    ...(await importOriginal<Record<string, unknown>>()),
-    productsApi: { getDetail: mockGetDetail },
-  }),
-);
+const api = vi.hoisted(() => ({ get: vi.fn(), getParsed: vi.fn() }));
+vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
 import { useMallQuickRegister } from './useMallQuickRegister';
 
-const CANDIDATE = '7dbe40a5-8684-4347-b790-c54f014f627d';
+const routes = draftRoutes();
 
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
@@ -24,27 +23,21 @@ function wrapper(client: QueryClient) {
   };
 }
 
-function detail(basics: Record<string, unknown> = {}) {
-  return {
-    id: CANDIDATE,
-    name: '할로윈 LED 거미줄',
-    status: 'sourced',
-    price_krw: 3500,
-    thumbnail_url: null,
-    thumbnailUrl: null,
-    processed_data: null,
-    basicInfo: {
-      name: '할로윈 LED 거미줄',
-      category: '',
-      tags: [],
-      keywords: [],
-      thumbnailUrls: [],
-      originalPrice: 0,
-      salePrice: 3500,
-      discountRate: 0,
-      ...basics,
-    },
-  };
+function serveDraft(salePrice: number | null) {
+  api.getParsed.mockImplementation(async (url: string) => {
+    if (url === routes.draft) {
+      return salesProductDraft({
+        name: '할로윈 LED 거미줄',
+        options: [{ ...salesProductDraft().options[0]!, salePrice, normalPrice: null }],
+      });
+    }
+    throw new Error(`unexpected getParsed ${url}`);
+  });
+  api.get.mockImplementation(async (url: string) => {
+    if (url === routes.candidate) return sourcingCandidateResponse({ sellPrice: 3500 });
+    if (url === routes.media) return EMPTY_REGISTRATION_MEDIA;
+    throw new Error(`unexpected get ${url}`);
+  });
 }
 
 describe('useMallQuickRegister', () => {
@@ -58,45 +51,21 @@ describe('useMallQuickRegister', () => {
 
   const render = (queryClient: QueryClient) =>
     renderHook(
-      () => useMallQuickRegister({ candidateId: CANDIDATE, enabled: true }),
+      () => useMallQuickRegister({ salesProductId: DRAFT_ID, enabled: true }),
       { wrapper: wrapper(queryClient) },
     );
 
-  it('⭐ 상세 캐시를 워크스페이스 모양으로 남긴다 — 상품 상세 화면과 같은 키를 쓴다', async () => {
-    // 회귀(라이브 2026-09-10): 이 훅이 같은 키(`sourcing.detail(id)`)에 **날것의**
-    // 상세 응답을 써 넣었더니, 모달을 연 뒤 상품 상세로 들어갔을 때
-    // `fetchedData.product` 가 undefined 가 되어 화면이 통째로 죽었다.
-    // 캐시 모양은 `useProductDetail` 이 소유한다 — 여기서 다시 만들지 않는다.
-    mockGetDetail.mockResolvedValue(detail());
-    const queryClient = client();
-    const hook = render(queryClient);
-
-    await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
-    const cached = queryClient.getQueryData(queryKeys.sourcing.detail(CANDIDATE)) as
-      | { product?: { basicInfo?: unknown }; editState?: unknown }
-      | undefined;
-    expect(cached?.product?.basicInfo).toBeDefined();
-    expect(cached?.editState).toBeDefined();
-  });
-
-  it('상품 상세에 저장한 몰별 값을 읽어 쓴다', async () => {
-    mockGetDetail.mockResolvedValue(detail({
-      mallRegisterValues: {
-        '11st': { categoryPath: '문구/사무용품>디자인/팬시용품>기능성 팬시' },
-        always: { teamPrice: '1800' },
-      },
-    }));
+  it('판매상품 초안 id 로 상세를 읽는다 — 후보 id 로 묻지 않는다', async () => {
+    serveDraft(3500);
     const hook = render(client());
 
     await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
-    expect(hook.result.current.values.byMall['11st']?.categoryPath)
-      .toBe('문구/사무용품>디자인/팬시용품>기능성 팬시');
-    // 저장한 값을 채우면 모든 폼 몰이 열린다.
-    expect(hook.result.current.readiness.every((row) => row.ready)).toBe(true);
+    expect(api.getParsed).toHaveBeenCalledWith(routes.draft, expect.anything());
+    expect(api.get.mock.calls.map(([url]) => url).sort()).toEqual([routes.candidate, routes.media].sort());
   });
 
   it('값이 없으면 그 몰만 막고 이유를 남긴다', async () => {
-    mockGetDetail.mockResolvedValue(detail());
+    serveDraft(3500);
     const hook = render(client());
 
     await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
@@ -109,7 +78,7 @@ describe('useMallQuickRegister', () => {
   it('판매가는 상세에서 읽는다 — 목록에는 가격 칸이 없다', async () => {
     // 셀피아 이름매칭이 실패하면 상세 판매가가 0 으로 온다. 0 을 0원 상품으로 읽으면
     // 멀쩡한 상품이 막히므로 "모른다"로 접고 목록 값으로 폴백한다.
-    mockGetDetail.mockResolvedValue(detail({ salePrice: 0 }));
+    serveDraft(null);
     const hook = render(client());
 
     await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
@@ -119,7 +88,8 @@ describe('useMallQuickRegister', () => {
   });
 
   it('상세를 못 읽는 동안에는 버튼을 열지 않는다', () => {
-    mockGetDetail.mockReturnValue(new Promise(() => {}));
+    api.getParsed.mockReturnValue(new Promise(() => {}));
+    api.get.mockReturnValue(new Promise(() => {}));
     const hook = render(client());
     expect(hook.result.current.isLoading).toBe(true);
   });

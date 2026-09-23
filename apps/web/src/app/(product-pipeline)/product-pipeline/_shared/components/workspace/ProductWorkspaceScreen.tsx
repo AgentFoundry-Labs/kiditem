@@ -165,7 +165,6 @@ export function ProductWorkspaceScreen({
   const detailGenerationContentWorkspaceId =
     contentWorkspaceId
     ?? registrationTarget?.sourceContentWorkspaceId
-    ?? product?.contentWorkspaceId
     ?? null;
   const detailGenerationSourceCandidateId =
     detailGenerationContentWorkspaceId ? null : productId;
@@ -600,7 +599,7 @@ export function ProductWorkspaceScreen({
         productName={editData.name || '(상품명 없음)'}
         productId={productId}
         salesProductId={salesProductId}
-        status={product?.status}
+        status={product?.status ?? undefined}
         registrationTarget={registrationTarget}
         registrationState={registrationState}
         basicInfo={product?.basicInfo ?? null}
@@ -672,7 +671,7 @@ export function ProductWorkspaceScreen({
               initialAgentHistory={initialAgentHistory}
               generationHistoryQueryEnabled={generationHistoryQueryEnabled}
               thumbnailSourceCandidateId={thumbnailSourceCandidateId}
-              detailEditorSourceCandidateId={thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId}
+              detailEditorSalesProductId={salesProductId}
               detailEditorReturnHref={selfHref}
               onSelectKidsPlayful={(id) => {
                 setSelectedKidsPlayfulId(id);

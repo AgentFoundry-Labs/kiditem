@@ -36,7 +36,6 @@ import {
   stripSrcDocScripts,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/preview-sandbox';
 import {
-  collectedProductDetailHref,
   detailPageEditorHref,
   registeredProductDetailHref,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
@@ -349,14 +348,11 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
   const isPreviewLoading = isEntryLoading || templateCss == null || !editedHtmlLoaded;
   const editorHref = useMemo(
     () => {
-      const sourceCandidateId = sourceCandidateIdFromGeneration(previewEntry);
-      const returnTo = sourceCandidateId
-        ? collectedProductDetailHref(sourceCandidateId)
-        : previewEntry.contentWorkspaceId
-          ? registeredProductDetailHref(previewEntry.contentWorkspaceId)
-          : null;
+      // 생성 이력은 판매상품 초안 id 를 모른다 — 원천 기록 id 로 수집상품 화면을 열지 않는다(KID-310).
+      const returnTo = previewEntry.contentWorkspaceId
+        ? registeredProductDetailHref(previewEntry.contentWorkspaceId)
+        : null;
       return detailPageEditorHref({
-        candidateId: sourceCandidateId,
         generationId: previewEntry.id,
         returnTo,
       });
@@ -529,21 +525,3 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
   );
 }
 
-function sourceCandidateIdFromGeneration(entry: KidsPlayfulGenerationItem): string | null {
-  if (entry.sourceCandidateId) return entry.sourceCandidateId;
-  const rawInput = entry.rawInput;
-  if (!rawInput || typeof rawInput !== 'object') return null;
-  const sourceReferences = (rawInput as { sourceReferences?: unknown }).sourceReferences;
-  if (!Array.isArray(sourceReferences)) return null;
-  for (const ref of sourceReferences) {
-    if (
-      ref &&
-      typeof ref === 'object' &&
-      (ref as { sourceType?: unknown }).sourceType === 'sourcing_candidate' &&
-      typeof (ref as { sourceCandidateId?: unknown }).sourceCandidateId === 'string'
-    ) {
-      return (ref as { sourceCandidateId: string }).sourceCandidateId;
-    }
-  }
-  return null;
-}

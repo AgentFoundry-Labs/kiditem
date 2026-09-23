@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { ProductInboxToolbar } from '@/app/(product-pipeline)/product-pipeline/_shared/components/inbox/ProductInboxToolbar';
-import type { SourcingSort } from '../../lib/sourcing-api';
 import {
   SOURCING_SOURCE_FILTERS,
   type SourcingSourceFilter,
@@ -11,9 +10,7 @@ import {
 interface Props {
   showScrapeInput: boolean;
   onToggleScrapeInput: () => void;
-  sort: SourcingSort;
   pageSize: number;
-  onSortChange: (sort: SourcingSort) => void;
   onPageSizeChange: (pageSize: number) => void;
   sourceFilter: SourcingSourceFilter;
   onSourceFilterChange: (sourceFilter: SourcingSourceFilter) => void;
@@ -22,9 +19,7 @@ interface Props {
 export default function SourcingToolbar({
   showScrapeInput,
   onToggleScrapeInput,
-  sort,
   pageSize,
-  onSortChange,
   onPageSizeChange,
   sourceFilter,
   onSourceFilterChange,
@@ -34,13 +29,7 @@ export default function SourcingToolbar({
       tabs={SOURCING_SOURCE_FILTERS}
       activeTab={sourceFilter}
       onTabChange={onSourceFilterChange}
-      sort={sort}
-      sortOptions={[
-        { value: 'newest', label: '최신순' },
-        { value: 'oldest', label: '오래된순' },
-        { value: 'name_asc', label: '상품명순' },
-      ]}
-      onSortChange={onSortChange}
+      // 초안 목록은 서버가 최근 수정순 하나로만 준다 — 고를 정렬이 없다.
       pageSize={pageSize}
       onPageSizeChange={onPageSizeChange}
       actions={

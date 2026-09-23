@@ -85,7 +85,6 @@ describe('resolveGenerateOwnerInputs', () => {
       initialTitle: '',
       initialContentWorkspaceId: null,
       sourceReferences: [],
-      primarySourceCandidateId: null,
     });
   });
 
@@ -102,7 +101,6 @@ describe('resolveGenerateOwnerInputs', () => {
         sourceType: 'sourcing_candidate',
         sourceCandidateId: 'candidate-1',
       }],
-      primarySourceCandidateId: 'candidate-1',
     });
   });
 });

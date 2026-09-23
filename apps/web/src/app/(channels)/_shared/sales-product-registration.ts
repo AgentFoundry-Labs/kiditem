@@ -7,7 +7,7 @@ import {
   type MallProductVariant,
 } from '../../(product-pipeline)/product-pipeline/_shared/lib/mall-product-draft';
 import { prepareMallRegistration } from '../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
-import type { MallPublishItem } from './mall-publish-adapter';
+import { publishItemSalesProductId, type MallPublishItem } from './mall-publish-adapter';
 
 /**
  * 판매상품(ADR-0014) → 몰 중립 등록 초안.
@@ -237,5 +237,5 @@ export async function prepareRegistration(
     if (draft.detailImageUrls.length === 0) throw new Error('상세 이미지가 없습니다. 판매상품 상세에 이미지를 넣으세요.');
     return { draft };
   }
-  return prepareMallRegistration(item.candidateId);
+  return prepareMallRegistration(publishItemSalesProductId(item));
 }

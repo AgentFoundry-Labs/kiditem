@@ -10,7 +10,6 @@ import {
   type KidsPlayfulGenerationItem,
 } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import {
-  collectedProductDetailHref,
   detailPageEditorHref,
   registeredProductDetailHref,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
@@ -56,14 +55,11 @@ export default function GenerationCompletionWatcher() {
         notifiedGenerationIdsRef.current.add(entry.id);
 
         const isBoldVertical = entry.templateId === 'bold-vertical';
-        const sourceCandidateId = sourceCandidateIdFromGeneration(entry);
-        const returnTo = sourceCandidateId
-          ? collectedProductDetailHref(sourceCandidateId)
-          : entry.contentWorkspaceId
-            ? registeredProductDetailHref(entry.contentWorkspaceId)
-            : null;
+        // 생성 이력은 판매상품 초안 id 를 모른다 — 원천 기록 id 로 수집상품 화면을 열지 않는다(KID-310).
+        const returnTo = entry.contentWorkspaceId
+          ? registeredProductDetailHref(entry.contentWorkspaceId)
+          : null;
         const editorUrl = detailPageEditorHref({
-          candidateId: sourceCandidateId,
           generationId: entry.id,
           returnTo,
         });
@@ -122,20 +118,3 @@ function showDetailGenerationToast(input: {
   });
 }
 
-function sourceCandidateIdFromGeneration(entry: KidsPlayfulGenerationItem): string | null {
-  const rawInput = entry.rawInput;
-  if (!rawInput || typeof rawInput !== 'object') return null;
-  const sourceReferences = (rawInput as { sourceReferences?: unknown }).sourceReferences;
-  if (!Array.isArray(sourceReferences)) return null;
-  for (const ref of sourceReferences) {
-    if (
-      ref &&
-      typeof ref === 'object' &&
-      (ref as { sourceType?: unknown }).sourceType === 'sourcing_candidate' &&
-      typeof (ref as { sourceCandidateId?: unknown }).sourceCandidateId === 'string'
-    ) {
-      return (ref as { sourceCandidateId: string }).sourceCandidateId;
-    }
-  }
-  return null;
-}

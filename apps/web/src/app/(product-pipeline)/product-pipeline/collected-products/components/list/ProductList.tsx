@@ -1,12 +1,12 @@
 'use client';
 
 import { ProductInboxListFrame } from '@/app/(product-pipeline)/product-pipeline/_shared/components/inbox/ProductInboxListFrame';
+import type { SalesProductListItem } from '@kiditem/shared/sales-product';
 import ProductCard from './ProductCard';
-import { isInProgress, type SourcedProduct } from '../../lib/sourcing-api';
 
 interface Props {
   isLoading: boolean;
-  products: SourcedProduct[];
+  products: SalesProductListItem[];
   processingIds: Set<string>;
   deletingIds: Set<string>;
   selectedIds: Set<string>;
@@ -66,7 +66,7 @@ export default function ProductList({
         <ProductCard
           key={product.id}
           product={product}
-          isProcessing={processingIds.has(product.id) || isInProgress(product.status)}
+          isProcessing={processingIds.has(product.id)}
           isDeleting={deletingIds.has(product.id)}
           selected={selectedIds.has(product.id)}
           onDelete={onDelete}

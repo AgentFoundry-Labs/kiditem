@@ -51,7 +51,7 @@ interface DetailPageWorkspaceTabProps {
     selectedDetailPageArtifactId?: string | null;
     selectedDetailPageRevisionId?: string | null;
   }) => Promise<void> | void;
-  detailEditorSourceCandidateId?: string | null;
+  detailEditorSalesProductId?: string | null;
   detailEditorReturnHref: string;
   mobilePreviewData: ProductRegistrationPreviewData;
   onPreviewHtmlChange?: (html: string | null) => void;
@@ -70,7 +70,7 @@ export default function DetailPageWorkspaceTab({
   generationQueryProductId,
   generationQuerySourceCandidateId = null,
   generationQueryContentWorkspaceId = null,
-  detailEditorSourceCandidateId,
+  detailEditorSalesProductId,
   detailEditorReturnHref,
   mobilePreviewData,
   onPreviewHtmlChange,
@@ -254,7 +254,7 @@ export default function DetailPageWorkspaceTab({
               savedDetailPageGenerationId={selectedPreviewGenerationId}
               initialAgentHistory={initialAgentHistory}
               generationHistoryQueryEnabled={generationHistoryQueryEnabled}
-              detailEditorSourceCandidateId={detailEditorSourceCandidateId}
+              detailEditorSalesProductId={detailEditorSalesProductId}
               detailEditorReturnHref={detailEditorReturnHref}
               mobilePreviewData={mobilePreviewData}
               onPreviewHtmlChange={onPreviewHtmlChange}

@@ -70,7 +70,7 @@ interface Props {
   savedDetailPageGenerationId?: string | null;
   initialAgentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
-  detailEditorSourceCandidateId?: string | null;
+  detailEditorSalesProductId?: string | null;
   detailEditorReturnHref: string;
   mobilePreviewData: ProductRegistrationPreviewData;
   onPreviewHtmlChange?: (html: string | null) => void;
@@ -158,7 +158,7 @@ export default function DetailPagePreview({
   savedDetailPageGenerationId = null,
   initialAgentHistory,
   generationHistoryQueryEnabled = true,
-  detailEditorSourceCandidateId,
+  detailEditorSalesProductId,
   detailEditorReturnHref,
   onPreviewHtmlChange,
 }: Props) {
@@ -212,13 +212,13 @@ export default function DetailPagePreview({
   });
   const editorHref = useMemo(() => {
     const generationId = effectiveDetailPageGenerationId;
-    if (!generationId && !detailEditorSourceCandidateId) return null;
+    if (!generationId && !detailEditorSalesProductId) return null;
     return detailPageEditorHref({
-      candidateId: detailEditorSourceCandidateId,
+      salesProductId: detailEditorSalesProductId,
       generationId,
       returnTo: detailEditorReturnHref,
     });
-  }, [detailEditorReturnHref, detailEditorSourceCandidateId, effectiveDetailPageGenerationId]);
+  }, [detailEditorReturnHref, detailEditorSalesProductId, effectiveDetailPageGenerationId]);
 
   const hasCurrentSavedDetailPage =
     hasSavedDetailPage ?? Boolean(effectiveDetailPageGenerationId || editedHtml);

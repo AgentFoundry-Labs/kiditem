@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { SalesProductListItem } from '@kiditem/shared/sales-product';
 import { FileSpreadsheet, Loader2, RefreshCw, Store, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -13,6 +14,7 @@ import { MallSheetDialog } from '@/components/mall-sheet/MallSheetDialog';
 import { Pagination } from '@/components/ui/Pagination';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   collectedProductDetailHref,
@@ -30,22 +32,18 @@ import {
 import ProductList from './components/list/ProductList';
 import ScrapeUrlInput from './components/list/ScrapeUrlInput';
 import SourcingToolbar from './components/list/SourcingToolbar';
-import { useProcessingIds } from './hooks/useProcessingIds';
 import { useScrapeUrl } from './hooks/useScrapeUrl';
 import { useWingRegistrationPreparation } from './hooks/useWingRegistrationPreparation';
 import { registrationExecutionApi } from '../../../(channels)/_shared/registration-execution-api';
 import {
   candidatesApi,
-  isInProgress,
-  productsApi,
   searchSellpiaInventorySkus,
   type QuickProcessTask,
-  type SourcingSort,
 } from './lib/sourcing-api';
 import WingRegistrationConfirmDialog from './components/wing/WingRegistrationConfirmDialog';
 import {
   downloadWingExcel,
-  generateWingExcelForCandidates,
+  generateWingExcelForSalesProducts,
   isConfirmedWingRegistration,
   submitWingRegistration,
   translateWingError,
@@ -56,7 +54,6 @@ import {
 } from './lib/wing-registration-flow';
 import { MallQuickRegisterRows } from './components/MallQuickRegisterRows';
 import { useMallQuickRegister } from './hooks/useMallQuickRegister';
-import { useCandidateMallSheet } from './hooks/useCandidateMallSheet';
 import {
   emptyStateCopyForSourceFilter,
   platformForSourceFilter,
@@ -68,9 +65,11 @@ export default function SourcingPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [sort, setSort] = useState<SourcingSort>('newest');
   const [sourceFilter, setSourceFilter] = useState<SourcingSourceFilter>('all');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // 고른 카드는 페이지를 넘겨도 남는다. 묶음 작업(몰 대량등록 · 삭제 · AI 작업)은 이 선택에서
+  // id 를 얻는다 — 지금 페이지에서 찾으면 다른 페이지에서 고른 상품이 빠진다(S5).
+  const [selected, setSelected] = useState<Map<string, SalesProductListItem>>(() => new Map());
+  const selectedIds = new Set(selected.keys());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
   const [quickProcessModalOpen, setQuickProcessModalOpen] = useState(false);
   const [quickProcessTargetIds, setQuickProcessTargetIds] = useState<string[]>([]);
@@ -90,47 +89,42 @@ export default function SourcingPage() {
     onError: (message) => toast.error(message),
   });
 
-  // 몰 대량등록: 고른 수집상품 → 판매상품(이미 만든 것은 그대로) → 몰 대량등록 창.
-  const mallSheet = useCandidateMallSheet();
+  // 몰 대량등록: 고른 카드가 곧 판매상품 초안이라 만들 것 없이 그 id 로 창을 연다.
+  const [mallSheetSalesProductIds, setMallSheetSalesProductIds] = useState<string[] | null>(null);
 
   const scrape = useScrapeUrl();
   const platform = platformForSourceFilter(sourceFilter);
 
+  // 수집상품 한 줄 = 판매상품 초안 한 줄(KID-310 · ADR-0022). 원천 기록(수집상품)은 목록이
+  // 읽지 않는다. 폴링하지 않는다 — 진행 중 생성은 이 화면이 시작한 것만 한 줄로 따로 본다.
+  const listQuery = { status: 'draft' as const, sourcePlatform: platform, page, limit: pageSize };
   const { data: productData, isLoading, isPlaceholderData } = useQuery({
-    queryKey: queryKeys.sourcing.list({
-      page: String(page),
-      limit: String(pageSize),
-      sort,
-      source: sourceFilter,
-    }),
-    queryFn: () => productsApi.list({ page, limit: pageSize, sort, platform }),
+    queryKey: salesProductKeys.list(listQuery),
+    queryFn: () => salesProductApi.list(listQuery),
     placeholderData: previousData => previousData,
-    // 후보 inbox 는 sourced 상태가 작업 대상이다. 진행 중 AI 생성은 별도 배너 쿼리가 맡는다.
-    refetchInterval: (query) => {
-      const items = query.state.data?.items ?? [];
-      return items.some((p) => isInProgress(p.status)) ? 10000 : false;
-    },
   });
   const isRefreshing = isPlaceholderData;
 
   const products = productData?.items ?? [];
   const total = productData?.total ?? 0;
 
-  const { processingIds } = useProcessingIds(products);
-  const quickProcessTargetIdSet = new Set(quickProcessTargetIds);
-  const quickProcessTargetProducts = products.filter((product) => quickProcessTargetIdSet.has(product.id));
+  const quickProcessTargetProducts = quickProcessTargetIds
+    .map((id) => selected.get(id) ?? products.find((product) => product.id === id))
+    .filter((product): product is SalesProductListItem => Boolean(product))
+    .map((product) => ({ id: product.id, name: product.name, thumbnailUrl: product.imageUrl }));
   // 몰별 등록은 어댑터 레지스트리가 그린다. 값은 상품 상세에 저장된 것을 읽는다 —
   // 모달은 값을 묻지 않고 버튼만 세운다.
   const mallRegister = useMallQuickRegister({
-    candidateId: quickProcessTargetIds[0] ?? null,
+    salesProductId: quickProcessTargetIds[0] ?? null,
     enabled: quickProcessModalOpen,
   });
-  const displayedProcessingIds = new Set([...processingIds, ...quickProcessingIds]);
+  const displayedProcessingIds = quickProcessingIds;
 
   const deleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
+    mutationFn: async (items: SalesProductListItem[]) => {
+      const ids = items.map((item) => item.id);
       const results = await Promise.allSettled(
-        ids.map((id) => candidatesApi.delete(id).then(() => id)),
+        items.map((item) => deleteCollectedDraft(item).then(() => item.id)),
       );
       const succeededIds = results
         .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
@@ -146,33 +140,30 @@ export default function SourcingPage() {
         firstFailure: failures[0]?.reason,
       };
     },
-    onMutate: (ids) => {
-      setDeletingIds((prev) => new Set([...prev, ...ids]));
+    onMutate: (items) => {
+      setDeletingIds((prev) => new Set([...prev, ...items.map((item) => item.id)]));
     },
     onSuccess: ({ succeededIds, failedIds, firstFailure }) => {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
+      setSelected((prev) => {
+        const next = new Map(prev);
         succeededIds.forEach((id) => next.delete(id));
         return next;
       });
+      queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      succeededIds.forEach((id) => {
-        queryClient.invalidateQueries({ queryKey: queryKeys.productContent.sourcingLinks(id) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations({ sourceCandidateId: id }) });
-      });
       if (failedIds.length > 0) {
         toast.error(
           failedIds.length === 1 && isApiError(firstFailure)
             ? firstFailure.detail
-            : `${failedIds.length}개 소싱 후보 삭제에 실패했습니다.`,
+            : `${failedIds.length}개 수집상품 삭제에 실패했습니다.`,
         );
       }
     },
-    onError: (err) => toast.error(isApiError(err) ? err.detail : '소싱 후보 삭제에 실패했습니다.'),
-    onSettled: (_data, _err, ids) => {
+    onError: (err) => toast.error(isApiError(err) ? err.detail : '수집상품 삭제에 실패했습니다.'),
+    onSettled: (_data, _err, items) => {
       setDeletingIds((prev) => {
         const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
+        items.forEach((item) => next.delete(item.id));
         return next;
       });
     },
@@ -203,15 +194,13 @@ export default function SourcingPage() {
       const taskLabel = quickProcessTaskLabel(task);
       if (succeededIds.length > 0) {
         succeededIds.forEach((id) => pendingQuickProcessKeys.current.delete(`${task}:${id}`));
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
+        setSelected((prev) => {
+          const next = new Map(prev);
           succeededIds.forEach((id) => next.delete(id));
           return next;
         });
-        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
         succeededIds.forEach((id) => {
-          queryClient.invalidateQueries({ queryKey: queryKeys.productContent.sourcingLinks(id) });
-          queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations({ sourceCandidateId: id }) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.forSalesProduct(id) });
         });
         toast.success(`${succeededIds.length}개 상품의 ${taskLabel} 작업을 시작했습니다.`);
       }
@@ -231,13 +220,12 @@ export default function SourcingPage() {
     },
   });
 
-  const sourcedCount = products.filter((p) => p.status === 'sourced').length;
 
   const runWingRegister = async (ids: string[]): Promise<boolean> => {
     if (ids.length === 0 || wingGenerating) return false;
     setWingGenerating(true);
     try {
-      const { bytes, fileName, productCount } = await generateWingExcelForCandidates(ids);
+      const { bytes, fileName, productCount } = await generateWingExcelForSalesProducts(ids);
       downloadWingExcel(bytes, fileName);
       toast.success(`${productCount}개 상품의 쿠팡 WING 일괄등록 엑셀을 만들었어요`, {
         description: '저장된 WING 카테고리 사용 · 상세페이지는 포함되지 않으므로 WING에서 추가하세요.',
@@ -376,24 +364,30 @@ export default function SourcingPage() {
     setQuickProcessTargetIds([]);
   };
 
-  const setItemSelected = (id: string, selected: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (selected) next.add(id);
+  const setItemSelected = (id: string, isSelected: boolean) => {
+    const item = products.find((product) => product.id === id);
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (isSelected && item) next.set(id, item);
       else next.delete(id);
       return next;
     });
   };
 
-  const toggleVisibleSelection = (selected: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+  const toggleVisibleSelection = (isSelected: boolean) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
       products.forEach((product) => {
-        if (selected) next.add(product.id);
+        if (isSelected) next.set(product.id, product);
         else next.delete(product.id);
       });
       return next;
     });
+  };
+
+  const deleteById = (id: string) => {
+    const item = selected.get(id) ?? products.find((product) => product.id === id);
+    if (item) deleteMutation.mutate([item]);
   };
 
   const openQuickProcessModal = (id: string) => {
@@ -416,21 +410,16 @@ export default function SourcingPage() {
       <GenerationInProgressBannerSlot products={products} />
 
       <ProductPipelineStats
-        draftLabel="등록 대기"
-        totalLabel="전체 후보"
-        draftCount={sourcedCount}
+        draftLabel="판매가 미정"
+        totalLabel="전체 초안"
+        draftCount={productData?.summary.draft ?? 0}
         totalCount={total}
       />
 
       <SourcingToolbar
         showScrapeInput={scrape.showScrapeInput}
         onToggleScrapeInput={scrape.toggleScrapeInput}
-        sort={sort}
         pageSize={pageSize}
-        onSortChange={(nextSort) => {
-          setSort(nextSort);
-          setPage(1);
-        }}
         onPageSizeChange={(nextPageSize) => {
           setPageSize(nextPageSize);
           setPage(1);
@@ -469,16 +458,7 @@ export default function SourcingPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  const salesProductIds = products
-                    .filter((product) => selectedIds.has(product.id) && product.salesProductId)
-                    .map((product) => product.salesProductId!);
-                  if (salesProductIds.length === 0) {
-                    toast.error('선택한 상품에 연결된 판매상품 초안이 없습니다.');
-                    return;
-                  }
-                  mallSheet.start(salesProductIds);
-                }}
+                onClick={() => setMallSheetSalesProductIds([...selectedIds])}
                 className="inline-flex h-9 items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-black text-orange-900 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <FileSpreadsheet size={15} />
@@ -516,12 +496,12 @@ export default function SourcingPage() {
           selectedIds={selectedIds}
           isDeletingSelected={deleteMutation.isPending}
           emptyState={emptyStateCopyForSourceFilter(sourceFilter)}
-          onDelete={(id) => deleteMutation.mutate([id])}
-          onDeleteSelected={() => deleteMutation.mutate([...selectedIds])}
+          onDelete={deleteById}
+          onDeleteSelected={() => deleteMutation.mutate([...selected.values()])}
           onSelectVisible={toggleVisibleSelection}
           onSelectedChange={setItemSelected}
           onNavigate={(id) => router.push(collectedProductDetailHref(id))}
-          onOpenEditor={(id) => router.push(collectedProductEditorHref({ candidateId: id }))}
+          onOpenEditor={(id) => router.push(collectedProductEditorHref({ salesProductId: id }))}
           onOpenQuickProcess={openQuickProcessModal}
           isQuickProcessingSelected={quickProcessMutation.isPending}
         />
@@ -550,11 +530,11 @@ export default function SourcingPage() {
         }
       />
 
-      {mallSheet.salesProductIds && (
+      {mallSheetSalesProductIds && (
         <MallSheetDialog
-          salesProductIds={mallSheet.salesProductIds}
+          salesProductIds={mallSheetSalesProductIds}
           intro="선택한 수집상품의 판매상품 초안을 몰 양식으로 만듭니다."
-          onClose={mallSheet.close}
+          onClose={() => setMallSheetSalesProductIds(null)}
         />
       )}
 
@@ -764,6 +744,19 @@ function quickProcessTaskLabel(task: QuickProcessTask): string {
 }
 
 /**
+ * 수집상품 카드 하나를 지운다.
+ *
+ * 원천 기록(수집상품)이 있는 초안은 원천을 지운다 — 서버가 그 초안을 함께 내린다. 원천이 없는
+ * 초안은 item 5 에서 초안 보관으로 지운다.
+ */
+async function deleteCollectedDraft(item: SalesProductListItem): Promise<void> {
+  if (!item.sourceCandidateId) {
+    throw new Error('원천 기록이 없는 초안은 판매상품 화면에서 정리해 주세요.');
+  }
+  await candidatesApi.delete(item.sourceCandidateId);
+}
+
+/**
  * 리스트 페이지 상단 진행 배너 슬롯.
  *
  * `useAllGenerationsInProgress(null)` 는 productId 필터 없이 Trend+KIDITEM 전체 list polling
@@ -772,7 +765,7 @@ function quickProcessTaskLabel(task: QuickProcessTask): string {
 function GenerationInProgressBannerSlot({
   products,
 }: {
-  products: Array<{ id: string; name: string }>;
+  products: SalesProductListItem[];
 }) {
   const inProgressEntries = useAllGenerationsInProgress(null);
   const cancelGeneration = useKidsPlayfulGenerationCancel();

@@ -451,6 +451,13 @@ export const queryKeys = {
     detailGeneration: (id: string) => ['kp-generations', 'one', id] as const,
     detailGenerationNoop: () => ['kp-generations', 'one', 'noop'] as const,
   },
+  /** 수집상품 화면 — 판매상품 초안 id 로 연다(KID-310 · ADR-0022). */
+  collectedProducts: {
+    all: ['collected-products'] as const,
+    /** 초안 + 원천 기록(수집상품)의 원천 사실. 등록용 사진은 `contentWorkspaces.registrationMedia`. */
+    workspace: (salesProductId: string) =>
+      [...queryKeys.collectedProducts.all, 'workspace', salesProductId] as const,
+  },
   contentWorkspaces: {
     all: ['content-workspaces'] as const,
     list: (params: Record<string, string>) =>
@@ -458,6 +465,8 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.contentWorkspaces.all, 'detail', id] as const,
     forSalesProduct: (salesProductId: string) =>
       [...queryKeys.contentWorkspaces.all, 'sales-product', salesProductId] as const,
+    registrationMedia: (salesProductId: string) =>
+      [...queryKeys.contentWorkspaces.all, 'sales-product', salesProductId, 'registration-media'] as const,
     duplicate: (title: string) =>
       [...queryKeys.contentWorkspaces.all, 'duplicate', title] as const,
   },

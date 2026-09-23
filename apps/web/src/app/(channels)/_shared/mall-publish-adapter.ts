@@ -109,6 +109,17 @@ export interface MallSendInput {
 }
 
 /** Keep the target lease alongside the explicit #554 submit intent. */
+/**
+ * 이 항목의 판매상품 초안 id. 수집상품 항목은 초안 id 를 `salesProductId` 에, 판매상품 항목은
+ * `candidateId` 자리에 싣는다(P2 가 이 둘을 하나로 모은다). 수집상품 쪽 준비 경로도 초안 id 로
+ * 읽는다(KID-310) — 후보 id 로 대신 읽지 않는다.
+ */
+export function publishItemSalesProductId(item: MallPublishItem): string {
+  const salesProductId = item.source === 'sales_product' ? item.candidateId : item.salesProductId;
+  if (!salesProductId) throw new Error('이 수집상품에 연결된 판매상품 초안이 없습니다.');
+  return salesProductId;
+}
+
 export function mallFormExecutionOptions(item: MallPublishItem): {
   submit: true;
   executionContext?: { executionId: string; payloadHash: string; leaseToken: string };

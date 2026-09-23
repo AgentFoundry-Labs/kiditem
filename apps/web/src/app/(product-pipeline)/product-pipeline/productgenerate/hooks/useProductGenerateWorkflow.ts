@@ -17,6 +17,8 @@ import { buildProductGenerationPayload } from '../lib/product-generation-payload
 interface ProductGenerationResponse {
   ok: boolean;
   candidateId: string;
+  /** 만든 판매상품 초안. 수집상품 화면은 이 id 로 연다(KID-310). */
+  salesProductId: string;
   href: string;
   detailGenerationId: string | null;
   thumbnailGenerationId: string | null;
@@ -48,7 +50,7 @@ export function useProductGenerateWorkflow() {
   const queryClient = useQueryClient();
   const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
   const [isRegisteringCandidate, setIsRegisteringCandidate] = useState(false);
-  const [createdCandidateId, setCreatedCandidateId] = useState<string | null>(null);
+  const [createdSalesProductId, setCreatedSalesProductId] = useState<string | null>(null);
   const pendingRequest = useRef<{ fingerprint: string; idempotencyKey: string } | null>(null);
   const form = useGenerateForm({
     successDescription: '생성 요청 후 수집 상품 화면에서 진행 상태를 확인할 수 있습니다.',
@@ -114,14 +116,14 @@ export function useProductGenerateWorkflow() {
         { headers: { 'Idempotency-Key': idempotencyKey } },
       );
       pendingRequest.current = null;
-      setCreatedCandidateId(response.candidateId);
+      setCreatedSalesProductId(response.salesProductId);
       await queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
       form.openGenerationDialog({
         productName: title,
         templateId: selectedTemplateId,
         detailGenerationId: response.detailGenerationId,
         thumbnailGenerationId: response.thumbnailGenerationId,
-        editorUrl: collectedProductDetailHref(response.candidateId),
+        editorUrl: collectedProductDetailHref(response.salesProductId),
       });
     } catch (err) {
       form.setError(isApiError(err) ? err.detail : '상품 생성 요청에 실패했습니다.');
@@ -133,11 +135,9 @@ export function useProductGenerateWorkflow() {
   const handleGenerationDialogAction = async () => {
     const phase = generationDialog?.phase;
     const isCompleted = phase === 'completed';
-    const candidateId = generationDialog?.editorUrl
-      ? new URL(generationDialog.editorUrl, 'http://kiditem.local').searchParams.get('sourceCandidateId')
-      : null;
-    const targetCandidateId = candidateId ?? createdCandidateId;
-    const targetUrl = targetCandidateId ? collectedProductDetailHref(targetCandidateId) : COLLECTED_PRODUCTS_ROOT;
+    const targetUrl = createdSalesProductId
+      ? collectedProductDetailHref(createdSalesProductId)
+      : COLLECTED_PRODUCTS_ROOT;
 
     form.closeGenerationDialog();
 

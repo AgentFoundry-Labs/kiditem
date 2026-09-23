@@ -172,8 +172,8 @@ describe('DetailPagePreview', () => {
           },
         ]}
         generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
       />,
     );
@@ -289,8 +289,8 @@ describe('DetailPagePreview', () => {
           },
         ]}
         generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
       />,
     );
@@ -301,7 +301,7 @@ describe('DetailPagePreview', () => {
     });
     expect(screen.getByRole('link', { name: '에디터에서 편집' })).toHaveAttribute(
       'href',
-      '/product-pipeline/detail-pages/generation-1/editor?sourceCandidateId=candidate-1&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fcandidate-1',
+      '/product-pipeline/detail-pages/generation-1/editor?salesProductId=sales-product-1&returnTo=%2Fproduct-pipeline%2Fcollected-products%2Fsales-product-1',
     );
   });
 
@@ -316,8 +316,8 @@ describe('DetailPagePreview', () => {
         savedDetailPageGenerationId={null}
         initialAgentHistory={[]}
         generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
       />,
     );
@@ -347,8 +347,8 @@ describe('DetailPagePreview', () => {
         hasSavedDetailPage
         initialAgentHistory={[]}
         generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
         onPreviewHtmlChange={onPreviewHtmlChange}
       />,
@@ -374,8 +374,8 @@ describe('DetailPagePreview', () => {
         hasSavedDetailPage
         initialAgentHistory={[]}
         generationHistoryQueryEnabled={false}
-        detailEditorSourceCandidateId="candidate-1"
-        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        detailEditorSalesProductId="sales-product-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/sales-product-1"
         mobilePreviewData={mobilePreviewData}
       />,
     );

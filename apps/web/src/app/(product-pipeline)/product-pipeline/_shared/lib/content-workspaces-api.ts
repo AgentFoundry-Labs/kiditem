@@ -43,6 +43,25 @@ export interface ContentWorkspaceSummary {
   history: ContentWorkspaceHistoryItem[];
 }
 
+/** 초안의 등록용 사진(`ContentAsset.role` 별). 수집 원본(`role = 'source'`)은 담지 않는다. */
+export interface SalesProductRegistrationImages {
+  primary: string[];
+  thumbnail: string[];
+  detail: string[];
+}
+
+/** 초안이 저장해 둔 대표 썸네일. */
+export interface SalesProductCurrentThumbnail {
+  url: string;
+  sourceThumbnailGenerationId: string | null;
+  sourceThumbnailCandidateId: string | null;
+}
+
+export interface SalesProductRegistrationMedia {
+  registrationImages: SalesProductRegistrationImages;
+  currentThumbnail: SalesProductCurrentThumbnail | null;
+}
+
 interface ContentWorkspaceListResponse {
   items: ContentWorkspaceSummary[];
   total: number;
@@ -86,6 +105,16 @@ export const contentWorkspacesApi = {
       `/api/ai/content-workspaces/by-sales-product/${encodeURIComponent(salesProductId)}`,
     );
     return result.workspace;
+  },
+
+  /**
+   * 초안의 등록용 사진과 저장한 대표 썸네일. 콘텐츠를 만든 적이 없으면 빈 목록과 `null` 이다 —
+   * 원천 기록(수집상품)을 거쳐 읽지 않는다.
+   */
+  async getRegistrationMedia(salesProductId: string): Promise<SalesProductRegistrationMedia> {
+    return apiClient.get<SalesProductRegistrationMedia>(
+      `/api/ai/content-workspaces/by-sales-product/${encodeURIComponent(salesProductId)}/registration-media`,
+    );
   },
 
   async checkDuplicate(title: string): Promise<DuplicateContentWorkspaceResponse> {

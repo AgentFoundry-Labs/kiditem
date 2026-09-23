@@ -53,7 +53,7 @@ interface Props {
   initialAgentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
   thumbnailSourceCandidateId?: string | null;
-  detailEditorSourceCandidateId?: string | null;
+  detailEditorSalesProductId?: string | null;
   detailEditorReturnHref?: string;
   onSelectKidsPlayful: (id: string | null) => void;
   onSelectBoldVertical: (id: string | null) => void;
@@ -107,7 +107,7 @@ export default function ProductTabContent({
   initialAgentHistory,
   generationHistoryQueryEnabled = true,
   thumbnailSourceCandidateId,
-  detailEditorSourceCandidateId,
+  detailEditorSalesProductId,
   detailEditorReturnHref,
   onSelectKidsPlayful,
   onSelectBoldVertical,
@@ -296,7 +296,7 @@ export default function ProductTabContent({
           savedDetailPageGenerationId={savedDetailPageGenerationId}
           initialAgentHistory={initialAgentHistory}
           generationHistoryQueryEnabled={generationHistoryQueryEnabled}
-          detailEditorSourceCandidateId={detailEditorSourceCandidateId}
+          detailEditorSalesProductId={detailEditorSalesProductId}
           detailEditorReturnHref={detailEditorReturnHref ?? thumbnailGenerationReturnHref}
           contentWorkspaceId={contentWorkspaceId}
           generationQueryProductId={generationQueryProductId}

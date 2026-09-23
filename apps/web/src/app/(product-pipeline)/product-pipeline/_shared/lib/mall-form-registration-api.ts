@@ -190,10 +190,10 @@ export async function fillMallRegistrationForm(
  * 멈춘다 — 대표이미지나 수집 원본으로 대체하지 않는다.
  */
 export async function prepareMallRegistration(
-  candidateId: string,
+  salesProductId: string,
 ): Promise<{ draft: MallProductDraft; detailImageUrl: string }> {
-  const detail = await productsApi.getDetail(candidateId);
-  const rendered = await prepareSavedCandidateDetailImage(candidateId, detail);
+  const detail = await productsApi.getDetail(salesProductId);
+  const rendered = await prepareSavedCandidateDetailImage(detail);
   const detailImageUrl = requireRenderedDetailImage(rendered);
   const draft = candidateToMallProductDraft({
     detail,
