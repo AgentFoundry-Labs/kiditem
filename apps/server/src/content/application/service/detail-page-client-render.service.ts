@@ -124,11 +124,22 @@ export class DetailPageClientRenderService {
     organizationId: string;
     userId: string;
     contentWorkspaceId: string;
+    /** 등록 대상이 고른 상세 revision(KID-321). 없으면 작업공간의 현재 revision. 이 작업공간의 것이 아니면 400. */
+    detailPageRevisionId?: string | null;
   }): Promise<DetailPageClientRenderPrepareResponse> {
-    const saved = await this.detailPages.findWorkspaceCurrentDetailPageHtml({
-      organizationId: input.organizationId,
-      contentWorkspaceId: input.contentWorkspaceId,
-    });
+    const saved = input.detailPageRevisionId
+      ? await this.detailPages.findWorkspaceDetailPageRevisionHtml({
+        organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
+        revisionId: input.detailPageRevisionId,
+      })
+      : await this.detailPages.findWorkspaceCurrentDetailPageHtml({
+        organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
+      });
+    if (!saved && input.detailPageRevisionId) {
+      throw new BadRequestException('고른 상세 revision 이 이 작업공간의 것이 아닙니다.');
+    }
     if (!saved) {
       return {
         status: 'missing',

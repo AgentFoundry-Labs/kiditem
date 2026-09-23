@@ -461,6 +461,28 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
     };
   }
 
+  async findWorkspaceDetailPageRevisionHtml(input: {
+    organizationId: string;
+    contentWorkspaceId: string;
+    revisionId: string;
+  }): Promise<CandidateDetailPageHtmlSnapshot | null> {
+    const revision = await this.prisma.detailPageRevision.findFirst({
+      where: {
+        id: input.revisionId,
+        organizationId: input.organizationId,
+        artifact: {
+          organizationId: input.organizationId,
+          contentWorkspaceId: input.contentWorkspaceId,
+          isDeleted: false,
+          contentWorkspace: { status: 'active', isDeleted: false },
+        },
+      },
+      select: { id: true, artifactId: true, html: true, createdAt: true },
+    });
+    if (!revision) return null;
+    return { revisionId: revision.id, artifactId: revision.artifactId, html: revision.html, createdAt: revision.createdAt };
+  }
+
   async findDetailPageRevisionHtml(input: {
     organizationId: string;
     revisionId: string;

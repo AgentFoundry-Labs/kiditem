@@ -134,6 +134,12 @@ export interface DetailPageQueryRepositoryPort {
     contentWorkspaceId: string;
     organizationId: string;
   }): Promise<CandidateDetailPageHtmlSnapshot | null>;
+  /** 작업공간에 속한 상세 artifact 의 revision 하나(KID-321). 다른 작업공간 · 지운 artifact 의 것이면 null. */
+  findWorkspaceDetailPageRevisionHtml(input: {
+    organizationId: string;
+    contentWorkspaceId: string;
+    revisionId: string;
+  }): Promise<CandidateDetailPageHtmlSnapshot | null>;
   findDetailPageRevisionHtml(input: {
     organizationId: string;
     revisionId: string;

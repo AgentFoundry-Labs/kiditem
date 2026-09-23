@@ -17,6 +17,7 @@ import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { groupUrlAssetKey } from '../domain/content-asset-key';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
+import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ownerTransaction } from '../../prisma/owner-transaction';
@@ -196,6 +197,31 @@ describe('AI content ownership constraints (PG integration)', () => {
     expect(await prisma.contentWorkspace.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).toBe(0);
+  });
+
+  /** KID-321: 등록 대상이 고른 상세 revision 렌더는 그 작업공간 · 조직의 살아 있는 artifact revision 만 읽는다. */
+  it('reads a chosen detail revision only from the workspace and organization that own it', async () => {
+    const detailPages = new DetailPageQueryRepositoryAdapter(prisma as unknown as PrismaService, {} as never);
+    const workspace = async (organizationId: string, title: string) => {
+      const row = await prisma.contentWorkspace.create({
+        data: { organizationId, ownerType: 'direct_detail_page', displayName: title, normalizedTitle: `${title}-${randomUUID()}` },
+      });
+      const artifact = await prisma.detailPageArtifact.create({ data: { organizationId, contentWorkspaceId: row.id, title } });
+      const revision = await prisma.detailPageRevision.create({ data: { organizationId, artifactId: artifact.id, html: `<p>${title}</p>` } });
+      return { id: row.id, artifactId: artifact.id, revisionId: revision.id };
+    };
+    const mine = await workspace(TEST_ORGANIZATION_ID, 'mine');
+    const sibling = await workspace(TEST_ORGANIZATION_ID, 'sibling');
+    const foreign = await workspace(OTHER_ORGANIZATION_ID, 'foreign');
+    const read = (contentWorkspaceId: string, revisionId: string, organizationId = TEST_ORGANIZATION_ID) =>
+      detailPages.findWorkspaceDetailPageRevisionHtml({ organizationId, contentWorkspaceId, revisionId });
+
+    await expect(read(mine.id, mine.revisionId)).resolves.toMatchObject({ revisionId: mine.revisionId, artifactId: mine.artifactId, html: '<p>mine</p>' });
+    await expect(read(mine.id, sibling.revisionId)).resolves.toBeNull();
+    await expect(read(mine.id, foreign.revisionId)).resolves.toBeNull();
+    await expect(read(foreign.id, foreign.revisionId)).resolves.toBeNull();
+    await prisma.detailPageArtifact.update({ where: { id: mine.artifactId }, data: { isDeleted: true } });
+    await expect(read(mine.id, mine.revisionId)).resolves.toBeNull();
   });
 
   it('rejects a preparation selection that points at another organization', async () => {
