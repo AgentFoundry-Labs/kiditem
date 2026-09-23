@@ -8,7 +8,7 @@ const serverRoot = resolve(__dirname, '../..');
 const requiredOwners = [
   ['sourcing.ingestCandidate', 'sourcing', 'sourcing.ingestCandidate'],
   ['products.create_listing_generation_package', 'products', 'products.createListingGenerationPackage'],
-  ['channels.submit_wing_thumbnail', 'channels', 'channels.submitWingThumbnail'],
+  ['channels.submit_representative_image', 'channels', 'channels.submitRepresentativeImage'],
   ['analytics.readOverview', 'analytics', 'analytics.readOverview'],
   ['supply.create_purchase_order_draft', 'supply', 'supply.createPurchaseOrderDraft'],
   ['supply.submit_purchase_order', 'supply', 'supply.submitPurchaseOrder'],
@@ -47,7 +47,7 @@ describe('KID-25 owner capability boundary', () => {
   it('keeps business capability execution out of Agent and AgentRun wrappers', () => {
     const ownerAdapters = [
       'products/adapter/in/agent/products-listing-generation-capability.adapter.ts',
-      'channels/adapter/in/agent/channels-wing-thumbnail-capability.adapter.ts',
+      'channels/adapter/in/agent/channels-representative-image-capability.adapter.ts',
       'supply/adapter/in/agent/supply-agent-capability.adapter.ts',
       'analytics/adapter/in/agent/analytics-overview-capability.adapter.ts',
       'sourcing/adapter/in/agent/sourcing-capability-composition.adapter.ts',

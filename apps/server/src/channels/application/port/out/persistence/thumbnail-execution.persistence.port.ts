@@ -34,11 +34,17 @@ export interface ThumbnailExecutionPersistencePort {
   }): Promise<{
     listingAccountId: string | null;
     channelListingId: string | null;
-    /** 반영할 listing 의 쿠팡 이름. Wing 에서 상품을 찾는 이름이다. */
+    /** 반영할 listing 의 몰 상품명. 몰 관리자에서 상품을 찾는 이름이다. */
     listingChannelName: string | null;
-    /** 고르지 않았고 작업공간 listing 도 없을 때 판매상품의 살아 있는 쿠팡 listing 수(2 는 "여럿"). */
+    /** 반영할 listing 의 몰 상품 id. 없으면 null. */
+    listingExternalId: string | null;
+    /**
+     * 고르지 않았고 작업공간 listing 도 없을 때 판매상품의 살아 있는 listing 수(2 는 "여럿"). 대표이미지
+     * 반영을 지원하는 채널(registry `representativeImage`)의 listing 만 센다.
+     */
     productListingCount: number;
-    activeCoupangAccountIds: string[];
+    /** 대표이미지 반영을 지원하는 채널의 활성 계정 id 들. */
+    activeAccountIds: string[];
   }>;
   /** 새 실행을 `executing` 으로 만든다. owner 키가 이미 있으면 그 실행을 `replay` 로 돌려준다. */
   createExecuting(input: {

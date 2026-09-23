@@ -239,10 +239,10 @@ interface ManifestSeed {
   note: string;
 }
 
-const MANIFEST_KIND: Record<ChannelRegistryEntry['register'], MallAdapterKind> = {
+const MANIFEST_KIND: Record<ChannelRegistryEntry['delivery'], MallAdapterKind> = {
   api: 'api',
   form: 'extension_form',
-  excel: 'extension_excel',
+  sheet: 'extension_excel',
   // 등록 경로를 아직 모르는 몰과 등록 개념이 없는 채널이 함께 여기 온다. 둘은
   // `applicable` 이 가른다.
   none: 'unknown',
@@ -266,7 +266,7 @@ function manifest(entry: ChannelRegistryEntry, seed: ManifestSeed): MallAdapterM
   return {
     key: entry.key,
     name: entry.name,
-    kind: MANIFEST_KIND[entry.register],
+    kind: MANIFEST_KIND[entry.delivery],
     difficulty: seed.difficulty ?? 'unknown',
     unverified,
     applicable,

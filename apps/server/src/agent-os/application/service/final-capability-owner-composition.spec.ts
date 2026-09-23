@@ -15,7 +15,7 @@ import type {
   ChannelsFinalCapabilityPort,
   ChannelsRegistrationReference,
 } from '../../../channels/application/port/in/capability/channels-final-capability.port';
-import type { ChannelsWingThumbnailCapabilityPort } from '../../../channels/application/port/in/capability/wing-thumbnail.port';
+import type { ChannelsRepresentativeImageCapabilityPort } from '../../../channels/application/port/in/capability/representative-image.port';
 import type { ProductsListingGenerationCapabilityPort } from '../../../products/application/port/in/capability/listing-generation.port';
 import type {
   SourcingFinalCapabilityPort,
@@ -75,8 +75,8 @@ function ownerCompositions() {
       status: 'registered' as const,
     })),
   };
-  const wing: ChannelsWingThumbnailCapabilityPort = {
-    submitWingThumbnail: vi.fn(async () => ({ success: true as const, status: 'succeeded' as const, screenshotPath: null })),
+  const wing: ChannelsRepresentativeImageCapabilityPort = {
+    submitRepresentativeImage: vi.fn(async () => ({ success: true as const, status: 'succeeded' as const, screenshotPath: null })),
   };
   const executions = {
     prepareTargetExecution: vi.fn(),
@@ -186,7 +186,7 @@ describe('owner capability composition', () => {
       context,
       input: { period: 'today' },
     });
-    await registry.resolveImplementation('channels.submit_wing_thumbnail')!.invoke({
+    await registry.resolveImplementation('channels.submit_representative_image')!.invoke({
       context: mutationContext({ generationId: 'generation-1' }),
       input: { generationId: 'generation-1' },
     });
@@ -223,7 +223,7 @@ describe('owner capability composition', () => {
       organizationId: identifiers.organizationId,
       period: 'today',
     });
-    expect(ports.wing.submitWingThumbnail).toHaveBeenCalledWith(
+    expect(ports.wing.submitRepresentativeImage).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: identifiers.organizationId,
         triggeredByUserId: identifiers.userId,

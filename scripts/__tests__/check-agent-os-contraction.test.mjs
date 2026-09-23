@@ -40,7 +40,7 @@ const CAPABILITY_FILES = [
     "apps/server/src/channels/domain/capability/channels.capabilities.ts",
     [
       "channels.register_confirmed_listing",
-      "channels.submit_wing_thumbnail",
+      "channels.submit_representative_image",
       "channels.prepare_target_execution",
       "channels.get_target_execution",
       "channels.start_target_execution",

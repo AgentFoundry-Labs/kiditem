@@ -32,7 +32,7 @@ describe('WingThumbnailRunnerAdapter', () => {
     process.env.NODE_ENV = 'production';
     const runner = new WingThumbnailRunnerAdapter();
     expect(runner.isBlocked()).toBe(true);
-    await expect(runner.upload({ productName: '상품', image })).resolves.toMatchObject({ outcome: 'definitive_failure' });
+    await expect(runner.upload({ listing: { externalListingId: null, productName: '상품' }, image })).resolves.toMatchObject({ outcome: 'definitive_failure' });
     expect(spawned).toHaveLength(0);
   });
 
@@ -40,7 +40,7 @@ describe('WingThumbnailRunnerAdapter', () => {
     process.env.NODE_ENV = 'development';
     const runner = new WingThumbnailRunnerAdapter();
     expect(runner.isBlocked()).toBe(false);
-    const pending = runner.upload({ productName: '쿠팡 상품', image });
+    const pending = runner.upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
     await vi.waitFor(() => expect(spawned).toHaveLength(1));
     expect(fs.readFileSync('/tmp/wing-upload-input-gen-1.png')).toEqual(PNG);
     expect(spawned[0]!.args.at(-1)).toContain('/tmp/wing-upload-input-gen-1.png');
@@ -51,7 +51,7 @@ describe('WingThumbnailRunnerAdapter', () => {
 
   it('reads an ERROR line as a definitive failure', async () => {
     process.env.NODE_ENV = 'development';
-    const pending = new WingThumbnailRunnerAdapter().upload({ productName: '쿠팡 상품', image });
+    const pending = new WingThumbnailRunnerAdapter().upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
     await vi.waitFor(() => expect(spawned).toHaveLength(1));
     spawned[0]!.proc.stdout.emit('data', Buffer.from('ERROR:상품을 찾을 수 없습니다\n'));
     spawned[0]!.proc.emit('close', 1);
@@ -60,7 +60,7 @@ describe('WingThumbnailRunnerAdapter', () => {
 
   it('throws when Playwriter exits with no ERROR line, because the image may already sit in the dropzone', async () => {
     process.env.NODE_ENV = 'development';
-    const pending = new WingThumbnailRunnerAdapter().upload({ productName: '쿠팡 상품', image });
+    const pending = new WingThumbnailRunnerAdapter().upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
     await vi.waitFor(() => expect(spawned).toHaveLength(1));
     spawned[0]!.proc.stderr.emit('data', Buffer.from('Timeout 90000ms exceeded\n'));
     spawned[0]!.proc.emit('close', null, 'SIGTERM');
@@ -69,7 +69,7 @@ describe('WingThumbnailRunnerAdapter', () => {
 
   it('throws when the Playwriter process fails, since the outcome is unknown', async () => {
     process.env.NODE_ENV = 'development';
-    const pending = new WingThumbnailRunnerAdapter().upload({ productName: '쿠팡 상품', image });
+    const pending = new WingThumbnailRunnerAdapter().upload({ listing: { externalListingId: null, productName: '쿠팡 상품' }, image });
     await vi.waitFor(() => expect(spawned).toHaveLength(1));
     spawned[0]!.proc.emit('error', new Error('spawn playwriter EPIPE'));
     await expect(pending).rejects.toThrow('spawn playwriter EPIPE');

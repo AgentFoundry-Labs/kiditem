@@ -93,8 +93,8 @@ import { MALL_PUBLISHING_REPOSITORY_PORT } from './application/port/out/reposito
 import { SELLPIA_RECIPE_EVIDENCE_PORT } from './application/port/out/cross-domain/sellpia-recipe-evidence.port';
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-suggestion-context.repository.port';
 import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-manual-match.repository.port';
-import { ChannelsWingThumbnailCapabilityAdapter } from './adapter/in/agent/channels-wing-thumbnail-capability.adapter';
-import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/capability/wing-thumbnail.port';
+import { ChannelsRepresentativeImageCapabilityAdapter } from './adapter/in/agent/channels-representative-image-capability.adapter';
+import { CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT } from './application/port/in/capability/representative-image.port';
 import { ThumbnailExecutionController } from './adapter/in/web/thumbnail-execution.controller';
 import { ThumbnailExecutionPersistenceAdapter } from './adapter/out/persistence/thumbnail-execution.persistence.adapter';
 import { WingThumbnailRunnerAdapter } from './adapter/out/automation/wing-thumbnail-runner.adapter';
@@ -102,7 +102,7 @@ import { RegistrableThumbnailAdapter } from './adapter/out/content/registrable-t
 import { ThumbnailExecutionService } from './application/service/registration/thumbnail-execution.service';
 import { CHANNELS_THUMBNAIL_EXECUTION_PORT } from './application/port/in/thumbnail-execution.port';
 import { THUMBNAIL_EXECUTION_PERSISTENCE_PORT } from './application/port/out/persistence/thumbnail-execution.persistence.port';
-import { WING_THUMBNAIL_RUNNER_PORT } from './application/port/out/automation/wing-thumbnail-runner.port';
+import { REPRESENTATIVE_IMAGE_RUNNER_PORT } from './application/port/out/automation/representative-image-runner.port';
 import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/content/registrable-thumbnail.port';
 
 @Module({
@@ -171,15 +171,15 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
     { provide: CHANNEL_PRODUCT_AVAILABILITY_PORT, useExisting: ProductAvailabilityAdapter },
     ChannelsProductMappingGenerationAdapter,
     { provide: CHANNELS_PRODUCT_MAPPING_GENERATION_PORT, useExisting: ChannelsProductMappingGenerationAdapter },
-    ChannelsWingThumbnailCapabilityAdapter,
+    ChannelsRepresentativeImageCapabilityAdapter,
     // 대표이미지 몰 반영 실행(thumbnail_update). Content 는 승인 사진만 준다.
     ThumbnailExecutionPersistenceAdapter,
     WingThumbnailRunnerAdapter,
     RegistrableThumbnailAdapter,
     { provide: THUMBNAIL_EXECUTION_PERSISTENCE_PORT, useExisting: ThumbnailExecutionPersistenceAdapter },
-    { provide: WING_THUMBNAIL_RUNNER_PORT, useExisting: WingThumbnailRunnerAdapter },
+    { provide: REPRESENTATIVE_IMAGE_RUNNER_PORT, useExisting: WingThumbnailRunnerAdapter },
     { provide: CHANNEL_REGISTRABLE_THUMBNAIL_PORT, useExisting: RegistrableThumbnailAdapter },
-    { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, WING_THUMBNAIL_RUNNER_PORT, CHANNEL_INTEGRITY_PORT] },
+    { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, REPRESENTATIVE_IMAGE_RUNNER_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: CHANNELS_THUMBNAIL_EXECUTION_PORT, useExisting: ThumbnailExecutionService },
     ChannelDashboardRepositoryAdapter,
     ListingRegistrationPersistenceAdapter,
@@ -200,7 +200,7 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
       provide: CHANNEL_REGISTRATION_PORT,
       useExisting: ChannelRegistrationService,
     },
-    { provide: CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT, useExisting: ChannelsWingThumbnailCapabilityAdapter },
+    { provide: CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT, useExisting: ChannelsRepresentativeImageCapabilityAdapter },
     {
       provide: CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT,
       useExisting: ChannelCatalogImportRepositoryAdapter,
@@ -271,7 +271,7 @@ import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from './application/port/out/conte
     ChannelCatalogModule,
     CHANNEL_SKU_AVAILABILITY_PORT,
     CHANNEL_REGISTRATION_PORT,
-      CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT,
+    CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT,
   ],
 })
 export class ChannelsModule {}

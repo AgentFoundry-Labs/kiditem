@@ -69,7 +69,7 @@ import { SalesProductMallSheetService } from '../application/service/sales-produ
 import { SalesProductCoupangCatalogService } from '../application/service/sales-product/sales-product-coupang-catalog.service';
 import { CoupangWingInventoryExportController } from '../adapter/in/web/coupang-wing-inventory-export.controller';
 import { CoupangWingRegistrationExportController } from '../adapter/in/web/coupang-wing-registration-export.controller';
-import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from '../application/port/in/capability/wing-thumbnail.port';
+import { CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT } from '../application/port/in/capability/representative-image.port';
 import { CHANNEL_DASHBOARD_PORT } from '../application/port/in/listing/channel-dashboard.port';
 import { CHANNEL_OPTION_RECIPE_CANDIDATE_PORT } from '../application/port/in/listing/channel-option-recipe-candidate.port';
 import { CHANNEL_PRODUCT_MATCHING_PORT } from '../application/port/in/listing/channel-product-matching.port';
@@ -136,7 +136,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(exports_).toEqual(expect.arrayContaining([
       CHANNEL_SKU_AVAILABILITY_PORT,
       CHANNEL_REGISTRATION_PORT,
-      CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT,
+      CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT,
     ]));
 
     const channelsRoot = path.resolve(__dirname, '..');

@@ -31,6 +31,16 @@ describe('MALL_ADAPTER_MANIFESTS', () => {
     }
   });
 
+  /** KID-321: 매니페스트 kind 는 registry `delivery` 를 옮긴다(엑셀은 `sheet`). */
+  it.each([
+    ['kidkids', 'extension_form'],
+    ['kidsnote', 'extension_excel'],
+    ['lotte-on', 'api'],
+    ['domeggook', 'unknown'],
+  ] as const)('maps %s registry delivery to manifest kind %s', (key, kind) => {
+    expect(getMallAdapterManifest(key)?.kind).toBe(kind);
+  });
+
   it('has no duplicate keys', () => {
     const keys = MALL_ADAPTER_MANIFESTS.map((entry) => entry.key);
     expect(new Set(keys).size).toBe(keys.length);

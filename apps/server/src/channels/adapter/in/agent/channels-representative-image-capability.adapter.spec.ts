@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
-import { ChannelsWingThumbnailCapabilityAdapter } from './channels-wing-thumbnail-capability.adapter';
+import { ChannelsRepresentativeImageCapabilityAdapter } from './channels-representative-image-capability.adapter';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
@@ -8,15 +8,15 @@ const INVOCATION_ID = '00000000-0000-4000-8000-000000000003';
 const generationId = '00000000-0000-4000-8000-000000000004';
 const executionId = '00000000-0000-4000-8000-000000000005';
 
-describe('ChannelsWingThumbnailCapabilityAdapter', () => {
-  it('answers an upload with a pending receipt: the operator confirms the Wing save in the web app', async () => {
+describe('ChannelsRepresentativeImageCapabilityAdapter', () => {
+  it('answers an upload with a pending receipt: the operator confirms the mall save in the web app', async () => {
     const executions = {
       runOnServer: vi.fn().mockResolvedValue({
         generationId, executionId, success: false, status: 'reconciling', screenshotPath: '/tmp/shot.png', error: 'Wing 수정 화면에 올렸습니다',
       }),
     };
-    const adapter = new ChannelsWingThumbnailCapabilityAdapter(executions as never);
-    await expect(adapter.submitWingThumbnail({
+    const adapter = new ChannelsRepresentativeImageCapabilityAdapter(executions as never);
+    await expect(adapter.submitRepresentativeImage({
       organizationId: ORGANIZATION_ID,
       generationId,
       ownerIdempotencyKey: `capability-invocation:${INVOCATION_ID}`,
@@ -28,13 +28,13 @@ describe('ChannelsWingThumbnailCapabilityAdapter', () => {
     const executions = {
       runOnServer: vi.fn().mockResolvedValue({ generationId, executionId, success: true, status: 'succeeded', screenshotPath: '/tmp/shot.png' }),
     };
-    const adapter = new ChannelsWingThumbnailCapabilityAdapter(executions as never);
+    const adapter = new ChannelsRepresentativeImageCapabilityAdapter(executions as never);
     const owner = {
       ownerIdempotencyKey: `capability-invocation:${INVOCATION_ID}`,
       requestHash: canonicalOwnerInputHash({ generationId }),
     };
 
-    await expect(adapter.submitWingThumbnail({ organizationId: ORGANIZATION_ID, generationId, triggeredByUserId: USER_ID, ...owner }))
+    await expect(adapter.submitRepresentativeImage({ organizationId: ORGANIZATION_ID, generationId, triggeredByUserId: USER_ID, ...owner }))
       .resolves.toEqual({ success: true, status: 'succeeded', screenshotPath: '/tmp/shot.png' });
     expect(executions.runOnServer).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
@@ -48,8 +48,8 @@ describe('ChannelsWingThumbnailCapabilityAdapter', () => {
     const executions = {
       runOnServer: vi.fn().mockResolvedValue({ generationId, executionId, success: false, status: 'failed', screenshotPath: null, error: '상품을 찾을 수 없습니다' }),
     };
-    const adapter = new ChannelsWingThumbnailCapabilityAdapter(executions as never);
-    await expect(adapter.submitWingThumbnail({
+    const adapter = new ChannelsRepresentativeImageCapabilityAdapter(executions as never);
+    await expect(adapter.submitRepresentativeImage({
       organizationId: ORGANIZATION_ID,
       generationId,
       ownerIdempotencyKey: `capability-invocation:${INVOCATION_ID}`,
@@ -59,8 +59,8 @@ describe('ChannelsWingThumbnailCapabilityAdapter', () => {
 
   it('rejects a forged key or hash before the execution owner is called', () => {
     const executions = { runOnServer: vi.fn() };
-    const adapter = new ChannelsWingThumbnailCapabilityAdapter(executions as never);
-    expect(() => adapter.submitWingThumbnail({
+    const adapter = new ChannelsRepresentativeImageCapabilityAdapter(executions as never);
+    expect(() => adapter.submitRepresentativeImage({
       organizationId: ORGANIZATION_ID,
       generationId,
       ownerIdempotencyKey: 'caller-controlled-key',

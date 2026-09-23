@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { spawnPlaywriter } from './playwriter-process';
-import type { WingThumbnailRunnerPort } from '../../../application/port/out/automation/wing-thumbnail-runner.port';
+import type { RepresentativeImageRunnerPort } from '../../../application/port/out/automation/representative-image-runner.port';
 
 const WING_BASE =
   'https://wing.coupang.com/vendor-inventory/list?salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1';
@@ -16,14 +16,14 @@ const DATA_URL_PATTERN = /^data:([^;]+);base64,(.+)$/;
  * Wing 상품 수정 화면의 대표 dropzone 에 넣는다.
  */
 @Injectable()
-export class WingThumbnailRunnerAdapter implements WingThumbnailRunnerPort {
+export class WingThumbnailRunnerAdapter implements RepresentativeImageRunnerPort {
   private readonly logger = new Logger(WingThumbnailRunnerAdapter.name);
 
   isBlocked(): boolean {
     return process.env.NODE_ENV === 'production';
   }
 
-  async upload(input: { productName: string; image: { dataUrl: string; filename: string } }): Promise<
+  async upload(input: Parameters<RepresentativeImageRunnerPort['upload']>[0]): Promise<
     | { outcome: 'uploaded_pending_save'; screenshotPath: string | null }
     | { outcome: 'definitive_failure'; error: string }
   > {
@@ -37,9 +37,10 @@ export class WingThumbnailRunnerAdapter implements WingThumbnailRunnerPort {
     const screenshotPath = `/tmp/wing-upload-${safeName.replace(/\.[^.]+$/, '')}.png`;
     await fs.promises.writeFile(imagePath, Buffer.from(parsed[2]!, 'base64'));
 
-    this.logger.log(`Wing 자동화 시작: ${input.productName}`);
+    const { productName } = input.listing;
+    this.logger.log(`Wing 자동화 시작: ${productName}`);
     return new Promise((resolve, reject) => {
-      const code = this.buildScript(input.productName, imagePath, screenshotPath);
+      const code = this.buildScript(productName, imagePath, screenshotPath);
       const proc = spawnPlaywriter(['-s', '1', '--timeout', String(PLAYWRITER_RUN_TIMEOUT_MS), '-e', code], {
         timeout: PLAYWRITER_TIMEOUT_MS,
       });

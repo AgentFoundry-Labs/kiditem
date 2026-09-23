@@ -11,9 +11,9 @@ import {
   type ChannelsOwnerExecutionContext,
 } from '../../../application/port/in/capability/channels-final-capability.port';
 import {
-  CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT,
-  type ChannelsWingThumbnailCapabilityPort,
-} from '../../../application/port/in/capability/wing-thumbnail.port';
+  CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT,
+  type ChannelsRepresentativeImageCapabilityPort,
+} from '../../../application/port/in/capability/representative-image.port';
 import type { ChannelsCapabilityCompositionPort } from '../../../application/port/in/capability/channels-capability-composition.port';
 
 /** Channels owns the definition-to-marketplace-owner-port Adapters. */
@@ -26,8 +26,8 @@ export class ChannelsCapabilityCompositionAdapter
   constructor(
     @Inject(CHANNELS_FINAL_CAPABILITY_PORT)
     private readonly finalListings: ChannelsFinalCapabilityPort,
-    @Inject(CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT)
-    private readonly wingThumbnails: ChannelsWingThumbnailCapabilityPort,
+    @Inject(CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT)
+    private readonly representativeImages: ChannelsRepresentativeImageCapabilityPort,
     @Inject(REGISTRATION_EXECUTION_PORT)
     private readonly executions: RegistrationExecutionPort,
   ) {
@@ -45,11 +45,11 @@ export class ChannelsCapabilityCompositionAdapter
             ? { kind: 'channel_listing', id: output.listingId }
             : null,
       }),
-      defineCapabilityComposition(CHANNELS_CAPABILITIES[1], this.wingThumbnails, {
-        capabilityKey: 'channels.submit_wing_thumbnail',
-        ownerInputPort: 'channels.submitWingThumbnail',
+      defineCapabilityComposition(CHANNELS_CAPABILITIES[1], this.representativeImages, {
+        capabilityKey: 'channels.submit_representative_image',
+        ownerInputPort: 'channels.submitRepresentativeImage',
         invoke: ({ context, input }) =>
-          this.wingThumbnails.submitWingThumbnail({
+          this.representativeImages.submitRepresentativeImage({
             organizationId: context.organizationId,
             generationId: input.generationId,
             triggeredByUserId: context.initiatingUserId,

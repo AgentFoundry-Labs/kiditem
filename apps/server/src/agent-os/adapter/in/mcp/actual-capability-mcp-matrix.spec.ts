@@ -27,7 +27,7 @@ import {
 } from './kiditem-agent-os-mcp-server';
 import type { AnalyticsAgentOverviewCapabilityPort } from '../../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
 import type { ChannelsFinalCapabilityPort } from '../../../../channels/application/port/in/capability/channels-final-capability.port';
-import type { ChannelsWingThumbnailCapabilityPort } from '../../../../channels/application/port/in/capability/wing-thumbnail.port';
+import type { ChannelsRepresentativeImageCapabilityPort } from '../../../../channels/application/port/in/capability/representative-image.port';
 import type { ProductsListingGenerationCapabilityPort } from '../../../../products/application/port/in/capability/listing-generation.port';
 import type {
   SourcingFinalCapabilityPort,
@@ -185,7 +185,7 @@ const scenarios: readonly InvocationScenario[] = [
   scenario('channels.start_target_execution', 'channels.startTargetExecution', 'medium', {
     executionId: OPERATION_ID,
   }, targetExecutionResult),
-  scenario('channels.submit_wing_thumbnail', 'channels.submitWingThumbnail', 'high', { generationId: 'generation-1' }, {
+  scenario('channels.submit_representative_image', 'channels.submitRepresentativeImage', 'high', { generationId: 'generation-1' }, {
     success: true,
     status: 'succeeded',
     screenshotPath: null,
@@ -501,10 +501,10 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
       { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' as const },
     ),
   };
-  const wing: ChannelsWingThumbnailCapabilityPort = {
-    submitWingThumbnail: typedOwnerPortMethod(
+  const wing: ChannelsRepresentativeImageCapabilityPort = {
+    submitRepresentativeImage: typedOwnerPortMethod(
       typedOwnerPortCalls,
-      'channels.submit_wing_thumbnail',
+      'channels.submit_representative_image',
       { success: true as const, status: 'succeeded' as const, screenshotPath: null },
     ),
   };
@@ -685,7 +685,7 @@ function expectedTypedOwnerPortCall(
     }
     case 'channels.start_target_execution':
       return [ORGANIZATION_ID, input.executionId, USER_ID];
-    case 'channels.submit_wing_thumbnail': {
+    case 'channels.submit_representative_image': {
       const context = mutationContext();
       return {
         organizationId: context.organizationId,
