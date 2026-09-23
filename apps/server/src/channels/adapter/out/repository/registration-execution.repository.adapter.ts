@@ -1,6 +1,7 @@
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { randomUUID } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -15,6 +16,7 @@ import {
   type ListingAvailabilityExecution,
   type ListingAvailabilitySnapshot,
   type ReportListingAvailabilityInput,
+  TargetExecutionKindSchema,
   TargetExecutionSnapshotSchema,
   type PrepareTargetExecutionInput,
   type ReportTargetExecutionInput,
@@ -62,6 +64,15 @@ import type {
 const channelIntegrity = new ChannelIntegrityAdapter();
 
 const TARGET_EXECUTION_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+
+/**
+ * 등록 대상 실행 행. 같은 표의 대표이미지 반영(`thumbnail_update`)이나 listing 가용성 실행 id 가
+ * 이 경로에 오면 없는 실행으로 답한다.
+ */
+const TARGET_EXECUTION_ROW = {
+  registrationTargetId: { not: null },
+  executionKind: { in: [...TargetExecutionKindSchema.options] },
+} satisfies Prisma.ProductRegistrationExecutionWhereInput;
 
 /**
  * 등록 실행 울타리의 저장소 어댑터.
@@ -447,6 +458,10 @@ export class RegistrationExecutionRepositoryAdapter
     request: PrepareTargetExecutionInput;
     snapshot: TargetExecutionSnapshot;
   }): Promise<TargetExecutionResult> {
+    // 대표이미지 반영(thumbnail_update) 실행과 같은 멱등 키 표를 쓴다. 그 이름공간의 키는 받지 않는다.
+    if (input.request.idempotencyKey.startsWith('thumbnail_update:')) {
+      throw new BadRequestException('Registration idempotency key uses a reserved prefix.');
+    }
     const intentHash = targetExecutionIntentHash(input.snapshot.targetId, input.request);
 
     try {
@@ -634,7 +649,7 @@ export class RegistrationExecutionRepositoryAdapter
     return this.prisma.$transaction(async (tx) => {
       await lockExecution(tx, input.organizationId, input.executionId);
       const execution = await tx.productRegistrationExecution.findFirst({
-        where: { id: input.executionId, organizationId: input.organizationId },
+        where: { id: input.executionId, organizationId: input.organizationId, ...TARGET_EXECUTION_ROW },
       });
       if (!execution) throw new NotFoundException('Registration execution not found.');
       assertTargetExecutionRow(execution);
@@ -802,6 +817,7 @@ export class RegistrationExecutionRepositoryAdapter
         id: input.executionId,
         organizationId: input.organizationId,
         requestedByUserId: input.requestedByUserId,
+        ...TARGET_EXECUTION_ROW,
       },
     });
     if (!execution) throw new NotFoundException('Registration execution not found.');
@@ -818,7 +834,7 @@ export class RegistrationExecutionRepositoryAdapter
     return this.prisma.$transaction(async (tx) => {
       await lockExecution(tx, input.organizationId, input.executionId);
       const execution = await tx.productRegistrationExecution.findFirst({
-        where: { id: input.executionId, organizationId: input.organizationId },
+        where: { id: input.executionId, organizationId: input.organizationId, ...TARGET_EXECUTION_ROW },
       });
       if (!execution) throw new NotFoundException('Registration execution not found.');
       assertTargetExecutionRow(execution);
