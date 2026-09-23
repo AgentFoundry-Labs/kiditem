@@ -101,8 +101,8 @@ describe('AI content ownership constraints (PG integration)', () => {
     );
   }
 
-  function draftWorkspaceInput(salesProductId: string, title: string) {
-    void title; // 판매 상품 작업공간은 이름을 갖지 않는다 — 상품 이름이 바뀌어도 같은 작업공간이다.
+  // 판매 상품 작업공간은 이름을 갖지 않는다 — 상품 이름이 바뀌어도 같은 작업공간이다.
+  function draftWorkspaceInput(salesProductId: string) {
     return {
       organizationId: TEST_ORGANIZATION_ID,
       ownerType: 'sales_product' as const,

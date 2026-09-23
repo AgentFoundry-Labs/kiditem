@@ -331,8 +331,6 @@ export class AiAgentRuntimeModule {}
       useExisting: GeminiThumbnailVisionAdapter,
     },
     {
-    },
-    {
       provide: DETAIL_PAGE_IMAGE_REPOSITORY_PORT,
       useExisting: DetailPageImageRepositoryAdapter,
     },
