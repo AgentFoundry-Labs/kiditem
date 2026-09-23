@@ -811,15 +811,17 @@
         {
           "path": "apps/server/src/channels/adapter/out/persistence/thumbnail-execution.persistence.adapter.ts",
           "reason": "KID-305: Channels owns the Wing representative-image upload; it creates, reports and dismisses only `thumbnail_update` executions under a per-generation advisory lock."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/persistence/registration-state.repository.adapter.ts",
+          "reason": "KID-320: the one registration-state reader; reads latest executions per target and the frozen facts of the last success."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/registration-execution-ledger.reader.ts",
+          "reason": "KID-320: owner-local ledger queries (unresolved composition options, prepared registration recipes, failure counts, frozen option references), read-only."
         }
       ],
-      "legacyReaders": [
-        {
-          "path": "apps/server/src/channels/adapter/out/repository/registration-execution.reader.ts",
-          "removeWith": "KID-309",
-          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
-        }
-      ]
+      "legacyReaders": []
     }
   ],
   "importExceptions": [

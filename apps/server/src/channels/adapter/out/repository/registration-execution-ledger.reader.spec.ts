@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   readSalesProductOptionExecutionCounts,
   readUnresolvedCompositionOptionIds,
-} from './registration-execution.reader';
+} from './registration-execution-ledger.reader';
 
 describe('registration execution reader', () => {
   describe('readSalesProductOptionExecutionCounts', () => {

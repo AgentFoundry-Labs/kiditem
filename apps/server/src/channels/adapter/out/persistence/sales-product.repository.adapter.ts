@@ -1,7 +1,7 @@
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { resolveUnitCost } from '../../../../products/domain/option-pricing-resolver';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import { readSalesProductOptionExecutionCounts } from '../repository/registration-execution.reader';
+import { readSalesProductOptionExecutionCounts } from '../repository/registration-execution-ledger.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { SalesProductStatusError, assertStatusInvariant } from '../../../domain/sales-product/sales-product-status';

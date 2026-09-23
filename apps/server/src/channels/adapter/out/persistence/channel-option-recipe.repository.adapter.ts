@@ -29,7 +29,7 @@ import type {
   ChannelRecipeComponentInput,
   ConfirmedCompositionTransition,
 } from '../../../application/port/in/channel-option-recipe.port';
-import { readPreparedRegistrationRecipes } from '../repository/registration-execution.reader';
+import { readPreparedRegistrationRecipes } from '../repository/registration-execution-ledger.reader';
 import { preparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
 import { hashRegistrationSubmissionPayload } from '../../../domain/registration/registration-submission-payload';
 import { ListingException } from '../../../application/exception/listing.exception';

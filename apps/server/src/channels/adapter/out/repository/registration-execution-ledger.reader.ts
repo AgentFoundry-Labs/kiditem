@@ -1,35 +1,13 @@
 import { findChannel } from '@kiditem/shared/channel-registry';
-import {
-  countFrozenSalesProductOptionReferences,
-  type RegistrationExecutionFact,
-} from '../../../domain/registration/registration-execution-state';
+import { countFrozenSalesProductOptionReferences } from '../../../domain/registration/registration-execution-state';
 import type { Prisma } from '@prisma/client';
 
 /**
- * `ProductRegistrationExecution` 원장의 등록 리더(ADR-0021).
- *
- * 울타리는 Channels 것이고([ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md))
- * 쓰기는 Channels 저장소 어댑터만 한다. 울타리 밖 — 수집후보의 등록 상태를 비추는
- * Sourcing 을 포함해 — 에서는 이 파일로만 읽는다. 호출자의 트랜잭션을 받는 순수
- * 함수라 잠금도, 어댑터 의존도 없다.
+ * `ProductRegistrationExecution` 원장의 owner 로컬 읽기(ADR-0009, `scripts/ledger-readers.json` 등록). 조합
+ * 옵션 · 등록 레시피 · 실패 수 · 얼린 옵션 참조처럼 fence 밖 Channels 어댑터가 쓰는 좁은 질의만 둔다. 등록
+ * 상태는 여기서 읽지 않는다 — 그것은 등록 상태 reader(`registration-state.repository.adapter.ts`) 하나다.
+ * 호출자의 트랜잭션을 받는 읽기 전용 함수라 잠금도, 쓰기도 없다.
  */
-
-export const REGISTRATION_EXECUTION_FACT_SELECT = {
-  id: true,
-  registrationTargetId: true,
-  channelAccountId: true,
-  channelListingId: true,
-  executionKind: true,
-  status: true,
-  providerOutcome: true,
-  providerSubmissionId: true,
-  externalListingId: true,
-  resultJson: true,
-  reviewPayloadHash: true,
-  approvedAt: true,
-  approvedByUserId: true,
-  createdAt: true,
-} satisfies Prisma.ProductRegistrationExecutionSelect;
 
 /** The only execution column needed when a caller checks option identity use. */
 export const REGISTRATION_EXECUTION_OPTION_SNAPSHOT_SELECT = {
@@ -90,41 +68,6 @@ function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
-}
-
-/**
- * 초안 id 로 실행을 읽는다. 초안은 다른 owner 의 행이라 관계 join 이 없다
- * (ADR-0013) — 호출자가 자기 초안 id 를 넘긴다.
- */
-export async function readRegistrationExecutionFacts(
-  tx: Prisma.TransactionClient,
-  input: { organizationId: string; registrationTargetIds: readonly string[] },
-): Promise<readonly RegistrationExecutionFact[]> {
-  if (input.registrationTargetIds.length === 0) return [];
-  const rows = await tx.productRegistrationExecution.findMany({
-    where: {
-      organizationId: input.organizationId,
-      registrationTargetId: { in: [...input.registrationTargetIds] },
-    },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    select: REGISTRATION_EXECUTION_FACT_SELECT,
-  });
-  return rows.flatMap((row) => row.registrationTargetId === null ? [] : [{
-    executionId: row.id,
-    registrationTargetId: row.registrationTargetId,
-    channelAccountId: row.channelAccountId,
-    channelListingId: row.channelListingId,
-    executionKind: row.executionKind,
-    status: row.status,
-    providerOutcome: row.providerOutcome,
-    providerSubmissionId: row.providerSubmissionId,
-    externalListingId: row.externalListingId,
-    hasResult: row.resultJson !== null,
-    reviewPayloadHash: row.reviewPayloadHash,
-    approvedAt: row.approvedAt,
-    approvedByUserId: row.approvedByUserId,
-    createdAt: row.createdAt,
-  }]);
 }
 
 /**

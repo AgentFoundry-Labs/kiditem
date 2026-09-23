@@ -16,31 +16,6 @@ export const LIVE_REGISTRATION_EXECUTION_STATUSES = [
   'succeeded',
 ] as const;
 
-export type RegistrationExecutionFact = Readonly<{
-  executionId: string;
-  registrationTargetId: string;
-  channelAccountId: string;
-  channelListingId: string | null;
-  executionKind: string;
-  status: string;
-  providerOutcome: string;
-  providerSubmissionId: string | null;
-  externalListingId: string | null;
-  hasResult: boolean;
-  reviewPayloadHash: string | null;
-  approvedAt: Date | null;
-  approvedByUserId: string | null;
-  createdAt: Date;
-}>;
-
-/** 수집후보 하나가 지금 어떤 등록 상태인지. 후보 행이 아니라 울타리가 근거다. */
-export type CandidateRegistrationState =
-  | 'none'
-  | 'preparing'
-  | 'confirming'
-  | 'failed'
-  | 'registered';
-
 export type RegistrationExecutionOptionSnapshotRow = Readonly<{
   submissionPayloadJson: unknown;
 }>;
@@ -83,37 +58,4 @@ function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
-}
-
-/**
- * 초안 하나의 등록 상태. 수집후보 화면이 "등록됨 / 확인중 / 실패"를 이 값으로 비춘다.
- *
- * `confirming` 은 제출 여부를 모르는 상태다(`reconciling`, 또는 시작됐지만 결과가
- * 아직 없는 `executing`). 그 구분이 사라지면 사람이 같은 상품을 한 번 더 올린다.
- */
-export function candidateRegistrationState(
-  facts: readonly RegistrationExecutionFact[],
-): CandidateRegistrationState {
-  if (facts.length === 0) return 'none';
-  const [latest] = facts;
-  if (!latest) return 'none';
-  if (latest.status === 'succeeded') return 'registered';
-  if (latest.status === 'reconciling') return 'confirming';
-  if (latest.status === 'executing') {
-    return latest.providerOutcome === 'succeeded' ? 'registered' : 'confirming';
-  }
-  if (latest.status === 'failed') return 'failed';
-  if (latest.status === 'prepared') return 'preparing';
-  return 'none';
-}
-
-/** Public draft view: only closure is stored on the draft, submission state is a ledger projection. */
-export function registrationDraftState(
-  closedAt: Date | null,
-  execution?: Pick<RegistrationExecutionFact, 'status' | 'channelListingId'>,
-): 'draft' | 'submitting' | 'failed' | 'registered' | 'cancelled' {
-  if (execution?.status === 'succeeded') return 'registered';
-  if (closedAt !== null || execution?.status === 'cancelled') return 'cancelled';
-  if (execution?.status === 'failed') return 'failed';
-  return execution ? 'submitting' : 'draft';
 }

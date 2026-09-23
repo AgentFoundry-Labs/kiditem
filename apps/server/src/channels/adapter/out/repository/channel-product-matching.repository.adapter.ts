@@ -1,4 +1,4 @@
-import { readUnresolvedCompositionOptionIds } from "./registration-execution.reader";
+import { readUnresolvedCompositionOptionIds } from "./registration-execution-ledger.reader";
 import {
   BadRequestException,
   Inject,
