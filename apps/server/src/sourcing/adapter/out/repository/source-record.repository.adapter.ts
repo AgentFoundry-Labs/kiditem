@@ -180,13 +180,15 @@ export class SourceRecordRepositoryAdapter implements SourceRecordRepositoryPort
       // queryraw-tenancy-exempt: organization-scoped advisory lock keyed by organizationId; reads no tenant data.
       Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
     );
-    const launchCandidates = await tx.sourcingLaunchCandidate.count({
-      where: { organizationId: input.organizationId, sourceRecordId: record.id },
-    });
-    if (launchCandidates > 0) {
-      throw new ConflictException('출시 후보가 이 원본 기록을 근거로 들고 있어 초안을 지울 수 없습니다.');
+    try {
+      await tx.sourceRecord.deleteMany({ where: { id: record.id, organizationId: input.organizationId } });
+    } catch (error) {
+      // 출시 후보가 이 기록을 증거로 든다(외래키 Restrict). 결정의 근거라 지우지 않는다.
+      if (isForeignKeyViolation(error)) {
+        throw new ConflictException('출시 후보가 이 원본 기록을 근거로 들고 있어 초안을 지울 수 없습니다.');
+      }
+      throw error;
     }
-    await tx.sourceRecord.deleteMany({ where: { id: record.id, organizationId: input.organizationId } });
   }
 }
 
@@ -237,6 +239,15 @@ function stringRecord(value: Prisma.JsonValue): Record<string, string> {
     throw new Error('sourcing_owner_idempotency_receipt_invalid');
   }
   return Object.fromEntries(entries) as Record<string, string>;
+}
+
+function isForeignKeyViolation(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && (error as { code?: unknown }).code === 'P2003',
+  );
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

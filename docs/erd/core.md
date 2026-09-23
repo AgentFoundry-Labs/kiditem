@@ -196,14 +196,14 @@ erDiagram
 | Organization | organization | referenced by external | Products | MasterProductAbcFormulaVersion |
 | Organization | organization | referenced by external | Products | MasterProductAbcGradeHistory |
 | Organization | organization | referenced by external | Products | SellpiaInventoryState |
-| Organization | organization | referenced by external | Sourcing | CandidateImage |
 | Organization | organization | referenced by external | Sourcing | LiveCommerceBroadcastDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | LiveCommerceProductDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | NaverKeywordDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | NaverPopularKeywordDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | ShortsTrendDailySnapshot |
+| Organization | organization | referenced by external | Sourcing | SourceRecord |
+| Organization | organization | referenced by external | Sourcing | SourceRecordImage |
 | Organization | organization | referenced by external | Sourcing | Sourcing1688OfferKeywordObservation |
-| Organization | organization | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Sourcing | SourcingCollectionSourceControl |
 | Organization | organization | referenced by external | Sourcing | SourcingDecisionBatch |
 | Organization | organization | referenced by external | Sourcing | SourcingDecisionBatchItem |
@@ -287,7 +287,6 @@ erDiagram
 | User | initiatingUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
-| User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
 | User | requestedByUser | referenced by external | Sourcing | SourcingDecisionBatch |
@@ -295,5 +294,5 @@ erDiagram
 | User | reviewedByUser | referenced by external | Supply | ProcurementTestIntent |
 | User | triggeredByUser | referenced by external | AI | ContentGeneration |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
-| User | triggeredByUser | referenced by external | Sourcing | SourcingCandidate |
+| User | triggeredByUser | referenced by external | Sourcing | SourceRecord |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingEvidenceIngestionRun |

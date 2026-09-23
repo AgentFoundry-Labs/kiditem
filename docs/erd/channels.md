@@ -353,7 +353,7 @@ erDiagram
     String importDeclarationNo
     String adminMemo
     Json sourceRaw
-    String sourceCandidateId
+    String sourceRecordId
     String sourcePlatform
     String sourceUrl
     Int version
