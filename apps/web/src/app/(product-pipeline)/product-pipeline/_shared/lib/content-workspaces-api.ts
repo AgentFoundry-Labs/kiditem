@@ -19,7 +19,8 @@ export interface ContentWorkspaceHistoryItem {
 export interface ContentWorkspaceSummary {
   id: string;
   ownerType: string;
-  sourceCandidateId: string | null;
+  /** 판매상품 초안의 작업공간이면 그 판매상품 id. 초안 하나에 작업공간은 하나다. */
+  salesProductId: string | null;
   channelListingId: string | null;
   originWorkspaceId: string | null;
   displayName: string;
@@ -76,14 +77,15 @@ export const contentWorkspacesApi = {
     );
   },
 
-  async create(input: {
-    title: string;
-    sourceCandidateId?: string | null;
-  }): Promise<ContentWorkspaceSummary> {
-    return apiClient.post<ContentWorkspaceSummary>('/api/ai/content-workspaces', {
-      title: input.title,
-      ...(input.sourceCandidateId ? { sourceCandidateId: input.sourceCandidateId } : {}),
-    });
+  /**
+   * 판매상품 초안의 작업공간. 콘텐츠를 아직 만든 적이 없으면 `null` — 읽기는 작업공간을 만들지
+   * 않고, 만드는 일은 생성(`POST /api/products/sales-products/:id/generation`)이 한다.
+   */
+  async getForSalesProduct(salesProductId: string): Promise<ContentWorkspaceSummary | null> {
+    const result = await apiClient.get<{ workspace: ContentWorkspaceSummary | null }>(
+      `/api/ai/content-workspaces/by-sales-product/${encodeURIComponent(salesProductId)}`,
+    );
+    return result.workspace;
   },
 
   async checkDuplicate(title: string): Promise<DuplicateContentWorkspaceResponse> {

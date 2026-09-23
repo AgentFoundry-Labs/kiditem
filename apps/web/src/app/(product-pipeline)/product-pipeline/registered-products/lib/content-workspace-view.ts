@@ -17,7 +17,7 @@ export function contentWorkspaceSubtitle(workspace: ContentWorkspaceSummary): st
   const latestInput = latestGenerationInput(workspace);
   const category = pickString(latestInput.rawCategory);
   if (workspace.channelListingId) return category ? `등록 상품 · ${category}` : '등록 상품';
-  if (workspace.sourceCandidateId) return category ? `수집 상품 · ${category}` : '수집 상품';
+  if (workspace.salesProductId) return category ? `판매상품 초안 · ${category}` : '판매상품 초안';
   return category ? `상품 후보 · ${category}` : '상품 후보';
 }
 

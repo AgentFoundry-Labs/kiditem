@@ -456,6 +456,8 @@ export const queryKeys = {
     list: (params: Record<string, string>) =>
       [...queryKeys.contentWorkspaces.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.contentWorkspaces.all, 'detail', id] as const,
+    forSalesProduct: (salesProductId: string) =>
+      [...queryKeys.contentWorkspaces.all, 'sales-product', salesProductId] as const,
     duplicate: (title: string) =>
       [...queryKeys.contentWorkspaces.all, 'duplicate', title] as const,
   },

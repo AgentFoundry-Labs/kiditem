@@ -304,7 +304,7 @@ describe('direct WING account selection', () => {
     vi.mocked(contentWorkspacesApi.get).mockResolvedValue({
       id: product.contentWorkspaceId,
       ownerType: 'sourcing_candidate',
-      sourceCandidateId: product.id,
+      salesProductId: product.id,
       channelListingId: null,
       originWorkspaceId: null,
       displayName: product.name,
