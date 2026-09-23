@@ -127,14 +127,14 @@ sync, registration, matching, and capacity behavior is executable in
 - Wing and Rocket account rows remain distinct. Shared vendor identity may be
   claimed only from complete authenticated evidence under the publication
   lock; a mismatch conflicts.
-- The Sabangnet listing import (KID-246) is one organization attempt whose
+- The Sabangnet listing import is one organization attempt whose
   plan freezes the mall account rows the hub picks
   (`adapter/out/repository/mall-account-rows.ts`, any status). Completion publishes each mall's
   send records as listings with one option (`sellerSku` = Sabangnet model =
   Sellpia SKU code) and turns off only listings this source created that left
   the list. Its statuses carry the `사방넷 ` prefix and fold with a
   Sabangnet-basis warning.
-- The mall admin listing import (KID-246 step 2) is one attempt per mall
+- The mall admin listing import is one attempt per mall
   account for malls Sabangnet does not carry (`mall_admin_listings`, readers in
   `@kiditem/shared/mall-admin-listings`). Completion publishes that mall's
   products as listings with one option whose `itemName` is the Sellpia name the
@@ -167,9 +167,9 @@ sync, registration, matching, and capacity behavior is executable in
 
 - 윙 엑셀은 두 갈래다. `coupang-wing.sheet.ts` 는 **없는 상품을 새로 올리는** 일괄등록 양식이고,
   `coupang-catalog-edit.ts` 는 **이미 올라간 상품의 쿠팡상품정보를 고쳐 달라고 제안하는** 수정요청
-  양식이다. 둘 다 쓴다(사장님 2026-09-22).
+  양식이다. 둘 다 쓴다.
 - 윙 파일의 시트 범위(`!ref`)를 믿지 않는다. 윙은 `A1:HW4` 라고 적어 놓고 그 아래에 줄을 쌓는다
-  (실측 2026-09-22: 적힌 네 줄, 실제 2,274 줄). 실제 칸으로 다시 세야 한다.
+  (적힌 네 줄 아래에 수천 줄이 있을 수 있다). 실제 칸으로 다시 세야 한다.
 - 수정요청은 **빈 칸만** 채우고, 회색 칸(등록상품ID · 카테고리 · 승인상태 · 옵션 ID)은 건드리지
   않는다. 한 줄은 상품이 아니라 옵션 하나다. 양식 판이 `Catalog Template_Ver.1.2` 가 아니면
   칸 자리를 믿을 수 없어 거절한다.

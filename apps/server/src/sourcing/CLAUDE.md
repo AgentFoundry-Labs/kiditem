@@ -14,7 +14,7 @@ belong to Supply; supplier payments belong to Finance.
   `sourced|rejected`; registration state is derived from the Channels execution
   fence and listings.
 - Editing a collected product happens on the Channels selling-product draft,
-  not on the candidate (KID-310). Every collection path asks Channels for one
+  not on the candidate. Every collection path asks Channels for one
   draft per candidate through
   `application/service/sourcing-collected-draft.service.ts`, and rejecting or
   deleting a candidate sends that draft to `unused` in the same transaction

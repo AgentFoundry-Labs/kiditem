@@ -2,7 +2,7 @@ Before working in this directory, always read this document first rather than re
 
 # Native Agent Runner
 
-This package owns the host-native Codex/Claude process boundary for KID-25.
+This package owns the host-native Codex/Claude process boundary.
 
 - Accept only the protected, one-argument Runner config; never add a listener.
 - Treat Nest input as typed launch data, never as executable paths, shell
