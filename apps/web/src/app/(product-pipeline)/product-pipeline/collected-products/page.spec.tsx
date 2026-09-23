@@ -110,7 +110,9 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
     expect(push).toHaveBeenCalledWith(`/product-pipeline/collected-products/${DRAFT_ID}`);
 
     const first = listUrls()[0]!;
-    expect(first.searchParams.get('status')).toBe('draft');
+    // 몰에 올라가기 전의 상품 전부 — 판매가를 정한 뒤에도 남는다(status 로 거르지 않는다).
+    expect(first.searchParams.get('focus')).toBe('preparing');
+    expect(first.searchParams.has('status')).toBe(false);
     expect(first.searchParams.get('page')).toBe('1');
     expect(first.searchParams.get('limit')).toBe('20');
     expect(first.searchParams.has('sourcePlatform')).toBe(false);
@@ -271,5 +273,33 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
     expect(toastWarning).toHaveBeenCalledWith('판매상품 초안을 내리지 못한 상품이 있습니다.', {
       description: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
     });
+  });
+
+  it('keeps a priced product on the list and marks only unpriced drafts 판매가 미정', async () => {
+    serveDraftPages({
+      1: {
+        ...listResponse([
+          salesProductDraftListItem(),
+          salesProductDraftListItem({
+            id: SECOND_DRAFT_ID,
+            sourceCandidateId: SECOND_CANDIDATE_ID,
+            name: '판매가 정한 상품',
+            status: 'active',
+            salePrice: 12900,
+          }),
+        ]),
+        summary: { total: 2, withOptions: 0, withUnlinkedOptions: 0, unregistered: 2, draft: 1 },
+      },
+    });
+    renderPage();
+
+    const pricedCard = (await screen.findByText('판매가 정한 상품')).closest('article')!;
+    const draftCard = screen.getByText('자석 다트게임').closest('article')!;
+    expect(within(draftCard).getByText('판매가 미정')).toBeInTheDocument();
+    expect(within(pricedCard).queryByText('판매가 미정')).toBeNull();
+    // 한 줄에 몰 등록 전 수와 판매가 미정 수를 하나씩만 보인다.
+    const stats = screen.getByRole('group', { name: '수집상품 수' });
+    expect(stats).toHaveTextContent('몰 등록 전2개');
+    expect(stats).toHaveTextContent('판매가 미정1개');
   });
 });

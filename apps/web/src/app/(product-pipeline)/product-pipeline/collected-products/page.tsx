@@ -97,9 +97,11 @@ export default function SourcingPage() {
   const scrape = useScrapeUrl();
   const platform = platformForSourceFilter(sourceFilter);
 
-  // 수집상품 한 줄 = 판매상품 초안 한 줄(KID-310 · ADR-0022). 원천 기록(수집상품)은 목록이
-  // 읽지 않는다. 폴링하지 않는다 — 진행 중 생성은 이 화면이 시작한 것만 한 줄로 따로 본다.
-  const listQuery = { status: 'draft' as const, sourcePlatform: platform, page, limit: pageSize };
+  // 수집상품 한 줄 = 몰에 올라가기 전의 판매상품 한 줄(KID-310 · ADR-0022). 판매가를 정한 뒤에도
+  // 몰에 오를 때까지 남아야 등록 · 몰 대량등록을 여기서 한다 — `status` 로 거르지 않는다.
+  // 원천 기록(수집상품)은 목록이 읽지 않는다. 폴링하지 않는다 — 진행 중 생성은 이 화면이 시작한
+  // 것만 한 줄로 따로 본다.
+  const listQuery = { focus: 'preparing' as const, sourcePlatform: platform, page, limit: pageSize };
   const { data: productData, isLoading, isPlaceholderData } = useQuery({
     queryKey: salesProductKeys.list(listQuery),
     queryFn: () => salesProductApi.list(listQuery),
@@ -436,10 +438,11 @@ export default function SourcingPage() {
       )}
 
       <ProductPipelineStats
-        draftLabel="판매가 미정"
-        totalLabel="전체 초안"
-        draftCount={productData?.summary.draft ?? 0}
-        totalCount={total}
+        ariaLabel="수집상품 수"
+        totalLabel="판매가 미정"
+        totalCount={productData?.summary.draft ?? 0}
+        draftLabel="몰 등록 전"
+        draftCount={total}
       />
 
       <SourcingToolbar

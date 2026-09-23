@@ -63,6 +63,11 @@ export default function ProductCard({
         : undefined}
       thumbnailTopLeft={
         <div className="flex flex-col gap-1">
+          {product.salePrice === null && (
+            <span className="w-fit rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+              판매가 미정
+            </span>
+          )}
           <span className="w-fit rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white backdrop-blur-sm">
             {sourceLabel}
           </span>
