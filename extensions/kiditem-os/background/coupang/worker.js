@@ -694,8 +694,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
 
-  if (msg.action === "registerWingThumbnail") {
-    registerWingThumbnail(msg)
+  if (msg.action === "registerRepresentativeImage") {
+    registerRepresentativeImage(msg)
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({
@@ -811,19 +811,20 @@ async function registerToWingForm(message) {
   if (!product || typeof product !== "object") {
     return { ok: false, error: "product 데이터가 없습니다." };
   }
-  // 폼 채움만 하는 기본 경로에는 아직 provider side effect 가 없다. 실행 ID는
-  // 실제 제출을 자동화하는 경우에만 필수다.
-  const autoSubmit = message.autoSubmit === true;
-  const executionId = typeof message?.executionId === "string" ? message.executionId.trim() : "";
+  // [상품등록]은 등록 대상 실행 안에서만 누른다(KID-322) — 웹이 `submit: true` 와 서버가 준 실행 컨텍스트
+  // (executionId · payloadHash · leaseToken)를 함께 보낼 때뿐이다. 판정은 몰 폼과 같은 관문 하나가 한다.
+  // 컨텍스트가 없거나 모자라면 폼만 채우고 `submitSkipped` 로 그 까닭을 돌려준다.
+  const submitRequested = message.submit === true;
+  const autoSubmit = KidItemMallFormSubmitGate.shouldPressRegister({
+    submit: message.submit,
+    executionContext: message.executionContext,
+  });
+  const executionId = autoSubmit ? message.executionContext.executionId.trim() : "";
   const expectedVendorId = typeof message?.expectedVendorId === "string" ? message.expectedVendorId.trim() : "";
-  if (autoSubmit && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(executionId)) {
-    return { ok: false, error: "등록 실행 ID가 올바르지 않습니다." };
-  }
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedVendorId)) {
     return { ok: false, error: "승인된 WING 판매자 식별자가 올바르지 않습니다." };
   }
-  // ⚠️ 웹의 등록 확인 모달에서 "상품등록까지 자동 실행"을 켠 경우에만 true 가 실려 온다.
-  //    엄격한 === true 비교로만 켠다. 값이 없거나 truthy 한 다른 값이면 제출하지 않는다.
+  const submitSkipped = submitRequested && !autoSubmit ? { submitSkipped: "execution_context_required" } : {};
   const url =
     "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
   const tab = await interactiveTabs.createTab({
@@ -892,6 +893,7 @@ async function registerToWingForm(message) {
         ok: false,
         tabId: tab.id,
         fill,
+        ...submitSkipped,
         error: fill?.error || "WING 폼 자동 채우기에 실패했습니다. 열린 탭에서 직접 입력해 주세요.",
       };
     }
@@ -903,6 +905,7 @@ async function registerToWingForm(message) {
       fill,
       submission: fill.submission || { attempted: false },
       evidence: fill.evidence,
+      ...submitSkipped,
     };
   } catch (e) {
     return {
@@ -1167,7 +1170,7 @@ async function openAndEditProduct(value) {
   return sendTabMessage(tab.id, { action: "searchAndEdit", productName });
 }
 
-async function registerWingThumbnail(message) {
+async function registerRepresentativeImage(message) {
   const productName =
     typeof message.productName === "string" ? message.productName.trim() : "";
   const image = message.image || {};

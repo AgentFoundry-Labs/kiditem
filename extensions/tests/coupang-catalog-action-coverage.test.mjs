@@ -29,7 +29,9 @@ test('service worker starts the Coupang catalog import only through the collecti
     assert.doesNotMatch(worker, new RegExp(retiredAction));
   }
   assert.match(worker, /KidItemCoupangCatalogImport\.admit\(/);
-  assert.match(worker, /msg\.action === ["']registerWingThumbnail["']/);
+  // 대표이미지 반영은 몰 중립 이름으로 받는다(KID-321). 옛 Wing 전용 이름은 남지 않는다.
+  assert.match(worker, /msg\.action === ["']registerRepresentativeImage["']/);
+  assert.doesNotMatch(worker, /registerWingThumbnail/);
   assert.match(worker, /coupangCatalogSnapshot:\s*true/);
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(inventoryContent, /collectCoupangCatalogDiscoveryPage/);

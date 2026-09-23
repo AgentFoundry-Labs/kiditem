@@ -49,8 +49,10 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
   schedule a marketplace render or write legacy product/generation HTML fields.
 - An import never replaces a human edit (`manual_edit`, `duplicate`) as the
   current revision; it only appends to history.
-- Wing preparation reuses a verified matching artifact or synchronously renders
-  the immutable revision as the bounded 780px `wing-server-jpeg-v1` JPEG.
+- A mall form's detail image reuses a verified matching artifact or
+  synchronously renders the chosen immutable revision (the registration
+  target's, else the current one) as the bounded 780px JPEG
+  (`wing-server-jpeg-v1` is the format id).
   Browser-extension capture and split/stitch rendering remain retired.
 - Missing saved HTML returns the explicit missing result. Callers do not
   substitute another image.

@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import vm from 'node:vm';
 
 const root = new URL('../../extensions/kiditem-os/', import.meta.url);
 const gateSource = await readFile(new URL('shared/mall-form-submit-gate.js', root), 'utf8');
@@ -56,4 +57,67 @@ test('the service worker loads the gate before the mall form register module, wh
   const register_ = await readFile(new URL('background/orders/mall-form-register.js', root), 'utf8');
   assert.match(register_, /KidItemMallFormSubmitGate\.shouldPressRegister\(/);
   assert.doesNotMatch(register_, /message\.submit === true && outcome\.ok === true/);
+});
+
+// The Wing form (coupang worker `registerToWingForm`) presses [상품등록] through the same gate: the content
+// script receives `autoSubmit: true` only with a full execution context, never with an execution id alone.
+async function wingFormHarness() {
+  const workerSource = (await readFile(new URL('background/coupang/worker.js', root), 'utf8')).replace(/\r\n?/g, '\n');
+  const start = workerSource.indexOf('async function registerToWingForm(message)');
+  const end = workerSource.indexOf('\n}\n', start) + 2;
+  assert.ok(start >= 0 && end > start, 'registerToWingForm source must be extractable');
+  const sent = [];
+  const context = vm.createContext({
+    KidItemMallFormSubmitGate: loadGate(),
+    INTERACTIVE_TAB_REASONS: { PRODUCT_EDIT: 'product-edit' },
+    interactiveTabs: { createTab: async () => ({ id: 21 }) },
+    waitForTabComplete: async () => true,
+    wingFormReadiness: { wait: async () => ({ ok: true }) },
+    wingFormRuntimeCompat: {
+      prepareNavigation: async () => ({ ok: true }),
+      ensure: async () => ({ ok: true }),
+    },
+    chrome: {
+      tabs: {
+        sendMessage: async (_tabId, message) => {
+          sent.push(message);
+          return { ok: true, submission: { attempted: message.autoSubmit === true } };
+        },
+      },
+    },
+  });
+  vm.runInContext(workerSource.slice(start, end), context);
+  return { registerToWingForm: context.registerToWingForm, sent };
+}
+
+test('the Wing form does not press [상품등록] with an execution id alone', async () => {
+  const { registerToWingForm, sent } = await wingFormHarness();
+  const result = await registerToWingForm({
+    product: { productName: 'p' },
+    submit: true,
+    autoSubmit: true,
+    executionId: FULL_CONTEXT.executionId,
+    expectedVendorId: 'A00012345',
+  });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].autoSubmit, false);
+  assert.equal(result.submitSkipped, 'execution_context_required');
+});
+
+test('the Wing form presses [상품등록] only with submit and the full execution context', async () => {
+  const { registerToWingForm, sent } = await wingFormHarness();
+  await registerToWingForm({
+    product: { productName: 'p' },
+    submit: true,
+    executionContext: FULL_CONTEXT,
+    expectedVendorId: 'A00012345',
+  });
+  await registerToWingForm({
+    product: { productName: 'p' },
+    submit: false,
+    executionContext: FULL_CONTEXT,
+    expectedVendorId: 'A00012345',
+  });
+  assert.deepEqual(sent.map((message) => message.autoSubmit), [true, false]);
+  assert.equal(sent[0].executionId, FULL_CONTEXT.executionId);
 });

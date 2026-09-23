@@ -110,7 +110,7 @@ describe('RegistrationPendingSection checking actions', () => {
       return { items: [] };
     });
     vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
-    vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError(400, 'Bad Request', '쿠팡 listing 이 여럿입니다 — listing을 고르세요', { code: 'ambiguous_coupang_listing' }));
+    vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError(400, 'Bad Request', '쿠팡 listing 이 여럿입니다 — listing을 고르세요', { code: 'ambiguous_listing' }));
     renderSection();
 
     fireEvent.click(await screen.findByRole('button', { name: '쿠팡 등록 선택' }));

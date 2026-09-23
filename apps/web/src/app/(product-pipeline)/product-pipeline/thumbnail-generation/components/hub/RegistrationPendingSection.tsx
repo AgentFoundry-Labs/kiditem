@@ -17,6 +17,7 @@ import {
   type WingBatchItemResult,
 } from '../../../_shared/hooks/useThumbnailGenerations';
 import { thumbnailGenerationEditHref } from '../../../_shared/lib/product-pipeline-routes';
+import { representativeImageUploadedMessage } from '../../../_shared/lib/wing-registration';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 
@@ -112,7 +113,7 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
 
   const handleResend = (executionId: string) => {
     resend.mutate(executionId, {
-      onSuccess: () => toast.success('Wing 수정 화면에 다시 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요'),
+      onSuccess: () => toast.success(representativeImageUploadedMessage({ resent: true })),
       onError: (err) => toast.error(err instanceof Error ? err.message : '다시 보내기에 실패했습니다'),
     });
   };
@@ -150,8 +151,8 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
       setResults(res.results);
       const ok = res.results.filter((r) => r.success).length;
       const fail = res.results.length - ok;
-      if (fail === 0) toast.success(`Wing 수정 화면에 ${ok}장 올림 — Wing에서 저장한 뒤 반영됨으로 표시하세요`);
-      else toast.warning(`Wing 수정 화면에 ${ok}장 올림 / 실패 ${fail} — 올린 것은 저장 뒤 반영됨으로 표시하세요`);
+      if (fail === 0) toast.success(representativeImageUploadedMessage({ uploaded: ok }));
+      else toast.warning(representativeImageUploadedMessage({ uploaded: ok, failed: fail }));
       setSelectedIds(new Set());
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '배치 등록에 실패했습니다');

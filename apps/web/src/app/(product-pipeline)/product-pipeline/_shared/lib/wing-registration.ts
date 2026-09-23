@@ -8,6 +8,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { CHANNEL_REGISTRY } from '@kiditem/shared/channel-registry';
 
 export const EXTENSION_REQUIRED_MESSAGE =
   '스테이징에서는 쿠팡 Wing 등록을 Chrome 확장 프로그램으로만 실행할 수 있습니다. 확장 프로그램을 설치/새로고침한 뒤 다시 시도하세요.';
@@ -87,6 +88,27 @@ export function wingUploadReached(result: WingRegistrationResult): boolean {
   return result.success || result.status === 'reconciling';
 }
 
+/**
+ * 대표이미지를 받아 주는 채널의 이름 — 채널 레지스트리의 `representativeImage` 능력이 말한다(KID-321).
+ * 화면 글자에 몰 이름을 박지 않는다. 준비 응답은 계정의 채널을 싣지 않으므로 레지스트리에서 읽는다.
+ */
+function representativeImageChannelName(): string {
+  const names = CHANNEL_REGISTRY.filter((entry) => entry.representativeImage).map((entry) => entry.name);
+  return names.length > 0 ? names.join('·') : '몰';
+}
+
+/** 대표이미지를 몰 상품 수정 화면에 올린 뒤의 안내. 올린 것은 반영이 아니다 — 저장 뒤 운영자가 표시한다. */
+export function representativeImageUploadedMessage(
+  input: { uploaded?: number; failed?: number; resent?: boolean } = {},
+): string {
+  const screen = `${representativeImageChannelName()} 상품 수정 화면에`;
+  if (input.failed && input.failed > 0) {
+    return `${screen} ${input.uploaded ?? 0}장 올림 / 실패 ${input.failed} — 올린 것은 저장 뒤 반영됨으로 표시하세요`;
+  }
+  const what = input.resent ? '다시 올렸습니다' : input.uploaded !== undefined ? `${input.uploaded}장 올렸습니다` : '올렸습니다';
+  return `${screen} ${what} — 저장한 뒤 반영됨으로 표시하세요`;
+}
+
 /** 운영자의 "반영 안 됨으로 표시". 같은 생성에 새 반영을 열어 준다. */
 export function markWingThumbnailNotApplied(executionId: string): Promise<WingRegistrationResult> {
   return apiClient.post<WingRegistrationResult>(`/api/channels/thumbnail-executions/${executionId}/not-applied`, {});
@@ -102,7 +124,7 @@ async function uploadAndReport(extensionId: string, prepared: ThumbnailExecution
   let extensionResult: ExtensionWingRegistrationResponse;
   try {
     extensionResult = await sendToExtension<ExtensionWingRegistrationResponse>(extensionId, {
-      action: 'registerWingThumbnail',
+      action: 'registerRepresentativeImage',
       attemptId: prepared.executionId,
       generationId: prepared.generationId,
       productName: prepared.productName,

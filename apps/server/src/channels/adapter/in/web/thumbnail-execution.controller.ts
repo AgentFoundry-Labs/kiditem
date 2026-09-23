@@ -44,7 +44,7 @@ export class ThumbnailExecutionController {
     return this.executions.resend({ organizationId, executionId });
   }
 
-  /** 운영자의 "반영됨으로 표시" — Wing 에서 저장한 것을 확인했다. 성공으로 가는 유일한 길이다. */
+  /** 운영자의 "반영됨으로 표시" — 몰 상품 수정 화면에서 저장한 것을 확인했다. 성공으로 가는 유일한 길이다. */
   @Post(':executionId/applied')
   confirmApplied(
     @CurrentOrganization() organizationId: string,

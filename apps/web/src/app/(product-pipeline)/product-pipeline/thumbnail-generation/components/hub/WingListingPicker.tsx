@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { useWingRegister } from '../../../_shared/hooks/useThumbnailGenerations';
-import { fetchWingListingChoices, wingUploadReached } from '../../../_shared/lib/wing-registration';
+import { fetchWingListingChoices, representativeImageUploadedMessage, wingUploadReached } from '../../../_shared/lib/wing-registration';
 
 /**
  * 판매상품에 쿠팡 listing 이 여럿이라 준비가 거절된 생성에서, 운영자가 올릴 listing 을 고르고
@@ -47,7 +47,7 @@ export function WingListingPicker({ generationId, onDone }: { generationId: stri
                 toast.error(result.error ?? 'Wing 업로드 실패');
                 return;
               }
-              toast.success('Wing 수정 화면에 올렸습니다 — Wing에서 저장한 뒤 반영됨으로 표시하세요');
+              toast.success(representativeImageUploadedMessage());
               onDone();
             },
             onError: (error) => toast.error(error instanceof Error ? error.message : 'Wing 업로드 실패'),
