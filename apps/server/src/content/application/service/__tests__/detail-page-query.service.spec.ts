@@ -156,13 +156,11 @@ describe('DetailPageQueryService edited HTML', () => {
     expect(repository.saveEditedHtmlRevision).not.toHaveBeenCalled();
   });
 
-  it('loads edited HTML from the current artifact revision before legacy fallback', async () => {
+  it('loads edited HTML from the current artifact revision', async () => {
     const savedAt = new Date('2026-05-13T11:00:00.000Z');
     const repository = makeRepository({
       getEditedHtml: vi.fn().mockResolvedValue({
         id: GENERATION_ID,
-        editedHtml: '<main>legacy</main>',
-        editedHtmlSavedAt: new Date('2026-05-12T11:00:00.000Z'),
         detailPageArtifact: {
           isDeleted: false,
           currentRevision: {
@@ -180,12 +178,10 @@ describe('DetailPageQueryService edited HTML', () => {
     });
   });
 
-  it('ignores JSON current revisions and falls back to legacy renderable HTML', async () => {
+  it('reports no saved HTML when the current revision is not renderable, without a generation fallback', async () => {
     const repository = makeRepository({
       getEditedHtml: vi.fn().mockResolvedValue({
         id: GENERATION_ID,
-        editedHtml: '<main>legacy</main>',
-        editedHtmlSavedAt: new Date('2026-05-12T11:00:00.000Z'),
         detailPageArtifact: {
           isDeleted: false,
           currentRevision: {
@@ -197,10 +193,7 @@ describe('DetailPageQueryService edited HTML', () => {
     });
     const { service } = makeService(repository);
 
-    await expect(service.getEditedHtml(GENERATION_ID, ORG)).resolves.toEqual({
-      html: '<main>legacy</main>',
-      savedAt: '2026-05-12T11:00:00.000Z',
-    });
+    await expect(service.getEditedHtml(GENERATION_ID, ORG)).resolves.toEqual({ html: null, savedAt: null });
   });
 });
 
@@ -223,8 +216,6 @@ describe('DetailPageQueryService detail page version management', () => {
       generatedTitle: '원본 상세페이지',
       generatedDescription: 'desc',
       generatedCopy: 'copy',
-      editedHtml: null,
-      editedHtmlSavedAt: null,
       status: 'READY',
       triggeredByUserId: 'source-user',
       generationGroup: { targetMasterId: null },

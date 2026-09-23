@@ -627,8 +627,6 @@ erDiagram
     String generatedTitle
     String generatedDescription
     String generatedCopy
-    String editedHtml
-    DateTime editedHtmlSavedAt
     String status
     Int retryCount
     String errorMessage

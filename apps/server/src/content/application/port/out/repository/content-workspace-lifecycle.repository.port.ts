@@ -1,3 +1,4 @@
+import type { DetailPageRevisionType } from '../../../../domain/detail-page/detail-page-revision-type';
 export const CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT = Symbol(
   'CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT',
 );
@@ -56,6 +57,8 @@ export interface ContentWorkspaceSnapshot {
     contentAsset: { id: string; url: string };
   } | null;
   currentDetailPageArtifact: ContentWorkspaceArtifactSnapshot | null;
+  /** 현재 revision 의 종류(정한 목록 안의 값). 목록 조회만 싣는다. */
+  currentDetailPageRevision?: { id: string; revisionType: DetailPageRevisionType; createdAt: Date } | null;
   createdAt: Date;
   updatedAt: Date;
   _count?: { contentGenerations: number };

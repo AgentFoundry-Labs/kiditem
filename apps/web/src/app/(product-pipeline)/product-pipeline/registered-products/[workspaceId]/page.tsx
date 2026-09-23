@@ -237,7 +237,6 @@ function channelListingToProductWorkspaceData(
   return {
     product,
     detailPageData: parseWorkspaceDetailPage(currentDetailGeneration?.detailPageData),
-    editedHtml: null,
     templateCss: '',
     editState: {
       name: title,

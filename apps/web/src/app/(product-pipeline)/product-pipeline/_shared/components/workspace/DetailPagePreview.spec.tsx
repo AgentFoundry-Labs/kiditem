@@ -105,7 +105,6 @@ describe('DetailPagePreview', () => {
       <DetailPagePreview
         productId="workspace-1"
         detailPreviewHtml="<html><body>placeholder template</body></html>"
-        editedHtml={null}
         templateCss="/* compiled template css */"
         hasSavedDetailPage={false}
         initialAgentHistory={[
@@ -139,7 +138,6 @@ describe('DetailPagePreview', () => {
       <DetailPagePreview
         productId="candidate-1"
         detailPreviewHtml="<html><body>깨진 placeholder</body></html>"
-        editedHtml={null}
         templateCss="/* compiled template css */"
         initialAgentHistory={[
           {
@@ -189,7 +187,6 @@ describe('DetailPagePreview', () => {
       <DetailPagePreview
         productId="workspace-1"
         detailPreviewHtml="<html><body>깨진 placeholder</body></html>"
-        editedHtml={null}
         templateCss="/* compiled template css */"
         hasSavedDetailPage
         savedDetailPageGenerationId="generation-1"
@@ -231,7 +228,6 @@ describe('DetailPagePreview', () => {
       <DetailPagePreview
         productId="workspace-1"
         detailPreviewHtml="<html><body>깨진 placeholder</body></html>"
-        editedHtml={null}
         templateCss="/* compiled template css */"
         hasSavedDetailPage
         savedDetailPageGenerationId="generation-1"
@@ -270,7 +266,6 @@ describe('DetailPagePreview', () => {
       <DetailPagePreview
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder template</body></html>"
-        editedHtml={null}
         templateCss="/* compiled template css */"
         initialAgentHistory={[
           {
@@ -310,7 +305,6 @@ describe('DetailPagePreview', () => {
       <DetailPagePreview
         productId="candidate-1"
         detailPreviewHtml="<html><body><p>preview</p></body></html>"
-        editedHtml={null}
         templateCss=""
         hasSavedDetailPage
         savedDetailPageGenerationId={null}
@@ -342,7 +336,6 @@ describe('DetailPagePreview', () => {
       <DetailPagePreview
         productId="candidate-1"
         detailPreviewHtml="<html><body><p>등록 미리보기 상세 본문</p></body></html>"
-        editedHtml={null}
         templateCss=""
         hasSavedDetailPage
         initialAgentHistory={[]}
@@ -369,7 +362,6 @@ describe('DetailPagePreview', () => {
       <DetailPagePreview
         productId="candidate-1"
         detailPreviewHtml="<html><body><p>다운로드 가능한 상세페이지</p></body></html>"
-        editedHtml={null}
         templateCss=""
         hasSavedDetailPage
         initialAgentHistory={[]}

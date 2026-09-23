@@ -173,7 +173,6 @@ export function ProductWorkspaceScreen({
   const effectiveSavedDetailPageGenerationId =
     savedDetailPageGenerationId ?? registrationTarget?.selectedDetailPageGenerationId ?? null;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
-  const editedHtml = fetchedData?.editedHtml ?? null;
   const { data: fallbackTemplateCss = '' } = useQuery({
     queryKey: ['template-styles-css'],
     queryFn: () =>
@@ -655,7 +654,6 @@ export function ProductWorkspaceScreen({
               nameLength={nameLength}
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}
-              editedHtml={editedHtml}
               templateCss={templateCss}
               rawData={product?.raw_data ?? null}
               imageUrls={product?.image_urls ?? []}

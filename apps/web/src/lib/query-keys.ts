@@ -420,7 +420,6 @@ export const queryKeys = {
       [...queryKeys.productContent.all, 'sourcing-links', id, params] as const,
     detail: (id: string) => [...queryKeys.productContent.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.productContent.all, 'preview', id] as const,
-    editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,
     generationEditedHtml: (id: string) =>
       [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
     detailGenerationsAll: (templateId: 'kids-playful' | 'bold-vertical') =>

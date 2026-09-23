@@ -50,6 +50,7 @@ import type {
   SalesProductChannelOverrideRecord,
   SalesProductCreateRecord,
   SalesProductDraftRetireRow,
+  SalesProductImportCurrent,
   SalesProductImportResult,
   SalesProductOptionState,
   SalesProductRepositoryPort,
@@ -679,8 +680,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   async readImportFingerprints(
     organizationId: string,
     codes: readonly string[],
-  ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>> {
-    const fingerprints = new Map<string, { fingerprint: string; imageUrls: string[] }>();
+  ): Promise<Map<string, SalesProductImportCurrent>> {
+    const fingerprints = new Map<string, SalesProductImportCurrent>();
     const owners = new Map<string, string>();
     for (let start = 0; start < codes.length; start += 500) {
       const rows = await this.prisma.salesProduct.findMany({
@@ -710,7 +711,12 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         for (const key of [row.sabangnetGoodsNo, row.ownCode].filter((key): key is string => !!key && codes.includes(key))) {
           if (owners.has(key) && owners.get(key) !== row.id) throw new ConflictException('Ambiguous source product identity.');
           owners.set(key, row.id);
-          fingerprints.set(key, { fingerprint, imageUrls: row.imageUrls });
+          fingerprints.set(key, {
+            fingerprint,
+            imageUrls: row.imageUrls,
+            basics: importBasics(row),
+            sourceRaw: row.sourceRaw,
+          });
         }
       }
     }
@@ -942,6 +948,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     imageUrls: string[];
     detailHtml: string | null;
     extraDetailHtml: string[];
+    sourceRaw: unknown;
   }[]> {
     return this.prisma.salesProduct.findMany({
       where: { organizationId },
@@ -952,6 +959,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         imageUrls: true,
         detailHtml: true,
         extraDetailHtml: true,
+        sourceRaw: true,
       },
       orderBy: { code: 'asc' },
     });
@@ -964,6 +972,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     imageUrls: string[];
     detailHtml?: string | null;
     extraDetailHtml?: string[];
+    sourceRaw?: Record<string, unknown>;
   }): Promise<boolean> {
     const result = await this.prisma.salesProduct.updateMany({
       where: { id: input.salesProductId, organizationId: input.organizationId, version: input.expectedVersion },
@@ -971,6 +980,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         imageUrls: input.imageUrls,
         ...(input.detailHtml !== undefined ? { detailHtml: input.detailHtml } : {}),
         ...(input.extraDetailHtml !== undefined ? { extraDetailHtml: input.extraDetailHtml } : {}),
+        ...(input.sourceRaw !== undefined ? { sourceRaw: input.sourceRaw as Prisma.InputJsonValue } : {}),
         version: { increment: 1 },
       },
     });
@@ -1320,7 +1330,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                 where: { id: existing.id, organizationId, version: write.expectedVersion },
                 data: {
                   ...basicsData(write.create),
-                  sabangnetGoodsNo: write.create.sabangnetGoodsNo,
+                  // 바깥 식별자는 빈 값으로 덮지 않는다 — 품번코드 없이 온 줄(대량등록 양식)도 지금 품번을 지킨다.
+                  sabangnetGoodsNo: write.create.sabangnetGoodsNo ?? undefined,
                   optionAxes: write.create.optionAxes,
                   sourceRaw: (write.create.sourceRaw as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
                   version: { increment: 1 },
@@ -1778,6 +1789,45 @@ function toSalesProduct(
       options: listing.options,
     })),
   } satisfies SalesProduct;
+}
+
+function importBasics(row: Prisma.SalesProductGetPayload<Record<string, never>>): SalesProductBasicsRecord {
+  return {
+    name: row.name,
+    ownCode: row.ownCode,
+    shortName: row.shortName,
+    englishName: row.englishName,
+    printName: row.printName,
+    modelName: row.modelName,
+    modelNo: row.modelNo,
+    brand: row.brand,
+    manufacturer: row.manufacturer,
+    originCountry: row.originCountry,
+    originRegion: row.originRegion,
+    keywords: row.keywords,
+    standardCategory: row.standardCategory,
+    description: row.description,
+    targetAudience: row.targetAudience,
+    ageGroup: row.ageGroup,
+    productSize: row.productSize,
+    colorVariantNames: row.colorVariantNames,
+    boxSetQuantity: row.boxSetQuantity,
+    registrationDefaults: (row.registrationDefaults as Record<string, unknown> | null) ?? null,
+    status: row.status as SalesProductStatus,
+    taxType: row.taxType as SalesProductTaxType,
+    deliveryFeeType: (row.deliveryFeeType as SalesProductDeliveryFeeType | null) ?? null,
+    deliveryFee: row.deliveryFee,
+    stockManaged: row.stockManaged,
+    imageUrls: row.imageUrls,
+    detailHtml: row.detailHtml,
+    extraDetailHtml: row.extraDetailHtml,
+    noticeCategory: row.noticeCategory,
+    noticeValues: row.noticeValues,
+    certifications: parseCertifications(row.certifications),
+    kcStatus: row.kcStatus as SalesProductKcStatus,
+    importDeclarationNo: row.importDeclarationNo,
+    adminMemo: row.adminMemo,
+  };
 }
 
 function sameStringRecord(left: Record<string, string>, right: Record<string, string>): boolean {

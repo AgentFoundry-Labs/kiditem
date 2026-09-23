@@ -1,3 +1,4 @@
+import type { DetailPageRevisionType } from '../../domain/detail-page/detail-page-revision-type';
 import type {
   ContentArchiveContentType,
   ContentArchiveGenerationRow,
@@ -49,7 +50,7 @@ export interface ContentArchiveGenerationItem {
   detailPageRevisionId: string | null;
   detailPageRevisions: Array<{
     id: string;
-    revisionType: string;
+    revisionType: DetailPageRevisionType;
     createdAt: string;
   }>;
   sources: Array<{

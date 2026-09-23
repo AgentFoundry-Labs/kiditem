@@ -1,6 +1,7 @@
 import type { SalesProductImagePort } from "../../port/in/sales-product/sales-product-image.port";
 import type { ChannelIntegrityPort } from '../../port/out/integrity/channel-integrity.port';
 import type { ChannelActivityPort } from '../../port/out/alerts/channel-activity.port';
+import type { ChannelDocumentsPort } from '../../port/out/documents/channel-documents.port';
 
 import type {
   SalesProductExternalImages,
@@ -34,6 +35,7 @@ type ProductImageRow = SalesProductImageSnapshot & {
   version: number;
   detailHtml: string | null;
   extraDetailHtml: string[];
+  sourceRaw: unknown;
 };
 
 /**
@@ -51,6 +53,7 @@ export class SalesProductImageService implements SalesProductImagePort {
     private readonly images: SalesProductImageMirrorPort,
     private readonly logger: ChannelActivityPort,
     private readonly integrity: ChannelIntegrityPort,
+    private readonly documents: ChannelDocumentsPort,
   ) {}
 
   async external(organizationId: string): Promise<SalesProductExternalImages> {
@@ -97,6 +100,11 @@ export class SalesProductImageService implements SalesProductImagePort {
       const detailChanged = detailHtml !== product.detailHtml;
       const extraDetailChanged = extraDetailHtml.some((html, index) => html !== product.extraDetailHtml[index]);
       if (!imagesChanged && !detailChanged && !extraDetailChanged) continue;
+      // 사진 옮기기는 시스템이 고쳐 쓴 것이다 — 기준값(원문 디지스트)도 함께 옮겨, 다음 사방넷 가져오기가
+      // 이것을 사람이 고친 상세로 보지 않게 한다.
+      const sourceRaw = detailChanged || extraDetailChanged
+        ? this.documents.restampSabangnetDetailDigests(product.sourceRaw, product, { detailHtml, extraDetailHtml })
+        : null;
 
       const written = await this.repository.replaceImageUrls({
         organizationId,
@@ -105,6 +113,7 @@ export class SalesProductImageService implements SalesProductImagePort {
         imageUrls,
         ...(detailChanged ? { detailHtml } : {}),
         ...(extraDetailChanged ? { extraDetailHtml } : {}),
+        ...(sourceRaw ? { sourceRaw } : {}),
       });
       if (written) productsUpdated += 1;
       else productsSkipped += 1;

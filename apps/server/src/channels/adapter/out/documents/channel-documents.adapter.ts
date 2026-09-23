@@ -4,7 +4,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import type { ChannelDocumentsPort } from '../../../application/port/out/documents/channel-documents.port';
 import { parseCoupangWingWorkbook } from './coupang-wing/workbook.parser';
 import { parseRocketSellpiaMatchingCsv } from './rocket/matching-csv.parser';
-import { parseSabangnetWorkbook, SabangnetWorkbookFormatError } from './sabangnet/product-workbook.parser';
+import { parseSabangnetWorkbook, readSabangnetProductSource, restampSabangnetDetailDigests, SabangnetWorkbookFormatError } from './sabangnet/product-workbook.parser';
 import { CoupangWingRegistrationExportService } from './coupang-wing/registration-workbook.adapter';
 import { CoupangWingInventoryExportService } from './coupang-wing/inventory-workbook.adapter';
 
@@ -21,6 +21,12 @@ export class ChannelsDocumentsAdapter implements ChannelDocumentsPort {
       throw error;
     }
   }
+  readSabangnetProductSource(sourceRaw: unknown) { return readSabangnetProductSource(sourceRaw); }
+  restampSabangnetDetailDigests(
+    sourceRaw: unknown,
+    before: { detailHtml: string | null; extraDetailHtml: readonly string[] },
+    after: { detailHtml: string | null; extraDetailHtml: readonly string[] },
+  ) { return restampSabangnetDetailDigests(sourceRaw, before, after); }
   exportWingRegistration(template: Uint8Array, products: unknown, fileName?: string) {
     return new CoupangWingRegistrationExportService().convert(Buffer.from(template), products, fileName);
   }

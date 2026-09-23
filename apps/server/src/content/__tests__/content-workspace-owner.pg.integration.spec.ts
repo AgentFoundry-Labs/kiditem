@@ -265,4 +265,40 @@ describe('ContentWorkspace sales-product ownership (PG integration)', () => {
     `);
     expect(crossOwnerForeignKeys).toEqual([]);
   });
+
+  async function seedWorkspaceRevision(revisionType: string) {
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'direct_detail_page',
+        displayName: `상세 ${revisionType}`,
+        normalizedTitle: `상세 ${revisionType}`,
+      },
+    });
+    const artifact = await prisma.detailPageArtifact.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspace.id, title: '상세', status: 'draft' },
+    });
+    const revision = await prisma.detailPageRevision.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, artifactId: artifact.id, revisionType, html: '<main>상세</main>' },
+    });
+    await prisma.contentWorkspace.update({
+      where: { id: workspace.id },
+      data: { currentDetailPageArtifactId: artifact.id, currentDetailPageRevisionId: revision.id },
+    });
+    return { workspaceId: workspace.id, revisionId: revision.id };
+  }
+
+  it('reads the current revision type as one of the validated revision types', async () => {
+    const { workspaceId, revisionId } = await seedWorkspaceRevision('duplicate');
+
+    const workspace = await lifecycle().getById({ organizationId: TEST_ORGANIZATION_ID, workspaceId });
+
+    expect(workspace?.currentDetailPageRevision).toMatchObject({ id: revisionId, revisionType: 'duplicate' });
+  });
+
+  it('refuses a current revision whose type no writer produces', async () => {
+    const { workspaceId } = await seedWorkspaceRevision('generated');
+
+    await expect(lifecycle().getById({ organizationId: TEST_ORGANIZATION_ID, workspaceId })).rejects.toThrow();
+  });
 });

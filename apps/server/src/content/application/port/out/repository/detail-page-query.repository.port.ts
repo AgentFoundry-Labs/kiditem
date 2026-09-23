@@ -38,8 +38,6 @@ export interface DetailPageDuplicateSourceSnapshot {
   generatedTitle: string | null;
   generatedDescription: string | null;
   generatedCopy: string | null;
-  editedHtml: string | null;
-  editedHtmlSavedAt: Date | null;
   status: string;
   triggeredByUserId: string | null;
   detailPageArtifact: {
@@ -51,8 +49,6 @@ export interface DetailPageDuplicateSourceSnapshot {
 
 export interface DetailPageEditedHtmlSnapshot {
   id: string;
-  editedHtml: string | null;
-  editedHtmlSavedAt: Date | null;
   detailPageArtifact: {
     isDeleted: boolean;
     currentRevision: {

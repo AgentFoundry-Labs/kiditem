@@ -16,6 +16,7 @@ import type {
   ContentWorkspaceSnapshot,
   EnsureContentWorkspaceInput,
 } from '../../../application/port/out/repository/content-workspace-lifecycle.repository.port';
+import { DetailPageRevisionTypeSchema } from '../../../domain/detail-page/detail-page-revision-type';
 
 @Injectable()
 export class ContentWorkspaceLifecycleRepositoryAdapter
@@ -115,7 +116,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
         isDeleted: false,
       },
       include: workspaceInclude(),
-    }) as Promise<ContentWorkspaceSnapshot | null>;
+    }).then((row) => (row ? toWorkspaceSnapshot(row) : null));
   }
 
   async listActive(input: ContentWorkspaceListInput): Promise<{
@@ -143,7 +144,7 @@ implements ContentWorkspaceLifecycleRepositoryPort {
     ]);
     return {
       total,
-      rows: rows as unknown as ContentWorkspaceSnapshot[],
+      rows: rows.map(toWorkspaceSnapshot),
     };
   }
 
@@ -303,6 +304,19 @@ function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.Conten
             channelListingId: null,
           }),
   };
+}
+
+type WorkspaceRecord = Prisma.ContentWorkspaceGetPayload<{ include: ReturnType<typeof workspaceInclude> }>;
+
+/** revision 종류는 정한 목록 안의 값만 읽는다 — 목록 밖의 값은 writer 가 깨진 것이다. */
+function toWorkspaceSnapshot(row: WorkspaceRecord): ContentWorkspaceSnapshot {
+  const revision = row.currentDetailPageRevision;
+  return {
+    ...row,
+    currentDetailPageRevision: revision
+      ? { ...revision, revisionType: DetailPageRevisionTypeSchema.parse(revision.revisionType) }
+      : null,
+  } as unknown as ContentWorkspaceSnapshot;
 }
 
 function workspaceInclude() {

@@ -33,7 +33,6 @@ interface Props {
   nameLength: number;
   productId: string;
   detailPreviewHtml: string;
-  editedHtml: string | null;
   templateCss: string;
   rawData: Record<string, unknown> | null;
   imageUrls: string[];
@@ -90,7 +89,6 @@ export default function ProductTabContent({
   nameLength,
   productId,
   detailPreviewHtml,
-  editedHtml,
   templateCss,
   rawData,
   imageUrls,
@@ -290,7 +288,6 @@ export default function ProductTabContent({
         <DetailPageWorkspaceTab
           productId={productId}
           detailPreviewHtml={detailPreviewHtml}
-          editedHtml={editedHtml}
           templateCss={templateCss}
           hasSavedDetailPage={hasSavedDetailPage}
           savedDetailPageGenerationId={savedDetailPageGenerationId}

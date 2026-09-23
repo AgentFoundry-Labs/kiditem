@@ -289,7 +289,6 @@ const workspaceData: ProductWorkspaceData = {
     salesProductVersion: 1,
   } as ProductWorkspaceData['product'],
   detailPageData: placeholderDetailPageData,
-  editedHtml: null,
   templateCss: '',
   editState: {
     ...PLACEHOLDER_DATA,

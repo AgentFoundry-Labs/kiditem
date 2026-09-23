@@ -19,6 +19,7 @@ import {
 } from '../../../domain/sales-product/sales-product';
 import type { ProductSourceReadModel } from '../../../../products/application/port/in/product-source-read.port';
 import type {
+  SalesProductBasicsRecord,
   SalesProductChannelOverrideRecord,
   SalesProductCreateRecord,
 } from '../../port/out/persistence/sales-product.repository.port';
@@ -145,42 +146,7 @@ export function buildSabangnetImportPlan(input: {
       create: {
         code,
         sabangnetGoodsNo: row.goodsNo,
-        name: clamp(row.name, 255)!,
-        // 사방넷 엑셀에는 초안 편집 칸이 없다. 빈 값으로 만들고 사람이 채운다.
-        description: '',
-        targetAudience: null,
-        ageGroup: null,
-        productSize: null,
-        colorVariantNames: [],
-        boxSetQuantity: null,
-        registrationDefaults: null,
-        ownCode: clamp(row.ownCode, 100),
-        shortName: clamp(row.shortName, 255),
-        englishName: clamp(row.englishName, 255),
-        printName: clamp(row.printName, 255),
-        modelName: clamp(row.modelName, 60),
-        modelNo: clamp(row.modelNo, 60),
-        brand: clamp(row.brand, 50),
-        manufacturer: clamp(row.manufacturer, 50),
-        originCountry: clamp(row.originCountry, 50),
-        originRegion: clamp(row.originRegion, 50),
-        keywords: row.keywords.map((keyword) => keyword.slice(0, 60)).slice(0, 30),
-        standardCategory: clamp(row.standardCategory, 40),
-        status: salesProductStatusFromSabangnet(row.statusCode),
-        taxType: taxTypeFromSabangnet(row.taxCode),
-        deliveryFeeType: deliveryFeeTypeFromSabangnet(row.deliveryCode),
-        deliveryFee: row.deliveryFee,
-        stockManaged: row.stockManaged,
-        imageUrls: row.imageUrls.slice(0, 30),
-        detailHtml: row.detailHtml,
-        extraDetailHtml: row.extraDetailHtml.slice(0, 3),
-        noticeCategory: clamp(row.noticeCategory, 10),
-        noticeValues: row.noticeValues.slice(0, 40),
-        certifications: row.certification ? [row.certification satisfies SalesProductCertification] : [],
-        // 사방넷 엑셀은 'KC 해당 없음'을 말하지 않는다. 인증 문서가 오면 있다고 보고, 없으면 사람이 채운다.
-        kcStatus: row.certification ? 'exists' as const : 'unknown' as const,
-        importDeclarationNo: clamp(row.importDeclarationNo, 60),
-        adminMemo: row.adminMemo,
+        ...sabangnetProductBasics(row),
         optionAxes,
         sourceRaw: row.raw,
       },
@@ -194,6 +160,51 @@ export function buildSabangnetImportPlan(input: {
     });
   }
   return { products, issues, overrideRows: input.overrides.length, skippedByShop };
+}
+
+/**
+ * 사방넷 상품 줄 → 판매상품 기본 칸. 새로 만들 때와, 다시 가져올 때 저장된 원문으로 지난 가져오기가 만든
+ * 값(기준값)을 다시 구할 때 같은 매핑을 쓴다.
+ */
+export function sabangnetProductBasics(row: SabangnetProductRow): SalesProductBasicsRecord {
+  return {
+    name: clamp(row.name, 255)!,
+    // 사방넷 엑셀에는 초안 편집 칸이 없다. 빈 값으로 만들고 사람이 채운다.
+    description: '',
+    targetAudience: null,
+    ageGroup: null,
+    productSize: null,
+    colorVariantNames: [],
+    boxSetQuantity: null,
+    registrationDefaults: null,
+    ownCode: clamp(row.ownCode, 100),
+    shortName: clamp(row.shortName, 255),
+    englishName: clamp(row.englishName, 255),
+    printName: clamp(row.printName, 255),
+    modelName: clamp(row.modelName, 60),
+    modelNo: clamp(row.modelNo, 60),
+    brand: clamp(row.brand, 50),
+    manufacturer: clamp(row.manufacturer, 50),
+    originCountry: clamp(row.originCountry, 50),
+    originRegion: clamp(row.originRegion, 50),
+    keywords: row.keywords.map((keyword) => keyword.slice(0, 60)).slice(0, 30),
+    standardCategory: clamp(row.standardCategory, 40),
+    status: salesProductStatusFromSabangnet(row.statusCode),
+    taxType: taxTypeFromSabangnet(row.taxCode),
+    deliveryFeeType: deliveryFeeTypeFromSabangnet(row.deliveryCode),
+    deliveryFee: row.deliveryFee,
+    stockManaged: row.stockManaged,
+    imageUrls: row.imageUrls.slice(0, 30),
+    detailHtml: row.detailHtml,
+    extraDetailHtml: row.extraDetailHtml.slice(0, 3),
+    noticeCategory: clamp(row.noticeCategory, 10),
+    noticeValues: row.noticeValues.slice(0, 40),
+    certifications: row.certification ? [row.certification satisfies SalesProductCertification] : [],
+    // 사방넷 엑셀은 'KC 해당 없음'을 말하지 않는다. 인증 문서가 오면 있다고 보고, 없으면 사람이 채운다.
+    kcStatus: row.certification ? 'exists' as const : 'unknown' as const,
+    importDeclarationNo: clamp(row.importDeclarationNo, 60),
+    adminMemo: row.adminMemo,
+  };
 }
 
 function planOptions(

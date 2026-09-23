@@ -2,7 +2,7 @@ import { ownerTransaction } from '../../prisma/owner-transaction';
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository.adapter';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -18,6 +18,16 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { productTransactionalRead } from './product-transactional-read.fake';
+import * as XLSX from 'xlsx';
+import { SabangnetProductImportService } from '../application/service/collection/sabangnet-product-import.service';
+import { SalesProductLinkService } from '../application/service/sales-product/sales-product-link.service';
+import { SalesProductImageService } from '../application/service/sales-product/sales-product-image.service';
+import { ChannelsDocumentsAdapter } from '../adapter/out/documents/channel-documents.adapter';
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import { mirroredImageKey } from '../domain/sales-product/sales-product-images';
+import type { SalesProductImageMirrorPort } from '../application/port/out/storage/sales-product-image-mirror.port';
+import type { ProductSourceReadPort } from '../../products/application/port/in/product-source-read.port';
+import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 
 describe('sales product repository mall price adoption (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -865,5 +875,248 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       options: [{ values: ['빨강'], salePrice: 4_000 }, { values: ['파랑'], salePrice: 4_500 }],
     });
     expect(kept.status).toBe('paused');
+  });
+});
+
+/**
+ * 사방넷 다시 가져오기는 지난 가져오기 뒤 사람이 고친 칸을 지키고, 고치지 않은 칸만 파일 값으로 바꾼다
+ * (KID-304). 기준값은 저장된 원문이다 — 병합 결과가 실제 DB 에 어떻게 남는지 본다.
+ */
+describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
+  const GOODS_NO = '100017';
+  const OWN_CODE = 'OWN-100017';
+  const IMAGE_A = 'https://pic.sabangnet.co.kr/product_image/100017_1.jpg';
+  const IMAGE_B = 'https://pic.sabangnet.co.kr/product_image/100017_2.jpg';
+  const IMAGE_C = 'https://pic.sabangnet.co.kr/product_image/100017_3.jpg';
+  const HEADERS = [
+    '품번코드', '상품명', '자체상품코드', '브랜드명', '판매가', '옵션제목(1)', '옵션상세명칭(1)', '대표이미지', '부가이미지2',
+    '부가이미지3', '상품상세설명', '속성분류코드', '속성값1', '속성값2', '인증번호', '인증기관', '관리자메모',
+  ];
+  const integrity = new ChannelIntegrityAdapter();
+  let prisma: PrismaClient;
+  let service: SabangnetProductImportService;
+  let imageMirror: SalesProductImageService;
+  let mirroredUrl: (url: string) => string;
+
+  type Row = Partial<Record<(typeof HEADERS)[number], string | number>>;
+  function file(row: Row) {
+    const base: Row = {
+      품번코드: GOODS_NO, 상품명: '투명우산 그리기', 자체상품코드: OWN_CODE, 브랜드명: '키드아이템', 판매가: 2880,
+      '옵션제목(1)': '단품', '옵션상세명칭(1)': '단품', 대표이미지: IMAGE_A, 부가이미지2: IMAGE_B,
+      상품상세설명: '<p>상세 1</p>', 속성분류코드: '35', 속성값1: '면', 속성값2: '중국', 인증번호: 'CB-1', 인증기관: 'KTR',
+      관리자메모: '사방넷 메모 1',
+    };
+    const merged = { ...base, ...row };
+    const sheet = XLSX.utils.aoa_to_sheet([HEADERS, HEADERS.map((header) => merged[header] ?? '')]);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, 'Sheet1');
+    return [{ originalname: 'products.xlsx', buffer: XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer }];
+  }
+
+  async function product() {
+    return prisma.salesProduct.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, sabangnetGoodsNo: GOODS_NO },
+    });
+  }
+
+  async function reimport(row: Row) {
+    const preview = await service.import(TEST_ORGANIZATION_ID, file(row), true);
+    const [change] = preview.existingChanges;
+    const saved = await service.import(TEST_ORGANIZATION_ID, file(row), false, [{
+      salesProductId: change!.salesProductId,
+      expectedVersion: change!.expectedVersion,
+    }]);
+    return { preview, saved };
+  }
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    const prismaService = prisma as unknown as PrismaService;
+    const repository = new SalesProductRepositoryAdapter(
+      prismaService,
+      productTransactionalRead(),
+      new RegistrationTargetRepositoryAdapter(prismaService, productTransactionalRead()),
+    );
+    const logger = { log() {}, warn() {} };
+    // 사진 저장소는 바깥 경계다 — 옮긴 주소만 정해 준다.
+    const images: SalesProductImageMirrorPort = {
+      mirror: async ({ key }) => ({ ok: true, url: `https://storage.example/${key}` }),
+      urlFor: (key: string) => `https://storage.example/${key}`,
+      isOwnedUrl: (url: string) => url.startsWith('https://storage.example/'),
+    };
+    mirroredUrl = (url) => images.urlFor(mirroredImageKey(TEST_ORGANIZATION_ID, url, integrity.sha256)!);
+    // 셀피아 상품은 Products 소유다. 이 시험은 단품 연결을 보지 않으므로 빈 목록이면 된다.
+    const sourceProducts = { listActiveForMatching: async () => [] } as unknown as ProductSourceReadPort;
+    service = new SabangnetProductImportService(
+      repository,
+      sourceProducts,
+      new SalesProductLinkService(repository, makeChannelRecipes(prisma), logger),
+      images,
+      new ChannelsDocumentsAdapter(),
+      logger,
+      integrity,
+    );
+    imageMirror = new SalesProductImageService(repository, images, logger, integrity, new ChannelsDocumentsAdapter());
+  });
+
+  afterAll(async () => {
+    await prisma?.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+  });
+
+  it('keeps edited notice, KC, image and memo while unedited fields take the new file', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({}), false);
+    const imported = await product();
+    await prisma.salesProduct.update({
+      where: { id: imported.id },
+      data: {
+        noticeValues: ['면', '한국'],
+        kcStatus: 'none',
+        certifications: Prisma.JsonNull,
+        imageUrls: [IMAGE_A, 'https://storage.example/own.jpg'],
+        adminMemo: '운영자 메모',
+      },
+    });
+
+    const { preview } = await reimport({
+      상품명: '투명우산 그리기 세트', 브랜드명: '새 브랜드', 상품상세설명: '<p>상세 2</p>', 속성값2: '베트남',
+      인증번호: 'CB-2', 관리자메모: '사방넷 메모 2', 부가이미지3: IMAGE_C,
+    });
+
+    expect(preview.existingChanges).toEqual([expect.objectContaining({
+      changed: true,
+      baselineOnly: false,
+      preserved: ['imageUrls', 'noticeValues', 'certifications', 'kcStatus', 'adminMemo'],
+      updated: ['name', 'brand', 'detailHtml'],
+    })]);
+    const after = await product();
+    expect(after).toMatchObject({
+      id: imported.id,
+      code: imported.code,
+      ownCode: OWN_CODE,
+      name: '투명우산 그리기 세트',
+      brand: '새 브랜드',
+      detailHtml: '<p>상세 2</p>',
+      noticeValues: ['면', '한국'],
+      kcStatus: 'none',
+      certifications: null,
+      imageUrls: [IMAGE_A, 'https://storage.example/own.jpg'],
+      adminMemo: '운영자 메모',
+    });
+    // 다음 가져오기는 이번 파일과 비교한다: 사람이 다시 고치지 않은 이름은 파일 값을 받는다.
+    expect(after.sourceRaw).toMatchObject({ 상품명: '투명우산 그리기 세트', 관리자메모: '사방넷 메모 2' });
+    await reimport({ 상품명: '투명우산', 상품상세설명: '<p>상세 2</p>', 인증번호: 'CB-2', 관리자메모: '사방넷 메모 2' });
+    await expect(product()).resolves.toMatchObject({ name: '투명우산', adminMemo: '운영자 메모' });
+  });
+
+  it('keeps a mirrored image address and the KID and own code while the file adds an image', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({}), false);
+    const imported = await product();
+    await prisma.salesProduct.update({
+      where: { id: imported.id },
+      data: { imageUrls: [mirroredUrl(IMAGE_A), IMAGE_B] },
+    });
+
+    const { preview } = await reimport({ 자체상품코드: 'OWN-OTHER', 부가이미지3: IMAGE_C });
+
+    expect(preview.existingChanges[0]).toMatchObject({ preserved: [], updated: ['imageUrls'] });
+    await expect(product()).resolves.toMatchObject({
+      code: imported.code,
+      ownCode: OWN_CODE,
+      imageUrls: [mirroredUrl(IMAGE_A), IMAGE_B, IMAGE_C],
+    });
+  });
+
+  it('keeps every current value of a product imported without a source row', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({}), false);
+    const imported = await product();
+    await prisma.salesProduct.update({ where: { id: imported.id }, data: { sourceRaw: Prisma.JsonNull } });
+
+    const { preview } = await reimport({ 상품명: '다른 이름', 관리자메모: '사방넷 메모 2' });
+
+    // 바뀐 것은 저장된 원문(기준값)뿐이다.
+    expect(preview.existingChanges[0]).toMatchObject({ changed: true, baselineOnly: true, updated: [] });
+    await expect(product()).resolves.toMatchObject({
+      name: '투명우산 그리기',
+      adminMemo: '사방넷 메모 1',
+      sourceRaw: expect.objectContaining({ 상품명: '다른 이름' }),
+    });
+  });
+
+  it('takes a new file detail after the mirror job rewrote the imported detail images', async () => {
+    const imported = `<p><img src="${IMAGE_A}"></p>`;
+    await service.import(TEST_ORGANIZATION_ID, file({ 상품상세설명: imported }), false);
+    await imageMirror.mirror(TEST_ORGANIZATION_ID);
+    await expect(product()).resolves.toMatchObject({ detailHtml: `<p><img src="${mirroredUrl(IMAGE_A)}"></p>` });
+
+    const { preview } = await reimport({ 상품상세설명: '<p>상세 2</p>' });
+
+    expect(preview.existingChanges[0]!.preserved).not.toContain('detailHtml');
+    await expect(product()).resolves.toMatchObject({ detailHtml: '<p>상세 2</p>' });
+  });
+
+  it('keeps an operator-edited detail across a mirror and a reimport', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({}), false);
+    const imported = await product();
+    const edited = `<p>운영자 상세 <img src="${IMAGE_A}"></p>`;
+    await prisma.salesProduct.update({ where: { id: imported.id }, data: { detailHtml: edited } });
+    await imageMirror.mirror(TEST_ORGANIZATION_ID);
+
+    await reimport({ 상품상세설명: '<p>상세 2</p>' });
+
+    await expect(product()).resolves.toMatchObject({
+      detailHtml: `<p>운영자 상세 <img src="${mirroredUrl(IMAGE_A)}"></p>`,
+    });
+  });
+
+  it('keeps the Sabangnet goods number when a reimported row carries only the own code', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({}), false);
+    const imported = await product();
+
+    const preview = await service.import(TEST_ORGANIZATION_ID, file({ 품번코드: '', 상품명: '자체코드로 온 줄' }), true);
+    const [change] = preview.existingChanges;
+    expect(change).toMatchObject({ salesProductId: imported.id });
+    await service.import(TEST_ORGANIZATION_ID, file({ 품번코드: '', 상품명: '자체코드로 온 줄' }), false, [{
+      salesProductId: imported.id,
+      expectedVersion: change!.expectedVersion,
+    }]);
+
+    await expect(prisma.salesProduct.findFirstOrThrow({ where: { id: imported.id } })).resolves.toMatchObject({
+      sabangnetGoodsNo: GOODS_NO,
+      ownCode: OWN_CODE,
+      name: '자체코드로 온 줄',
+    });
+  });
+
+  it('fills an empty own code from the file and never replaces one that is set', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({ 자체상품코드: '' }), false);
+    await expect(product()).resolves.toMatchObject({ ownCode: null });
+
+    await reimport({ 자체상품코드: OWN_CODE });
+    await expect(product()).resolves.toMatchObject({ ownCode: OWN_CODE });
+
+    await reimport({ 자체상품코드: 'OWN-OTHER', 상품명: '다른 이름' });
+    await expect(product()).resolves.toMatchObject({ ownCode: OWN_CODE, name: '다른 이름' });
+  });
+
+  it('still holds an identity conflict and writes nothing', async () => {
+    await service.import(TEST_ORGANIZATION_ID, file({}), false);
+    const imported = await product();
+    // 다른 판매상품의 자체상품코드가 이 상품의 사방넷 품번과 같다 — 파일 줄이 어느 상품인지 정할 수 없다.
+    await prisma.salesProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: 'KID-OTHER', name: '다른 상품', ownCode: GOODS_NO },
+    });
+
+    await expect(service.import(TEST_ORGANIZATION_ID, file({ 상품명: '바뀐 이름' }), false, [{
+      salesProductId: imported.id,
+      expectedVersion: imported.version,
+    }])).rejects.toThrow(/Ambiguous source product identity/);
+    const after = await product();
+    expect(after).toMatchObject({ name: '투명우산 그리기', version: imported.version, ownCode: OWN_CODE });
   });
 });

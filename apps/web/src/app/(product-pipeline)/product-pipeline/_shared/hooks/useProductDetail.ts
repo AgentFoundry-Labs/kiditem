@@ -13,7 +13,6 @@ import { mapProcessedData, PLACEHOLDER_DATA, type ProductEditState } from '../li
 export interface ProductWorkspaceData {
   product: ProductDetailResponse;
   detailPageData: DetailPageData;
-  editedHtml: string | null;
   templateCss: string;
   editState: ProductEditState;
 }
@@ -55,7 +54,6 @@ export function useProductDetail(
       return {
         product: data,
         detailPageData: placeholderDetailPageData,
-        editedHtml: null,
         templateCss: css,
         editState,
       } satisfies ProductWorkspaceData;

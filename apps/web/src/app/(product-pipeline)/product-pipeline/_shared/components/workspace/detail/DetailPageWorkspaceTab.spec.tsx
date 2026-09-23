@@ -154,7 +154,6 @@ describe('DetailPageWorkspaceTab', () => {
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
-        editedHtml={null}
         templateCss=""
         initialAgentHistory={undefined}
         selectedKidsPlayfulId={null}
@@ -180,7 +179,6 @@ describe('DetailPageWorkspaceTab', () => {
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
-        editedHtml={null}
         templateCss=""
         initialAgentHistory={[]}
         selectedKidsPlayfulId={null}
@@ -231,7 +229,6 @@ describe('DetailPageWorkspaceTab', () => {
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
-        editedHtml={null}
         templateCss=""
         initialAgentHistory={[]}
         selectedKidsPlayfulId={null}
@@ -281,7 +278,6 @@ describe('DetailPageWorkspaceTab', () => {
         productId="listing-1"
         contentWorkspaceId="workspace-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
-        editedHtml={null}
         templateCss=""
         initialAgentHistory={[]}
         selectedKidsPlayfulId={null}
@@ -331,7 +327,6 @@ describe('DetailPageWorkspaceTab', () => {
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
-        editedHtml={null}
         templateCss=""
         initialAgentHistory={[]}
         selectedKidsPlayfulId={null}
@@ -390,7 +385,6 @@ describe('DetailPageWorkspaceTab', () => {
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
-        editedHtml={null}
         templateCss=""
         initialAgentHistory={[]}
         selectedKidsPlayfulId={null}
@@ -454,7 +448,6 @@ describe('DetailPageWorkspaceTab', () => {
       <DetailPageWorkspaceTab
         productId="candidate-1"
         detailPreviewHtml="<html><body>placeholder</body></html>"
-        editedHtml={null}
         templateCss=""
         initialAgentHistory={[]}
         selectedKidsPlayfulId={null}

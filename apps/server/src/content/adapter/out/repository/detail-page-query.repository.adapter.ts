@@ -15,6 +15,7 @@ import type {
   DetailPageListRepositoryInput,
   DetailPageQueryRepositoryPort,
 } from '../../../application/port/out/repository/detail-page-query.repository.port';
+import { DETAIL_PAGE_REVISION_TYPE } from '../../../domain/detail-page/detail-page-revision-type';
 
 interface DetailPageEditableGenerationSnapshot {
   id: string;
@@ -131,8 +132,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         generatedTitle: true,
         generatedDescription: true,
         generatedCopy: true,
-        editedHtml: true,
-        editedHtmlSavedAt: true,
         status: true,
         triggeredByUserId: true,
         detailPageArtifact: {
@@ -236,8 +235,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           generatedTitle: input.duplicateTitle,
           generatedDescription: input.source.generatedDescription,
           generatedCopy: input.source.generatedCopy,
-          editedHtml: input.source.editedHtml,
-          editedHtmlSavedAt: input.source.editedHtmlSavedAt,
           status: input.source.status === 'FAILED' ? 'READY' : input.source.status,
         },
       });
@@ -267,7 +264,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
             organizationId: input.organizationId,
             artifactId: artifact.id,
             contentGenerationId: created.id,
-            revisionType: 'duplicate',
+            revisionType: DETAIL_PAGE_REVISION_TYPE.duplicate,
             html: sourceRevision.html,
             assetUrlMap: sourceRevision.assetUrlMap as Prisma.InputJsonValue,
             imageUrls: sourceRevision.imageUrls as Prisma.InputJsonValue,
@@ -349,7 +346,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           organizationId: input.organizationId,
           artifactId,
           contentGenerationId: input.contentGenerationId,
-          revisionType: 'manual_edit',
+          revisionType: DETAIL_PAGE_REVISION_TYPE.manual_edit,
           html: input.html,
           assetUrlMap: input.assetUrlMap as Prisma.InputJsonValue,
           imageUrls: input.imageUrls as Prisma.InputJsonValue,
@@ -500,8 +497,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
       where: { id: input.id, organizationId: input.organizationId, isDeleted: false },
       select: {
         id: true,
-        editedHtml: true,
-        editedHtmlSavedAt: true,
         detailPageArtifact: {
           select: {
             isDeleted: true,
