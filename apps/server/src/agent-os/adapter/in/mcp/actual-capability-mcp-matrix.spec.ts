@@ -206,8 +206,9 @@ const scenarios: readonly InvocationScenario[] = [
   scenario('sourcing.duplicateCheck', 'sourcing.duplicateCheck', 'none', { sourceUrl: SOURCE_URL }, {
     duplicate: false,
     candidateId: null,
+    salesProductId: null,
   }),
-  scenario('sourcing.ingestCandidate', 'sourcing.ingestCandidate', 'medium', { snapshot }, { candidateId: CANDIDATE_ID }),
+  scenario('sourcing.ingestCandidate', 'sourcing.ingestCandidate', 'medium', { snapshot }, { candidateId: CANDIDATE_ID, salesProductId: null }),
   scenario('sourcing.inspectRecommendationRun', 'sourcing.inspectRecommendationRun', 'none', {
     recommendationRunId: RECOMMENDATION_RUN_ID,
   }, {
@@ -547,7 +548,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
     duplicateCheck: typedOwnerPortMethod(
       typedOwnerPortCalls,
       'sourcing.duplicateCheck',
-      { duplicate: false, candidateId: null },
+      { duplicate: false, candidateId: null, salesProductId: null },
     ),
     scrapeProductUrl: typedOwnerPortMethod(
       typedOwnerPortCalls,
@@ -557,7 +558,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
     ingestCandidate: typedOwnerPortMethod(
       typedOwnerPortCalls,
       'sourcing.ingestCandidate',
-      { candidateId: CANDIDATE_ID },
+      { candidateId: CANDIDATE_ID, salesProductId: null },
     ),
     createReviewBatch: typedOwnerPortMethod(
       typedOwnerPortCalls,

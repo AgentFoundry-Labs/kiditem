@@ -94,9 +94,9 @@ function ownerCompositions() {
     })),
   };
   const sourcing: SourcingFinalCapabilityPort = {
-    duplicateCheck: vi.fn(async () => ({ duplicate: false, candidateId: null })),
+    duplicateCheck: vi.fn(async () => ({ duplicate: false, candidateId: null, salesProductId: null })),
     scrapeProductUrl: vi.fn(async () => ({ snapshot })),
-    ingestCandidate: vi.fn(async () => ({ candidateId: identifiers.candidateId })),
+    ingestCandidate: vi.fn(async () => ({ candidateId: identifiers.candidateId, salesProductId: null })),
     createReviewBatch: vi.fn(async () => ({
       reviewBatchId: 'review-batch-1',
       itemCount: 1,

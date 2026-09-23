@@ -132,7 +132,7 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
         source_url: agentSourceUrl,
         scraped_data: { title: 'Agent Alibaba candidate', variant_key: '  Blue   Set ', images: [] },
       }),
-    } as never);
+    } as never, new SourcingCollectedDraftService(agentCandidates, realSalesProductDraftPort(agentPrisma)));
     const extension = extensionOwner(
       prismaWithCandidateReadBarrier(extensionPrisma, waitForPeerCandidateRead),
     );

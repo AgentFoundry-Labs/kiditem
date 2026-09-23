@@ -26,9 +26,9 @@ export interface SourcingSourceSnapshot {
 }
 
 export interface SourcingFinalCapabilityPort {
-  duplicateCheck(request: { context: Pick<SourcingOwnerExecutionContext, 'organizationId'>; input: { sourceUrl: string } }): Promise<{ duplicate: boolean; candidateId: string | null }>;
+  duplicateCheck(request: { context: Pick<SourcingOwnerExecutionContext, 'organizationId'>; input: { sourceUrl: string } }): Promise<{ duplicate: boolean; candidateId: string | null; salesProductId: string | null }>;
   scrapeProductUrl(request: { context: Pick<SourcingOwnerExecutionContext, 'organizationId' | 'initiatingUserId' | 'executionId'>; input: { sourceUrl: string } }): Promise<{ snapshot: SourcingSourceSnapshot }>;
-  ingestCandidate(request: { context: SourcingMutationExecutionContext; input: { snapshot: SourcingSourceSnapshot } }): Promise<{ candidateId: string }>;
+  ingestCandidate(request: { context: SourcingMutationExecutionContext; input: { snapshot: SourcingSourceSnapshot } }): Promise<{ candidateId: string; salesProductId: string | null }>;
   createReviewBatch(request: { context: SourcingMutationExecutionContext; input: { recommendationRunId: string; workspaceKey: 'entry' | 'final'; items: Array<{ itemKey: string; expectedVersion: number }> } }): Promise<{ reviewBatchId: string; itemCount: number; status: string }>;
   inspectRecommendationRun(request: { context: Pick<SourcingOwnerExecutionContext, 'organizationId'>; input: { recommendationRunId?: string } }): Promise<{ runId: string; status: 'complete' | 'partial' | 'failed'; businessDate: string; itemCount: number; warningCodes: string[]; validation: { itemCount: number; missingCount: number } }>;
   refreshValidation(request: { context: SourcingMutationExecutionContext; input: { recommendationRunId: string } }): Promise<{ recommendationRunId: string; validationEpisodeIds: string[]; missingEvidence: string[] }>;
