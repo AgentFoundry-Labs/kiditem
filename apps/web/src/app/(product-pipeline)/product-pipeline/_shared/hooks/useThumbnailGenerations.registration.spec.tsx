@@ -42,6 +42,23 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('generation list with Channels mall registration status', () => {
+  it('keeps loading until the Channels status arrives, so an applied item never looks unregistered', async () => {
+    let releaseStatus: (value: unknown) => void = () => {};
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.startsWith('/api/thumbnail-analysis/generations')) {
+        return { items: [generation(G1, 'applied'), generation(G2, 'ready')], total: 2 };
+      }
+      return new Promise((resolve) => { releaseStatus = resolve; });
+    });
+    const hook = mount();
+    await waitFor(() => expect(hook.result.current.list.data).toHaveLength(2));
+    expect(hook.result.current.list.isLoading).toBe(true);
+
+    releaseStatus({ items: [] });
+    await waitFor(() => expect(hook.result.current.list.isLoading).toBe(false));
+    expect(Object.keys(hook.result.current.list).sort()).toEqual(['data', 'error', 'isError', 'isLoading', 'refetch']);
+  });
+
   it('reads the latest execution for applied generations once and merges it by generation id', async () => {
     const hook = mount();
     await waitFor(() => expect(hook.result.current.list.data?.[0]?.registrationStatus).toBe('checking'));

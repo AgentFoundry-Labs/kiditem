@@ -4,8 +4,11 @@ import {
   type ThumbnailRegistrationState,
 } from '../components/workspace/thumbnail/thumbnail-workspace-state';
 
-/** Channels 조회 한 번이 받는 생성 id 수(`ThumbnailExecutionStatusQuerySchema`). */
-const MAX_IDS_PER_READ = 200;
+/**
+ * 조회 한 번에 보내는 생성 id 수. 서버는 200 개까지 받지만(`ThumbnailExecutionStatusQuerySchema`)
+ * uuid 200 개면 query string 이 7KB 를 넘어 100 개씩 나눈다.
+ */
+const MAX_IDS_PER_READ = 100;
 
 export interface ThumbnailRegistrationFields {
   /** 가장 최근 몰 반영 실행. "확인 중" 에서 다시 보내기 · 반영 안 됨 표시가 이 실행에 한다. */

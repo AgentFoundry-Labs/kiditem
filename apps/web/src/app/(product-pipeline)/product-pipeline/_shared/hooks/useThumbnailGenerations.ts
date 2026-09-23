@@ -1,7 +1,7 @@
 'use client';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import type { ThumbnailExecutionStatus } from '@kiditem/shared/thumbnail-execution';
@@ -68,7 +68,20 @@ export function useGenerationList(
     () => (generations.data ? mergeThumbnailRegistration(generations.data, executions.data ?? []) : undefined),
     [generations.data, executions.data],
   );
-  return { ...generations, data };
+  // 적용된 생성의 몰 반영 상태가 오기 전에는 "등록 안 됨" 처럼 보이지 않게 로딩으로 본다.
+  const statusLoading = appliedIds.length > 0 && executions.isLoading;
+  const refetch = useCallback(async () => {
+    const result = await generations.refetch();
+    await executions.refetch();
+    return result;
+  }, [generations, executions]);
+  return {
+    data,
+    isLoading: generations.isLoading || statusLoading,
+    isError: generations.isError || executions.isError,
+    error: generations.error ?? executions.error,
+    refetch,
+  };
 }
 
 /** 생성마다 가장 최근 대표이미지 몰 반영 실행(`GET /api/channels/thumbnail-executions`). */

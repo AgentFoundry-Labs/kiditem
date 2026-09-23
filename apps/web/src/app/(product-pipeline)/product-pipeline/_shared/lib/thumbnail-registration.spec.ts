@@ -34,10 +34,10 @@ describe('mergeThumbnailRegistration', () => {
 });
 
 describe('thumbnailExecutionIdChunks', () => {
-  it('splits the listed ids into the 200-id pages the Channels read accepts, without duplicates', () => {
-    const ids = Array.from({ length: 450 }, (_, index) => `g${index}`);
+  it('splits the listed ids into 100-id pages so each query string stays short, without duplicates', () => {
+    const ids = Array.from({ length: 250 }, (_, index) => `g${index}`);
     const chunks = thumbnailExecutionIdChunks([...ids, 'g0']);
-    expect(chunks.map((chunk) => chunk.length)).toEqual([200, 200, 50]);
+    expect(chunks.map((chunk) => chunk.length)).toEqual([100, 100, 50]);
     expect(chunks.flat()).toEqual(ids);
   });
 });
