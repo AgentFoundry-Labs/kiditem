@@ -288,7 +288,10 @@ async function readProfitLines(
   const listingIds = [...new Set(optionIdentities.map(option => option.listingId))];
   const listings = await catalog.listings.readCatalogFacts(transaction, { organizationId, listingIds });
   const listingProducts = await catalog.recipes.readListingProductSummaries(transaction, { organizationId, listingIds });
-  const thumbnails = await catalog.content.readLatestListingThumbnails(transaction, { organizationId, listingIds });
+  const thumbnails = await catalog.content.readLatestListingThumbnails(transaction, {
+    organizationId,
+    listings: listings.map(listing => ({ id: listing.id, salesProductId: listing.salesProductId })),
+  });
   const thumbnailByListing = new Map(thumbnails.map(row => [row.listingId, row.imageUrl]));
   // Order accounts decide sales costs; listing accounts decide ad-sweep applicability.
   const accountIds = [...new Set([

@@ -8,7 +8,6 @@ const activeListing: ChannelListingSummary = {
   id: 'active-listing',
   listingName: 'Active item',
   thumbnailUrl: null,
-  detailPageArtifactId: null,
   detailPageRevisionId: null,
   channel: 'coupang',
   channelAccountId: 'account-1',
@@ -19,6 +18,7 @@ const activeListing: ChannelListingSummary = {
   brand: null,
   manufacturer: null,
   channelPrice: null,
+  salesProductId: 'sales-product-1',
   sourceRecordId: null,
   contentWorkspaceId: null,
   status: 'active',
@@ -111,7 +111,6 @@ describe('ChannelListingQueryService', () => {
       findForListings: vi.fn().mockResolvedValue([{
         listingId: activeListing.id,
         workspaceId: 'workspace-1',
-        detailPageArtifactId: 'artifact-1',
         detailPageRevisionId: 'revision-1',
         thumbnailUrl: 'https://cdn.example.com/thumbnail.png',
         providerMedia: [{
@@ -128,14 +127,13 @@ describe('ChannelListingQueryService', () => {
 
     expect(result).toMatchObject({
       contentWorkspaceId: 'workspace-1',
-      detailPageArtifactId: 'artifact-1',
       detailPageRevisionId: 'revision-1',
       thumbnailUrl: 'https://cdn.example.com/thumbnail.png',
       providerDetail: { media: [{ sourceUrl: 'https://cdn.example.com/provider.png' }] },
     });
     expect(content.findForListings).toHaveBeenCalledWith({
       organizationId: 'org-1',
-      listings: [{ id: activeListing.id, channel: 'coupang' }],
+      listings: [{ id: activeListing.id, channel: 'coupang', salesProductId: 'sales-product-1' }],
       includeProviderMedia: true,
     });
   });

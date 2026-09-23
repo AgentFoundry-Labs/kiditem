@@ -68,6 +68,8 @@ export interface ChannelListingSummary {
   brand: string | null;
   manufacturer: string | null;
   channelPrice: number | null;
+  /** 이 몰 상품을 파는 판매 상품. 콘텐츠는 그 상품의 작업공간에 있다(KID-313 W3 리뷰 M1). */
+  salesProductId: string | null;
   sourceRecordId: string | null;
   contentWorkspaceId: string | null;
   status: string | null;

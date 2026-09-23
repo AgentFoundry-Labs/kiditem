@@ -22,6 +22,7 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     brand: null,
     manufacturer: null,
     rawJson: null,
+    salesProductId: 'sales-product-1',
     salesProduct: { sourceRecordId: 'candidate-1' },
     masterProductId: 'master-1',
     status: 'active',
@@ -111,7 +112,6 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
       id: 'listing-1',
       listingName: 'KidItem 등록명',
       thumbnailUrl: null,
-      detailPageArtifactId: null,
       detailPageRevisionId: null,
       channel: 'coupang',
       channelAccountId: 'account-1',
@@ -122,6 +122,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
       brand: null,
       manufacturer: null,
       channelPrice: 12_900,
+      salesProductId: 'sales-product-1',
       sourceRecordId: 'candidate-1',
       contentWorkspaceId: null,
       status: 'active',
@@ -196,6 +197,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
     }));
     expect(result).toEqual(expect.objectContaining({
       id: 'listing-1',
+      salesProductId: 'sales-product-1',
       sourceRecordId: 'candidate-1',
       contentWorkspaceId: null,
       channelAccountId: 'account-1',

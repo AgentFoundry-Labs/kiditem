@@ -365,6 +365,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         where: { ...listingScope, id: { in: ids } },
         select: {
         id: true,
+        salesProductId: true,
         channelAccountId: true,
         channelAccount: { select: { channel: true } },
         status: true,
@@ -387,7 +388,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       .filter((listing) => listing.masterProductId !== null);
     const contentRows = await chunked(listingRows.map(row => row.id), MATRIX_LISTING_CHUNK, ids => {
       const selected = new Set(ids);
-      return this.content.findForListings({ organizationId, listings: listingRows.filter(row => selected.has(row.id)).map(row => ({ id: row.id, channel: row.channelAccount.channel })) });
+      return this.content.findForListings({ organizationId, listings: listingRows.filter(row => selected.has(row.id)).map(row => ({ id: row.id, channel: row.channelAccount.channel, salesProductId: row.salesProductId })) });
     });
     const imageByListing = new Map(contentRows.map(row => [row.listingId, row.workspaceImageUrl]));
     const listingByMasterProductId = groupListingRowsByMasterProductId(listingRows);

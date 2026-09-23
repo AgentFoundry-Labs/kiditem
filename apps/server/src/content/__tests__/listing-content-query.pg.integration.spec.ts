@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG, OTHER_ORGANIZATION_ID as OTHER } from '../../test-helpers/real-prisma';
+import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
 import { ListingContentQueryRepositoryAdapter } from '../adapter/out/repository/listing-content-query.repository.adapter';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
@@ -51,22 +52,71 @@ describe('AI listing content owner query (PG integration)', () => {
     const listingId = randomUUID();
     const ws = await workspace(listingId);
     const current = await representative(ws.id, 'current');
-    expect(await content.findForListings({ organizationId: ORG, listings: [{ id: listingId, channel: 'coupang' }] })).toEqual([{
+    expect(await content.findForListings({ organizationId: ORG, listings: [{ id: listingId, channel: 'coupang', salesProductId: null }] })).toEqual([{
       listingId, workspaceId: ws.id, thumbnailUrl: current.url,
-      detailPageArtifactId: null, detailPageRevisionId: null, workspaceImageUrl: current.url, providerMedia: [],
+      detailPageRevisionId: null, workspaceImageUrl: current.url, providerMedia: [],
     }]);
-    expect(await prisma.$transaction(tx => content.readLatestListingThumbnails(ownerTransaction(tx), { organizationId: ORG, listingIds: [listingId] })))
+    expect(await prisma.$transaction(tx => content.readLatestListingThumbnails(ownerTransaction(tx), { organizationId: ORG, listings: [{ id: listingId, salesProductId: null }] })))
       .toEqual([{ listingId, imageUrl: current.url }]);
   });
 
-  it('serves listing content from the draft workspace attached to that listing', async () => {
+  async function productListing(salesProductId: string | null) {
+    const account = await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'coupang', name: randomUUID() } });
+    return prisma.channelListing.create({ data: {
+      organizationId: ORG, channelAccountId: account.id, externalId: randomUUID(), salesProductId,
+    } });
+  }
+
+  it('reaches the sales product workspace through the listing product, with its representative image and current revision', async () => {
+    const product = await prisma.salesProduct.create({ data: { organizationId: ORG, code: null, name: '판매 상품' } });
+    const lifecycle = new ContentWorkspaceLifecycleRepositoryAdapter(
+      prisma as PrismaService, {} as never, { assertOwner: async () => undefined } as never,
+    );
+    const ws = await lifecycle.ensureActiveWorkspace({
+      organizationId: ORG, ownerType: 'sales_product', salesProductId: product.id,
+      channelListingId: null, normalizedTitle: null, createdByUserId: null,
+    });
+    const current = await representative(ws.id, 'product-thumb');
+    const page = await prisma.detailPage.create({ data: { organizationId: ORG, contentWorkspaceId: ws.id, source: 'manual' } });
+    const revision = await prisma.detailPageRevision.create({ data: { organizationId: ORG, detailPageId: page.id, html: '<p>상세</p>' } });
+    await prisma.contentWorkspace.update({ where: { id: ws.id }, data: { currentDetailPageRevisionId: revision.id } });
+    const listing = await productListing(product.id);
+    // 상품 작업공간이 있으면 같은 리스팅의 카탈로그 작업공간보다 먼저다.
+    await workspace(listing.id);
+
+    expect(await content.findForListings({ organizationId: ORG, listings: [{ id: listing.id, channel: 'coupang', salesProductId: product.id }] }))
+      .toMatchObject([{ listingId: listing.id, workspaceId: ws.id, thumbnailUrl: current.url, detailPageRevisionId: revision.id }]);
+    expect(await prisma.$transaction(tx => content.readLatestListingThumbnails(ownerTransaction(tx), {
+      organizationId: ORG, listings: [{ id: listing.id, salesProductId: product.id }],
+    }))).toEqual([{ listingId: listing.id, imageUrl: current.url }]);
+  });
+
+  it('falls back to the catalog workspace of a listing whose product has no workspace, and has nothing for a listing with neither', async () => {
+    const product = await prisma.salesProduct.create({ data: { organizationId: ORG, code: null, name: '작업공간 없는 상품' } });
+    const catalogListing = await productListing(product.id);
+    const catalog = await workspace(catalogListing.id);
+    const catalogThumb = await representative(catalog.id, 'catalog-thumb');
+    const bare = await productListing(null);
+    const rows = await content.findForListings({ organizationId: ORG, listings: [
+      { id: catalogListing.id, channel: 'coupang', salesProductId: product.id },
+      { id: bare.id, channel: 'coupang', salesProductId: null },
+    ] });
+    expect(rows).toMatchObject([
+      { listingId: catalogListing.id, workspaceId: catalog.id, thumbnailUrl: catalogThumb.url },
+      { listingId: bare.id, workspaceId: null, thumbnailUrl: null, detailPageRevisionId: null, workspaceImageUrl: null },
+    ]);
+    expect(await prisma.$transaction(tx => content.readLatestListingThumbnails(ownerTransaction(tx), {
+      organizationId: ORG, listings: [{ id: catalogListing.id, salesProductId: product.id }, { id: bare.id, salesProductId: null }],
+    }))).toEqual([{ listingId: catalogListing.id, imageUrl: catalogThumb.url }]);
+  });
+
+  it('never reads a listing id off a product workspace', async () => {
     const listingId = randomUUID();
-    const ws = await prisma.contentWorkspace.create({ data: {
+    await prisma.contentWorkspace.create({ data: {
       organizationId: ORG, ownerType: 'sales_product', salesProductId: randomUUID(), channelListingId: listingId,
     } });
-    const current = await representative(ws.id, 'draft-thumb');
-    expect(await content.findForListings({ organizationId: ORG, listings: [{ id: listingId, channel: 'coupang' }] }))
-      .toMatchObject([{ listingId, workspaceId: ws.id, thumbnailUrl: current.url }]);
+    expect(await content.findForListings({ organizationId: ORG, listings: [{ id: listingId, channel: 'coupang', salesProductId: null }] }))
+      .toMatchObject([{ listingId, workspaceId: null }]);
   });
 
   it('has no thumbnail without a representative image, a workspace or a live asset', async () => {
@@ -75,7 +125,7 @@ describe('AI listing content owner query (PG integration)', () => {
     const ws = await workspace(listingIds[1]!);
     const gone = await representative(ws.id, 'gone');
     await prisma.contentAsset.update({ where: { id: gone.id }, data: { isDeleted: true } });
-    const rows = await content.findForListings({ organizationId: ORG, listings: listingIds.map(id => ({ id, channel: 'coupang' })) });
+    const rows = await content.findForListings({ organizationId: ORG, listings: listingIds.map(id => ({ id, channel: 'coupang', salesProductId: null })) });
     expect(rows.map(row => row.thumbnailUrl)).toEqual([null, null, null]);
     expect(rows[2]!.workspaceId).toBeNull();
   });
@@ -86,7 +136,7 @@ describe('AI listing content owner query (PG integration)', () => {
     await workspace(listingIds[1]!, { isDeleted: true });
     await workspace(listingIds[2]!, { status: 'archived' });
     await workspace(listingIds[3]!, { ownerType: 'direct_detail_page' });
-    const rows = await content.findForListings({ organizationId: ORG, listings: listingIds.map(id => ({ id, channel: 'coupang' })), includeProviderMedia: true });
+    const rows = await content.findForListings({ organizationId: ORG, listings: listingIds.map(id => ({ id, channel: 'coupang', salesProductId: null })), includeProviderMedia: true });
     expect(rows.every(row => row.workspaceId === null && row.thumbnailUrl === null && row.providerMedia.length === 0)).toBe(true);
     expect(await content.findForListings({ organizationId: ORG, listings: [] })).toEqual([]);
   });
@@ -106,7 +156,7 @@ describe('AI listing content owner query (PG integration)', () => {
     await media('wrong-role', { role: 'generated' });
     await media('uploaded', { source: 'upload' });
     await media('generated', { metadata: { sourceType: 'generated' } });
-    const query = (channel: string, includeProviderMedia = true) => content.findForListings({ organizationId: ORG, listings: [{ id: listingId, channel }], includeProviderMedia });
+    const query = (channel: string, includeProviderMedia = true) => content.findForListings({ organizationId: ORG, listings: [{ id: listingId, channel, salesProductId: null }], includeProviderMedia });
     expect((await query('coupang'))[0]!.providerMedia).toEqual([
       { sourceUrl: 'https://cdn/primary', role: 'primary', sortOrder: 1, externalOptionIds: [] },
       { sourceUrl: 'https://cdn/option', role: 'option', sortOrder: 2, externalOptionIds: ['a', 'b', 'c'] },
@@ -123,10 +173,10 @@ describe('AI listing content owner query (PG integration)', () => {
         organizationId: ORG, contentWorkspaceId: ws.id, source: 'catalog', assetKey: randomUUID(), url: 'https://cdn/uncommitted', role: 'primary',
       } });
       await tx.contentWorkspace.update({ where: { id: ws.id }, data: { currentThumbnailAssetId: row.id } });
-      expect(await content.readLatestListingThumbnails(ownerTransaction(tx), { organizationId: ORG, listingIds: [listingId] }))
+      expect(await content.readLatestListingThumbnails(ownerTransaction(tx), { organizationId: ORG, listings: [{ id: listingId, salesProductId: null }] }))
         .toEqual([{ listingId, imageUrl: 'https://cdn/uncommitted' }]);
-      expect(await content.readLatestListingThumbnails(ownerTransaction(tx), { organizationId: OTHER, listingIds: [listingId] })).toEqual([]);
-      expect(await content.readLatestListingThumbnails(ownerTransaction(tx), { organizationId: ORG, listingIds: [] })).toEqual([]);
+      expect(await content.readLatestListingThumbnails(ownerTransaction(tx), { organizationId: OTHER, listings: [{ id: listingId, salesProductId: null }] })).toEqual([]);
+      expect(await content.readLatestListingThumbnails(ownerTransaction(tx), { organizationId: ORG, listings: [] })).toEqual([]);
     });
   });
 
@@ -161,7 +211,7 @@ describe('AI listing content owner query (PG integration)', () => {
     await asset(ws.id, 'matrix', { sortOrder: -5 });
     await asset(ws.id, 'ai-candidate', { source: 'ai', sortOrder: -9 });
     await representative(ws.id, 'representative');
-    expect((await content.findForListings({ organizationId: ORG, listings: [{ id: listingId, channel: 'coupang' }], includeProviderMedia: true }))[0])
+    expect((await content.findForListings({ organizationId: ORG, listings: [{ id: listingId, channel: 'coupang', salesProductId: null }], includeProviderMedia: true }))[0])
       .toMatchObject({ workspaceImageUrl: 'https://cdn/matrix', thumbnailUrl: 'https://cdn/representative', providerMedia: [] });
   });
 

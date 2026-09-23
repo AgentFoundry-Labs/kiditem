@@ -20,6 +20,6 @@ export interface ListingContentRequest {
 
 export const AI_LISTING_CONTENT_QUERY_PORT = Symbol('AI_LISTING_CONTENT_QUERY_PORT');
 export interface ListingContentQueryPort {
-  readLatestListingThumbnails(transaction: OwnerTransaction, input: { organizationId: string; listingIds: readonly string[] }): Promise<Array<{ listingId: string; imageUrl: string }>>;
+  readLatestListingThumbnails(transaction: OwnerTransaction, input: { organizationId: string; listings: ReadonlyArray<{ id: string; salesProductId: string | null }> }): Promise<Array<{ listingId: string; imageUrl: string }>>;
   findForListings(input: ListingContentRequest): Promise<ListingContentView[]>;
 }
