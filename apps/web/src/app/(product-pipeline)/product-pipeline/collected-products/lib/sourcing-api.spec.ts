@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 import {
   applyBasicsPriceToSalesProduct,
   candidatesApi,
@@ -372,6 +373,34 @@ describe('sourcing candidate API', () => {
 
       expect(detail.basicInfo.salePrice).toBe(0);
       expect(detail.basicInfo.salePriceSource).toBe('none');
+    });
+
+    it('treats a missing source record (404) as a draft without source facts', async () => {
+      vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture());
+      vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+        if (url === `/api/sourcing/${CANDIDATE_ID}`) throw new ApiError(404, 'Not Found', 'Sourcing candidate not found');
+        if (url === `/api/ai/content-workspaces/by-sales-product/${DRAFT_ID}/registration-media`) return EMPTY_MEDIA;
+        throw new Error(`unexpected GET ${url}`);
+      });
+
+      const detail = await productsApi.getDetail(DRAFT_ID);
+
+      expect(detail.id).toBe(DRAFT_ID);
+      expect(detail.sourceCandidateId).toBe(CANDIDATE_ID);
+      expect(detail.status).toBeNull();
+      expect(detail.raw_data).toBeNull();
+      expect(detail.image_urls).toEqual(['https://cdn.example.com/draft.jpg']);
+      expect(detail.registrationState).toBe('none');
+    });
+
+    it('still surfaces any other source-record error', async () => {
+      vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture());
+      vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
+        if (url === `/api/sourcing/${CANDIDATE_ID}`) throw new ApiError(500, 'Internal', 'boom');
+        return EMPTY_MEDIA;
+      });
+
+      await expect(productsApi.getDetail(DRAFT_ID)).rejects.toMatchObject({ status: 500 });
     });
 
     it('rejects the retired promoted candidate status', async () => {

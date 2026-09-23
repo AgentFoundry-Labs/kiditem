@@ -5,6 +5,7 @@ import {
   type SourcingCandidateStatus,
 } from '@kiditem/shared/sourcing';
 import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { salesProductApi } from '@/lib/sales-product-api';
 import {
   contentWorkspacesApi,
@@ -741,8 +742,15 @@ export const productsApi = {
   /** 초안과, 초안이 원천 기록을 가리키면 그 원천 기록. 원천이 없는 초안은 후보를 묻지 않는다. */
   async getDraftWithSource(salesProductId: string): Promise<{ draft: SalesProduct; source: unknown | null }> {
     const draft = await salesProductApi.get(salesProductId);
+    // 원천 기록은 초안보다 먼저 지워질 수 있다(후보를 지워도 초안은 남는다). 그러면 원천 사실이
+    // 없는 초안으로 연다 — 다른 오류는 그대로 올린다.
     const source = draft.sourceCandidateId
-      ? await apiClient.get<unknown>(`/api/sourcing/${encodeURIComponent(draft.sourceCandidateId)}`)
+      ? await apiClient
+        .get<unknown>(`/api/sourcing/${encodeURIComponent(draft.sourceCandidateId)}`)
+        .catch((error: unknown) => {
+          if (isApiError(error) && error.status === 404) return null;
+          throw error;
+        })
       : null;
     return { draft, source };
   },
