@@ -13,7 +13,7 @@ import {
   extractImageUrls,
   resolveProcessedUrl,
 } from '../lib/editor-data';
-import { contentWorkspacesApi } from '../../../lib/content-workspaces-api';
+import { contentWorkspacesApi, contentWorkspaceLabel } from '../../../lib/content-workspaces-api';
 
 interface ContentAssetListResponse {
   items: Array<{ url: string }>;
@@ -34,9 +34,9 @@ export function useEditorData(contentWorkspaceId: string) {
       ]);
 
       const current = workspace.history.find(
-        (item) => item.id === workspace.currentDetailPageGenerationId,
+        (item) => item.id === workspace.currentDetailPageId,
       ) ?? workspace.history[0] ?? null;
-      const productName = workspace.displayName || '상품명 미지정';
+      const productName = contentWorkspaceLabel(workspace);
       const rawImages = Array.from(new Set(assets.items.map((asset) => asset.url)));
       const processedImages = current
         ? Array.from(new Set([

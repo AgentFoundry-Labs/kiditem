@@ -1,5 +1,5 @@
 import { registeredProductDetailHref } from '../../_shared/lib/product-pipeline-routes';
-import type { ContentWorkspaceSummary } from '../../_shared/lib/content-workspaces-api';
+import { contentWorkspaceLabel, type ContentWorkspaceSummary } from '../../_shared/lib/content-workspaces-api';
 
 interface DetailGenerationInput {
   rawTitle?: unknown;
@@ -10,7 +10,7 @@ interface DetailGenerationInput {
 
 export function contentWorkspaceTitle(workspace: ContentWorkspaceSummary): string {
   const latestInput = latestGenerationInput(workspace);
-  return pickString(latestInput.rawTitle) ?? workspace.displayName;
+  return pickString(latestInput.rawTitle) ?? contentWorkspaceLabel(workspace);
 }
 
 export function contentWorkspaceSubtitle(workspace: ContentWorkspaceSummary): string {

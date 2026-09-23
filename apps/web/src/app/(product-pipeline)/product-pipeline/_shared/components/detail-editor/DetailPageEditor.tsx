@@ -3443,7 +3443,7 @@ function RightPanel({
         productName,
         productId,
         contentWorkspaceId,
-        contentGenerationId,
+        detailPageId: contentGenerationId,
         templateId: generationTemplateId,
         seedHookText,
         seedHookTitleSub,

@@ -186,7 +186,7 @@ export function ProductWorkspaceScreen({
   const agentHistory = useMemo(
     () => initialAgentHistory
       ?? contentWorkspaceHistoryToGenerationHistory(
-        (draftWorkspace.workspace?.history ?? []).filter((item) => item.contentType === 'detail_page'),
+        draftWorkspace.workspace?.history ?? [],
       ),
     [draftWorkspace.workspace?.history, initialAgentHistory],
   );

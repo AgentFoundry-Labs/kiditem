@@ -183,7 +183,6 @@ describe('ProductTabContent', () => {
             detailPageData: null,
             imageUrls: [],
             processedImages: {},
-            detailPageArtifactId: 'artifact-1',
             detailPageRevisionId: null,
             errorMessage: null,
             productId: null,

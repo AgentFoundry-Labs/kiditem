@@ -142,6 +142,24 @@ describe('detail page editor (PG integration)', () => {
       .resolves.toMatchObject({ currentDetailPageRevisionId: page?.currentRevisionId });
   });
 
+  it('reads a page with its revision history, newest first, and says whether it is the one malls read', async () => {
+    const workspaceId = await workspace();
+    const pageId = await readyGeneratedPage(workspaceId);
+    await editor.saveEditedHtml(pageId, TEST_ORGANIZATION_ID, RENDERABLE('<p>첫 렌더</p>'));
+    await editor.saveEditedHtml(pageId, TEST_ORGANIZATION_ID, RENDERABLE('<p>고친 것</p>'));
+
+    const read = await editor.getWithRevisions(pageId, TEST_ORGANIZATION_ID);
+
+    expect(read).toMatchObject({
+      id: pageId, contentWorkspaceId: workspaceId, source: 'generated', status: 'ready', templateId: 'bold-vertical', isWorkspaceCurrent: true,
+    });
+    expect(read.revisions.map((revision) => revision.revisionType)).toEqual(['manual_edit', 'generated']);
+
+    const copy = await editor.duplicateVersion(pageId, TEST_ORGANIZATION_ID, TEST_USER_ID);
+    await expect(editor.getWithRevisions(pageId, TEST_ORGANIZATION_ID)).resolves.toMatchObject({ isWorkspaceCurrent: false });
+    await expect(editor.getWithRevisions(copy.id, TEST_ORGANIZATION_ID)).resolves.toMatchObject({ isWorkspaceCurrent: true, source: 'manual' });
+  });
+
   it('hides another organization\'s or a deleted page behind not found', async () => {
     const workspaceId = await workspace();
     const pageId = await readyGeneratedPage(workspaceId);

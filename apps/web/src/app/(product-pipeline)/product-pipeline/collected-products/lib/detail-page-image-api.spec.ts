@@ -92,13 +92,14 @@ describe('prepareSavedDetailImage', () => {
     const generationId = '66666666-6666-4666-8666-666666666666';
     vi.mocked(contentWorkspacesApi.getForSalesProduct).mockResolvedValue({
       id: WORKSPACE_ID,
+      // 생성은 끝났지만(ready) 아직 저장한 HTML 이 없다 — 몰로 가는 현재도 없다. 첫 저장이 generated revision 이 된다.
       currentDetailPageRevisionId: null,
-      currentDetailPageGenerationId: generationId,
-      latestGenerationId: generationId,
+      currentDetailPageId: null,
+      latestDetailPageId: generationId,
       history: [{
-        id: generationId, contentType: 'detail_page', status: 'READY', generatedTitle: 't', templateId: 'kids-playful',
+        id: generationId, source: 'generated', status: 'ready', title: 't', templateId: 'kids-playful',
         generationInput: {}, detailPageData: { hook: { headline: 't' } }, imageUrls: [], processedImages: {},
-        detailPageArtifactId: null, href: '', createdAt: '2026-07-25T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z',
+        currentRevisionId: null, errorMessage: null, href: '', createdAt: '2026-07-25T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z',
       }],
     } as never);
     vi.mocked(buildGenerationHistoryHtml).mockReturnValue('<html>saved</html>');

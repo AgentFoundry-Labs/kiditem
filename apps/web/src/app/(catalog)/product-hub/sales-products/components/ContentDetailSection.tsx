@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
+import type { DetailPageRevisionType, DetailPageSource } from '@kiditem/shared/product-content';
 import { contentWorkspacesApi } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/content-workspaces-api';
 
 interface EditedHtmlResponse {
@@ -17,9 +18,24 @@ interface EditedHtmlResponse {
 
 const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm';
 
+const SOURCE_LABEL: Record<DetailPageSource, string> = {
+  generated: 'AI 생성',
+  manual: '직접 작성',
+  uploaded: '올린 상세',
+  imported: '사방넷 가져오기',
+};
+
+const REVISION_LABEL: Record<DetailPageRevisionType, string> = {
+  generated: '생성',
+  manual_edit: '편집',
+  duplicate: '복제',
+  imported: '가져오기',
+};
+
 /**
- * 판매상품의 상세 HTML — 콘텐츠 작업공간의 현재 상세 페이지 revision 이 정본이다(KID-313 W2). 몰 시트 · 등록 실행이
- * 같은 revision 을 읽는다. 저장은 새 revision 을 쌓고, 고르기는 작업공간의 현재 상세 페이지를 바꾼다.
+ * 판매상품의 상세 HTML — 콘텐츠 작업공간의 현재 상세 페이지 revision 이 정본이다(KID-313 W2 · W3b). 몰 시트 · 등록
+ * 실행이 같은 revision 을 읽는다. 저장은 그 상세 페이지에 새 revision 을 쌓고, 고르기는 작업공간의 현재 상세 페이지를
+ * 바꾼다. 모든 호출은 상세 페이지 id 하나로 간다.
  */
 export function ContentDetailSection({ salesProductId }: { salesProductId: string }) {
   const queryClient = useQueryClient();
@@ -27,15 +43,20 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
     queryKey: queryKeys.contentWorkspaces.forSalesProduct(salesProductId),
     queryFn: () => contentWorkspacesApi.getForSalesProduct(salesProductId),
   });
-  const generationId = workspace.data?.currentDetailPageGenerationId ?? null;
+  const detailPageId = workspace.data?.currentDetailPageId ?? null;
   const edited = useQuery({
-    queryKey: queryKeys.productContent.generationEditedHtml(generationId ?? 'none'),
-    queryFn: () => apiClient.get<EditedHtmlResponse>(`/api/ai/detail-page/${encodeURIComponent(generationId!)}/edited-html`),
-    enabled: generationId !== null,
+    queryKey: queryKeys.productContent.generationEditedHtml(detailPageId ?? 'none'),
+    queryFn: () => apiClient.get<EditedHtmlResponse>(`/api/ai/detail-page/${encodeURIComponent(detailPageId!)}/edited-html`),
+    enabled: detailPageId !== null,
+  });
+  const revisions = useQuery({
+    queryKey: queryKeys.productContent.detailPageRevisions(detailPageId ?? 'none'),
+    queryFn: () => contentWorkspacesApi.getDetailPageRevisions(detailPageId!),
+    enabled: detailPageId !== null,
   });
   const [draft, setDraft] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
-  useEffect(() => { setDraft(null); }, [generationId]);
+  useEffect(() => { setDraft(null); }, [detailPageId]);
   const html = draft ?? edited.data?.html ?? '';
 
   const invalidate = () => Promise.all([
@@ -44,7 +65,7 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
   ]);
   const save = useMutation({
     mutationFn: () => apiClient.post<EditedHtmlResponse>(
-      `/api/ai/detail-page/${encodeURIComponent(generationId!)}/edited-html`,
+      `/api/ai/detail-page/${encodeURIComponent(detailPageId!)}/edited-html`,
       { html },
     ),
     onSuccess: async () => {
@@ -69,8 +90,8 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
     },
   });
   const select = useMutation({
-    mutationFn: (contentGenerationId: string) =>
-      contentWorkspacesApi.selectCurrentDetailPage(workspace.data!.id, contentGenerationId),
+    mutationFn: (nextDetailPageId: string) =>
+      contentWorkspacesApi.selectCurrentDetailPage(workspace.data!.id, nextDetailPageId),
     onSuccess: async () => {
       await invalidate();
       toast.success('현재 상세 페이지를 바꿨습니다.');
@@ -80,11 +101,12 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
 
   if (workspace.isPending) return <p className="text-sm text-slate-400">상세를 불러오는 중…</p>;
   if (workspace.isError) return <p className="text-sm text-red-600">상세를 불러오지 못했습니다.</p>;
-  const versions = (workspace.data?.history ?? []).filter((item) => item.contentType === 'detail_page');
+  // 저장한 HTML 이 있는 상세 페이지만 몰로 갈 현재가 될 수 있다.
+  const versions = (workspace.data?.history ?? []).filter((item) => item.currentRevisionId !== null);
   if (!workspace.data) {
     return <p className="text-sm text-slate-500">아직 상세 페이지가 없습니다. 상세페이지 생성이나 사방넷 가져오기로 만듭니다.</p>;
   }
-  if (generationId === null) {
+  if (detailPageId === null) {
     return (
       <div className="space-y-2">
         <p className="text-sm text-slate-500">아직 상세 페이지가 없습니다. 여기에 HTML 을 직접 쓰거나, 상세페이지 생성 · 사방넷 가져오기로 만듭니다.</p>
@@ -120,13 +142,15 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
           <label className="ml-auto flex items-center gap-1 text-xs text-slate-500">
             현재 상세 페이지
             <select
-              value={generationId}
+              value={detailPageId}
               disabled={select.isPending}
               onChange={(event) => select.mutate(event.target.value)}
               className="rounded border border-slate-200 px-2 py-1 text-xs"
             >
               {versions.map((version) => (
-                <option key={version.id} value={version.id}>{version.generatedTitle ?? version.id.slice(0, 8)}</option>
+                <option key={version.id} value={version.id}>
+                  {version.title ?? SOURCE_LABEL[version.source]} · {version.createdAt.slice(0, 10)}
+                </option>
               ))}
             </select>
           </label>
@@ -144,6 +168,12 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
           rows={8}
           className={cn(inputClass, 'font-mono text-xs')}
         />
+      )}
+      {revisions.data && revisions.data.revisions.length > 0 && (
+        <p className="text-xs text-slate-500">
+          {SOURCE_LABEL[revisions.data.source]} · 이력 {revisions.data.revisions.length}개
+          ({revisions.data.revisions.map((revision) => REVISION_LABEL[revision.revisionType]).join(' ← ')})
+        </p>
       )}
       <div className="flex justify-end">
         <button

@@ -12,19 +12,20 @@ describe('detail generation history', () => {
     expect(toLegacyGenerationStatus('pending')).toBe('PENDING');
   });
 
-  it('uses content workspace history as immediate generation history rows', () => {
+  it('uses the workspace detail pages as immediate history rows, keyed by detail page id', () => {
     const [item] = contentWorkspaceHistoryToGenerationHistory([
       {
         id: 'generation-1',
-        contentType: 'detail_page',
-        status: 'completed',
-        generatedTitle: '테스트 상세페이지',
+        source: 'generated',
+        status: 'ready',
+        title: '테스트 상세페이지',
         templateId: 'kiditem',
         generationInput: { rawTitle: '테스트 상품' },
         detailPageData: { hook: { text: '테스트 상품' } },
         imageUrls: ['https://example.com/product.jpg'],
         processedImages: { __heroBanner: 'https://example.com/hero.jpg' },
-        detailPageArtifactId: 'artifact-1',
+        currentRevisionId: 'revision-1',
+        errorMessage: null,
         href: '/product-pipeline/detail-pages/generation-1/editor',
         createdAt: '2026-05-15T12:00:00.000Z',
         updatedAt: '2026-05-15T12:01:00.000Z',
@@ -34,9 +35,9 @@ describe('detail generation history', () => {
     expect(item).toMatchObject({
       id: 'generation-1',
       generatedTitle: '테스트 상세페이지',
-      status: 'COMPLETED',
+      status: 'READY',
       templateId: 'kiditem',
-      detailPageArtifactId: 'artifact-1',
+      detailPageRevisionId: 'revision-1',
       detailPageData: { hook: { text: '테스트 상품' } },
       imageUrls: ['https://example.com/product.jpg'],
       processedImages: { __heroBanner: 'https://example.com/hero.jpg' },

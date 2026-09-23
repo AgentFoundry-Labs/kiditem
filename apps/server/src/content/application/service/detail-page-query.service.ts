@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { DetailPageWithRevisions } from '@kiditem/shared/product-content';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { moveSafetyLabelImagesToEnd } from '../../domain/detail-page-image-order';
 import { buildUploadedDetailPageHtml } from '../../domain/detail-page/uploaded-detail-page';
@@ -58,6 +59,38 @@ export class DetailPageQueryService {
     const row = await this.detailPages.findById({ detailPageId: id, organizationId });
     if (!row) throw new NotFoundException('Detail page not found');
     return this.toDto(row);
+  }
+
+  /** 상세 페이지 하나와 그 revision 이력(새 것부터). 이 페이지의 현재가 몰로 가는 현재인지도 말한다. */
+  async getWithRevisions(id: string, organizationId: string): Promise<DetailPageWithRevisions> {
+    const page = await this.detailPages.findById({ organizationId, detailPageId: id });
+    if (!page) throw new NotFoundException('Detail page not found');
+    const [revisions, workspaceCurrent] = await Promise.all([
+      this.detailPages.listRevisions({ organizationId, detailPageId: id }),
+      this.detailPages.findWorkspaceRevision({ organizationId, contentWorkspaceId: page.contentWorkspaceId, revisionId: null }),
+    ]);
+    return {
+      id: page.id,
+      contentWorkspaceId: page.contentWorkspaceId,
+      source: page.source,
+      templateId: page.templateId,
+      title: page.title,
+      status: page.status,
+      errorMessage: page.errorMessage,
+      currentRevisionId: page.currentRevisionId,
+      isWorkspaceCurrent: Boolean(page.currentRevisionId && workspaceCurrent?.id === page.currentRevisionId),
+      createdAt: page.createdAt.toISOString(),
+      updatedAt: page.updatedAt.toISOString(),
+      revisions: revisions.map((revision) => ({
+        id: revision.id,
+        detailPageId: revision.detailPageId,
+        revisionType: revision.revisionType,
+        imageUrls: [...revision.imageUrls],
+        source: revision.source,
+        createdByUserId: revision.createdByUserId,
+        createdAt: revision.createdAt.toISOString(),
+      })),
+    };
   }
 
   async remove(id: string, organizationId: string): Promise<{ ok: true }> {

@@ -46,8 +46,8 @@ function CandidateEditorPageContent() {
   const { workspace, isLoading } = useSalesProductWorkspace(generationId ? null : salesProductId);
 
   const firstDetailPageId = useMemo(
-    () => workspace?.currentDetailPageGenerationId
-      ?? workspace?.history.find((item) => item.contentType === 'detail_page')?.id
+    () => workspace?.currentDetailPageId
+      ?? workspace?.history[0]?.id
       ?? null,
     [workspace],
   );

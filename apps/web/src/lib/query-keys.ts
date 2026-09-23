@@ -418,7 +418,7 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'competitors', 'collection-status', runId] as const,
   },
   productContent: {
-    all: ['content-archive'] as const,
+    all: ['product-content'] as const,
     cards: (params: Record<string, string>) =>
       [...queryKeys.productContent.all, 'cards', params] as const,
     workspaces: (params: Record<string, string>) =>
@@ -431,6 +431,8 @@ export const queryKeys = {
     preview: (id: string) => [...queryKeys.productContent.all, 'preview', id] as const,
     generationEditedHtml: (id: string) =>
       [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
+    detailPageRevisions: (id: string) =>
+      [...queryKeys.productContent.all, 'detail-page-revisions', id] as const,
     detailGenerationsAll: (templateId: 'kids-playful' | 'bold-vertical') =>
       [templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations'] as const,
     detailGenerations: (

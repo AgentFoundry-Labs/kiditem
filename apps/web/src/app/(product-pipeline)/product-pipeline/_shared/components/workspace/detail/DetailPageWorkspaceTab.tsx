@@ -142,7 +142,7 @@ export default function DetailPageWorkspaceTab({
       }
       await onApplyRegistrationDetailPage?.({
         selectedDetailPageGenerationId: row.id,
-        selectedDetailPageArtifactId: row.agentItem?.detailPageArtifactId ?? null,
+        selectedDetailPageArtifactId: null,
         selectedDetailPageRevisionId: row.agentItem?.detailPageRevisionId ?? null,
       });
       setSelectedKey(row.key);

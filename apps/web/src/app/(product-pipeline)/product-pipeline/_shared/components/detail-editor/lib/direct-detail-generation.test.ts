@@ -19,7 +19,7 @@ describe('buildDirectDetailGenerationBody', () => {
       productName: '쭉쭉붙이 는터치등!',
       productId: 'product-1',
       contentWorkspaceId: 'workspace-1',
-      contentGenerationId: 'generation-1',
+      detailPageId: 'detail-page-1',
       templateId: 'bold-vertical',
     });
 
@@ -40,8 +40,8 @@ describe('buildDirectDetailGenerationBody', () => {
       kcCertificationStatus: 'unknown',
       sourceReferences: [
         {
-          sourceType: 'content_generation',
-          sourceContentGenerationId: 'generation-1',
+          sourceType: 'detail_page',
+          sourceDetailPageId: 'detail-page-1',
           label: 'editor-regenerate',
         },
       ],

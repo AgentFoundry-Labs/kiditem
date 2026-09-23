@@ -14,7 +14,7 @@ import { HUB_ROLE_CONFIG, type MasterImageRole } from '../../../_shared/lib/hub-
 import { registeredProductDetailHref } from '../../../_shared/lib/product-pipeline-routes';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
-import { contentWorkspacesApi, type ContentWorkspaceSummary } from '../../../_shared/lib/content-workspaces-api';
+import { contentWorkspacesApi, type ContentWorkspaceSummary, contentWorkspaceLabel } from '../../../_shared/lib/content-workspaces-api';
 import { useContentWorkspaceImages } from '../../../_shared/hooks/useContentWorkspaceImages';
 
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
@@ -350,7 +350,7 @@ interface ProductLite {
 function toProductLite(item: ContentWorkspaceSummary): ProductLite {
   return {
     id: item.id,
-    name: item.displayName,
+    name: contentWorkspaceLabel(item),
     imageUrl: item.currentThumbnailSelection?.url ?? null,
   };
 }
