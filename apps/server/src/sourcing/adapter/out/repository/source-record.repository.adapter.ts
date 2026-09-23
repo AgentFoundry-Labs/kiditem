@@ -143,19 +143,6 @@ export class SourceRecordRepositoryAdapter implements SourceRecordRepositoryPort
     return row ? toView(row) : null;
   }
 
-  async readMany(input: {
-    organizationId: string;
-    sourceRecordIds: readonly string[];
-  }): Promise<ReadonlyMap<string, SourceRecordView>> {
-    const ids = [...new Set(input.sourceRecordIds.filter(Boolean))];
-    if (ids.length === 0) return new Map();
-    const rows = await this.prisma.sourceRecord.findMany({
-      where: { organizationId: input.organizationId, id: { in: ids } },
-      select: RECORD_SELECT,
-    });
-    return new Map(rows.map((row) => [row.id, toView(row)]));
-  }
-
   /**
    * 초안 삭제 트랜잭션 안에서 원본 기록을 지운다(사진은 외래키가 함께 지운다). 같은 원본의 입장과
    * 같은 식별자 잠금을 잡아, 지우는 사이에 재수집이 끼어들지 않게 한다. 이미 없으면 아무것도 하지

@@ -37,7 +37,6 @@ export type SourceRecordView = Readonly<{
 export interface SourceRecordPort {
   /** 초안 화면과 몰 등록이 원본 사실을 읽는 유일한 길. 없으면 null. */
   read(input: { organizationId: string; sourceRecordId: string }): Promise<SourceRecordView | null>;
-  readMany(input: { organizationId: string; sourceRecordIds: readonly string[] }): Promise<ReadonlyMap<string, SourceRecordView>>;
   /**
    * 초안 삭제 트랜잭션 안에서 원본 기록과 이미지를 함께 지운다. 이미 없으면 아무것도 하지 않는다.
    * 지운 뒤 같은 원본의 재수집은 새 수집이 된다.
