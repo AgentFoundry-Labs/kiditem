@@ -14,7 +14,7 @@ const FORM_URL = 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/f
 function extractRegisterToWingForm() {
   const normalizedWorkerSource = workerSource.replace(/\r\n?/g, '\n');
   const start = normalizedWorkerSource.indexOf('async function registerToWingForm(message)');
-  const end = normalizedWorkerSource.indexOf('\n}\n\n/**', start) + 2;
+  const end = normalizedWorkerSource.indexOf('\n}\n', start) + 2;
   assert.ok(start >= 0 && end > start, 'registerToWingForm source must be extractable');
   return normalizedWorkerSource.slice(start, end);
 }

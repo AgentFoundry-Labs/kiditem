@@ -131,17 +131,6 @@
     },
     {
       "matches": [
-        "https://wing.coupang.com/vendor-inventory/list*",
-        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list*"
-      ],
-      "js": [
-        "shared/wing-account-identity.js",
-        "content/coupang/wing-product-delete.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
         "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2*"
       ],
       "js": [

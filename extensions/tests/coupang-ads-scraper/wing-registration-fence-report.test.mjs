@@ -19,7 +19,7 @@ const workerSource = await readFile(
 function extractRegisterToWingForm() {
   const normalized = workerSource.replace(/\r\n?/g, '\n');
   const start = normalized.indexOf('async function registerToWingForm(message)');
-  const end = normalized.indexOf('\n}\n\n/**', start) + 2;
+  const end = normalized.indexOf('\n}\n', start) + 2;
   assert.ok(start >= 0 && end > start, 'registerToWingForm source must be extractable');
   return normalized.slice(start, end);
 }
@@ -141,7 +141,7 @@ test('reports a confirmed registration with the external listing id the fence wi
 test('never posts the result itself — the web owns the fence call', () => {
   const normalized = workerSource.replace(/\r\n?/g, '\n');
   const start = normalized.indexOf('async function registerToWingForm(message)');
-  const end = normalized.indexOf('\n}\n\n/**', start) + 2;
+  const end = normalized.indexOf('\n}\n', start) + 2;
   const body = normalized.slice(start, end);
 
   // 확장은 마켓 화면만 만진다. 울타리에 쓰는 것은 웹 하나뿐이라, 실행 상태를 두

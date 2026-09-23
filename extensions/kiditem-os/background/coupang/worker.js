@@ -634,15 +634,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // ping 은 통합 서비스워커가 세 도메인의 capabilities 를 합쳐 한 번만 응답한다.
   // 이 도메인의 capabilities 는 파일 끝의 KidItemDomains.register 로 넘긴다.
 
-  if (msg.action === "deleteWingProduct") {
-    deleteWingProduct(msg)
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({ ok: false, error: e?.message || "WING 상품 삭제 실패" }),
-      );
-    return true;
-  }
-
   if (msg.action === "registerToWingForm") {
     registerToWingForm(msg)
       .then((result) => sendResponse(result))
@@ -913,81 +904,6 @@ async function registerToWingForm(message) {
       submission: fill.submission || { attempted: false },
       evidence: fill.evidence,
     };
-  } catch (e) {
-    return {
-      ok: false,
-      tabId: tab.id,
-      error: `${e?.message || "content script 미응답"} — 확장을 리로드(chrome://extensions)한 뒤 다시 시도하세요.`,
-    };
-  }
-}
-
-/**
- * 등록상품 1건을 WING 에서 삭제한다. ⚠️ 되돌릴 수 없다.
- *
- * 웹은 **서버가 인가한** externalId 만 넘긴다(사용자가 화면에서 고른 값이 아니다).
- * 여기서는 그 ID 로 검색된 목록 화면을 열어 content script 에 넘기기만 한다.
- * 대상이 정확히 1건이 아니면 content script 가 아무것도 하지 않고 실패로 돌려준다.
- */
-async function deleteWingProduct(message) {
-  const listingId = typeof message?.listingId === "string" ? message.listingId.trim() : "";
-  const operationId = typeof message?.operationId === "string" ? message.operationId.trim() : "";
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(listingId)) {
-    return { ok: false, error: "삭제 대상 리스팅 ID가 올바르지 않습니다." };
-  }
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
-    return { ok: false, error: "삭제 작업 ID가 올바르지 않습니다." };
-  }
-  // External messages are untrusted: freeze every provider fact through an
-  // authenticated, one-time server claim before opening or clicking WING.
-  const claimResponse = await authedFetch(
-    message.environmentId,
-    `/api/channels/listings/${encodeURIComponent(listingId)}/deletion-operations/${encodeURIComponent(operationId)}/extension-claim`,
-    { method: "POST" },
-  );
-  if (!claimResponse.ok) {
-    return { ok: false, error: `삭제 실행 권한을 확인하지 못했습니다 (${claimResponse.status}).` };
-  }
-  const claim = await claimResponse.json();
-  const externalId = typeof claim?.externalId === "string" ? claim.externalId.trim() : "";
-  const expectedVendorId = typeof claim?.expectedVendorId === "string" ? claim.expectedVendorId.trim() : "";
-  const executionCapability = typeof claim?.executionCapability === "string" ? claim.executionCapability.trim() : "";
-  if (!/^\d{6,20}$/.test(externalId) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedVendorId)
-    || !/^[0-9a-f-]{36}$/i.test(executionCapability)) {
-    return { ok: false, error: "서버 삭제 실행 권한이 완전하지 않습니다." };
-  }
-  // 검색어를 URL 에 실어 대상 1건만 남은 목록을 연다. 전체 목록에서 찾게 하면
-  // 페이지네이션 때문에 행을 못 찾거나 동명이인 행이 섞인다.
-  const url =
-    "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list" +
-    `?searchType=VENDOR_INVENTORY_ID&keyword=${encodeURIComponent(externalId)}`;
-  const tab = await interactiveTabs.createTab({
-    url,
-    reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
-  });
-  await coupangEnvironment.bindTab(tab.id, message.environmentId);
-  await waitForTabComplete(tab.id, 60000);
-  await new Promise((r) => setTimeout(r, 2500));
-  try {
-    const result = await chrome.tabs.sendMessage(tab.id, {
-      action: "deleteWingProduct",
-      operationId,
-      externalId,
-      displayName: claim.displayName || null,
-      expectedVendorId,
-    });
-    if (!result?.ok) {
-      return {
-        ok: false,
-        tabId: tab.id,
-        result,
-        error: result?.error || "WING 상품 삭제에 실패했습니다. 열린 탭에서 직접 확인하세요.",
-      };
-    }
-    // A DOM observation is not server-verifiable provider evidence. The web
-    // caller records reconciling/uncertain; only independent provider API or
-    // catalog reconciliation may deactivate the local listing.
-    return { ok: true, tabId: tab.id, providerDeletionObserved: true };
   } catch (e) {
     return {
       ok: false,

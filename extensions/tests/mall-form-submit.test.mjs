@@ -16,6 +16,7 @@ function loadModule() {
   };
   context.globalThis = context;
   vm.createContext(context);
+  vm.runInContext(readFileSync(path.join(repoRoot, 'extensions/kiditem-os/shared/mall-form-submit-gate.js'), 'utf8'), context);
   vm.runInContext(readFileSync(modulePath, 'utf8'), context, { filename: modulePath });
   return context.self.KidItemMallFormRegister;
 }
@@ -35,6 +36,13 @@ const SUBMIT = {
   failureText: ['등록할 수 없습니다'],
   productNoPattern: '상품번호\\s*(\\d{6,})',
   waitMs: 5000,
+};
+
+/** 등록 대상 실행이 준 컨텍스트 — [등록]은 이것이 있을 때만 누른다(KID-322). */
+const EXECUTION = {
+  executionId: '5f0c2c1e-7a1b-4c8e-9d2a-1b2c3d4e5f60',
+  payloadHash: 'a'.repeat(64),
+  leaseToken: '0e1d2c3b-4a59-4687-9876-5a4b3c2d1e0f',
 };
 
 const form = (manualSteps = []) => ({
@@ -86,7 +94,7 @@ test('⭐ [등록]까지 부탁하고 폼을 다 채웠으면 몰 [등록]을 �
   const { api, calls } = harness({
     reads: [{ success: false, failure: false, dialogs: [] }, { success: true, failure: false, dialogs: ['상품번호 70123456 등록되었습니다'], productNo: '70123456' }],
   });
-  const result = await api.register({ mall: 'domeggook', form: form(), submit: true });
+  const result = await api.register({ mall: 'domeggook', form: form(), submit: true, executionContext: EXECUTION });
   assert.equal(result.ok, true);
   assert.equal(result.submitted, true);
   assert.equal(result.accepted, true);
@@ -103,29 +111,44 @@ test('부탁하지 않았거나 그 몰의 [등록] 누르기를 확인하지 �
   assert.equal(plain.calls.press, 0);
 
   const unverified = harness({ submitSpec: null });
-  const skipped = await unverified.api.register({ mall: 'domeggook', form: form(), submit: true });
+  const skipped = await unverified.api.register({ mall: 'domeggook', form: form(), submit: true, executionContext: EXECUTION });
   assert.equal(skipped.submitted, false);
   assert.match(skipped.submitSkipped, /확인하지 않은 몰/);
   assert.equal(unverified.calls.press, 0);
 });
 
+test('⭐ 실행 컨텍스트 없이 [등록]을 부탁하면 폼만 채우고 누르지 않는다 — 빠른 등록은 폼 채우기다(KID-322)', async () => {
+  const quick = harness();
+  const result = await quick.api.register({ mall: 'domeggook', form: form(), submit: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.submitted, false);
+  assert.equal(result.submitSkipped, 'execution_context_required');
+  assert.equal(quick.calls.press, 0);
+  assert.deepEqual(quick.calls.removed, []);
+
+  const partial = harness();
+  const skipped = await partial.api.register({ mall: 'domeggook', form: form(), submit: true, executionContext: { ...EXECUTION, leaseToken: '' } });
+  assert.equal(skipped.ok, false, '반쪽 컨텍스트는 잘못된 요청이다');
+  assert.equal(partial.calls.press, 0);
+});
+
 test('⭐ 채우다 남긴 경고나 사람이 할 일이 있으면 누르지 않고 폼을 남긴다', async () => {
   const warned = harness({ fill: { ok: true, steps: [], warnings: ['안전인증번호 칸을 찾지 못했습니다.'] } });
-  const result = await warned.api.register({ mall: 'domeggook', form: form(), submit: true });
+  const result = await warned.api.register({ mall: 'domeggook', form: form(), submit: true, executionContext: EXECUTION });
   assert.equal(result.submitted, false);
   assert.match(result.submitSkipped, /안전인증번호/);
   assert.equal(warned.calls.press, 0);
   assert.deepEqual(warned.calls.removed, []);
 
   const manual = harness();
-  const kept = await manual.api.register({ mall: 'domeggook', form: form(['배송 템플릿을 고르세요']), submit: true });
+  const kept = await manual.api.register({ mall: 'domeggook', form: form(['배송 템플릿을 고르세요']), submit: true, executionContext: EXECUTION });
   assert.equal(kept.submitted, false);
   assert.match(kept.submitSkipped, /배송 템플릿/);
 });
 
 test('몰이 거절하면 누른 것으로 세되 받지 않았다고 하고, 몰의 말을 싣고, 탭을 남긴다', async () => {
   const { api, calls } = harness({ reads: [{ success: false, failure: true, dialogs: ['등록할 수 없습니다: 금지어'] }] });
-  const result = await api.register({ mall: 'domeggook', form: form(), submit: true });
+  const result = await api.register({ mall: 'domeggook', form: form(), submit: true, executionContext: EXECUTION });
   assert.equal(result.submitted, true);
   assert.equal(result.accepted, false);
   assert.match(result.mallMessage, /금지어/);
