@@ -258,6 +258,19 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     expect(await rejection(service.runOnServer({ ...input, owner: { ...owner, requestHash: 'b'.repeat(64) } }))).toMatchObject({ kind: 'conflict' });
   });
 
+  it('answers an owner replay first: before the production block, the Content reads and the account and image checks', async () => {
+    const { generation, workspace } = await listingGeneration();
+    const owner = { ownerIdempotencyKey: `capability-invocation:${randomUUID()}`, requestHash: canonicalOwnerInputHash({ generationId: generation.id }) };
+    const input = { organizationId: ORG, requestedByUserId: USER, generationId: generation.id, owner };
+    const first = await service.runOnServer(input);
+
+    runner.blocked = true;
+    await prisma.contentWorkspace.update({ where: { id: workspace.id }, data: { status: 'archived', isDeleted: true } });
+    await prisma.channelAccount.updateMany({ where: { organizationId: ORG }, data: { status: 'inactive' } });
+    await expect(service.runOnServer(input)).resolves.toEqual(first);
+    expect(runner.calls).toBe(1);
+  });
+
   it('turns a runner crash into an unknown outcome, rethrows it and answers the owner replay as pending reconciliation', async () => {
     const { generation } = await listingGeneration();
     const owner = { ownerIdempotencyKey: `capability-invocation:${randomUUID()}`, requestHash: canonicalOwnerInputHash({ generationId: generation.id }) };

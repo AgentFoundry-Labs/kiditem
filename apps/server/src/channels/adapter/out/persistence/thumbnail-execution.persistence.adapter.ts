@@ -152,6 +152,17 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     });
   }
 
+  async findOwnerReplay(input: {
+    organizationId: string;
+    idempotencyKey: string;
+    ownerIdempotencyKey: string;
+    requestHash: string;
+    generationId: string;
+  }): Promise<ThumbnailExecutionRow | null> {
+    const replay = await this.findReplay(this.prisma, { ...input, payload: { generationId: input.generationId } });
+    return replay?.execution ?? null;
+  }
+
   async readLivePayload(input: { organizationId: string; executionId: string }) {
     const row = await this.prisma.productRegistrationExecution.findFirst({
       where: { id: input.executionId, organizationId: input.organizationId, executionKind: THUMBNAIL_UPDATE_EXECUTION_KIND },
@@ -208,7 +219,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
 
   private async findReplay(
     client: Pick<Prisma.TransactionClient, 'productRegistrationExecution'>,
-    input: { organizationId: string; idempotencyKey: string; ownerIdempotencyKey: string | null; requestHash: string; payload: ThumbnailUpdatePayload },
+    input: { organizationId: string; idempotencyKey: string; ownerIdempotencyKey: string | null; requestHash: string; payload: Pick<ThumbnailUpdatePayload, 'generationId'> },
   ): Promise<{ mode: 'replay'; execution: ThumbnailExecutionRow } | null> {
     if (!input.ownerIdempotencyKey) return null;
     const existing = await client.productRegistrationExecution.findFirst({

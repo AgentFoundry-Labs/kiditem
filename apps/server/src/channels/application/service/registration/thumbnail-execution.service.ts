@@ -123,6 +123,18 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     generationId: string;
     owner: { ownerIdempotencyKey: string; requestHash: string } | null;
   }): Promise<ThumbnailExecutionResult> {
+    // owner 키 재생이 먼저다: 운영 차단 · Content 읽기 · 계정 · 사진이 바뀌어도 기록된 영수증을 돌려준다.
+    const { owner } = input;
+    if (owner) {
+      const recorded = await owned(() => this.persistence.findOwnerReplay({
+        organizationId: input.organizationId,
+        idempotencyKey: thumbnailUpdateIdempotencyKey({ generationId: input.generationId, ownerIdempotencyKey: owner.ownerIdempotencyKey, nonce: '' }),
+        ownerIdempotencyKey: owner.ownerIdempotencyKey,
+        requestHash: owner.requestHash,
+        generationId: input.generationId,
+      }));
+      if (recorded) return replayReceipt(recorded);
+    }
     if (this.runner.isBlocked()) throw new ChannelUnavailableError(SERVER_AUTOMATION_BLOCKED_MESSAGE);
     const intent = await this.freezeIntent(input.organizationId, input.generationId, null);
     const created = await owned(() => this.persistence.createExecuting({
@@ -140,14 +152,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       payloadHash: intent.payloadHash,
     }));
     if (created.mode === 'live_conflict') throw new ChannelConflictError('이 썸네일은 이미 반영 중입니다');
-    if (created.mode === 'replay') {
-      // 올리고 운영자 확인을 기다리는 실행은 그 영수증을 돌려준다. 결과 자체를 모르는 실행만 503 이다.
-      const { execution } = created;
-      if (execution.status === 'reconciling' && execution.lastErrorCode === 'thumbnail_outcome_unknown') {
-        throw new ChannelUnavailableError(RECONCILIATION_PENDING);
-      }
-      return toResult(execution);
-    }
+    if (created.mode === 'replay') return replayReceipt(created.execution);
 
     let outcome: Awaited<ReturnType<WingThumbnailRunnerPort['upload']>>;
     try {
@@ -250,6 +255,15 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       image,
     };
   }
+}
+
+/** 올리고 운영자 확인을 기다리는 실행은 그 영수증을 돌려준다. 결과 자체를 모르는 실행만 503 이다. */
+function replayReceipt(execution: ThumbnailExecutionRow): ThumbnailExecutionResult {
+  if (execution.status === 'reconciling' && execution.lastErrorCode === 'thumbnail_outcome_unknown') {
+    throw new ChannelUnavailableError(RECONCILIATION_PENDING);
+  }
+  if (execution.status === 'executing') throw new ChannelUnavailableError(RECONCILIATION_PENDING);
+  return toResult(execution);
 }
 
 function toResult(row: ThumbnailExecutionRow): ThumbnailExecutionResult {
