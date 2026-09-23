@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RegistrationAccountStateSchema } from './registration-state.js';
 
 /**
  * 몰별 상품등록·품절 송신의 전송 규격.
@@ -216,7 +217,10 @@ export type MallListingMatrixColumn = z.infer<typeof MallListingMatrixColumnSche
 
 export const MallListingMatrixCellSchema = z.object({
   mallKey: z.string(),
+  /** 리스팅만으로 접은 몰 상태. 판매 상품이 있는 칸은 `registration` 이 화면의 배지다(KID-313 결정 11). */
   state: MallListingStateSchema,
+  /** 판매 상품 × 이 몰 계정의 등록 상태(등록 상태 reader). 판매 상품 없는 리스팅은 null. */
+  registration: RegistrationAccountStateSchema.nullable().default(null),
   /** 몰이 준 원문 상태. 우리 어휘로 접기 전 값이라 툴팁에 그대로 쓴다. */
   rawStatus: z.string().nullable(),
   externalId: z.string().nullable(),

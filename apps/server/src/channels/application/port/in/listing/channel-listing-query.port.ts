@@ -1,3 +1,4 @@
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   ListingTrafficWindowFacts,
@@ -59,6 +60,8 @@ export interface ChannelListingSummary {
   /** 몰이 보고한 대표이미지(`ChannelListing.imageUrl`, 수집마다 갱신). 리스팅 대표이미지 평가는 이것을 본다(KID-313 결정, 2026-09-23 14:46). */
   imageUrl: string | null;
   detailPageRevisionId: string | null;
+  /** 이 리스팅의 판매 상품 × 계정 등록 상태(등록 상태 reader). 판매 상품 없는 리스팅은 null. */
+  registration: RegistrationAccountState | null;
   channel: string;
   channelAccountId: string | null;
   channelAccountName: string | null;

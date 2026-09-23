@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { RegistrationAccountStateSchema } from './registration-state.js';
 
 /**
  * 판매상품(사방넷 품번)과 단품(옵션) 계약 — ADR-0014.
@@ -390,6 +391,8 @@ export const SalesProductListItemSchema = z.object({
   unlinkedOptionCount: z.number().int(),
   channelListingCount: z.number().int(),
   channelOverrideCount: z.number().int(),
+  /** 몰 계정별 등록 상태(KID-313 결정 11). 화면은 이것만 읽고 실행 · 리스팅 표를 조합하지 않는다. */
+  registrationAccounts: z.array(RegistrationAccountStateSchema),
   updatedAt: zIsoDate,
 });
 export type SalesProductListItem = z.infer<typeof SalesProductListItemSchema>;

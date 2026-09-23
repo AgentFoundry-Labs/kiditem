@@ -148,6 +148,7 @@ describe('sales product list contract', () => {
       unlinkedOptionCount: 0,
       channelListingCount: 0,
       channelOverrideCount: 0,
+      registrationAccounts: [],
       updatedAt: '2026-09-22T00:00:00.000Z',
     });
     expect(item.sourceRecordId).toBe('22222222-2222-4222-8222-222222222222');
@@ -171,6 +172,7 @@ describe('sales product list contract', () => {
       unlinkedOptionCount: 1,
       channelListingCount: 0,
       channelOverrideCount: 0,
+      registrationAccounts: [],
       updatedAt: '2026-09-22T00:00:00.000Z',
     });
     expect([item.code, item.salePrice, item.status]).toEqual([null, null, 'draft']);
