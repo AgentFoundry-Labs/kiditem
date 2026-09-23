@@ -131,9 +131,6 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
         upsert: vi.fn().mockResolvedValue({ mappingGeneration: 1n }),
       },
       $queryRaw: vi.fn().mockResolvedValue([{ id: "listing-1" }]),
-      channelListingDeletionOperation: {
-        findFirst: vi.fn().mockResolvedValue(null),
-      },
       salesProduct: {
         findFirst: vi.fn().mockResolvedValue({ id: "draft-1" }),
       },
@@ -217,9 +214,6 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
         findFirst: vi.fn().mockResolvedValue({ id: "draft-1" }),
       },
       $queryRaw: vi.fn().mockResolvedValue([{ id: "listing-1" }]),
-      channelListingDeletionOperation: {
-        findFirst: vi.fn().mockResolvedValue(null),
-      },
       channelListing: {
         findFirst: vi.fn().mockResolvedValue({
           id: "listing-1",
@@ -244,54 +238,6 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
         displayName: "Kids rain boots",
       }),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(tx.channelListing.updateMany).not.toHaveBeenCalled();
-  });
-
-  it("does not reactivate a listing while its deletion operation is active", async () => {
-    const tx = {
-      channelAccount: {
-        findFirst: vi
-          .fn()
-          .mockResolvedValue({ id: "account-1", channel: "coupang" }),
-      },
-      salesProduct: {
-        findFirst: vi.fn().mockResolvedValue({ id: "draft-1" }),
-      },
-      $queryRaw: vi.fn().mockResolvedValue([{ id: "listing-1" }]),
-      channelListing: {
-        findFirst: vi
-          .fn()
-          .mockResolvedValueOnce({ id: "listing-1" })
-          .mockResolvedValueOnce({
-            id: "listing-1",
-            salesProductId: null,
-            channelAccountId: "account-1",
-            channelAccount: { channel: "coupang" },
-            externalId: "427011919",
-            status: "inactive",
-            masterProductId: null,
-          }),
-        updateMany: vi.fn(),
-      },
-      channelListingDeletionOperation: {
-        findFirst: vi.fn().mockResolvedValue({ id: "deletion-1" }),
-      },
-    };
-    const repository = new ListingRegistrationPersistenceAdapter(
-      {} as never,
-      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
-    );
-
-    await expect(
-      repository.resolveProductRegistration(ownerTransaction(tx as never), {
-        organizationId: "org-1",
-        salesProductId: "draft-1",
-        channelAccountId: "account-1",
-        submissionKey: "submission-key-1",
-        externalListingId: "427011919",
-        displayName: "Kids rain boots",
-      }),
-    ).rejects.toThrow("active deletion operation");
     expect(tx.channelListing.updateMany).not.toHaveBeenCalled();
   });
 

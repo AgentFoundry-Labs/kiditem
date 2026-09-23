@@ -12,7 +12,6 @@
 | ChannelAccount | `channel_accounts` | ChannelAccount canonical state owned by channels. |
 | ChannelListing | `channel_listings` | ChannelListing canonical state owned by channels. |
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
-| ChannelListingDeletionOperation | `channel_listing_deletion_operations` | Channel listing 삭제의 provider side effect 실행 기록. 삭제 대상 외부 listing identity를 요청 시점에 동결한다. |
 | ChannelListingOption | `channel_listing_options` | ChannelListingOption canonical state owned by channels. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelListingOptionInventoryComponent | `channel_listing_option_inventory_components` | ChannelListingOptionInventoryComponent canonical state owned by channels. |
@@ -104,29 +103,6 @@ erDiagram
     DateTime lastObservedAt
     String rawSnapshotId FK
     Json metaJson
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ChannelListingDeletionOperation {
-    String id PK
-    String organizationId FK
-    String channelAccountId FK
-    String channelListingId FK
-    String idempotencyKey
-    String requestHash
-    String externalListingId
-    String expectedProviderAccountId
-    String status
-    String providerOutcome
-    Json resultJson
-    String lastErrorCode
-    String lastErrorMessage
-    String leaseToken
-    DateTime leaseClaimedAt
-    String requestedByUserId
-    DateTime authorizationExpiresAt
-    DateTime startedAt
-    DateTime completedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -290,13 +266,8 @@ erDiagram
     Int version
     String channelAccountId FK
     DateTime archivedAt
-    String displayName
-    String selectedThumbnailUrl
-    String selectedThumbnailGenerationId
-    String selectedThumbnailGenerationCandidateId
-    String selectedDetailPageArtifactId
+    String selectedThumbnailAssetId
     String selectedDetailPageRevisionId
-    String selectedDetailPageGenerationId
     Json registrationInput
     String createdByUserId
     DateTime createdAt
@@ -308,9 +279,6 @@ erDiagram
     String registrationTargetId FK
     String salesProductOptionId FK
     Int sortOrder
-    Int salePrice
-    Int normalPrice
-    Int supplyPrice
   }
   SalesProduct {
     String id PK
@@ -344,8 +312,6 @@ erDiagram
     StringArray optionAxes
     Boolean stockManaged
     StringArray imageUrls
-    String detailHtml
-    StringArray extraDetailHtml
     String noticeCategory
     StringArray noticeValues
     Json certifications
@@ -416,12 +382,10 @@ erDiagram
     DateTime capturedAt
   }
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
-  ChannelAccount ||--o{ ChannelListingDeletionOperation : "channelAccount"
   ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"
   ChannelAccount ||--o{ ProductRegistrationExecution : "channelAccount"
   ChannelAccount ||--o{ RegistrationTarget : "channelAccount"
   ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
-  ChannelListing ||--o{ ChannelListingDeletionOperation : "channelListing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
   ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
