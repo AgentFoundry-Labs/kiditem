@@ -62,7 +62,7 @@ export interface RegisteredChannelListing {
   brand: string | null;
   manufacturer: string | null;
   channelPrice: number | null;
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   contentWorkspaceId: string | null;
   status: string | null;
   exposureStatus: string | null;

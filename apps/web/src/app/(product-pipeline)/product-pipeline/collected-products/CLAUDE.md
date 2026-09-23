@@ -3,8 +3,8 @@ Before working in this directory, always read this document first rather than re
 # web/collected-products — Collected Product Workspace
 
 `app/(product-pipeline)/product-pipeline/collected-products/` owns the collected
-product workspace for imported/manual `SourcingCandidate` rows. Each collected
-candidate has a `SalesProduct` draft from the moment of collection (ADR-0022) — the workspace resolves (creates or reuses) an account-scoped
+product workspace for `SalesProduct` drafts — collected ones point at their
+`SourceRecord`, directly authored ones have none (ADR-0022, KID-313). The workspace resolves (creates or reuses) an account-scoped
 `RegistrationTarget` for that draft, launches content-workspace-scoped
 detail/thumbnail generation, and opens the shared generated-content editor.
 
@@ -14,9 +14,9 @@ live under `product-pipeline/_shared/`.
 
 ## Owned Surfaces
 
-- Collected candidate inbox
-- Candidate detail route
-- Candidate rejection controls and draft registration-target resolution
+- Collected-product (draft) inbox
+- Draft detail route
+- Draft registration-target resolution
 - Content-workspace-scoped generated detail/thumbnail history links
 - Candidate editor bridge into the shared generated-content editor
 
@@ -24,9 +24,10 @@ Do not reintroduce standalone sourcing or product-content routes.
 
 ## Data Ownership
 
-- `SourcingCandidate` is the raw source/opportunity workspace.
-- Candidate status is only `sourced|rejected`; registration progress must not
-  be copied into candidate status.
+- A collected product is a `SalesProduct` draft (no KID yet). Its
+  `SourceRecord` is immutable provenance with no status, no reject and no
+  delete route; source facts are read from `GET /api/sourcing/source-records/:id`
+  (KID-313).
 - `SalesProduct` (status `draft` until a sell decision issues its KID) owns
   the reviewed input directly — name, pricing, options, media, and mall
   defaults all live on it from collection onward (ADR-0022).
@@ -43,8 +44,8 @@ Do not reintroduce standalone sourcing or product-content routes.
   lineage.
 - `DetailPageArtifact` + `DetailPageRevision` store saved editor HTML versions.
 - `ContentAsset` + `ContentGenerationAssetUsage` store generated/edited images.
-- Manual product registration creates a `SourcingCandidate`; product-less direct
-  detail generation does not.
+- Manual product registration creates a draft without a source record;
+  product-less direct detail generation creates no draft.
 
 ## Editor Flow
 
@@ -56,8 +57,8 @@ candidate workspace
   -> POST /api/ai/detail-page/{contentGenerationId}/edited-html
 ```
 
-Use `_shared/lib/product-pipeline-routes.ts` for route construction. Candidate
-links include `sourceCandidateId` and `returnTo`; registered workspace links
+Use `_shared/lib/product-pipeline-routes.ts` for route construction. Draft
+links include `returnTo`; registered workspace links
 include `returnTo`.
 
 ## Registration Flow
@@ -87,9 +88,10 @@ from-candidates conversion call. Cards without a linked `salesProductId`
 
 ## Boundary Rules
 
-- Deleting a collected card calls `DELETE /api/sourcing/candidates/{id}` and
-  invalidates sourcing/detail/thumbnail history queries; it must not call
-  product-master delete APIs.
+- Deleting a collected card calls `DELETE /api/products/sales-products/{id}`,
+  which deletes the draft with its source record, and invalidates
+  sourcing/detail/thumbnail history queries; it must not call product-master
+  delete APIs.
 - Thumbnail-only results must not create collected or registered inbox cards.
 - Product-less direct detail output must not appear as a collected-product card.
 - No editor localStorage persistence; GrapesJS storage is disabled.
@@ -97,9 +99,9 @@ from-candidates conversion call. Cards without a linked `salesProductId`
   flow explicitly persists them.
 - Do not silently fall back between candidate, sales-product,
   registration-target, listing, content-workspace, and generation identifiers.
-- Deleting a candidate with a linked `SalesProduct` draft retires that draft
-  server-side; the delete response's `draftRetired`/`draftWarning` fields say
-  so — do not re-derive that decision on the client.
+- The server decides whether a draft may be deleted (a selling product is
+  archived, not deleted); show its 409 reason — do not re-derive that decision
+  on the client.
 
 ## Change Coupling
 
@@ -107,8 +109,8 @@ from-candidates conversion call. Cards without a linked `salesProductId`
   helpers, panel/toast alert hrefs, and server detail-page result hrefs.
 - Editor save/load changes require checking the shared editor surface and AI
   detail-page endpoints together.
-- Candidate registration-target-resolution/rejection changes require checking
-  shared workspace headers and sourcing APIs together.
+- Draft registration-target-resolution changes require checking shared
+  workspace headers and sourcing APIs together.
 
 ## Regression Focus
 

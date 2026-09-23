@@ -18,7 +18,7 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
     category: null,
     brand: null,
     manufacturer: null,
-    sourceCandidateId: 'candidate-1',
+    sourceRecordId: 'candidate-1',
     contentWorkspaceId: 'workspace-1',
     status: 'active',
     exposureStatus: 'visible',
@@ -40,7 +40,7 @@ describe('registeredListingWorkspaceHref', () => {
   it('does not fall back to source or content-workspace identities', () => {
     expect(registeredListingWorkspaceHref(listingFixture({
       contentWorkspaceId: null,
-      sourceCandidateId: 'candidate-1',
+      sourceRecordId: 'candidate-1',
     }))).toBe('/product-pipeline/registered-products/listing-1');
   });
 });

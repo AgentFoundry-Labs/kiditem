@@ -7,7 +7,6 @@ import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
-import { productsApi } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import { mallPublishingApi } from '../../_shared/mall-publishing-api';
 import { MALL_REGISTRATION_ADAPTERS, getMallPublishAdapter } from '../../_shared/adapters';
 import {
@@ -75,9 +74,10 @@ export function RegistrationWizard() {
   const [source, setSource] = useState<ProductSource>('sales_product');
   const [search, setSearch] = useState('');
 
+  // 수집상품은 KID 를 아직 받지 않은 판매상품 초안이다(KID-313) — 원본 기록 목록은 화면에 없다.
   const productsQuery = useQuery({
-    queryKey: queryKeys.sourcing.list({ page: String(page), limit: String(PAGE_SIZE), surface: 'mall-listings' }),
-    queryFn: () => productsApi.list({ page, limit: PAGE_SIZE }),
+    queryKey: salesProductKeys.list({ page, limit: PAGE_SIZE, focus: 'preparing' }),
+    queryFn: () => salesProductApi.list({ page, limit: PAGE_SIZE, focus: 'preparing' }),
     placeholderData: keepPreviousData,
     enabled: source === 'candidate',
   });
@@ -118,11 +118,11 @@ export function RegistrationWizard() {
       : (productsQuery.data?.items ?? []).map((product) => ({
         candidateId: product.id,
         name: product.name,
-        salePrice: product.price_krw ?? null,
-        thumbnailUrl: product.thumbnailUrl ?? null,
+        salePrice: product.salePrice,
+        thumbnailUrl: product.imageUrl,
         source: 'candidate' as const,
-        // 수집 시점부터 판매상품 초안이 있다(ADR-0022) — 등록은 이 id 를 그대로 연다.
-        salesProductId: product.salesProductId,
+        // 수집상품 한 줄이 곧 판매상품 초안이다(ADR-0022) — 등록은 이 id 를 그대로 연다.
+        salesProductId: product.id,
       })),
     [source, productsQuery.data, salesQuery.data],
   );

@@ -12,7 +12,7 @@ interface RegisteredListingCardProps {
   onOpen: (listing: RegisteredChannelListing) => void;
   onSelectedChange?: (id: string, selected: boolean) => void;
   /**
-   * ⚠️ 파괴적. 우리가 등록한 상품(`sourceCandidateId` 있음)에만 전달된다.
+   * ⚠️ 파괴적. 우리가 등록한 상품(`sourceRecordId` 있음)에만 전달된다.
    * 넘어오지 않으면 삭제 진입점 자체를 렌더하지 않는다.
    */
   onRequestDelete?: (listing: RegisteredChannelListing) => void;

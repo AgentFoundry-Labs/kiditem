@@ -34,7 +34,7 @@ const TARGET_RESULT = {
       code: 'SP-001',
       ownCode: null,
       sabangnetGoodsNo: null,
-      sourceCandidateId: null,
+      sourceRecordId: null,
       sourcePlatform: null,
       sourceUrl: null,
       name: '상품',

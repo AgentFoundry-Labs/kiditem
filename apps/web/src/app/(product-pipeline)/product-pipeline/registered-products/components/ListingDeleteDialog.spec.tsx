@@ -7,7 +7,7 @@ const listing = {
   detailPageArtifactId: null, detailPageRevisionId: null, channel: 'coupang', channelAccountId: 'account',
   channelAccountName: '쿠팡', externalId: '16311428128', channelName: null, channelPrice: null,
   category: null, brand: null, manufacturer: null,
-  sourceCandidateId: 'candidate', contentWorkspaceId: null, status: 'active', exposureStatus: null,
+  sourceRecordId: 'candidate', contentWorkspaceId: null, status: 'active', exposureStatus: null,
   optionCount: 1, mappingStatus: 'matched' as const, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 };
 

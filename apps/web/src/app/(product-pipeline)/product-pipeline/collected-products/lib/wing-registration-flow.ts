@@ -19,7 +19,6 @@ import {
   type WingSellpiaMatchPreview as ChannelsWingSellpiaMatchPreview,
 } from '../../../../(channels)/_shared/registration-execution-api';
 import {
-  candidatesApi,
   productsApi,
   type ProductDetailResponse,
   type SellpiaInventorySearchItem,
@@ -133,8 +132,8 @@ export function requireRenderedDetailImage(
 export async function prepareSavedCandidateDetailImage(
   detail: ProductDetailResponse,
 ): Promise<DetailPageClientRenderPrepareResponse> {
-  // 렌더 라우트는 A3(후속 pass)가 작업공간 라우트로 옮긴다 — 여기서는 원천 기록 id 를 그대로 넘긴다.
-  const candidateId = detail.sourceCandidateId ?? '';
+  // 렌더 라우트는 A3(후속 pass)가 작업공간 라우트로 옮긴다 — 여기서는 원본 기록 id 를 그대로 넘긴다.
+  const candidateId = detail.sourceRecordId ?? '';
   const firstRender = await renderCandidateDetailImageOnServer(candidateId);
   if (
     firstRender.status === 'ready'

@@ -74,8 +74,8 @@ export function useMallQuickRegister(input: {
     if (!detail || !salesProductId) return null;
     // 원천 기록이 있는 초안은 수집상품 항목, 없는 초안(직접 작성 · 사방넷)은 판매상품 항목이다 —
     // `MallPublishItem` 이 두 모양에 두는 id 자리를 그대로 따른다.
-    const identity = detail.sourceCandidateId
-      ? { candidateId: detail.sourceCandidateId, source: 'candidate' as const, salesProductId }
+    const identity = detail.sourceRecordId
+      ? { candidateId: detail.sourceRecordId, source: 'candidate' as const, salesProductId }
       : { candidateId: salesProductId, source: 'sales_product' as const };
     return {
       ...identity,

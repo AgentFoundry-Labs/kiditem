@@ -19,7 +19,7 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
     category: null,
     brand: null,
     manufacturer: null,
-    sourceCandidateId: 'candidate-1',
+    sourceRecordId: 'candidate-1',
     contentWorkspaceId: 'workspace-1',
     status: 'active',
     exposureStatus: 'visible',

@@ -138,7 +138,7 @@ function Editor({ product }: { product: SalesProduct }) {
             <span className={cn('rounded-full px-2 py-0.5 font-semibold', SALES_PRODUCT_STATUS_TONE[product.status])}>
               {SALES_PRODUCT_STATUS_LABEL[product.status]}
             </span>
-            {product.sourceCandidateId && <span>· 수집상품에서 만듦</span>}
+            {product.sourceRecordId && <span>· 수집상품에서 만듦</span>}
           </div>
           <h1 className="page-title mt-1 truncate" title={product.name}>{product.name}</h1>
         </div>

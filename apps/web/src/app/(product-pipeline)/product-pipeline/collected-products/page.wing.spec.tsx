@@ -35,7 +35,7 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: invalidateQueriesMock }),
   useQuery: () => ({
     data: {
-      items: [{ id: 'sales-product-1', sourceCandidateId: 'candidate-1', name: '테스트 상품', status: 'draft', imageUrl: null }],
+      items: [{ id: 'sales-product-1', sourceRecordId: 'candidate-1', name: '테스트 상품', status: 'draft', imageUrl: null }],
       total: 1,
       summary: { draft: 1 },
     },

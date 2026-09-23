@@ -45,6 +45,30 @@ vi.mock('@tanstack/react-query', () => ({
     if (queryKey.includes('registration-target-choices')) {
       return { data: [], isLoading: false, isSuccess: true, isError: false, error: null };
     }
+    // 수집 상품 탭은 KID 를 아직 받지 않은 판매상품 초안 목록이다(KID-313).
+    if (queryKey.includes('sales-products') && JSON.stringify(queryKey).includes('preparing')) {
+      const draft = (id: string, name: string, salePrice: number | null) => ({
+        id, code: null, ownCode: null, sourceRecordId: null, sourcePlatform: '1688', sourceUrl: null, name,
+        status: 'draft', salePrice, imageUrl: null, optionAxes: [], optionCount: 1, sellingOptionCount: 1,
+        unlinkedOptionCount: 1, channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+      });
+      return {
+        data: {
+          items: [
+            draft('sp-c1', '킬러볼 스피너 키링', 2280),
+            draft('sp-c2', '공룡 물총', 3500),
+            draft('sp-c3', '판매가 없는 상품', 0),
+          ],
+          total: 3,
+          page: 1,
+          limit: 25,
+          summary: { total: 3, withOptions: 0, withUnlinkedOptions: 3, unregistered: 0, draft: 3 },
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      };
+    }
     if (queryKey.includes('sales-products')) {
       return {
         data: {

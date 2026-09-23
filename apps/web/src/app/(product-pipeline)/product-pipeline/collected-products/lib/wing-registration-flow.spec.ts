@@ -128,7 +128,7 @@ beforeEach(() => {
   replaceSalesProductOptionsMock.mockReset();
   getSalesProductMock.mockImplementation(async (salesProductId: string) => ({
     id: salesProductId,
-    sourceCandidateId: 'candidate-1',
+    sourceRecordId: 'candidate-1',
     status: 'active',
     version: 1,
     optionAxes: [],
@@ -410,7 +410,7 @@ const detail = (basicInfo: ProductBasics): ProductDetailResponse => ({
   id: 'sales-product-1',
   name: '딸깍이 키링',
   status: 'sourced',
-  sourceCandidateId: 'candidate-1',
+  sourceRecordId: 'candidate-1',
   sourcePlatform: 'ALIBABA_1688',
   source_platform: 'ALIBABA_1688',
   source_url: null,
@@ -969,7 +969,7 @@ describe('쿠팡 등록 확인 모달 값 반영', () => {
     vi.mocked(sendToExtensionViaPort).mockResolvedValueOnce({ ok: true });
     getSalesProductMock.mockResolvedValueOnce({
       id: 'sales-product-1',
-      sourceCandidateId: 'candidate-1',
+      sourceRecordId: 'candidate-1',
       status: 'draft',
       version: 3,
       optionAxes: [],

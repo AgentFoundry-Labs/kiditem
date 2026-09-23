@@ -11,12 +11,10 @@ import type {
 import { queryKeys } from '@/lib/query-keys';
 
 const {
-  rejectMock,
   resolveRegistrationTargetMock,
   listAccountsMock,
   toastSuccessMock,
 } = vi.hoisted(() => ({
-  rejectMock: vi.fn(),
   resolveRegistrationTargetMock: vi.fn(),
   listAccountsMock: vi.fn(),
   toastSuccessMock: vi.fn(),
@@ -24,16 +22,6 @@ const {
 
 // 네트워크만 막는다. 등록 상태 환산 같은 순수 함수는 진짜 것을 쓴다 — 가짜로 두면
 // 화면이 무엇을 믿는지 테스트가 대신 정해 버린다.
-vi.mock(
-  '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api',
-  async (importOriginal) => ({
-    ...(await importOriginal<Record<string, unknown>>()),
-    candidatesApi: {
-      reject: (...args: unknown[]) => rejectMock(...args),
-    },
-  }),
-);
-
 vi.mock('@/lib/registration-target-api', () => ({
   registrationTargetApi: {
     resolve: (...args: unknown[]) => resolveRegistrationTargetMock(...args),
@@ -131,7 +119,6 @@ function renderHeader(
       productName="자석 다트게임"
       productId="candidate-1"
       salesProductId="sales-product-1"
-      status="sourced"
       registrationTarget={registrationTarget}
       registrationState={registrationState}
       basicInfo={basicInfo}
@@ -152,7 +139,6 @@ describe('ProductEditHeader preparation draft action', () => {
   beforeEach(() => {
     resolveRegistrationTargetMock.mockReset();
     listAccountsMock.mockReset();
-    rejectMock.mockReset();
     toastSuccessMock.mockReset();
     listAccountsMock.mockResolvedValue([
       {
@@ -224,7 +210,7 @@ describe('ProductEditHeader preparation draft action', () => {
   it('⭐ believes the registration fence over a stale preparation mirror', () => {
     renderHeader({
       id: '77777777-7777-4777-8777-777777777777',
-      sourceCandidateId: 'candidate-1',
+      sourceRecordId: 'candidate-1',
       channelAccountId: '22222222-2222-4222-8222-222222222222',
       sourceContentWorkspaceId: '88888888-8888-4888-8888-888888888888',
       channelListingId: null,
@@ -243,16 +229,17 @@ describe('ProductEditHeader preparation draft action', () => {
     expect(screen.queryByRole('button', { name: '제품 등록 준비' })).not.toBeInTheDocument();
   });
 
-  /** 울타리가 아직 아무것도 없다고 하면 초안이 있어도 반려·재준비 길은 열려 있다. */
+  /** 울타리가 아직 아무것도 없다고 하면 초안이 있어도 재준비 길은 열려 있다. 반려는 없다(KID-313). */
   it('⭐ keeps the candidate actions open while the fence says nothing was submitted', () => {
     renderHeader(null, 'none');
     expect(screen.getByRole('button', { name: '제품 등록 준비' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /반려/ })).not.toBeInTheDocument();
   });
 
   it('shows registration state from the preparation instead of candidate status', () => {
     renderHeader({
       id: '77777777-7777-4777-8777-777777777777',
-      sourceCandidateId: 'candidate-1',
+      sourceRecordId: 'candidate-1',
       channelAccountId: '22222222-2222-4222-8222-222222222222',
       sourceContentWorkspaceId: '88888888-8888-4888-8888-888888888888',
       channelListingId: '99999999-9999-4999-8999-999999999999',
@@ -273,7 +260,7 @@ describe('ProductEditHeader preparation draft action', () => {
   it('does not treat an accountless content preparation as registration state', () => {
     renderHeader({
       id: '77777777-7777-4777-8777-777777777777',
-      sourceCandidateId: 'candidate-1',
+      sourceRecordId: 'candidate-1',
       channelAccountId: null,
       sourceContentWorkspaceId: '88888888-8888-4888-8888-888888888888',
       channelListingId: null,

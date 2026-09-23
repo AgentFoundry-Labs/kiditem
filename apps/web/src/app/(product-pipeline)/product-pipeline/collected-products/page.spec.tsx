@@ -59,7 +59,7 @@ function serveDraftPages(pages: Record<number, ReturnType<typeof listResponse>>)
       return pages[Number(parsed.searchParams.get('page') ?? '1')] ?? listResponse([]);
     }
     if (parsed.pathname.startsWith('/api/products/sales-products/')) {
-      return salesProductDraft({ id: parsed.pathname.split('/').pop()!, sourceCandidateId: null, version: 3 });
+      return salesProductDraft({ id: parsed.pathname.split('/').pop()!, sourceRecordId: null, version: 3 });
     }
     throw new Error(`unexpected getParsed ${url}`);
   });
@@ -158,16 +158,16 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
     expect(createRequestId).toHaveBeenCalledTimes(1);
   });
 
-  it('deletes the selection kept across pages, through each draft’s source record', async () => {
+  it('deletes the selection kept across pages, each draft through the sales-product route (KID-313)', async () => {
     serveDraftPages({
       1: listResponse([salesProductDraftListItem()], 40),
       2: listResponse([salesProductDraftListItem({
         id: SECOND_DRAFT_ID,
-        sourceCandidateId: SECOND_CANDIDATE_ID,
+        sourceRecordId: SECOND_CANDIDATE_ID,
         name: '두 번째 초안',
       })], 40),
     });
-    api.delete.mockResolvedValue({ ok: true });
+    api.delete.mockResolvedValue({ deleted: true });
     renderPage();
 
     fireEvent.click(await screen.findByRole('checkbox', { name: '자석 다트게임 선택' }));
@@ -179,8 +179,8 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledTimes(2));
     expect(api.delete.mock.calls.map(([url]) => url).sort()).toEqual([
-      `/api/sourcing/candidates/${DRAFT_CANDIDATE_ID}`,
-      `/api/sourcing/candidates/${SECOND_CANDIDATE_ID}`,
+      `/api/products/sales-products/${DRAFT_ID}`,
+      `/api/products/sales-products/${SECOND_DRAFT_ID}`,
     ].sort());
   });
 
@@ -201,7 +201,7 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
     serveDraftPages({
       1: listResponse([
         salesProductDraftListItem(),
-        salesProductDraftListItem({ id: SECOND_DRAFT_ID, sourceCandidateId: SECOND_CANDIDATE_ID, name: '두 번째 초안' }),
+        salesProductDraftListItem({ id: SECOND_DRAFT_ID, sourceRecordId: SECOND_CANDIDATE_ID, name: '두 번째 초안' }),
       ]),
     });
     api.post.mockResolvedValueOnce({
@@ -234,9 +234,9 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
     expect(new Set(progressUrls)).toEqual(new Set(['/api/ai/detail-page', '/api/thumbnail-analysis/generations?limit=100']));
   });
 
-  it('retires a draft without a source record through the sales-product route (S1)', async () => {
-    serveDraftPages({ 1: listResponse([salesProductDraftListItem({ sourceCandidateId: null, sourcePlatform: null })]) });
-    api.delete.mockResolvedValue({ salesProductId: DRAFT_ID, retired: true, blockedReason: null });
+  it('deletes a draft without a source record through the same route (S1)', async () => {
+    serveDraftPages({ 1: listResponse([salesProductDraftListItem({ sourceRecordId: null, sourcePlatform: null })]) });
+    api.delete.mockResolvedValue({ salesProductId: DRAFT_ID, deleted: true });
     renderPage();
 
     const card = (await screen.findByText('자석 다트게임')).closest('article')!;
@@ -244,54 +244,7 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith(`/api/products/sales-products/${DRAFT_ID}`));
     expect(api.patch).not.toHaveBeenCalled();
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('1개 수집상품을 지웠습니다.', {
-      description: '판매상품 초안 1개도 함께 내렸습니다.',
-    }));
-  });
-
-  it('shows why a draft without a source record was not retired', async () => {
-    serveDraftPages({ 1: listResponse([salesProductDraftListItem({ sourceCandidateId: null, sourcePlatform: null })]) });
-    api.delete.mockResolvedValue({
-      salesProductId: DRAFT_ID,
-      retired: false,
-      blockedReason: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
-    });
-    renderPage();
-
-    const card = (await screen.findByText('자석 다트게임')).closest('article')!;
-    fireEvent.click(within(card).getByTitle('수집상품 삭제'));
-
-    await waitFor(() => expect(toastWarning).toHaveBeenCalledWith('판매상품 초안을 내리지 못한 상품이 있습니다.', {
-      description: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
-    }));
-    // 내리지 못했으면 지웠다고 말하지 않는다.
-    expect(toastSuccess).not.toHaveBeenCalled();
-  });
-
-  it('says whether deleting the source record also retired its draft (S1)', async () => {
-    serveDraftPages({
-      1: listResponse([
-        salesProductDraftListItem(),
-        salesProductDraftListItem({ id: SECOND_DRAFT_ID, sourceCandidateId: SECOND_CANDIDATE_ID, name: '두 번째 초안' }),
-      ]),
-    });
-    api.delete.mockImplementation(async (url: string) => (
-      url.endsWith(DRAFT_CANDIDATE_ID)
-        ? { ok: true, draftRetired: true }
-        : { ok: true, draftRetired: false, draftWarning: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.' }
-    ));
-    renderPage();
-
-    fireEvent.click(await screen.findByRole('checkbox', { name: '자석 다트게임 선택' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: '두 번째 초안 선택' }));
-    fireEvent.click(screen.getByRole('button', { name: /선택 삭제 2/ }));
-
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('2개 수집상품을 지웠습니다.', {
-      description: '판매상품 초안 1개도 함께 내렸습니다.',
-    }));
-    expect(toastWarning).toHaveBeenCalledWith('판매상품 초안을 내리지 못한 상품이 있습니다.', {
-      description: '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.',
-    });
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('1개 수집상품을 지웠습니다.'));
   });
 
   it('keeps a priced product on the list and marks only unpriced drafts 판매가 미정', async () => {
@@ -301,7 +254,7 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
           salesProductDraftListItem(),
           salesProductDraftListItem({
             id: SECOND_DRAFT_ID,
-            sourceCandidateId: SECOND_CANDIDATE_ID,
+            sourceRecordId: SECOND_CANDIDATE_ID,
             name: '판매가 정한 상품',
             status: 'active',
             salePrice: 12900,

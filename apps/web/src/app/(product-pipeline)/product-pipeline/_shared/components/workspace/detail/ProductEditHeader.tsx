@@ -10,21 +10,17 @@ import {
   Image as ImageIcon,
   Loader2,
   Sparkles,
-  XCircle,
 } from 'lucide-react';
 import type { DetailPageTemplateId } from '@kiditem/shared/ai';
-import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { salesProductKeys } from '@/lib/sales-product-api';
 import { registrationTargetApi, registrationTargetKeys } from '@/lib/registration-target-api';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
 import { useKidsPlayfulFromSourcing } from '../../../hooks/useKidsPlayfulFromSourcing';
 import TemplateSelectionModal from '@/app/(product-pipeline)/product-pipeline/_shared/components/detail-page/TemplateSelectionModal';
 import {
-  candidatesApi,
   registrationStateFromPreparation,
   type CandidateRegistrationState,
   type ProductBasics,
@@ -36,17 +32,13 @@ import {
 import { getInlineGenerationProgressLabel } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
 import ProductPreparationDraftDialog from './ProductPreparationDraftDialog';
 
-/** 반려는 원천 기록(수집상품)의 소싱 판단이다 — 직접 작성 · 사방넷 초안에는 반려할 원천이 없다. */
-const NO_SOURCE_REJECT_REASON = '원천 기록이 없는 초안은 반려할 수 없습니다.';
-
 interface ProductEditHeaderProps {
   productName: string;
   productId: string;
   /** 이 화면의 판매상품 초안 id(ADR-0022) — 등록 설정과 생성은 이 id 로 연다. */
   salesProductId?: string | null;
-  /** 초안의 원천 기록(수집상품). 반려는 원천 기록의 소싱 판단이라 이 id 로 한다. 없으면 반려가 없다. */
-  sourceCandidateId?: string | null;
-  status?: SourcingCandidateStatus;
+  /** 초안을 만든 원본 기록. 상세페이지 생성이 출처로 적는다. 직접 작성 초안은 없다. */
+  sourceRecordId?: string | null;
   registrationTarget?: ProductPreparationSelection | null;
   /** 울타리가 답하는 등록 상태. 구버전 응답에서만 `null` 이다. */
   registrationState?: CandidateRegistrationState | null;
@@ -72,8 +64,7 @@ export default function ProductEditHeader({
   productName,
   productId,
   salesProductId = null,
-  sourceCandidateId = null,
-  status = 'sourced',
+  sourceRecordId = null,
   registrationTarget = null,
   registrationState = null,
   basicInfo = null,
@@ -91,8 +82,6 @@ export default function ProductEditHeader({
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [preparationDialogOpen, setPreparationDialogOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectInputOpen, setRejectInputOpen] = useState(false);
   const { mutate: runGenerate, isPending } = useGenerateDetailPage(salesProductId ?? '');
   const kp = useKidsPlayfulFromSourcing();
   // 진행 중 생성은 이 초안의 작업공간 안에서만 찾는다. 작업공간이 없으면 찾을 것도 없다 —
@@ -144,29 +133,6 @@ export default function ProductEditHeader({
     },
   });
 
-  const rejectMutation = useMutation({
-    mutationFn: (reason: string | undefined) => {
-      if (!sourceCandidateId) throw new Error(NO_SOURCE_REJECT_REASON);
-      return candidatesApi.reject(sourceCandidateId, reason && reason.trim() ? reason.trim() : undefined);
-    },
-    onSuccess: (result) => {
-      // 초안을 함께 내릴지는 서버가 정한다 — 응답을 그대로 알린다.
-      toast.success('소싱 후보를 반려했습니다.', {
-        description: result.draftRetired ? '판매상품 초안도 함께 내렸습니다.' : undefined,
-      });
-      if (result.draftWarning) {
-        toast.warning('판매상품 초안은 내리지 못했습니다.', { description: result.draftWarning });
-      }
-      setRejectInputOpen(false);
-      setRejectReason('');
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(productId) });
-    },
-    onError: (err) => {
-      toast.error(isApiError(err) ? err.detail : '반려 처리에 실패했습니다.');
-    },
-  });
   const handleConfirm = (templateId: string, mode: GenerateMode) => {
     if (!salesProductId) {
       toast.error('판매상품 초안이 없어 상세페이지를 만들 수 없습니다.');
@@ -177,7 +143,8 @@ export default function ProductEditHeader({
       if (firstGeneration) setAwaitingDraftWorkspace(true);
       void kp.trigger({
         salesProductId,
-        sourceCandidateId,
+        // Content 의 생성 출처 칸 이름은 W3 가 바꾼다 — 값은 원본 기록 id 다.
+        sourceCandidateId: sourceRecordId,
         contentWorkspaceId: detailGenerationContentWorkspaceId,
         productName,
         rawData,
@@ -216,13 +183,9 @@ export default function ProductEditHeader({
   const registrationStarted = fenceState !== 'none';
   // 방금 만든 초안은 아직 울타리를 열지 않았다(`none`). "초안이 있다"는 사실은 초안
   // 행이 답하고, "등록이 시작됐다"는 울타리가 답한다 — 둘 다 만족해야 다시 준비한다.
-  const canCreatePreparation = status === 'sourced' &&
-    !registrationStarted &&
+  const canCreatePreparation = !registrationStarted &&
     (preparationStatus === null || preparationStatus === 'cancelled') &&
-    !createPreparationDraftMutation.isPending &&
-    !rejectMutation.isPending;
-  const canReject = !!sourceCandidateId && status === 'sourced' && !registrationStarted && preparationStatus === null &&
-    !createPreparationDraftMutation.isPending && !rejectMutation.isPending;
+    !createPreparationDraftMutation.isPending;
   const registrationBadge = registrationStarted
     ? registrationStateLabel(fenceState)
     : preparationStatus === 'draft' ? '등록 준비됨' : null;
@@ -264,9 +227,6 @@ export default function ProductEditHeader({
             >
               {registrationBadge}
             </span>
-          )}
-          {status === 'rejected' && (
-            <span className="text-[10px] font-bold text-rose-600">반려됨</span>
           )}
         </div>
       </div>
@@ -360,8 +320,8 @@ export default function ProductEditHeader({
           </>
         )}
 
-        {/* 등록 준비 · 반려는 판매상품 초안 화면에만 있다 — 등록상품(리스팅) 화면에는 초안이 없다. */}
-        {salesProductId && status === 'sourced' && (
+        {/* 등록 준비는 판매상품 초안 화면에만 있다 — 등록상품(리스팅) 화면에는 초안이 없다. */}
+        {salesProductId && (
           <>
             {!registrationStarted
               && (preparationStatus === null || preparationStatus === 'cancelled') && (
@@ -384,53 +344,6 @@ export default function ProductEditHeader({
                 )}
                 제품 등록 준비
               </button>
-            )}
-            {preparationStatus === null && !registrationStarted && (
-              <button
-                type="button"
-                onClick={() => setRejectInputOpen((v) => !v)}
-                disabled={!canReject}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors',
-                  canReject
-                    ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
-                    : 'cursor-not-allowed border-rose-100 text-rose-300',
-                )}
-                title={sourceCandidateId ? '후보 반려' : NO_SOURCE_REJECT_REASON}
-                aria-describedby={sourceCandidateId ? undefined : 'reject-disabled-reason'}
-              >
-                <XCircle size={12} />
-                반려
-              </button>
-            )}
-            {!sourceCandidateId && preparationStatus === null && !registrationStarted && (
-              <span id="reject-disabled-reason" className="text-[10px] font-medium text-slate-500">
-                {NO_SOURCE_REJECT_REASON}
-              </span>
-            )}
-            {preparationStatus === null && !registrationStarted && rejectInputOpen && (
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="text"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="반려 사유 (선택)"
-                  className="h-7 rounded-md border border-slate-200 px-2 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-rose-300"
-                />
-                <button
-                  type="button"
-                  onClick={() => rejectMutation.mutate(rejectReason)}
-                  disabled={rejectMutation.isPending}
-                  className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50"
-                >
-                  {rejectMutation.isPending ? (
-                    <Loader2 size={11} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={11} />
-                  )}
-                  확인
-                </button>
-              </div>
             )}
           </>
         )}

@@ -276,7 +276,7 @@ const listingWorkspaceData: ProductWorkspaceData = {
     image_urls: [],
     thumbnail_url: null,
     status: null,
-    sourceCandidateId: null,
+    sourceRecordId: null,
     salesProductId: null,
     salesProductVersion: null,
   } as ProductWorkspaceData['product'],
@@ -323,7 +323,7 @@ describe('ProductWorkspaceScreen — 수집상품(판매상품 초안) 화면', 
     for (const url of detailPageRequests()) {
       const params = new URL(url, 'http://kiditem.local').searchParams;
       expect(params.get('contentWorkspaceId')).toBe(WORKSPACE_ID);
-      expect(params.has('sourceCandidateId')).toBe(false);
+      expect(params.has('sourceRecordId')).toBe(false);
       expect(params.has('productId')).toBe(false);
     }
     expect(screen.getByTestId('product-tab-content')).toHaveAttribute('data-can-save-thumbnail', 'true');
@@ -417,13 +417,13 @@ describe('ProductWorkspaceScreen — 수집상품(판매상품 초안) 화면', 
     ));
   });
 
-  it('initializes registration selection from the source record’s registration target (pass C replaces this read)', async () => {
+  it('reads no registration target from the source record — a source record carries none (KID-313)', async () => {
     serveCollectedDraft({
       workspace: workspaceSummary(),
       candidate: {
         registrationTarget: {
           id: 'prep-1',
-          sourceCandidateId: 'candidate-1',
+          sourceRecordId: 'candidate-1',
           channelAccountId: 'account-1',
           channelListingId: 'listing-1',
           status: 'registered',
@@ -437,10 +437,10 @@ describe('ProductWorkspaceScreen — 수집상품(판매상품 초안) 화면', 
     });
     renderCollected();
 
-    const tab = await screen.findByTestId('product-tab-content');
-    await waitFor(() => expect(tab).toHaveAttribute('data-selected-detail-generation', 'detail-generation-1'));
-    expect(productEditHeaderProps.at(-1)?.selectedThumbnailGenerationId).toBe('thumb-generation-1');
-    // 등록 설정의 작업공간 거울은 읽지 않는다 — 작업공간은 초안의 것이다.
+    await screen.findByTestId('product-tab-content');
+    // 원본 기록 응답에 무엇이 실려 와도 등록 설정은 원본 기록에서 읽지 않는다.
+    await waitFor(() => expect(productEditHeaderProps.at(-1)?.registrationTarget).toBeNull());
+    expect(productEditHeaderProps.at(-1)?.selectedThumbnailGenerationId).not.toBe('thumb-generation-1');
     expect(productEditHeaderProps.at(-1)?.detailGenerationContentWorkspaceId).toBe(WORKSPACE_ID);
   });
 

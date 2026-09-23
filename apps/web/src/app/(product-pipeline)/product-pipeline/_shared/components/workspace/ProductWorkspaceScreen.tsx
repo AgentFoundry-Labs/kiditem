@@ -594,8 +594,7 @@ export function ProductWorkspaceScreen({
         productName={editData.name || '(상품명 없음)'}
         productId={productId}
         salesProductId={salesProductId}
-        sourceCandidateId={product?.sourceCandidateId ?? null}
-        status={product?.status ?? undefined}
+        sourceRecordId={product?.sourceRecordId ?? null}
         registrationTarget={registrationTarget}
         registrationState={registrationState}
         basicInfo={product?.basicInfo ?? null}
