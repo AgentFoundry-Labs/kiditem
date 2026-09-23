@@ -990,6 +990,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
 
     expect(preview.existingChanges).toEqual([expect.objectContaining({
       changed: true,
+      baselineOnly: false,
       preserved: ['imageUrls', 'noticeValues', 'certifications', 'kcStatus', 'adminMemo'],
       updated: ['name', 'brand', 'detailHtml'],
     })]);
@@ -1036,8 +1037,10 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     const imported = await product();
     await prisma.salesProduct.update({ where: { id: imported.id }, data: { sourceRaw: Prisma.JsonNull } });
 
-    await reimport({ 상품명: '다른 이름', 관리자메모: '사방넷 메모 2' });
+    const { preview } = await reimport({ 상품명: '다른 이름', 관리자메모: '사방넷 메모 2' });
 
+    // 바뀐 것은 저장된 원문(기준값)뿐이다.
+    expect(preview.existingChanges[0]).toMatchObject({ changed: true, baselineOnly: true, updated: [] });
     await expect(product()).resolves.toMatchObject({
       name: '투명우산 그리기',
       adminMemo: '사방넷 메모 1',

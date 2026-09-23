@@ -212,7 +212,9 @@ function ImportPreview({
                       <span className="block font-medium text-slate-800">{change.name}</span>
                       <span className="block text-xs text-slate-500">
                         {change.code} · 원천키 {change.sourceKey} · 버전 {change.expectedVersion}
-                        {change.changed ? ' · 바뀐 내용 있음' : ' · 바뀐 내용 없음'}
+                        {change.baselineOnly
+                          ? ' · 기준값만 갱신'
+                          : change.changed ? ' · 바뀐 내용 있음' : ' · 바뀐 내용 없음'}
                       </span>
                       {reimportFieldSummary(change) && (
                         <span className="block text-xs text-slate-600">{reimportFieldSummary(change)}</span>

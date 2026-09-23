@@ -36,6 +36,17 @@ type UnmergedBasicsField = Exclude<keyof SabangnetReimportBasics, SabangnetReimp
 const everyBasicsFieldIsMerged: [UnmergedBasicsField] extends [never] ? true : UnmergedBasicsField = true;
 void everyBasicsFieldIsMerged;
 
+/**
+ * 사방넷 파일이 싣지 않는 초안 편집 칸. 가져오기 매핑이 빈 값으로만 채우므로 비교할 것이 없다 — 언제나
+ * 지금 값을 지키고, 미리보기의 지킴 · 갱신 목록에도 넣지 않는다.
+ */
+export const SABANGNET_UNCARRIED_FIELDS = [
+  'description', 'targetAudience', 'ageGroup', 'productSize', 'colorVariantNames', 'boxSetQuantity',
+  'registrationDefaults',
+] as const satisfies readonly SabangnetReimportField[];
+
+const UNCARRIED = new Set<SabangnetReimportField>(SABANGNET_UNCARRIED_FIELDS);
+
 /** 상세 HTML 디지스트. 빈 상세는 빈 문자열이다. 추가 상세는 칸마다의 디지스트를 쉼표로 잇는다. */
 export interface SabangnetDetailDigests {
   detailHtml: string;
@@ -78,7 +89,7 @@ export function mergeSabangnetReimport<T extends SabangnetReimportBasics>(input:
   const updated: SabangnetReimportField[] = [];
   const currentDigests = sabangnetDetailDigests(current, input.sha256);
   for (const field of SABANGNET_REIMPORT_MERGED_FIELDS) {
-    if (sameImportValue(current[field], incoming[field])) {
+    if (UNCARRIED.has(field) || sameImportValue(current[field], incoming[field])) {
       (merged as Record<string, unknown>)[field] = current[field];
       continue;
     }

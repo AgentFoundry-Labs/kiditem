@@ -166,6 +166,23 @@ describe('Sabangnet reimport three-way merge', () => {
     expect(old.preserved).toEqual(['detailHtml', 'extraDetailHtml']);
   });
 
+  it('always keeps the draft fields the Sabangnet file never carries, without reporting them', () => {
+    const last = basics();
+    const current = basics({
+      description: '운영자 설명', targetAudience: '유아', ageGroup: '3세+', productSize: '20cm',
+      colorVariantNames: ['빨강'], boxSetQuantity: 12, registrationDefaults: { deliveryDays: 2 },
+    });
+
+    const result = mergeSabangnetReimport({ current, incoming: basics(), baseline: baselineOf(last), sha256 });
+
+    expect(result.merged).toMatchObject({
+      description: '운영자 설명', targetAudience: '유아', ageGroup: '3세+', productSize: '20cm',
+      colorVariantNames: ['빨강'], boxSetQuantity: 12, registrationDefaults: { deliveryDays: 2 },
+    });
+    expect(result.preserved).toEqual([]);
+    expect(result.updated).toEqual([]);
+  });
+
   it('fills an empty own code from the file', () => {
     const last = basics({ ownCode: null });
     const result = mergeSabangnetReimport({

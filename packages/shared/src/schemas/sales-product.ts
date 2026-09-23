@@ -463,6 +463,8 @@ export const SabangnetImportPreviewSchema = z.object({
     sourceKey: z.string(),
     expectedVersion: z.number().int().positive(),
     changed: z.boolean(),
+    /** 판매상품 값은 그대로이고 다음 가져오기가 비교할 저장된 원문(기준값)만 바뀐다. */
+    baselineOnly: z.boolean(),
     /** 파일 값이 달랐지만 지난 가져오기 뒤 사람이 고쳐서 지킨 칸(판매상품 필드 이름). */
     preserved: z.array(z.string()),
     /** 사람이 고치지 않아 파일 값으로 바꾸는 칸. */

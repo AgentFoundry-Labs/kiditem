@@ -222,12 +222,13 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
         optionAxes: product.create.optionAxes,
         options: optionPlan.writes,
       });
-      // 지문에 없는 칸(KC 상태 · 초안 편집 칸)도 병합이 바꾸면 바뀐 것이다. 원문이 달라도 바뀐 것이다 —
-      // 고른 상품은 이번 파일 줄을 다음 가져오기의 기준값으로 남긴다.
-      const same = state !== undefined && current?.fingerprint === fingerprint
+      // 지문에 없는 칸(KC 상태)도 병합이 바꾸면 바뀐 것이다. 원문이 달라도 바뀐 것이다 — 고른 상품은
+      // 이번 파일 줄을 다음 가져오기의 기준값으로 남긴다.
+      const sameContent = state !== undefined && current?.fingerprint === fingerprint
         && (merge?.updated.length ?? 0) === 0
-        && sameImportValue(current?.sourceRaw, product.create.sourceRaw)
         && optionPlan.retireIds.length === 0 && optionPlan.deleteIds.length === 0;
+      const sameBaseline = sameImportValue(current?.sourceRaw, product.create.sourceRaw);
+      const same = sameContent && sameBaseline;
       if (state) {
         existingChangesByProductId.set(state.productId, {
           salesProductId: state.productId,
@@ -236,6 +237,7 @@ export class SabangnetProductImportService implements SabangnetProductImportPort
           sourceKey: sourceKeys.find((key) => states.get(key)?.productId === state.productId) ?? importedCode,
           expectedVersion: state.version,
           changed: !same,
+          baselineOnly: sameContent && !sameBaseline,
           preserved: merge?.preserved ?? [],
           updated: merge?.updated ?? [],
         });

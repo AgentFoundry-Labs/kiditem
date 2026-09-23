@@ -188,6 +188,7 @@ describe('SabangnetProductImportService', () => {
       sourceKey: SABANGNET_GOODS_NO,
       expectedVersion: 7,
       changed: true,
+      baselineOnly: false,
       preserved: [],
       updated: [],
     }]);

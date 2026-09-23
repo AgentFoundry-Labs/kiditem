@@ -34,6 +34,7 @@ function makePreview(dryRun: boolean): SabangnetImportPreview {
         sourceKey: '100101',
         expectedVersion: 4,
         changed: true,
+        baselineOnly: false,
         preserved: ['noticeCategory', 'noticeValues', 'certifications', 'kcStatus'],
         updated: ['detailHtml', 'extraDetailHtml'],
       },
@@ -44,6 +45,7 @@ function makePreview(dryRun: boolean): SabangnetImportPreview {
         sourceKey: '100102',
         expectedVersion: 2,
         changed: false,
+        baselineOnly: false,
         preserved: [],
         updated: [],
       },
@@ -68,10 +70,10 @@ function renderDialog() {
   );
 }
 
-async function uploadAndPreview(user: ReturnType<typeof userEvent.setup>) {
+async function uploadAndPreview(user: ReturnType<typeof userEvent.setup>, preview = makePreview(true)) {
   const file = new File(['workbook'], 'products.xlsx');
   await user.upload(screen.getByLabelText(/엑셀 파일 고르기/), file);
-  mocks.importSabangnet.mockResolvedValueOnce(makePreview(true));
+  mocks.importSabangnet.mockResolvedValueOnce(preview);
   await user.click(screen.getByRole('button', { name: '미리보기' }));
   await waitFor(() => expect(screen.getByText('기존 판매상품 고치기')).toBeInTheDocument());
   return file;
@@ -125,5 +127,16 @@ describe('<SabangnetImportDialog />', () => {
 
     expect(screen.getByText('편집값 유지: 고시·KC · 갱신: 상세')).toBeInTheDocument();
     expect(screen.getAllByText(/편집값 유지|갱신:/)).toHaveLength(1);
+  });
+
+  it('says a product whose values stay the same only gets a new baseline', async () => {
+    const user = userEvent.setup();
+    const preview = makePreview(true);
+    preview.existingChanges[1] = { ...preview.existingChanges[1]!, changed: true, baselineOnly: true };
+    renderDialog();
+    await uploadAndPreview(user, preview);
+
+    expect(screen.getByText(/KID-102 · 원천키 100102 · 버전 2 · 기준값만 갱신/)).toBeInTheDocument();
+    expect(screen.getByText(/KID-101 · 원천키 100101 · 버전 4 · 바뀐 내용 있음/)).toBeInTheDocument();
   });
 });
