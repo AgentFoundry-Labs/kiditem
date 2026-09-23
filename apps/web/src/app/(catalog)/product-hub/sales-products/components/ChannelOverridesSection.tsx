@@ -22,7 +22,6 @@ import { registrationTargetApi, registrationTargetKeys } from '@/lib/registratio
 import { TargetExecutionConfirmationForm } from './TargetExecutionConfirmationForm';
 import type {
   RegistrationTarget,
-  RegistrationTargetCreateInput,
   RegistrationTargetUpdateInput,
   SalesProduct,
   TargetExecutionResult,
@@ -113,7 +112,7 @@ function parseRegistrationInput(value: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-function editableInput(draft: TargetDraft): Omit<RegistrationTargetCreateInput, 'salesProductId' | 'channelAccountId'> {
+function editableInput(draft: TargetDraft): Omit<RegistrationTargetUpdateInput, 'expectedVersion'> {
   return {
     displayName: draft.displayName.trim() || null,
     registrationInput: parseRegistrationInput(draft.registrationInput),
@@ -681,19 +680,16 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
   );
 
   const save = useMutation({
-    mutationFn: ({ target, draft }: { target?: RegistrationTarget; draft: TargetDraft }) => {
+    mutationFn: async ({ target, draft }: { target?: RegistrationTarget; draft: TargetDraft }) => {
       const editable = editableInput(draft);
       if (!draft.channelAccountId) throw new Error('채널 계정을 먼저 고르세요.');
-      if (target) {
-        const input: RegistrationTargetUpdateInput = { ...editable, expectedVersion: target.version };
-        return registrationTargetApi.update(target.id, input);
-      }
-      const input: RegistrationTargetCreateInput = {
-        ...editable,
+      // 설정이 생기는 길은 resolve 하나다(KID-313) — 없으면 만들고(그때 KID 를 받는다) 값을 고친다.
+      const current = target ?? await registrationTargetApi.resolve({
         salesProductId: product.id,
         channelAccountId: draft.channelAccountId,
-      };
-      return registrationTargetApi.create(input);
+      });
+      const input: RegistrationTargetUpdateInput = { ...editable, expectedVersion: current.version };
+      return registrationTargetApi.update(current.id, input);
     },
     onSuccess: (_next, { target }) => {
       void queryClient.invalidateQueries({ queryKey: registrationTargetKeys.list(product.id) });

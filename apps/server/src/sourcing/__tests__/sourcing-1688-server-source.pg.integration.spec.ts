@@ -1,3 +1,4 @@
+import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -35,7 +36,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-      new SourceFailureAlerts(prisma as never));
+      new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort);
     const repository = new Sourcing1688SearchResultRepositoryAdapter(prisma as never);
     searchResultsRepository = repository;
     wing = new SourcingWingCatalogIngestService(attempts, new SourcingRecommendationSourceRepositoryAdapter(prisma as never));

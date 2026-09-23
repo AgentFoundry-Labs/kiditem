@@ -225,6 +225,22 @@ describe('apiClient HTTP method envelopes', () => {
     await expect(apiClient.get('/api/plain')).rejects.toMatchObject({ details: {} });
   });
 
+  it('keeps the existing draft a duplicate refusal names', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(jsonResponse(409, {
+      statusCode: 409,
+      message: '이미 수집한 원본입니다.',
+      reason: 'duplicate_source_record',
+      existing: { sourceRecordId: 'record-1', salesProductId: 'draft-1', salesProductStatus: 'draft' },
+    }));
+
+    await expect(apiClient.post('/api/sourcing/scrape-url', {})).rejects.toMatchObject({
+      status: 409,
+      detail: '이미 수집한 원본입니다.',
+      details: { existingSalesProductId: 'draft-1', existingSalesProductStatus: 'draft' },
+    });
+  });
+
   /**
    * 전역 throttler 는 429 와 함께 언제 다시 물어도 되는지 알려 준다. 그 시간을 오류에
    * 실어야 상태 읽기가 짐작한 간격으로 다시 두드리지 않는다(KID-170 D2).

@@ -4,6 +4,7 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { readSalesProductOptionExecutionCounts } from '../repository/registration-execution.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
+import { SalesProductStatusError, assertStatusInvariant } from '../../../domain/sales-product/sales-product-status';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -50,7 +51,7 @@ import type {
   SalesProductBasicsRecord,
   SalesProductChannelOverrideRecord,
   SalesProductCreateRecord,
-  SalesProductDraftRetireRow,
+  SalesProductDraftDeletionFacts,
   SalesProductImportCurrent,
   SalesProductImportResult,
   SalesProductOptionState,
@@ -147,12 +148,16 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return this.prisma.$transaction((tx) => allocateKidItemCode(tx));
   }
 
-  async ensureCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }> {
-    return this.prisma.$transaction(
-      (tx) => ensureSalesProductCodesInTransaction(tx, organizationId, salesProductId,
-        (ids) => readMasterProductCodesInTransaction(this.productTransactionalRead, tx, organizationId, ids)),
-      TRANSACTION_OPTIONS,
-    );
+  async ensureCodes(
+    organizationId: string,
+    salesProductId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ code: string; issued: number }> {
+    const issue = (tx: Tx) => ensureSalesProductCodesInTransaction(tx, organizationId, salesProductId,
+      (ids) => readMasterProductCodesInTransaction(this.productTransactionalRead, tx, organizationId, ids));
+    return transaction
+      ? issue(ownerTransactionClient(transaction) as Tx)
+      : this.prisma.$transaction(issue, TRANSACTION_OPTIONS);
   }
 
   async ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number> {
@@ -196,20 +201,19 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       options: { some: { supplyStatus: { not: 'unused' }, components: { none: {} } } },
     };
     /**
-     * 미등록 = 어느 몰에도 올라간 적 없는 판매상품. 수집상품에서 만든 것과 직접 만든 것을 가리지 않는다.
+     * 미등록 = KID 를 받은 판매 상품 중 어느 몰에도 올라간 적 없는 것. 수집상품에서 만든 것과 직접
+     * 만든 것을 가리지 않는다. 초안은 KID 가 없어 몰에 갈 수 없으니 여기 오지 않는다(KID-313).
      *
      * 몰에서 내린(비활성) 상품은 돌아오지 않는다 — 비활성화는 등록된 상태에서 내린 것이지 등록하지
      * 않은 것이 아니다(사장님 2026-09-23).
      */
     const unregistered: Prisma.SalesProductWhereInput = {
+      status: 'active',
       channelListings: { none: {} },
     };
-    /** 아직 판매가를 정하지 않은 초안. */
+    /** KID 를 아직 받지 않은 초안. 수집상품 화면이 이것만 보인다(KID-313). */
     const draftOnly: Prisma.SalesProductWhereInput = { status: 'draft' };
-    /** 수집상품 화면: 몰에 없고 내리지 않은 상품. 판매가를 정해 `active` 가 돼도 몰에 오를 때까지 남는다. */
-    const preparing: Prisma.SalesProductWhereInput = {
-      AND: [unregistered, { status: { notIn: ['archived', 'unused'] } }],
-    };
+    const preparing = draftOnly;
     const focusWhere = query.focus === 'with_options'
       ? withOptions
       : query.focus === 'unlinked'
@@ -233,7 +237,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           id: true,
           code: true,
           ownCode: true,
-          sourceCandidateId: true,
+          sourceRecordId: true,
           sourcePlatform: true,
           sourceUrl: true,
           name: true,
@@ -258,7 +262,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         id: row.id,
         code: row.code,
         ownCode: row.ownCode,
-        sourceCandidateId: row.sourceCandidateId,
+        sourceRecordId: row.sourceRecordId,
         sourcePlatform: row.sourcePlatform,
         sourceUrl: row.sourceUrl,
         name: row.name,
@@ -360,6 +364,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     plan: SalesProductOptionReplacementPlan,
     transaction?: OwnerTransaction,
   ): Promise<string> {
+    assertRecordStatus(record);
     const write = async (tx: Tx) => {
       const product = await tx.salesProduct.create({
         data: { organizationId, ...createData(record) },
@@ -385,11 +390,16 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     patch: Partial<SalesProductBasicsRecord>,
   ): Promise<boolean> {
     try {
-      const updated = await this.prisma.salesProduct.updateMany({
-        where: { id: salesProductId, organizationId, version: expectedVersion },
-        data: { ...basicsData(patch), version: { increment: 1 } },
-      });
-      if (updated.count === 1) return true;
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const written = await tx.salesProduct.updateMany({
+          where: { id: salesProductId, organizationId, version: expectedVersion },
+          data: { ...basicsData(patch), version: { increment: 1 } },
+        });
+        if (written.count !== 1) return false;
+        if (patch.status !== undefined) await assertStoredStatus(tx, organizationId, salesProductId);
+        return true;
+      }, TRANSACTION_OPTIONS);
+      if (updated) return true;
     } catch (error) {
       throw translateUniqueViolation(error);
     }
@@ -524,13 +534,12 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     expectedVersion: number;
     optionAxes: string[];
     plan: SalesProductOptionReplacementPlan;
-    status: SalesProductStatus;
   }): Promise<boolean> {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const bumped = await tx.salesProduct.updateMany({
           where: { id: input.salesProductId, organizationId: input.organizationId, version: input.expectedVersion },
-          data: { optionAxes: input.optionAxes, status: input.status, version: { increment: 1 } },
+          data: { optionAxes: input.optionAxes, version: { increment: 1 } },
         });
         if (bumped.count !== 1) return false;
         await applyPlan(tx, input.organizationId, input.salesProductId, input.plan);
@@ -1210,52 +1219,85 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return written;
   }
 
-  async findIdBySourceCandidate(
+  async findForSourceRecord(
     organizationId: string,
-    candidateId: string,
+    sourceRecordId: string,
     transaction?: OwnerTransaction,
-  ): Promise<string | null> {
+  ): Promise<{ salesProductId: string; status: SalesProductStatus } | null> {
     const client = transaction ? ownerTransactionClient(transaction) as Tx : this.prisma;
     const row = await client.salesProduct.findFirst({
-      where: { organizationId, sourceCandidateId: candidateId },
-      select: { id: true },
+      where: { organizationId, sourceRecordId },
+      select: { id: true, status: true },
     });
-    return row?.id ?? null;
+    return row ? { salesProductId: row.id, status: row.status as SalesProductStatus } : null;
   }
 
-  async findIdsBySourceCandidates(
-    organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, string>> {
-    const ids = [...new Set(candidateIds.filter(Boolean))];
-    if (ids.length === 0) return new Map();
-    const rows = await this.prisma.salesProduct.findMany({
-      where: { organizationId, sourceCandidateId: { in: ids } },
-      select: { id: true, sourceCandidateId: true },
-    });
-    return new Map(rows.flatMap((row) => (row.sourceCandidateId ? [[row.sourceCandidateId, row.id] as const] : [])));
-  }
-
-  /**
-   * 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다.
-   *
-   * 몰에 올라가 있거나(활성 몰 상품) 살아 있는 등록 실행이 있으면 내리지 않는다 — 몰에 있는
-   * 상품의 기준을 잃으면 수정 보내기 · 품절을 어디에 걸지 모른다. 그래도 후보 거절은 막지 않는다.
-   */
-  async retireDraftForSource(
-    transaction: OwnerTransaction,
-    organizationId: string,
-    candidateId: string,
-  ): Promise<SalesProductDraftRetireRow> {
-    return retireDraftWhere(ownerTransactionClient(transaction) as Tx, organizationId, { sourceCandidateId: candidateId });
-  }
-
-  async retireDraft(
+  async readDraftDeletionFacts(
     transaction: OwnerTransaction,
     organizationId: string,
     salesProductId: string,
-  ): Promise<SalesProductDraftRetireRow> {
-    return retireDraftWhere(ownerTransactionClient(transaction) as Tx, organizationId, { id: salesProductId });
+  ): Promise<SalesProductDraftDeletionFacts | null> {
+    const tx = ownerTransactionClient(transaction) as Tx;
+    const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM sales_products
+      WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
+      FOR UPDATE
+    `);
+    if (locked.length !== 1) return null;
+    const product = await tx.salesProduct.findFirstOrThrow({
+      where: { id: salesProductId, organizationId },
+      select: { status: true, code: true, sourceRecordId: true },
+    });
+    const [listingCount, liveExecutionCount] = await Promise.all([
+      // 내린 몰 상품도 이 줄을 가리킨다(외래키 Restrict) — 활성 여부를 가리지 않고 센다.
+      tx.channelListing.count({ where: { organizationId, salesProductId } }),
+      tx.productRegistrationExecution.count({
+        where: {
+          organizationId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+          preparation: { salesProductId },
+        },
+      }),
+    ]);
+    return {
+      status: product.status as SalesProductStatus,
+      hasCode: product.code !== null,
+      sourceRecordId: product.sourceRecordId,
+      hasListing: listingCount > 0,
+      hasLiveExecution: liveExecutionCount > 0,
+    };
+  }
+
+  /**
+   * 초안 줄을 지운다 — 옵션 · 구성(외래키가 함께 지운다), 등록 설정과 그 옵션 선택, 이 상품만 쓰던
+   * 공개 사진. 부르는 쪽이 `readDraftDeletionFacts` 로 줄을 잠그고 삭제 가부를 정한 뒤에 부른다.
+   */
+  async deleteDraftRows(transaction: OwnerTransaction, organizationId: string, salesProductId: string): Promise<void> {
+    const tx = ownerTransactionClient(transaction) as Tx;
+    const product = await tx.salesProduct.findFirstOrThrow({
+      where: { id: salesProductId, organizationId },
+      select: { imageUrls: true },
+    });
+    const sharedImages = product.imageUrls.length === 0 ? [] : await tx.salesProduct.findMany({
+      where: { organizationId, id: { not: salesProductId }, imageUrls: { hasSome: product.imageUrls } },
+      select: { imageUrls: true },
+    });
+    const stillShown = new Set(sharedImages.flatMap((row) => row.imageUrls));
+    const ownImages = product.imageUrls.filter((url) => !stillShown.has(url));
+    try {
+      await tx.registrationTarget.deleteMany({ where: { organizationId, salesProductId } });
+      if (ownImages.length > 0) {
+        await tx.salesProductPublicImage.deleteMany({ where: { organizationId, sourceUrl: { in: ownImages } } });
+      }
+      await tx.salesProduct.deleteMany({ where: { id: salesProductId, organizationId } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        // 거절 사유를 미리 본 뒤에도 남는 참조: 등록 설정을 붙든 끝난 등록 실행 기록, 또는 다른 몰
+        // 상품의 옵션이 이 초안의 단품을 가리키는 연결.
+        throw new ConflictException('끝난 등록 실행 기록이나 몰 상품 옵션이 이 초안을 가리키고 있어 지우지 않았습니다.');
+      }
+      throw error;
+    }
   }
 
   runInTransaction<T>(work: (transaction: OwnerTransaction) => Promise<T>): Promise<T> {
@@ -1303,7 +1345,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           for (const write of chunk) {
             const existing = await tx.salesProduct.findFirst({
               where: { organizationId, ...(write.create.sabangnetGoodsNo ? { sabangnetGoodsNo: write.create.sabangnetGoodsNo } : { ownCode: write.create.ownCode }) },
-              select: { id: true, version: true },
+              select: { id: true, version: true, status: true },
             });
             let productId: string;
             if (existing && (write.mode === 'preserve' || !write.existingProductId)) {
@@ -1320,6 +1362,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                 where: { id: existing.id, organizationId, version: write.expectedVersion },
                 data: {
                   ...basicsData(write.create),
+                  // 보관은 되돌리지 않는다(KID-313) — 사방넷이 공급중이라 해도 보관한 상품은 보관이다.
+                  status: existing.status === 'archived' ? 'archived' : write.create.status,
                   // 바깥 식별자는 빈 값으로 덮지 않는다 — 품번코드 없이 온 줄(대량등록 양식)도 지금 품번을 지킨다.
                   sabangnetGoodsNo: write.create.sabangnetGoodsNo ?? undefined,
                   optionAxes: write.create.optionAxes,
@@ -1328,9 +1372,11 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                 },
               });
               await applyPlan(tx, organizationId, existing.id, write.plan);
+              await assertStoredStatus(tx, organizationId, existing.id);
               productId = existing.id;
               result.updated += 1;
             } else {
+              assertRecordStatus(write.create);
               const product = await tx.salesProduct.create({
                 data: { organizationId, ...createData(write.create) },
                 select: { id: true },
@@ -1406,7 +1452,7 @@ function createData(record: SalesProductCreateRecord): Omit<Prisma.SalesProductU
     sabangnetGoodsNo: record.sabangnetGoodsNo,
     optionAxes: record.optionAxes,
     sourceRaw: (record.sourceRaw as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
-    sourceCandidateId: record.sourceCandidateId ?? null,
+    sourceRecordId: record.sourceRecordId ?? null,
     sourcePlatform: record.sourcePlatform ?? null,
     sourceUrl: record.sourceUrl ?? null,
   };
@@ -1667,7 +1713,26 @@ function compositionKey(components: readonly { masterProductId: string; quantity
   return JSON.stringify(components.map(item => [item.masterProductId, item.quantity]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 
+/** 저장 직전: 상태와 KID 가 맞는지(`code IS NULL ⇔ draft`). */
+function assertRecordStatus(record: { name: string; code: string | null; status: SalesProductStatus }): void {
+  try {
+    assertStatusInvariant(record);
+  } catch (error) {
+    throw translateUniqueViolation(error);
+  }
+}
+
+/** 쓴 직후: 저장된 줄의 상태와 KID 가 맞는지. 어긋나면 던져 트랜잭션을 되돌린다. */
+async function assertStoredStatus(tx: Tx, organizationId: string, salesProductId: string): Promise<void> {
+  const row = await tx.salesProduct.findFirstOrThrow({
+    where: { id: salesProductId, organizationId },
+    select: { name: true, code: true, status: true },
+  });
+  assertRecordStatus({ ...row, status: row.status as SalesProductStatus });
+}
+
 function translateUniqueViolation(error: unknown): unknown {
+  if (error instanceof SalesProductStatusError) return new ConflictException(error.message);
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
     const target = JSON.stringify(error.meta?.target ?? '');
     if (target.includes('option_code')) return new ConflictException('단품코드가 다른 판매상품과 겹칩니다.');
@@ -1699,7 +1764,7 @@ function toSalesProduct(
     code: row.code,
     ownCode: row.ownCode,
     sabangnetGoodsNo: row.sabangnetGoodsNo,
-    sourceCandidateId: row.sourceCandidateId,
+    sourceRecordId: row.sourceRecordId,
     sourcePlatform: row.sourcePlatform,
     sourceUrl: row.sourceUrl,
     name: row.name,
@@ -1977,40 +2042,3 @@ async function readMasterProductCodesInTransaction(
   return new Map(identities.map((identity) => [identity.masterProductId, identity.code]));
 }
 
-/**
- * 초안을 `unused` 로 내린다. 몰에 올라가 있거나 살아 있는 등록 실행이 있으면 그대로 두고 이유만
- * 돌려준다. 원천 기록으로 찾든(후보 거절 · 삭제) 판매상품으로 찾든 규칙은 하나다.
- */
-async function retireDraftWhere(
-  tx: Tx,
-  organizationId: string,
-  identity: { sourceCandidateId: string } | { id: string },
-): Promise<SalesProductDraftRetireRow> {
-  const product = await tx.salesProduct.findFirst({
-    where: { organizationId, ...identity },
-    select: { id: true, status: true },
-  });
-  if (!product) {
-    return { salesProductId: null, retired: false, activeListingCount: 0, activeExecutionCount: 0 };
-  }
-  const [activeListingCount, activeExecutionCount] = await Promise.all([
-    tx.channelListing.count({ where: { organizationId, salesProductId: product.id, isActive: true } }),
-    tx.productRegistrationExecution.count({
-      where: {
-        organizationId,
-        status: { in: ['prepared', 'executing', 'reconciling'] },
-        preparation: { salesProductId: product.id },
-      },
-    }),
-  ]);
-  if (activeListingCount > 0 || activeExecutionCount > 0) {
-    return { salesProductId: product.id, retired: false, activeListingCount, activeExecutionCount };
-  }
-  if (product.status !== 'unused') {
-    await tx.salesProduct.updateMany({
-      where: { id: product.id, organizationId },
-      data: { status: 'unused', version: { increment: 1 } },
-    });
-  }
-  return { salesProductId: product.id, retired: true, activeListingCount: 0, activeExecutionCount: 0 };
-}

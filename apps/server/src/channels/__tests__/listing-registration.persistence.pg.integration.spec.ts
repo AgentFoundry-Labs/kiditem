@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -25,11 +26,11 @@ const ROLLBACK_SKU_ID = '26000000-0000-4000-8000-000000000002';
  * 등록은 초안을 대상으로 한다(KID-310).
  */
 async function seedDraft(prisma: PrismaClient, sourceUrl: string, name: string) {
-  const candidate = await prisma.sourcingCandidate.create({
-    data: { organizationId: TEST_ORGANIZATION_ID, sourceUrl, sourcePlatform: 'test', name },
+  const candidate = await prisma.sourceRecord.create({
+    data: { sourceIdentityHash: randomUUID(), organizationId: TEST_ORGANIZATION_ID, sourceUrl, sourcePlatform: 'test', name },
   });
   return prisma.salesProduct.create({
-    data: { organizationId: TEST_ORGANIZATION_ID, name, sourceCandidateId: candidate.id },
+    data: { organizationId: TEST_ORGANIZATION_ID, name, sourceRecordId: candidate.id },
   });
 }
 

@@ -8,7 +8,7 @@ function buildEntry(
   return {
     id: overrides.id ?? 'entry-id',
     productId: null,
-    sourceCandidateId: null,
+    sourceRecordId: null,
     contentWorkspaceId: null,
     templateId: 'bold-vertical',
     productName: '테스트',

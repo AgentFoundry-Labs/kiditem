@@ -16,7 +16,7 @@ const confirmationInput = {
 const frozen = {
   executionId: confirmationInput.registrationExecutionId,
   preparationId: confirmationInput.preparationId,
-  sourceCandidateId: "00000000-0000-4000-8000-000000000006",
+  sourceRecordId: "00000000-0000-4000-8000-000000000006",
   channelAccountId: "00000000-0000-4000-8000-000000000007",
   submissionKey: "frozen-submission",
   submissionPayloadHash: "a".repeat(64),

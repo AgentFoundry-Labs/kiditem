@@ -15,7 +15,7 @@ const response: TargetExecutionResult = {
     targetId: id(5), targetVersion: 1, channelAccountId: id(6), kind: 'register',
     channelListingId: null, applyCompositionTemplate: false, registrationInput: {}, supplyPrices: [],
     product: {
-      id: id(7), code: 'KID00000001', ownCode: null, sabangnetGoodsNo: null, sourceCandidateId: null,
+      id: id(7), code: 'KID00000001', ownCode: null, sabangnetGoodsNo: null, sourceRecordId: null,
       sourcePlatform: null, sourceUrl: null,
       name: '테스트 상품', shortName: null, englishName: null, printName: null, modelName: null,
       modelNo: null, brand: null, manufacturer: null, originCountry: null, originRegion: null,

@@ -2,31 +2,35 @@ Before working in this directory, always read this document first rather than re
 
 # sourcing
 
-`src/sourcing/` owns Chinese-product discovery, `SourcingCandidate`, source and
-evidence governance and launch decisions. Candidate-originated registration
-uses the Channels preparation capability. Suppliers, offers, procurement intents, and purchase orders
+`src/sourcing/` owns Chinese-product discovery, `SourceRecord`, source and
+evidence governance and launch decisions. Suppliers, offers, procurement intents, and purchase orders
 belong to Supply; supplier payments belong to Finance.
 
 ## Ownership
 
-- `SourcingCandidate` is the immutable source record: source identity, raw
-  payload, cost, images and launch evidence. Its status is only
-  `sourced|rejected`; registration state is derived from the Channels execution
-  fence and listings.
-- Editing a collected product happens on the Channels selling-product draft,
-  not on the candidate. Every collection path asks Channels for one
-  draft per candidate through
-  `application/service/sourcing-collected-draft.service.ts`, and rejecting or
-  deleting a candidate sends that draft to `unused` in the same transaction
-  unless a mall still holds it. Both go through
-  `application/port/out/cross-domain/sales-product-draft.port.ts`
-  ([ADR-0022](../../../../docs/adr/0022-sales-product-draft-exists-from-collection.md)).
+- `SourceRecord` is the immutable source record: source identity, raw
+  payload, cost, images and launch evidence. It has no status, no reject and
+  no delete route; operators work only on the Channels draft (KID-313).
+- Every collection path (scrape-url, extension ingest, Agent ingest) admits a
+  record through `admitSourceRecord` inside the source-identity advisory lock
+  (`adapter/out/repository/source-record-admission.transaction.ts`). The same
+  source twice is refused with `SourceRecordDuplicateError`, which
+  `adapter/in/http/source-record-duplicate.filter.ts` maps to 409 with the
+  existing draft or selling product. The record and its draft commit together;
+  a record never exists without its draft.
+- Direct product creation (`product-generation`, `product-registration`)
+  creates no source record: the draft has `sourceRecordId = null`.
+- Drafts are created only through
+  `application/port/out/cross-domain/sales-product-draft.port.ts`. Channels
+  reads source facts through `SourceRecordPort` (`application/port/in/source-record.port.ts`,
+  provided by `sourcing-source-record.module.ts`) and deletes the record
+  through `deleteForDraft` in the draft-deletion transaction.
 - Sourcing serves no registration-setting route. Creating and editing one is
-  `channels/registration-targets` (resolve, create, update, archive). Content
+  `channels/registration-targets` (resolve, update, archive). Content
   generation starts on the draft too:
   `POST products/sales-products/:salesProductId/generation`, whose idempotency
   receipt (`sourcing.quick_process`) records `{ salesProductId }` — a directly
-  authored draft with no candidate starts generation like any other.
+  authored draft with no source record starts generation like any other.
 - `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` are the
   append-only collection/evidence ledger. Supplier-offer snapshots, launch
   candidates, decisions, and procurement intents retain immutable provenance.
@@ -37,8 +41,6 @@ belong to Supply; supplier payments belong to Finance.
   make a test order execution-eligible.
 - Channels owns `RegistrationTarget` as a reusable registration target, one per
   selling product and channel account, and its execution history. Sourcing
-  supplies candidate eligibility and content through its interfaces. Candidate
-  screens use the Channels capability to edit registration settings; Sourcing
   never creates a `MasterProduct`.
 - Cross-domain reads and mutations use named owner interfaces. Sourcing does
   not write Supply, Products, Channels, AI, or Finance models directly.
@@ -60,7 +62,7 @@ belong to Supply; supplier payments belong to Finance.
   extractor/parser version, payload hash, and coverage period. Cancellation
   cannot reactivate an attempt; a retry receives a new attempt identity.
 - Organization scope is enforced at every read and mutation. Unknown or
-  disabled source controls produce no canonical candidate or evidence rows.
+  disabled source controls produce no source record or evidence rows.
 
 ## Supplier URL security
 
@@ -74,8 +76,7 @@ belong to Supply; supplier payments belong to Finance.
 ## Registration invariants
 
 - Reach registration settings and the submission fence through the Channels
-  registration execution interface and read candidate registration state back
-  through its public capability; never write
+  registration execution interface; never write
   `ProductRegistrationExecution` rows
   ([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
 - Registration freezes the reviewed payload, content/hash, idempotency key,
@@ -83,9 +84,9 @@ belong to Supply; supplier payments belong to Finance.
   terminal listing in its ledger.
 - Provider calls are idempotent and account-scoped. An uncertain outcome is
   reconciled before retrying; concurrent active drafts surface a conflict.
-- Candidate deletion archives only the candidate workspace and AI rows. It
-  never deletes promoted masters, images, listings, orders, inventory, or
-  finance data. Storage deletion is retention/GC only and rechecks references.
+- A source record is deleted only with its draft (Channels draft deletion). It
+  never deletes masters, listings, orders, inventory, or finance data. Storage
+  deletion is retention/GC only and rechecks references.
 
 ## Owner confirm report
 

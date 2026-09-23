@@ -1,3 +1,4 @@
+import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -43,7 +44,7 @@ describe('Taobao direct source owner (PG integration)', () => {
       collect: vi.fn(async () => structuredClone(fixture)),
     };
     service = new LiveCommerceService(provider, new LiveCommerceRepositoryAdapter(prisma as never),
-      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never)));
+      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort));
     http = new LiveCommerceController(service);
   });
 

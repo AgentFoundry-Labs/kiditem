@@ -1,14 +1,14 @@
 import {
-  type UpsertCandidateInput,
-} from '../port/out/repository/sourcing-candidate.repository.port';
+  type SourceRecordWrite,
+} from '../port/out/repository/source-record.repository.port';
 import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,
 } from '../../domain/supplier-source-url-policy';
 import {
   normalizeSourcingVariantKey,
-  canonicalSourcingCandidateIdentity,
-} from '../../domain/sourcing-candidate-identity';
+  canonicalSourceRecordIdentity,
+} from '../../domain/source-record-identity';
 
 interface PrepareSourcingScrapeResultInput {
   organizationId: string;
@@ -42,7 +42,7 @@ const PRODUCT_IMAGE_FIELD_KEYS = [
   'offerImgList',
 ] as const;
 
-export function prepareSourcingScrapeResult(input: PrepareSourcingScrapeResultInput): UpsertCandidateInput & { rawData: Record<string, unknown> } {
+export function prepareSourcingScrapeResult(input: PrepareSourcingScrapeResultInput): SourceRecordWrite & { rawData: Record<string, unknown> } {
   if (input.output.ok !== true) {
     throw new SourcingScrapeResultError(
       'sourcing_scrape_failed',
@@ -92,7 +92,7 @@ export function prepareSourcingScrapeResult(input: PrepareSourcingScrapeResultIn
     sourcePlatform,
     externalOfferId,
     variantKeyNormalized,
-    sourceIdentityHash: canonicalSourcingCandidateIdentity({
+    sourceIdentityHash: canonicalSourceRecordIdentity({
       sourcePlatform,
       sourceUrl: source.normalizedUrl,
       validatedExternalOfferId,

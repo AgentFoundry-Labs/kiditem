@@ -1,6 +1,5 @@
 import { productTransactionalRead } from './product-transactional-read.fake';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
-import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { randomUUID } from 'node:crypto';
 import { ConflictException, NotFoundException } from '@nestjs/common';
@@ -15,10 +14,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 import { hashRegistrationSubmissionPayload } from '../domain/registration/registration-submission-payload';
-import { ProductPreparationRepositoryAdapter } from '../adapter/out/persistence/candidate-registration.repository.adapter';
-import { RegistrationDraftAdapter } from '../adapter/out/persistence/candidate-registration-draft.adapter';
-import { SourcingCandidateRepositoryAdapter } from '../../sourcing/adapter/out/repository/sourcing-candidate.repository.adapter';
-import { RegistrationSourceAdapter } from '../../sourcing/adapter/out/repository/registration-source.adapter';
+import { RegistrationDraftAdapter } from '../adapter/out/persistence/registration-draft.adapter';
 import { REGISTRATION_EXECUTION_LEASE_MS } from '../domain/registration/registration-execution-state';
 import { ownerTransaction, ownerTransactionClient } from '../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../common/owner-transaction';
@@ -37,37 +33,24 @@ const DIRECT_SALES_PRODUCT_OPTION_ID = '77777777-7777-4777-8777-777777777777';
 
 describe('registration execution fence (PG integration)', () => {
   let prisma: PrismaClient;
-  let drafts: ProductPreparationRepositoryAdapter;
   let targets: RegistrationTargetRepositoryAdapter;
   /** 동결 시 선택값이 정본으로 바뀌는 것을 재는 테스트만 켠다. */
   let canonicalThumbnailUrl: string | null = null;
   let repository: RegistrationExecutionRepositoryAdapter;
-  let candidateRepository: SourcingCandidateRepositoryAdapter;
   let candidateId: string;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const registrationSource = new RegistrationSourceAdapter();
-    drafts = new ProductPreparationRepositoryAdapter(
-      prisma as unknown as PrismaService,
-      registrationSource,
-      workspaceFake(),
-      thumbnailSourceFake(),
-    );
-    // 울타리는 실행 행만 쓰고 초안은 Sourcing 어댑터를 통해 만진다(ADR-0014).
+    // 울타리는 실행 행만 쓰고 설정은 설정 어댑터를 통해 만진다(ADR-0014).
     // 실제 두 어댑터를 그대로 엮어야 한 트랜잭션 계약이 여기서 검증된다.
     repository = new RegistrationExecutionRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(registrationSource, workspaceFake(), thumbnailSourceFake()),
+      new RegistrationDraftAdapter(workspaceFake(), thumbnailSourceFake()),
     );
     targets = new RegistrationTargetRepositoryAdapter(
       prisma as unknown as PrismaService,
       productTransactionalRead(),
-    );
-    candidateRepository = new SourcingCandidateRepositoryAdapter(
-      prisma as unknown as PrismaService,
-      realSalesProductDraftPort(prisma),
     );
   });
 
@@ -87,22 +70,22 @@ describe('registration execution fence (PG integration)', () => {
         status: 'active',
       })),
     });
-    candidateId = (await prisma.sourcingCandidate.create({
-      data: {
+    candidateId = (await prisma.sourceRecord.create({
+      data: { sourceIdentityHash: randomUUID(),
         organizationId: TEST_ORGANIZATION_ID,
         sourceUrl: `https://1688.com/item/${randomUUID()}`,
         sourcePlatform: 'ALIBABA_1688',
         rawData: {},
         name: 'Kids rain boots',
-        status: 'sourced',
       },
     })).id;
     await prisma.salesProduct.create({
       data: {
         id: SALES_PRODUCT_ID,
         organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
+        sourceRecordId: candidateId,
         code: 'CANDIDATE-REGISTRATION-FENCE',
+        status: 'active',
         name: 'Kids rain boots',
       },
     });
@@ -152,7 +135,7 @@ describe('registration execution fence (PG integration)', () => {
       displayName: 'Kids rain boots',
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: randomUUID(),
-    })).rejects.toThrow('아직 판매가를 정하지 않은 초안');
+    })).rejects.toThrow('아직 판매가를 정하지 않은');
   });
 
   /**
@@ -160,7 +143,7 @@ describe('registration execution fence (PG integration)', () => {
    * 제출 동결이 설정을 대신 만들면 그 자리에서 KID 발급을 건너뛰어, 코드 없는 상품이 몰로 나간다.
    */
   it('refuses to freeze a product with no registration setting and issues its KID when one is made', async () => {
-    await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { code: null } });
+    await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { code: null, status: 'draft' } });
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -206,595 +189,6 @@ describe('registration execution fence (PG integration)', () => {
     })).toBe(2);
   });
 
-  it('keeps a failed execution frozen while reusing its editable registration settings', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const first = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    expect(first.status).toBe('submitting');
-    if (first.status === 'registered') throw new Error('unexpected registered state');
-    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        registrationTargetId: draft.preparationId,
-      },
-      select: {
-        idempotencyKey: true,
-        requestHash: true,
-        submissionPayloadHash: true,
-        status: true,
-        providerOutcome: true,
-      },
-    })).resolves.toEqual({
-      idempotencyKey: first.submissionKey,
-      requestHash: first.submissionPayloadHash,
-      submissionPayloadHash: first.submissionPayloadHash,
-      status: 'prepared',
-      providerOutcome: 'not_attempted',
-    });
-
-    await repository.markFailed({
-      organizationId: TEST_ORGANIZATION_ID,
-      preparationId: draft.preparationId,
-      submissionLeaseToken: first.submissionLeaseToken!,
-      error: 'provider unavailable',
-      providerOutcome: 'definitive_failure',
-    });
-    await expect(repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    )).rejects.toThrow("cannot be submitted from 'failed'");
-    const failedSnapshot = await prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: first.executionId },
-      select: { submissionPayloadJson: true, submissionPayloadHash: true, idempotencyKey: true },
-    });
-    await editTarget(draft.preparationId, { registrationInput: { salePrice: 22900 } });
-    await expect(prisma.registrationTarget.findUniqueOrThrow({
-      where: { id: draft.preparationId },
-      select: { registrationInput: true },
-    })).resolves.toMatchObject({ registrationInput: { salePrice: 22900 } });
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: first.executionId },
-      select: { submissionPayloadJson: true, submissionPayloadHash: true, idempotencyKey: true },
-    })).resolves.toEqual(failedSnapshot);
-    await expect(repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    )).rejects.toThrow("cannot be submitted from 'failed'");
-  });
-
-  it('projects finalization inputs from frozen JSON instead of mutable compatibility columns', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (claimed.status === 'registered') throw new Error('unexpected registered state');
-    await prisma.registrationTarget.update({
-      where: { id: draft.preparationId },
-      data: {
-        displayName: 'MUTATED AFTER FREEZE',
-        selectedThumbnailUrl: 'https://attacker.invalid/mutated.png',
-      },
-    });
-
-    const loaded = await repository.loadFrozenSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-    );
-    expect(loaded.displayName).toBe('Kids rain boots');
-    expect(loaded.selectedThumbnailUrl).toBeNull();
-  });
-
-  it('rejects a second claim while an unrecorded provider submission is in flight', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-
-    await expect(repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    )).rejects.toThrow('already in progress');
-  });
-
-  it('keeps an in-flight execution frozen when registration settings are edited', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (!('executionId' in claimed)) throw new Error('Expected a frozen execution');
-    const frozenSnapshot = await prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: claimed.executionId },
-      select: { submissionPayloadJson: true, submissionPayloadHash: true },
-    });
-    await editTarget(draft.preparationId, { displayName: 'Unsafe replacement' });
-    await expect(prisma.registrationTarget.findUniqueOrThrow({
-      where: { id: draft.preparationId },
-      select: { displayName: true },
-    })).resolves.toEqual({ displayName: 'Unsafe replacement' });
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: claimed.executionId },
-      select: { submissionPayloadJson: true, submissionPayloadHash: true },
-    })).resolves.toEqual(frozenSnapshot);
-    await expect(repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    )).rejects.toThrow('already in progress');
-  });
-
-  it.each([
-    ['rejected', { status: 'rejected' }],
-    ['deleted', { isDeleted: true, deletedAt: new Date() }],
-  ])('blocks provider submission after the source candidate is %s', async (_label, candidateData) => {
-    const draft = await createTarget(ACCOUNT_ID);
-    await prisma.sourcingCandidate.update({
-      where: { id: candidateId },
-      data: candidateData,
-    });
-
-    await expect(repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    )).rejects.toThrow('not active');
-  });
-
-  it('rolls listing/workspace creation back with finalization and reuses the recorded provider identity', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (claimed.status === 'registered') throw new Error('unexpected registered state');
-    await repository.recordProviderResult(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      claimed.submissionLeaseToken!,
-      {
-      providerSubmissionId: 'provider-1',
-      externalListingId: '427011919',
-      channel: 'coupang',
-      rawResult: { code: 'SUCCESS' },
-      },
-    );
-
-    await expect(repository.finalizeRegistered(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      claimed.submissionLeaseToken!,
-      async (opaqueTx) => {
-        await createListingBranch(tx(opaqueTx), '427011919');
-        throw new Error('local failure after provider success');
-      },
-    )).rejects.toThrow('local failure after provider success');
-    expect(await prisma.channelListing.count({ where: { externalId: '427011919' } })).toBe(0);
-    expect((await repository.loadFrozenSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-    )).providerSubmissionId).toBe('provider-1');
-
-    await repository.markFailed({
-      organizationId: TEST_ORGANIZATION_ID,
-      preparationId: draft.preparationId,
-      submissionLeaseToken: claimed.submissionLeaseToken!,
-      error: 'local failure after provider success',
-    });
-    const retry = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (retry.status === 'registered') throw new Error('unexpected registered state');
-    expect(retry.submissionKey).toBe(claimed.submissionKey);
-    expect(retry.providerSubmissionId).toBe('provider-1');
-
-    const registered = await repository.finalizeRegistered(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      retry.submissionLeaseToken!,
-      async (opaqueTx) => ({ listingId: await createListingBranch(tx(opaqueTx), '427011919') }),
-    );
-    expect(registered.status).toBe('registered');
-    expect(await prisma.contentWorkspace.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, channelListingId: registered.listingId },
-    })).toBe(1);
-
-    await expect(repository.finalizeRegistered(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      retry.submissionLeaseToken!,
-      async () => {
-        throw new Error('registered finalization callback must not run twice');
-      },
-    )).resolves.toEqual(registered);
-  });
-
-  it('persists transaction-resolved selections before a draft can be frozen', async () => {
-    const canonicalUrl = 'https://cdn.example.com/canonical.png';
-    const draft = await createTarget(ACCOUNT_ID);
-    // 선택값은 등록 설정을 만들 때가 아니라 제출을 동결할 때 정본으로 바뀐다.
-    canonicalThumbnailUrl = canonicalUrl;
-
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (claimed.status === 'registered') throw new Error('unexpected registered state');
-    expect(claimed.selectedThumbnailUrl).toBe(canonicalUrl);
-    expect(await prisma.registrationTarget.findFirstOrThrow({
-      where: { id: draft.preparationId, organizationId: TEST_ORGANIZATION_ID },
-    })).toMatchObject({ selectedThumbnailUrl: canonicalUrl });
-  });
-
-  it('reclaims an expired pre-provider lease with the same frozen key and hash', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const first = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (first.status === 'registered') throw new Error('unexpected registered state');
-    expect(first.providerOutcome).toBe('not_attempted');
-    expect(first.submissionLeaseToken).toEqual(expect.any(String));
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: first.executionId },
-      select: { reviewPayloadHash: true, approvedAt: true, approvedByUserId: true },
-    })).resolves.toEqual({
-      reviewPayloadHash: first.submissionPayloadHash,
-      approvedAt: expect.any(Date),
-      approvedByUserId: TEST_USER_ID,
-    });
-
-    await prisma.productRegistrationExecution.update({
-      where: { organizationId_registrationTargetId: {
-        organizationId: TEST_ORGANIZATION_ID,
-        registrationTargetId: draft.preparationId,
-      } },
-      data: {
-        leaseClaimedAt: new Date(
-          Date.now() - REGISTRATION_EXECUTION_LEASE_MS,
-        ),
-      },
-    });
-    const reclaimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (reclaimed.status === 'registered') throw new Error('unexpected registered state');
-
-    expect(reclaimed.submissionKey).toBe(first.submissionKey);
-    expect(reclaimed.submissionPayloadHash).toBe(first.submissionPayloadHash);
-    expect(reclaimed.executionId).toBe(first.executionId);
-    expect(reclaimed.submissionLeaseToken).not.toBe(first.submissionLeaseToken);
-    expect(reclaimed.providerOutcome).toBe('not_attempted');
-  });
-
-  it('rejects an idempotency-key replay when the compatibility payload hash drifts', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (claimed.status === 'registered') throw new Error('unexpected registered state');
-    await prisma.productRegistrationExecution.update({
-      where: { organizationId_registrationTargetId: {
-        organizationId: TEST_ORGANIZATION_ID,
-        registrationTargetId: draft.preparationId,
-      } },
-      data: {
-        leaseClaimedAt: new Date(Date.now() - REGISTRATION_EXECUTION_LEASE_MS),
-      },
-    });
-    await prisma.productRegistrationExecution.update({
-      where: { organizationId_registrationTargetId: {
-        organizationId: TEST_ORGANIZATION_ID,
-        registrationTargetId: draft.preparationId,
-      } },
-      data: { reviewPayloadHash: 'drifted-request-hash' },
-    });
-
-    await expect(repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    )).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('rejects a closed preparation without an execution instead of creating a new submission', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const archivedAt = new Date('2026-07-30T12:00:00.000Z');
-    await prisma.registrationTarget.update({
-      where: { id: draft.preparationId },
-      data: { archivedAt },
-    });
-    await expect(repository.claimForSubmission(TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID))
-      .rejects.toThrow("Preparation cannot be submitted from 'cancelled'");
-    expect(await prisma.productRegistrationExecution.count({ where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: draft.preparationId } })).toBe(0);
-  });
-
-  it('reclaims an expired in-provider lease as uncertain and retains the same submission identity', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const first = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (first.status === 'registered') throw new Error('unexpected registered state');
-    await repository.markProviderAttemptStarted(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      first.submissionLeaseToken!,
-    );
-    await prisma.productRegistrationExecution.update({
-      where: { organizationId_registrationTargetId: {
-        organizationId: TEST_ORGANIZATION_ID,
-        registrationTargetId: draft.preparationId,
-      } },
-      data: {
-        leaseClaimedAt: new Date(
-          Date.now() - REGISTRATION_EXECUTION_LEASE_MS,
-        ),
-      },
-    });
-
-    const reclaimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (reclaimed.status === 'registered') throw new Error('unexpected registered state');
-    expect(reclaimed.providerOutcome).toBe('uncertain');
-    expect(reclaimed.submissionKey).toBe(first.submissionKey);
-    expect(reclaimed.submissionLeaseToken).not.toBe(first.submissionLeaseToken);
-  });
-
-  it('allows settings edits without changing an uncertain execution and blocks new submissions', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (claimed.status === 'registered') throw new Error('unexpected registered state');
-    await repository.markProviderAttemptStarted(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      claimed.submissionLeaseToken!,
-    );
-    await repository.markFailed({
-      organizationId: TEST_ORGANIZATION_ID,
-      preparationId: draft.preparationId,
-      submissionLeaseToken: claimed.submissionLeaseToken!,
-      error: 'request timed out',
-    });
-    await expect(prisma.productRegistrationExecution.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        registrationTargetId: draft.preparationId,
-      },
-      select: { status: true, providerOutcome: true },
-    })).resolves.toEqual({ status: 'reconciling', providerOutcome: 'uncertain' });
-
-    const frozenSnapshot = await prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: claimed.executionId },
-      select: { submissionPayloadJson: true, submissionPayloadHash: true },
-    });
-    await editTarget(draft.preparationId, { displayName: 'Unsafe replacement' });
-    await expect(prisma.registrationTarget.findUniqueOrThrow({
-      where: { id: draft.preparationId },
-      select: { displayName: true },
-    })).resolves.toEqual({ displayName: 'Unsafe replacement' });
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: claimed.executionId },
-      select: { submissionPayloadJson: true, submissionPayloadHash: true },
-    })).resolves.toEqual(frozenSnapshot);
-    const replay = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (!('submissionLeaseToken' in replay)) throw new Error('Expected a frozen replay');
-    expect(replay).toMatchObject({
-      executionId: claimed.executionId,
-      providerOutcome: 'uncertain',
-      submissionPayloadHash: frozenSnapshot.submissionPayloadHash,
-    });
-    await expect(repository.markProviderAttemptStarted(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      replay.submissionLeaseToken!,
-    )).rejects.toThrow('prior outcome is uncertain or succeeded');
-    await expect(targets.archive(TEST_ORGANIZATION_ID, draft.preparationId))
-      .rejects.toThrow('An active execution must be resolved before archiving its target.');
-  });
-
-  it('rechecks the locked candidate before finalization and never invokes the callback after rejection', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (claimed.status === 'registered') throw new Error('unexpected registered state');
-    await repository.markProviderAttemptStarted(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      claimed.submissionLeaseToken!,
-    );
-    await repository.recordProviderResult(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      claimed.submissionLeaseToken!,
-      {
-        providerSubmissionId: 'provider-1',
-        externalListingId: '427011919',
-        channel: 'coupang',
-        rawResult: { code: 'SUCCESS' },
-      },
-    );
-    await prisma.sourcingCandidate.update({
-      where: { id: candidateId },
-      data: { status: 'rejected' },
-    });
-    const finalize = vi.fn().mockResolvedValue({ listingId: randomUUID() });
-
-    await expect(repository.finalizeRegistered(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      claimed.submissionLeaseToken!,
-      finalize,
-    )).rejects.toThrow('not active');
-    expect(finalize).not.toHaveBeenCalled();
-  });
-
-  it('serializes candidate terminal initiation ahead of a concurrent submission claim', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    let releaseTerminal!: () => void;
-    let reportCandidateLocked!: () => void;
-    const terminalRelease = new Promise<void>((resolve) => {
-      releaseTerminal = resolve;
-    });
-    const candidateLocked = new Promise<void>((resolve) => {
-      reportCandidateLocked = resolve;
-    });
-    const terminal = prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw(Prisma.sql`
-        SELECT id FROM sourcing_candidates
-        WHERE id = ${candidateId}::uuid
-          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
-        FOR UPDATE
-      `);
-      reportCandidateLocked();
-      await terminalRelease;
-      return drafts.assertCandidateTerminalTransitionAllowed(
-        ownerTransaction(transaction),
-        {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceCandidateId: candidateId,
-        },
-      );
-    });
-    await candidateLocked;
-    const claim = repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    const observation = await Promise.race([
-      claim.then(() => 'settled' as const, () => 'settled' as const),
-      new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 100)),
-    ]);
-    releaseTerminal();
-
-    await expect(terminal).rejects.toBeInstanceOf(ConflictException);
-    await expect(claim).resolves.toMatchObject({ status: 'submitting' });
-    expect(observation).toBe('blocked');
-  });
-
-  it('cancels an unstarted external WING intent before a candidate terminal transition', async () => {
-    await createTarget(ACCOUNT_ID);
-    const prepared = await repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    });
-    const cancelledAt = new Date('2026-07-30T12:00:00.000Z');
-
-    const cancelled = await candidateRepository.runInTransaction(async (transaction, ownerTx) => {
-      await candidateRepository.lockCandidate(transaction, {
-        id: candidateId,
-        organizationId: TEST_ORGANIZATION_ID,
-      });
-      const count = await repository.cancelUnstartedExecutions(
-        ownerTx,
-        {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceCandidateId: candidateId,
-          cancelledAt,
-        },
-      );
-      await drafts.assertCandidateTerminalTransitionAllowed(ownerTx, {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
-      });
-      return count;
-    });
-
-    expect(cancelled).toBe(1);
-    await expect(prisma.registrationTarget.findUniqueOrThrow({
-      where: { id: prepared.preparationId },
-      select: { archivedAt: true },
-    })).resolves.toEqual({ archivedAt: cancelledAt });
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: prepared.executionId },
-      select: { status: true, completedAt: true },
-    })).resolves.toEqual({ status: 'cancelled', completedAt: cancelledAt });
-  });
-
-  it('keeps a started external WING execution as a candidate deletion blocker', async () => {
-    await createTarget(ACCOUNT_ID);
-    const prepared = await repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Kids rain boots',
-      registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
-      idempotencyKey: randomUUID(),
-    });
-    await repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: prepared.executionId,
-      requestedByUserId: TEST_USER_ID,
-    });
-
-    await expect(candidateRepository.runInTransaction(async (transaction, ownerTx) => {
-      await candidateRepository.lockCandidate(transaction, {
-        id: candidateId,
-        organizationId: TEST_ORGANIZATION_ID,
-      });
-      const cancelled = await repository.cancelUnstartedExecutions(
-        ownerTx,
-        {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceCandidateId: candidateId,
-          cancelledAt: new Date('2026-07-30T12:00:00.000Z'),
-        },
-      );
-      expect(cancelled).toBe(0);
-      return drafts.assertCandidateTerminalTransitionAllowed(ownerTx, {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
-      });
-    })).rejects.toBeInstanceOf(ConflictException);
-
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: prepared.executionId },
-      select: { status: true, providerOutcome: true },
-    })).resolves.toEqual({ status: 'executing', providerOutcome: 'uncertain' });
-  });
-
   it('durably prepares, starts, reconciles, and finalizes one external WING execution', async () => {
     await createTarget(ACCOUNT_ID);
     const idempotencyKey = randomUUID();
@@ -810,10 +204,6 @@ describe('registration execution fence (PG integration)', () => {
     expect(prepared).toMatchObject({
       status: 'prepared', providerOutcome: 'not_attempted', expectedProviderAccountId: 'account-0',
     });
-    await expect(repository.claimForSubmission(
-      TEST_ORGANIZATION_ID, prepared.preparationId, TEST_USER_ID,
-    )).rejects.toBeInstanceOf(ConflictException);
-
     const replay = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -903,7 +293,7 @@ describe('registration execution fence (PG integration)', () => {
     })).resolves.toMatchObject({ status: 'succeeded', listingId: completed.listingId });
   });
 
-  it('runs the same fence for a directly authored product that has no source candidate', async () => {
+  it('runs the same fence for a directly authored product that has no source record', async () => {
     await createDirectlyAuthoredProduct();
     await createTarget(ACCOUNT_ID, DIRECT_SALES_PRODUCT_ID);
 
@@ -934,7 +324,7 @@ describe('registration execution fence (PG integration)', () => {
     );
     expect(frozen).toMatchObject({
       salesProductId: DIRECT_SALES_PRODUCT_ID,
-      sourceCandidateId: null,
+      sourceRecordId: null,
     });
 
     await repository.recordProviderResult(
@@ -949,17 +339,9 @@ describe('registration execution fence (PG integration)', () => {
       }),
       prepared.executionId,
     )).resolves.toMatchObject({ status: 'registered' });
-
-    // 원천 기록이 없는 상품은 후보 삭제 준비가 볼 것도 없다.
-    await expect(candidateRepository.runInTransaction(async (_transaction, ownerTx) =>
-      repository.cancelUnstartedExecutions(ownerTx, {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
-        cancelledAt: new Date('2026-07-30T12:00:00.000Z'),
-      }))).resolves.toBe(0);
   });
 
-  it('keeps the source candidate as execution provenance and still refuses a rejected source', async () => {
+  it('keeps the source record as execution provenance and refuses a new registration once the product is archived', async () => {
     await createTarget(ACCOUNT_ID);
     const prepared = await repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
@@ -971,9 +353,9 @@ describe('registration execution fence (PG integration)', () => {
       idempotencyKey: randomUUID(),
     });
 
-    await prisma.sourcingCandidate.update({
-      where: { id: candidateId },
-      data: { status: 'rejected' },
+    await prisma.salesProduct.update({
+      where: { id: SALES_PRODUCT_ID },
+      data: { status: 'archived' },
     });
 
     // 이미 남은 실행의 출처 표시는 그대로다.
@@ -981,10 +363,10 @@ describe('registration execution fence (PG integration)', () => {
       TEST_ORGANIZATION_ID, prepared.preparationId, prepared.executionId,
     )).resolves.toMatchObject({
       salesProductId: SALES_PRODUCT_ID,
-      sourceCandidateId: candidateId,
+      sourceRecordId: candidateId,
     });
 
-    // 그래도 거절된 원천으로 새 준비를 열지는 않는다.
+    // 보관한 상품으로 새 준비를 열지는 않는다(KID-313).
     await expect(repository.prepare({
       organizationId: TEST_ORGANIZATION_ID,
       salesProductId: SALES_PRODUCT_ID,
@@ -1295,7 +677,7 @@ describe('registration execution fence (PG integration)', () => {
 
   it('rolls back a failed bundle allocation without leaving an execution or preparation', async () => {
     const failingDrafts = new RegistrationDraftAdapter(
-      new RegistrationSourceAdapter(), workspaceFake(), thumbnailSourceFake(),
+      workspaceFake(), thumbnailSourceFake(),
     );
     vi.spyOn(failingDrafts, 'freezeForSubmission').mockRejectedValueOnce(
       new Error('forced transaction rollback after allocation'),
@@ -1392,62 +774,6 @@ describe('registration execution fence (PG integration)', () => {
       registrationInput: { wingProduct: { productName: 'Kids rain boots' } },
       idempotencyKey: staleIdempotencyKey,
     })).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('rejects a claim when the execution has lost its frozen approval snapshot', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const first = await repository.claimForSubmission(TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID);
-    if (first.status === 'registered') throw new Error('unexpected registered state');
-
-    await prisma.productRegistrationExecution.update({
-      where: { id: first.executionId },
-      data: {
-        reviewPayloadHash: null,
-        approvedAt: null,
-        approvedByUserId: null,
-        leaseClaimedAt: new Date(Date.now() - REGISTRATION_EXECUTION_LEASE_MS),
-      },
-    });
-
-    await expect(repository.claimForSubmission(TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID))
-      .rejects.toThrow('Registration execution does not match its frozen approval.');
-    await expect(prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: draft.preparationId },
-    })).resolves.toBe(1);
-  });
-
-  it('never supersedes an ordinary create execution or its live claim lease', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID,
-      draft.preparationId,
-      TEST_USER_ID,
-    );
-    if (claimed.status === 'registered') throw new Error('unexpected registered claim');
-
-    await expect(repository.prepare({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      requestedByUserId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      displayName: 'Changed into manual WING flow',
-      registrationInput: { wingProduct: { productName: 'Changed into manual WING flow' } },
-      idempotencyKey: randomUUID(),
-    })).rejects.toBeInstanceOf(ConflictException);
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
-      where: { id: claimed.executionId },
-      select: {
-        executionKind: true,
-        status: true,
-        providerOutcome: true,
-        leaseToken: true,
-      },
-    })).resolves.toEqual({
-      executionKind: 'create',
-      status: 'prepared',
-      providerOutcome: 'not_attempted',
-      leaseToken: claimed.submissionLeaseToken,
-    });
   });
 
   it('restarts a reconciled unknown WING attempt only after the channel absence was verified', async () => {
@@ -1601,7 +927,7 @@ describe('registration execution fence (PG integration)', () => {
     };
     const pausedRepository = new RegistrationExecutionRepositoryAdapter(
       pausedPrisma as unknown as PrismaService,
-      new RegistrationDraftAdapter(new RegistrationSourceAdapter(), workspaceFake(), thumbnailSourceFake()),
+      new RegistrationDraftAdapter(workspaceFake(), thumbnailSourceFake()),
     );
     const supersede = pausedRepository.prepare({
       ...base,
@@ -1658,33 +984,6 @@ describe('registration execution fence (PG integration)', () => {
     })).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('does not expose ordinary create executions through the external WING lifecycle', async () => {
-    const draft = await createTarget(ACCOUNT_ID);
-    const claimed = await repository.claimForSubmission(
-      TEST_ORGANIZATION_ID, draft.preparationId, TEST_USER_ID,
-    );
-    if (claimed.status === 'registered') throw new Error('unexpected registered claim');
-    await expect(repository.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: claimed.executionId,
-      requestedByUserId: TEST_USER_ID,
-    })).rejects.toBeInstanceOf(NotFoundException);
-    await expect(repository.get({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: claimed.executionId,
-      requestedByUserId: TEST_USER_ID,
-    })).rejects.toBeInstanceOf(NotFoundException);
-    await expect(repository.markUnresolved({
-      organizationId: TEST_ORGANIZATION_ID,
-      salesProductId: SALES_PRODUCT_ID,
-      executionId: claimed.executionId,
-      requestedByUserId: TEST_USER_ID,
-      evidence: { reason: 'must-not-reconcile-create-execution' },
-    })).rejects.toBeInstanceOf(NotFoundException);
-  });
-
   function createExternalRegistrationInput(
     idempotencyKey: string,
     options: { quantity: number; sourceCode?: string },
@@ -1719,6 +1018,7 @@ describe('registration execution fence (PG integration)', () => {
         id: DIRECT_SALES_PRODUCT_ID,
         organizationId: TEST_ORGANIZATION_ID,
         code: 'DIRECTLY-AUTHORED-FENCE',
+        status: 'active',
         name: 'Direct rain boots',
       },
     });

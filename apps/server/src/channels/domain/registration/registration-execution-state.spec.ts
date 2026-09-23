@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  blocksCandidateTerminalTransition,
   candidateRegistrationState,
   countFrozenSalesProductOptionReferences,
   type RegistrationExecutionFact,
@@ -79,40 +78,7 @@ describe('registration execution state', () => {
     });
   });
 
-  describe('blocksCandidateTerminalTransition', () => {
-    it('lets a candidate with no execution reach a terminal state', () => {
-      expect(blocksCandidateTerminalTransition([])).toBe(false);
-    });
 
-    it('lets a cancelled execution with no provider trace go', () => {
-      expect(blocksCandidateTerminalTransition([fact({ status: 'cancelled' })])).toBe(false);
-    });
-
-    it.each(['prepared', 'executing', 'reconciling', 'succeeded'])(
-      'blocks while an execution is still live (%s)',
-      (status) => {
-        expect(blocksCandidateTerminalTransition([fact({ status })])).toBe(true);
-      },
-    );
-
-    it('blocks a closed execution that still holds a provider submission id', () => {
-      expect(blocksCandidateTerminalTransition([
-        fact({ status: 'failed', providerSubmissionId: 'provider-1' }),
-      ])).toBe(true);
-    });
-
-    it('blocks a closed execution that still holds an external listing id', () => {
-      expect(blocksCandidateTerminalTransition([
-        fact({ status: 'cancelled', externalListingId: '427011919' }),
-      ])).toBe(true);
-    });
-
-    it('blocks a closed execution that retained a provider result', () => {
-      expect(blocksCandidateTerminalTransition([
-        fact({ status: 'failed', hasResult: true }),
-      ])).toBe(true);
-    });
-  });
 
   describe('countFrozenSalesProductOptionReferences', () => {
     it('counts each option once per immutable target execution', () => {

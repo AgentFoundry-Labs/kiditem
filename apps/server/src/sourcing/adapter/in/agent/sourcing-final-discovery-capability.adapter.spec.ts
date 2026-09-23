@@ -3,21 +3,20 @@ import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-ke
 import { SourcingFinalDiscoveryCapabilityAdapter } from './sourcing-final-discovery-capability.adapter';
 
 const DRAFT_ID = '00000000-0000-4000-8000-0000000000d1';
-/** 원천 기록 → 판매상품 초안. 초안 보장은 Channels 소유라 여기서는 경계에서 대신한다. */
+/** 원본 기록 → 판매상품 초안. 초안은 Channels 소유라 여기서는 경계에서 대신한다. */
 function collectedDrafts() {
   return {
-    findDraftIds: vi.fn(async (_organizationId: string, ids: readonly string[]) => new Map(ids.map((id) => [id, DRAFT_ID]))),
-    ensureDraftsForCandidates: vi.fn(async (_organizationId: string, ids: readonly string[]) => new Map(ids.map((id) => [id, DRAFT_ID]))),
+    findForSourceRecord: vi.fn(async () => ({ salesProductId: DRAFT_ID, status: 'draft' as const })),
+    createDraft: vi.fn(),
+    getDraft: vi.fn(),
   };
 }
 
 describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
-  it('checks for an existing candidate without writing Sourcing state', async () => {
+  it('checks for an existing source record without writing Sourcing state', async () => {
     const candidates = {
-      findActiveBySourceUrl: vi.fn().mockResolvedValue({
-        id: '00000000-0000-4000-8000-000000000001',
-      }),
-      upsertSourced: vi.fn(),
+      findIdBySourceUrl: vi.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
+      admit: vi.fn(),
     };
     const adapter = new SourcingFinalDiscoveryCapabilityAdapter(
       candidates as never,
@@ -33,15 +32,15 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
       candidateId: '00000000-0000-4000-8000-000000000001',
       salesProductId: DRAFT_ID,
     });
-    expect(candidates.findActiveBySourceUrl).toHaveBeenCalledWith({
-      organizationId: '00000000-0000-4000-8000-000000000002',
-      sourceUrl: 'https://detail.1688.com/offer/1.html',
-    });
-    expect(candidates.upsertSourced).not.toHaveBeenCalled();
+    expect(candidates.findIdBySourceUrl).toHaveBeenCalledWith(
+      '00000000-0000-4000-8000-000000000002',
+      'https://detail.1688.com/offer/1.html',
+    );
+    expect(candidates.admit).not.toHaveBeenCalled();
   });
 
   it('normalizes an allowed final redirect without creating a candidate', async () => {
-    const candidates = { findActiveBySourceUrl: vi.fn(), upsertSourced: vi.fn() };
+    const candidates = { findIdBySourceUrl: vi.fn(), admit: vi.fn() };
     const browser = {
       scrapeProductUrl: vi.fn().mockResolvedValue({
         ok: true,
@@ -73,11 +72,11 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
       images: ['https://images.example.com/a.png'],
       contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
-    expect(candidates.upsertSourced).not.toHaveBeenCalled();
+    expect(candidates.admit).not.toHaveBeenCalled();
   });
 
   it('rejects a disallowed final redirect before exposing a snapshot', async () => {
-    const candidates = { findActiveBySourceUrl: vi.fn(), upsertSourced: vi.fn() };
+    const candidates = { findIdBySourceUrl: vi.fn(), admit: vi.fn() };
     const browser = {
       scrapeProductUrl: vi.fn().mockResolvedValue({
         ok: true,
@@ -93,15 +92,16 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
 
     await expect(adapter.scrapeProductUrl({ sourceUrl: 'https://detail.1688.com/offer/1.html' }))
       .rejects.toThrow('supplier_url');
-    expect(candidates.upsertSourced).not.toHaveBeenCalled();
+    expect(candidates.admit).not.toHaveBeenCalled();
   });
 
   it('records an immutable Sourcing-owned receipt for an exact owner replay', async () => {
     const candidates = {
-      findActiveBySourceUrl: vi.fn(),
-      upsertSourced: vi.fn().mockResolvedValue({ id: '00000000-0000-4000-8000-000000000010' }),
-      upsertSourcedWithIdempotencyReceipt: vi.fn().mockResolvedValue({
-        candidateId: '00000000-0000-4000-8000-000000000011',
+      findIdBySourceUrl: vi.fn(),
+      admit: vi.fn(),
+      admitOnce: vi.fn().mockResolvedValue({
+        sourceRecordId: '00000000-0000-4000-8000-000000000011',
+        salesProductId: DRAFT_ID,
       }),
     };
     const browser = {
@@ -133,12 +133,14 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
       snapshot,
     })).resolves.toEqual({ candidateId: '00000000-0000-4000-8000-000000000011', salesProductId: DRAFT_ID });
 
-    expect(candidates.upsertSourcedWithIdempotencyReceipt).toHaveBeenCalledWith(
+    expect(candidates.admitOnce).toHaveBeenCalledWith(
       expect.objectContaining({
         capabilityKey: 'sourcing.ingestCandidate',
         idempotencyKey: 'owner:attempt:ingest',
         requestHash,
       }),
+      expect.objectContaining({ sourcePlatform: 'ALIBABA_1688', sourceIdentityHash: expect.any(String) }),
+      expect.anything(),
     );
 
     await expect(adapter.ingestCandidate({
@@ -148,7 +150,7 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
       requestHash: 'b'.repeat(64),
       snapshot,
     })).rejects.toThrow('owner_idempotency_input_conflict');
-    expect(candidates.upsertSourcedWithIdempotencyReceipt).toHaveBeenCalledTimes(1);
-    expect(candidates.upsertSourced).not.toHaveBeenCalled();
+    expect(candidates.admitOnce).toHaveBeenCalledTimes(1);
+    expect(candidates.admit).not.toHaveBeenCalled();
   });
 });

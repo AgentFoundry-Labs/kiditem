@@ -1,8 +1,6 @@
 import {
   ProductPreparationStatusSchema,
-  SourcingCandidateStatusSchema,
   type ProductPreparationProjection,
-  type SourcingCandidateStatus,
 } from '@kiditem/shared/sourcing';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -12,8 +10,6 @@ import {
   type SalesProductRegistrationMedia,
 } from '../../_shared/lib/content-workspaces-api';
 import type { SalesProduct, SalesProductUpdateInput } from '@kiditem/shared/sales-product';
-
-export type ProductStatus = SourcingCandidateStatus;
 
 export interface SellpiaInventorySearchItem {
   masterProductId: string;
@@ -77,59 +73,17 @@ export function registrationStateFromPreparation(
   }
 }
 
-export interface SourcedProduct {
-  id: string;
-  organizationId?: string;
-  name: string;
-  status: ProductStatus;
-  /** 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) — 없으면 이관 전 구행이다. */
-  salesProductId: string | null;
-  sourcePlatform: string;
-  source_platform: string;
-  sourceUrl: string | null;
-  source_url: string | null;
-  thumbnailUrl: string | null;
-  thumbnail_url: string | null;
-  imageUrl?: string | null;
-  images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
-  registrationTarget?: ProductPreparationSelection | null;
-  /** 울타리가 답하는 등록 상태. 구버전 응답에는 없어 `null` 이다. */
-  registrationState?: CandidateRegistrationState | null;
-  /**
-   * 저장된 대표 썸네일. 서버가 준비(RegistrationTarget) → 후보 워크스페이스
-   * 순으로 계산해 내려준다. 없으면 `null` 이고 카드는 수집 원본으로 떨어진다.
-   */
-  selectedThumbnailUrl?: string | null;
-  thumbnailPreviewUrls?: string[];
-  rejectedAt?: string | null;
-  rejectedReason?: string | null;
-  triggeredByUserId?: string | null;
-  price_krw: number | null;
-  cost_cny: number | null;
-  image_count: number;
-  is_processed: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ProductListResponse {
-  items: SourcedProduct[];
-  total: number;
-}
-
 export type SourcingSort = 'newest' | 'oldest' | 'name_asc';
 
 /**
- * 수집상품 화면 하나. `id` 는 판매상품 초안 id 다(KID-310 · ADR-0022) — 원천 기록(수집상품)
- * id 는 `sourceCandidateId` 이고, 원천이 없는 초안이면 `null` 이다.
+ * 수집상품 화면 하나. `id` 는 판매상품 초안 id 다(KID-310 · ADR-0022) — 원본 기록 id 는
+ * `sourceRecordId` 이고, 원본 기록이 없는 초안(직접 작성 · 사방넷)이면 `null` 이다(KID-313).
  */
 export interface ProductDetailResponse {
   id: string;
   name: string;
-  /** 원천 기록의 소싱 판단(`sourced` · `rejected`). 원천이 없는 초안이면 `null`. */
-  status: ProductStatus | null;
-  /** 초안을 만든 원천 기록(수집상품) id. 원천 사실을 읽고 원천을 지울 때만 쓴다. */
-  sourceCandidateId: string | null;
+  /** 초안을 만든 원본 기록 id. 원본 사실(원본 사진 · 원가 · 원문)을 읽을 때만 쓴다. */
+  sourceRecordId: string | null;
   sourcePlatform: string;
   source_platform: string;
   source_url: string | null;
@@ -303,13 +257,16 @@ export type ProductPreparationSelection = Omit<
   updatedAt: string | null;
 };
 
+/**
+ * URL 수집 결과. 원본 기록과 그 초안은 수집 종료와 한 커밋에 생긴다(KID-313). 이미 수집한 원본이면
+ * 서버가 409 `{ reason, existing }` 로 답하므로 이 응답에는 오지 않는다.
+ */
 export interface ScrapeUrlResponse {
   ok: boolean;
   message: string;
-  product_id: string | null;
   skipped?: boolean;
   attempt: ScrapeUrlAttempt | null;
-  candidateId?: string | null;
+  sourceRecordId?: string | null;
   salesProductId?: string | null;
   href?: string | null;
 }
@@ -446,7 +403,7 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
     : {};
   return {
     id,
-    sourceCandidateId: typeof prep.sourceCandidateId === 'string' ? prep.sourceCandidateId : null,
+    sourceRecordId: typeof prep.sourceRecordId === 'string' ? prep.sourceRecordId : null,
     channelAccountId: typeof prep.channelAccountId === 'string' ? prep.channelAccountId : null,
     sourceContentWorkspaceId: typeof prep.sourceContentWorkspaceId === 'string'
       ? prep.sourceContentWorkspaceId
@@ -649,85 +606,10 @@ export function selectBestThumbnailImage(
 }
 
 export const productsApi = {
-  async list(params?: {
-    page?: number;
-    limit?: number;
-    status?: string;
-    platform?: string;
-    sort?: SourcingSort;
-  }): Promise<ProductListResponse> {
-    const qs = new URLSearchParams({
-      page: String(params?.page || 1),
-      limit: String(params?.limit || 50),
-    });
-    if (params?.platform) qs.set('platform', params.platform);
-    if (params?.sort) qs.set('sort', params.sort);
-    const data = await apiClient.get<{ items: any[]; total: number; page: number; limit: number }>(`/api/sourcing/extension/products?${qs}`);
-    const items: SourcedProduct[] = data.items.map((p: any) => {
-      const rawData = (p.rawData as Record<string, unknown>) || {};
-      const candidateImageUrls = candidateProductImageUrls(p.images);
-      const images = collectImageUrls(
-        candidateImageUrls,
-        rawProductImageCandidates(rawData),
-        p.imageUrl,
-        p.thumbnailUrl,
-      );
-      const registrationTarget = normalizeProductPreparation(p.registrationTarget);
-      const preparationRecord = p.registrationTarget && typeof p.registrationTarget === 'object'
-        ? p.registrationTarget as Record<string, unknown>
-        : {};
-      const registrationInput = preparationRecord.registrationInput &&
-        typeof preparationRecord.registrationInput === 'object' &&
-        !Array.isArray(preparationRecord.registrationInput)
-        ? preparationRecord.registrationInput as Record<string, unknown>
-        : {};
-      const thumbnailPreviewUrls = collectImageUrls(registrationInput.thumbnailUrls);
-      // 서버가 계산한 **저장된 대표 썸네일**(준비 → 후보 워크스페이스 순).
-      // 이게 없으면 준비가 없는 후보의 대표 선택이 카드에 반영되지 않고
-      // `sourcing_candidates.thumbnail_url`(수집 원본)이 계속 보인다.
-      const selectedThumbnailUrl = typeof p.selectedThumbnailUrl === 'string' && p.selectedThumbnailUrl.trim()
-        ? p.selectedThumbnailUrl.trim()
-        : null;
-      const thumbnailUrl = registrationTarget?.selectedThumbnailUrl ??
-        selectedThumbnailUrl ??
-        selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
-      const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
-      return {
-        id: p.id,
-        organizationId: p.organizationId,
-        name: p.name || rawData.title || '',
-        status: SourcingCandidateStatusSchema.parse(p.status),
-        salesProductId: typeof p.salesProductId === 'string' && p.salesProductId ? p.salesProductId : null,
-        sourcePlatform,
-        source_platform: sourcePlatform,
-        sourceUrl: p.sourceUrl ?? null,
-        source_url: p.sourceUrl ?? (rawData.source_url as string) ?? null,
-        thumbnailUrl,
-        thumbnail_url: thumbnailUrl,
-        imageUrl: p.imageUrl ?? null,
-        images: Array.isArray(p.images) ? p.images : [],
-        registrationTarget,
-        registrationState: normalizeRegistrationState(p.registrationState),
-        selectedThumbnailUrl,
-        thumbnailPreviewUrls,
-        rejectedAt: p.rejectedAt ?? null,
-        rejectedReason: p.rejectedReason ?? null,
-        triggeredByUserId: p.triggeredByUserId ?? null,
-        price_krw: p.sellPrice || null,
-        cost_cny: coerceCostCny(p.costCny) ?? (typeof rawData.price === 'string' ? parseFloat(rawData.price) || null : null),
-        image_count: images.length,
-        is_processed: p.processedData != null,
-        created_at: p.createdAt || '',
-        updated_at: p.updatedAt || '',
-      };
-    });
-    return { items, total: data.total };
-  },
-
   /**
    * 수집상품 화면 하나 — 판매상품 초안 id 로 연다(KID-310 · ADR-0022).
    *
-   * 편집 정본은 초안이다. 원천 기록(수집상품)은 초안의 `sourceCandidateId` 로만 읽고, 수집 원본
+   * 편집 정본은 초안이다. 원본 기록은 초안의 `sourceRecordId` 로만 읽고, 수집 원본
    * 이미지 · 원천 주소 · 원본 데이터 · 원가 같은 원천 사실에만 쓴다. 등록용 사진과 대표 썸네일은
    * 초안의 콘텐츠에서 읽는다.
    */
@@ -739,14 +621,14 @@ export const productsApi = {
     return composeProductDetail(draft, source, media);
   },
 
-  /** 초안과, 초안이 원천 기록을 가리키면 그 원천 기록. 원천이 없는 초안은 후보를 묻지 않는다. */
+  /** 초안과, 초안이 원본 기록을 가리키면 그 원본 기록(`GET /api/sourcing/source-records/:id`). */
   async getDraftWithSource(salesProductId: string): Promise<{ draft: SalesProduct; source: unknown | null }> {
     const draft = await salesProductApi.get(salesProductId);
-    // 원천 기록은 초안보다 먼저 지워질 수 있다(후보를 지워도 초안은 남는다). 그러면 원천 사실이
-    // 없는 초안으로 연다 — 다른 오류는 그대로 올린다.
-    const source = draft.sourceCandidateId
+    // 원본 기록은 초안과 함께 지워진다(KID-313). 그래도 읽지 못하면 원본 사실이 없는 초안으로 연다 —
+    // 다른 오류는 그대로 올린다.
+    const source = draft.sourceRecordId
       ? await apiClient
-        .get<unknown>(`/api/sourcing/${encodeURIComponent(draft.sourceCandidateId)}`)
+        .get<unknown>(`/api/sourcing/source-records/${encodeURIComponent(draft.sourceRecordId)}`)
         .catch((error: unknown) => {
           if (isApiError(error) && error.status === 404) return null;
           throw error;
@@ -786,15 +668,14 @@ export function composeProductDetail(
   const sourcePlatform = draft.sourcePlatform ?? '';
   const registrationImages = normalizeRegistrationImages(media.registrationImages);
   const currentThumbnail = normalizeCurrentThumbnail(media.currentThumbnail);
-  // 남은 원천 기록 읽기 — 등록 설정과 울타리 상태는 아직 후보 응답만 준다. pass C 가
-  // Channels 읽기(등록 대상 목록 + 울타리 상태)로 바꾼다. 원천이 없는 초안은 없음이다.
-  const registrationTarget = p ? normalizeProductPreparation(p.registrationTarget) : null;
-  const registrationState = p ? normalizeRegistrationState(p.registrationState) : 'none';
+  // 원본 기록 응답은 원본 사실만 준다(KID-313). 등록 설정과 울타리 상태는 Channels 읽기
+  // (`…/registration/state`)가 줄 자리다 — 그 전까지 이 화면은 등록 없음으로 연다.
+  const registrationTarget = null;
+  const registrationState: CandidateRegistrationState = 'none';
   return {
     id: draft.id,
     name: draft.name,
-    status: p ? SourcingCandidateStatusSchema.parse(p.status) : null,
-    sourceCandidateId: draft.sourceCandidateId,
+    sourceRecordId: draft.sourceRecordId,
     sourcePlatform,
     source_platform: sourcePlatform,
     source_url: draft.sourceUrl ?? (p ? p.sourceUrl || rawData?.source_url || null : null),
@@ -836,18 +717,10 @@ export const sourcingApi = {
   },
 };
 
-export interface RejectCandidateResponse {
-  status: 'rejected';
-  /** 반려와 함께 그 판매상품 초안을 내렸는가. */
-  draftRetired?: boolean;
-  /** 초안을 내리지 못한 이유(몰에 올라가 있다 등). 반려 자체는 막지 않는다. */
-  draftWarning?: string;
-}
-
 export interface SalesProductGenerationStartResponse {
   ok: true;
-  /** 이 초안의 원천 후보. 후보 없이 직접 만든 초안이면 `null`. */
-  candidateId: string | null;
+  /** 이 초안의 원본 기록. 직접 만든 초안이면 `null`. */
+  sourceRecordId: string | null;
   salesProductId: string;
   href: string;
   detailGenerationId: string | null;
@@ -869,19 +742,6 @@ export const salesProductGenerationApi = {
       { task },
       { headers: { 'Idempotency-Key': idempotencyKey } },
     ),
-};
-
-/** 원천 기록(수집상품)의 소싱 판단 — 반려와 삭제. */
-export const candidatesApi = {
-  reject: (id: string, reason?: string) =>
-    apiClient.post<RejectCandidateResponse>(`/api/sourcing/candidates/${id}/reject`, { reason }),
-  delete: (id: string) =>
-    apiClient.delete<{
-      ok: boolean;
-      archivedCandidateImages?: number;
-      draftRetired?: boolean;
-      draftWarning?: string;
-    }>(`/api/sourcing/candidates/${id}`),
 };
 
 /**

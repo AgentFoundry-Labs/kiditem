@@ -125,22 +125,6 @@ function record(value: unknown): Record<string, unknown> | null {
 }
 
 /**
- * 울타리가 후보의 종료(거절·삭제)를 막는가.
- *
- * 살아 있는 실행이 하나라도 있거나, 끝난 실행에 공급자 식별자가 남아 있으면 막는다 —
- * 그 후보는 마켓에 무언가 올라갔을 수 있고, 후보를 지워도 그 사실은 사라지지 않는다.
- */
-export function blocksCandidateTerminalTransition(
-  facts: readonly RegistrationExecutionFact[],
-): boolean {
-  return facts.some((fact) =>
-    (LIVE_REGISTRATION_EXECUTION_STATUSES as readonly string[]).includes(fact.status)
-    || fact.providerSubmissionId !== null
-    || fact.externalListingId !== null
-    || fact.hasResult);
-}
-
-/**
  * 초안 하나의 등록 상태. 수집후보 화면이 "등록됨 / 확인중 / 실패"를 이 값으로 비춘다.
  *
  * `confirming` 은 제출 여부를 모르는 상태다(`reconciling`, 또는 시작됐지만 결과가

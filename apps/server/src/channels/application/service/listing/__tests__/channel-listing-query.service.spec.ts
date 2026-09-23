@@ -19,7 +19,7 @@ const activeListing: ChannelListingSummary = {
   brand: null,
   manufacturer: null,
   channelPrice: null,
-  sourceCandidateId: null,
+  sourceRecordId: null,
   contentWorkspaceId: null,
   status: 'active',
   exposureStatus: 'visible',

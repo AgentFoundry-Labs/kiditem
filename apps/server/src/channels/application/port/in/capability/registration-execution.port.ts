@@ -38,7 +38,7 @@ export interface ConfirmRegistrationExecutionInput {
  * 울타리의 정체성은 `{organizationId, salesProductId, channelAccountId}` 다 — 수집에서
  * 온 상품이든 직접 작성한 상품이든 같은 문을 지난다
  * ([ADR-0022](../../../../../../../../docs/adr/0022-sales-product-draft-exists-from-collection.md)).
- * 원천 기록(`sourceCandidateId`)은 이력에만 남는 출처 표시이지 열쇠가 아니다.
+ * 원천 기록(`sourceRecordId`)은 이력에만 남는 출처 표시이지 열쇠가 아니다.
  *
  * Wing autoSubmit, 스프레드시트, API 몰 — 계정에 제출하는 모든 경로가 이 한 인터페이스를
  * 지난다([ADR-0014](../../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
@@ -55,15 +55,6 @@ export interface RegistrationExecutionPort {
   listTargetExecutions(organizationId: string, targetId: string, userId: string | null): Promise<TargetExecutionResult[]>;
   getTargetExecution(organizationId: string, executionId: string, userId: string | null): Promise<TargetExecutionResult>;
   reportTargetExecution(organizationId: string, executionId: string, userId: string | null, input: ReportTargetExecutionInput): Promise<TargetExecutionResult>;
-
-  /**
-   * 후보 삭제 준비. 제출 흔적이 없는 실행만 취소한다. 호출자의 트랜잭션에서
-   * 실행되어 후보 종료와 같은 커밋에 들어간다.
-   */
-  cancelUnstartedExecutions(
-    tx: ChannelsRepositoryTransaction,
-    input: { organizationId: string; sourceCandidateId: string; cancelledAt: Date },
-  ): Promise<number>;
 
   prepareWingRegistration(
     organizationId: string,

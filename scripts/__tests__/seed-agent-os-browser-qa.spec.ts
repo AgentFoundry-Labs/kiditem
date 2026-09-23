@@ -8,7 +8,7 @@ import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,
 } from '../../apps/server/src/sourcing/domain/supplier-source-url-policy';
-import { canonicalSourcingCandidateIdentity } from '../../apps/server/src/sourcing/domain/sourcing-candidate-identity';
+import { canonicalSourceRecordIdentity } from '../../apps/server/src/sourcing/domain/source-record-identity';
 import { freezeProductRegistrationPayload } from '../../apps/server/src/channels/domain/registration/registration-submission-payload';
 
 const channelIntegrity = new ChannelIntegrityAdapter();
@@ -319,7 +319,7 @@ describe('isolated Agent OS browser-QA seed', () => {
       expect(plan.sourcingCandidate.sourceUrl).toBe(supplier.normalizedUrl);
       expect(plan.sourcingCandidate.sourcePlatform).toBe('ALIBABA_1688');
       expect(plan.sourcingCandidate.externalOfferId).toBe(offerId);
-      expect(plan.sourcingCandidate.sourceIdentityHash).toBe(canonicalSourcingCandidateIdentity({
+      expect(plan.sourcingCandidate.sourceIdentityHash).toBe(canonicalSourceRecordIdentity({
         sourcePlatform: 'ALIBABA_1688',
         sourceUrl: supplier.normalizedUrl,
         validatedExternalOfferId: offerId,

@@ -149,9 +149,14 @@ describe('planSalesProductOptionReplacement', () => {
 });
 
 describe('Sabangnet code mapping', () => {
+  /**
+   * 사방넷에서 온 상품은 품번코드를 코드로 가지므로 초안이 아니다(KID-313). 공급중 · 일시중지 ·
+   * 완전품절은 판매 상품(active)이고 품절 · 일시중지는 단품 공급상태와 몰 쪽 상태가 말한다.
+   * 미사용 · 삭제는 판매를 접은 보관(archived)이다.
+   */
   it('maps product status, option supply status and tax codes', () => {
     expect(['1', '2', '3', '4', '5', '6', '7'].map(salesProductStatusFromSabangnet))
-      .toEqual(['draft', 'active', 'paused', 'sold_out', 'unused', 'archived', 'draft']);
+      .toEqual(['active', 'active', 'active', 'active', 'archived', 'archived', 'active']);
     expect(['1', '2', '3', null].map(optionSupplyStatusFromSabangnet))
       .toEqual(['selling', 'sold_out', 'unused', 'selling']);
     expect(['1', '2', '3', '4', '5'].map(taxTypeFromSabangnet))

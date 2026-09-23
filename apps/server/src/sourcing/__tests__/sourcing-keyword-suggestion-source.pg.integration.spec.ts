@@ -1,3 +1,4 @@
+import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -20,7 +21,7 @@ describe('Keyword suggestion public source owner (disposable PostgreSQL)', () =>
     await prisma.$connect();
     service = new SourcingKeywordSuggestionService(
       new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-        new SourceFailureAlerts(prisma as never)),
+        new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort),
       new SourcingKeywordSuggestionRepositoryAdapter(prisma as never),
     );
   });

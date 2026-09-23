@@ -15,7 +15,7 @@ export interface RegistrationDraftRow {
   /** 등록 설정의 주인. 초안 · 판매상품 하나가 곧 등록 대상이다. */
   salesProductId: string;
   /** 그 판매상품을 만든 원천 기록. 직접 만든 상품이면 null. */
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   channelAccountId: string;
   /** AI 콘텐츠 작업공간. 등록 설정 줄에 저장하지 않고 필요할 때 AI 계약에 묻는다. */
   sourceContentWorkspaceId: string | null;
@@ -59,27 +59,9 @@ export interface CloseRegistrationDraftInput {
   archive?: boolean;
 }
 
-export interface ClaimRegistrationDraftInput {
-  organizationId: string;
-  preparationId: string;
-  userId: string | null;
-  now: Date;
-  /** 실행 장부가 이미 있는 재청구. 내용을 다시 동결하지 않는다. */
-  reuseFrozenSubmission: boolean;
-}
-
-export interface ClaimedRegistrationDraft {
-  draft: FrozenRegistrationDraft;
-  /** 새로 동결한 제출본. `reuseFrozenSubmission` 이면 `null`. */
-  frozen: { payload: unknown; hash: string } | null;
-}
-
 export interface RegistrationDraftPort {
   /**
    * 판매상품 행을 잠근다. 울타리 트랜잭션의 첫 단계.
-   *
-   * 원천 기록에서 온 상품이면 그 후보 행을 먼저 잠근다 — 후보 거절도 같은 순서로
-   * 잠그므로 두 경로가 서로를 기다리지 않는다.
    */
   lockProduct(
     tx: ChannelsRepositoryTransaction,
@@ -87,22 +69,13 @@ export interface RegistrationDraftPort {
   ): Promise<void>;
 
   /**
-   * 등록을 받을 수 있는 판매상품인지 확인한다. 아니면 던진다. 보관 · 미사용 상품과,
-   * 원천 후보가 이미 거절 · 삭제된 상품을 막는다.
+   * 등록을 받을 수 있는 판매상품인지 확인한다. 아니면 던진다. KID 를 받은 판매 상품(active)만
+   * 받는다 — 초안과 보관 상품을 막는다(KID-313).
    */
   requireActiveProduct(
     tx: ChannelsRepositoryTransaction,
     input: { organizationId: string; salesProductId: string },
   ): Promise<void>;
-
-  /**
-   * 원천 기록이 만든 판매상품 id. 후보 삭제 준비만 쓴다 — 후보는 Sourcing 의 이름이고
-   * 울타리는 판매상품으로만 움직인다.
-   */
-  findSalesProductIdForSource(
-    tx: ChannelsRepositoryTransaction,
-    input: { organizationId: string; sourceCandidateId: string },
-  ): Promise<string | null>;
 
   lockDraft(
     tx: ChannelsRepositoryTransaction,
@@ -148,12 +121,6 @@ export interface RegistrationDraftPort {
     tx: ChannelsRepositoryTransaction,
     input: CloseRegistrationDraftInput,
   ): Promise<number>;
-
-  /** Resolve and approve submission content; Channels alone claims execution leases. */
-  claimForSubmission(
-    tx: ChannelsRepositoryTransaction,
-    input: ClaimRegistrationDraftInput,
-  ): Promise<ClaimedRegistrationDraft>;
 
   /**
    * 확정된 리스팅으로 콘텐츠 작업공간을 분기한다. 등록 확정 트랜잭션 안에서 함께

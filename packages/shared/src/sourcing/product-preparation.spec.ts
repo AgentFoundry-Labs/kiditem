@@ -19,7 +19,7 @@ describe('RegistrationTarget shared contract', () => {
   it('projects canonical account, source-workspace, and listing identities', () => {
     expect(ProductPreparationProjectionSchema.parse({
       id: '22222222-2222-4222-8222-222222222222',
-      sourceCandidateId: '33333333-3333-4333-8333-333333333333',
+      sourceRecordId: '33333333-3333-4333-8333-333333333333',
       channelAccountId: ACCOUNT_ID,
       sourceContentWorkspaceId: '44444444-4444-4444-8444-444444444444',
       channelListingId: '55555555-5555-4555-8555-555555555555',

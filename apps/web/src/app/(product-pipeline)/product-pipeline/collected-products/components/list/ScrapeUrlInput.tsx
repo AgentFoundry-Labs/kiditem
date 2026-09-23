@@ -2,6 +2,7 @@
 
 import { ExternalLink, Link as LinkIcon, Loader2, X } from 'lucide-react';
 import type { ScrapeUrlStatusResponse } from '../../lib/sourcing-api';
+import type { ScrapeErrorLink } from '../../hooks/useScrapeUrl';
 
 interface Props {
   scrapeUrl: string;
@@ -14,6 +15,8 @@ interface Props {
   duplicate: Extract<ScrapeUrlStatusResponse, { status: 'collected' }> | null;
   ownerStatus?: ScrapeUrlStatusResponse['source'] | null;
   error: string | null;
+  /** 중복 거절이 가리키는 기존 상품. 있으면 오류 옆에 링크를 낸다. */
+  errorLink?: ScrapeErrorLink | null;
   success: string | null;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }
@@ -29,6 +32,7 @@ export default function ScrapeUrlInput({
   duplicate,
   ownerStatus,
   error,
+  errorLink = null,
   success,
   inputRef,
 }: Props) {
@@ -71,8 +75,17 @@ export default function ScrapeUrlInput({
         </button>
       </div>
       {error && (
-        <div className="mt-2 text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-md">
-          {error}
+        <div className="mt-2 flex items-center justify-between gap-2 text-xs text-red-600 bg-red-50 px-3 py-1.5 rounded-md">
+          <span>{error}</span>
+          {errorLink && (
+            <a
+              href={errorLink.href}
+              className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:text-emerald-800"
+            >
+              {errorLink.label}
+              <ExternalLink size={12} />
+            </a>
+          )}
         </div>
       )}
       {ownerStatus && (

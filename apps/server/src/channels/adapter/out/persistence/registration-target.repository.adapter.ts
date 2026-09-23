@@ -8,11 +8,11 @@ import {
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 import type {
-  RegistrationTargetCreateInput,
   RegistrationTargetResolveInput,
   RegistrationTargetUpdateInput,
 } from '@kiditem/shared/sales-product';
 import type {
+  RegistrationTargetCreateRecord,
   RegistrationTargetRecord,
   RegistrationTargetRepositoryPort,
 } from '../../../application/port/out/persistence/registration-target.repository.port';
@@ -148,7 +148,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
    * 상품 × 몰 계정당 등록 설정은 하나다(ADR-0022). 이미 있으면 부분 유일키가 막는데, 그것을
    * 데이터베이스 오류로 흘려보내면 화면이 왜 막혔는지 말하지 못한다.
    */
-  async create(organizationId: string, input: RegistrationTargetCreateInput): Promise<string> {
+  async create(organizationId: string, input: RegistrationTargetCreateRecord): Promise<string> {
     try {
       return await this.createTarget(organizationId, input);
     } catch (error) {
@@ -162,7 +162,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
     }
   }
 
-  private async createTarget(organizationId: string, input: RegistrationTargetCreateInput): Promise<string> {
+  private async createTarget(organizationId: string, input: RegistrationTargetCreateRecord): Promise<string> {
     return this.prisma.$transaction(async (tx) => {
       await validateReferences(tx, organizationId, input.salesProductId, input.channelAccountId);
       await validateSelectedOptions(tx, {
@@ -329,7 +329,7 @@ async function validateReferences(
   salesProductId: string,
   channelAccountId: string,
   options: { allowArchivedProduct?: boolean } = {},
-): Promise<{ status: string; sourceCandidateId: string | null }> {
+): Promise<{ status: string; sourceRecordId: string | null }> {
   // Serialize new references with option archive/delete/composition planning.
   await tx.$queryRaw(Prisma.sql`
     SELECT id FROM sales_products
@@ -346,7 +346,7 @@ async function validateReferences(
 
   const product = await tx.salesProduct.findFirst({
     where: { id: salesProductId, organizationId },
-    select: { id: true, status: true, sourceCandidateId: true },
+    select: { id: true, status: true, sourceRecordId: true },
   });
   if (!product) {
     throw new RegistrationTargetException('invalid', '판매상품이 이 조직에 속하지 않습니다.');
@@ -362,7 +362,7 @@ async function validateReferences(
   if (!account) {
     throw new RegistrationTargetException('invalid', '활성 채널 계정이 이 조직에 속하지 않습니다.');
   }
-  return { status: product.status, sourceCandidateId: product.sourceCandidateId };
+  return { status: product.status, sourceRecordId: product.sourceRecordId };
 }
 
 async function validateSelectedOptions(
@@ -370,7 +370,7 @@ async function validateSelectedOptions(
   input: {
     organizationId: string;
     salesProductId: string;
-    selectedOptions: RegistrationTargetCreateInput['selectedOptions'];
+    selectedOptions: RegistrationTargetCreateRecord['selectedOptions'];
     existingOptionIds?: ReadonlySet<string>;
   },
 ): Promise<void> {

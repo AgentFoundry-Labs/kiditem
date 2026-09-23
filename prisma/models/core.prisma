@@ -122,9 +122,9 @@ model Organization {
   coupangWingTrackedProductDailySnapshots CoupangWingTrackedProductDailySnapshot[]
 
   // Sourcing (issue #192)
-  sourcingCandidates                   SourcingCandidate[]
+  sourceRecords                        SourceRecord[]
   sourcingOwnerIdempotencyReceipts     SourcingOwnerIdempotencyReceipt[]
-  candidateImages                      CandidateImage[]
+  sourceRecordImages                   SourceRecordImage[]
   sourcingWorkspaceSnapshots           SourcingWorkspaceSnapshot[]
   sourcingInterestTargets              SourcingInterestTarget[]
   sourcingKeywordPreferences           SourcingKeywordPreference[]
@@ -210,8 +210,7 @@ model User {
   approvedCapabilityInvocations  CapabilityInvocation[] @relation("CapabilityInvocationApprover")
 
   // Sourcing (issue #192)
-  rejectedSourcingCandidates  SourcingCandidate[] @relation("SourcingCandidateRejectedBy")
-  triggeredSourcingCandidates SourcingCandidate[] @relation("SourcingCandidateTriggeredBy")
+  triggeredSourceRecords SourceRecord[] @relation("SourceRecordTriggeredBy")
 
   @@map("users")
 }

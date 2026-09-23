@@ -4,8 +4,8 @@
     {
       "train": "0.1.31",
       "keys": ["unique:content_workspaces_direct_title_unique"],
-      "coveredBy": "v0.1.31:024_content_workspace_owner_cutover",
-      "note": "024 adds sales_product_id and fills it only on candidate-owned workspaces, which become owner_type='sales_product'. The direct_detail_page rows this index covers are the same set as under the old source_candidate_id IS NULL predicate, and already unique. content_workspaces_sales_product_active_key is not covered by the new-nullable-column clearance either, because pre-schema 024 fills that column before the push; 024 assertOneActiveWorkspacePerDraft is what stops a draft reaching the push with two active workspaces."
+      "acceptedRisk": "Office 0.1.30 already holds the direct_detail_page workspace titles unique under the old source_candidate_id IS NULL predicate, and the new predicate names the same rows.",
+      "note": "KID-313 removed the unpromoted 024 cutover that used to fill sales_product_id first; candidate-owned workspaces are discarded under ADR-0010 and rebuilt on new drafts."
     },
     {
       "train": "0.1.31",

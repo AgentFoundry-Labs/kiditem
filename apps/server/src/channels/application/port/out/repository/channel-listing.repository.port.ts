@@ -64,6 +64,6 @@ export interface ChannelListingDeletionTarget {
    * 우리가 등록해서 생긴 리스팅에만 채워진다(등록 시 immutable provenance).
    * 카탈로그 수집으로 들어온 남의/기존 상품은 `null` 이며 삭제 대상이 아니다.
    */
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   isActive: boolean;
 }

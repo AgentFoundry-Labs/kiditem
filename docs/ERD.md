@@ -129,14 +129,14 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | MasterProductAbcFormulaVersion | Products | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for absolute product ABC publication. |
 | MasterProductAbcGradeHistory | Products | `master_product_abc_grade_histories` | Immutable absolute ABC grade transitions after the initial baseline. |
 | SellpiaInventoryState | Products | `sellpia_inventory_states` | Organization-scoped Sellpia source binding, completion state, generation fence, and active collection lease. |
-| CandidateImage | Sourcing | `sourcing_candidate_images` | 소싱 후보가 소유하는 이미지 갤러리. 소싱 콘텐츠와 썸네일 생성 입력으로 사용한다. |
 | LiveCommerceBroadcastDailySnapshot | Sourcing | `live_commerce_broadcast_daily_snapshots` | 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다. |
 | LiveCommerceProductDailySnapshot | Sourcing | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
 | NaverKeywordDailySnapshot | Sourcing | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 수집 attempt별 키워드/날짜 불변 관측. COMPLETE 범위에서 최신 관측을 조회한다. trendRatio 는 latestRatio 반올림(0-100). |
 | NaverPopularKeywordDailySnapshot | Sourcing | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다. |
 | ShortsTrendDailySnapshot | Sourcing | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
+| SourceRecord | Sourcing | `source_records` | 원본 기록 — 한 번의 수집이 원천에서 가져온 불변 사실(원본 이름·이미지·원가·원문·출처). 수집 owner 만 쓰고 운영자는 만지지 않는다. 초안(SalesProduct.sourceRecordId)이 가리키는 출처이지 화면의 행이 아니다. (org, platform, identityHash) 완전 유일키로 같은 원본은 두 번 수집되지 않고, 초안을 지우면 함께 지워진다(KID-313). |
+| SourceRecordImage | Sourcing | `source_record_images` | 원본 기록이 소유하는 이미지 갤러리. 콘텐츠 생성의 입력으로 쓰이며, Content 는 이 표의 id 를 원천 기록으로만 든다(교차 owner 참조, FK 없음). |
 | Sourcing1688OfferKeywordObservation | Sourcing | `sourcing_1688_offer_keyword_observations` | 1688 키워드 검색에서 수집한 정확한 offer/variant 관측치. 같은 offer가 여러 키워드에서 발견된 provenance를 보존한다. |
-| SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
 | SourcingCollectionSourceControl | Sourcing | `sourcing_collection_source_controls` | Optional organization-level pause for an allowlisted collection source. Absence means enabled. |
 | SourcingDecisionBatch | Sourcing | `sourcing_decision_batches` | Immutable point-in-time policy decision header. Items and evidence are inserted in the same transaction after deterministic evaluation succeeds. |
 | SourcingDecisionBatchItem | Sourcing | `sourcing_decision_batch_items` | One immutable canonical test_order, hold, or reject decision. Offer-only rows support RFQ provenance before an exact LaunchCandidate exists. |
@@ -261,26 +261,6 @@ erDiagram
     DateTime createdAt
     DateTime expiresAt
     DateTime revokedAt
-  }
-  CandidateImage {
-    String id PK
-    String organizationId FK
-    String candidateId FK
-    String url
-    String storageKey
-    String role
-    String label
-    Int sortOrder
-    String source
-    String mimeType
-    Int width
-    Int height
-    Int fileSize
-    Boolean isPrimary
-    Boolean isDeleted
-    DateTime deletedAt
-    DateTime createdAt
-    DateTime updatedAt
   }
   CapabilityInvocation {
     String id PK
@@ -1563,7 +1543,7 @@ erDiagram
     String importDeclarationNo
     String adminMemo
     Json sourceRaw
-    String sourceCandidateId
+    String sourceRecordId
     String sourcePlatform
     String sourceUrl
     Int version
@@ -1786,6 +1766,44 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourceRecord {
+    String id PK
+    String organizationId FK
+    String sourceUrl
+    String sourcePlatform
+    String externalOfferId
+    String variantKeyNormalized
+    String sourceIdentityHash
+    Json rawData
+    String name
+    String description
+    String category
+    Json tags
+    String thumbnailUrl
+    String imageUrl
+    Decimal costCny
+    String triggeredByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourceRecordImage {
+    String id PK
+    String organizationId FK
+    String sourceRecordId FK
+    String url
+    String storageKey
+    String role
+    String label
+    Int sortOrder
+    String source
+    String mimeType
+    Int width
+    Int height
+    Int fileSize
+    Boolean isPrimary
+    DateTime createdAt
+    DateTime updatedAt
+  }
   Sourcing1688OfferKeywordObservation {
     String id PK
     String organizationId FK
@@ -1804,33 +1822,6 @@ erDiagram
     Int monthlySales
     Json rawOffer
     DateTime capturedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  SourcingCandidate {
-    String id PK
-    String organizationId FK
-    String sourceUrl
-    String sourcePlatform
-    String externalOfferId
-    String variantKeyNormalized
-    String sourceIdentityHash
-    Json rawData
-    String name
-    String description
-    String category
-    Json tags
-    String thumbnailUrl
-    String imageUrl
-    Decimal costCny
-    String status
-    String provenanceMasterProductId
-    String rejectedReason
-    DateTime rejectedAt
-    String rejectedByUserId FK
-    String triggeredByUserId FK
-    Boolean isDeleted
-    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2007,7 +1998,7 @@ erDiagram
   SourcingLaunchCandidate {
     String id PK
     String organizationId FK
-    String sourceCandidateId FK
+    String sourceRecordId FK
     String supplierOfferSkuSnapshotId FK
     String targetChannelAccountId
     String supersedesLaunchCandidateId FK
@@ -2445,7 +2436,7 @@ erDiagram
     String label
     Int sortOrder
     String source
-    String candidateImageId
+    String sourceRecordImageId
     String sourceThumbnailCandidateId FK
     String mimeType
     Int width
@@ -2619,7 +2610,6 @@ erDiagram
   Organization ||--o{ AiDirectJob : "organization"
   Organization ||--o{ AiUsageRecord : "organization"
   Organization ||--o{ Alert : "organization"
-  Organization ||--o{ CandidateImage : "organization"
   Organization ||--o{ CapabilityInvocation : "organization"
   Organization ||--o{ CategoryMapping : "organization"
   Organization ||--o{ ChannelAdListingProductMonthlyFact : "organization"
@@ -2680,8 +2670,9 @@ erDiagram
   Organization ||--o{ Settlement : "organization"
   Organization ||--o{ ShortsTrendDailySnapshot : "organization"
   Organization ||--o{ SourceImportRun : "organization"
+  Organization ||--o{ SourceRecord : "organization"
+  Organization ||--o{ SourceRecordImage : "organization"
   Organization ||--o{ Sourcing1688OfferKeywordObservation : "organization"
-  Organization ||--o{ SourcingCandidate : "organization"
   Organization ||--o{ SourcingCollectionSourceControl : "organization"
   Organization ||--o{ SourcingDecisionBatch : "organization"
   Organization ||--o{ SourcingDecisionBatchItem : "organization"
@@ -2768,9 +2759,9 @@ erDiagram
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
   SourceImportRun o|--o{ SellpiaProductMonthlySales : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaSalesDailySnapshot : "sourceImportRun"
+  SourceRecord ||--o{ SourceRecordImage : "sourceRecord"
+  SourceRecord o|--o{ SourcingLaunchCandidate : "sourceRecord"
   Sourcing1688OfferKeywordObservation ||--o{ SourcingReviewBatchItem : "offerKeywordObservation"
-  SourcingCandidate ||--o{ CandidateImage : "candidate"
-  SourcingCandidate o|--o{ SourcingLaunchCandidate : "sourceCandidate"
   SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
   SourcingDecisionBatchItem ||--o{ ProcurementTestIntent : "decisionBatchItem"
   SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
@@ -2849,8 +2840,7 @@ erDiagram
   User ||--o{ SellpiaOrderTransmissionIntent : "creator"
   User ||--o{ SellpiaOrderTransmissionIntentReconciliation : "reconciler"
   User o|--o{ SourceImportRun : "manualFreshExportConfirmer"
-  User o|--o{ SourcingCandidate : "rejectedByUser"
-  User o|--o{ SourcingCandidate : "triggeredByUser"
+  User o|--o{ SourceRecord : "triggeredByUser"
   User ||--o{ SourcingDecisionBatch : "requestedByUser"
   User o|--o{ SourcingEvidenceIngestionRun : "triggeredByUser"
   User ||--o{ SourcingLaunchCandidate : "createdByUser"

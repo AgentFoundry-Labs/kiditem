@@ -27,7 +27,7 @@ function frozenSubmission(
     executionId: 'execution-1',
     preparationId: PREPARATION_ID,
     salesProductId: SALES_PRODUCT_ID,
-    sourceCandidateId: CANDIDATE_ID,
+    sourceRecordId: CANDIDATE_ID,
     channelAccountId: ACCOUNT_ID,
     sourceContentWorkspaceId: WORKSPACE_ID,
     displayName: 'Kids rain boots',
@@ -123,11 +123,11 @@ function setup(overrides: {
   } as RegistrationDraftPort;
   return {
     service: new RegistrationExecutionService(executions, registration, drafts, {
-      list: vi.fn(), findDraftIdForSource: vi.fn(), findDraftIdsForSources: vi.fn(), ensureSalesProductCodes: vi.fn(),
+      list: vi.fn(), findForSourceRecord: vi.fn(), ensureSalesProductCodes: vi.fn(),
       get: vi.fn(), create: vi.fn(), update: vi.fn(),
-      replaceOptions: vi.fn(), createFromSource: vi.fn(), retireDraftForSource: vi.fn(), retireDraft: vi.fn(), mallCategories: vi.fn(),
+      replaceOptions: vi.fn(), createDraft: vi.fn(), deleteDraft: vi.fn(), mallCategories: vi.fn(),
     }, {
-      resolve: vi.fn(), list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(),
+      resolve: vi.fn(), list: vi.fn(), get: vi.fn(), update: vi.fn(),
       archive: vi.fn(),
     }, {
       preview: vi.fn(), prepare: vi.fn(), assertEligible: vi.fn(),
@@ -176,10 +176,10 @@ describe('RegistrationExecutionService', () => {
     const { service, executions, drafts } = setup({
       executions: {
         loadFrozenSubmission: vi.fn().mockResolvedValue(
-          frozenSubmission({ sourceCandidateId: null, sourceContentWorkspaceId: null }),
+          frozenSubmission({ sourceRecordId: null, sourceContentWorkspaceId: null }),
         ),
         recordProviderResult: vi.fn().mockResolvedValue(
-          frozenSubmission({ sourceCandidateId: null, providerOutcome: 'succeeded' }),
+          frozenSubmission({ sourceRecordId: null, providerOutcome: 'succeeded' }),
         ),
       },
     });

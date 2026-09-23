@@ -20,7 +20,7 @@ export const ProductPreparationStatusSchema = z.enum(PRODUCT_PREPARATION_STATUSE
 
 export const ProductPreparationProjectionSchema = z.object({
   id: z.string().uuid(),
-  sourceCandidateId: z.string().uuid().nullable(),
+  sourceRecordId: z.string().uuid().nullable(),
   channelAccountId: z.string().uuid().nullable(),
   sourceContentWorkspaceId: z.string().uuid().nullable(),
   channelListingId: z.string().uuid().nullable(),

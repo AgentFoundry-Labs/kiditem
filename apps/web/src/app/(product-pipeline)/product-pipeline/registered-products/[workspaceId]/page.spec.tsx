@@ -19,7 +19,7 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     externalId: 'seller-product-1',
     channelName: '쿠팡 등록명',
     channelPrice: 21900,
-    sourceCandidateId: 'candidate-1',
+    sourceRecordId: 'candidate-1',
     contentWorkspaceId: 'listing-workspace-1',
     status: 'active',
     exposureStatus: 'visible',
@@ -50,7 +50,7 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
   contentWorkspace: {
     id: 'listing-workspace-1',
     ownerType: 'channel_listing',
-    sourceCandidateId: 'candidate-1',
+    sourceRecordId: 'candidate-1',
     channelListingId: 'listing-1',
     originWorkspaceId: 'candidate-workspace-1',
     displayName: '자석 다트게임 콘텐츠',
@@ -143,8 +143,8 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
       detailGenerationEnabled: true,
     }));
     // 리스팅에서 만든 값에는 원천 기록이 없다 — 소싱 판단을 지어내지 않는다.
-    expect(initialWorkspaceData.product.status).toBeNull();
-    expect(initialWorkspaceData.product.sourceCandidateId).toBeNull();
+    expect(initialWorkspaceData.product).not.toHaveProperty('status');
+    expect(initialWorkspaceData.product.sourceRecordId).toBeNull();
     // 작업공간 id 는 화면 값에 싣지 않고 prop(`contentWorkspaceId`)으로만 넘긴다.
     expect(initialWorkspaceData.product).not.toHaveProperty('contentWorkspaceId');
     expect(initialWorkspaceData.product).not.toHaveProperty('promotedMasterId');

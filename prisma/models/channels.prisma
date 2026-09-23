@@ -329,7 +329,7 @@ model ChannelListingDeletionOperation {
 // ── 몰 작업 관찰 기록 ───────────────────────────────────────────────────────
 //
 // 몰 송신 프로필은 `ChannelAccount.config.listingProfile`, 고시·KC 는 수집상품 초안
-// (`SourcingCandidate.rawData.manualBasics`)에 둔다(KID-107). 새 표는 원천 owner 가 없는
+// (옛 `SourcingCandidate.rawData.manualBasics`)에 둔다(KID-107). 새 표는 원천 owner 가 없는
 // 브라우저 몰 작업 기록 하나뿐이다.
 
 /// @namespace Channels
@@ -424,10 +424,9 @@ model SalesProduct {
   boxSetQuantity       Int?     @map("box_set_quantity")
   /// 몰 공통 등록 문서 입력값. 몰별 값은 RegistrationTarget.registrationInput 이다.
   registrationDefaults Json?    @map("registration_defaults")
-  /// draft | active | paused | sold_out | unused | archived.
-  /// `draft` 는 판매(selling) 옵션 중 판매가가 비어 있다는 뜻이다 — 저장할 때마다 다시 판정한다.
-  /// paused · sold_out · unused · archived 는 사람이 정한 상태라 그대로 둔다.
-  status               String   @default("active")
+  /// draft | active | archived (KID-313). `draft ⇔ code IS NULL` — KID 발급이 active 로 올리고,
+  /// 사람은 archived 로만 바꾼다. 기본값은 draft 라 코드 없이 들어온 줄이 판매 상품이 되지 않는다.
+  status               String   @default("draft")
   /// taxable | tax_free | zero_rated | unknown
   taxType              String   @default("taxable") @map("tax_type")
   /// free | collect | prepay | collect_or_prepay
@@ -452,13 +451,14 @@ model SalesProduct {
   kcStatus             String   @default("unknown") @map("kc_status") @db.VarChar(20)
   importDeclarationNo  String?  @map("import_declaration_no") @db.VarChar(60)
   adminMemo            String?  @map("admin_memo")
-  /// 가져온 원문 한 줄(사방넷 엑셀 칸 그대로). 화면은 읽지 않는다. 상세 HTML 칸은 본문 대신
-  /// 디지스트(`#digest:상품상세설명` · `#digest:추가상품상세설명`)만 담는다 — 다시 가져올 때
-  /// 사람이 고친 칸을 가르는 기준값이다(KID-304).
+  /// 사방넷에서 마지막으로 가져온 원문 한 줄(엑셀 칸 그대로). 화면은 읽지 않는다. 상세 HTML 칸은
+  /// 본문 대신 디지스트(`#digest:상품상세설명` · `#digest:추가상품상세설명`)만 담는다 — 다시
+  /// 가져올 때 사람이 고친 칸을 가르는 기준값이다(KID-304). 수집 원본은 여기 복사하지 않고
+  /// SourceRecord 에서 읽는다(KID-313).
   sourceRaw            Json?    @map("source_raw")
-  /// 이 초안을 만든 원천 기록(SourcingCandidate)의 id. Sourcing 소유라 외래키 없이 id 만 둔다.
-  /// 후보 하나에 초안 하나다 — 원천 기록을 가리키는 포인터일 뿐, 후보를 지워도 초안은 남는다.
-  sourceCandidateId    String?  @map("source_candidate_id") @db.Uuid
+  /// 이 초안을 만든 원본 기록(SourceRecord)의 id. Sourcing 소유라 외래키 없이 id 만 둔다.
+  /// 원본 하나에 초안 하나다. 초안을 지우면 원본 기록도 함께 지우고, 직접 작성 초안은 비어 있다(KID-313).
+  sourceRecordId       String?  @map("source_record_id") @db.Uuid
   /// 원천 장터(1688 · coupang · sabangnet …). 초안을 만들 때 후보에서 복사하고 바꾸지 않는다.
   /// 목록의 원천 탭이 Sourcing 조인 없이 걸러지도록 여기에 둔다.
   sourcePlatform       String?  @map("source_platform") @db.VarChar(40)
@@ -476,7 +476,7 @@ model SalesProduct {
   @@unique([organizationId, code], map: "sales_products_org_code_key", where: raw("code IS NOT NULL"))
   @@unique([organizationId, ownCode], map: "sales_products_org_own_code_key", where: raw("own_code IS NOT NULL"))
   @@unique([organizationId, sabangnetGoodsNo], map: "sales_products_org_sabangnet_goods_key", where: raw("sabangnet_goods_no IS NOT NULL"))
-  @@unique([organizationId, sourceCandidateId], map: "sales_products_org_source_candidate_key", where: raw("source_candidate_id IS NOT NULL"))
+  @@unique([organizationId, sourceRecordId], map: "sales_products_org_source_record_key", where: raw("source_record_id IS NOT NULL"))
   @@unique([id, organizationId], map: "sales_products_id_org_key")
   @@index([organizationId, status])
   /// 수집상품 탭: 조직 · 원천 장터 · 상태로 거르고 updatedAt desc, id desc 로 정렬한다.

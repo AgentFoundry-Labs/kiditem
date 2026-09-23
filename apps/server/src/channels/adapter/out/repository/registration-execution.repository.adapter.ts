@@ -26,6 +26,8 @@ import {
 import { MALL_ADMIN_LISTING_READERS } from '@kiditem/shared/mall-admin-listings';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { registrationDraftState } from '../../../domain/registration/registration-execution-state';
+import { canStartRegistration } from '../../../domain/sales-product/sales-product-status';
+import type { SalesProductStatus } from '@kiditem/shared/sales-product';
 import { isReservedExecutionIdempotencyKey } from '../../../domain/registration/thumbnail-update';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { preparedRegistrationRecipe, registrationRequestBeforeCodeAssignment, withRegistrationItemCode } from '../../../domain/registration/registration-item-code';
@@ -56,7 +58,6 @@ import type {
   ClosedRegistrationExecutionResult,
   FrozenRegistrationSubmission,
   PrepareRegistrationExecutionInput,
-  RegistrationExecutionClaimResult,
   RegistrationExecutionRegisteredResult,
   RegistrationExecutionRepositoryPort,
   RegistrationExecutionResult,
@@ -583,9 +584,9 @@ export class RegistrationExecutionRepositoryAdapter
         if (options.length !== new Set(snapshotOptionIds).size) {
           throw new ConflictException('Frozen registration options no longer belong to the sales product.');
         }
-        if (frozen.payload.kind === 'register'
-          && (product.status === 'archived' || product.status === 'unused')) {
-          throw new ConflictException('Archived or unused sales products cannot start a new registration.');
+        // 새 등록은 KID 를 받은 판매 상품(active)만 연다 — 초안은 코드가 없고 보관은 판매를 접었다(KID-313).
+        if (frozen.payload.kind === 'register' && !canStartRegistration(product.status as SalesProductStatus)) {
+          throw new ConflictException('Only a selling product with a KID can start a new registration.');
         }
         if (frozen.payload.kind === 'register'
           && options.some((option) => option.supplyStatus === 'unused')) {
@@ -724,7 +725,7 @@ export class RegistrationExecutionRepositoryAdapter
         select: { version: true, status: true },
       });
       if (!product || product.version !== snapshot.product.version || product.status !== snapshot.product.status
-        || (snapshot.kind === 'register' && ['archived', 'unused'].includes(product.status))) {
+        || (snapshot.kind === 'register' && !canStartRegistration(product.status as SalesProductStatus))) {
         throw new ConflictException('Sales product changed after execution preparation.');
       }
       const snapshotOptionIds = snapshot.product.options.map(option => option.id);
@@ -945,114 +946,6 @@ export class RegistrationExecutionRepositoryAdapter
       });
       return targetExecutionResult(updated, false);
     }, TARGET_EXECUTION_TRANSACTION_OPTIONS);
-  }
-
-  async cancelUnstartedExecutions(
-    transaction: ChannelsRepositoryTransaction,
-    input: {
-      organizationId: string;
-      sourceCandidateId: string;
-      cancelledAt: Date;
-    },
-  ): Promise<number> {
-    const tx = ownerTransactionClient(transaction);
-    // 후보는 Sourcing 의 이름이다. 울타리는 그 후보가 만든 판매상품으로만 움직인다.
-    const salesProductId = await this.drafts.findSalesProductIdForSource(transaction, {
-      organizationId: input.organizationId,
-      sourceCandidateId: input.sourceCandidateId,
-    });
-    if (!salesProductId) return 0;
-    const preparationIds = await this.drafts.findDraftIds(transaction, {
-      organizationId: input.organizationId,
-      salesProductId,
-      isDeleted: false,
-      fenceIdle: true,
-    });
-    const identities = preparationIds.length === 0 ? [] : await tx.productRegistrationExecution.findMany({
-      where: {
-        organizationId: input.organizationId,
-        executionKind: 'external_wing',
-        status: 'prepared',
-        providerOutcome: 'not_attempted',
-        providerSubmissionId: null,
-        externalListingId: null,
-        resultJson: { equals: Prisma.DbNull },
-        leaseToken: null,
-        leaseClaimedAt: null,
-        startedAt: null,
-        completedAt: null,
-        registrationTargetId: { in: preparationIds },
-      },
-      select: { id: true, registrationTargetId: true },
-    });
-
-    let cancelled = 0;
-    for (const identity of identities) {
-      const preparationId = identity.registrationTargetId;
-      if (preparationId === null) continue;
-      await this.drafts.lockDraft(transaction, {
-        organizationId: input.organizationId,
-        preparationId,
-      });
-      await lockExecution(tx, input.organizationId, identity.id);
-      const current = await tx.productRegistrationExecution.findFirst({
-        where: {
-          id: identity.id,
-          organizationId: input.organizationId,
-          registrationTargetId: preparationId,
-        },
-      });
-      if (!current || current.registrationTargetId === null) continue;
-      const draft = current
-        ? await this.drafts.loadDraft(transaction, {
-          organizationId: input.organizationId,
-          preparationId: current.registrationTargetId,
-        })
-        : null;
-      if (!draft || !isUnstartedExternalRegistrationIntent(
-        current,
-        draft,
-        input.organizationId,
-        salesProductId,
-      )) {
-        continue;
-      }
-
-      const execution = await tx.productRegistrationExecution.updateMany({
-        where: {
-          id: current.id,
-          organizationId: input.organizationId,
-          status: 'prepared',
-          providerOutcome: 'not_attempted',
-          providerSubmissionId: null,
-          externalListingId: null,
-          resultJson: { equals: Prisma.DbNull },
-          leaseToken: null,
-          leaseClaimedAt: null,
-          startedAt: null,
-          completedAt: null,
-        },
-        data: {
-          status: 'cancelled',
-          completedAt: input.cancelledAt,
-          leaseToken: null,
-          leaseClaimedAt: null,
-        },
-      });
-      if (execution.count !== 1) continue;
-
-      const draftCancelled = await this.drafts.closeDraft(transaction, {
-        organizationId: input.organizationId, preparationId: current.registrationTargetId,
-        salesProductId, closedAt: input.cancelledAt, archive: true,
-      });
-      if (draftCancelled !== 1) {
-        throw new ConflictException(
-          'Registration preparation changed while candidate deletion was being prepared.',
-        );
-      }
-      cancelled += 1;
-    }
-    return cancelled;
   }
 
   async prepare(
@@ -1586,172 +1479,16 @@ export class RegistrationExecutionRepositoryAdapter
     });
   }
 
-  async claimForSubmission(
-    organizationId: string,
-    preparationId: string,
-    userId: string | null,
-  ): Promise<RegistrationExecutionClaimResult> {
-    return this.prisma.$transaction(async (tx) => {
-      const handle = ownerTransaction(tx);
-      const identity = await this.drafts.loadDraft(handle, { organizationId, preparationId });
-      if (!identity) throw new NotFoundException('Product preparation not found.');
-      await this.drafts.lockProduct(handle, {
-        organizationId,
-        salesProductId: identity.salesProductId,
-      });
-
-
-      await this.drafts.lockDraft(handle, { organizationId, preparationId });
-      const current = await this.drafts.loadDraft(handle, { organizationId, preparationId });
-      if (!current) throw new NotFoundException('Product preparation not found.');
-      let execution = await tx.productRegistrationExecution.findFirst({
-        where: { organizationId, registrationTargetId: current.preparationId },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      });
-      if (execution) await lockExecution(tx, organizationId, execution.id);
-      execution = await tx.productRegistrationExecution.findFirst({
-        where: { organizationId, registrationTargetId: current.preparationId },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      });
-      if (execution && execution.executionKind !== 'create') {
-        throw new ConflictException('This execution must use its explicit start/completion contract.');
-      }
-      if (execution?.status === 'succeeded') {
-        if (!execution.channelListingId) {
-          throw new ConflictException('Succeeded execution is missing its listing identity.');
-        }
-        return {
-          preparationId: current.preparationId,
-          status: 'registered' as const,
-          listingId: execution.channelListingId,
-        };
-      }
-      assertRegistrationIdentity(current);
-      await this.drafts.requireActiveProduct(handle, {
-        organizationId,
-        salesProductId: current.salesProductId,
-      });
-      const now = new Date();
-      if (execution && ['prepared', 'executing', 'reconciling'].includes(execution.status) && hasLiveExecutionLease({
-        token: execution.leaseToken,
-        claimedAt: execution.leaseClaimedAt,
-        now,
-      })) {
-        throw new ConflictException('Product registration submission is already in progress.');
-      }
-      if (execution?.status === 'cancelled' || execution?.status === 'failed') {
-        throw new ConflictException(`Registration execution cannot be submitted from '${execution.status}'.`);
-      }
-      if (!['draft', 'submitting', 'failed', 'registered'].includes(current.status)) {
-        throw new ConflictException(`Preparation cannot be submitted from '${current.status}'.`);
-      }
-      const submissionLeaseToken = randomUUID();
-
-      if (!execution) {
-        const claimed = await this.drafts.claimForSubmission(handle, {
-          organizationId,
-          preparationId: current.preparationId,
-          userId,
-          now,
-          reuseFrozenSubmission: false,
-        });
-        const frozen = claimed.frozen!;
-        execution = await tx.productRegistrationExecution.create({
-          data: {
-            organizationId,
-            registrationTargetId: claimed.draft.preparationId,
-            channelAccountId: claimed.draft.channelAccountId,
-            idempotencyKey: randomUUID(),
-            requestHash: frozen.hash,
-            reviewPayloadHash: frozen.hash,
-            approvedAt: now,
-            approvedByUserId: userId,
-            submissionPayloadJson: frozen.payload as Prisma.InputJsonValue,
-            submissionPayloadHash: frozen.hash,
-            status: 'prepared',
-            providerOutcome: 'not_attempted',
-            leaseToken: submissionLeaseToken,
-            leaseClaimedAt: now,
-            requestedByUserId: userId,
-          },
-        });
-        return toFrozenSubmission(claimed.draft, execution);
-      }
-
-      if (execution.reviewPayloadHash !== execution.requestHash
-        || execution.approvedAt === null
-        || execution.approvedByUserId !== userId) {
-        throw new ConflictException('Registration execution does not match its frozen approval.');
-      }
-      if (!execution.submissionPayloadJson || !execution.submissionPayloadHash) {
-        throw new ConflictException('Registration execution is missing its frozen submission.');
-      }
-      const claimed = await this.drafts.claimForSubmission(handle, {
-        organizationId,
-        preparationId: current.preparationId,
-        userId,
-        now,
-        reuseFrozenSubmission: true,
-      });
-      if (execution.requestedByUserId !== userId) {
-        throw new ConflictException('Registration execution belongs to a different actor.');
-      }
-      const refreshedExecution = await tx.productRegistrationExecution.update({
-        where: { id: execution.id, organizationId: execution.organizationId },
-        data: { leaseToken: submissionLeaseToken, leaseClaimedAt: now },
-      });
-      return toFrozenSubmission(claimed.draft, refreshedExecution);
-    });
-  }
-
   async loadFrozenSubmission(
     organizationId: string,
     preparationId: string,
-    executionId?: string,
+    executionId: string,
   ): Promise<FrozenRegistrationSubmission> {
     return this.prisma.$transaction(async (tx) => {
       const row = await this.drafts.loadDraft(ownerTransaction(tx), { organizationId, preparationId });
       if (!row || row.isDeleted) throw new NotFoundException('Frozen product preparation not found.');
       const execution = await requireExecution(tx, organizationId, preparationId, executionId);
       return toFrozenSubmission(row, execution);
-    });
-  }
-
-  async markProviderAttemptStarted(
-    organizationId: string,
-    preparationId: string,
-    submissionLeaseToken: string,
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const handle = ownerTransaction(tx);
-      await this.drafts.lockDraft(handle, { organizationId, preparationId });
-      const current = await this.drafts.loadDraft(handle, { organizationId, preparationId });
-      const execution = await requireExecution(tx, organizationId, preparationId);
-      await lockExecution(tx, organizationId, execution.id);
-      if (!current || current.status !== 'submitting' || current.isDeleted
-        || execution.leaseToken !== submissionLeaseToken) {
-        throw new ConflictException('Product registration submission lease was lost.');
-      }
-      if (execution.status !== 'prepared' || execution.providerOutcome !== 'not_attempted') {
-        throw new ConflictException(
-          'Provider create is not allowed while the prior outcome is uncertain or succeeded.',
-        );
-      }
-      const started = await tx.productRegistrationExecution.updateMany({
-        where: {
-          id: execution.id,
-          organizationId,
-          status: 'prepared',
-          leaseToken: submissionLeaseToken,
-        },
-        data: {
-          status: 'executing', providerOutcome: 'uncertain', startedAt: new Date(),
-          lastErrorCode: null, lastErrorMessage: null,
-        },
-      });
-      if (started.count !== 1) {
-        throw new ConflictException('Product registration submission lease was lost.');
-      }
     });
   }
 
@@ -1765,7 +1502,7 @@ export class RegistrationExecutionRepositoryAdapter
       channel: string;
       rawResult: unknown;
     },
-    executionId?: string,
+    executionId: string,
   ): Promise<FrozenRegistrationSubmission> {
     return this.prisma.$transaction(async (tx) => {
       const handle = ownerTransaction(tx);
@@ -1806,7 +1543,7 @@ export class RegistrationExecutionRepositoryAdapter
     preparationId: string;
     submissionLeaseToken: string;
     error: string;
-    executionId?: string;
+    executionId: string;
     providerOutcome?: 'definitive_failure';
   }): Promise<{ preparationId: string; status: 'failed' }> {
     return this.prisma.$transaction(async (tx) => {
@@ -1864,7 +1601,7 @@ export class RegistrationExecutionRepositoryAdapter
     finalize: (
       tx: ChannelsRepositoryTransaction,
     ) => Promise<{ listingId: string }>,
-    executionId?: string,
+    executionId: string,
   ): Promise<RegistrationExecutionRegisteredResult> {
     return this.prisma.$transaction(async (tx) => {
       const handle = ownerTransaction(tx);
@@ -2245,14 +1982,13 @@ async function requireExecution(
   tx: Prisma.TransactionClient,
   organizationId: string,
   preparationId: string,
-  executionId?: string,
+  executionId: string,
 ): Promise<ProductRegistrationExecution> {
   const execution = await tx.productRegistrationExecution.findFirst({
-    where: { organizationId, registrationTargetId: preparationId, ...(executionId ? { id: executionId } : {}) },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    where: { organizationId, registrationTargetId: preparationId, id: executionId },
   });
   if (!execution) throw new ConflictException('Product registration execution is missing.');
-  if (executionId ? !['create', 'external_wing'].includes(execution.executionKind) : execution.executionKind !== 'create') {
+  if (execution.executionKind !== 'external_wing') {
     throw new ConflictException('Use the explicit execution identity for this registration.');
   }
   return execution;
@@ -2395,7 +2131,7 @@ function toFrozenSubmission(
     executionId: execution.id,
     preparationId: draft.preparationId,
     salesProductId: draft.salesProductId,
-    sourceCandidateId: draft.sourceCandidateId,
+    sourceRecordId: draft.sourceRecordId,
     channelAccountId: frozenChannelAccountId,
     sourceContentWorkspaceId: draft.sourceContentWorkspaceId,
     displayName: frozenRequiredString(payload, 'displayName'),

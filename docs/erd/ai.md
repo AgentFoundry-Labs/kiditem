@@ -342,7 +342,7 @@ erDiagram
     String label
     Int sortOrder
     String source
-    String candidateImageId
+    String sourceRecordImageId
     String sourceThumbnailCandidateId FK
     String mimeType
     Int width

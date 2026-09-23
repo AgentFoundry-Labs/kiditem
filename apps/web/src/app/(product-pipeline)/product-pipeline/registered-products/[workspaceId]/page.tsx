@@ -164,8 +164,7 @@ function channelListingToProductWorkspaceData(
   const product: ProductDetailResponse = {
     id: listing.id,
     name: title,
-    status: null,
-    sourceCandidateId: null,
+    sourceRecordId: null,
     sourcePlatform: `channel_listing:${listing.channel}`,
     source_platform: `channel_listing:${listing.channel}`,
     source_url: null,

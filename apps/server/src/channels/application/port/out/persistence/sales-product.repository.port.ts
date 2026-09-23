@@ -31,8 +31,8 @@ export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
   sabangnetGoodsNo: string | null;
   optionAxes: string[];
   sourceRaw: Record<string, unknown> | null;
-  /** 이 초안을 만든 원천 기록(수집상품) id. */
-  sourceCandidateId?: string | null;
+  /** 이 초안을 만든 원본 기록(SourceRecord) id. 직접 작성 · 사방넷은 없다. */
+  sourceRecordId?: string | null;
   /** 원천 장터와 주소. 초안을 만들 때만 쓰고 바꾸지 않는다. */
   sourcePlatform?: string | null;
   sourceUrl?: string | null;
@@ -55,12 +55,13 @@ export interface SalesProductOptionState {
   options: ExistingSalesProductOption[];
 }
 
-/** 후보 거절 · 삭제가 초안을 `unused` 로 내린 결과. */
-export interface SalesProductDraftRetireRow {
-  salesProductId: string | null;
-  retired: boolean;
-  activeListingCount: number;
-  activeExecutionCount: number;
+/** 초안 삭제 가부를 정하는 사실. 줄을 잠근 뒤 읽는다. */
+export interface SalesProductDraftDeletionFacts {
+  status: SalesProductStatus;
+  hasCode: boolean;
+  sourceRecordId: string | null;
+  hasListing: boolean;
+  hasLiveExecution: boolean;
 }
 
 export interface SabangnetImportProductWrite {
@@ -104,9 +105,14 @@ export interface SalesProductRepositoryPort {
   allocateCode(organizationId: string): Promise<string>;
   /**
    * 팔기로 정한 시점에 KID 를 채운다(상품 + 파는 단품 전부). 이미 있으면 그대로 두는 멱등 연산이고,
-   * 판매상품 줄을 잠근 채 한 트랜잭션에서 끝난다.
+   * 판매상품 줄을 잠근 채 한 트랜잭션에서 끝난다. `transaction` 을 주면 그 안에서 한다 — 직접 작성은
+   * 삽입과 발급이 한 커밋이다(KID-313).
    */
-  ensureCodes(organizationId: string, salesProductId: string): Promise<{ code: string; issued: number }>;
+  ensureCodes(
+    organizationId: string,
+    salesProductId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ code: string; issued: number }>;
   /** 배치판. 몰 엑셀 한 파일이 상품마다 트랜잭션을 여는 것을 막는다 — 한 번에 한 트랜잭션이다. */
   ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number>;
   readMasterProductCodes(organizationId: string, ids: readonly string[]): Promise<Map<string, string>>;
@@ -141,8 +147,6 @@ export interface SalesProductRepositoryPort {
     expectedVersion: number;
     optionAxes: string[];
     plan: SalesProductOptionReplacementPlan;
-    /** 저장 뒤 상태. 팔 옵션에 값이 다 차면 `active`, 아니면 `draft` 다. */
-    status: SalesProductStatus;
   }): Promise<boolean>;
   /** 이 조직의 활성 셀피아 SKU 가 맞는지. 아닌 id 를 돌려준다. */
   findInvalidMasterProductIds(organizationId: string, skuIds: readonly string[]): Promise<string[]>;
@@ -230,34 +234,21 @@ export interface SalesProductRepositoryPort {
   listMallCategoryPaths(
     organizationId: string,
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]>;
-  /** 원천 기록 id → 그 후보에서 만든 초안 id(있으면). 초안은 후보당 하나다. */
-  findIdBySourceCandidate(
+  /** 이 원본 기록을 가리키는 판매 상품과 그 상태(원본 하나에 상품 하나). 없으면 null. */
+  findForSourceRecord(
     organizationId: string,
-    candidateId: string,
+    sourceRecordId: string,
     transaction?: OwnerTransaction,
-  ): Promise<string | null>;
-  /** 배치판. 수집상품 목록이 후보마다 초안을 되읽으면 N+1 이다. 초안이 없는 후보는 맵에 없다. */
-  findIdsBySourceCandidates(
-    organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, string>>;
-  /**
-   * 후보에서 만든 초안을 `unused` 로 내린다. 활성 몰 상품이나 살아 있는 등록 실행이 있으면 내리지
-   * 않고 그 수를 돌려준다 — 후보 거절을 막지는 않는다.
-   */
-  /** 부르는 쪽의 트랜잭션에서 실행한다 — 후보 종료와 한 커밋이다. */
-  retireDraftForSource(
-    transaction: OwnerTransaction,
-    organizationId: string,
-    candidateId: string,
-  ): Promise<SalesProductDraftRetireRow>;
-  /** 판매상품으로 찾은 초안을 내린다(원천 기록이 없는 초안의 삭제). 규칙은 retireDraftForSource 와 같다. */
-  retireDraft(
+  ): Promise<{ salesProductId: string; status: SalesProductStatus } | null>;
+  /** 초안 삭제: 판매상품 줄을 잠그고 삭제 가부의 사실을 읽는다. 없는 상품(다른 조직 포함)이면 null. */
+  readDraftDeletionFacts(
     transaction: OwnerTransaction,
     organizationId: string,
     salesProductId: string,
-  ): Promise<SalesProductDraftRetireRow>;
-  /** 초안 내리기와 그 작업공간 보관을 한 커밋에 묶는다. 트랜잭션은 persistence 만 연다. */
+  ): Promise<SalesProductDraftDeletionFacts | null>;
+  /** 초안 줄 · 옵션 · 등록 설정 · 이 상품만 쓰던 공개 사진을 지운다. */
+  deleteDraftRows(transaction: OwnerTransaction, organizationId: string, salesProductId: string): Promise<void>;
+  /** 초안 삭제와 원본 기록 · 작업공간 정리를 한 커밋에 묶는다. 트랜잭션은 persistence 만 연다. */
   runInTransaction<T>(work: (transaction: OwnerTransaction) => Promise<T>): Promise<T>;
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(있는 것만). */
   readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>>;

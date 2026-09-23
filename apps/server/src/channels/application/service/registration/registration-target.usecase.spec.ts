@@ -77,25 +77,15 @@ describe('registration target public port', () => {
     });
   });
 
-  it('keeps multiple independently priced registrations for one product and account', async () => {
-    const { service } = setup();
-    const regular = await service.create(org, input);
-    const event = await service.create(org, { ...input, displayName: '기획전', selectedOptions: [
-      { ...input.selectedOptions[0], salePrice: 2500, supplyPrice: 1900 },
-    ] });
-    expect(event.id).not.toBe(regular.id);
-    expect((await service.list(org, 'product')).map(target => target.resolved)).toEqual([
-      { name: '공통 상품명', options: [expect.objectContaining({ salePrice: 3000, normalPrice: 5000, supplyPrice: null })] },
-      { name: '기획전', options: [expect.objectContaining({ salePrice: 2500, normalPrice: 5000, supplyPrice: 1900 })] },
-    ]);
-  });
-
   it('applies edited common defaults only where no explicit target value exists', async () => {
     const { service, defaults } = setup();
-    const target = await service.create(org, { ...input, displayName: '고정 상품명', selectedOptions: [
-      { ...input.selectedOptions[0], salePrice: 0 },
-      { salesProductOptionId: 'option-b', salePrice: null, normalPrice: null, supplyPrice: null },
-    ] });
+    const resolved = await service.resolve(org, { salesProductId: 'product', channelAccountId: 'account' });
+    const target = await service.update(org, resolved.id, {
+      expectedVersion: resolved.version, displayName: '고정 상품명', registrationInput: {}, selectedOptions: [
+        { ...input.selectedOptions[0], salePrice: 0 },
+        { salesProductOptionId: 'option-b', salePrice: null, normalPrice: null, supplyPrice: null },
+      ],
+    });
     defaults.name = '새 기본 이름';
     defaults.options[0].salePrice = 6000;
     defaults.options[1].salePrice = 7000;
@@ -107,9 +97,14 @@ describe('registration target public port', () => {
 
   it('returns only selected options and rejects a dangling option reference', async () => {
     const { service } = setup();
-    const target = await service.create(org, input);
+    const resolved = await service.resolve(org, { salesProductId: 'product', channelAccountId: 'account' });
+    const target = await service.update(org, resolved.id, {
+      expectedVersion: resolved.version, displayName: null, registrationInput: {}, selectedOptions: input.selectedOptions,
+    });
     expect(target.resolved.options.map(option => option.salesProductOptionId)).toEqual(['option-a']);
-    await expect(service.create(org, { ...input, selectedOptions: [{ ...input.selectedOptions[0], salesProductOptionId: 'other-product-option' }] }))
-      .rejects.toThrow('선택한 옵션이 해당 판매상품에 없습니다.');
+    await expect(service.update(org, resolved.id, {
+      expectedVersion: target.version, displayName: null, registrationInput: {},
+      selectedOptions: [{ ...input.selectedOptions[0], salesProductOptionId: 'other-product-option' }],
+    })).rejects.toThrow('선택한 옵션이 해당 판매상품에 없습니다.');
   });
 });

@@ -3,7 +3,6 @@ import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import {
   applyBasicsPriceToSalesProduct,
-  candidatesApi,
   salesProductGenerationApi,
   productsApi,
   salesProductUpdateInputFromBasics,
@@ -28,7 +27,7 @@ function salesProductDraftFixture(overrides: Record<string, unknown> = {}) {
     code: null,
     ownCode: null,
     sabangnetGoodsNo: null,
-    sourceCandidateId: '20000000-0000-4000-8000-000000000001',
+    sourceRecordId: '20000000-0000-4000-8000-000000000001',
     sourcePlatform: 'ALIBABA_1688',
     sourceUrl: 'https://1688.com/item/1',
     name: '자석 다트게임',
@@ -89,7 +88,7 @@ function salesProductDraftFixture(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('sourcing candidate API', () => {
+describe('sourcing API', () => {
   beforeEach(() => {
     vi.mocked(apiClient.delete).mockReset();
     vi.mocked(apiClient.get).mockReset();
@@ -119,34 +118,6 @@ describe('sourcing candidate API', () => {
     );
   });
 
-  it('deletes sourcing inbox cards through the sourcing candidate route', async () => {
-    vi.mocked(apiClient.delete).mockResolvedValueOnce({ ok: true });
-
-    await expect(candidatesApi.delete('cand-1')).resolves.toEqual({ ok: true });
-
-    expect(apiClient.delete).toHaveBeenCalledWith('/api/sourcing/candidates/cand-1');
-  });
-
-  it('passes the selected manual registration platform to the sourcing list endpoint', async () => {
-    vi.mocked(apiClient.get).mockResolvedValueOnce({
-      items: [],
-      total: 0,
-      page: 1,
-      limit: 20,
-    });
-
-    await productsApi.list({
-      page: 1,
-      limit: 20,
-      platform: 'KIDITEM_PRODUCT_REGISTRATION',
-      sort: 'newest',
-    });
-
-    expect(apiClient.get).toHaveBeenCalledWith(
-      '/api/sourcing/extension/products?page=1&limit=20&platform=KIDITEM_PRODUCT_REGISTRATION&sort=newest',
-    );
-  });
-
   it('searches in-stock Sellpia SKUs by default and includes zero stock only on opt-in', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ items: [] });
 
@@ -163,83 +134,25 @@ describe('sourcing candidate API', () => {
     );
   });
 
-  // 저장한 대표 썸네일이 카드에 반영되지 않던 회귀.
-  // `sourcing_candidates.thumbnail_url` 은 수집 원본이라 대표를 바꿔 저장해도
-  // 그대로다. 서버가 내려주는 `selectedThumbnailUrl` 을 카드가 읽어야 한다.
-  it('목록 카드 썸네일은 저장된 대표를 수집 원본보다 우선한다', async () => {
-    vi.mocked(apiClient.get).mockResolvedValueOnce({
-      items: [
-        {
-          id: 'cand-1',
-          name: '4000과일바구니딸깍이키링',
-          status: 'sourced',
-          sourcePlatform: 'KIDITEM_PRODUCT_REGISTRATION',
-          thumbnailUrl: 'https://cdn.example.com/scrape-original.png',
-          imageUrl: 'https://cdn.example.com/scrape-original.png',
-          images: [],
-          registrationTarget: null,
-          selectedThumbnailUrl: 'https://cdn.example.com/saved-representative.jpg',
-        },
-      ],
-      total: 1,
-      page: 1,
-      limit: 20,
-    });
-
-    const { items } = await productsApi.list({ page: 1, limit: 20 });
-
-    expect(items[0].selectedThumbnailUrl).toBe('https://cdn.example.com/saved-representative.jpg');
-    expect(items[0].thumbnailUrl).toBe('https://cdn.example.com/saved-representative.jpg');
-  });
-
-  it('저장된 대표가 없으면 수집 원본으로 떨어진다', async () => {
-    vi.mocked(apiClient.get).mockResolvedValueOnce({
-      items: [
-        {
-          id: 'cand-1',
-          name: '4000과일바구니딸깍이키링',
-          status: 'sourced',
-          sourcePlatform: 'KIDITEM_PRODUCT_REGISTRATION',
-          thumbnailUrl: 'https://cdn.example.com/scrape-original.png',
-          imageUrl: 'https://cdn.example.com/scrape-original.png',
-          images: [],
-          registrationTarget: null,
-          selectedThumbnailUrl: null,
-        },
-      ],
-      total: 1,
-      page: 1,
-      limit: 20,
-    });
-
-    const { items } = await productsApi.list({ page: 1, limit: 20 });
-
-    expect(items[0].selectedThumbnailUrl).toBeNull();
-    expect(items[0].thumbnailUrl).toBe('https://cdn.example.com/scrape-original.png');
-  });
-
   describe('수집상품 화면은 판매상품 초안으로 연다(KID-310)', () => {
     const DRAFT_ID = '10000000-0000-4000-8000-000000000001';
     const CANDIDATE_ID = '20000000-0000-4000-8000-000000000001';
     const EMPTY_MEDIA = { registrationImages: { primary: [], thumbnail: [], detail: [] }, currentThumbnail: null };
 
+    /** `GET /api/sourcing/source-records/:id` 의 원본 기록(KID-313). */
     function candidateResponse(overrides: Record<string, unknown> = {}) {
       return {
         id: CANDIDATE_ID,
-        name: '자석 다트게임(원본명)',
-        status: 'sourced',
         sourcePlatform: '1688',
         sourceUrl: 'https://1688.com/item/1',
-        thumbnailUrl: null,
-        imageUrl: null,
-        sellPrice: null,
+        externalOfferId: '1',
+        name: '자석 다트게임(원본명)',
+        description: '',
+        category: null,
         costCny: '12.5',
-        processedData: null,
         rawData: { title: '원본 제목' },
         images: [],
-        registrationTarget: null,
-        createdAt: '2026-05-16T00:00:00.000Z',
-        updatedAt: '2026-05-16T00:00:00.000Z',
+        collectedAt: '2026-05-16T00:00:00.000Z',
         ...overrides,
       };
     }
@@ -262,7 +175,7 @@ describe('sourcing candidate API', () => {
         }],
       }));
       routeGets({
-        [`/api/sourcing/${CANDIDATE_ID}`]: candidateResponse({
+        [`/api/sourcing/source-records/${CANDIDATE_ID}`]: candidateResponse({
           rawData: {
             title: '원본 제목',
             description_images: ['https://cdn.example.com/detail-info.jpg'],
@@ -287,7 +200,7 @@ describe('sourcing candidate API', () => {
       expect(apiClient.getParsed).toHaveBeenCalledWith(`/api/products/sales-products/${DRAFT_ID}`, expect.anything());
       expect(detail.id).toBe(DRAFT_ID);
       expect(detail.salesProductId).toBe(DRAFT_ID);
-      expect(detail.sourceCandidateId).toBe(CANDIDATE_ID);
+      expect(detail.sourceRecordId).toBe(CANDIDATE_ID);
       // 편집 값은 초안이 이긴다 — 후보 원본명이 아니라 초안에서 고친 이름이다.
       expect(detail.name).toBe('자석 다트게임');
       expect(detail.basicInfo.name).toBe('자석 다트게임');
@@ -298,7 +211,6 @@ describe('sourcing candidate API', () => {
       expect(detail.image_urls).toEqual(['https://cdn.example.com/product-1.jpg']);
       expect(detail.raw_data?.description_images).toEqual(['https://cdn.example.com/detail-info.jpg']);
       expect(detail.cost_cny).toBe(12.5);
-      expect(detail.status).toBe('sourced');
       // 등록용 사진과 대표 썸네일은 초안의 것이다.
       expect(detail.registrationImages.thumbnail).toEqual(['https://cdn.example.com/t1.png']);
       expect(detail.basicInfo.selectedThumbnailUrl).toBe('https://cdn.example.com/selected.png');
@@ -307,7 +219,7 @@ describe('sourcing candidate API', () => {
 
     it('원천 기록이 없는 초안(직접 작성 · 사방넷)은 후보를 묻지 않고 초안 사진으로 보인다', async () => {
       vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture({
-        sourceCandidateId: null,
+        sourceRecordId: null,
         sourcePlatform: null,
         sourceUrl: null,
         name: '직접 만든 상품',
@@ -321,8 +233,7 @@ describe('sourcing candidate API', () => {
       expect(vi.mocked(apiClient.get).mock.calls.map(([url]) => url)).toEqual([
         `/api/ai/content-workspaces/by-sales-product/${DRAFT_ID}/registration-media`,
       ]);
-      expect(detail.sourceCandidateId).toBeNull();
-      expect(detail.status).toBeNull();
+      expect(detail.sourceRecordId).toBeNull();
       expect(detail.name).toBe('직접 만든 상품');
       expect(detail.image_urls).toEqual(['https://cdn.example.com/draft.jpg']);
       expect(detail.raw_data).toBeNull();
@@ -330,43 +241,24 @@ describe('sourcing candidate API', () => {
       expect(detail.registrationState).toBe('none');
     });
 
-    it('등록 설정은 아직 원천 기록 응답에서 읽는다(pass C 가 Channels 읽기로 바꾼다)', async () => {
+    it('원본 기록 응답은 원본 사실만 준다 — 등록 설정과 울타리 상태는 여기서 읽지 않는다(KID-313)', async () => {
       vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture());
       routeGets({
-        [`/api/sourcing/${CANDIDATE_ID}`]: candidateResponse({
-          registrationState: 'registered',
-          registrationTarget: {
-            id: '44444444-4444-4444-8444-444444444444',
-            sourceCandidateId: CANDIDATE_ID,
-            channelAccountId: '11111111-1111-4111-8111-111111111111',
-            channelListingId: '77777777-7777-4777-8777-777777777777',
-            status: 'registered',
-            selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
-            selectedDetailPageGenerationId: '33333333-3333-4333-8333-333333333333',
-            registrationInput: { category: '완구', wingCategoryKey: '64687' },
-            updatedAt: '2026-05-17T01:00:00.000Z',
-          },
-        }),
+        [`/api/sourcing/source-records/${CANDIDATE_ID}`]: candidateResponse(),
         [`/api/ai/content-workspaces/by-sales-product/${DRAFT_ID}/registration-media`]: EMPTY_MEDIA,
       });
 
       const detail = await productsApi.getDetail(DRAFT_ID);
 
-      expect(detail.registrationState).toBe('registered');
-      expect(detail.registrationTarget).toMatchObject({
-        id: '44444444-4444-4444-8444-444444444444',
-        channelAccountId: '11111111-1111-4111-8111-111111111111',
-        status: 'registered',
-        selectedDetailPageGenerationId: '33333333-3333-4333-8333-333333333333',
-        registrationInput: { category: '완구', wingCategoryKey: '64687' },
-      });
+      expect(detail.registrationState).toBe('none');
+      expect(detail.registrationTarget).toBeNull();
       expect(detail).not.toHaveProperty('contentWorkspaceId');
     });
 
     it('아직 팔기로 정하지 않은 초안은 판매가가 비어 있는 채로 보인다(미발급)', async () => {
       vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture());
       routeGets({
-        [`/api/sourcing/${CANDIDATE_ID}`]: candidateResponse(),
+        [`/api/sourcing/source-records/${CANDIDATE_ID}`]: candidateResponse(),
         [`/api/ai/content-workspaces/by-sales-product/${DRAFT_ID}/registration-media`]: EMPTY_MEDIA,
       });
 
@@ -379,7 +271,7 @@ describe('sourcing candidate API', () => {
     it('treats a missing source record (404) as a draft without source facts', async () => {
       vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture());
       vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
-        if (url === `/api/sourcing/${CANDIDATE_ID}`) throw new ApiError(404, 'Not Found', 'Sourcing candidate not found');
+        if (url === `/api/sourcing/source-records/${CANDIDATE_ID}`) throw new ApiError(404, 'Not Found', 'Sourcing candidate not found');
         if (url === `/api/ai/content-workspaces/by-sales-product/${DRAFT_ID}/registration-media`) return EMPTY_MEDIA;
         throw new Error(`unexpected GET ${url}`);
       });
@@ -387,8 +279,7 @@ describe('sourcing candidate API', () => {
       const detail = await productsApi.getDetail(DRAFT_ID);
 
       expect(detail.id).toBe(DRAFT_ID);
-      expect(detail.sourceCandidateId).toBe(CANDIDATE_ID);
-      expect(detail.status).toBeNull();
+      expect(detail.sourceRecordId).toBe(CANDIDATE_ID);
       expect(detail.raw_data).toBeNull();
       expect(detail.image_urls).toEqual(['https://cdn.example.com/draft.jpg']);
       expect(detail.registrationState).toBe('none');
@@ -397,22 +288,13 @@ describe('sourcing candidate API', () => {
     it('still surfaces any other source-record error', async () => {
       vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture());
       vi.mocked(apiClient.get).mockImplementation(async (url: string) => {
-        if (url === `/api/sourcing/${CANDIDATE_ID}`) throw new ApiError(500, 'Internal', 'boom');
+        if (url === `/api/sourcing/source-records/${CANDIDATE_ID}`) throw new ApiError(500, 'Internal', 'boom');
         return EMPTY_MEDIA;
       });
 
       await expect(productsApi.getDetail(DRAFT_ID)).rejects.toMatchObject({ status: 500 });
     });
 
-    it('rejects the retired promoted candidate status', async () => {
-      vi.mocked(apiClient.getParsed).mockResolvedValueOnce(salesProductDraftFixture());
-      routeGets({
-        [`/api/sourcing/${CANDIDATE_ID}`]: candidateResponse({ status: 'promoted' }),
-        [`/api/ai/content-workspaces/by-sales-product/${DRAFT_ID}/registration-media`]: EMPTY_MEDIA,
-      });
-
-      await expect(productsApi.getDetail(DRAFT_ID)).rejects.toThrow();
-    });
   });
 
   it('basics 폼 값을 판매상품 저장 입력으로 옮긴다(가격 제외)', () => {

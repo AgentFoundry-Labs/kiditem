@@ -1,12 +1,18 @@
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
-import { sourcingCandidateIdentityLockKey } from '../../../domain/sourcing-candidate-identity';
+import {
+  addSourceRecordImagesIn,
+  admitSourceRecordIn,
+  createDraftForSourceRecordIn,
+} from './source-record-admission.transaction';
+import type { SalesProductDraftPort } from '../../../application/port/out/cross-domain/sales-product-draft.port';
+import type { AdmittedSourceRecord } from '../../../application/port/out/repository/source-record.repository.port';
 import type {
   AuthorizedCollectionOutput,
   Sourcing1688OfferKeywordObservationUpsert,
   SourcingCollectionPermit,
-  SourcingExtensionCandidateProjection,
+  SourcingExtensionSourceRecordProjection,
 } from '../../../application/port/out/repository/sourcing-collection.repository.port';
 import type { TiktokCcSnapshotUpsert } from '../../../application/port/out/repository/trend-collection.repository.port';
 import type {
@@ -41,13 +47,21 @@ export async function persistBrowserSourceAttemptFacts(
   permit: SourcingCollectionPermit,
   output: AuthorizedCollectionOutput,
   now: Date,
-): Promise<{ duplicateCount: number; staleDiscardedCount: number }> {
+  drafts: SalesProductDraftPort,
+): Promise<{ duplicateCount: number; staleDiscardedCount: number; admitted: AdmittedSourceRecord[] }> {
+  const productRecords = output.typedRecords.filter((record) => record.kind === 'extension_source_record');
+  for (const { row } of productRecords) {
+    if (row.organizationId !== permit.organizationId
+      || EXTENSION_SOURCE_KEY_BY_PLATFORM[row.sourcePlatform] !== permit.sourceKey) {
+      throw new Error('Product source record does not match its authorized source attempt.');
+    }
+  }
   const prepared = prepareObservations(permit, output.observations);
   if (prepared.rows.length === 0) {
     if (output.typedRecords.length > 0) {
       throw new Error('Typed source facts require an immutable evidence observation.');
     }
-    return { duplicateCount: prepared.duplicateCount, staleDiscardedCount: 0 };
+    return { duplicateCount: prepared.duplicateCount, staleDiscardedCount: 0, admitted: [] };
   }
 
   const existing = await findObservations(tx, permit.organizationId, prepared.rows);
@@ -71,15 +85,29 @@ export async function persistBrowserSourceAttemptFacts(
   const evidence = await findObservations(tx, permit.organizationId, prepared.rows);
   assertResolvedEvidence(prepared.byIdentity, evidence);
   const evidenceByIdentity = new Map(evidence.map((row) => [observationIdentity(row), row]));
-  const productRecords = output.typedRecords.filter((record) => record.kind === 'extension_candidate');
+  // 상세 쪽이 원본 기록을 입장시키고(두 번 수집은 거절), 설명 쪽은 같은 트랜잭션에서 방금 입장한 그
+  // 기록을 채운다. 초안은 두 쪽을 다 담은 뒤에 만든다 — 원본 기록과 초안은 한 커밋이다(KID-313).
+  const admittedByUrl = new Map<string, string>();
   for (const { row } of productRecords) {
-    const source = row.sourcePlatform === 'ALIBABA_1688' ? '1688.product_extension' : 'alibaba.product_extension';
-    if (row.organizationId !== permit.organizationId || source !== permit.sourceKey) {
-      throw new Error('Product candidate does not match its authorized source attempt.');
+    if (row.pageType === 'detail') {
+      admittedByUrl.set(row.sourceUrl, await admitSourceRecordIn(tx, detailSourceRecord(row), drafts));
+      continue;
     }
-    if (await persistExtensionCandidateProjection(tx, row) === 'duplicate') duplicateCount += 1;
+    const sourceRecordId = admittedByUrl.get(row.sourceUrl);
+    if (!sourceRecordId) {
+      duplicateCount += 1;
+      continue;
+    }
+    await mergeDescriptionIn(tx, sourceRecordId, row);
   }
-  const typedRecords = toTypedCreateInputs(output.typedRecords.filter((record) => record.kind !== 'extension_candidate'), permit, evidenceByIdentity);
+  const admitted: AdmittedSourceRecord[] = [];
+  for (const sourceRecordId of admittedByUrl.values()) {
+    admitted.push({
+      sourceRecordId,
+      salesProductId: await createDraftForSourceRecordIn(tx, permit.organizationId, sourceRecordId, drafts),
+    });
+  }
+  const typedRecords = toTypedCreateInputs(output.typedRecords.filter((record) => record.kind !== 'extension_source_record'), permit, evidenceByIdentity);
 
   if (typedRecords.offer1688.length > 0) {
     const created = await tx.sourcing1688OfferKeywordObservation.createMany({
@@ -149,64 +177,58 @@ export async function persistBrowserSourceAttemptFacts(
     });
     duplicateCount += typedRecords.marketShadow.length - created.count;
   }
-  return { duplicateCount, staleDiscardedCount: 0 };
+  return { duplicateCount, staleDiscardedCount: 0, admitted };
 }
 
-// Retained product-extension projection policy, committed with the owner facts.
-async function persistExtensionCandidateProjection(
-  tx: Transaction,
-  row: SourcingExtensionCandidateProjection,
-): Promise<'accepted' | 'duplicate'> {
-  // sourcingCandidateIdentityLockKey composes row.organizationId into the key.
-  const lockKey = sourcingCandidateIdentityLockKey(row);
-  await tx.$queryRaw`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock keyed by organizationId; reads no tenant data.
-    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-  `;
-  if (row.pageType === 'description') {
-    const existing = await tx.sourcingCandidate.findFirst({
-      where: { organizationId: row.organizationId, sourceUrl: row.sourceUrl, isDeleted: false, status: 'sourced' },
-      select: { id: true, rawData: true, description: true, thumbnailUrl: true, imageUrl: true },
-    });
-    if (!existing) return 'duplicate';
-    await tx.sourcingCandidate.update({ where: { id: existing.id }, data: {
-      rawData: mergeProjectionJson(existing.rawData, row.rawData) as Prisma.InputJsonValue,
-      description: row.description ?? existing.description,
-      thumbnailUrl: existing.thumbnailUrl ?? row.thumbnailUrl,
-      imageUrl: existing.imageUrl ?? row.imageUrl,
-    } });
-    await ensureProjectedCandidateImages(tx, existing.id, row);
-    return 'accepted';
-  }
-  const existing = await tx.sourcingCandidate.findFirst({
-    where: { organizationId: row.organizationId, sourcePlatform: row.sourcePlatform,
-      sourceIdentityHash: row.sourceIdentityHash, isDeleted: false, status: 'sourced' },
-    select: { id: true, rawData: true },
-  });
-  const data = {
-    sourcePlatform: row.sourcePlatform, externalOfferId: row.externalOfferId,
-    variantKeyNormalized: row.variantKeyNormalized, sourceIdentityHash: row.sourceIdentityHash,
-    rawData: mergeProjectionJson(existing?.rawData, row.rawData) as Prisma.InputJsonValue,
-    name: row.name ?? row.externalOfferId, description: row.description ?? '', category: row.category,
-    tags: row.tags as Prisma.InputJsonValue, thumbnailUrl: row.thumbnailUrl, imageUrl: row.imageUrl,
-    costCny: row.costCny ?? undefined,
+/**
+ * 확장이 싣는 원본 플랫폼 → 그 수집을 허가한 source key. 표에 없는 플랫폼은 어느 확장 수집에도
+ * 속하지 않는다 — 1688 이 아닌 것을 모두 Alibaba 로 보던 삼항식은 모르는 플랫폼도 통과시켰다.
+ */
+const EXTENSION_SOURCE_KEY_BY_PLATFORM: Readonly<Record<string, string>> = {
+  ALIBABA_1688: '1688.product_extension',
+  ALIBABA: 'alibaba.product_extension',
+};
+
+function detailSourceRecord(row: SourcingExtensionSourceRecordProjection) {
+  return {
+    organizationId: row.organizationId,
+    sourceUrl: row.sourceUrl,
+    sourcePlatform: row.sourcePlatform,
+    externalOfferId: row.externalOfferId,
+    variantKeyNormalized: row.variantKeyNormalized,
+    sourceIdentityHash: row.sourceIdentityHash,
+    rawData: row.rawData,
+    name: row.name ?? row.externalOfferId,
+    description: row.description ?? '',
+    category: row.category,
+    tags: row.tags,
+    thumbnailUrl: row.thumbnailUrl,
+    imageUrl: row.imageUrl,
+    costCny: row.costCny,
+    triggeredByUserId: row.triggeredByUserId,
+    images: row.images,
   };
-  const candidate = existing
-    ? await tx.sourcingCandidate.update({ where: { id: existing.id }, data })
-    : await tx.sourcingCandidate.create({ data: { organizationId: row.organizationId,
-      sourceUrl: row.sourceUrl, triggeredByUserId: row.triggeredByUserId, status: 'sourced', ...data } });
-  await ensureProjectedCandidateImages(tx, candidate.id, row);
-  return 'accepted';
 }
 
-async function ensureProjectedCandidateImages(tx: Transaction, candidateId: string, row: SourcingExtensionCandidateProjection): Promise<void> {
-  if (row.images.length === 0) return;
-  const existing = await tx.candidateImage.count({ where: { candidateId, organizationId: row.organizationId, isDeleted: false } });
-  if (existing > 0) return;
-  await tx.candidateImage.createMany({ data: row.images.map((image) => ({
-    organizationId: row.organizationId, candidateId, url: image.url, role: image.role, label: image.label,
-    sortOrder: image.sortOrder, source: image.source, isPrimary: image.isPrimary,
-  })) });
+/** 같은 수집의 설명 쪽. 방금 입장한 원본 기록을 채우는 것이지 기록을 고치는 것이 아니다. */
+async function mergeDescriptionIn(
+  tx: Transaction,
+  sourceRecordId: string,
+  row: SourcingExtensionSourceRecordProjection,
+): Promise<void> {
+  const record = await tx.sourceRecord.findFirstOrThrow({
+    where: { id: sourceRecordId, organizationId: row.organizationId },
+    select: { rawData: true, description: true, thumbnailUrl: true, imageUrl: true },
+  });
+  await tx.sourceRecord.update({ where: { id: sourceRecordId }, data: {
+    rawData: mergeProjectionJson(record.rawData, row.rawData) as Prisma.InputJsonValue,
+    description: row.description ?? record.description,
+    thumbnailUrl: record.thumbnailUrl ?? row.thumbnailUrl,
+    imageUrl: record.imageUrl ?? row.imageUrl,
+  } });
+  // 설명 사진은 상세 사진이 없을 때만 갤러리가 된다 — 초안의 첫 사진은 상품 사진이어야 한다.
+  const images = await tx.sourceRecordImage.count({ where: { organizationId: row.organizationId, sourceRecordId } });
+  if (images === 0) await addSourceRecordImagesIn(tx, row.organizationId, sourceRecordId, row.images);
 }
 
 function mergeProjectionJson(previous: unknown, incoming: Record<string, unknown>): Record<string, unknown> {

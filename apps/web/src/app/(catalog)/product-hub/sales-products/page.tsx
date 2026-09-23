@@ -25,14 +25,12 @@ const FOCUS_TABS: { value: Focus; label: string }[] = [
   { value: 'unregistered', label: '아직 몰에 없음' },
 ];
 
-/** 판매 결정 전 초안(status=draft)을 다른 상태와 같은 줄에서 바로 고를 수 있게 한다(KID-310). */
+/** 상태는 초안 · 판매 중 · 보관 셋이다(KID-313). */
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: '전체' },
   { value: 'draft', label: '초안(미발급)' },
-  { value: 'active', label: '공급중' },
-  { value: 'paused', label: '일시중지' },
-  { value: 'sold_out', label: '완전품절' },
-  { value: 'unused', label: '미사용' },
+  { value: 'active', label: '판매 중' },
+  { value: 'archived', label: '보관' },
 ];
 
 const PAGE_SIZE = 50;

@@ -82,7 +82,7 @@ describe('channel listing list (PG integration)', () => {
     // 판매상품을 지어내지 않는다 — 후보는 그 판매상품을 거쳐야만 닿는다(KID-310).
     expect(bare.salesProductId).toBeNull();
     expect(listed.items.find((item) => item.externalId === 'P-COLLECTED-ONLY'))
-      .toMatchObject({ sourceCandidateId: null, contentWorkspaceId: null });
+      .toMatchObject({ sourceRecordId: null, contentWorkspaceId: null });
   });
 
   it('hides another organizations listing on the same channel', async () => {

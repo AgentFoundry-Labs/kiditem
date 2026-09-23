@@ -1,11 +1,14 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { planKidIssue } from '../../../domain/sales-product/sales-product-code';
+import { SalesProductStatusError, statusAfterKidIssued } from '../../../domain/sales-product/sales-product-status';
+import type { SalesProductStatus } from '@kiditem/shared/sales-product';
 
 /**
  * KID 발급의 유일한 쓰기 자리(KID-310). 판매상품 줄을 잠그고, 비어 있는 상품 · 단품 코드만
- * 채운다 — 이미 있는 번호는 그대로 둬서 같은 상품을 두 번 불러도 결과가 같다.
+ * 채운다 — 이미 있는 번호는 그대로 둬서 같은 상품을 두 번 불러도 결과가 같다. 상품 코드를
+ * 채우는 순간 초안은 `active` 가 된다(KID-313) — 코드와 상태가 같은 문장에서 바뀐다.
  *
  * 부르는 곳은 정확히 셋이다: 그 상품의 첫 등록 설정을 만들 때, 등록 설정 없이 몰 엑셀 파일을
  * 만들 때, 직접 작성한 상품을 만들 때. 사방넷 이관은 품번코드를 그대로 쓴다.
@@ -25,7 +28,9 @@ export async function ensureSalesProductCodesInTransaction(
   const product = await tx.salesProduct.findFirstOrThrow({
     where: { id: salesProductId, organizationId },
     select: {
+      name: true,
       code: true,
+      status: true,
       options: {
         where: { supplyStatus: { not: 'unused' } },
         orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
@@ -50,7 +55,11 @@ export async function ensureSalesProductCodesInTransaction(
   if (plan.product) {
     await tx.salesProduct.update({
       where: { id: salesProductId, organizationId },
-      data: { code, version: { increment: 1 } },
+      data: {
+        code,
+        status: issuedStatus(product.name, product.status as SalesProductStatus),
+        version: { increment: 1 },
+      },
     });
   }
   let issued = plan.product ? 1 : 0;
@@ -66,4 +75,13 @@ export async function ensureSalesProductCodesInTransaction(
     issued += 1;
   }
   return { code, issued };
+}
+
+function issuedStatus(name: string, status: SalesProductStatus): 'active' {
+  try {
+    return statusAfterKidIssued({ name, status });
+  } catch (error) {
+    if (error instanceof SalesProductStatusError) throw new ConflictException(error.message);
+    throw error;
+  }
 }

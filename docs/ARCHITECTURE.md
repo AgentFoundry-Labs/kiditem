@@ -633,9 +633,10 @@ Notable route subtrees:
   inherit tabs from retired hub screens.
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
-  owns `/product-pipeline/collected-products`, the 1688/imported plus manual
-  product-registration `SourcingCandidate` inbox, candidate detail route
-  entries, candidate-scoped generated content links, and the fixed WING category
+  owns `/product-pipeline/collected-products`, the inbox of `SalesProduct`
+  drafts (collected ones point at an immutable `SourceRecord`, directly
+  authored ones have none — KID-313), draft detail route entries, draft-scoped
+  generated content links, and the fixed WING category
   registry used at registration confirmation. WING category selection uses the
   saved `RegistrationTarget.registrationInput.wingCategoryKey` or an exact
   source-category alias; it does not read registered `ChannelListing` rows or
@@ -913,7 +914,7 @@ Neither owner writes Channels targets or executions, and registration never
 creates a source `MasterProduct`.
 
 ```text
-optional SourcingCandidate provenance
+optional SourceRecord provenance (immutable; deleted with its draft)
   -> Channels SalesProduct + options
   -> reusable RegistrationTarget + selected options
   -> frozen ProductRegistrationExecution + approval evidence
@@ -934,31 +935,29 @@ account has received anything yet, so those paths return their current result
 without storing an observation or opening an execution. A path that starts
 submitting to an account enters the fence first.
 
-The pre-schema `022_registration_target_cutover` replaces the unpromoted
-018/021 steps. After 020 it preserves legacy submission evidence, maps priced
-products and selected options, moves approval evidence to its exact execution,
-and renames registration target tables in place. Conflicting or ambiguous
-facts abort the transaction. Per-target display names and prices remain overrides.
-If targets for one candidate disagree on canonical product metadata and no
-canonical product already exists, reconcile the source data before cutover; the
-migration does not guess a shared name, image set or detail body. Successful targets remain reusable; explicitly
-archived targets retain their archive time. Uncertain provider attempts remain
-reconciliation work and are never restarted as fresh creates. Listing deletion
-rows are not converted by this migration. Listing deletion
+The unpromoted `022_registration_target_cutover` was removed with KID-313; Office's
+registration rows are discarded under ADR-0010. Listing deletion
 authorization and uncertainty live in `ChannelListingDeletionOperation`; an
 extension-observed success alone remains `reconciling/uncertain` and cannot
 deactivate the listing until an independent provider verifier confirms it.
 
-The canonical draft APIs are candidate preparation create, preparation update,
-submit, and cancel under `/api/sourcing`. The fence lifecycle — prepare, match
+Sourcing keeps only the immutable source record, read at
+`GET /api/sourcing/source-records/:id`. Collection (`POST /api/sourcing/scrape-url`,
+the extension product-data attempts) and direct creation
+(`POST /api/sourcing/product-generation`) admit the draft into Channels in the
+same transaction; a repeated source is refused with 409 and names the existing
+draft. The draft is a `SalesProduct` with `status = draft`, edited and deleted
+through `/api/products/sales-products/:salesProductId` (`GET`, `PATCH`,
+`PUT …/options`, `DELETE`); only a draft is deleted, and a selling product is
+archived. Registration settings per channel account live under
+`/api/channels/registration-targets`, one unarchived target per organization,
+sales product, and account. The fence lifecycle — state, prepare, match
 preview, start, status, unresolved, not-submitted, confirm — is Channels' own
-route family, `/api/channels/candidates/:id/registration-executions/*`, and the
-product-pipeline Wing flow and the mall wizard reach it through the one web
-client `(channels)/_shared/registration-execution-api.ts`.
-Active preparation uniqueness is scoped
-to organization, candidate, and selected channel account. The same candidate
-may therefore have one active draft per account, while duplicate active drafts
-for the same account are rejected deterministically.
+route family, `/api/products/sales-products/:salesProductId/registration/*`
+beside `/api/channels/registration-targets/:id/executions` and
+`/api/channels/registration-executions/:id`, and the product-pipeline Wing flow
+and the mall wizard reach it through the one web client
+`(channels)/_shared/registration-execution-api.ts`.
 
 Historical sourcing migrations populated compatibility rows for older candidate
 and content models. This reconstruction intentionally adds no registration or

@@ -2,7 +2,6 @@ import { z } from 'zod';
 import {
   RegistrationTargetSchema,
   type RegistrationTarget,
-  type RegistrationTargetCreateInput,
   type RegistrationTargetUpdateInput,
   type RegistrationTargetResolveInput,
 } from '@kiditem/shared/sales-product';
@@ -26,8 +25,6 @@ export const registrationTargetApi = {
   },
   get: (targetId: string): Promise<RegistrationTarget> =>
     apiClient.getParsed(`${BASE}/${encodeURIComponent(targetId)}`, RegistrationTargetSchema),
-  create: (input: RegistrationTargetCreateInput): Promise<RegistrationTarget> =>
-    apiClient.post<unknown>(BASE, input).then((response) => RegistrationTargetSchema.parse(response)),
   update: (targetId: string, input: RegistrationTargetUpdateInput): Promise<RegistrationTarget> =>
     apiClient.put<unknown>(`${BASE}/${encodeURIComponent(targetId)}`, input)
       .then((response) => RegistrationTargetSchema.parse(response)),

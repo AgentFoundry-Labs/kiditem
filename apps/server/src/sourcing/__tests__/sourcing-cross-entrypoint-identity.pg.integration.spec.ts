@@ -1,4 +1,3 @@
-import { SourcingCollectedDraftService } from '../application/service/sourcing-collected-draft.service';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -10,26 +9,27 @@ import {
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
-import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
+import { SourceRecordRepositoryAdapter } from '../adapter/out/repository/source-record.repository.adapter';
 import { SourcingFinalDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-final-discovery-capability.adapter';
 import { SourcingExtensionIngestService } from '../application/service/sourcing-extension-ingest.service';
-import { canonicalSourcingCandidateIdentity } from '../domain/sourcing-candidate-identity';
+import { SourceRecordDuplicateError } from '../domain/source-record-admission';
+import { canonicalSourceRecordIdentity } from '../domain/source-record-identity';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 
-describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => {
+/**
+ * 같은 원본이 두 입구(Agent · 확장)로 동시에 들어와도 원본 기록과 초안은 하나다(KID-313). 두 입구가
+ * 같은 식별자를 만들고 같은 잠금을 잡으므로, 먼저 들어간 쪽이 입장하고 다른 쪽은 거절된다.
+ */
+describe('Sourcing cross-entrypoint source-record identity (PG integration)', () => {
   let agentPrisma: PrismaClient;
   let extensionPrisma: PrismaClient;
-  let candidates: SourcingCandidateRepositoryAdapter;
-  let extension: SourcingExtensionIngestService;
 
   beforeAll(async () => {
     agentPrisma = makeTestPrisma();
     extensionPrisma = makeTestPrisma();
     await Promise.all([agentPrisma.$connect(), extensionPrisma.$connect()]);
-    candidates = new SourcingCandidateRepositoryAdapter(agentPrisma as unknown as PrismaService, realSalesProductDraftPort(agentPrisma));
-    extension = extensionOwner(extensionPrisma);
   });
 
   afterAll(async () => Promise.all([agentPrisma?.$disconnect(), extensionPrisma?.$disconnect()]));
@@ -39,107 +39,82 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
     await seedBaseFixture(agentPrisma);
   });
 
-  it('converges concurrent Agent and extension ingest on one canonical 1688 candidate', async () => {
+  it('lets exactly one of a concurrent Agent and extension collection of one 1688 offer in, and refuses the other', async () => {
     const sourceUrl = 'https://detail.1688.com/offer/607635921546.html';
-    const sourceIdentityHash = canonicalSourcingCandidateIdentity({
+    const sourceIdentityHash = canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA_1688',
       sourceUrl,
       validatedExternalOfferId: '607635921546',
       variantKeyNormalized: '',
     });
+    const records = new SourceRecordRepositoryAdapter(agentPrisma as unknown as PrismaService);
 
-    const [agent, extensionResult] = await Promise.all([
-      candidates.upsertSourcedWithIdempotencyReceipt({
+    const results = await Promise.allSettled([
+      records.admitOnce({
         organizationId: TEST_ORGANIZATION_ID,
         capabilityKey: 'sourcing.ingestCandidate',
         idempotencyKey: 'owner:attempt:cross-entrypoint',
         requestHash: 'a'.repeat(64),
+      }, {
+        organizationId: TEST_ORGANIZATION_ID,
         sourceUrl,
         sourcePlatform: 'ALIBABA_1688',
         externalOfferId: '607635921546',
         variantKeyNormalized: '',
         sourceIdentityHash,
         rawData: { source: 'agent' },
-        name: 'Agent candidate',
+        name: 'Agent source',
         description: '',
         category: null,
         tags: [],
-        thumbnailUrl: 'https://cbu01.alicdn.com/img/ibank/agent.jpg',
-        imageUrl: 'https://cbu01.alicdn.com/img/ibank/agent.jpg',
+        thumbnailUrl: null,
+        imageUrl: null,
         costCny: null,
         triggeredByUserId: TEST_USER_ID,
-        images: [{
-          url: 'https://cbu01.alicdn.com/img/ibank/agent.jpg',
-          role: 'product',
-          label: null,
-          sortOrder: 0,
-          source: 'agent-final-scrape',
-          isPrimary: true,
-        }],
+        images: [],
+      }, realSalesProductDraftPort(agentPrisma)),
+      completeExtension(extensionOwner(extensionPrisma), {
+        page_type: 'detail',
+        source_url: sourceUrl,
+        source_platform: '1688',
+        product_id: '607635921546',
+        title: 'Extension source',
+        price_min: 12.5,
       }),
-      completeExtension(extension,
-        {
-          page_type: 'detail',
-          source_url: sourceUrl,
-          source_platform: '1688',
-          product_id: '607635921546',
-          title: 'Extension candidate',
-          price_min: 12.5,
-        },
-      ),
     ]);
 
-    expect(extensionResult).toMatchObject({ state: 'COMPLETE', acceptedCount: 1 });
-    const canonical = await agentPrisma.sourcingCandidate.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourcePlatform: 'ALIBABA_1688',
-        sourceIdentityHash,
-        isDeleted: false,
-        status: 'sourced',
-      },
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const refused = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')!;
+    expect(refused.reason).toBeInstanceOf(SourceRecordDuplicateError);
+    const record = await agentPrisma.sourceRecord.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourcePlatform: 'ALIBABA_1688', sourceIdentityHash },
       select: { id: true },
     });
-    expect(canonical.id).toBe(agent.candidateId);
-    await expect(agentPrisma.sourcingCandidate.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, isDeleted: false, status: 'sourced' },
-    })).resolves.toBe(1);
-    await expect(agentPrisma.candidateImage.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, candidateId: canonical.id, isDeleted: false },
-    })).resolves.toBe(1);
-    await expect(agentPrisma.sourcingOwnerIdempotencyReceipt.findMany({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        capabilityKey: 'sourcing.ingestCandidate',
-        idempotencyKey: 'owner:attempt:cross-entrypoint',
-      },
-      select: { result: true },
-    })).resolves.toEqual([{ result: { candidateId: canonical.id } }]);
+    await expect(agentPrisma.sourceRecord.count()).resolves.toBe(1);
+    await expect(agentPrisma.salesProduct.count({ where: { sourceRecordId: record.id } })).resolves.toBe(1);
   });
 
-  it('converges concurrent Agent and extension ingest on one canonical Alibaba candidate', async () => {
+  it('gives Alibaba tracking and host spellings one identity across Agent and extension, so the later one is refused', async () => {
     const agentSourceUrl = 'https://ALIBABA.com/product-detail/kid-toy_123.html?spm=agent-feed&utm_source=agent';
     const extensionSourceUrl = 'https://www.alibaba.com/product-detail/kid-toy_123.html?spm=extension-feed&utm_source=extension';
     const canonicalSourceUrl = 'https://www.alibaba.com/product-detail/kid-toy_123.html';
-    const waitForPeerCandidateRead = candidateReadBarrier();
-    const agentCandidates = new SourcingCandidateRepositoryAdapter(
-      prismaWithCandidateReadBarrier(agentPrisma, waitForPeerCandidateRead) as unknown as PrismaService,
+    const waitForPeerRecordRead = recordReadBarrier();
+    const agent = new SourcingFinalDiscoveryCapabilityAdapter(
+      new SourceRecordRepositoryAdapter(prismaWithRecordReadBarrier(agentPrisma, waitForPeerRecordRead) as unknown as PrismaService),
+      {
+        scrapeProductUrl: async () => ({
+          ok: true,
+          source_url: agentSourceUrl,
+          scraped_data: { title: 'Agent Alibaba source', variant_key: '  Blue   Set ', images: [] },
+        }),
+      } as never,
       realSalesProductDraftPort(agentPrisma),
     );
-    const agent = new SourcingFinalDiscoveryCapabilityAdapter(agentCandidates, {
-      scrapeProductUrl: async () => ({
-        ok: true,
-        source_url: agentSourceUrl,
-        scraped_data: { title: 'Agent Alibaba candidate', variant_key: '  Blue   Set ', images: [] },
-      }),
-    } as never, new SourcingCollectedDraftService(agentCandidates, realSalesProductDraftPort(agentPrisma)));
-    const extension = extensionOwner(
-      prismaWithCandidateReadBarrier(extensionPrisma, waitForPeerCandidateRead),
-    );
+    const extension = extensionOwner(prismaWithRecordReadBarrier(extensionPrisma, waitForPeerRecordRead));
     const snapshot = await agent.scrapeProductUrl({ sourceUrl: agentSourceUrl });
     const requestHash = canonicalOwnerInputHash({ snapshot });
 
-    const [agentResult, extensionResult] = await Promise.all([
+    const results = await Promise.allSettled([
       agent.ingestCandidate({
         organizationId: TEST_ORGANIZATION_ID,
         initiatingUserId: TEST_USER_ID,
@@ -147,66 +122,36 @@ describe('Sourcing cross-entrypoint candidate identity (PG integration)', () => 
         requestHash,
         snapshot,
       }),
-      completeExtension(extension,
-        {
-          page_type: 'detail',
-          source_url: extensionSourceUrl,
-          source_platform: 'alibaba',
-          product_id: 'supplier-product-id-123',
-          variant_key: 'blue set',
-          title: 'Extension Alibaba candidate',
-          images: ['https://www.alibaba.com/images/kid-toy.jpg'],
-        },
-      ),
+      completeExtension(extension, {
+        page_type: 'detail',
+        source_url: extensionSourceUrl,
+        source_platform: 'alibaba',
+        product_id: 'supplier-product-id-123',
+        variant_key: 'blue set',
+        title: 'Extension Alibaba source',
+        images: ['https://www.alibaba.com/images/kid-toy.jpg'],
+      }),
     ]);
 
-    expect(extensionResult).toMatchObject({ state: 'COMPLETE', acceptedCount: 1 });
-    await expect(agentPrisma.sourcingCandidate.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, isDeleted: false, status: 'sourced' },
-    })).resolves.toBe(1);
-    const canonical = await agentPrisma.sourcingCandidate.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceUrl: canonicalSourceUrl,
-        isDeleted: false,
-        status: 'sourced',
-      },
-      select: { id: true, sourceIdentityHash: true },
-    });
-    expect(canonical.sourceIdentityHash).not.toBeNull();
-    expect(canonical.id).toBe(agentResult.candidateId);
-    // 두 수집이 한 원천에 모이면 초안도 하나다. Agent 가 가리키는 초안이 그 초안이다.
-    const drafts = await agentPrisma.salesProduct.findMany({
-      where: { sourceCandidateId: canonical.id },
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect((results.find((result) => result.status === 'rejected') as PromiseRejectedResult).reason)
+      .toBeInstanceOf(SourceRecordDuplicateError);
+    const record = await agentPrisma.sourceRecord.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, sourceUrl: canonicalSourceUrl },
       select: { id: true },
     });
-    expect(drafts).toHaveLength(1);
-    expect(agentResult.salesProductId).toBe(drafts[0]!.id);
-    await expect(agentPrisma.candidateImage.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, candidateId: canonical.id, isDeleted: false },
-    })).resolves.toBe(1);
-    await expect(agentPrisma.sourcingOwnerIdempotencyReceipt.findMany({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        capabilityKey: 'sourcing.ingestCandidate',
-        idempotencyKey: 'owner:attempt:cross-entrypoint-alibaba',
-      },
-      select: { result: true },
-    })).resolves.toEqual([{ result: { candidateId: canonical.id } }]);
+    await expect(agentPrisma.sourceRecord.count()).resolves.toBe(1);
+    await expect(agentPrisma.salesProduct.count({ where: { sourceRecordId: record.id } })).resolves.toBe(1);
   });
 });
 
 function extensionOwner(prisma: PrismaClient): SourcingExtensionIngestService {
-  const candidates = new SourcingCandidateRepositoryAdapter(
-    prisma as unknown as PrismaService,
-    realSalesProductDraftPort(prisma),
-  );
   return new SourcingExtensionIngestService(
     new SourcingBrowserSourceAttemptRepositoryAdapter(
       prisma as unknown as PrismaService,
       new SourceFailureAlerts(prisma as unknown as PrismaService),
+      realSalesProductDraftPort(prisma),
     ),
-    new SourcingCollectedDraftService(candidates, realSalesProductDraftPort(prisma)),
   );
 }
 
@@ -224,7 +169,7 @@ async function completeExtension(
  * share the canonical advisory key, the bounded wait lets the first commit
  * before the second reaches its lookup instead of deadlocking the test.
  */
-function candidateReadBarrier(): () => Promise<void> {
+function recordReadBarrier(): () => Promise<void> {
   let reads = 0;
   let releasePeer: () => void = () => undefined;
   const peerRead = new Promise<void>((resolve) => {
@@ -243,9 +188,9 @@ function candidateReadBarrier(): () => Promise<void> {
   };
 }
 
-function prismaWithCandidateReadBarrier(
+function prismaWithRecordReadBarrier(
   prisma: PrismaClient,
-  waitForPeerCandidateRead: () => Promise<void>,
+  waitForPeerRecordRead: () => Promise<void>,
 ): PrismaClient {
   return new Proxy(prisma, {
     get(target, property, receiver) {
@@ -254,20 +199,20 @@ function prismaWithCandidateReadBarrier(
         operation: (transaction: object) => Promise<T>,
         options?: unknown,
       ): Promise<T> => target.$transaction(
-        (transaction) => operation(withCandidateReadBarrier(transaction, waitForPeerCandidateRead)),
+        (transaction) => operation(withRecordReadBarrier(transaction, waitForPeerRecordRead)),
         options as never,
       );
     },
   }) as PrismaClient;
 }
 
-function withCandidateReadBarrier(
+function withRecordReadBarrier(
   transaction: object,
-  waitForPeerCandidateRead: () => Promise<void>,
+  waitForPeerRecordRead: () => Promise<void>,
 ): object {
   return new Proxy(transaction, {
     get(target, property, receiver) {
-      if (property !== 'sourcingCandidate') return Reflect.get(target, property, receiver);
+      if (property !== 'sourceRecord') return Reflect.get(target, property, receiver);
       const candidate = Reflect.get(target, property, receiver) as object;
       return new Proxy(candidate, {
         get(candidateTarget, candidateProperty, candidateReceiver) {
@@ -275,7 +220,7 @@ function withCandidateReadBarrier(
           if (candidateProperty !== 'findFirst' || typeof member !== 'function') return member;
           return async (...args: unknown[]) => {
             const result = await member.apply(candidateTarget, args);
-            await waitForPeerCandidateRead();
+            await waitForPeerRecordRead();
             return result;
           };
         },

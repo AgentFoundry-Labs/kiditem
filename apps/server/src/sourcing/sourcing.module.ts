@@ -9,7 +9,8 @@ import { ChannelsRegistrationExecutionModule } from "../channels/channels-regist
 import { SalesProductModule } from "../channels/sales-product.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentGatewayAdapter } from "./adapter/out/agent/sourcing-agent.gateway.adapter";
-import { SourcingCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-candidate.repository.adapter";
+import { SourcingSourceRecordModule } from "./sourcing-source-record.module";
+import { SourceRecordController } from "./adapter/in/http/source-record.controller";
 import { SourcingInterestTargetRepositoryAdapter } from "./adapter/out/repository/sourcing-interest-target.repository.adapter";
 import { SourcingRecommendationRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation.repository.adapter";
 import { SourcingReviewRepositoryAdapter } from "./adapter/out/repository/sourcing-review.repository.adapter";
@@ -26,7 +27,6 @@ import {
   SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT,
   SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
 } from "./application/port/in/capability/sourcing-agent-workspace-capability.port";
-import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-candidate.repository.port";
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-interest-target.repository.port";
 import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-recommendation.repository.port";
 import { SOURCING_REVIEW_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-review.repository.port";
@@ -52,7 +52,6 @@ import { SOURCING_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capa
 import { SOURCING_CAPABILITY_ADMISSION_PORT } from './application/port/in/capability/sourcing-capability-admission.port';
 import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from './application/port/in/capability/sourcing-final-discovery-capability.port';
 import { SOURCING_BROWSER_SCRAPE_PORT } from './application/port/out/runtime/sourcing-browser-scrape.port';
-import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { SalesProductGenerationController } from "./adapter/in/http/sales-product-generation.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
 import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1688-search-result.controller";
@@ -78,11 +77,8 @@ import { Sourcing1688KeywordSearchService } from "./application/service/sourcing
 import { Sourcing1688SearchResultService } from "./application/service/sourcing-1688-search-result.service";
 import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingScrapeUrlService } from "./application/service/sourcing-scrape-url.service";
-import { SourcingCollectedDraftService } from "./application/service/sourcing-collected-draft.service";
-import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
 import { SalesProductDraftAdapter } from "./adapter/out/channels/sales-product-draft.adapter";
 import { SALES_PRODUCT_DRAFT_PORT } from "./application/port/out/cross-domain/sales-product-draft.port";
-import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-workspace-archive.service";
 import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
 import { SourcingRecommendationService } from "./application/service/sourcing-recommendation.service";
@@ -152,11 +148,11 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
 
 /**
  * Sourcing is the canonical owner root for sourced-product discovery and the
- * candidate handoff to the Channels selling-product draft.
+ * source-record handoff to the Channels selling-product draft (KID-313).
  *
  * Capabilities folded under this module:
  *   - sourcing extension ingest + scrape (Agent OS delegated) — `/api/sourcing/*`
- *   - candidate rejection — `/api/sourcing/candidates/:id/reject`
+ *   - source-record read — `/api/sourcing/source-records/:id`
  *
  * Supplier registry and purchase-order procurement live in `supply/` (extracted
  * during issue #192 follow-up Track A PR 1). `supplier-payments` is a finance
@@ -165,13 +161,14 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
  * Deterministic URL scraping is a direct Sourcing-owned source attempt. Product generation
  * uses the direct AI owner port; neither path creates a generic AgentRun.
  *
- * Sourcing ingest writes `SourcingCandidate` + `CandidateImage` rows via
- * `SOURCING_CANDIDATE_REPOSITORY_PORT`. Registration is account-scoped and
+ * Sourcing ingest admits `SourceRecord` + `SourceRecordImage` rows (and their
+ * draft, in the same commit) via `SOURCE_RECORD_REPOSITORY_PORT`. Registration is account-scoped and
  * finalizes through `RegistrationTarget` into `ChannelListing`.
  */
 @Module({
   imports: [
     PrismaModule,
+    SourcingSourceRecordModule,
     AlertsModule,
     AiAgentRuntimeModule,
     SalesProductModule,
@@ -192,7 +189,7 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingAgentRagController,
     SourcingRisingProductController,
     SourcingIntelligenceController,
-    SourcingCandidateWorkspaceController,
+    SourceRecordController,
     SalesProductGenerationController,
     MarketShadowSignalController,
     SourcingInterestTargetController,
@@ -215,7 +212,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     { provide: MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT, useExisting: MarketShadowSnapshotRepositoryAdapter },
     SourcingService,
     SourcingScrapeUrlService,
-    SourcingCollectedDraftService,
     SourcingFinalCapabilityAdapter,
     SourcingCapabilityCompositionAdapter,
     {
@@ -227,10 +223,8 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     Sourcing1688ImageSearchService,
     Sourcing1688KeywordSearchService,
     Sourcing1688SearchResultService,
-    SourcingPromotionService,
     SalesProductDraftAdapter,
     { provide: SALES_PRODUCT_DRAFT_PORT, useExisting: SalesProductDraftAdapter },
-    SourcingWorkspaceArchiveService,
     SourcingEntryRecommendationService,
     SourcingRecommendationService,
     SourcingConfirmReportService,
@@ -391,7 +385,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingReviewService,
     SourcingValidationService,
     SourcingAgentGatewayAdapter,
-    SourcingCandidateRepositoryAdapter,
     SourcingInterestTargetRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
     SourcingReviewRepositoryAdapter,
@@ -400,7 +393,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     TrendCollectionRepositoryAdapter,
     { provide: SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT, useExisting: SourcingAgentWorkspaceMutationCapabilityService },
     { provide: SOURCING_AGENT_GATEWAY_PORT, useExisting: SourcingAgentGatewayAdapter },
-    { provide: SOURCING_CANDIDATE_REPOSITORY_PORT, useExisting: SourcingCandidateRepositoryAdapter },
     { provide: SOURCING_INTEREST_TARGET_REPOSITORY_PORT, useExisting: SourcingInterestTargetRepositoryAdapter },
     { provide: SOURCING_RECOMMENDATION_REPOSITORY_PORT, useExisting: SourcingRecommendationRepositoryAdapter },
     { provide: SOURCING_VALIDATION_REPOSITORY_PORT, useExisting: SourcingValidationRepositoryAdapter },
@@ -413,7 +405,8 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT,
     SourcingAgentCommandService,
     SOURCING_AGENT_GATEWAY_PORT,
-    SOURCING_CANDIDATE_REPOSITORY_PORT,
+    // 원본 기록 owner 는 작은 모듈이 가진다 — 그 모듈을 다시 내보낸다(KID-313).
+    SourcingSourceRecordModule,
     SourcingReviewService,
     SourcingValidationService,
     SOURCING_INTEREST_TARGET_REPOSITORY_PORT,

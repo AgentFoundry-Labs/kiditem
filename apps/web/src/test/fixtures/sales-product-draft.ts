@@ -10,7 +10,7 @@ export function salesProductDraft(overrides: Partial<SalesProduct> = {}): SalesP
     code: null,
     ownCode: null,
     sabangnetGoodsNo: null,
-    sourceCandidateId: DRAFT_CANDIDATE_ID,
+    sourceRecordId: DRAFT_CANDIDATE_ID,
     sourcePlatform: 'ALIBABA_1688',
     sourceUrl: 'https://1688.com/item/1',
     name: '자석 다트게임',
@@ -78,7 +78,7 @@ export function salesProductDraftListItem(overrides: Partial<SalesProductListIte
     id: DRAFT_ID,
     code: null,
     ownCode: null,
-    sourceCandidateId: DRAFT_CANDIDATE_ID,
+    sourceRecordId: DRAFT_CANDIDATE_ID,
     sourcePlatform: 'ALIBABA_1688',
     sourceUrl: 'https://1688.com/item/1',
     name: '자석 다트게임',
@@ -96,25 +96,20 @@ export function salesProductDraftListItem(overrides: Partial<SalesProductListIte
   };
 }
 
-/** 원천 기록(`GET /api/sourcing/:id`) 응답. 원천 사실만 채운다. */
+/** 원본 기록(`GET /api/sourcing/source-records/:id`) 응답. 원본 사실만 채운다(KID-313). */
 export function sourcingCandidateResponse(overrides: Record<string, unknown> = {}) {
   return {
     id: DRAFT_CANDIDATE_ID,
-    name: '원본 상품명',
-    status: 'sourced',
     sourcePlatform: 'ALIBABA_1688',
     sourceUrl: 'https://1688.com/item/1',
-    thumbnailUrl: 'https://cdn.example.com/source.jpg',
-    imageUrl: null,
-    sellPrice: null,
+    externalOfferId: '1',
+    name: '원본 상품명',
+    description: '',
+    category: null,
     costCny: null,
-    processedData: null,
     rawData: { title: '원본 제목' },
-    images: [{ url: 'https://cdn.example.com/source.jpg', role: 'product', sortOrder: 0, isPrimary: true }],
-    registrationTarget: null,
-    registrationState: 'none',
-    createdAt: '2026-05-16T00:00:00.000Z',
-    updatedAt: '2026-05-16T00:00:00.000Z',
+    images: [{ id: 'source-image-1', url: 'https://cdn.example.com/source.jpg', role: 'product', sortOrder: 0, isPrimary: true }],
+    collectedAt: '2026-05-16T00:00:00.000Z',
     ...overrides,
   };
 }
@@ -127,7 +122,7 @@ export const EMPTY_REGISTRATION_MEDIA = {
 export function draftRoutes(salesProductId = DRAFT_ID) {
   return {
     draft: `/api/products/sales-products/${salesProductId}`,
-    candidate: `/api/sourcing/${DRAFT_CANDIDATE_ID}`,
+    candidate: `/api/sourcing/source-records/${DRAFT_CANDIDATE_ID}`,
     workspace: `/api/ai/content-workspaces/by-sales-product/${salesProductId}`,
     media: `/api/ai/content-workspaces/by-sales-product/${salesProductId}/registration-media`,
   };

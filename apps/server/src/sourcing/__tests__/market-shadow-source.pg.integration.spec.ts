@@ -1,3 +1,4 @@
+import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -34,7 +35,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       google,
       new MarketShadowSnapshotRepositoryAdapter(prisma as never),
       new TrendCollectionRepositoryAdapter(prisma as never),
-      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, alerts),
+      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, alerts, unusedSalesProductDraftPort),
     );
   });
   afterAll(async () => {
@@ -277,7 +278,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       google,
       new MarketShadowSnapshotRepositoryAdapter(readClient as never),
       new TrendCollectionRepositoryAdapter(prisma as never),
-      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, alerts),
+      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, alerts, unusedSalesProductDraftPort),
     );
     const reading = reader.getStatus(ORG, NOW);
     await latestReadPromise;

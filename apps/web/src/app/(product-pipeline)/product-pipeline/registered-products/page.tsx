@@ -304,7 +304,7 @@ function RegisteredProductsPageContent() {
               onSelectedChange={setItemSelected}
               onRequestDelete={
                 // 우리가 등록한 상품에만 삭제 진입점을 준다. 서버도 같은 규칙으로 다시 막는다.
-                listing.sourceCandidateId ? setDeleteTarget : undefined
+                listing.sourceRecordId ? setDeleteTarget : undefined
               }
             />
           ))}

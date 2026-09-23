@@ -85,7 +85,7 @@ const targetExecutionResult = {
       code: 'TOY-1',
       ownCode: null,
       sabangnetGoodsNo: null,
-      sourceCandidateId: null,
+      sourceRecordId: null,
       sourcePlatform: null,
       sourceUrl: null,
       name: 'Toy',

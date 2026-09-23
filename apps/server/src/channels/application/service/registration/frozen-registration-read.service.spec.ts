@@ -18,7 +18,7 @@ const reference = {
 const frozen = {
   executionId,
   preparationId,
-  sourceCandidateId: candidateId,
+  sourceRecordId: candidateId,
   salesProductId,
   channelAccountId: accountId,
   submissionKey: "frozen-submission",

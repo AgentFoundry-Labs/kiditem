@@ -1,5 +1,5 @@
 import type { AuthorizedCollectionOutput } from './sourcing-collection.repository.port';
-import type { UpsertCandidateInput } from './sourcing-candidate.repository.port';
+import type { SourceRecordWrite } from './source-record.repository.port';
 
 export const SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT = Symbol(
   'SourcingBrowserSourceAttemptRepositoryPort',
@@ -41,7 +41,8 @@ export interface SourcingBrowserSourceAttempt {
   errorCode: string | null;
   errorMessage: string | null;
   completedAt: Date | null;
-  scrapeUrlResult?: { candidateId: string };
+  /** URL 수집이 입장시킨 원본 기록과 같은 커밋에서 만든 그 초안. */
+  scrapeUrlResult?: { sourceRecordId: string; salesProductId: string };
 }
 
 export interface SourcingBrowserSourceStatus {
@@ -90,7 +91,7 @@ export interface FailSourcingBrowserSourceAttemptInput {
 }
 
 export interface CompleteSourcingScrapeUrlAttemptInput extends CompleteSourcingBrowserSourceAttemptInput {
-  candidate: UpsertCandidateInput;
+  sourceRecord: SourceRecordWrite;
 }
 
 export interface SourcingWingCatalogReceipt {

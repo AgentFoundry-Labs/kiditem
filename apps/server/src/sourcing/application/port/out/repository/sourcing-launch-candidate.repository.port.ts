@@ -15,7 +15,7 @@ export interface SourcingLaunchCandidateRecord {
   candidateKey: string;
   version: number;
   identityHash: string;
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   supplierOfferSkuSnapshotId: string;
   targetChannelAccountId: string;
   productConceptVersionKey: string;
@@ -62,7 +62,7 @@ export type CreateSourcingLaunchCandidateResult =
   | { kind: 'created'; duplicate: false; record: SourcingLaunchCandidateRecord }
   | { kind: 'existing'; duplicate: true; record: SourcingLaunchCandidateRecord }
   | { kind: 'target_channel_account_invalid' }
-  | { kind: 'source_candidate_not_found' };
+  | { kind: 'source_record_not_found' };
 
 export interface SourcingLaunchCandidateRepositoryPort {
   createVersion(

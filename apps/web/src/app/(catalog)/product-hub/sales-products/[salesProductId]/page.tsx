@@ -7,7 +7,6 @@ import { AlertTriangle, ArrowLeft, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SALES_PRODUCT_DELIVERY_FEE_TYPES,
-  SALES_PRODUCT_STATUSES,
   SALES_PRODUCT_TAX_TYPES,
   type SalesProduct,
 } from '@kiditem/shared/sales-product';
@@ -94,7 +93,9 @@ function Editor({ product }: { product: SalesProduct }) {
   const [basics, setBasics] = useState<BasicsDraft>(() => basicsFromProduct(product));
   const [options, setOptions] = useState<OptionTableDraft>(() => optionsFromProduct(product));
   const commonTagPrice = commonNormalPrice(options);
-  const patch = useMemo(() => basicsPatch(product, basics), [product, basics]);
+  // 상태는 고치는 칸이 아니다 — 판매 상품을 보관하는 요청만 둔다(KID-313).
+  const [archive, setArchive] = useState(false);
+  const patch = useMemo(() => basicsPatch(product, basics, { archive }), [product, basics, archive]);
   const optionsDirty = useMemo(() => optionsChanged(product, options), [product, options]);
   const problems = useMemo(() => optionTableProblems(options), [options]);
   const dirty = patch !== null || optionsDirty;
@@ -138,7 +139,7 @@ function Editor({ product }: { product: SalesProduct }) {
             <span className={cn('rounded-full px-2 py-0.5 font-semibold', SALES_PRODUCT_STATUS_TONE[product.status])}>
               {SALES_PRODUCT_STATUS_LABEL[product.status]}
             </span>
-            {product.sourceCandidateId && <span>· 수집상품에서 만듦</span>}
+            {product.sourceRecordId && <span>· 수집상품에서 만듦</span>}
           </div>
           <h1 className="page-title mt-1 truncate" title={product.name}>{product.name}</h1>
         </div>
@@ -178,11 +179,14 @@ function Editor({ product }: { product: SalesProduct }) {
           <Field label="원산지(제조국)">
             <input value={basics.originCountry ?? ''} onChange={(event) => set('originCountry', event.target.value || null)} className={inputClass} />
           </Field>
-          <Field label="상태">
-            <select value={basics.status} onChange={(event) => set('status', event.target.value as BasicsDraft['status'])} className={inputClass}>
-              {SALES_PRODUCT_STATUSES.map((status) => <option key={status} value={status}>{SALES_PRODUCT_STATUS_LABEL[status]}</option>)}
-            </select>
-          </Field>
+          {product.status === 'active' && (
+            <Field label="상태">
+              <select value={archive ? 'archived' : 'active'} onChange={(event) => setArchive(event.target.value === 'archived')} className={inputClass}>
+                <option value="active">{SALES_PRODUCT_STATUS_LABEL.active}</option>
+                <option value="archived">{SALES_PRODUCT_STATUS_LABEL.archived}</option>
+              </select>
+            </Field>
+          )}
           <Field label="검색어(쉼표로)" wide>
             <input
               value={basics.keywords.join(', ')}

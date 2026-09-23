@@ -1,7 +1,7 @@
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { SalesProductThumbnailSourcePort } from '../../port/out/ai/sales-product-thumbnail-source.port';
 import type {
-  SalesProductDraftRetireResult,
+  SalesProductDraftDeletionResult,
   SalesProductDraftSource,
   SalesProductPort,
 } from '../../port/in/sales-product.port';
@@ -24,9 +24,14 @@ import {
 import {
   clampDraftText,
   planDraftOptions,
-  resolveSalesProductStatus,
-  type SalesProductPricedOption,
 } from '../../../domain/sales-product/sales-product-draft';
+import {
+  SalesProductStatusError,
+  draftDeletion,
+  statusAfterArchive,
+  type DraftDeletionBlock,
+} from '../../../domain/sales-product/sales-product-status';
+import type { ChannelSourceRecordPort } from '../../port/out/sourcing/source-record.port';
 import { issueSalesProductOptionCodes } from './sales-product-code';
 import type { SalesProductWorkspaceArchivePort } from '../../port/out/ai/sales-product-workspace-archive.port';
 import {
@@ -37,6 +42,13 @@ import {
 
 const VERSION_CONFLICT = '다른 곳에서 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장하세요.';
 
+/** 초안 삭제를 막는 이유마다 운영자에게 보이는 문장. 판매 상품은 지우지 않고 보관한다(KID-313). */
+const DRAFT_DELETION_REFUSALS: Record<DraftDeletionBlock, string> = {
+  not_draft: '판매 중인 상품이라 지우지 않고 보관합니다.',
+  listing: '몰 상품과 이어져 있어 초안을 지우지 않았습니다.',
+  live_execution: '등록 실행이 남아 있어 초안을 지우지 않았습니다.',
+};
+
 /**
  * Channels 판매상품 · 옵션의 쓰기 계약(ADR-0020). 공유 입력 계약을 검증하고 원천 상품은
  * 같은 조직에 존재하는지 확인한 뒤에만 구성으로 받는다. 구성은 선언일 뿐 채널 레시피를 건드리지 않는다.
@@ -46,7 +58,9 @@ export class SalesProductUseCase implements SalesProductPort {
   constructor(
 
     private readonly repository: SalesProductRepositoryPort,
-    private readonly workspaceArchive?: SalesProductWorkspaceArchivePort,
+    /** 초안 삭제가 콘텐츠 작업공간 보관과 원본 기록 삭제를 한 커밋에 묶는다 — 빠지면 삭제가 반쪽이 된다. */
+    private readonly workspaceArchive: SalesProductWorkspaceArchivePort,
+    private readonly sourceRecords: ChannelSourceRecordPort,
     private readonly thumbnails?: SalesProductThumbnailSourcePort,
   ) {}
 
@@ -83,17 +97,19 @@ export class SalesProductUseCase implements SalesProductPort {
       existing: [],
       options: input.options.map(toDraft),
     }));
-    const id = await this.repository.create(organizationId, {
-      ...basicsRecord(input),
-      // 판매가를 다 채우지 않은 채로 만들면 초안이다. 저장할 때마다 같은 규칙으로 다시 판정한다.
-      status: resolveSalesProductStatus({ current: input.status ?? 'active', options: plan.writes }),
-      code: null,
-      sabangnetGoodsNo: null,
-      optionAxes: input.optionAxes,
-      sourceRaw: null,
-    }, plan);
-    // 직접 작성은 팔려고 만드는 것이다 — 만드는 순간이 곧 판매 결정이라 여기서 KID 를 발급한다.
-    await this.ensureSalesProductCodes(organizationId, id);
+    // 직접 작성은 팔려고 만드는 것이다 — 삽입과 KID 발급이 한 트랜잭션이다(KID-313). 시퀀스가 없으면
+    // 발급이 503 으로 던지고 삽입도 되돌아가, 코드 없는 판매 상품이 남지 않는다.
+    const id = await this.repository.runInTransaction(async (transaction) => {
+      const created = await this.repository.create(organizationId, {
+        ...basicsRecord({ ...input, status: 'draft' }),
+        code: null,
+        sabangnetGoodsNo: null,
+        optionAxes: input.optionAxes,
+        sourceRaw: null,
+      }, plan, transaction);
+      await this.repository.ensureCodes(organizationId, created, transaction);
+      return created;
+    });
     return this.get(organizationId, id);
   }
 
@@ -106,24 +122,20 @@ export class SalesProductUseCase implements SalesProductPort {
   }
 
   /**
-   * 원천 한 줄에서 초안을 만든다(수집 · 직접 작성이 같은 모델로 들어온다).
+   * 초안 하나를 만든다 — 수집 · 직접 작성이 같은 문으로 들어온다(KID-313).
    *
-   * 후보 하나에 초안 하나다 — 같은 후보를 다시 담아도, 두 요청이 동시에 들어와도 초안은 늘어나지
-   * 않는다. 원천 값은 초안의 첫 내용일 뿐이라 사람이 고친 뒤에는 덮지 않는다.
+   * 원본 하나에 초안 하나는 Sourcing 의 입장 규칙과 `(organization, source_record_id)` 유일키가
+   * 지킨다. 원본 기록에서 온 초안은 원본을 입장시킨 트랜잭션(`transaction`)에서 만든다 — 초안을 만들지
+   * 못하면 원본 기록도 되돌아가, 초안 없는 원본 기록이 생기지 않는다.
    *
-   * 화면 입력과 달리 원천 값은 칸 너비를 지킨 적이 없다 — 1688 이름은 흔히 255 자를 넘는다.
-   * 거절하면 그 상품을 담을 수 없으므로 이관(023)과 같은 규칙으로 자른다.
-   *
-   * `transaction` 을 주면 후보를 담는 그 트랜잭션에서 만든다 — 초안을 만들지 못하면 후보도
-   * 롤백되어, 후보만 있고 초안이 없는 중간 상태가 생기지 않는다.
+   * 화면 입력과 달리 원천 값은 칸 너비를 지킨 적이 없다 — 1688 이름은 흔히 255 자를 넘는다. 거절하면
+   * 그 상품을 담을 수 없으므로 칸 너비로 자른다. 원가와 원문은 복사하지 않는다(원본 기록에서 읽는다).
    */
-  async createFromSource(
+  async createDraft(
     organizationId: string,
     input: SalesProductDraftSource,
     transaction?: OwnerTransaction,
-  ): Promise<SalesProduct> {
-    const existing = await this.repository.findIdBySourceCandidate(organizationId, input.candidateId, transaction);
-    if (existing) return this.get(organizationId, existing, transaction);
+  ): Promise<string> {
     const name = clampDraftText('name', input.name).value ?? '';
     const sourcePlatform = clampDraftText('sourcePlatform', input.sourcePlatform).value;
     const { optionAxes, optionValues } = planDraftOptions(input.optionNames);
@@ -132,138 +144,109 @@ export class SalesProductUseCase implements SalesProductPort {
       existing: [],
       options: optionValues.map((values) => ({
         values,
-        // 초안은 판매가가 없다. 사람이 채우면 그 저장이 상품을 active 로 올린다.
-        salePrice: null,
-        normalPrice: null,
+        // 수집 초안은 판매가가 없다. 직접 작성은 사람이 적은 값을 받는다.
+        salePrice: input.salePrice ?? null,
+        normalPrice: input.normalPrice ?? null,
         supplyStatus: 'selling' as const,
         components: [],
       })),
     }));
-    try {
-      const id = await this.repository.create(organizationId, {
-        ...basicsRecord({
-          name,
-          description: input.description ?? '',
-          keywords: [],
-          status: 'draft',
-          taxType: 'taxable',
-          stockManaged: false,
-          imageUrls: [...(input.imageUrls ?? [])],
-          extraDetailHtml: [],
-          noticeValues: [],
-          certifications: [],
-        }),
+    const basics = input.basics ?? {};
+    return this.repository.create(organizationId, {
+      ...basicsRecord({
+        name,
+        description: input.description ?? '',
+        keywords: (basics.keywords ?? []).map((keyword) => keyword.slice(0, 60)).slice(0, 30),
+        standardCategory: clampDraftText('standardCategory', basics.standardCategory).value,
+        targetAudience: clampDraftText('targetAudience', basics.targetAudience).value,
+        ageGroup: clampDraftText('ageGroup', basics.ageGroup).value,
+        productSize: clampDraftText('productSize', basics.productSize).value,
+        colorVariantNames: (basics.colorVariantNames ?? []).map((color) => color.slice(0, 60)).slice(0, 30),
+        boxSetQuantity: basics.boxSetQuantity ?? null,
+        brand: clampDraftText('brand', basics.brand).value,
+        manufacturer: clampDraftText('manufacturer', basics.manufacturer).value,
+        originCountry: clampDraftText('originCountry', basics.originCountry).value,
+        modelName: clampDraftText('modelName', basics.modelName).value,
+        kcStatus: basics.kcStatus ?? 'unknown',
+        ownCode: basics.ownCode?.trim().slice(0, 100) || null,
         status: 'draft',
-        // 수집 초안은 코드 없이 만든다. 팔기로 정할 때(첫 등록 설정 · 몰 엑셀) 발급한다.
-        code: null,
-        sabangnetGoodsNo: null,
-        optionAxes,
-        sourceRaw: sourceSnapshot(input),
-        sourceCandidateId: input.candidateId,
-        sourcePlatform,
-        sourceUrl: input.sourceUrl ?? null,
-      }, plan, transaction);
-      return this.get(organizationId, id, transaction);
-    } catch (error) {
-      // 부르는 쪽 트랜잭션이면 그 트랜잭션은 이미 중단됐다 — 여기서 더 읽지 못한다.
-      // 후보를 담는 경로가 유일키 충돌을 잡아 처음부터 다시 돌리고, 그때 위에서 기존 초안을 찾는다.
-      if (transaction) throw error;
-      // 같은 후보로 다른 요청이 먼저 만들었으면(유일키 충돌) 그것을 쓴다.
-      const made = await this.repository.findIdBySourceCandidate(organizationId, input.candidateId);
-      if (!made) throw error;
-      return this.get(organizationId, made);
-    }
+        taxType: basics.taxType ?? 'taxable',
+        deliveryFeeType: basics.deliveryFeeType ?? null,
+        deliveryFee: basics.deliveryFee ?? null,
+        stockManaged: false,
+        imageUrls: [...(input.imageUrls ?? [])].slice(0, 30),
+        extraDetailHtml: [],
+        noticeValues: [],
+        certifications: (basics.certifications ?? []).slice(0, 10).map((certification) => ({
+          number: certification.number.slice(0, 100),
+          issuer: certification.issuer?.slice(0, 100) ?? null,
+          field: certification.field?.slice(0, 100) ?? null,
+        })),
+      }),
+      // 초안은 코드가 없다. 팔기로 정할 때(첫 등록 설정 · 몰 엑셀) 발급하고, 그때 active 가 된다.
+      code: null,
+      sabangnetGoodsNo: null,
+      optionAxes,
+      // sourceRaw 는 사방넷 마지막 가져오기 원문 자리다 — 수집 원본은 원본 기록에 있다(KID-313).
+      sourceRaw: null,
+      sourceRecordId: input.sourceRecordId,
+      sourcePlatform,
+      sourceUrl: input.sourceUrl ?? null,
+    }, plan, transaction);
   }
 
-  findDraftIdForSource(organizationId: string, candidateId: string): Promise<string | null> {
-    return this.repository.findIdBySourceCandidate(organizationId, candidateId);
-  }
-
-  findDraftIdsForSources(
+  findForSourceRecord(
     organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, string>> {
-    return this.repository.findIdsBySourceCandidates(organizationId, candidateIds);
+    sourceRecordId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ salesProductId: string; status: SalesProductStatus } | null> {
+    return this.repository.findForSourceRecord(organizationId, sourceRecordId, transaction);
   }
 
   /**
-   * 후보를 거절 · 삭제했을 때 그 초안을 `unused` 로 내린다.
+   * 초안을 지운다(KID-313). 초안만 지울 수 있고 판매 상품은 보관한다. 몰 상품이나 살아 있는 등록
+   * 실행이 딸린 초안도 지우지 않는다.
    *
-   * 몰에 올라가 있거나 살아 있는 등록 실행이 있으면 초안을 그대로 두고 이유만 돌려준다 — 후보
-   * 거절을 막지 않는다(몰에 있는 상품의 기준을 잃으면 수정 · 품절을 어디에 걸지 모른다).
-   *
-   * 후보를 종료하는 트랜잭션에서 실행된다. 초안 내리기와 그 작업공간 보관이 후보 거절과 한
-   * 커밋에 들어가므로, 후보만 거절되고 초안이 살아 있는 중간 상태가 없다.
+   * 한 트랜잭션에서 초안 줄 · 옵션 · 등록 설정 · 공개 사진을 지우고, 콘텐츠 작업공간을 정리하고,
+   * 원본 기록을 지운다 — 그래야 같은 원본의 재수집이 새 수집이 된다.
    */
-  async retireDraftForSource(
-    transaction: OwnerTransaction,
-    organizationId: string,
-    candidateId: string,
-  ): Promise<SalesProductDraftRetireResult> {
-    const row = await this.repository.retireDraftForSource(transaction, organizationId, candidateId);
-    if (row.salesProductId === null || row.retired) {
-      // 초안을 더 쓰지 않으면 그 콘텐츠 작업공간도 함께 보관한다 — 남겨 두면 지운 상품의 작업물이
-      // 화면에 계속 뜬다.
-      if (row.retired && row.salesProductId) {
-        await this.workspaceArchive?.archiveSalesProductWorkspace(transaction, {
-          organizationId,
-          salesProductId: row.salesProductId,
-          archivedAt: new Date(),
-        });
+  async deleteDraft(organizationId: string, salesProductId: string): Promise<SalesProductDraftDeletionResult> {
+    await this.repository.runInTransaction(async (transaction) => {
+      const facts = await this.repository.readDraftDeletionFacts(transaction, organizationId, salesProductId);
+      if (!facts) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+      const decision = draftDeletion(facts);
+      if (!decision.allowed) {
+        throw new ConflictException({ message: DRAFT_DELETION_REFUSALS[decision.reason], reason: decision.reason });
       }
-      return { salesProductId: row.salesProductId, retired: row.retired, blockedReason: null };
-    }
-    return {
-      salesProductId: row.salesProductId,
-      retired: false,
-      blockedReason: row.activeListingCount > 0
-        ? '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.'
-        : '등록 실행이 남아 있어 판매상품을 미사용으로 내리지 않았습니다.',
-    };
-  }
-
-  /**
-   * 원천 기록이 없는 초안(직접 작성 · 사방넷)을 수집상품 화면에서 지운다. 원천 기록이 있는 초안은
-   * 후보 삭제가 이 규칙을 같은 트랜잭션에서 부른다. 몰에 있거나 살아 있는 등록 실행이 있으면 내리지 않는다.
-   */
-  async retireDraft(organizationId: string, salesProductId: string): Promise<SalesProductDraftRetireResult> {
-    const result = await this.repository.runInTransaction(async (transaction) => {
-      const row = await this.repository.retireDraft(transaction, organizationId, salesProductId);
-      if (row.retired && row.salesProductId) {
-        await this.workspaceArchive?.archiveSalesProductWorkspace(transaction, {
-          organizationId,
-          salesProductId: row.salesProductId,
-          archivedAt: new Date(),
-        });
+      await this.repository.deleteDraftRows(transaction, organizationId, salesProductId);
+      await this.workspaceArchive.archiveSalesProductWorkspace(transaction, {
+        organizationId,
+        salesProductId,
+        archivedAt: new Date(),
+      });
+      if (facts.sourceRecordId) {
+        await this.sourceRecords.deleteForDraft(transaction, { organizationId, sourceRecordId: facts.sourceRecordId });
       }
-      return row;
     });
-    if (result.salesProductId === null) throw new NotFoundException('판매상품을 찾지 못했습니다.');
-    return {
-      salesProductId: result.salesProductId,
-      retired: result.retired,
-      blockedReason: result.retired ? null : result.activeListingCount > 0
-        ? '몰에 올라가 있어 판매상품을 미사용으로 내리지 않았습니다.'
-        : '등록 실행이 남아 있어 판매상품을 미사용으로 내리지 않았습니다.',
-    };
+    return { salesProductId, deleted: true };
   }
 
   async update(organizationId: string, salesProductId: string, body: unknown): Promise<SalesProduct> {
     const input = parseOrBadRequest(SalesProductUpdateInputSchema, body, '판매상품 내용이 올바르지 않습니다.');
-    const { expectedVersion, ...patch } = input;
+    const { expectedVersion, status, ...patch } = input;
     const state = await this.repository.readOptionState(organizationId, salesProductId);
     if (!state) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+    // 화면이 바꿀 수 있는 상태는 보관뿐이다(KID-313). 초안은 보관하지 않고 지운다.
+    const nextStatus = status === 'archived'
+      ? statusOrConflict(() => statusAfterArchive({ name: state.productName, status: state.status }))
+      : undefined;
     const updated = await this.repository.updateBasics(
       organizationId,
       salesProductId,
       expectedVersion,
       {
         ...(patch as Partial<SalesProductBasicsRecord>),
-        // 기본 칸만 고쳐도 상태는 옵션 판매가가 정한다.
-        status: resolveSalesProductStatus({
-          current: (patch.status as SalesProductStatus | undefined) ?? state.status,
-          options: pricedOptions(state.options),
-        }),
+        ...(nextStatus ? { status: nextStatus } : {}),
       },
     );
     if (!updated) throw new ConflictException(VERSION_CONFLICT);
@@ -291,8 +274,6 @@ export class SalesProductUseCase implements SalesProductPort {
       expectedVersion: input.expectedVersion,
       optionAxes: input.optionAxes,
       plan,
-      // 저장이 곧 "판매가 확인"이다 — 팔 옵션에 값이 다 차면 여기서 active 로 올라간다.
-      status: resolveSalesProductStatus({ current: state.status, options: plan.writes }),
     });
     if (!applied) throw new ConflictException(VERSION_CONFLICT);
     return this.get(organizationId, salesProductId);
@@ -330,21 +311,13 @@ function toDraft(option: {
   return { ...option };
 }
 
-function pricedOptions(
-  options: readonly { supplyStatus?: string; salePrice?: number | null; id: string }[],
-): SalesProductPricedOption[] {
-  return options.map((option) => ({
-    id: option.id,
-    supplyStatus: (option.supplyStatus ?? 'selling') as SalesProductPricedOption['supplyStatus'],
-    salePrice: option.salePrice ?? null,
-  }));
-}
-
-/** 원천 원문(원가 위안 포함)을 초안에 얼려 둔다. 편집 화면은 읽지 않는다. */
-function sourceSnapshot(input: SalesProductDraftSource): Record<string, unknown> | null {
-  const raw = { ...(input.rawBasics ?? {}) };
-  if (input.costCny !== undefined && input.costCny !== null) raw.costCny = input.costCny;
-  return Object.keys(raw).length > 0 ? raw : null;
+function statusOrConflict<T>(decide: () => T): T {
+  try {
+    return decide();
+  } catch (error) {
+    if (error instanceof SalesProductStatusError) throw new ConflictException(error.message);
+    throw error;
+  }
 }
 
 function basicsRecord(input: {

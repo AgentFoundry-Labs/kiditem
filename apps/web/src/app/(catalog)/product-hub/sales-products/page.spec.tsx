@@ -27,7 +27,7 @@ function listItem(overrides: Record<string, unknown> = {}) {
     id: '11111111-1111-4111-8111-111111111111',
     code: 'KID00000001',
     ownCode: null,
-    sourceCandidateId: null,
+    sourceRecordId: null,
     name: '비눗방울총',
     status: 'active',
     salePrice: 3000,
@@ -82,7 +82,7 @@ describe('판매상품 목록 화면', () => {
   // KID-310: 되돌리기(demote)는 사라졌다 — archived 는 단순 보관 표식이다.
   it('보관한 상품 줄은 보관으로 읽는다', async () => {
     listQuery.mockResolvedValue({
-      items: [listItem({ status: 'archived', sourceCandidateId: '22222222-2222-4222-8222-222222222222' })],
+      items: [listItem({ status: 'archived', sourceRecordId: '22222222-2222-4222-8222-222222222222' })],
       total: 1,
       page: 1,
       limit: 50,

@@ -1,7 +1,7 @@
 import { UseFilters } from '@nestjs/common';
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
-import { RegistrationTargetCreateInputSchema, RegistrationTargetResolveInputSchema, RegistrationTargetUpdateInputSchema } from '@kiditem/shared/sales-product';
+import { RegistrationTargetResolveInputSchema, RegistrationTargetUpdateInputSchema } from '@kiditem/shared/sales-product';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { REGISTRATION_TARGET_PORT, type RegistrationTargetPort } from '../../../application/port/in/registration-target.port';
 import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
@@ -19,12 +19,7 @@ export class RegistrationTargetController {
   get(@CurrentOrganization() organizationId: string, @Param('id', new ParseUUIDPipe()) id: string) {
     return translate(() => this.targets.get(organizationId, id));
   }
-  @Post()
-  create(@CurrentOrganization() organizationId: string, @Body() body: unknown) {
-    const parsed = RegistrationTargetCreateInputSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
-    return translate(() => this.targets.create(organizationId, parsed.data));
-  }
+  /** 등록 설정이 생기는 유일한 길 — 찾거나 만들고, 처음 만들 때 KID 를 발급한다(KID-313). */
   @Post('resolve')
   resolve(@CurrentOrganization() organizationId: string, @Body() body: unknown) {
     const parsed = RegistrationTargetResolveInputSchema.safeParse(body);

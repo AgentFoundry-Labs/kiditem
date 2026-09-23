@@ -12,7 +12,7 @@ describe('ChannelRegistrationExecutionController.registrationState', () => {
     const readForSalesProducts = vi.fn().mockResolvedValue(new Map([[PRODUCT, {
       registrationState: 'confirming',
       preparations: [{
-        id: TARGET, salesProductId: PRODUCT, sourceCandidateId: null, channelAccountId: ACCOUNT,
+        id: TARGET, salesProductId: PRODUCT, sourceRecordId: null, channelAccountId: ACCOUNT,
         channelListingId: null, displayName: null, status: 'submitting',
         selectedThumbnailUrl: null, selectedThumbnailGenerationId: null, selectedThumbnailGenerationCandidateId: null,
         selectedDetailPageArtifactId: null, selectedDetailPageRevisionId: null, selectedDetailPageGenerationId: null,

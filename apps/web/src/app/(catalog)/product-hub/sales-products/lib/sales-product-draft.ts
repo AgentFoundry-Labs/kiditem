@@ -44,7 +44,7 @@ export interface OptionTableDraft {
 }
 
 export const BASIC_FIELDS = [
-  'name', 'shortName', 'ownCode', 'modelName', 'modelNo', 'brand', 'manufacturer', 'originCountry', 'status',
+  'name', 'shortName', 'ownCode', 'modelName', 'modelNo', 'brand', 'manufacturer', 'originCountry',
   'taxType', 'deliveryFeeType', 'deliveryFee', 'keywords', 'imageUrls',
   'detailHtml', 'noticeCategory', 'noticeValues', 'certifications', 'adminMemo',
   // KID-310: 수집·직접 작성 초안이 채우는 칸(전에는 후보에만 있었다).
@@ -135,16 +135,29 @@ export function setCommonNormalPrice(draft: OptionTableDraft, normalPrice: numbe
   };
 }
 
-/** 저장할 기본 칸 — 바뀐 것만. 없으면 null. */
+/**
+ * 저장할 기본 칸 — 바뀐 것만. 없으면 null. 상태는 편집 칸이 아니다(KID-313): 판매 상품(`active`)을
+ * 보관하라는 요청(`archive`)만 `status: 'archived'` 로 보낸다. 초안은 보관하지 않고 지운다.
+ */
 export function basicsPatch(
   product: SalesProduct,
   draft: BasicsDraft,
+  request: { archive?: boolean } = {},
 ): Omit<SalesProductUpdateInput, 'expectedVersion'> | null {
-  const patch: Record<string, unknown> = {};
+  const patch: Omit<SalesProductUpdateInput, 'expectedVersion'> = {};
   for (const field of BASIC_FIELDS) {
-    if (JSON.stringify(product[field]) !== JSON.stringify(draft[field])) patch[field] = draft[field];
+    if (JSON.stringify(product[field]) !== JSON.stringify(draft[field])) copyBasic(patch, draft, field);
   }
-  return Object.keys(patch).length > 0 ? (patch as Omit<SalesProductUpdateInput, 'expectedVersion'>) : null;
+  if (request.archive && product.status === 'active') patch.status = 'archived';
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+function copyBasic<K extends BasicField>(
+  patch: Pick<Omit<SalesProductUpdateInput, 'expectedVersion'>, K>,
+  draft: BasicsDraft,
+  field: K,
+): void {
+  patch[field] = draft[field];
 }
 
 export function optionsChanged(product: SalesProduct, draft: OptionTableDraft): boolean {

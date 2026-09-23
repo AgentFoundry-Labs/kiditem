@@ -27,7 +27,7 @@ const POSTGRES_INT_MAX = 2_147_483_647;
 export interface CreateSourcingLaunchCandidateInput {
   organizationId: string;
   createdByUserId: string;
-  sourceCandidateId?: string | null;
+  sourceRecordId?: string | null;
   supplierOfferSkuSnapshotId: string;
   targetChannelAccountId: string;
   productConceptVersionKey: string;
@@ -212,7 +212,7 @@ export class SourcingLaunchCandidateService {
       organizationId: input.organizationId,
       candidateKey,
       identityHash,
-      sourceCandidateId: input.sourceCandidateId ?? null,
+      sourceRecordId: input.sourceRecordId ?? null,
       supplierOfferSkuSnapshotId: offer.id,
       targetChannelAccountId: requiredText(
         input.targetChannelAccountId,
@@ -254,8 +254,8 @@ export class SourcingLaunchCandidateService {
       validUntil: offer.validUntil,
       createdByUserId: input.createdByUserId,
     });
-    if (result.kind === 'source_candidate_not_found') {
-      throw new BadRequestException('Source candidate not found in this organization');
+    if (result.kind === 'source_record_not_found') {
+      throw new BadRequestException('Source record not found in this organization');
     }
     if (result.kind === 'target_channel_account_invalid') {
       throw new BadRequestException(

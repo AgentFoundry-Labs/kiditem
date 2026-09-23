@@ -135,7 +135,7 @@ describe('sales product list contract', () => {
       id: '11111111-1111-4111-8111-111111111111',
       code: 'KID00000001',
       ownCode: null,
-      sourceCandidateId: '22222222-2222-4222-8222-222222222222',
+      sourceRecordId: '22222222-2222-4222-8222-222222222222',
       sourcePlatform: '1688',
       sourceUrl: 'https://detail.1688.com/offer/1.html',
       name: '비눗방울총',
@@ -150,7 +150,7 @@ describe('sales product list contract', () => {
       channelOverrideCount: 0,
       updatedAt: '2026-09-22T00:00:00.000Z',
     });
-    expect(item.sourceCandidateId).toBe('22222222-2222-4222-8222-222222222222');
+    expect(item.sourceRecordId).toBe('22222222-2222-4222-8222-222222222222');
   });
 
   it('lists a collected draft with no KID and no price yet', () => {
@@ -158,7 +158,7 @@ describe('sales product list contract', () => {
       id: '11111111-1111-4111-8111-111111111111',
       code: null,
       ownCode: null,
-      sourceCandidateId: null,
+      sourceRecordId: null,
       sourcePlatform: null,
       sourceUrl: null,
       name: '초안',

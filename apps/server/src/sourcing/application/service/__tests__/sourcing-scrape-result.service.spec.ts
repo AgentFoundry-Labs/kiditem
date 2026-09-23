@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { prepareSourcingScrapeResult } from '../sourcing-scrape-result.service';
-import { canonicalSourcingCandidateIdentity } from '../../../domain/sourcing-candidate-identity';
+import { canonicalSourceRecordIdentity } from '../../../domain/source-record-identity';
 
 describe('prepareSourcingScrapeResult', () => {
   it('prepares the retained canonical candidate projection', async () => {
@@ -32,7 +32,7 @@ describe('prepareSourcingScrapeResult', () => {
         sourcePlatform: 'ALIBABA_1688',
         externalOfferId: '123',
         variantKeyNormalized: 'blue set',
-        sourceIdentityHash: canonicalSourcingCandidateIdentity({
+        sourceIdentityHash: canonicalSourceRecordIdentity({
           sourcePlatform: 'ALIBABA_1688',
           sourceUrl: 'https://detail.1688.com/offer/123.html',
           validatedExternalOfferId: '123',

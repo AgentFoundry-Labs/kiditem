@@ -22,7 +22,7 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     brand: null,
     manufacturer: null,
     rawJson: null,
-    salesProduct: { sourceCandidateId: 'candidate-1' },
+    salesProduct: { sourceRecordId: 'candidate-1' },
     masterProductId: 'master-1',
     status: 'active',
     exposureStatus: 'visible',
@@ -122,7 +122,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
       brand: null,
       manufacturer: null,
       channelPrice: 12_900,
-      sourceCandidateId: 'candidate-1',
+      sourceRecordId: 'candidate-1',
       contentWorkspaceId: null,
       status: 'active',
       exposureStatus: 'visible',
@@ -196,7 +196,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
     }));
     expect(result).toEqual(expect.objectContaining({
       id: 'listing-1',
-      sourceCandidateId: 'candidate-1',
+      sourceRecordId: 'candidate-1',
       contentWorkspaceId: null,
       channelAccountId: 'account-1',
     }));

@@ -1,3 +1,4 @@
+import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -87,7 +88,7 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
 function controller(prisma: PrismaClient) {
   const db = prisma as unknown as PrismaService;
   const owner = new SourcingBrowserSourceAttemptRepositoryAdapter(
-    db, new SourceFailureAlerts(db),
+    db, new SourceFailureAlerts(db), unusedSalesProductDraftPort
   );
   const targets = { list1688Targets: async () => [{ label: '연필', keyword: '铅笔' }] };
   return new SourcingBrowserSourceAttemptController(new SourcingBrowserSourceAttemptService(

@@ -27,7 +27,8 @@ export const ProductRegistrationExecutionSchema = z.object({
   registrationTargetId: z.string().uuid(),
   channelAccountId: z.string().uuid(),
   channelListingId: z.string().uuid().nullable(),
-  executionKind: z.enum(['create', 'external_wing']),
+  /** 몰 등록 실행은 명시한 실행 id 로 움직이는 외부(WING) 실행뿐이다 — 옛 `create` 종류는 없다(KID-313). */
+  executionKind: z.enum(['external_wing']),
   expectedProviderAccountId: z.string().trim().min(1).max(80).nullable(),
   idempotencyKey: z.string().trim().min(1),
   requestHash: z.string().trim().min(1),

@@ -52,7 +52,7 @@ function buildService() {
         externalId: 'EXT-1',
         channelName: '채널 상품',
         channelPrice: 1200,
-        sourceCandidateId: null,
+        sourceRecordId: null,
         contentWorkspaceId: null,
         status: 'active',
         exposureStatus: 'exposed',

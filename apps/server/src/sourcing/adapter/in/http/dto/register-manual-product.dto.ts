@@ -73,13 +73,6 @@ export class RegisterManualProductDto {
   @Max(100_000_000)
   tagPrice?: number;
 
-  /** 사방넷 `원가`(공급가 · 매입 지불 금액). */
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(100_000_000)
-  costPrice?: number;
-
   @IsOptional()
   @IsString()
   @MaxLength(100)
