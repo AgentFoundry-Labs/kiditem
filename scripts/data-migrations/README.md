@@ -284,11 +284,11 @@ deployment data-loss policy.
 
 `025_promote_edited_html_to_detail_page_revisions` runs after 024 and before the
 schema push that drops `content_generations.edited_html` and
-`edited_html_saved_at` (KID-304). Each generation with edited HTML and a live
-artifact of its own workspace gets a `manual_edit` revision holding that HTML at
+`edited_html_saved_at` (KID-304). Each live (not deleted) generation with edited
+HTML and a live artifact of its own workspace gets a `manual_edit` revision holding that HTML at
 its save time, unless the artifact already has a revision with identical HTML;
-an artifact with no current revision is pointed at it, and one that has a current
-revision keeps it. A generation with no live artifact gets nothing. The details
+an artifact with no current revision is pointed at it (its `updated_at` stays), and
+one that has a current revision keeps it. A generation with no live artifact gets nothing. The details
 report `editedGenerations`, `promotedRevisions`, `alreadyPresent`,
 `currentRevisionsSet` and `withoutArtifact`. A second run writes nothing; once the
 column is gone it reports `already_contracted`.

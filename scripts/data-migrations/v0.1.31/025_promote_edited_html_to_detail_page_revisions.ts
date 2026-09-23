@@ -8,11 +8,13 @@ import type { DataMigration } from '../types';
  * column as a fallback when the generation's artifact has no current revision,
  * so its value moves into the revision ledger first.
  *
- * Pre-schema. For every generation with edited HTML and a live artifact of its
+ * Pre-schema. For every live (not deleted) generation with edited HTML and a live artifact of its
  * own workspace, the artifact gets a `manual_edit` revision holding that HTML
  * at its save time unless one with identical HTML is already there. An artifact
  * with no current revision is pointed at that revision, which is what the
  * fallback showed; an artifact that already has one keeps the operator's pick.
+ * Only the pointer moves — the artifact's `updated_at` stays, because nobody
+ * edited it.
  * A generation with no live artifact gets nothing and is counted — the column's
  * value has nowhere to live once the fallback is gone (ADR-0010).
  *
@@ -51,6 +53,7 @@ export const promoteEditedHtmlToDetailPageRevisionsMigration: DataMigration = {
        AND a.content_workspace_id = cg.content_workspace_id
        AND a.is_deleted = false
       WHERE cg.edited_html IS NOT NULL
+        AND cg.is_deleted = false
     `;
 
     const promotedRevisions = await tx.$executeRaw`
@@ -70,6 +73,7 @@ export const promoteEditedHtmlToDetailPageRevisionsMigration: DataMigration = {
        AND a.content_workspace_id = cg.content_workspace_id
        AND a.is_deleted = false
       WHERE cg.edited_html IS NOT NULL
+        AND cg.is_deleted = false
         AND NOT EXISTS (
           SELECT 1 FROM detail_page_revisions r
           WHERE r.organization_id = a.organization_id
@@ -82,8 +86,7 @@ export const promoteEditedHtmlToDetailPageRevisionsMigration: DataMigration = {
     const currentRevisionsSet = await tx.$executeRaw`
       -- queryraw-tenancy-exempt: the writer-stopped cutover promotes every organization at once.
       UPDATE detail_page_artifacts a
-      SET current_revision_id = pick.id,
-          updated_at = now()
+      SET current_revision_id = pick.id
       FROM (
         SELECT DISTINCT ON (r.artifact_id) r.id, r.artifact_id, r.organization_id
         FROM detail_page_revisions r
@@ -91,6 +94,7 @@ export const promoteEditedHtmlToDetailPageRevisionsMigration: DataMigration = {
           ON cg.detail_page_artifact_id = r.artifact_id
          AND cg.organization_id = r.organization_id
          AND cg.edited_html = r.html
+         AND cg.is_deleted = false
         ORDER BY r.artifact_id, r.created_at DESC, r.id DESC
       ) pick
       WHERE a.id = pick.artifact_id

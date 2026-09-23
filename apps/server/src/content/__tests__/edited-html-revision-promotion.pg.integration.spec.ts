@@ -10,6 +10,7 @@ const ARTIFACT_EMPTY = '44444444-4444-4444-8444-000000000001';
 const ARTIFACT_CURRENT = '44444444-4444-4444-8444-000000000002';
 const ARTIFACT_SAME = '44444444-4444-4444-8444-000000000003';
 const ARTIFACT_DELETED = '44444444-4444-4444-8444-000000000004';
+const ARTIFACT_OF_DELETED_GENERATION = '44444444-4444-4444-8444-000000000005';
 const REVISION_CURRENT = '55555555-5555-4555-8555-000000000002';
 const REVISION_SAME = '55555555-5555-4555-8555-000000000003';
 const GEN_EMPTY = '66666666-6666-4666-8666-000000000001';
@@ -18,6 +19,8 @@ const GEN_SAME = '66666666-6666-4666-8666-000000000003';
 const GEN_NO_ARTIFACT = '66666666-6666-4666-8666-000000000004';
 const GEN_DELETED = '66666666-6666-4666-8666-000000000005';
 const GEN_NOT_EDITED = '66666666-6666-4666-8666-000000000006';
+const GEN_SOFT_DELETED = '66666666-6666-4666-8666-000000000007';
+const SEEDED_AT = new Date('2026-01-01T00:00:00.000Z');
 const SAVED_AT = new Date('2026-05-12T11:00:00.000Z');
 
 type Revision = {
@@ -81,7 +84,13 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
     // 붙일 상세가 없거나 지워진 줄은 아무것도 만들지 않는다.
     expect(result.revisions.filter((revision) => revision.artifact_id === ARTIFACT_DELETED)).toEqual([]);
     expect(result.artifacts.find((artifact) => artifact.id === ARTIFACT_DELETED)!.current_revision_id).toBeNull();
-    expect(result.artifacts).toHaveLength(4);
+    // 지운 생성의 편집 HTML 은 옮기지 않는다.
+    expect(result.revisions.filter((revision) => revision.content_generation_id === GEN_SOFT_DELETED)).toEqual([]);
+    expect(result.artifacts.find((artifact) => artifact.id === ARTIFACT_OF_DELETED_GENERATION)!.current_revision_id)
+      .toBeNull();
+    // 가리키는 revision 만 바꾸고 상세의 수정 시각은 건드리지 않는다.
+    expect(result.artifacts.find((artifact) => artifact.id === ARTIFACT_EMPTY)!.updated_at).toEqual(SEEDED_AT);
+    expect(result.artifacts).toHaveLength(5);
   }, 60_000);
 
   it('points an empty artifact at the identical revision it already has', async () => {
@@ -157,10 +166,11 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
   async function seed(tx: Prisma.TransactionClient): Promise<void> {
     for (const [id, deleted] of [
       [ARTIFACT_EMPTY, false], [ARTIFACT_CURRENT, false], [ARTIFACT_SAME, false], [ARTIFACT_DELETED, true],
+      [ARTIFACT_OF_DELETED_GENERATION, false],
     ] as const) {
       await tx.$executeRaw`
-        INSERT INTO detail_page_artifacts (id, organization_id, content_workspace_id, is_deleted)
-        VALUES (${id}::uuid, ${ORG}::uuid, ${WORKSPACE}::uuid, ${deleted})
+        INSERT INTO detail_page_artifacts (id, organization_id, content_workspace_id, is_deleted, updated_at)
+        VALUES (${id}::uuid, ${ORG}::uuid, ${WORKSPACE}::uuid, ${deleted}, ${SEEDED_AT})
       `;
     }
     await tx.$executeRaw`
@@ -190,6 +200,13 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
           ${html ? SAVED_AT : null}, ${USER}::uuid)
       `;
     }
+    await tx.$executeRaw`
+      INSERT INTO content_generations
+        (id, organization_id, content_workspace_id, detail_page_artifact_id, edited_html, edited_html_saved_at,
+         triggered_by_user_id, is_deleted)
+      VALUES (${GEN_SOFT_DELETED}::uuid, ${ORG}::uuid, ${WORKSPACE}::uuid, ${ARTIFACT_OF_DELETED_GENERATION}::uuid,
+        '<main>deleted generation edit</main>', ${SAVED_AT}, ${USER}::uuid, true)
+    `;
   }
 
   async function readState(tx: Prisma.TransactionClient) {
@@ -198,8 +215,8 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
         revision_type, html, created_by_user_id::text AS created_by_user_id, created_at
       FROM detail_page_revisions ORDER BY artifact_id, created_at, html
     `;
-    const artifacts = await tx.$queryRaw<Array<{ id: string; current_revision_id: string | null }>>`
-      SELECT id::text AS id, current_revision_id::text AS current_revision_id
+    const artifacts = await tx.$queryRaw<Array<{ id: string; current_revision_id: string | null; updated_at: Date }>>`
+      SELECT id::text AS id, current_revision_id::text AS current_revision_id, updated_at
       FROM detail_page_artifacts ORDER BY id
     `;
     return {
@@ -214,7 +231,8 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
       await tx.$executeRaw`CREATE TEMP TABLE content_generations (
         id uuid PRIMARY KEY, organization_id uuid NOT NULL, content_workspace_id uuid NOT NULL,
         detail_page_artifact_id uuid, edited_html text, edited_html_saved_at timestamptz,
-        triggered_by_user_id uuid, updated_at timestamptz NOT NULL DEFAULT now()
+        triggered_by_user_id uuid, updated_at timestamptz NOT NULL DEFAULT now(),
+        is_deleted boolean NOT NULL DEFAULT false
       ) ON COMMIT DROP`;
       await tx.$executeRaw`CREATE TEMP TABLE detail_page_artifacts (
         id uuid PRIMARY KEY, organization_id uuid NOT NULL, content_workspace_id uuid NOT NULL,
