@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { DETAIL_PAGE_REVISION_TYPE } from '../../../apps/server/src/content/domain/detail-page/detail-page-revision-type';
+import { isRenderableDetailHtml } from '../../../apps/server/src/content/domain/detail-page/renderable-detail-html';
 import type { DataMigration } from '../types';
 
 /**
@@ -13,6 +14,9 @@ import type { DataMigration } from '../types';
  * at its save time unless one with identical HTML is already there. An artifact
  * with no current revision is pointed at that revision, which is what the
  * fallback showed; an artifact that already has one keeps the operator's pick.
+ * An artifact whose current revision is not renderable (JSON) keeps that
+ * pointer too. Edited HTML the reader never rendered (JSON or blank) is skipped
+ * and counted.
  * Only the pointer moves — the artifact's `updated_at` stays, because nobody
  * edited it.
  * A generation with no live artifact gets nothing and is counted — the column's
@@ -31,14 +35,22 @@ export const promoteEditedHtmlToDetailPageRevisionsMigration: DataMigration = {
       return { affectedRows: 0, details: { outcome: 'already_contracted' } };
     }
 
+    // 편집 읽기가 그리지 않던 값(JSON · 빈 값)은 옮기지 않는다 — 서버와 같은 판정이다.
+    const edited = await tx.$queryRaw<Array<{ id: string; edited_html: string }>>`
+      -- queryraw-tenancy-exempt: the writer-stopped cutover promotes every organization at once.
+      SELECT cg.id::text AS id, cg.edited_html
+      FROM content_generations cg
+      WHERE cg.edited_html IS NOT NULL
+        AND cg.is_deleted = false
+    `;
+    const renderableIds = edited.filter((row) => isRenderableDetailHtml(row.edited_html)).map((row) => row.id);
+
     const [counts] = await tx.$queryRaw<Array<{
-      edited_generations: bigint;
       without_artifact: bigint;
       already_present: bigint;
     }>>`
       -- queryraw-tenancy-exempt: the writer-stopped cutover promotes every organization at once.
       SELECT
-        count(*)::bigint AS edited_generations,
         count(*) FILTER (WHERE a.id IS NULL)::bigint AS without_artifact,
         count(*) FILTER (WHERE a.id IS NOT NULL AND EXISTS (
           SELECT 1 FROM detail_page_revisions r
@@ -52,8 +64,7 @@ export const promoteEditedHtmlToDetailPageRevisionsMigration: DataMigration = {
        AND a.organization_id = cg.organization_id
        AND a.content_workspace_id = cg.content_workspace_id
        AND a.is_deleted = false
-      WHERE cg.edited_html IS NOT NULL
-        AND cg.is_deleted = false
+      WHERE cg.id = ANY(${renderableIds}::uuid[])
     `;
 
     const promotedRevisions = await tx.$executeRaw`
@@ -72,8 +83,7 @@ export const promoteEditedHtmlToDetailPageRevisionsMigration: DataMigration = {
        AND a.organization_id = cg.organization_id
        AND a.content_workspace_id = cg.content_workspace_id
        AND a.is_deleted = false
-      WHERE cg.edited_html IS NOT NULL
-        AND cg.is_deleted = false
+      WHERE cg.id = ANY(${renderableIds}::uuid[])
         AND NOT EXISTS (
           SELECT 1 FROM detail_page_revisions r
           WHERE r.organization_id = a.organization_id
@@ -94,7 +104,7 @@ export const promoteEditedHtmlToDetailPageRevisionsMigration: DataMigration = {
           ON cg.detail_page_artifact_id = r.artifact_id
          AND cg.organization_id = r.organization_id
          AND cg.edited_html = r.html
-         AND cg.is_deleted = false
+        WHERE cg.id = ANY(${renderableIds}::uuid[])
         ORDER BY r.artifact_id, r.created_at DESC, r.id DESC
       ) pick
       WHERE a.id = pick.artifact_id
@@ -107,11 +117,12 @@ export const promoteEditedHtmlToDetailPageRevisionsMigration: DataMigration = {
       affectedRows: promotedRevisions + currentRevisionsSet,
       details: {
         outcome: 'promoted',
-        editedGenerations: Number(counts?.edited_generations ?? 0n),
+        editedGenerations: edited.length,
         promotedRevisions,
         alreadyPresent: Number(counts?.already_present ?? 0n),
         currentRevisionsSet,
         withoutArtifact: Number(counts?.without_artifact ?? 0n),
+        skippedNonRenderable: edited.length - renderableIds.length,
       },
     };
   },

@@ -17,6 +17,7 @@ import {
   type DetailPageGenerationSnapshot,
   type DetailPageQueryRepositoryPort,
 } from '../port/out/repository/detail-page-query.repository.port';
+import { isRenderableDetailHtml } from '../../domain/detail-page/renderable-detail-html';
 
 export interface DetailPageListQuery {
   contentWorkspaceId?: string | null;
@@ -306,18 +307,6 @@ function permanentAssetKey(input: {
 function duplicateVersionTitle(title: string): string {
   const normalized = title.trim() || '상세페이지';
   return normalized.endsWith('복사본') ? `${normalized} 2` : `${normalized} 복사본`;
-}
-
-function isRenderableDetailHtml(html: string | null | undefined): html is string {
-  const source = html?.trim();
-  if (!source) return false;
-  if (source.startsWith('{') || source.startsWith('[')) return false;
-  return (
-    /^<!doctype\s+html/i.test(source) ||
-    /^<html[\s>]/i.test(source) ||
-    /^<body[\s>]/i.test(source) ||
-    /<\/?[a-z][\s\S]*>/i.test(source)
-  );
 }
 
 function extensionFromKey(key: string): string {

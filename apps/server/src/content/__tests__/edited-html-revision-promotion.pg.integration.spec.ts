@@ -11,6 +11,8 @@ const ARTIFACT_CURRENT = '44444444-4444-4444-8444-000000000002';
 const ARTIFACT_SAME = '44444444-4444-4444-8444-000000000003';
 const ARTIFACT_DELETED = '44444444-4444-4444-8444-000000000004';
 const ARTIFACT_OF_DELETED_GENERATION = '44444444-4444-4444-8444-000000000005';
+const ARTIFACT_JSON_CURRENT = '44444444-4444-4444-8444-000000000006';
+const REVISION_JSON = '55555555-5555-4555-8555-000000000006';
 const REVISION_CURRENT = '55555555-5555-4555-8555-000000000002';
 const REVISION_SAME = '55555555-5555-4555-8555-000000000003';
 const GEN_EMPTY = '66666666-6666-4666-8666-000000000001';
@@ -20,6 +22,9 @@ const GEN_NO_ARTIFACT = '66666666-6666-4666-8666-000000000004';
 const GEN_DELETED = '66666666-6666-4666-8666-000000000005';
 const GEN_NOT_EDITED = '66666666-6666-4666-8666-000000000006';
 const GEN_SOFT_DELETED = '66666666-6666-4666-8666-000000000007';
+const GEN_OVER_JSON = '66666666-6666-4666-8666-000000000008';
+const GEN_JSON_EDIT = '66666666-6666-4666-8666-000000000009';
+const GEN_BLANK_EDIT = '66666666-6666-4666-8666-000000000010';
 const SEEDED_AT = new Date('2026-01-01T00:00:00.000Z');
 const SAVED_AT = new Date('2026-05-12T11:00:00.000Z');
 
@@ -56,14 +61,15 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
     });
 
     expect(result.report).toEqual({
-      affectedRows: 3,
+      affectedRows: 4,
       details: {
         outcome: 'promoted',
-        editedGenerations: 5,
-        promotedRevisions: 2,
+        editedGenerations: 8,
+        promotedRevisions: 3,
         alreadyPresent: 1,
         currentRevisionsSet: 1,
         withoutArtifact: 2,
+        skippedNonRenderable: 2,
       },
     });
     // 옮긴 revision 은 생성을 시작한 사람을 남긴다(심어 둔 revision 은 비어 있다).
@@ -73,7 +79,15 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
         html: '<main>empty artifact edit</main>', created_by_user_id: USER, created_at: SAVED_AT },
       { artifact_id: ARTIFACT_CURRENT, content_generation_id: GEN_CURRENT, revision_type: 'manual_edit',
         html: '<main>older edit</main>', created_by_user_id: USER, created_at: SAVED_AT },
+      { artifact_id: ARTIFACT_JSON_CURRENT, content_generation_id: GEN_OVER_JSON, revision_type: 'manual_edit',
+        html: '<main>edit over json</main>', created_by_user_id: USER, created_at: SAVED_AT },
     ]);
+    // JSON 이나 빈 편집 HTML 은 옮기지 않는다.
+    expect(result.revisions.filter((revision) => revision.content_generation_id === GEN_JSON_EDIT
+      || revision.content_generation_id === GEN_BLANK_EDIT)).toEqual([]);
+    // 현재 revision 이 렌더할 수 없는 JSON 이어도 가리키는 revision 은 바꾸지 않는다(ADR-0010).
+    expect(result.artifacts.find((artifact) => artifact.id === ARTIFACT_JSON_CURRENT)!.current_revision_id)
+      .toBe(REVISION_JSON);
     const empty = result.artifacts.find((artifact) => artifact.id === ARTIFACT_EMPTY)!;
     expect(result.revisionIds.get(empty.current_revision_id!)).toBe(GEN_EMPTY);
     // 이미 현재 revision 이 있는 상세는 운영자가 고른 것을 바꾸지 않는다.
@@ -90,7 +104,7 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
       .toBeNull();
     // 가리키는 revision 만 바꾸고 상세의 수정 시각은 건드리지 않는다.
     expect(result.artifacts.find((artifact) => artifact.id === ARTIFACT_EMPTY)!.updated_at).toEqual(SEEDED_AT);
-    expect(result.artifacts).toHaveLength(5);
+    expect(result.artifacts).toHaveLength(6);
   }, 60_000);
 
   it('points an empty artifact at the identical revision it already has', async () => {
@@ -118,11 +132,12 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
       affectedRows: 0,
       details: {
         outcome: 'promoted',
-        editedGenerations: 5,
+        editedGenerations: 8,
         promotedRevisions: 0,
-        alreadyPresent: 3,
+        alreadyPresent: 4,
         currentRevisionsSet: 0,
         withoutArtifact: 2,
+        skippedNonRenderable: 2,
       },
     });
     expect(result.after.revisions).toEqual(result.before.revisions);
@@ -148,7 +163,8 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
     });
 
     expect(String(result.error)).toContain('artifact pointer refused');
-    expect(result.revisions.map((revision) => revision.content_generation_id).sort()).toEqual([GEN_CURRENT, GEN_SAME].sort());
+    expect(result.revisions.map((revision) => revision.content_generation_id).sort())
+      .toEqual([GEN_CURRENT, GEN_SAME, GEN_OVER_JSON].sort());
     expect(result.artifacts.find((artifact) => artifact.id === ARTIFACT_EMPTY)!.current_revision_id).toBeNull();
   }, 60_000);
 
@@ -166,7 +182,7 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
   async function seed(tx: Prisma.TransactionClient): Promise<void> {
     for (const [id, deleted] of [
       [ARTIFACT_EMPTY, false], [ARTIFACT_CURRENT, false], [ARTIFACT_SAME, false], [ARTIFACT_DELETED, true],
-      [ARTIFACT_OF_DELETED_GENERATION, false],
+      [ARTIFACT_OF_DELETED_GENERATION, false], [ARTIFACT_JSON_CURRENT, false],
     ] as const) {
       await tx.$executeRaw`
         INSERT INTO detail_page_artifacts (id, organization_id, content_workspace_id, is_deleted, updated_at)
@@ -179,8 +195,11 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
         (${REVISION_CURRENT}::uuid, ${ORG}::uuid, ${ARTIFACT_CURRENT}::uuid, ${GEN_CURRENT}::uuid,
           '<main>newer revision</main>', '2026-05-13T00:00:00Z'),
         (${REVISION_SAME}::uuid, ${ORG}::uuid, ${ARTIFACT_SAME}::uuid, ${GEN_SAME}::uuid,
-          '<main>same edit</main>', '2026-05-13T00:00:00Z')
+          '<main>same edit</main>', '2026-05-13T00:00:00Z'),
+        (${REVISION_JSON}::uuid, ${ORG}::uuid, ${ARTIFACT_JSON_CURRENT}::uuid, ${GEN_OVER_JSON}::uuid,
+          '{"templateId":"kids-playful","result":{}}', '2026-05-13T00:00:00Z')
     `;
+    await tx.$executeRaw`UPDATE detail_page_artifacts SET current_revision_id = ${REVISION_JSON}::uuid WHERE id = ${ARTIFACT_JSON_CURRENT}::uuid`;
     await tx.$executeRaw`UPDATE detail_page_artifacts SET current_revision_id = ${REVISION_CURRENT}::uuid WHERE id = ${ARTIFACT_CURRENT}::uuid`;
     await tx.$executeRaw`UPDATE detail_page_artifacts SET current_revision_id = ${REVISION_SAME}::uuid WHERE id = ${ARTIFACT_SAME}::uuid`;
     const generations: [string, string | null, string | null][] = [
@@ -190,6 +209,9 @@ describe('v0.1.31:025 promote edited HTML to detail-page revisions (disposable P
       [GEN_NO_ARTIFACT, null, '<main>orphan edit</main>'],
       [GEN_DELETED, ARTIFACT_DELETED, '<main>deleted artifact edit</main>'],
       [GEN_NOT_EDITED, ARTIFACT_EMPTY, null],
+      [GEN_OVER_JSON, ARTIFACT_JSON_CURRENT, '<main>edit over json</main>'],
+      [GEN_JSON_EDIT, ARTIFACT_EMPTY, '{"templateId":"kids-playful","result":{}}'],
+      [GEN_BLANK_EDIT, ARTIFACT_EMPTY, '   '],
     ];
     for (const [id, artifactId, html] of generations) {
       await tx.$executeRaw`

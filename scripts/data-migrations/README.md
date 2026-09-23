@@ -288,9 +288,13 @@ schema push that drops `content_generations.edited_html` and
 HTML and a live artifact of its own workspace gets a `manual_edit` revision holding that HTML at
 its save time, unless the artifact already has a revision with identical HTML;
 an artifact with no current revision is pointed at it (its `updated_at` stays), and
-one that has a current revision keeps it. A generation with no live artifact gets nothing. The details
-report `editedGenerations`, `promotedRevisions`, `alreadyPresent`,
-`currentRevisionsSet` and `withoutArtifact`. A second run writes nothing; once the
+one that has a current revision keeps it. A generation with no live artifact gets nothing. Edited HTML the
+editor never rendered (JSON or blank, the server's `isRenderableDetailHtml`) is
+skipped. An artifact whose current revision is itself not renderable keeps that
+pointer: the old reader showed `edited_html` in its place, and that display is
+dropped under ADR-0010 (the edit remains as a revision on the artifact). The
+details report `editedGenerations`, `promotedRevisions`, `alreadyPresent`,
+`currentRevisionsSet`, `withoutArtifact` and `skippedNonRenderable`. A second run writes nothing; once the
 column is gone it reports `already_contracted`.
 
 Before cutover, reconcile conflicting common product metadata for targets of the
