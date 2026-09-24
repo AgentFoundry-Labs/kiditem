@@ -17,7 +17,7 @@ import {
   type CoupangCatalogManifestV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { ZodType } from 'zod';
-import { KiditemConflictError } from '@kiditem/shared/errors';
+import { KiditemConflictError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { ChannelInputError as BadRequestException, ChannelConflictError as ConflictException } from '../exception/channel-business-error';
 import { stableStringify } from './catalog-collection-hash';
 import type { CatalogDeletionConfirmation } from './catalog-deletion-confirmation';
@@ -272,7 +272,13 @@ export function assembleFullDetailsSnapshot(
   for (const item of state.detailProducts) {
     const expected = discoveredByOrdinal.get(item.ordinal);
     if (!expected || expected.externalProductId !== item.product.externalProductId || !expectedIds.has(item.product.externalProductId)) {
-      throw new BadRequestException(`Detail product does not match the completed basics manifest at ordinal ${item.ordinal}`);
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: {
+          reason: 'CATALOG_DETAIL_NOT_PLANNED',
+          externalProductId: item.product.externalProductId,
+          ordinal: item.ordinal,
+        },
+      });
     }
     if (ids.has(item.product.externalProductId)) {
       throw new BadRequestException(`Duplicate detail product ID: ${item.product.externalProductId}`);
@@ -289,7 +295,12 @@ export function assembleFullDetailsSnapshot(
     products.push(item);
   }
   if (products.length !== expectedIds.size) {
-    throw new BadRequestException(`Full details are missing: ${missingDetailTargetIds([...expectedIds], products).join(', ')}`);
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: {
+        reason: 'CATALOG_DETAILS_INCOMPLETE',
+        missingProductIds: missingDetailTargetIds([...expectedIds], products),
+      },
+    });
   }
   return { manifest: state.manifest, products };
 }
