@@ -86,8 +86,9 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
   });
 
   /**
-   * 같은 조직의 매핑 변경 두 건이 동시에 와도 Products 의 매핑 잠금(`products/transaction/product-mapping-lock`)이
-   * 줄을 세워 둘 다 반영되고 세대는 두 번 오른다(KID-111). 잠금이 없으면 upsert 경합으로 한 번만 오르거나 깨진다.
+   * 같은 조직의 매핑 변경 두 건이 동시에 와도 둘 다 반영되고 세대는 두 번 오른다(KID-111 완료 조건).
+   * 이 스펙은 동작만 고정한다 — 세대 증가는 행 안에서 원자적이라 잠금을 꺼도 통과한다. 잠금 회귀는
+   * 아래 "두 동시 교체 중 하나만 이긴다" 스펙이 잡는다(독립 리뷰 2026-09-24 변이로 확인).
    */
   it('applies two concurrent mapping changes of one organization and advances the generation twice', async () => {
     const product = await createProduct('CONCURRENT', 5);
