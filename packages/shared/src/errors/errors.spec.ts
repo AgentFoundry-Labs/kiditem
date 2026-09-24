@@ -77,6 +77,37 @@ describe('error registry (ADR-0023)', () => {
     expect(ERROR_DEFINITIONS.CHANNELS_OPTION_RECIPE_INVALID.httpStatus).toBe(400);
   });
 
+  it('registers content and supply codes with the kind the operator flow needs (KID-343)', () => {
+    const expected = {
+      CONTENT_MODEL_NOT_CONFIGURED: ['content', 'external', 502, false],
+      CONTENT_GENERATION_INPUT_MISSING: ['content', 'precondition', 422, false],
+      CONTENT_IMAGE_TOO_LARGE: ['content', 'validation', 400, false],
+      CONTENT_NOT_FOUND: ['content', 'not_found', 404, false],
+      CONTENT_SELECTION_INVALID: ['content', 'validation', 400, false],
+      CONTENT_ASSET_IN_USE: ['content', 'conflict', 409, false],
+      CONTENT_REVISION_REQUIRED: ['content', 'precondition', 422, false],
+      SUPPLY_PROCUREMENT_REFERENCE_INVALID: ['supply', 'validation', 400, false],
+      SUPPLY_DECISION_EXPIRED: ['supply', 'expired', 409, false],
+      SUPPLY_OFFER_SNAPSHOT_EXPIRED: ['supply', 'expired', 409, false],
+      SUPPLY_PURCHASE_STATUS_INVALID: ['supply', 'conflict', 409, false],
+      SUPPLY_PURCHASE_LEGACY_ORDER: ['supply', 'precondition', 422, false],
+      SUPPLY_PURCHASE_PROVIDER_FAILED: ['supply', 'external', 502, false],
+      SUPPLY_ROCKET_RECIPE_REQUIRED: ['supply', 'precondition', 422, false],
+      SUPPLY_ROCKET_PREVIEW_CHANGED: ['supply', 'conflict', 409, true],
+      SUPPLY_ROCKET_WORKFLOW_ACTIVE: ['supply', 'in_progress', 409, false],
+      SUPPLY_ROCKET_PROBE_REQUIRED: ['supply', 'precondition', 422, false],
+      SUPPLY_ROCKET_WORKBOOK_FILE_INVALID: ['supply', 'validation', 400, false],
+      SUPPLY_ROCKET_TEMPLATE_MISMATCH: ['supply', 'precondition', 422, false],
+      SUPPLY_ROCKET_QUANTITY_EXCEEDED: ['supply', 'validation', 400, false],
+      AGENT_OS_OWNER_INPUT_HASH_REQUIRED: ['agent_os', 'validation', 400, false],
+      AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED: ['agent_os', 'validation', 400, false],
+    } as const;
+    for (const [code, [owner, kind, httpStatus, retryable]] of Object.entries(expected)) {
+      expect(isKiditemErrorCode(code), code).toBe(true);
+      expect(ERROR_DEFINITIONS[code as keyof typeof expected], code).toMatchObject({ owner, kind, httpStatus, retryable });
+    }
+  });
+
   it('keeps the specific Sellpia manual-match guidance the operator used to see', () => {
     expect(operatorErrorText({ code: 'sellpia_manual_match_login_required' })).toContain('열린 수동상품매칭 화면에서 로그인');
     expect(operatorErrorText({ code: 'sellpia_manual_match_timeout' })).toBe('셀피아 수동상품매칭 근거 수집 시간이 초과되었습니다.');

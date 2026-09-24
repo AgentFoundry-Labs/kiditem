@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
 } from '@nestjs/common';
+import { isKiditemError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   isRocketWorkbookBlockingReason,
   RocketWorkbookAbandonRequestSchema,
@@ -81,10 +82,8 @@ implements RocketWorkbookExportPort {
         now,
       });
     } catch (error) {
-      if (error instanceof BadRequestException) throw error;
-      throw new BadRequestException(
-        error instanceof Error ? error.message : 'Rocket workbook conversion failed.',
-      );
+      if (error instanceof BadRequestException || isKiditemError(error)) throw error;
+      throw new KiditemInvalidValueError('SUPPLY_ROCKET_WORKBOOK_FILE_INVALID', { cause: error });
     }
   }
 

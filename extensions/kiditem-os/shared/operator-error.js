@@ -253,6 +253,20 @@
       "text": "사용할 AI 모델을 선택해 주세요.",
       "retryable": false
     },
+    "AGENT_OS_OWNER_INPUT_HASH_REQUIRED": {
+      "owner": "agent_os",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "요청 내용 확인값이 없습니다. 요청을 처음부터 다시 보내 주세요.",
+      "retryable": false
+    },
+    "AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED": {
+      "owner": "agent_os",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "요청 번호가 없습니다. 요청을 처음부터 다시 보내 주세요.",
+      "retryable": false
+    },
     "CHANNELS_ACCOUNT_NOT_FOUND": {
       "owner": "channels",
       "kind": "not_found",
@@ -568,6 +582,97 @@
       "text": "로켓 발주 수집이 끝나지 않았습니다. 수집을 마친 뒤 다시 시도해 주세요.",
       "retryable": false
     },
+    "SUPPLY_PROCUREMENT_REFERENCE_INVALID": {
+      "owner": "supply",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "공급 제안·결정 참조가 이 조직의 기록과 맞지 않습니다. 선택한 공급 제안과 결정을 확인해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_DECISION_EXPIRED": {
+      "owner": "supply",
+      "kind": "expired",
+      "httpStatus": 409,
+      "text": "결정 배치가 만료됐거나 더 이상 진행할 수 없습니다. 새 결정을 만든 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_OFFER_SNAPSHOT_EXPIRED": {
+      "owner": "supply",
+      "kind": "expired",
+      "httpStatus": 409,
+      "text": "공급 제안 스냅숏이 만료됐습니다. 공급 제안을 다시 수집한 뒤 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_PURCHASE_STATUS_INVALID": {
+      "owner": "supply",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "지금 발주 상태에서는 이 작업을 할 수 없습니다. 새로고침한 뒤 발주 상태를 확인해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_PURCHASE_LEGACY_ORDER": {
+      "owner": "supply",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "예전 방식으로 만든 발주라 제출할 수 없습니다. 발주를 새로 만든 뒤 제출해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_PURCHASE_PROVIDER_FAILED": {
+      "owner": "supply",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "발주처가 주문을 받지 않았습니다. 발주처 화면에서 원인을 확인한 뒤 다시 제출해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_RECIPE_REQUIRED": {
+      "owner": "supply",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "옵션 구성이 확정되지 않은 로켓 발주 줄이 있습니다. 옵션 구성을 확정한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_PREVIEW_CHANGED": {
+      "owner": "supply",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "로켓 발주 미리보기가 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": true
+    },
+    "SUPPLY_ROCKET_WORKFLOW_ACTIVE": {
+      "owner": "supply",
+      "kind": "in_progress",
+      "httpStatus": 409,
+      "text": "진행 중인 로켓 발주 확정 작업이 있습니다. 끝내거나 중단한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_PROBE_REQUIRED": {
+      "owner": "supply",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "쿠팡 주문이 없다는 것을 확인해야 중단할 수 있습니다. 택배·밀크런 주문을 새로 수집한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_WORKBOOK_FILE_INVALID": {
+      "owner": "supply",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "로켓 발주 엑셀 파일이 올바르지 않습니다. 파일을 확인한 뒤 다시 올려 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_TEMPLATE_MISMATCH": {
+      "owner": "supply",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "로켓 발주 확정 양식이 수집한 발주와 맞지 않습니다. 확장 프로그램을 새로고침하고 발주를 다시 수집해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_QUANTITY_EXCEEDED": {
+      "owner": "supply",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "확정 수량이 발주 수량이나 가능한 재고보다 많습니다. 수량을 줄여 주세요.",
+      "retryable": false
+    },
     "SOURCING_NOT_FOUND": {
       "owner": "sourcing",
       "kind": "not_found",
@@ -609,6 +714,55 @@
       "httpStatus": 502,
       "text": "선택한 AI 모델을 지금 쓸 수 없습니다.",
       "retryable": true
+    },
+    "CONTENT_MODEL_NOT_CONFIGURED": {
+      "owner": "content",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "AI 모델이 설정되지 않았습니다. 관리자에게 알려 주세요.",
+      "retryable": false
+    },
+    "CONTENT_GENERATION_INPUT_MISSING": {
+      "owner": "content",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "AI 생성에 필요한 이미지나 상품 정보가 없습니다. 먼저 채운 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CONTENT_IMAGE_TOO_LARGE": {
+      "owner": "content",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "이미지 파일이 너무 큽니다. 더 작은 이미지로 다시 올려 주세요.",
+      "retryable": false
+    },
+    "CONTENT_NOT_FOUND": {
+      "owner": "content",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "콘텐츠를 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CONTENT_SELECTION_INVALID": {
+      "owner": "content",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "선택한 이미지나 상세페이지를 이 작업에 쓸 수 없습니다. 다시 선택해 주세요.",
+      "retryable": false
+    },
+    "CONTENT_ASSET_IN_USE": {
+      "owner": "content",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "쓰고 있는 이미지라 지울 수 없습니다. 대표이미지나 진행 중인 생성에서 먼저 빼 주세요.",
+      "retryable": false
+    },
+    "CONTENT_REVISION_REQUIRED": {
+      "owner": "content",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "저장된 상세페이지가 없습니다. 상세페이지를 먼저 저장해 주세요.",
+      "retryable": false
     },
     "EXECUTION_REPORT_MANUAL_ACTION": {
       "owner": "advertising",

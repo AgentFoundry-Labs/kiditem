@@ -191,7 +191,7 @@ describe('buildRocketConfirmationWorkbook', () => {
         workbookQuantity: 2,
         shortageReason: '협력사 재고부족 - 수요예측 오류',
       }],
-    })).rejects.toThrow(/metadata/i);
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_TEMPLATE_MISMATCH', details: { reason: 'CONFIRMATION_METADATA_MISSING' } });
   });
 });
 

@@ -1,4 +1,5 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { isKiditemError } from '@kiditem/shared/errors';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
@@ -174,7 +175,7 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
           errorMessage: input.reason,
         });
       } catch (error) {
-        if (!(error instanceof ConflictException)) throw error;
+        if (!(isKiditemError(error) && error.code === 'STATE_CONFLICT')) throw error;
         // 결과가 먼저 들어왔다 — 끝난 생성은 그대로 둔다.
         return { status: 'already_terminal' as const, generationId: current.id, preserved: true };
       }

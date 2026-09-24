@@ -176,6 +176,23 @@ describe('RocketWorkbookExportService', () => {
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
   });
 
+  it('keeps the workbook refusal code instead of rewrapping it as an English bad request', async () => {
+    const deps = dependencies();
+    const service = new RocketWorkbookExportService(
+      deps.preview as never,
+      deps.transactions as never,
+      deps.catalog as never,
+    );
+    const { confirmation: _confirmation, ...withoutConfirmation } = request().rows[0]!;
+
+    await expect(service.convertWorkbook({
+      request: {
+        sourceRows: [withoutConfirmation],
+        workbookRows: [{ poLineId, workbookQuantity: 2, shortageReason: '협력사 재고부족 - 수요예측 오류' }],
+      },
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_TEMPLATE_MISMATCH', details: { reason: 'CONFIRMATION_METADATA_MISSING' } });
+  });
+
   it('does not persist a workbook when the inventory collection has not completed', async () => {
     const deps = dependencies();
     deps.preview.preview.mockRejectedValue(new Error('Collection incomplete'));

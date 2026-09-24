@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { isKiditemError, KiditemConflictError } from '@kiditem/shared/errors';
 import {
   buildProcurementTestIntentRequestHash,
   buildSupplierOfferSnapshotHash,
@@ -361,17 +362,17 @@ function resolveExistingIntent(
       selection,
     });
     if (requestHash !== existing.requestHash) {
-      throw new ConflictException(
-        'Procurement intent idempotency key was already used for a different request.',
-      );
+      throw idempotencyKeyReused();
     }
   } catch (error) {
-    if (error instanceof ConflictException) throw error;
-    throw new ConflictException(
-      'Procurement intent idempotency key was already used for a different request.',
-    );
+    if (isKiditemError(error)) throw error;
+    throw idempotencyKeyReused(error);
   }
   return { intent: existing, duplicate: true };
+}
+
+function idempotencyKeyReused(cause?: unknown) {
+  return new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'IDEMPOTENCY_KEY_REUSED' }, cause });
 }
 
 function resolveIntentSelection(

@@ -1,3 +1,4 @@
+import { KiditemPreconditionError } from '@kiditem/shared/errors';
 import { z } from 'zod';
 import {
   ROCKET_SHORTAGE_REASONS,
@@ -98,7 +99,9 @@ export async function buildRocketConfirmationWorkbook(input: {
     const confirmation = source.confirmation;
     const workbookRow = workbookByLineId.get(source.poLineId);
     if (!confirmation) {
-      throw new Error('Rocket confirmation metadata is missing. Reload the order collector extension.');
+      throw new KiditemPreconditionError('SUPPLY_ROCKET_TEMPLATE_MISMATCH', {
+        details: { reason: 'CONFIRMATION_METADATA_MISSING', poLineId: source.poLineId },
+      });
     }
     if (!workbookRow) {
       throw new Error('Rocket workbook result is missing a collected PO line.');

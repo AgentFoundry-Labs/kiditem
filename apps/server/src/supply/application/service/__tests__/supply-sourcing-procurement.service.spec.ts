@@ -386,6 +386,33 @@ describe('SupplySourcingProcurementService', () => {
     );
   });
 
+  it('refuses a replayed idempotency key whose request changed with the idempotency conflict code', async () => {
+    const existing = intent({
+      requestedByUserId: 'user-1',
+      idempotencyKey: 'test-order-1',
+      supplierOfferSkuSnapshot: snapshot(),
+    });
+    const replay = (requestedPurchaseUnits: number) => new SupplySourcingProcurementService(repository({
+      findTestIntentByIdempotencyKey: vi.fn().mockResolvedValue(existing),
+    })).createTestIntent({
+      organizationId: 'org-1',
+      requestedByUserId: 'user-1',
+      idempotencyKey: 'test-order-1',
+      intentType: 'test_order',
+      sourceRecommendationArtifactId: existing.sourceRecommendationArtifactId,
+      decisionBatchItemId: existing.decisionBatchItemId,
+      supplierOfferSkuSnapshotId: existing.supplierOfferSkuSnapshotId,
+      launchCandidateId: existing.launchCandidateId,
+      selectedPriceTierId: snapshot().priceTiers[0].id,
+      requestedPurchaseUnits,
+    });
+
+    // 같은 선택이지만 저장된 요청 확인값과 다르다.
+    await expect(replay(10)).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
+    // 저장된 결정으로는 풀 수 없는 선택(MOQ 미만)도 같은 요청 번호 재사용 충돌이다.
+    await expect(replay(6)).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
+  });
+
   it('does not expose an existing idempotent intent to a different actor', async () => {
     const existing = intent({
       requestedByUserId: 'user-owner',

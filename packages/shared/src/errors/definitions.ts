@@ -122,6 +122,9 @@ export const ERROR_DEFINITIONS = {
   // Agent OS · Gateway
   AGENT_OS_GATEWAY_UNAVAILABLE: def('agent_os', 'external', 'AI 게이트웨이에 연결할 수 없습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   AGENT_OS_MODEL_REQUIRED: def('agent_os', 'validation', '사용할 AI 모델을 선택해 주세요.'),
+  // owner capability 계약(요청 확인값·요청 번호)이 빠진 Agent 호출 — products·channels·sourcing·supply 공통.
+  AGENT_OS_OWNER_INPUT_HASH_REQUIRED: def('agent_os', 'validation', '요청 내용 확인값이 없습니다. 요청을 처음부터 다시 보내 주세요.'),
+  AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED: def('agent_os', 'validation', '요청 번호가 없습니다. 요청을 처음부터 다시 보내 주세요.'),
 
   // channels
   CHANNELS_ACCOUNT_NOT_FOUND: def('channels', 'not_found', '몰 계정이 없습니다. 쇼핑몰 계정 화면에서 먼저 연결해 주세요.'),
@@ -178,6 +181,19 @@ export const ERROR_DEFINITIONS = {
   SUPPLY_ROCKET_FINAL_ORDER_ALREADY_COLLECTED: def('supply', 'conflict', '이 발주 엑셀 줄은 이미 다른 주문과 연결돼 있습니다.'),
   SUPPLY_ROCKET_WORKBOOK_LINE_CHANGED: def('supply', 'conflict', '맞추는 동안 발주 엑셀 줄이 바뀌었습니다. 다시 시도해 주세요.', { retryable: true }),
   SUPPLY_ROCKET_COLLECTION_INCOMPLETE: def('supply', 'precondition', '로켓 발주 수집이 끝나지 않았습니다. 수집을 마친 뒤 다시 시도해 주세요.', { httpStatus: 409 }),
+  SUPPLY_PROCUREMENT_REFERENCE_INVALID: def('supply', 'validation', '공급 제안·결정 참조가 이 조직의 기록과 맞지 않습니다. 선택한 공급 제안과 결정을 확인해 주세요.'),
+  SUPPLY_DECISION_EXPIRED: def('supply', 'expired', '결정 배치가 만료됐거나 더 이상 진행할 수 없습니다. 새 결정을 만든 뒤 다시 시도해 주세요.'),
+  SUPPLY_OFFER_SNAPSHOT_EXPIRED: def('supply', 'expired', '공급 제안 스냅숏이 만료됐습니다. 공급 제안을 다시 수집한 뒤 시도해 주세요.'),
+  SUPPLY_PURCHASE_STATUS_INVALID: def('supply', 'conflict', '지금 발주 상태에서는 이 작업을 할 수 없습니다. 새로고침한 뒤 발주 상태를 확인해 주세요.'),
+  SUPPLY_PURCHASE_LEGACY_ORDER: def('supply', 'precondition', '예전 방식으로 만든 발주라 제출할 수 없습니다. 발주를 새로 만든 뒤 제출해 주세요.'),
+  SUPPLY_PURCHASE_PROVIDER_FAILED: def('supply', 'external', '발주처가 주문을 받지 않았습니다. 발주처 화면에서 원인을 확인한 뒤 다시 제출해 주세요.'),
+  SUPPLY_ROCKET_RECIPE_REQUIRED: def('supply', 'precondition', '옵션 구성이 확정되지 않은 로켓 발주 줄이 있습니다. 옵션 구성을 확정한 뒤 다시 시도해 주세요.'),
+  SUPPLY_ROCKET_PREVIEW_CHANGED: def('supply', 'conflict', '로켓 발주 미리보기가 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.', { retryable: true }),
+  SUPPLY_ROCKET_WORKFLOW_ACTIVE: def('supply', 'in_progress', '진행 중인 로켓 발주 확정 작업이 있습니다. 끝내거나 중단한 뒤 다시 시도해 주세요.'),
+  SUPPLY_ROCKET_PROBE_REQUIRED: def('supply', 'precondition', '쿠팡 주문이 없다는 것을 확인해야 중단할 수 있습니다. 택배·밀크런 주문을 새로 수집한 뒤 다시 시도해 주세요.'),
+  SUPPLY_ROCKET_WORKBOOK_FILE_INVALID: def('supply', 'validation', '로켓 발주 엑셀 파일이 올바르지 않습니다. 파일을 확인한 뒤 다시 올려 주세요.'),
+  SUPPLY_ROCKET_TEMPLATE_MISMATCH: def('supply', 'precondition', '로켓 발주 확정 양식이 수집한 발주와 맞지 않습니다. 확장 프로그램을 새로고침하고 발주를 다시 수집해 주세요.'),
+  SUPPLY_ROCKET_QUANTITY_EXCEEDED: def('supply', 'validation', '확정 수량이 발주 수량이나 가능한 재고보다 많습니다. 수량을 줄여 주세요.'),
 
   // sourcing
   SOURCING_NOT_FOUND: def('sourcing', 'not_found', '소싱 후보를 찾을 수 없습니다.'),
@@ -188,6 +204,14 @@ export const ERROR_DEFINITIONS = {
   // content (AI)
   CONTENT_GENERATION_FAILED: def('content', 'external', 'AI 생성에 실패했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   CONTENT_MODEL_UNAVAILABLE: def('content', 'external', '선택한 AI 모델을 지금 쓸 수 없습니다.', { retryable: true }),
+  // 서버 환경에 AI 모델이 비어 있다 — 운영자가 고르는 AGENT_OS_MODEL_REQUIRED와 다르다.
+  CONTENT_MODEL_NOT_CONFIGURED: def('content', 'external', 'AI 모델이 설정되지 않았습니다. 관리자에게 알려 주세요.'),
+  CONTENT_GENERATION_INPUT_MISSING: def('content', 'precondition', 'AI 생성에 필요한 이미지나 상품 정보가 없습니다. 먼저 채운 뒤 다시 시도해 주세요.'),
+  CONTENT_IMAGE_TOO_LARGE: def('content', 'validation', '이미지 파일이 너무 큽니다. 더 작은 이미지로 다시 올려 주세요.'),
+  CONTENT_NOT_FOUND: def('content', 'not_found', '콘텐츠를 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
+  CONTENT_SELECTION_INVALID: def('content', 'validation', '선택한 이미지나 상세페이지를 이 작업에 쓸 수 없습니다. 다시 선택해 주세요.'),
+  CONTENT_ASSET_IN_USE: def('content', 'conflict', '쓰고 있는 이미지라 지울 수 없습니다. 대표이미지나 진행 중인 생성에서 먼저 빼 주세요.'),
+  CONTENT_REVISION_REQUIRED: def('content', 'precondition', '저장된 상세페이지가 없습니다. 상세페이지를 먼저 저장해 주세요.'),
 
   // advertising · analytics · finance
   // 확장 content/coupang/ads-report.js가 실행 보고 거절의 body.code를 그대로 읽는다 — 철자 고정(접두 없음).
