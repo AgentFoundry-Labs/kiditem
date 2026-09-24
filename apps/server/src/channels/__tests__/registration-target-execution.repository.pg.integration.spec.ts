@@ -1,6 +1,5 @@
 import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
-import { BadRequestException } from '@nestjs/common';
 import { ERROR_DEFINITIONS, type KiditemErrorCode } from '@kiditem/shared/errors';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
@@ -926,7 +925,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
           }],
         },
       },
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject(refused('CHANNELS_OPTION_RECIPE_INVALID'));
 
     await expect(prisma.channelListingOption.findUnique({
       where: { id: fixture.listingOptionId! },
@@ -972,7 +971,9 @@ describe('registration target execution repository (PostgreSQL)', () => {
       data: { quantity: 99 },
     });
 
-    await expect(repository.reportTarget(change.confirmedReport())).rejects.toBeInstanceOf(BadRequestException);
+    await expect(repository.reportTarget(change.confirmedReport())).rejects.toMatchObject({
+      ...refused('CHANNELS_OPTION_RECIPE_INVALID'), details: { reason: 'CONFIRMED_COMPOSITION_MISMATCH' },
+    });
 
     await expect(readChannelOptions(prisma, change.channelOptionIds)).resolves.toEqual(before);
     expect(await readGeneration(prisma)).toBe(generationBefore);

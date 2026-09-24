@@ -4,12 +4,7 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { ChannelRecipeFactQueries } from '../../../application/port/in/channel-option-recipe.port';
 import { readListingProductIds } from './listing-product-summary.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
@@ -32,7 +27,7 @@ import type {
 import { readPreparedRegistrationRecipes } from '../repository/registration-execution-ledger.reader';
 import { preparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
 import { hashRegistrationSubmissionPayload } from '../../../domain/registration/registration-submission-payload';
-import { ListingException } from '../../../application/exception/listing.exception';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -102,7 +97,7 @@ implements ChannelOptionRecipeRepositoryPort {
         select: { id: true, components: { select: { masterProductId: true, quantity: true } } },
       });
       if (!commonOption || !sameRecipe(commonOption.components, transition.components)) {
-        throw new BadRequestException('Confirmed composition does not match its frozen common option identity');
+        throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'CONFIRMED_COMPOSITION_MISMATCH' } });
       }
       await validateRecipeTargetsInTransaction(
         tx, { organizationId: input.organizationId, components: transition.components }, this.productTransactionalRead,
@@ -112,7 +107,7 @@ implements ChannelOptionRecipeRepositoryPort {
         select: { id: true, salesProductOptionId: true, kidItemCode: true,
           inventoryComponents: { where: { organizationId: input.organizationId }, select: { masterProductId: true, quantity: true } } },
       });
-      if (!option) throw new NotFoundException('Channel listing option was not found');
+      if (!option) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND', { details: { reason: 'LISTING_OPTION_NOT_FOUND' } });
       if (!sameRecipe(option.inventoryComponents, transition.components)) {
         await tx.channelListingOptionInventoryComponent.deleteMany({
           where: { organizationId: input.organizationId, channelListingOptionId: option.id },
@@ -157,9 +152,9 @@ implements ChannelOptionRecipeRepositoryPort {
           },
         },
       });
-      if (!option) throw new NotFoundException('Channel listing option was not found');
+      if (!option) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND', { details: { reason: 'LISTING_OPTION_NOT_FOUND' } });
       if (!sameRecipe(option.inventoryComponents, input.expectedComponents)) {
-        throw new ListingException('conflict', 'The option recipe changed after it was loaded');
+        throw new KiditemConflictError('CHANNELS_OPTION_RECIPE_STALE');
       }
       // A stale request is a conflict first, even when it names a since-deleted product.
       await validateRecipeTargetsInTransaction(tx, input, this.productTransactionalRead);
@@ -244,7 +239,7 @@ implements ChannelOptionRecipeRepositoryPort {
       },
     });
     if (options.length !== optionIds.length) {
-      throw new NotFoundException('Channel listing option was not found');
+      throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND', { details: { reason: 'LISTING_OPTION_NOT_FOUND' } });
     }
     const previousProducts = await readListingProductIds(tx, {
       organizationId: input.organizationId, listingIds: [...new Set(options.map((option) => option.listingId))],
@@ -265,9 +260,7 @@ implements ChannelOptionRecipeRepositoryPort {
     for (const mutation of input.mutations) {
       if (mutation.expectedMasterProductId && mutation.components.some((component) =>
         component.masterProductId !== mutation.expectedMasterProductId)) {
-        throw new BadRequestException(
-          'Recipe components do not resolve to the expected canonical MasterProduct',
-        );
+        throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'COMPONENT_NOT_EXPECTED_PRODUCT' } });
       }
       const missingTarget = mutation.components.some((component) =>
         !availableMasterProductIds.has(component.masterProductId))
@@ -275,9 +268,7 @@ implements ChannelOptionRecipeRepositoryPort {
           && !availableMasterProductIds.has(mutation.expectedMasterProductId));
       if (!missingTarget) continue;
       if (!mutation.preparedKidItemCode || !mutation.expectedMasterProductId) {
-        throw new BadRequestException(
-          'One or more MasterProduct components do not belong to this organization',
-        );
+        throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'COMPONENT_PRODUCT_NOT_FOUND' } });
       }
       // A historical registration cannot recreate a deleted source identity.
       missingRegisteredOptions.add(mutation.channelListingOptionId);
@@ -302,7 +293,7 @@ implements ChannelOptionRecipeRepositoryPort {
             && sameRecipe(mutation.components, [{ masterProductId: recipe.masterProductId, quantity: recipe.quantity }]);
         });
         if (!historicalRegistration) {
-          throw new BadRequestException('Missing product requires a matching successful frozen registration');
+          throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'MISSING_PRODUCT_WITHOUT_REGISTRATION' } });
         }
       }
     }
@@ -404,7 +395,7 @@ implements ChannelOptionRecipeRepositoryPort {
         { client: tx },
         { organizationId, selector: { kind: 'ids', values: [components[0]!.masterProductId] } },
       );
-      if (identities.length !== 1) throw new BadRequestException('MasterProduct was not found');
+      if (identities.length !== 1) throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'COMPONENT_PRODUCT_NOT_FOUND' } });
       code = identities[0]!.code;
       if (code === option.kidItemCode) return false;
     } else {
@@ -420,7 +411,7 @@ implements ChannelOptionRecipeRepositoryPort {
       where: { id: option.id, organizationId },
       data: { kidItemCode: code },
     });
-    if (result.count !== 1) throw new NotFoundException('Channel listing option was not found');
+    if (result.count !== 1) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND', { details: { reason: 'LISTING_OPTION_NOT_FOUND' } });
     return true;
   }
 
@@ -452,7 +443,7 @@ implements ChannelOptionRecipeRepositoryPort {
         },
       },
     });
-    if (!listing) throw new NotFoundException('Channel listing was not found');
+    if (!listing) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
     const changedOptionIds = listing.options
       .filter((option) => option.inventoryComponents.length > 0)
       .map((option) => option.id);
@@ -509,18 +500,14 @@ async function validateRecipeTargetsInTransaction(
     productTransactionalRead,
   );
   if (targetIds.some((id) => !availableMasterProductIds.has(id))) {
-    throw new BadRequestException(
-      'One or more MasterProduct components do not belong to this organization',
-    );
+    throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'COMPONENT_PRODUCT_NOT_FOUND' } });
   }
   if (input.expectedMasterProductId
     && (!availableMasterProductIds.has(input.expectedMasterProductId)
       || input.components.some((component) =>
         component.masterProductId !== input.expectedMasterProductId
         || !availableMasterProductIds.has(component.masterProductId)))) {
-    throw new BadRequestException(
-      'Recipe components do not resolve to the expected canonical MasterProduct',
-    );
+    throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'COMPONENT_NOT_EXPECTED_PRODUCT' } });
   }
 }
 
