@@ -226,6 +226,8 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
             basicManifestHash: basics.manifestHash,
             basicPublicationSequence: basics.publicationSequence,
             basicProductIds: basics.productIds,
+            ...(basics.detailTargetProductIds ? { detailTargetProductIds: basics.detailTargetProductIds } : {}),
+            ...(basics.absentProductIds ? { absentProductIds: basics.absentProductIds } : {}),
           }
         : {}),
     };

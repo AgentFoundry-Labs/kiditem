@@ -24,6 +24,19 @@ import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products
 import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { ParsedWingCatalogRow } from '../application/port/out/documents/channel-document.models';
+import { randomUUID } from 'node:crypto';
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import { ChannelCatalogCollectionService } from '../application/service/collection/channel-catalog-collection.service';
+import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
+import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
+import { AiCatalogMediaPublicationRepositoryAdapter } from '../../content/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
+import { hashCatalogChunkPayload } from '../domain/collection/catalog-collection-hash';
+import type {
+  CoupangCatalogCollectionPermit,
+  CoupangCatalogCollectionRun,
+  PutCoupangCatalogChunkRequest,
+} from '@kiditem/shared/coupang-catalog-snapshot';
 
 /**
  * KID-348·349: 목록·상세·엑셀이 rawJson의 자기 구역만 쓰고, 증분 동기화가 상세 대상만 받는
@@ -315,5 +328,276 @@ function excelRow(id: string, overrides: Partial<ParsedWingCatalogRow> = {}): Pa
     adult: null,
     rawJson: { 등록상품ID: id, '옵션 ID': `${id}-O`, 검색어: '블록,장난감', 바코드: '' },
     ...overrides,
+  };
+}
+
+const channelIntegrity = new ChannelIntegrityAdapter();
+
+type SyncProduct = { id: string; modifiedOn: string | null };
+
+/**
+ * 브라우저 동기화 흐름(목록 → 상세)을 owner 서비스로 실제 PostgreSQL에서 돌린다. 확장이 하는 일
+ * (목록 전체 발견 → 서버가 말한 누락 상품만 상세 전송 → 종료)을 그대로 흉내 낸다.
+ */
+describe('Wing catalog incremental browser sync (PG integration)', () => {
+  let prisma: PrismaClient;
+  let owner: ChannelCatalogCollectionService;
+  let channelAccountId: string;
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    const alerts = new SourceFailureAlerts(prisma as never);
+    const mappingGeneration = new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter());
+    const recipes = new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(
+      prisma as never,
+      new ProductTransactionalReadRepositoryAdapter(),
+      mappingGeneration,
+    ));
+    const publisher = new ChannelCatalogPublicationRepositoryAdapter(
+      prisma as never,
+      new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
+      alerts,
+      recipes,
+      mappingGeneration,
+    );
+    owner = new ChannelCatalogCollectionService(
+      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
+      publisher,
+      channelIntegrity,
+    );
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+    channelAccountId = (await prisma.channelAccount.create({
+      data: { organizationId: ORG, channel: 'coupang', name: 'Wing', vendorId: 'V1' },
+    })).id;
+  });
+
+  const scope = () => ({ organizationId: ORG, channelAccountId });
+
+  const put = (permit: CoupangCatalogCollectionPermit, payload: PutCoupangCatalogChunkRequest['payload'], sequence: number) =>
+    owner.putChunk({
+      ...scope(),
+      userId: USER,
+      runId: permit.attemptId,
+      attemptToken: permit.attemptToken,
+      kind: payload.kind,
+      sequence,
+      request: {
+        kind: payload.kind,
+        sequence,
+        checksum: hashCatalogChunkPayload(payload, channelIntegrity.sha256),
+        itemCount: 'items' in payload ? payload.items.length : 'products' in payload ? payload.products.length : 1,
+        payload,
+      } as PutCoupangCatalogChunkRequest,
+    });
+
+  const finalize = async (permit: CoupangCatalogCollectionPermit): Promise<CoupangCatalogCollectionRun> => {
+    const status = await owner.getStatus({ ...scope(), runId: permit.attemptId });
+    expect(status).toMatchObject({ phase: 'ready_to_finalize', missing: { productIds: [] } });
+    return owner.finalize({
+      ...scope(),
+      userId: USER,
+      runId: permit.attemptId,
+      attemptToken: permit.attemptToken,
+      request: { snapshotHash: status.snapshotHash! },
+    });
+  };
+
+  const manifestOf = (count: number) => ({
+    totalItems: count,
+    pageSize: 500,
+    expectedPages: 1,
+    firstPageFingerprint: 'c'.repeat(64),
+  });
+
+  const discover = (permit: CoupangCatalogCollectionPermit, products: readonly SyncProduct[]) =>
+    put(permit, {
+      version: 1,
+      kind: 'discovery_page',
+      page: 1,
+      manifest: manifestOf(products.length),
+      items: products.map((product, ordinal) => ({
+        ordinal,
+        externalProductId: product.id,
+        registeredName: product.id,
+        primaryImageUrl: null,
+        saleStatus: 'ONSALE',
+      })),
+    }, 1);
+
+  async function runBasics(products: readonly SyncProduct[]) {
+    const permit = await owner.start({
+      ...scope(),
+      userId: USER,
+      idempotencyKey: randomUUID(),
+      request: { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
+    });
+    await discover(permit, products);
+    for (let start = 0; start < products.length; start += 20) {
+      const slice = products.slice(start, start + 20);
+      await put(permit, {
+        version: 1,
+        kind: 'listing_basics',
+        startOrdinal: start,
+        products: slice.map((product, index) => ({ ordinal: start + index, product: wireBasicProduct(product) })),
+      }, start + 1);
+    }
+    await put(permit, { version: 1, kind: 'manifest_confirmation', manifest: manifestOf(products.length) }, 1);
+    await finalize(permit);
+    return permit;
+  }
+
+  async function startDetails(basics: CoupangCatalogCollectionPermit, listed: readonly SyncProduct[]) {
+    const permit = await owner.start({
+      ...scope(),
+      userId: USER,
+      idempotencyKey: basics.plan.detailsIdempotencyKey!,
+      request: { collectorVersion: 'wing-inventory-v1', stage: 'details', expectedBasicAttemptId: basics.attemptId },
+    });
+    await discover(permit, listed);
+    await put(permit, {
+      version: 1,
+      kind: 'detail_manifest_confirmation',
+      manifest: manifestOf(listed.length),
+      basicAttemptId: permit.plan.basicAttemptId!,
+      basicManifestHash: permit.plan.basicManifestHash!,
+    }, 1);
+    return permit;
+  }
+
+  const sendDetail = (permit: CoupangCatalogCollectionPermit, listed: readonly SyncProduct[], id: string, notice = '장난감') => {
+    const ordinal = listed.findIndex((product) => product.id === id);
+    return put(permit, {
+      version: 1,
+      kind: 'full_details',
+      startOrdinal: ordinal,
+      products: [{ ordinal, product: wireDetailProduct(id, notice) }],
+    }, ordinal + 1);
+  };
+
+  const detailSection = async (id: string) => {
+    const row = await prisma.channelListing.findFirstOrThrow({
+      where: { organizationId: ORG, channelAccountId, externalId: id },
+      select: { rawJson: true },
+    });
+    return (row.rawJson as { detail?: unknown }).detail ?? null;
+  };
+
+  async function syncAll(products: readonly SyncProduct[]) {
+    const basics = await runBasics(products);
+    const details = await startDetails(basics, products);
+    for (const id of details.plan.detailTargetProductIds ?? []) await sendDetail(details, products, id);
+    await finalize(details);
+    return { basics, details };
+  }
+
+  it('목록 단계 종료가 신규·modifiedOn 변경·상세 없는 상품만 상세 대상으로 계획하고, 그 부분집합만 보내도 상세 단계가 끝난다', async () => {
+    const first: SyncProduct[] = [
+      { id: 'P1', modifiedOn: '2026-09-01T00:00:00' },
+      { id: 'P2', modifiedOn: '2026-09-01T00:00:00' },
+      { id: 'P3', modifiedOn: '2026-09-01T00:00:00' },
+    ];
+    const initial = await syncAll(first);
+    expect(initial.details.plan.detailTargetProductIds).toEqual(['P1', 'P2', 'P3']);
+    const p2Detail = await detailSection('P2');
+    expect(p2Detail).toMatchObject({ documents: [{ id: 'P2-D1' }] });
+
+    const second: SyncProduct[] = [
+      { id: 'P1', modifiedOn: '2026-09-20T00:00:00' },
+      { id: 'P2', modifiedOn: '2026-09-01T00:00:00' },
+      { id: 'P3', modifiedOn: '2026-09-01T00:00:00' },
+      { id: 'P4', modifiedOn: '2026-09-20T00:00:00' },
+    ];
+    const basics = await runBasics(second);
+    const details = await startDetails(basics, second);
+    expect(details.plan).toMatchObject({ detailTargetProductIds: ['P1', 'P4'], absentProductIds: [] });
+    const waiting = await owner.getStatus({ ...scope(), runId: details.attemptId });
+    expect(waiting).toMatchObject({ phase: 'hydration', missing: { productIds: ['P1', 'P4'] } });
+
+    await sendDetail(details, second, 'P1', '바뀐 장난감');
+    await sendDetail(details, second, 'P4');
+    await expect(finalize(details)).resolves.toMatchObject({ state: 'COMPLETE' });
+
+    // 대상 밖 상품의 상세 구역은 그대로다.
+    await expect(detailSection('P2')).resolves.toEqual(p2Detail);
+    await expect(detailSection('P1')).resolves.toMatchObject({
+      documents: [{ id: 'P1-D2', value: { 품명: '바뀐 장난감' } }],
+    });
+  });
+
+  it('목록에서 사라진 상품을 삭제 확인 대상으로 계획하고, 목록 단계 종료는 그 상품을 끄지 않는다', async () => {
+    await syncAll([
+      { id: 'P1', modifiedOn: '2026-09-01T00:00:00' },
+      { id: 'P2', modifiedOn: '2026-09-01T00:00:00' },
+    ]);
+    const basics = await runBasics([{ id: 'P1', modifiedOn: '2026-09-01T00:00:00' }]);
+    const details = await startDetails(basics, [{ id: 'P1', modifiedOn: '2026-09-01T00:00:00' }]);
+    expect(details.plan).toMatchObject({ detailTargetProductIds: [], absentProductIds: ['P2'] });
+    await expect(prisma.channelListing.findFirstOrThrow({
+      where: { organizationId: ORG, channelAccountId, externalId: 'P2' },
+      select: { isActive: true },
+    })).resolves.toEqual({ isActive: true });
+  });
+});
+
+function wireBasicProduct(product: SyncProduct) {
+  return {
+    externalProductId: product.id,
+    registeredName: product.id,
+    displayName: product.id,
+    category: null,
+    manufacturer: null,
+    brand: null,
+    productStatus: 'APPROVED',
+    options: [{
+      externalOptionId: `${product.id}-O`,
+      vendorItemId: `VI-${product.id}`,
+      vendorInventoryItemId: null,
+      sellerProductItemId: null,
+      skuId: null,
+      externalSkuCode: null,
+      stock: 5,
+      stockQuantity: 5,
+      soldOut: false,
+      optionName: '기본',
+      skuStatus: 'ONSALE',
+      salePrice: 10_000,
+      sellerSku: null,
+      modelNumber: null,
+      barcode: null,
+      attributes: [],
+      media: [],
+      raw: { vendorItemId: `VI-${product.id}` },
+    }],
+    media: [],
+    raw: product.modifiedOn ? { modifiedOn: product.modifiedOn } : {},
+  };
+}
+
+function wireDetailProduct(id: string, notice: string) {
+  // 확장은 문서 ID를 내용에서 만든다: 내용이 바뀌면 ID도 바뀐다.
+  const documentId = `${id}-D${notice === '장난감' ? 1 : 2}`;
+  return {
+    externalProductId: id,
+    options: [{
+      externalOptionId: `${id}-O`,
+      vendorItemId: `VI-${id}`,
+      sellerProductItemId: null,
+      barcode: '8800000000001',
+      attributes: [{ type: '색상', value: '빨강', attributeTypeId: '1001' }],
+      documentIds: [documentId],
+      raw: {},
+    }],
+    documents: [{ id: documentId, kind: 'notices' as const, value: { 품명: notice } }],
+    media: [],
+    raw: {},
   };
 }

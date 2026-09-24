@@ -42,6 +42,8 @@ import {
   missingDiscoverySequences,
   missingHydratedProductIds,
   missingStageProductIds,
+  missingDetailTargetIds,
+  detailTargetProductIds,
   parseStoredChunk,
   stringValue,
   type CanonicalProduct,
@@ -354,10 +356,12 @@ function buildCollectionStatus(
       discoverySequences: missingDiscoverySequences(state),
       productIds: stage === 'full'
         ? missingHydratedProductIds(state)
-        : missingStageProductIds(
-          state.discovered,
-          products,
-        ).split(', ').filter(Boolean),
+        : stage === 'details'
+          ? missingDetailTargetIds(detailTargetProductIds(plan, state.discovered), products)
+          : missingStageProductIds(
+            state.discovered,
+            products,
+          ).split(', ').filter(Boolean),
     },
     snapshotHash:
       typeof metadata.snapshotHash === 'string' ? metadata.snapshotHash : readySnapshotHash,
@@ -515,8 +519,8 @@ function derivePhase(
     : stage === 'details'
       ? state.detailProducts
       : state.products;
-  const expected = stage === 'details'
-    ? plan?.basicProductIds?.length ?? state.manifest.totalItems
+  const expected = stage === 'details' && plan
+    ? detailTargetProductIds(plan, state.discovered).length
     : state.manifest.totalItems;
   if (products.length < expected) return 'hydration';
   return 'ready_to_finalize';

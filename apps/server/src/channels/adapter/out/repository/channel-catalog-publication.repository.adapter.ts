@@ -45,6 +45,8 @@ import {
   lockCatalogAttempt,
 } from './channel-catalog-attempt-fence';
 import { deactivateCatalogAbsence } from './catalog-absence';
+import { planCatalogDetailTargets, type StoredCatalogListing } from '../../../domain/collection/catalog-detail-targets';
+import { readListingRawSections } from '../../../domain/collection/channel-listing-raw-sections';
 import {
   updateChannelCatalogDetails,
   upsertChannelCatalogBasics,
@@ -328,6 +330,16 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           throw new ConflictException('Staged catalog snapshot changed before publication');
         }
         optionCount = products.reduce((sum, item) => sum + item.product.options.length, 0);
+        // 상세 대상은 이번 목록이 쓰기 전의 저장값과 비교해야 한다 (KID-348).
+        const detailPlan = stage === 'basics'
+          ? planCatalogDetailTargets({
+              listed: products.map(({ product }) => ({
+                externalProductId: product.externalProductId,
+                modifiedOn: textValue(product.raw.modifiedOn),
+              })),
+              stored: await readStoredCatalogListings(tx, input),
+            })
+          : null;
         const upserted = stage === 'basics'
           ? await upsertCoupangCatalogBasicsRows(tx, this.media, {
               organizationId: input.organizationId,
@@ -349,15 +361,17 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           organizationId: input.organizationId,
           channelListingIds: upserted.listingIds,
         });
-        const absence = await deactivateCatalogAbsence(tx, {
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          sourceImportRunId: sourceRun.id,
-          // 윙 수집은 계정의 상품 목록 전체를 한 번에 본다.
-          scope: { kind: 'account' },
-          presentExternalProductIds: upserted.externalProductIds,
-          presentExternalOptionIds: upserted.externalOptionIds,
-        });
+        // 목록 단계는 사라진 상품을 끄지 않는다: 삭제 확인을 거친 상세 단계 종료만 바꾼다 (KID-348).
+        const absence = stage === 'basics'
+          ? { listings: 0, options: 0 }
+          : await deactivateCatalogAbsence(tx, {
+              organizationId: input.organizationId,
+              channelAccountId: input.channelAccountId,
+              sourceImportRunId: sourceRun.id,
+              scope: { kind: 'account' },
+              presentExternalProductIds: upserted.externalProductIds,
+              presentExternalOptionIds: upserted.externalOptionIds,
+            });
         if (upserted.mappingIdentityChanged || absence.listings > 0 || absence.options > 0) {
           await this.productMapping.advance(tx, input.organizationId);
         }
@@ -378,6 +392,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
             ? {
                 basicManifestHash: hashCatalogChunkPayload(snapshot.manifest, channelIntegrity.sha256),
                 productIds: products.map((item) => item.product.externalProductId),
+                ...detailPlan,
               }
             : {}),
         };
@@ -529,9 +544,12 @@ async function assertDetailChunkAgainstDiscovery(
   products: Array<{ ordinal: number; product: CoupangCatalogDetailProductV1 }>,
 ): Promise<void> {
   const plan = jsonRecord(rawPlan);
+  const planned = Array.isArray(plan?.detailTargetProductIds)
+    ? plan.detailTargetProductIds
+    : plan?.basicProductIds;
   const allowedIds = new Set(
-    Array.isArray(plan?.basicProductIds)
-      ? plan.basicProductIds.filter((value): value is string => typeof value === 'string')
+    Array.isArray(planned)
+      ? planned.filter((value): value is string => typeof value === 'string')
       : [],
   );
   const chunks = await tx.channelScrapeChunk.findMany({
@@ -558,7 +576,7 @@ async function assertDetailChunkAgainstDiscovery(
   }
   for (const item of products) {
     if (
-      (allowedIds.size > 0 && !allowedIds.has(item.product.externalProductId))
+      (Array.isArray(planned) && !allowedIds.has(item.product.externalProductId))
       || discovered.get(item.ordinal) !== item.product.externalProductId
     ) {
       throw new ConflictException(`Detail product does not match its completed basics basis: ${item.product.externalProductId}`);
@@ -576,6 +594,36 @@ function sumDetailChunkChanges(
     for (const [key, value] of Object.entries(changes)) totals[key] = (totals[key] ?? 0) + value;
   }
   return totals;
+}
+
+/**
+ * 계정의 저장된 리스팅을 상세 대상 비교에 필요한 만큼만 읽는다. 상세 문서는 크므로 `detail`·
+ * `detailDocuments`·`catalogExcel`은 빼고 읽고, 상세가 있는지만 따로 본다.
+ */
+async function readStoredCatalogListings(
+  tx: Prisma.TransactionClient,
+  scope: { organizationId: string; channelAccountId: string },
+): Promise<StoredCatalogListing[]> {
+  const rows = await tx.$queryRaw<Array<{ externalId: string; status: string | null; raw: unknown; hasDetail: boolean }>>`
+    SELECT external_id AS "externalId",
+           status,
+           COALESCE(raw_json, '{}'::jsonb) - 'detail' - 'detailDocuments' - 'catalogExcel' AS raw,
+           (COALESCE(raw_json, '{}'::jsonb) ? 'detail'
+             OR jsonb_typeof(raw_json -> 'detailDocuments') = 'array') AS "hasDetail"
+    FROM channel_listings
+    WHERE organization_id = ${scope.organizationId}::uuid
+      AND channel_account_id = ${scope.channelAccountId}::uuid
+  `;
+  return rows.map((row) => ({
+    externalProductId: row.externalId,
+    listModifiedOn: readListingRawSections(row.raw).list?.modifiedOn ?? null,
+    hasDetail: row.hasDetail,
+    status: row.status,
+  }));
+}
+
+function textValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
 }
 
 function transactionClient(value: unknown): Prisma.TransactionClient {

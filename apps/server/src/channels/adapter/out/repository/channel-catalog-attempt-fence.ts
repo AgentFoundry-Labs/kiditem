@@ -321,6 +321,9 @@ export type CatalogBasicsBasis = {
   manifestHash: string;
   publicationSequence: string;
   productIds: string[];
+  /** 목록 단계 종료가 계산한 상세 대상·사라진 상품 (KID-348). 그 전 목록 단계에는 없다. */
+  detailTargetProductIds?: string[];
+  absentProductIds?: string[];
 };
 
 /**
@@ -374,12 +377,20 @@ export async function latestCompletedCatalogBasics(
       : null;
   const productIds = publishedProductIds ?? collectBasicProductIds(scrapeRuns.flatMap((scrape) => scrape.chunks));
   if (!manifestHash || !run.publicationSequence || productIds.length === 0) return null;
+  const detailTargetProductIds = stringList(quality?.detailTargetProductIds);
+  const absentProductIds = stringList(quality?.absentProductIds);
   return {
     id: run.id,
     manifestHash,
     publicationSequence: run.publicationSequence.toString(),
     productIds,
+    ...(detailTargetProductIds ? { detailTargetProductIds } : {}),
+    ...(absentProductIds ? { absentProductIds } : {}),
   };
+}
+
+function stringList(value: unknown): string[] | null {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : null;
 }
 
 function collectBasicProductIds(chunks: Array<{ kind: string; sequence: number; payload: unknown }>) {

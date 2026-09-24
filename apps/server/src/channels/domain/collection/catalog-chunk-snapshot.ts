@@ -328,7 +328,7 @@ export function assembleFullDetailsSnapshot(
   const state = inspectChunks(chunks);
   assertDiscoveryCoverage(state);
   const plan = CoupangCatalogCollectionPlanSchema.parse(rawPlan);
-  const expectedIds = new Set(plan.basicProductIds ?? state.discovered.map((item) => item.externalProductId));
+  const expectedIds = new Set(detailTargetProductIds(plan, state.discovered));
   const discoveredByOrdinal = new Map(state.discovered.map((item) => [item.ordinal, item]));
   const ids = new Set<string>();
   const optionOwners = new Map<string, string>();
@@ -352,8 +352,8 @@ export function assembleFullDetailsSnapshot(
     }
     products.push(item);
   }
-  if (products.length !== expectedIds.size || products.length !== state.manifest!.totalItems) {
-    throw new BadRequestException(`Full details are missing: ${missingStageProductIds(state.discovered, products)}`);
+  if (products.length !== expectedIds.size) {
+    throw new BadRequestException(`Full details are missing: ${missingDetailTargetIds([...expectedIds], products).join(', ')}`);
   }
   return { manifest: state.manifest!, products };
 }
@@ -382,6 +382,27 @@ function assertDiscoveryCoverage(state: InspectedChunks): void {
   for (let ordinal = 0; ordinal < state.manifest.totalItems; ordinal += 1) {
     if (!ordinals.has(ordinal)) throw new BadRequestException(`Discovery ordinal is missing: ${ordinal}`);
   }
+}
+
+/**
+ * details 단계가 상세를 받아야 하는 상품 (KID-348). 목록 단계가 계산한 대상이 있으면 그것만,
+ * 그 전 계획은 목록 전체(`basicProductIds`, 없으면 발견한 상품 전부)다.
+ */
+export function detailTargetProductIds(
+  plan: { detailTargetProductIds?: string[]; basicProductIds?: string[] },
+  discovered: ReadonlyArray<{ externalProductId: string }>,
+): string[] {
+  return plan.detailTargetProductIds
+    ?? plan.basicProductIds
+    ?? discovered.map((item) => item.externalProductId);
+}
+
+export function missingDetailTargetIds(
+  targets: readonly string[],
+  products: ReadonlyArray<{ product: { externalProductId: string } }>,
+): string[] {
+  const present = new Set(products.map(({ product }) => product.externalProductId));
+  return targets.filter((id) => !present.has(id));
 }
 
 export function missingStageProductIds(
