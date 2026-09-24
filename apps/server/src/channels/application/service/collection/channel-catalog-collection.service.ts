@@ -6,7 +6,7 @@ import {
   CoupangCatalogCollectionRunSchema,
   CoupangCatalogCollectionPermitSchema,
   CoupangCatalogCollectionPlanSchema,
-  CoupangCatalogFullDetailsChunkV1Schema,
+  CoupangCatalogCollectionQualitySchema,
   FinalizeCoupangCatalogCollectionRequestSchema,
   PutCoupangCatalogChunkRequestSchema,
   StartCoupangCatalogCollectionRequestSchema,
@@ -24,7 +24,6 @@ import {
 } from '@kiditem/shared/source-import';
 import {
   CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT,
-  type ChannelCatalogCollectionChunkRecord,
   type ChannelCatalogCollectionRepositoryPort,
   type ChannelCatalogCollectionWithChunks,
 } from '../../port/out/repository/channel-catalog-collection.repository.port';
@@ -44,7 +43,6 @@ import {
   missingStageProductIds,
   missingDetailTargetIds,
   detailTargetProductIds,
-  parseStoredChunk,
   stringValue,
   type CanonicalProduct,
   type InspectedChunks,
@@ -313,9 +311,9 @@ function buildCollectionStatus(
     : stage === 'details'
       ? state.detailProducts
       : state.products;
-  const publishedDetails = stage === 'details'
-    ? publishedDetailProgress(run.chunks)
-    : null;
+  // 상세도 종료 트랜잭션에서만 반영된다 (KID-348): 반영 수는 완료 뒤에만 센다.
+  const completed = run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS;
+  const quality = CoupangCatalogCollectionQualitySchema.safeParse(metadata.quality);
   return CoupangCatalogCollectionRunSchema.parse({
     attemptId: run.id,
     idempotencyKey: run.idempotencyKey,
@@ -333,24 +331,16 @@ function buildCollectionStatus(
       optionCount: state.optionCount,
       mediaCount: state.mediaCount,
       storedChunks: run.chunks.length,
-      publishedProducts: publishedDetails?.publishedProducts
-        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? products.length : 0),
-      publishedOptionCount: publishedDetails?.publishedOptionCount
-        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? state.optionCount : 0),
-      publishedMediaCount: publishedDetails?.publishedMediaCount
-        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? state.mediaCount : 0),
-      publishedChunks: publishedDetails?.publishedChunks
-        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
-          ? run.chunks.filter((chunk) =>
-            stage === 'basics'
-              ? chunk.kind === 'listing_basics'
-              : chunk.kind === 'product_details',
-          ).length
-          : 0),
-      firstPublishedAt: publishedDetails?.firstPublishedAt
-        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? (run.finishedAt?.toISOString() ?? null) : null),
-      lastPublishedAt: publishedDetails?.lastPublishedAt
-        ?? (run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? (run.finishedAt?.toISOString() ?? null) : null),
+      publishedProducts: completed ? products.length : 0,
+      publishedOptionCount: completed ? state.optionCount : 0,
+      publishedMediaCount: completed ? state.mediaCount : 0,
+      publishedChunks: completed
+        ? run.chunks.filter((chunk) => chunk.kind === (
+          stage === 'basics' ? 'listing_basics' : stage === 'details' ? 'full_details' : 'product_details'
+        )).length
+        : 0,
+      firstPublishedAt: completed ? (run.finishedAt?.toISOString() ?? null) : null,
+      lastPublishedAt: completed ? (run.finishedAt?.toISOString() ?? null) : null,
     },
     missing: {
       discoverySequences: missingDiscoverySequences(state),
@@ -391,6 +381,7 @@ function buildCollectionStatus(
             changes: numberRecord(publication.changes),
           }
         : null,
+    ...(quality.success ? { quality: quality.data } : {}),
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
     finishedAt: run.finishedAt?.toISOString() ?? null,
@@ -399,85 +390,6 @@ function buildCollectionStatus(
     currentStage,
     overallState,
   });
-}
-
-type PublishedDetailProgress = {
-  publishedProducts: number;
-  publishedOptionCount: number;
-  publishedMediaCount: number;
-  publishedChunks: number;
-  firstPublishedAt: string | null;
-  lastPublishedAt: string | null;
-};
-
-function publishedDetailProgress(
-  chunks: readonly ChannelCatalogCollectionChunkRecord[],
-): PublishedDetailProgress {
-  const publishedChunks = chunks.filter((chunk) =>
-    chunk.kind === 'full_details' && chunk.publishedAt instanceof Date,
-  );
-  let publishedProducts = 0;
-  let publishedOptionCount = 0;
-  let publishedMediaCount = 0;
-  const publishedAt = publishedChunks
-    .map((chunk) => chunk.publishedAt!.getTime())
-    .filter((value) => Number.isFinite(value));
-
-  for (const chunk of publishedChunks) {
-    const receipt = jsonRecord(chunk.publicationJson);
-    const projection = jsonRecord(receipt?.projection);
-    const projectedProducts = Array.isArray(projection?.products)
-      ? projection.products
-        .map((value) => jsonRecord(value))
-        .filter((value): value is Record<string, unknown> => value !== null)
-      : [];
-    if (projectedProducts.length > 0) {
-      publishedProducts += projectedProducts.length;
-      publishedOptionCount += projectedProducts.reduce(
-        (sum, product) => sum + requiredNonNegativeInteger(product.optionCount, 'detail option count'),
-        0,
-      );
-      publishedMediaCount += projectedProducts.reduce(
-        (sum, product) => sum + requiredNonNegativeInteger(product.mediaCount, 'detail media count'),
-        0,
-      );
-      continue;
-    }
-
-    if (chunk.payload === undefined) {
-      throw new ConflictException(
-        `Published full-details chunk ${chunk.sequence} has no receipt projection or payload`,
-      );
-    }
-    const payload = parseStoredChunk(CoupangCatalogFullDetailsChunkV1Schema, chunk);
-    publishedProducts += payload.products.length;
-    publishedOptionCount += payload.products.reduce(
-      (sum, item) => sum + item.product.options.length,
-      0,
-    );
-    publishedMediaCount += payload.products.reduce(
-      (sum, item) => sum + item.product.media.length,
-      0,
-    );
-  }
-
-  const first = publishedAt.length > 0 ? Math.min(...publishedAt) : null;
-  const last = publishedAt.length > 0 ? Math.max(...publishedAt) : null;
-  return {
-    publishedProducts,
-    publishedOptionCount,
-    publishedMediaCount,
-    publishedChunks: publishedChunks.length,
-    firstPublishedAt: first === null ? null : new Date(first).toISOString(),
-    lastPublishedAt: last === null ? null : new Date(last).toISOString(),
-  };
-}
-
-function requiredNonNegativeInteger(value: unknown, label: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-    throw new ConflictException(`Published full-details receipt has an invalid ${label}`);
-  }
-  return value;
 }
 
 function countOptions(products: Array<{ product: { options: Array<unknown> } }>): number {

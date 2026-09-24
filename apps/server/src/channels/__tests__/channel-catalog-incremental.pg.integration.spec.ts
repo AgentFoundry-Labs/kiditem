@@ -362,7 +362,7 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
       mappingGeneration,
     );
     owner = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
+      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts),
       publisher,
       channelIntegrity,
     );
@@ -531,6 +531,95 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
     await expect(detailSection('P1')).resolves.toMatchObject({
       documents: [{ id: 'P1-D2', value: { 품명: '바뀐 장난감' } }],
     });
+  });
+
+  const listingAndOptionStamps = async (id: string) => {
+    const row = await prisma.channelListing.findFirstOrThrow({
+      where: { organizationId: ORG, channelAccountId, externalId: id },
+      select: { updatedAt: true, rawJson: true, options: { select: { updatedAt: true, rawJson: true, attributesJson: true } } },
+    });
+    return row;
+  };
+
+  it('상세 청크는 스테이징에만 쌓이고 종료 트랜잭션이 한 번에 반영하며 run.quality를 남긴다', async () => {
+    const products: SyncProduct[] = [
+      { id: 'P1', modifiedOn: '2026-09-01T00:00:00' },
+      { id: 'P2', modifiedOn: '2026-09-01T00:00:00' },
+    ];
+    const basics = await runBasics(products);
+    const details = await startDetails(basics, products);
+    await sendDetail(details, products, 'P1');
+    const staged = await sendDetail(details, products, 'P2');
+    expect(staged).toMatchObject({ phase: 'ready_to_finalize', progress: { hydratedProducts: 2 } });
+    // 청크를 받는 동안 리스팅은 그대로다.
+    await expect(detailSection('P1')).resolves.toBeNull();
+    await expect(detailSection('P2')).resolves.toBeNull();
+
+    const completed = await finalize(details);
+    expect(completed.quality).toEqual({
+      detailTargets: 2,
+      detailApplied: 2,
+      detailUnchanged: 0,
+      deletedProducts: 0,
+      unconfirmedAbsentProductIds: [],
+    });
+    await expect(detailSection('P1')).resolves.toMatchObject({ documents: [{ id: 'P1-D1' }] });
+  });
+
+  it('종료 전에 실패하면 리스팅에 아무것도 반영되지 않고, 다음 동기화가 같은 대상을 다시 잡는다', async () => {
+    const first: SyncProduct[] = [
+      { id: 'P1', modifiedOn: '2026-09-01T00:00:00' },
+      { id: 'P2', modifiedOn: '2026-09-01T00:00:00' },
+    ];
+    await syncAll(first);
+    const before = await listingAndOptionStamps('P1');
+
+    const changed: SyncProduct[] = [
+      { id: 'P1', modifiedOn: '2026-09-20T00:00:00' },
+      { id: 'P2', modifiedOn: '2026-09-01T00:00:00' },
+    ];
+    const basics = await runBasics(changed);
+    const details = await startDetails(basics, changed);
+    expect(details.plan.detailTargetProductIds).toEqual(['P1']);
+    await sendDetail(details, changed, 'P1', '바뀐 장난감');
+    await owner.fail({
+      ...scope(),
+      runId: details.attemptId,
+      attemptToken: details.attemptToken,
+      request: { code: 'PROVIDER_ERROR', message: '상세 조회 실패', phase: 'hydration' },
+    });
+    const after = await listingAndOptionStamps('P1');
+    expect((after.rawJson as { detail: unknown }).detail).toEqual((before.rawJson as { detail: unknown }).detail);
+    expect(after.options.map((option) => option.rawJson)).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        detail: (before.options[0]!.rawJson as { detail: unknown }).detail,
+      })]),
+    );
+
+    const retry = await runBasics(changed);
+    const retryDetails = await startDetails(retry, changed);
+    expect(retryDetails.plan.detailTargetProductIds).toEqual(['P1']);
+  });
+
+  it('같은 상세를 다시 받으면 리스팅·옵션에 한 건도 쓰지 않는다', async () => {
+    const first: SyncProduct[] = [{ id: 'P1', modifiedOn: '2026-09-01T00:00:00' }];
+    await syncAll(first);
+    // 가격만 바뀌어 modifiedOn이 올라갔고 상세 내용은 같다.
+    const bumped: SyncProduct[] = [{ id: 'P1', modifiedOn: '2026-09-20T00:00:00' }];
+    const basics = await runBasics(bumped);
+    const afterBasics = await listingAndOptionStamps('P1');
+    const details = await startDetails(basics, bumped);
+    expect(details.plan.detailTargetProductIds).toEqual(['P1']);
+    await sendDetail(details, bumped, 'P1');
+    const completed = await finalize(details);
+
+    expect(completed.quality).toMatchObject({ detailTargets: 1, detailApplied: 0, detailUnchanged: 1 });
+    await expect(listingAndOptionStamps('P1')).resolves.toEqual(afterBasics);
+
+    // 반영하지 않았어도 대상은 끝났다: 다음 동기화의 대상이 아니다.
+    const next = await runBasics(bumped);
+    const nextDetails = await startDetails(next, bumped);
+    expect(nextDetails.plan.detailTargetProductIds).toEqual([]);
   });
 
   it('목록에서 사라진 상품을 삭제 확인 대상으로 계획하고, 목록 단계 종료는 그 상품을 끄지 않는다', async () => {

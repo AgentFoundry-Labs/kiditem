@@ -30,11 +30,6 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
     repository = new ChannelCatalogCollectionRepositoryAdapter(
       prisma as unknown as PrismaService,
       alerts,
-      {
-        publishDetailChunk: async () => {
-          throw new Error('full-details publication is not part of this legacy repository fixture');
-        },
-      } as never,
     );
   });
 

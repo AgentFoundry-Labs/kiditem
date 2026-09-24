@@ -61,7 +61,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
     new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     collection = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
+      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts),
       publisher, channelIntegrity,
     );
     listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never), realRegistrationStates(prisma as never));
@@ -402,7 +402,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
     new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     const owner = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts, measuredPublisher),
+      new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts),
       measuredPublisher, channelIntegrity,
     );
     try {

@@ -101,6 +101,8 @@ export type ChannelCatalogDetailIdentityProduct = {
   externalProductId: string;
   documents: Array<{ id: string; kind: string; value?: unknown }>;
   raw?: Record<string, unknown>;
+  /** 상세가 준 미디어. 상세 구역에 함께 저장해 같은 상세인지 비교한다 (KID-348). */
+  media?: readonly unknown[];
   options: ChannelCatalogDetailIdentityOption[];
 };
 

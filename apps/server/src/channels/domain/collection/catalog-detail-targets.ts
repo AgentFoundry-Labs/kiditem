@@ -61,3 +61,24 @@ export function planCatalogDetailTargets(input: {
 function dedupe(ids: readonly string[]): string[] {
   return [...new Set(ids)];
 }
+
+/**
+ * 앞 동기화의 상세 단계가 끝나지 못했으면(실패·만료·중단) 그 대상은 반영되지 않았다. 목록 단계가
+ * 이미 새 `modifiedOn`을 저장했으므로 비교만으로는 다시 잡히지 않으니, 아직 목록에 있는 그 상품을
+ * 이번 대상에 더한다 (KID-348: 실패한 동기화의 대상은 다음 동기화가 다시 받는다).
+ */
+export function withUnfinishedDetailTargets(
+  plan: CatalogDetailPlan,
+  listedProductIds: readonly string[],
+  unfinishedTargetIds: readonly string[],
+): CatalogDetailPlan {
+  const targets = new Set(plan.detailTargetProductIds);
+  const unfinished = new Set(unfinishedTargetIds);
+  for (const id of listedProductIds) {
+    if (unfinished.has(id)) targets.add(id);
+  }
+  return {
+    detailTargetProductIds: listedProductIds.filter((id) => targets.has(id)),
+    absentProductIds: plan.absentProductIds,
+  };
+}

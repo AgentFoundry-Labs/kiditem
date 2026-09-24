@@ -1,5 +1,5 @@
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import {
@@ -43,10 +43,6 @@ import {
   latestCompletedCatalogBasics,
 } from './channel-catalog-attempt-fence';
 import type { ChannelCatalogCollectionRepositoryPort } from '../../../application/port/out/repository/channel-catalog-collection.repository.port';
-import {
-  CHANNEL_CATALOG_PUBLICATION_PORT,
-  type ChannelCatalogPublicationPort,
-} from '../../../application/port/out/repository/channel-catalog-publication.port';
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -64,8 +60,6 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
-    @Inject(CHANNEL_CATALOG_PUBLICATION_PORT)
-    private readonly publisher: ChannelCatalogPublicationPort,
   ) {}
   async startOrResume(input: StartInput) {
     return this.prisma
@@ -393,19 +387,6 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       if (existing) {
         if (existing.checksum !== input.checksum)
           throw new ConflictException('Chunk coordinate already exists with a different checksum');
-        if (input.kind === 'full_details' && !existing.publishedAt) {
-          if (!this.publisher)
-            throw new ConflictException('Detail publication capability is not configured');
-          await this.publisher.publishDetailChunk({
-            transaction: tx,
-            organizationId: input.organizationId,
-            channelAccountId: input.channelAccountId,
-            collectionRunId: staging.id,
-            attemptId: owner.id,
-            attemptToken: input.attemptToken,
-            chunk: existing,
-          });
-        }
         return { stored: false, chunk: existing };
       }
       const chunk = await tx.channelScrapeChunk.create({
@@ -423,19 +404,6 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         },
         select: chunkSelect,
       });
-      if (input.kind === 'full_details') {
-        if (!this.publisher)
-          throw new ConflictException('Detail publication capability is not configured');
-        await this.publisher.publishDetailChunk({
-          transaction: tx,
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          collectionRunId: staging.id,
-          attemptId: owner.id,
-          attemptToken: input.attemptToken,
-          chunk,
-        });
-      }
       assertCatalogWritable(owner);
       return { stored: true, chunk };
     });

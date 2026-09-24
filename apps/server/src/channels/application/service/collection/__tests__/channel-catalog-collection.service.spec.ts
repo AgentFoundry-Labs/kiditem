@@ -410,7 +410,7 @@ describe('ChannelCatalogCollectionService', () => {
   });
 
   it.each(['running', 'paused', 'failed', 'completed'] as const)(
-    'derives published detail progress from receipts while the run is %s',
+    'counts staged details as hydrated and published only after the terminal commit while the run is %s (KID-348)',
     async (state) => {
       const firstPublishedAt = new Date('2026-07-14T00:18:40.000Z');
       const secondPublishedAt = new Date('2026-07-14T00:20:53.000Z');
@@ -490,20 +490,20 @@ describe('ChannelCatalogCollectionService', () => {
       const service = new ChannelCatalogCollectionService(repository, makePublisher(), channelIntegrity);
 
       const result = await service.getStatus(ownedInput());
-      const expectedPublishedProducts = state === 'completed' ? 2 : 1;
+      const completed = state === 'completed';
       expect(result.progress).toMatchObject({
-        publishedProducts: expectedPublishedProducts,
-        publishedOptionCount: state === 'completed' ? 3 : 2,
-        publishedMediaCount: state === 'completed' ? 5 : 3,
-        publishedChunks: expectedPublishedProducts,
-        firstPublishedAt: firstPublishedAt.toISOString(),
-        lastPublishedAt: (state === 'completed' ? secondPublishedAt : firstPublishedAt).toISOString(),
+        hydratedProducts: 2,
+        publishedProducts: completed ? 2 : 0,
+        publishedChunks: completed ? 2 : 0,
+        firstPublishedAt: completed ? secondPublishedAt.toISOString() : null,
+        lastPublishedAt: completed ? secondPublishedAt.toISOString() : null,
       });
+      expect(firstPublishedAt).toBeInstanceOf(Date);
       expect((await service.getStatus(ownedInput())).progress).toEqual(result.progress);
     },
   );
 
-  it('keeps compact receipt progress equal to full and falls back to legacy payload receipts', async () => {
+  it('keeps compact receipt progress equal to full', async () => {
     const manifest = { ...onePageManifest(), totalItems: 1 };
     const published = publishedFullDetailsChunk({
       id: 'details-published',
@@ -551,32 +551,6 @@ describe('ChannelCatalogCollectionService', () => {
       makePublisher(), channelIntegrity,
     ).getStatus(ownedInput());
     expect(compactResult.progress).toEqual(fullResult.progress);
-
-    const legacyPublished = {
-      ...published,
-      publicationJson: { changes: { imageCount: 1 } },
-    };
-    const legacyRepository = makeRepository();
-    legacyRepository.getOwnedRunWithChunks.mockResolvedValue({
-      ...fullRun,
-      chunks: [
-        fullRun.chunks[0],
-        legacyPublished,
-        fullRun.chunks[2],
-      ],
-    } as never);
-    const legacyResult = await new ChannelCatalogCollectionService(
-      legacyRepository,
-      makePublisher(), channelIntegrity,
-    ).getStatus(ownedInput());
-    expect(legacyResult.progress).toMatchObject({
-      publishedProducts: 1,
-      publishedOptionCount: 1,
-      publishedMediaCount: 1,
-      publishedChunks: 1,
-      firstPublishedAt: '2026-07-14T00:18:40.000Z',
-      lastPublishedAt: '2026-07-14T00:18:40.000Z',
-    });
   });
 
   it('rejects a checksum mismatch before writing JSONB', async () => {
@@ -805,11 +779,6 @@ function makeRepository() {
 
 function makePublisher() {
   return {
-    publishDetailChunk: vi.fn<ChannelCatalogPublicationPort['publishDetailChunk']>().mockResolvedValue({
-      sourceImportRunId: RUN_ID,
-      duplicate: false,
-      changes: {},
-    }),
     publish: vi.fn<ChannelCatalogPublicationPort['publish']>().mockResolvedValue({
       sourceImportRunId: '00000000-0000-4000-8000-000000000006',
       duplicate: false,

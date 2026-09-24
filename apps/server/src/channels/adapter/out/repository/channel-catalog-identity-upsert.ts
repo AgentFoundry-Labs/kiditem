@@ -5,6 +5,7 @@ import { readListingProductIds } from '../persistence/listing-product-summary.re
 import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
 import {
   SHARED_LISTING_RAW_KEYS,
+  detailSectionUnchanged,
   rawSectionPatch,
   readListingRawSections,
   readOptionRawSections,
@@ -350,7 +351,12 @@ export async function updateChannelCatalogDetails(
     lastImportRunId: string;
     rawSource: string;
   },
-): Promise<Pick<ChannelCatalogIdentityUpsertResult, 'mappingIdentityChanged' | 'changes' | 'externalProductIds' | 'externalOptionIds' | 'identityRemaps' | 'listingIds' | 'persistedListings'>> {
+): Promise<Pick<ChannelCatalogIdentityUpsertResult, 'mappingIdentityChanged' | 'changes' | 'externalProductIds' | 'externalOptionIds' | 'identityRemaps' | 'listingIds' | 'persistedListings'> & {
+  /** 저장값이 바뀌어 쓴 상품. */
+  appliedProductIds: string[];
+  /** 같은 상세라 한 칸도 쓰지 않은 상품 (KID-348). */
+  unchangedProductIds: string[];
+}> {
   const externalProductIds = input.products.map((product) => product.externalProductId);
   const requestedOptionIds = input.products.flatMap((product) =>
     product.options.map((option) => option.externalOptionId));
@@ -379,6 +385,9 @@ export async function updateChannelCatalogDetails(
       externalOptionId: true,
       rawJson: true,
       attributesJson: true,
+      barcode: true,
+      modelNumber: true,
+      sellerSku: true,
       listing: { select: { externalId: true } },
     },
   });
@@ -394,6 +403,9 @@ export async function updateChannelCatalogDetails(
       externalOptionId: true,
       rawJson: true,
       attributesJson: true,
+      barcode: true,
+      modelNumber: true,
+      sellerSku: true,
       listing: { select: { externalId: true } },
     },
   });
@@ -474,26 +486,6 @@ export async function updateChannelCatalogDetails(
     }];
   }));
 
-  const listingUpdates = input.products.map((product) => ({
-    id: listingIds.get(product.externalProductId)!,
-    rawJson: detailMerges.get(product.externalProductId)!.listingRaw,
-  }));
-  for (let offset = 0; offset < listingUpdates.length; offset += UPSERT_BATCH_SIZE) {
-    const batch = listingUpdates.slice(offset, offset + UPSERT_BATCH_SIZE);
-    const updated = await tx.$executeRaw`
-      UPDATE channel_listings AS listing
-      SET raw_json = COALESCE(listing.raw_json, '{}'::jsonb) || incoming."rawJson",
-          last_import_run_id = ${input.lastImportRunId}::uuid,
-          updated_at = NOW()
-      FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
-        AS incoming(id uuid, "rawJson" jsonb)
-      WHERE listing.organization_id = ${input.organizationId}::uuid
-        AND listing.channel_account_id = ${input.channelAccountId}::uuid
-        AND listing.id = incoming.id
-    `;
-    if (updated !== batch.length) throw new ConflictException('DETAIL_LISTING_UPDATE_FENCE');
-  }
-
   const optionUpdates = input.products.flatMap((product) => product.options.map((option) => {
     const resolved = resolvedOptionByIncomingId.get(
       `${product.externalProductId}\u0000${option.externalOptionId}`,
@@ -521,8 +513,45 @@ export async function updateChannelCatalogDetails(
       ),
     };
   }));
-  for (let offset = 0; offset < optionUpdates.length; offset += UPSERT_BATCH_SIZE) {
-    const batch = optionUpdates.slice(offset, offset + UPSERT_BATCH_SIZE);
+  const optionUpdateById = new Map(optionUpdates.map((row) => [row.id, row]));
+  // 같은 상세를 다시 받았으면 쓰지 않는다: 구역은 관측 시각을 빼고, 칸은 저장값과 비교한다.
+  // 해시는 비교할 때만 계산하고 저장하지 않는다 (KID-348).
+  const unchangedProductIds = new Set(input.products
+    .filter((product) => detailProductUnchanged(
+      listingByExternalId.get(product.externalProductId)!,
+      detailMerges.get(product.externalProductId)!.listingRaw,
+      product.options.map((option) => {
+        const resolved = resolvedOptionByIncomingId.get(`${product.externalProductId}\u0000${option.externalOptionId}`)!;
+        return { stored: resolved, next: optionUpdateById.get(resolved.id)! };
+      }),
+    ))
+    .map((product) => product.externalProductId));
+  const appliedProducts = input.products.filter((product) => !unchangedProductIds.has(product.externalProductId));
+  const appliedOptionIds = new Set(appliedProducts.flatMap((product) => product.options.map((option) =>
+    resolvedOptionByIncomingId.get(`${product.externalProductId}\u0000${option.externalOptionId}`)!.id)));
+  const listingUpdates = appliedProducts.map((product) => ({
+    id: listingIds.get(product.externalProductId)!,
+    rawJson: detailMerges.get(product.externalProductId)!.listingRaw,
+  }));
+  for (let offset = 0; offset < listingUpdates.length; offset += UPSERT_BATCH_SIZE) {
+    const batch = listingUpdates.slice(offset, offset + UPSERT_BATCH_SIZE);
+    const updated = await tx.$executeRaw`
+      UPDATE channel_listings AS listing
+      SET raw_json = COALESCE(listing.raw_json, '{}'::jsonb) || incoming."rawJson",
+          last_import_run_id = ${input.lastImportRunId}::uuid,
+          updated_at = NOW()
+      FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
+        AS incoming(id uuid, "rawJson" jsonb)
+      WHERE listing.organization_id = ${input.organizationId}::uuid
+        AND listing.channel_account_id = ${input.channelAccountId}::uuid
+        AND listing.id = incoming.id
+    `;
+    if (updated !== batch.length) throw new ConflictException('DETAIL_LISTING_UPDATE_FENCE');
+  }
+
+  const appliedOptionUpdates = optionUpdates.filter((row) => appliedOptionIds.has(row.id));
+  for (let offset = 0; offset < appliedOptionUpdates.length; offset += UPSERT_BATCH_SIZE) {
+    const batch = appliedOptionUpdates.slice(offset, offset + UPSERT_BATCH_SIZE);
     const updated = await tx.$executeRaw`
       UPDATE channel_listing_options AS option_row
       SET attributes_json = CASE WHEN incoming."hasAttributes" THEN incoming."attributesJson" ELSE option_row.attributes_json END,
@@ -570,10 +599,12 @@ export async function updateChannelCatalogDetails(
     mappingIdentityChanged: false,
     changes: {
       createdProductCount: 0,
-      updatedProductCount: externalProductIds.length,
+      updatedProductCount: appliedProducts.length,
       createdSkuCount: 0,
-      updatedSkuCount: usedOptionIds.size,
+      updatedSkuCount: appliedOptionIds.size,
     },
+    appliedProductIds: appliedProducts.map((product) => product.externalProductId),
+    unchangedProductIds: [...unchangedProductIds],
     externalProductIds,
     externalOptionIds: requestedOptionIds,
     identityRemaps,
@@ -743,7 +774,15 @@ function mergeDetailState(
   return {
     listingRaw: rawSectionPatch(
       'detail',
-      { observedAt, documents: persistedDocuments, raw: withoutKeys(incomingRaw, SHARED_LISTING_RAW_KEYS) },
+      {
+        observedAt,
+        documents: persistedDocuments,
+        // 옵션 이미지는 문서에 없어 상세 불변 비교에 들어가도록 상세가 준 미디어 목록을 함께 둔다.
+        raw: {
+          ...withoutKeys(incomingRaw, SHARED_LISTING_RAW_KEYS),
+          ...(product.media ? { media: product.media } : {}),
+        },
+      },
       {
         ...(pickKeys(incomingRaw, SHARED_LISTING_RAW_KEYS) as Partial<Record<SharedListingRawKey, unknown>>),
         source,
@@ -1010,6 +1049,68 @@ function withoutKey(
   const result = { ...value };
   delete result[key];
   return result;
+}
+
+type DetailComparableOption = {
+  stored: {
+    rawJson: unknown;
+    attributesJson: unknown;
+    barcode: string | null;
+    modelNumber: string | null;
+    sellerSku: string | null;
+  };
+  next: {
+    rawJson: Record<string, unknown>;
+    attributesJson: unknown;
+    hasAttributes: boolean;
+    barcode?: string | null;
+    modelNumber?: string | null;
+    sellerSku?: string | null;
+  };
+};
+
+/**
+ * 이번 상세를 `||` 병합으로 썼을 때 저장값이 달라지는가. 구역의 관측 시각과 마지막으로 쓴 원천
+ * 표시(`source`)는 비교에서 뺀다 — 같은 상세를 다시 받았다는 사실만으로는 쓰지 않는다.
+ */
+function detailProductUnchanged(
+  listing: { rawJson: unknown },
+  listingPatch: Record<string, unknown>,
+  options: readonly DetailComparableOption[],
+): boolean {
+  const storedListing = jsonRecord(listing.rawJson) ?? {};
+  const nextListing = { ...storedListing, ...listingPatch };
+  if (!detailSectionUnchanged(
+    readListingRawSections(storedListing).detail,
+    withoutObservedAt(readListingRawSections(nextListing).detail),
+  )) return false;
+  if (comparableRaw(storedListing) !== comparableRaw(nextListing)) return false;
+  return options.every(({ stored, next }) => {
+    const storedRaw = jsonRecord(stored.rawJson) ?? {};
+    const nextRaw = { ...storedRaw, ...next.rawJson };
+    if (!detailSectionUnchanged(
+      readOptionRawSections(storedRaw).detail,
+      withoutObservedAt(readOptionRawSections(nextRaw).detail),
+    )) return false;
+    if (comparableRaw(storedRaw) !== comparableRaw(nextRaw)) return false;
+    if (next.hasAttributes && stableJson(next.attributesJson) !== stableJson(stored.attributesJson ?? null)) return false;
+    return [
+      [next.barcode, stored.barcode],
+      [next.modelNumber, stored.modelNumber],
+      [next.sellerSku, stored.sellerSku],
+    ].every(([incoming, kept]) => meaningfulText(incoming) === null || incoming === kept);
+  });
+}
+
+function withoutObservedAt<T extends { observedAt: string | null }>(section: T | null): Omit<T, 'observedAt'> {
+  if (!section) return { documents: [], documentIds: [], raw: {} } as unknown as Omit<T, 'observedAt'>;
+  const { observedAt: _observedAt, ...rest } = section;
+  return rest;
+}
+
+function comparableRaw(raw: Record<string, unknown>): string {
+  const { detail: _detail, source: _source, ...rest } = raw;
+  return stableJson(rest);
 }
 
 /**

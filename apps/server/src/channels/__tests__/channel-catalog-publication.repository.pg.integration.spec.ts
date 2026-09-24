@@ -78,7 +78,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       new ChannelCatalogCollectionRepositoryAdapter(
         prisma as unknown as PrismaService,
         alerts,
-        publisher,
       ),
       publisher, channelIntegrity,
     );

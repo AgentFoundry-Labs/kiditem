@@ -2,12 +2,11 @@ import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  CoupangCatalogFullDetailsChunkV1Schema,
-  CoupangCatalogDiscoveryPageV1Schema,
+  CoupangCatalogCollectionPlanSchema,
   PutCoupangCatalogChunkRequestSchema,
   type CoupangCatalogBasicProductV1,
+  type CoupangCatalogCollectionQuality,
   type CoupangCatalogDetailProductV1,
-  type CoupangCatalogFullDetailsChunkV1,
   type CoupangCatalogProductV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS, SOURCE_IMPORT_RUN_RUNNING_STATUS } from '@kiditem/shared/source-import';
@@ -45,7 +44,11 @@ import {
   lockCatalogAttempt,
 } from './channel-catalog-attempt-fence';
 import { deactivateCatalogAbsence } from './catalog-absence';
-import { planCatalogDetailTargets, type StoredCatalogListing } from '../../../domain/collection/catalog-detail-targets';
+import {
+  planCatalogDetailTargets,
+  withUnfinishedDetailTargets,
+  type StoredCatalogListing,
+} from '../../../domain/collection/catalog-detail-targets';
 import { readListingRawSections } from '../../../domain/collection/channel-listing-raw-sections';
 import {
   updateChannelCatalogDetails,
@@ -70,7 +73,6 @@ const SOURCE_TYPE = 'coupang_wing_catalog';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
 
 type PublishInput = Parameters<ChannelCatalogPublicationPort['publish']>[0];
-type DetailChunkInput = Parameters<ChannelCatalogPublicationPort['publishDetailChunk']>[0];
 
 @Injectable()
 export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalogPublicationPort {
@@ -84,136 +86,6 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
     @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
     private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
-
-  async publishDetailChunk(input: DetailChunkInput): Promise<ChannelCatalogPublicationResult> {
-    const tx = transactionClient(input.transaction);
-    if (input.chunk.kind !== 'full_details') {
-      throw new ConflictException('Only full-details chunks can be published incrementally');
-    }
-    const sourceRun = await lockCatalogAttempt(tx, {
-      ...input,
-      runId: input.attemptId,
-      stage: 'details',
-    });
-    assertCatalogWritable(sourceRun);
-    const userId = sourceRun.createdBy;
-    if (!userId) throw new ConflictException('Catalog attempt creator is missing');
-    if (input.chunk.publishedAt && jsonRecord(input.chunk.publicationJson)) {
-      const receipt = jsonRecord(input.chunk.publicationJson)!;
-      return {
-        sourceImportRunId: sourceRun.id,
-        duplicate: true,
-        changes: numberRecord(receipt.changes),
-      };
-    }
-    const request = PutCoupangCatalogChunkRequestSchema.safeParse({
-      kind: input.chunk.kind,
-      sequence: input.chunk.sequence,
-      checksum: input.chunk.checksum,
-      itemCount: input.chunk.itemCount,
-      payload: input.chunk.payload,
-    });
-    if (!request.success || request.data.kind !== 'full_details') {
-      throw new ConflictException('Stored full-details chunk is invalid');
-    }
-    if (hashCatalogChunkPayload(request.data.payload, channelIntegrity.sha256) !== input.chunk.checksum) {
-      throw new ConflictException('Stored full-details chunk does not match its receipt');
-    }
-    await assertCatalogPublicationPlan(tx, input, sourceRun.plan);
-    const payload = CoupangCatalogFullDetailsChunkV1Schema.parse(request.data.payload);
-    await assertDetailChunkAgainstDiscovery(tx, input, sourceRun.plan, payload.products);
-    const identities = await updateChannelCatalogDetails(tx, {
-      organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId,
-      products: payload.products.map(({ product }) => ({
-        externalProductId: product.externalProductId,
-        documents: product.documents,
-        raw: product.raw,
-        options: product.options,
-      })),
-      lastImportRunId: sourceRun.id,
-      rawSource: 'coupang_catalog_details',
-    });
-    await applyRegisteredOptionRecipes(ownerTransaction(tx), this.recipes, {
-      organizationId: input.organizationId,
-      channelListingIds: [...identities.listingIds.values()],
-    });
-    // Detail and option media are independent observations.  Reconcile only
-    // the role present in this response; publishing both through the old
-    // broad `detail` scope would deactivate the other role when it was merely
-    // omitted by Wing.  An empty role is intentionally left unchanged.
-    const media = { imageCount: 0, inactivatedImageCount: 0 };
-    for (const scope of ['detail', 'option'] as const) {
-      const mediaListings = payload.products
-        .map(({ product }) => {
-          const listingId = identities.listingIds.get(product.externalProductId)!;
-          return {
-            listingId,
-            channel: CHANNEL,
-            displayName: product.externalProductId,
-            optionIdentityRemaps: identities.identityRemaps
-              .filter((remap) => remap.listingId === listingId)
-              .map(({ oldExternalOptionId, newExternalOptionId }) => ({
-                oldExternalOptionId,
-                newExternalOptionId,
-              })),
-            media: product.media
-              .filter((item) => item.role === scope)
-              .map((item) => ({
-                sourceUrl: item.sourceUrl,
-                role: item.role,
-                sortOrder: item.sortOrder,
-                externalOptionId: item.externalOptionId ??
-                  (item.externalOptionIds?.length === 1 ? item.externalOptionIds[0]! : null),
-                ...(item.externalOptionIds ? { externalOptionIds: item.externalOptionIds } : {}),
-              })),
-          };
-        })
-        .filter((listing) => listing.media.length > 0);
-      if (mediaListings.length === 0) continue;
-      const published = await this.media.publishProviderMedia({
-        transaction: tx,
-        organizationId: input.organizationId,
-        userId,
-        publicationReference: { type: 'source_import_run', id: sourceRun.id },
-        publicationScope: scope,
-        listings: mediaListings,
-      });
-      media.imageCount += published.imageCount;
-      media.inactivatedImageCount += published.inactivatedImageCount;
-    }
-    const result: ChannelCatalogPublicationResult = {
-      sourceImportRunId: sourceRun.id,
-      duplicate: false,
-      changes: {
-        ...identities.changes,
-        ...media,
-        deactivatedProductCount: 0,
-        deactivatedSkuCount: 0,
-      },
-    };
-    const marked = await tx.channelScrapeChunk.updateMany({
-      where: {
-        id: input.chunk.id,
-        organizationId: input.organizationId,
-        scrapeRunId: input.collectionRunId,
-        kind: 'full_details',
-        checksum: input.chunk.checksum,
-        publishedAt: null,
-      },
-      data: {
-        publishedAt: new Date(),
-        publicationJson: {
-          ...result,
-          projection: compactChunkProjection(payload),
-        } as unknown as Prisma.InputJsonValue,
-      },
-    });
-    if (marked.count !== 1) {
-      throw new ConflictException('Detail chunk publication receipt fence lost');
-    }
-    return result;
-  }
 
   publish(input: PublishInput): Promise<ChannelCatalogPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
@@ -287,36 +159,37 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
         if (hashCatalogStageSnapshot(snapshot.products, channelIntegrity.sha256) !== input.snapshotHash) {
           throw new ConflictException('Staged detail snapshot changed before publication');
         }
-        const detailChunks = chunks.filter((chunk) => chunk.kind === 'full_details');
-        if (detailChunks.some((chunk) => !chunk.publishedAt)) {
-          throw new ConflictException('A detail chunk was not atomically published');
-        }
-        const detailListings = await tx.channelListing.findMany({
-          where: {
-            organizationId: input.organizationId,
-            channelAccountId: input.channelAccountId,
-            externalId: {
-              in: snapshot.products.map((item) => item.product.externalProductId),
-            },
-          },
-          select: { id: true },
-        });
-        await applyRegisteredOptionRecipes(ownerTransaction(tx), this.recipes, {
+        // 청크는 스테이징에만 쌓였다: 리스팅 반영은 이 종료 트랜잭션에서 한 번에 한다 (KID-348).
+        const userId = sourceRun.createdBy;
+        if (!userId) throw new ConflictException('Catalog attempt creator is missing');
+        const applied = await applyCatalogDetails(tx, this.media, this.recipes, {
           organizationId: input.organizationId,
-          channelListingIds: detailListings.map(({ id }) => id),
+          channelAccountId: input.channelAccountId,
+          userId,
+          sourceImportRunId: sourceRun.id,
+          products: snapshot.products,
         });
+        const plan = CoupangCatalogCollectionPlanSchema.parse(sourceRun.plan);
         optionCount = snapshot.products.reduce((sum, item) => sum + item.product.options.length, 0);
         result = {
           sourceImportRunId: sourceRun.id,
           duplicate: false,
-          changes: sumDetailChunkChanges(detailChunks),
+          changes: applied.changes,
+        };
+        const quality: CoupangCatalogCollectionQuality = {
+          detailTargets: snapshot.products.length,
+          detailApplied: applied.appliedProductIds.length,
+          detailUnchanged: applied.unchangedProductIds.length,
+          deletedProducts: 0,
+          unconfirmedAbsentProductIds: plan.absentProductIds ?? [],
         };
         qualityReport = {
           snapshotHash: input.snapshotHash,
           chunkSetHash: input.chunkSetHash,
           publication: result,
-          basicAttemptId: jsonRecord(sourceRun.plan)?.basicAttemptId,
-          basicManifestHash: jsonRecord(sourceRun.plan)?.basicManifestHash,
+          quality,
+          basicAttemptId: plan.basicAttemptId,
+          basicManifestHash: plan.basicManifestHash,
         };
       } else {
         const snapshot = stage === 'basics'
@@ -332,13 +205,17 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
         optionCount = products.reduce((sum, item) => sum + item.product.options.length, 0);
         // 상세 대상은 이번 목록이 쓰기 전의 저장값과 비교해야 한다 (KID-348).
         const detailPlan = stage === 'basics'
-          ? planCatalogDetailTargets({
-              listed: products.map(({ product }) => ({
-                externalProductId: product.externalProductId,
-                modifiedOn: textValue(product.raw.modifiedOn),
-              })),
-              stored: await readStoredCatalogListings(tx, input),
-            })
+          ? withUnfinishedDetailTargets(
+              planCatalogDetailTargets({
+                listed: products.map(({ product }) => ({
+                  externalProductId: product.externalProductId,
+                  modifiedOn: textValue(product.raw.modifiedOn),
+                })),
+                stored: await readStoredCatalogListings(tx, input),
+              }),
+              products.map(({ product }) => product.externalProductId),
+              await unfinishedPreviousDetailTargets(tx, input, sourceRun.id),
+            )
           : null;
         const upserted = stage === 'basics'
           ? await upsertCoupangCatalogBasicsRows(tx, this.media, {
@@ -430,6 +307,107 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
       return result;
     }, TRANSACTION_OPTIONS);
   }
+}
+
+/**
+ * 상세 스냅샷을 리스팅·옵션에 반영한다. 같은 상세라 쓰지 않은 상품은 옵션 조합·미디어도 다시
+ * 반영하지 않는다. 종료 트랜잭션 안에서만 부른다 (KID-348).
+ */
+async function applyCatalogDetails(
+  tx: Prisma.TransactionClient,
+  mediaPublisher: CatalogMediaPublicationPort,
+  recipes: ChannelOptionRecipePort,
+  input: {
+    organizationId: string;
+    channelAccountId: string;
+    userId: string;
+    sourceImportRunId: string;
+    products: Array<{ ordinal: number; product: CoupangCatalogDetailProductV1 }>;
+  },
+) {
+  if (input.products.length === 0) {
+    return {
+      appliedProductIds: [] as string[],
+      unchangedProductIds: [] as string[],
+      changes: { createdProductCount: 0, updatedProductCount: 0, createdSkuCount: 0, updatedSkuCount: 0,
+        imageCount: 0, inactivatedImageCount: 0, deactivatedProductCount: 0, deactivatedSkuCount: 0 },
+    };
+  }
+  const identities = await updateChannelCatalogDetails(tx, {
+    organizationId: input.organizationId,
+    channelAccountId: input.channelAccountId,
+    products: input.products.map(({ product }) => ({
+      externalProductId: product.externalProductId,
+      documents: product.documents,
+      raw: product.raw,
+      media: product.media,
+      options: product.options,
+    })),
+    lastImportRunId: input.sourceImportRunId,
+    rawSource: 'coupang_catalog_details',
+  });
+  const applied = new Set(identities.appliedProductIds);
+  const appliedProducts = input.products.filter(({ product }) => applied.has(product.externalProductId));
+  if (appliedProducts.length > 0) {
+    await applyRegisteredOptionRecipes(ownerTransaction(tx), recipes, {
+      organizationId: input.organizationId,
+      channelListingIds: appliedProducts.map(({ product }) => identities.listingIds.get(product.externalProductId)!),
+    });
+  }
+  // Detail and option media are independent observations.  Reconcile only
+  // the role present in this response; publishing both through the old
+  // broad `detail` scope would deactivate the other role when it was merely
+  // omitted by Wing.  An empty role is intentionally left unchanged.
+  const media = { imageCount: 0, inactivatedImageCount: 0 };
+  for (const scope of ['detail', 'option'] as const) {
+    const mediaListings = appliedProducts
+      .map(({ product }) => {
+        const listingId = identities.listingIds.get(product.externalProductId)!;
+        return {
+          listingId,
+          channel: CHANNEL,
+          displayName: product.externalProductId,
+          optionIdentityRemaps: identities.identityRemaps
+            .filter((remap) => remap.listingId === listingId)
+            .map(({ oldExternalOptionId, newExternalOptionId }) => ({
+              oldExternalOptionId,
+              newExternalOptionId,
+            })),
+          media: product.media
+            .filter((item) => item.role === scope)
+            .map((item) => ({
+              sourceUrl: item.sourceUrl,
+              role: item.role,
+              sortOrder: item.sortOrder,
+              externalOptionId: item.externalOptionId ??
+                (item.externalOptionIds?.length === 1 ? item.externalOptionIds[0]! : null),
+              ...(item.externalOptionIds ? { externalOptionIds: item.externalOptionIds } : {}),
+            })),
+        };
+      })
+      .filter((listing) => listing.media.length > 0);
+    if (mediaListings.length === 0) continue;
+    const published = await mediaPublisher.publishProviderMedia({
+      transaction: tx,
+      organizationId: input.organizationId,
+      userId: input.userId,
+      publicationReference: { type: 'source_import_run', id: input.sourceImportRunId },
+      publicationScope: scope,
+      listings: mediaListings,
+    });
+    media.imageCount += published.imageCount;
+    media.inactivatedImageCount += published.inactivatedImageCount;
+  }
+  return {
+    appliedProductIds: identities.appliedProductIds,
+    unchangedProductIds: identities.unchangedProductIds,
+    changes: {
+      ...identities.changes,
+      ...media,
+      deactivatedProductCount: 0,
+      deactivatedSkuCount: 0,
+    },
+  };
 }
 
 async function upsertCoupangCatalogRows(
@@ -537,65 +515,6 @@ async function upsertCoupangCatalogBasicsRows(
   };
 }
 
-async function assertDetailChunkAgainstDiscovery(
-  tx: Prisma.TransactionClient,
-  input: DetailChunkInput,
-  rawPlan: unknown,
-  products: Array<{ ordinal: number; product: CoupangCatalogDetailProductV1 }>,
-): Promise<void> {
-  const plan = jsonRecord(rawPlan);
-  const planned = Array.isArray(plan?.detailTargetProductIds)
-    ? plan.detailTargetProductIds
-    : plan?.basicProductIds;
-  const allowedIds = new Set(
-    Array.isArray(planned)
-      ? planned.filter((value): value is string => typeof value === 'string')
-      : [],
-  );
-  const chunks = await tx.channelScrapeChunk.findMany({
-    where: {
-      organizationId: input.organizationId,
-      scrapeRunId: input.collectionRunId,
-      kind: 'discovery_page',
-    },
-    select: { payload: true },
-  });
-  const discovered = new Map<number, string>();
-  for (const chunk of chunks) {
-    const parsed = CoupangCatalogDiscoveryPageV1Schema.safeParse(chunk.payload);
-    if (!parsed.success) {
-      throw new ConflictException('Stored discovery chunk is invalid');
-    }
-    for (const item of parsed.data.items) {
-      const previous = discovered.get(item.ordinal);
-      if (previous && previous !== item.externalProductId) {
-        throw new ConflictException('Discovery identity changed during detail publication');
-      }
-      discovered.set(item.ordinal, item.externalProductId);
-    }
-  }
-  for (const item of products) {
-    if (
-      (Array.isArray(planned) && !allowedIds.has(item.product.externalProductId))
-      || discovered.get(item.ordinal) !== item.product.externalProductId
-    ) {
-      throw new ConflictException(`Detail product does not match its completed basics basis: ${item.product.externalProductId}`);
-    }
-  }
-}
-
-function sumDetailChunkChanges(
-  chunks: Array<{ publicationJson?: unknown }>,
-): Record<string, number> {
-  const totals: Record<string, number> = {};
-  for (const chunk of chunks) {
-    const publication = jsonRecord(chunk.publicationJson);
-    const changes = numberRecord(publication?.changes);
-    for (const [key, value] of Object.entries(changes)) totals[key] = (totals[key] ?? 0) + value;
-  }
-  return totals;
-}
-
 /**
  * 계정의 저장된 리스팅을 상세 대상 비교에 필요한 만큼만 읽는다. 상세 문서는 크므로 `detail`·
  * `detailDocuments`·`catalogExcel`은 빼고 읽고, 상세가 있는지만 따로 본다.
@@ -622,15 +541,43 @@ async function readStoredCatalogListings(
   }));
 }
 
-function textValue(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value : null;
+/**
+ * 바로 앞 목록 단계가 계획한 상세 대상 가운데 그 details 자식이 완료로 끝나지 못한 것.
+ * 자식이 없거나(넘겨받기 전 만료) 실패·중단이면 대상 전부가 아직 반영되지 않았다.
+ */
+async function unfinishedPreviousDetailTargets(
+  tx: Prisma.TransactionClient,
+  scope: { organizationId: string; channelAccountId: string },
+  currentRunId: string,
+): Promise<string[]> {
+  const previous = await tx.sourceImportRun.findFirst({
+    where: {
+      ...catalogWhere(scope, 'basics'),
+      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+      id: { not: currentRunId },
+    },
+    orderBy: [{ publicationSequence: 'desc' }, { importedAt: 'desc' }],
+    select: { id: true, plan: true, qualityReport: true },
+  });
+  const targets = jsonRecord(previous?.qualityReport)?.detailTargetProductIds;
+  if (!previous || !Array.isArray(targets) || targets.length === 0) return [];
+  const detailsIdempotencyKey = jsonRecord(previous.plan)?.detailsIdempotencyKey;
+  const child = typeof detailsIdempotencyKey === 'string'
+    ? await tx.sourceImportRun.findFirst({
+        where: {
+          ...catalogWhere(scope, 'details'),
+          idempotencyKey: detailsIdempotencyKey,
+          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+        },
+        select: { plan: true },
+      })
+    : null;
+  if (child && jsonRecord(child.plan)?.rootAttemptId === previous.id) return [];
+  return targets.filter((id): id is string => typeof id === 'string');
 }
 
-function transactionClient(value: unknown): Prisma.TransactionClient {
-  if (!value || typeof value !== 'object' || !('channelListing' in value)) {
-    throw new ConflictException('Catalog publication requires a Prisma transaction');
-  }
-  return value as Prisma.TransactionClient;
+function textValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
 }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {
@@ -649,17 +596,3 @@ function numberRecord(value: unknown): Record<string, number> {
   );
 }
 
-function compactChunkProjection(
-  payload: CoupangCatalogFullDetailsChunkV1,
-): Record<string, unknown> {
-  return {
-    kind: payload.kind,
-    startOrdinal: payload.startOrdinal,
-    products: payload.products.map(({ ordinal, product }) => ({
-      ordinal,
-      externalProductId: product.externalProductId,
-      optionCount: product.options.length,
-      mediaCount: product.media.length,
-    })),
-  };
-}

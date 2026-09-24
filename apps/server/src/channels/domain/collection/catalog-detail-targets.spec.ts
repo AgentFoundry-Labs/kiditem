@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planCatalogDetailTargets } from './catalog-detail-targets';
+import { planCatalogDetailTargets, withUnfinishedDetailTargets } from './catalog-detail-targets';
 
 const stored = (id: string, over: Partial<{ listModifiedOn: string | null; hasDetail: boolean; status: string | null }> = {}) => ({
   externalProductId: id,
@@ -48,5 +48,13 @@ describe('planCatalogDetailTargets', () => {
       stored: [],
     });
     expect(plan.detailTargetProductIds).toEqual(['n']);
+  });
+
+  it('adds the still-listed targets of an unfinished previous details stage in list order', () => {
+    expect(withUnfinishedDetailTargets(
+      { detailTargetProductIds: ['P3'], absentProductIds: ['P9'] },
+      ['P1', 'P2', 'P3'],
+      ['P2', 'P8'],
+    )).toEqual({ detailTargetProductIds: ['P2', 'P3'], absentProductIds: ['P9'] });
   });
 });

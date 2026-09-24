@@ -1424,11 +1424,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     const collection = new ChannelCatalogCollectionRepositoryAdapter(
       prisma as unknown as PrismaService,
       alerts,
-      {
-        publishDetailChunk: async () => {
-          throw new Error('detail publication is not part of this fixture');
-        },
-      } as never,
     );
     const browser = await collection.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
