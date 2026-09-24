@@ -377,6 +377,7 @@ describe('parseCoupangWingWorkbook', () => {
       '성인상품여부(Y/N)',
       '[1001]색상\n(필수)',
       '[2002]수량',
+      '[안내]구매옵션',
       '검색옵션유형1',
       '검색옵션값1',
     ];
@@ -389,6 +390,7 @@ describe('parseCoupangWingWorkbook', () => {
         if (header === '성인상품여부(Y/N)') return adult;
         if (header === '[1001]색상\n(필수)') return color;
         if (header === '[2002]수량') return count;
+        if (header === '[안내]구매옵션') return '숫자 ID가 아닌 칸은 구매옵션이 아니다';
         if (header === '검색옵션유형1') return '재질';
         if (header === '검색옵션값1') return '플라스틱';
         return '';

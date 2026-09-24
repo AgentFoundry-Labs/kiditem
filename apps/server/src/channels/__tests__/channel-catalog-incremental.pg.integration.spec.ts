@@ -181,14 +181,17 @@ describe('Wing catalog incremental sync and rawJson sections (PG integration)', 
   });
 
   it('엑셀로 처음 만든 리스팅에도 판매상태·승인상태 평면 키가 있어 판매상태 읽기가 동작한다', async () => {
-    await writeExcel([excelRow('P-EXCEL', { skuStatus: '판매중', productStatus: '승인완료' })]);
+    await writeExcel([excelRow('P-EXCEL', { skuStatus: '판매중', productStatus: '승인완료', exposedProductId: 'E-1', adult: false })]);
     const row = await listingRow('P-EXCEL');
     expect(row.rawJson).toMatchObject({
       source: 'coupang_wing_catalog',
       saleStatus: '판매중',
       productStatus: '승인완료',
-      catalogExcel: { row: { 등록상품ID: 'P-EXCEL' } },
+      // 파서가 정규화한 상품 칸도 리스팅 엑셀 구역에 남는다.
+      catalogExcel: { row: { 등록상품ID: 'P-EXCEL' }, searchTags: ['블록', '장난감'], exposedProductId: 'E-1', adult: false },
     });
+    expect((row.options[0]!.rawJson as { catalogExcel: Record<string, unknown> }).catalogExcel)
+      .not.toHaveProperty('searchTags');
   });
 
   it('옛 교체 경로가 남긴 평면 판매상태보다 엑셀이 쓴 saleStatus를 판매상태 읽기가 먼저 본다', async () => {

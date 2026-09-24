@@ -31,7 +31,7 @@ import {
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import {
   rawSectionPatch,
-  type CatalogExcelSection,
+  type OptionCatalogExcelSection,
 } from '../../../domain/collection/channel-listing-raw-sections';
 import {
   LISTING_ATTRIBUTE_KINDS,
@@ -82,6 +82,10 @@ type CanonicalParent = Pick<
 > & {
   /** 상품의 첫 옵션 줄 가운데 비지 않은 `판매상태`. */
   saleStatus: string | null;
+  /** 상품 칸(검색어·노출상품ID·성인 여부): 첫 비지 않은 값. */
+  searchTags: string[];
+  exposedProductId: string | null;
+  adult: boolean | null;
 };
 
 @Injectable()
@@ -244,7 +248,12 @@ implements ChannelCatalogImportRepositoryPort {
           productStatus: parent.productStatus,
           raw: rawSectionPatch(
             'catalogExcel',
-            excelSection(input.observedAt, parent.rawJson),
+            {
+              ...excelSection(input.observedAt, parent.rawJson),
+              searchTags: parent.searchTags,
+              exposedProductId: parent.exposedProductId,
+              adult: parent.adult,
+            },
             {
               source: SOURCE_TYPE,
               externalProductId: parent.externalProductId,
@@ -492,6 +501,9 @@ function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
         brand: row.brand,
         productStatus: row.productStatus,
         saleStatus: row.skuStatus,
+        searchTags: row.searchTags,
+        exposedProductId: row.exposedProductId,
+        adult: row.adult,
         rawJson: row.rawJson,
       });
       continue;
@@ -503,12 +515,15 @@ function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
     existing.brand ??= row.brand;
     existing.productStatus ??= row.productStatus;
     existing.saleStatus ??= row.skuStatus;
+    existing.exposedProductId ??= row.exposedProductId;
+    existing.adult ??= row.adult;
+    if (existing.searchTags.length === 0) existing.searchTags = row.searchTags;
   }
   return [...parents.values()];
 }
 
 /** 엑셀 한 줄의 `catalogExcel` 구역. 빈 칸은 `null`로 남긴다. */
-function excelSection(observedAt: string, rawJson: Record<string, unknown>): CatalogExcelSection {
+function excelSection(observedAt: string, rawJson: Record<string, unknown>): OptionCatalogExcelSection {
   return {
     observedAt,
     row: Object.fromEntries(Object.entries(rawJson).map(([header, value]) => {

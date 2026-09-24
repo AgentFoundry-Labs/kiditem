@@ -193,7 +193,7 @@ function searchAttributes(rawJson: Record<string, unknown>): ParsedAttribute[] {
  * 구매옵션 칸의 헤더는 `[속성ID]이름\n(필수)`다(줄바꿈은 `normalizeHeader`가 공백으로 접는다).
  * 칸 값이 이 옵션 줄의 구매속성 값이다. 빈 칸은 싣지 않는다 (KID-349).
  */
-const PURCHASE_OPTION_HEADER = /^\[([^\]\s]+)\]\s*(.+?)(?:\s*\((?:필수|선택)\))?$/;
+const PURCHASE_OPTION_HEADER = /^\[(\d+)\]\s*(.+?)(?:\s*\((?:필수|선택)\))?$/;
 
 function purchaseAttributes(rawJson: Record<string, unknown>): ParsedAttribute[] {
   const attributes: ParsedAttribute[] = [];

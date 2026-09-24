@@ -1112,7 +1112,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           saleStatus: '판매중',
           productStatus: '승인완료',
           createdOn: '2026-04-01 11:32:06',
-          catalogExcel: { observedAt: expect.any(String), row: { revision: '2' } },
+          catalogExcel: { observedAt: expect.any(String), row: { revision: '2' }, searchTags: [], exposedProductId: null, adult: null },
         },
       },
       {
@@ -1122,7 +1122,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           externalProductId: 'P-UNREGISTERED',
           saleStatus: '판매중',
           productStatus: '승인완료',
-          catalogExcel: { observedAt: expect.any(String), row: { revision: '2' } },
+          catalogExcel: { observedAt: expect.any(String), row: { revision: '2' }, searchTags: [], exposedProductId: null, adult: null },
         },
       },
     ]);

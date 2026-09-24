@@ -62,11 +62,23 @@ export const ListingDetailSectionSchema = z.object({
 }).strict();
 export type ListingDetailSection = z.infer<typeof ListingDetailSectionSchema>;
 
-export const CatalogExcelSectionSchema = z.object({
+/** 옵션 행의 [쿠팡상품정보] 엑셀 구역: 그 옵션 줄 그대로. */
+export const OptionCatalogExcelSectionSchema = z.object({
   /** 내보내기를 요청한 시각. 엑셀 값은 이 시각 기준 스냅샷이다. */
   observedAt: ObservedAtSchema,
   /** 한글 헤더 → 셀 값. 빈 셀은 `null`. */
   row: z.record(z.string().nullable()),
+}).strict();
+export type OptionCatalogExcelSection = z.infer<typeof OptionCatalogExcelSectionSchema>;
+
+/**
+ * 리스팅 행의 [쿠팡상품정보] 엑셀 구역: 상품의 첫 줄과 파서가 정규화한 상품 칸(KID-349).
+ * `exposedProductId`는 옵션 줄마다 다를 수 있어 첫 비지 않은 값이다 — 옵션별 값은 옵션 구역 `row`에 있다.
+ */
+export const CatalogExcelSectionSchema = OptionCatalogExcelSectionSchema.extend({
+  searchTags: z.array(z.string().min(1)),
+  exposedProductId: z.string().min(1).nullable(),
+  adult: z.boolean().nullable(),
 }).strict();
 export type CatalogExcelSection = z.infer<typeof CatalogExcelSectionSchema>;
 
@@ -92,7 +104,7 @@ export type ListingRawSections = {
 export type OptionRawSections = {
   list: OptionListSection | null;
   detail: OptionDetailSection | null;
-  catalogExcel: CatalogExcelSection | null;
+  catalogExcel: OptionCatalogExcelSection | null;
 };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -183,20 +195,20 @@ export function readOptionRawSections(raw: unknown, context: RawSectionReadConte
   return {
     list: section(OptionListSectionSchema, flat.list, 'list', context),
     detail,
-    catalogExcel: section(CatalogExcelSectionSchema, flat.catalogExcel, 'catalogExcel', context),
+    catalogExcel: section(OptionCatalogExcelSectionSchema, flat.catalogExcel, 'catalogExcel', context),
   };
 }
 
 type SectionValue = {
   list: ListingListSection | OptionListSection;
   detail: ListingDetailSection | OptionDetailSection;
-  catalogExcel: CatalogExcelSection;
+  catalogExcel: CatalogExcelSection | OptionCatalogExcelSection;
 };
 
 const SECTION_SCHEMAS = {
   list: z.union([ListingListSectionSchema, OptionListSectionSchema]),
   detail: z.union([ListingDetailSectionSchema, OptionDetailSectionSchema]),
-  catalogExcel: CatalogExcelSectionSchema,
+  catalogExcel: z.union([CatalogExcelSectionSchema, OptionCatalogExcelSectionSchema]),
 } as const;
 
 /**

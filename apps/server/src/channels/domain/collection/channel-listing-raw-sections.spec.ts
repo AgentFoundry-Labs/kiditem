@@ -80,6 +80,16 @@ describe('rawSectionPatch', () => {
     expect(Object.keys(patch).sort()).toEqual(['list', 'saleStatus', 'source']);
   });
 
+  it('carries the normalized workbook fields on the listing section only (KID-349)', () => {
+    const listing = { observedAt: AT, row: { 검색어: '블록,장난감' }, searchTags: ['블록', '장난감'], exposedProductId: 'E1', adult: false };
+    expect(rawSectionPatch('catalogExcel', listing)).toEqual({ catalogExcel: listing });
+    expect(readListingRawSections({ catalogExcel: listing }).catalogExcel).toEqual(listing);
+    expect(readOptionRawSections({ catalogExcel: { observedAt: AT, row: {} } }).catalogExcel).toEqual({ observedAt: AT, row: {} });
+    expect(() => readOptionRawSections({ catalogExcel: listing })).toThrow(
+      expect.objectContaining({ code: 'SOURCE_SNAPSHOT_INVALID' }),
+    );
+  });
+
   it('validates the section before it can reach the database', () => {
     expect(() => rawSectionPatch('catalogExcel', { observedAt: AT, row: { 바코드: 1 } } as never)).toThrow();
   });
