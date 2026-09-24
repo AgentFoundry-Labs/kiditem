@@ -77,12 +77,20 @@ describe('ai architecture ratchet', () => {
   });
 
   it('keeps application service specs on port seams instead of concrete repository adapters', () => {
-    // Architecture scans exclude test sources, so this rule over specs reads them directly.
-    const specDir = at('application/service/__tests__');
-    const hits = readdirSync(specDir)
-      .filter((file) => file.endsWith('.ts'))
-      .filter((file) => new RegExp(importFromPattern(String.raw`[^'"]*adapter/out/repository`), 'm')
-        .test(readFileSync(path.join(specDir, file), 'utf8')));
+    // scanSource always excludes test sources, so this rule over specs walks
+    // application/service itself: every `__tests__/` file and co-located
+    // `*.spec.ts`/`*.test.ts`, at any depth. A spec reaches a concrete
+    // repository adapter by importing it or by `vi.mock`-ing its module path.
+    const serviceDir = at('application/service');
+    const repositoryImport = new RegExp(importFromPattern(String.raw`[^'"]*adapter/out/repository`), 'm');
+    const repositoryMock = /\bvi\.(?:do)?[mM]ock\(\s*['"][^'"]*adapter\/out\/repository/;
+    const hits = readdirSync(serviceDir, { recursive: true, encoding: 'utf8' })
+      .filter((file) => /(?:^|\/)__tests__\/.*\.ts$|\.(?:spec|test)\.ts$/.test(file))
+      .filter((file) => {
+        const source = readFileSync(path.join(serviceDir, file), 'utf8');
+        return repositoryImport.test(source) || repositoryMock.test(source);
+      })
+      .sort();
 
     expect(
       hits,
