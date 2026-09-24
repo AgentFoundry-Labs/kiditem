@@ -48,7 +48,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     ] });
   });
 
-  it('scopes lookup to the organization and holds exact code evidence until quantity is known', async () => {
+  it('scopes lookup to the organization and links a name-corroborated seller code as one unit', async () => {
     const option = await createOption({ sellerSku: 'SP-UNIQUE', displayName: 'Unique stock' });
     const foreign = await createOption({
       organizationId: OTHER_ORGANIZATION_ID,
@@ -58,14 +58,28 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     const sku = await createSku('SP-UNIQUE', 'Unique stock', 8);
     const beforeComponents = await prisma.channelListingOptionInventoryComponent.count();
 
+    // 사장님 2026-09-19 "코드가 맞으면 1개로 잇는다" — 셀러코드가 이름으로 확인되면 수량 1로 자동 연결한다.
     await expect(service.suggest(TEST_ORGANIZATION_ID, option.id)).resolves.toMatchObject({
-      status: 'quantity_review',
-      automationDecision: 'quantity_review',
-      proposals: [{ masterProductId: sku.id, requiresQuantityConfirmation: true }],
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
+      proposals: [{ masterProductId: sku.id }],
     });
     await expect(service.suggest(TEST_ORGANIZATION_ID, foreign.id))
       .rejects.toBeInstanceOf(NotFoundException);
     expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(beforeComponents);
+  });
+
+  it('holds exact model-number evidence without a seller code until the quantity is known', async () => {
+    const option = await createOption({ modelNumber: 'SP-MODEL-ONLY', displayName: 'Model only stock' });
+    const sku = await createSku('SP-MODEL-ONLY', 'Model only stock', 8);
+
+    await expect(service.suggest(TEST_ORGANIZATION_ID, option.id)).resolves.toMatchObject({
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      recommendedQuantity: null,
+      proposals: [{ masterProductId: sku.id, requiresQuantityConfirmation: true }],
+    });
+    expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(0);
   });
 
   it('reports seller SKU and model-number disagreement without mutating the option recipe', async () => {
