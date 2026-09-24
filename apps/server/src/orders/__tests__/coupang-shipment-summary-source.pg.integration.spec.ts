@@ -3,16 +3,16 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
-import { SourceFailureAlerts } from "../../../alerts/alerts.service";
+import { SourceFailureAlerts } from "../../alerts/alerts.service";
 import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
-} from "../../../test-helpers/real-prisma";
+} from "../../test-helpers/real-prisma";
 import { ShipmentsModule } from "../shipments.module";
-import { PrismaService } from "../../../prisma/prisma.service";
+import { PrismaService } from "../../prisma/prisma.service";
 
 const base = "/api/coupang-shipments/date-summary";
 const row = (date: string, count: number, boxes = count) => ({

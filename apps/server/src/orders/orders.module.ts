@@ -1,6 +1,6 @@
 import { RocketPoSourceModule } from './rocket-po-source.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
-import { ShipmentsModule } from './shipments/shipments.module';
+import { ShipmentsModule } from './shipments.module';
 import { Module } from '@nestjs/common';
 import { AlertsModule } from '../alerts/alerts.module';
 import { PrismaModule } from '../prisma/prisma.module';

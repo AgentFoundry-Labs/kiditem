@@ -1019,7 +1019,8 @@ fall back to old stock. Supply preserves recipe ratios, bottleneck allocation,
 provider idempotency and explicit reconciliation. Ordinary inventory reads need
 no new collection. Orders transmission to Sellpia does not write local stock.
 
-Coupang shipment summary, files and source attempts belong to `orders/shipments`;
+Coupang shipment summary, files and source attempts belong to Orders'
+`shipments/` lanes (`orders/shipments.module.ts` plus a `shipments/` folder in each layer);
 existing routes and PDF download/merge behavior remain available. Existing Rocket
 workbook audit and Orders reconciliation are retained because they have active
 internal callers; they do not reserve or change physical inventory.

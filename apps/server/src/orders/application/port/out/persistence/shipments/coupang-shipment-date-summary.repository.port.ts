@@ -1,7 +1,7 @@
 import type {
   CoupangShipmentsPort,
   CoupangShipmentDateSummaryEntry,
-} from "../../in/index";
+} from "../../../in/shipments/index";
 
 export const COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT = Symbol(
   "COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT",

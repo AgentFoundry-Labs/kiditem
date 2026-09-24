@@ -12,8 +12,8 @@ import type {
   CoupangShipmentMergedFileItem,
   CoupangShipmentMergedFileKind,
   CoupangShipmentResolvedFile,
-} from '../../../application/port/in/coupang-shipments.port';
-import type { CoupangShipmentFileStoragePort } from '../../../application/port/out/storage/index';
+} from '../../../../application/port/in/shipments/coupang-shipments.port';
+import type { CoupangShipmentFileStoragePort } from '../../../../application/port/out/storage/shipments/index';
 
 type ManifestFile = {
   targetInboundDate?: string;

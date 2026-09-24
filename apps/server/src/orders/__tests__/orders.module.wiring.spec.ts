@@ -1,4 +1,4 @@
-import { ShipmentsModule } from '../shipments/shipments.module';
+import { ShipmentsModule } from '../shipments.module';
 import { RocketPoSourceModule } from '../rocket-po-source.module';
 import { RocketPoSourceController } from '../adapter/in/web/rocket-po-source.controller';
 import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';

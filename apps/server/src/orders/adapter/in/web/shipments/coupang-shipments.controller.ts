@@ -19,7 +19,7 @@ import { CurrentOrganization } from "../../../../../auth/decorators/current-orga
 import {
   COUPANG_SHIPMENTS_PORT,
   type CoupangShipmentsPort,
-} from "../../../application/port/in/index";
+} from "../../../../application/port/in/shipments/index";
 import {
   BeginShipmentSummaryDto,
   SubmitShipmentSummaryDto,

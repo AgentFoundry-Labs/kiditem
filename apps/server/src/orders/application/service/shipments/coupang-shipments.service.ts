@@ -2,11 +2,11 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
   COUPANG_SHIPMENT_FILE_STORAGE_PORT,
   type CoupangShipmentFileStoragePort,
-} from "../port/out/storage/index";
+} from "../../port/out/storage/shipments/index";
 import {
   COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT,
   type CoupangShipmentDateSummaryRepositoryPort,
-} from "../port/out/persistence/coupang-shipment-date-summary.repository.port";
+} from "../../port/out/persistence/shipments/coupang-shipment-date-summary.repository.port";
 import type {
   CoupangShipmentDateSummaryResult,
   CoupangShipmentFileRequest,
@@ -14,7 +14,7 @@ import type {
   CoupangShipmentResolvedFile,
   CoupangShipmentsPort,
   ShipmentSummarySubmission,
-} from "../port/in/index";
+} from "../../port/in/shipments/index";
 
 @Injectable()
 export class CoupangShipmentsService implements CoupangShipmentsPort {

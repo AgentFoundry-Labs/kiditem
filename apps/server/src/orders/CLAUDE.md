@@ -52,6 +52,12 @@ Action, collection, transmission, and reconciliation behavior is executable in
 - Time filters use ISO values plus the established hour-boundary normalization.
 - Creator authority handles normal transmission resolution; owner/admin is
   reserved for reconciliation.
+- Keep the hexagonal layout: HTTP in `adapter/in/web/`, services in
+  `application/service/`, ledger helpers in `adapter/out/persistence/read/`,
+  pure mappers in `domain/`. Coupang shipments add a `shipments/` folder per
+  layer. `coupang-directship/` stays at the root because `nest-cli.json` and
+  the Dockerfile bind its Python and template assets to that path. Verify with
+  `npm run check:hexagonal`.
 - Flat channel-agnostic CRUD remains acceptable. New provider IO, Agent OS
   runtime, raw-SQL reporting, or cross-domain mutation requires a scoped
   port/adapter boundary.

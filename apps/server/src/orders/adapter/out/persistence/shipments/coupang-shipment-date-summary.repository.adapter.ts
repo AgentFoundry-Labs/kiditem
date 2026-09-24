@@ -1,4 +1,4 @@
-import { COUPANG_SHIPMENT_SUMMARY_PARSER_VERSION, COUPANG_SHIPMENT_SUMMARY_SOURCE_TYPE } from "../../../domain/shipment-summary";
+import { COUPANG_SHIPMENT_SUMMARY_PARSER_VERSION, COUPANG_SHIPMENT_SUMMARY_SOURCE_TYPE } from "../../../../domain/shipments/shipment-summary";
 import { createHash } from "node:crypto";
 import {
   BadRequestException,
@@ -18,17 +18,17 @@ import {
   OPERATOR_CANCEL_CODE,
   OPERATOR_CANCEL_MESSAGE,
 } from "../../../../../common/operator-cancel";
-import type { CoupangShipmentDateSummaryRepositoryPort } from "../../../application/port/out/persistence/coupang-shipment-date-summary.repository.port";
+import type { CoupangShipmentDateSummaryRepositoryPort } from "../../../../application/port/out/persistence/shipments/coupang-shipment-date-summary.repository.port";
 import type {
   ShipmentSummaryPlan,
   ShipmentSummarySubmission,
-} from "../../../application/port/in/index";
+} from "../../../../application/port/in/shipments/index";
 import {
   readCoupangShipmentSummaryAttempt,
   readCoupangShipmentSummarySource,
   publicShipmentSummaryAttempt,
   shipmentSummaryAttempt,
-} from "../../../read/coupang-shipment-date-summary.reader";
+} from "../read/shipments/coupang-shipment-date-summary.reader";
 
 const SOURCE = COUPANG_SHIPMENT_SUMMARY_SOURCE_TYPE;
 // Preserve persisted alert identity and advisory-lock keys across the owner move.

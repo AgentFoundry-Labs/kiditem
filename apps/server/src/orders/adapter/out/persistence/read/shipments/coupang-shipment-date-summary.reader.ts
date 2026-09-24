@@ -13,7 +13,7 @@ import {
   ShipmentSummaryAttempt,
   ShipmentSummarySource,
   ShipmentSummaryAttemptRead
-} from "../domain/shipment-summary";
+} from "../../../../../domain/shipments/shipment-summary";
 
 type Tx = Prisma.TransactionClient;
 

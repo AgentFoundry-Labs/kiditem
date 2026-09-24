@@ -4,7 +4,7 @@ import type {
   ShipmentSummaryAttemptRead,
   ShipmentSummaryPlan,
   ShipmentSummarySource,
-} from "../../../domain/shipment-summary";
+} from "../../../../domain/shipments/shipment-summary";
 
 /** Shipment-date facts `read/coupang-shipment-date-summary.reader.ts` returns. */
 export type { CoupangShipmentDateSummaryEntry, ShipmentSummaryPlan };

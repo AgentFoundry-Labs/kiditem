@@ -2,7 +2,7 @@ import type {
   CoupangShipmentFileRequest,
   CoupangShipmentFilesResponse,
   CoupangShipmentResolvedFile,
-} from '../../in/coupang-shipments.port';
+} from '../../../in/shipments/coupang-shipments.port';
 
 export const COUPANG_SHIPMENT_FILE_STORAGE_PORT = Symbol('CoupangShipmentFileStoragePort');
 

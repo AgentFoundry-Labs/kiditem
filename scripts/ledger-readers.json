@@ -788,7 +788,7 @@
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/orders/shipments/adapter/out/persistence/coupang-shipment-date-summary.repository.adapter.ts",
+          "path": "apps/server/src/orders/adapter/out/persistence/shipments/coupang-shipment-date-summary.repository.adapter.ts",
           "reason": "Orders publishes validated per-date shipment summaries before completing the fenced source run in the same transaction."
         }
       ],
