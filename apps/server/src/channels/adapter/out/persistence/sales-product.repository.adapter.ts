@@ -1835,7 +1835,7 @@ function commonPrice(values: readonly (number | null)[]): number | null {
 
 /**
  * 옛 화면이 읽는 몰별 값 요약. 등록 대상은 이름 · 가격 · 홍보문 · 고시를 갖지 않으므로(KID-313 W2) 판매가는
- * 고른 단품의 판매 상품 가격이 하나로 모일 때 그 값이고, 나머지는 비어 있다.
+ * 고른 단품의 판매 상품 가격이 하나로 모일 때 그 값이다.
  */
 function projectCompatibilityOverrides(
   targets: readonly {
@@ -1861,9 +1861,6 @@ function projectCompatibilityOverrides(
       mallKey: target.channelAccount.channel,
       mallName: target.channelAccount.name,
       salePrice: commonPrice(target.selectedOptions.map((option) => priceById.get(option.salesProductOptionId) ?? null)),
-      name: null,
-      promoText: null,
-      noticeCategory: null,
       stockPercent: typeof stockPercent === 'number' ? stockPercent : null,
       adapterValues: Object.keys(values).length > 0 ? values : null,
       version: target.version,

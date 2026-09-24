@@ -74,9 +74,6 @@ function product(): SalesProduct {
       mallKey: 'boribori',
       mallName: '보리보리',
       salePrice: 6200,
-      name: '애니멀 만능패드 (보리보리)',
-      promoText: null,
-      noticeCategory: null,
       stockPercent: null,
       adapterValues: null,
       version: 1,
@@ -113,9 +110,9 @@ describe('sales product → mall draft', () => {
     expect(detailImageUrlsFromHtml(null)).toEqual([]);
   });
 
-  it('sends every option in use, sold-out options with zero stock, and the mall price and name', () => {
+  it('sends every option in use, sold-out options with zero stock, the mall price and the product name', () => {
     const draft = salesProductToMallProductDraft(product(), 'boribori');
-    expect(draft.displayName).toBe('애니멀 만능패드 (보리보리)');
+    expect(draft.displayName).toBe('애니멀 만능패드');
     expect(draft.variants.map((variant) => [variant.options, variant.salePrice, variant.stock, variant.sellerSku])).toEqual([
       [[{ type: '색상', value: '파랑' }], 6200, 999, '100300-0001'],
       [[{ type: '색상', value: '노랑' }], 6200, 0, '100300-0002'],

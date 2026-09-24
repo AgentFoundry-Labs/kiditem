@@ -88,8 +88,8 @@ export function salesProductToMallProductDraft(
   const mallFields = recordValue(registrationInput.mallFields);
   const representativeImageUrl = product.imageUrls[0] ?? '';
   const additionalImageUrls = product.imageUrls.slice(1, 1 + MAX_ADDITIONAL_IMAGES);
-  const promoText = nonEmptyString(mallFields.promoText, override?.promoText);
-  const noticeCategory = nonEmptyString(override?.noticeCategory, product.noticeCategory);
+  const promoText = nonEmptyString(mallFields.promoText);
+  const noticeCategory = nonEmptyString(product.noticeCategory);
   const notice: Partial<Record<MallNoticeField, string>> = {
     ...KIDITEM_MALL_DRAFT_DEFAULTS.noticeFields,
     품명및모델명: product.shortName || product.name,
@@ -119,7 +119,7 @@ export function salesProductToMallProductDraft(
     });
   return {
     candidateId: product.id,
-    displayName: override?.name || product.name,
+    displayName: product.name,
     ...(promoText ? { promoText } : {}),
     sellerProductName: product.shortName || product.name,
     brand: nonEmptyString(product.brand) || KIDITEM_MALL_DRAFT_DEFAULTS.brand,

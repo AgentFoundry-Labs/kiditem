@@ -7,7 +7,7 @@ import type { SalesProductPort } from '../../port/in/sales-product.port';
 
 const request: PrepareTargetExecutionInput = { expectedVersion: 3, kind: 'register', idempotencyKey: 'intent-1', applyCompositionTemplate: false };
 function setup() {
-  const product = { id: 'product', name: '공통 이름', version: 4, channelOverrides: [{ channelAccountId: 'account', salePrice: 9000, name: '이전 계정 요약' }], options: [
+  const product = { id: 'product', name: '공통 이름', version: 4, channelOverrides: [{ channelAccountId: 'account', salePrice: 9000 }], options: [
     { id: 'a', optionCode: 'KID00000002', salePrice: 3000, normalPrice: 5000 },
     { id: 'b', optionCode: 'KID00000003', salePrice: 4000, normalPrice: null },
   ] } as SalesProduct;

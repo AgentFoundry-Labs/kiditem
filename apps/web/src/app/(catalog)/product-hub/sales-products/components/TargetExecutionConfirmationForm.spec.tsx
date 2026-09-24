@@ -113,6 +113,17 @@ describe('<TargetExecutionConfirmationForm />', () => {
     });
   });
 
+  it('starts from the existing mall listing the execution froze, and still asks for the account', async () => {
+    const base = execution({ expectedProviderAccountId: 'seller-expected' });
+    renderForm(execution({
+      expectedProviderAccountId: 'seller-expected',
+      payload: { ...base.payload, adapterPayload: { existingChannelListing: { externalListingId: 'MALL-EXISTING' } } },
+    }));
+
+    expect(screen.getByLabelText('실제 몰 상품번호')).toHaveValue('MALL-EXISTING');
+    expect(screen.getByLabelText('몰 계정 식별자')).toHaveValue('');
+  });
+
   it('keeps the observed provider account optional when the frozen account is unknown', async () => {
     const current = execution();
     vi.mocked(targetRegistrationExecutionApi.report).mockResolvedValue(current);
