@@ -115,4 +115,33 @@ describe('scanSource', () => {
       'application/service/reexport.service.ts',
     ]);
   });
+
+  it('matches inline import() and require() specifiers but not a comment that names them', () => {
+    writeFileSync(
+      path.join(root, 'application', 'service', 'lazy.service.ts'),
+      "export const lazy = () => import('../adapter/out/x');\n",
+    );
+    writeFileSync(
+      path.join(root, 'application', 'service', 'required.service.ts'),
+      "const adapter = require('../adapter/out/y');\nexport const required = adapter;\n",
+    );
+    writeFileSync(
+      path.join(root, 'application', 'service', 'typed.service.ts'),
+      "export let typed: import('../adapter/out/z').Z | null = null;\n",
+    );
+    writeFileSync(
+      path.join(root, 'application', 'service', 'noted.service.ts'),
+      "// never import('../adapter/out/x') or require('../adapter/out/y') here\nexport const noted = 1;\n",
+    );
+    const result = scanSource({
+      roots: [root],
+      pattern: importFromPattern(String.raw`[^'"]*adapter/out/`),
+      relativeTo: root,
+    });
+    expect(result.hits).toEqual([
+      'application/service/lazy.service.ts',
+      'application/service/required.service.ts',
+      'application/service/typed.service.ts',
+    ]);
+  });
 });
