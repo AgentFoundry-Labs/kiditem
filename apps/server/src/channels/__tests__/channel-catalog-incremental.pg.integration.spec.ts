@@ -721,6 +721,43 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
     await expect(detailSection('P1')).resolves.toEqual(p1Before);
   });
 
+  it('상세 대상 320개를 한 번의 종료 트랜잭션으로 반영한다(시간 측정)', async () => {
+    const products: SyncProduct[] = Array.from({ length: 320 }, (_, index) => ({
+      id: `P${String(index).padStart(4, '0')}`,
+      modifiedOn: '2026-09-01T00:00:00',
+    }));
+    const basics = await runBasics(products);
+    const details = await startDetails(basics, products);
+    expect(details.plan.detailTargetProductIds).toHaveLength(320);
+    for (let start = 0; start < products.length; start += 20) {
+      await put(details, {
+        version: 1,
+        kind: 'full_details',
+        startOrdinal: start,
+        products: products.slice(start, start + 20).map((product, index) => ({
+          ordinal: start + index,
+          product: wireDetailProduct(product.id, '장난감'),
+        })),
+      }, start + 1);
+    }
+    const status = await owner.getStatus({ ...scope(), runId: details.attemptId });
+    expect(status).toMatchObject({ phase: 'ready_to_finalize', missing: { productIds: [] } });
+    const started = performance.now();
+    const completed = await owner.finalize({
+      ...scope(),
+      userId: USER,
+      runId: details.attemptId,
+      attemptToken: details.attemptToken,
+      request: { snapshotHash: status.snapshotHash! },
+    });
+    const elapsedMs = Math.round(performance.now() - started);
+    process.stdout.write(`WING_DETAILS_FINALIZE_MEASUREMENT ${JSON.stringify({ targets: 320, elapsedMs })}\n`);
+    expect(completed.quality).toMatchObject({ detailTargets: 320, detailApplied: 320, detailUnchanged: 0 });
+    await expect(prisma.channelListing.count({
+      where: { organizationId: ORG, channelAccountId, rawJson: { path: ['detail', 'documents', '0', 'id'], string_starts_with: 'P' } },
+    })).resolves.toBe(320);
+  }, 120_000);
+
   it('목록에서 사라진 상품을 삭제 확인 대상으로 계획하고, 목록 단계 종료는 그 상품을 끄지 않는다', async () => {
     await syncAll([
       { id: 'P1', modifiedOn: '2026-09-01T00:00:00' },
