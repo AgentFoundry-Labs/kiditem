@@ -128,7 +128,7 @@ describe('registration execution fence (PG integration)', () => {
   it('admits one live execution per target: another intent conflicts until the first closes as not submitted', async () => {
     const targetId = await resolveTarget(MALL_ACCOUNT_ID);
     const first = await prepare(targetId, MALL_ACCOUNT_ID);
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toBeInstanceOf(ConflictException);
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({ code: 'CHANNELS_LISTING_EXECUTION_ACTIVE' });
 
     const started = await start(first.executionId);
     await expect(report(first.executionId, started, 'not_submitted', { message: '폼 채우기 실패' }))
@@ -143,7 +143,7 @@ describe('registration execution fence (PG integration)', () => {
     const started = await start(prepared.executionId);
     await expect(report(prepared.executionId, started, 'uncertain', {}))
       .resolves.toMatchObject({ status: 'reconciling', providerOutcome: 'uncertain' });
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toBeInstanceOf(ConflictException);
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({ code: 'CHANNELS_LISTING_EXECUTION_ACTIVE' });
     // 결과를 모르는 제출은 "제출 안 됨"으로 되돌릴 수 없다 — 몰 식별자가 있으면 거절된다.
     await report(prepared.executionId, started, 'submitted', { externalListingId: 'kk-9' });
     await expect(report(prepared.executionId, started, 'not_submitted', {})).rejects.toBeInstanceOf(ConflictException);

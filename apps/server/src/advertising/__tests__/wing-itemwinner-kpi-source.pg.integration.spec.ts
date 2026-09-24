@@ -26,6 +26,7 @@ import {
 import { AdvertisingExtensionService } from '../application/service/advertising-extension.service';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 
 const base = '/api/ads/wing-itemwinner';
 const WING_ITEMWINNER_TARGET_URL = 'https://wing.coupang.com/tenants/seller-price-management';
@@ -83,6 +84,7 @@ describe('Wing itemwinner KPI source owner HTTP + disposable PostgreSQL', () => 
         next();
       },
     );
+    app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
     await app.listen(0, '127.0.0.1');
     httpUrl = await app.getUrl();

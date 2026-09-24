@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   ConflictException,
   Injectable,
@@ -395,7 +396,7 @@ export class CompetitorCatalogSourceAttemptRepositoryAdapter
       data: {
         status: DB_FAILED,
         errorCode: 'ATTEMPT_EXPIRED',
-        errorMessage: 'Competitor catalog collection expired before publication.',
+        errorMessage: operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
       },
     });
     if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
@@ -599,7 +600,7 @@ function sourceView(
         ? 'ATTEMPT_EXPIRED'
         : latest.errorCode,
       errorMessage: latestState === 'FAILED' && dbState(latest.status) === DB_RUNNING
-        ? 'Competitor catalog collection expired before publication.'
+        ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
         : latest.errorMessage?.slice(0, 300) ?? null,
     } : null,
     latestComplete,

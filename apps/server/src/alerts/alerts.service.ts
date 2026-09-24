@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { redact } from '../common/redact';
+import { operatorErrorText, sourceLabel } from '@kiditem/shared/errors';
 import type {
   AlertItem,
   SourceFailureAlertInput,
@@ -185,6 +185,15 @@ export class SourceFailureAlerts {
 const MESSAGE_LIMIT = 300;
 
 
+const HANGUL = /[가-힣]/;
+
+/**
+ * 운영자가 읽는 제목·문장은 이 writer가 만든다(ADR-0023). 문장은 항상 코드의 레지스트리 문장
+ * (`operatorErrorText`; 모르는 코드는 원천별 일반 문장)이고 producer가 넘긴 `message` 원문은 쓰지 않는다 —
+ * 영어·변수명·자격 증명이 알림에 닿던 경로다. 제목은 producer가 한국어로 주면 그대로, 아니면
+ * `<원천> 실패`. 확장이 종료 제출로 보낸 원문은 attempt `errorMessage`에 그대로 남는다(확장이 자기
+ * `body.message`와 비교한다); 서버 자신의 실패 문장만 producer가 `operatorErrorText`로 저장한다.
+ */
 function sourceFailureData(input: SourceFailureAlertInput) {
   return {
     organizationId: input.organizationId,
@@ -193,8 +202,8 @@ function sourceFailureData(input: SourceFailureAlertInput) {
     attemptId: input.attemptId,
     status: 'OPEN',
     type: SOURCE_FAILURE_ALERT_TYPE,
-    title: input.title,
-    message: redact(input.message).slice(0, MESSAGE_LIMIT),
+    title: HANGUL.test(input.title) ? input.title : `${sourceLabel(input.sourceType)} 실패`,
+    message: operatorErrorText({ code: input.code, source: input.sourceType }).slice(0, MESSAGE_LIMIT),
     href: input.href,
     // A newer failure is unread again.
     readAt: null,

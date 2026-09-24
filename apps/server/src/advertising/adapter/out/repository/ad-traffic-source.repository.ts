@@ -8,7 +8,7 @@ import { Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { KiditemNotFoundError } from '@kiditem/shared/errors';
+import { KiditemNotFoundError, operatorErrorText } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
@@ -645,7 +645,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
               tx,
               replay,
               'ATTEMPT_EXPIRED',
-              'Wing traffic collection expired.',
+              operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
             )
           : replay;
         return this.attemptView(tx, row);
@@ -676,7 +676,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
           tx,
           running,
           'ATTEMPT_EXPIRED',
-          'Wing traffic collection expired.',
+          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
         );
       }
 
@@ -846,7 +846,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       }
       if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('SOURCE_ATTEMPT_TERMINAL');
       if (expired(row)) {
-        await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Wing traffic collection expired.');
+        await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }));
         // Return a marker so the failure state/alert transaction commits. The
         // HTTP conflict is raised only after the transaction has completed.
         return { __trafficUploadFailure: true, code: 'ATTEMPT_EXPIRED' };
@@ -860,7 +860,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
           tx,
           row,
           'ADVERTISER_IDENTITY_MISMATCH',
-          'Wing traffic account changed.',
+          operatorErrorText({ code: 'ADVERTISER_IDENTITY_MISMATCH', source: SOURCE_TYPE }),
           checksum,
         );
         return { __trafficUploadFailure: true, code: 'ADVERTISER_IDENTITY_MISMATCH' };
@@ -1038,7 +1038,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
       if (expired(row)) {
-        await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Wing traffic collection expired.');
+        await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }));
         return this.sourceStatusIn(tx, input.organizationId, row.channelAccountId!);
       }
       if (current.manifestChecksum !== input.manifestChecksum) {
@@ -1060,7 +1060,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
           tx,
           row,
           'ADVERTISER_IDENTITY_MISMATCH',
-          'Wing traffic account changed.',
+          operatorErrorText({ code: 'ADVERTISER_IDENTITY_MISMATCH', source: SOURCE_TYPE }),
           input.manifestChecksum,
         );
         return this.sourceStatusIn(tx, input.organizationId, row.channelAccountId!);
@@ -1167,7 +1167,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
       if (expired(row)) {
-        await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Wing traffic collection expired.');
+        await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }));
       } else {
         await this.failIn(tx, row, input.code, message, hash({ code: input.code, message }));
       }
@@ -1184,7 +1184,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       const row = await this.find(tx, input.organizationId, input.attemptId);
       if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return this.attemptView(tx, row);
       const failed = expired(row)
-        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Wing traffic collection expired.')
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }))
         : await this.failIn(
             tx,
             row,
@@ -1808,7 +1808,7 @@ function attemptView(row: SourceRun, entries: ReceiptEntry[]): AdTrafficSourceAt
     expectedPages: null,
     terminalPageObserved: validateCoverage(plan, entries) === null,
     errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
-    errorMessage: isExpired ? 'Wing traffic collection expired.' : row.errorMessage,
+    errorMessage: isExpired ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : row.errorMessage,
   });
 }
 

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   ConflictException,
   Injectable,
@@ -323,7 +324,7 @@ export class WingTrackedProductSourceAttemptRepositoryAdapter
       data: {
         status: DB_FAILED,
         errorCode: 'ATTEMPT_EXPIRED',
-        errorMessage: 'Tracked Wing collection expired before publication.',
+        errorMessage: operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
       },
     });
     if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');

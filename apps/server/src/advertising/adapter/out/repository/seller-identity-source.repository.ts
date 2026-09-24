@@ -5,7 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { KiditemConflictError } from '@kiditem/shared/errors';
+import { KiditemConflictError, operatorErrorText } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
@@ -216,7 +216,7 @@ export class SellerIdentitySourceRepository {
               tx,
               row,
               'IDENTITY_EVIDENCE_INCOMPLETE',
-              'Seller identities do not cover every eligible frozen target.',
+              operatorErrorText({ code: 'IDENTITY_EVIDENCE_INCOMPLETE', source: SOURCE }),
               checksum,
             ),
           );
@@ -307,7 +307,7 @@ export class SellerIdentitySourceRepository {
   private settleExpiry(tx: Tx, row: Row) {
     if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS || !expired(row)) return Promise.resolve(row);
     const code = 'ATTEMPT_EXPIRED';
-    const message = 'Seller identity collection expired before publication.';
+    const message = operatorErrorText({ code: 'ATTEMPT_EXPIRED' });
     return this.failIn(tx, row, code, message, hash({ code, message }));
   }
 
@@ -376,7 +376,7 @@ function view(row: Row): SellerIdentitySourceAttempt {
     itemCount: row.rowCount,
     errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
     errorMessage: isExpired
-      ? 'Seller identity collection expired before publication.'
+      ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
       : row.errorMessage,
   };
 }

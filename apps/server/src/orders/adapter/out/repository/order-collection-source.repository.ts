@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
   SOURCE_IMPORT_RUN_FAILED_STATUS,
@@ -176,7 +177,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
               tx,
               replay,
               'ATTEMPT_EXPIRED',
-              'Order collection expired.',
+              operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
             )
           : replay;
         return this.controlView(tx, row);
@@ -205,7 +206,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
           tx,
           expiredRun,
           'ATTEMPT_EXPIRED',
-          'Order collection expired.',
+          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
         );
       }
 
@@ -606,7 +607,7 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
         return this.attemptView(tx, row);
       }
       const failed = expired(row)
-        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Order collection expired.')
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }))
         : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
       return this.attemptView(tx, failed);
     });
@@ -808,7 +809,7 @@ function attemptFailure(
   row: Pick<SourceRun, 'status' | 'expiresAt' | 'errorCode' | 'errorMessage'>,
 ): Readonly<{ errorCode: string | null; errorMessage: string | null }> {
   return expired(row)
-    ? { errorCode: 'ATTEMPT_EXPIRED', errorMessage: 'Order collection expired.' }
+    ? { errorCode: 'ATTEMPT_EXPIRED', errorMessage: operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) }
     : { errorCode: row.errorCode, errorMessage: row.errorMessage };
 }
 

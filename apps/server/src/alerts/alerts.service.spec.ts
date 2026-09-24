@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 import { SourceFailureAlerts } from './alerts.service';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -205,19 +206,33 @@ describe('SourceFailureAlerts', () => {
     expect(getRow()).toMatchObject({ status: 'OPEN' });
   });
 
-  it('scrubs credentials and truncates without the caller asking', async () => {
+  it('writes the registry sentence for the code, never the producer text (credentials cannot leak)', async () => {
     const { db, getRow } = makeDb();
     const alerts = new SourceFailureAlerts(db);
 
     await alerts.recordTerminalOutcome(db, {
       ...failure(ATTEMPT_ID_2),
-      message: `token=abcd1234 ${'가'.repeat(400)}`,
+      code: 'ATTEMPT_EXPIRED',
+      title: 'Wing catalog collection failed',
+      message: `token=abcd1234 Order collection expired. ${'x'.repeat(400)}`,
     });
 
-    const written = getRow() as unknown as { message: string };
-    expect(written.message).toContain('token=[REDACTED]');
-    expect(written.message).not.toContain('abcd1234');
-    expect(written.message).toHaveLength(300);
+    expect(getRow()).toMatchObject({
+      title: '셀피아 수익성 수집 실패',
+      message: ERROR_DEFINITIONS.ATTEMPT_EXPIRED.text,
+    });
+  });
+
+  it('keeps a Korean producer title and gives an unknown code the source-level sentence', async () => {
+    const { db, getRow } = makeDb();
+    const alerts = new SourceFailureAlerts(db);
+
+    await alerts.recordTerminalOutcome(db, failure(ATTEMPT_ID_2));
+
+    expect(getRow()).toMatchObject({
+      title: 'Sellpia 수익성 수집 실패',
+      message: '셀피아 수익성 수집 작업이 실패했습니다. 다시 시도해 주세요.',
+    });
   });
 
   it('lists and dismisses only alerts in the authenticated organization', async () => {

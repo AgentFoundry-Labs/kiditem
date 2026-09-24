@@ -175,7 +175,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       attemptId: attempt.attemptId,
       state: 'FAILED',
       errorCode: 'ATTEMPT_EXPIRED',
-      errorMessage: 'Source collection expired before a complete snapshot was published.',
+      errorMessage: '수집 시도가 만료됐습니다. 다시 시작해 주세요.',
     });
     await expect(prisma.sourcingEvidenceIngestionRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
       .resolves.toMatchObject({
@@ -275,7 +275,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       attemptId: attempt.attemptId,
       // The sentence an operator reads. The reason code stays on the run row,
       // which the assertion above already checks.
-      message: 'The source is not enabled for this organization.',
+      message: '수집 작업이 실패했습니다. 다시 시도해 주세요.',
     });
   });
 

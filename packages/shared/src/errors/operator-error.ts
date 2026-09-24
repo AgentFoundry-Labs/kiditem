@@ -21,6 +21,23 @@ export const SOURCE_LABELS: Readonly<Record<string, string>> = {
   wing_rank: 'Wing 순위 수집',
   keyword_serp: '키워드 검색 결과 수집',
   sourcing_browser: '소싱 수집',
+  // 서버 source owner가 실제로 쓰는 sourceType (알림 제목·일반 문장의 주어)
+  coupang_wing_tracked_products: 'Wing 추적 상품 수집',
+  coupang_competitor_catalog: '경쟁 판매자 수집',
+  coupang_competitor_seller_identity: '경쟁 판매자 확인',
+  coupang_ad_profitability: '광고 수익성 수집',
+  coupang_wing_itemwinner: '아이템위너 수집',
+  coupang_keyword_serp: '키워드 검색 결과 수집',
+  coupang_wing_rank: 'Wing 순위 수집',
+  coupang_reviews: '쿠팡 리뷰 수집',
+  coupang_rocket_po_catalog: '로켓 발주 수집',
+  coupang_shipment_summary: '쿠팡 쉽먼트 조회',
+  coupang_direct_order_capture: '쿠팡 직배송 주문 수집',
+  order_collection_mall: '주문 수집',
+  sellpia_sales_daily: '셀피아 판매 현황 수집',
+  sellpia_product_profitability: '셀피아 수익성 수집',
+  mall_admin_listings: '몰 등록 상품 가져오기',
+  sabangnet_mall_listings: '사방넷 등록 상품 가져오기',
 };
 
 export function sourceLabel(source: string | null | undefined): string {

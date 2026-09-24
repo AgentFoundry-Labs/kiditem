@@ -8,7 +8,7 @@ import { Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { KiditemNotFoundError } from '@kiditem/shared/errors';
+import { KiditemNotFoundError, operatorErrorText } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
@@ -159,7 +159,7 @@ export class WingItemwinnerKpiSourceRepository
               tx,
               replay,
               'ATTEMPT_EXPIRED',
-              'Wing itemwinner collection expired.',
+              operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
             )
           : replay;
         return this.controlView(tx, row);
@@ -191,7 +191,7 @@ export class WingItemwinnerKpiSourceRepository
           tx,
           running,
           'ATTEMPT_EXPIRED',
-          'Wing itemwinner collection expired.',
+          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
         );
       }
 
@@ -284,7 +284,7 @@ export class WingItemwinnerKpiSourceRepository
             tx,
             row,
             'ATTEMPT_EXPIRED',
-            'Wing itemwinner collection expired.',
+            operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
             checksum,
           );
           return { failure: 'ATTEMPT_EXPIRED' as const, row: failed };
@@ -297,7 +297,7 @@ export class WingItemwinnerKpiSourceRepository
             tx,
             row,
             'BUSINESS_DATE_CHANGED',
-            'Wing itemwinner evidence crossed the frozen KST business date.',
+            operatorErrorText({ code: 'BUSINESS_DATE_CHANGED', source: WING_ITEMWINNER_SOURCE }),
             checksum,
           );
           return { failure: 'BUSINESS_DATE_CHANGED' as const, row: failed };
@@ -307,7 +307,7 @@ export class WingItemwinnerKpiSourceRepository
             tx,
             row,
             'VENDOR_IDENTITY_MISSING',
-            'Wing itemwinner capture is missing the observed vendor identity.',
+            operatorErrorText({ code: 'VENDOR_IDENTITY_MISSING', source: WING_ITEMWINNER_SOURCE }),
             checksum,
           );
           return { failure: 'VENDOR_IDENTITY_MISSING' as const, row: failed };
@@ -317,7 +317,7 @@ export class WingItemwinnerKpiSourceRepository
             tx,
             row,
             'VENDOR_IDENTITY_MISMATCH',
-            'Wing itemwinner vendor identity does not match the frozen account.',
+            operatorErrorText({ code: 'VENDOR_IDENTITY_MISMATCH', source: WING_ITEMWINNER_SOURCE }),
             checksum,
           );
           return { failure: 'VENDOR_IDENTITY_MISMATCH' as const, row: failed };
@@ -327,7 +327,7 @@ export class WingItemwinnerKpiSourceRepository
             tx,
             row,
             'INVALID_PAGE_TARGET',
-            'Wing itemwinner capture URL is not an explicit item-winner page.',
+            operatorErrorText({ code: 'INVALID_PAGE_TARGET', source: WING_ITEMWINNER_SOURCE }),
             checksum,
           );
           return { failure: 'INVALID_PAGE_TARGET' as const, row: failed };
@@ -337,7 +337,7 @@ export class WingItemwinnerKpiSourceRepository
             tx,
             row,
             'PAGE_TARGET_CHANGED',
-            'Wing itemwinner capture URL differs from the frozen collection page.',
+            operatorErrorText({ code: 'PAGE_TARGET_CHANGED', source: WING_ITEMWINNER_SOURCE }),
             checksum,
           );
           return { failure: 'PAGE_TARGET_CHANGED' as const, row: failed };
@@ -347,7 +347,7 @@ export class WingItemwinnerKpiSourceRepository
             tx,
             row,
             'EMPTY_CAPTURE_EVIDENCE',
-            'Wing itemwinner capture has no rows or provider cards proving a page result.',
+            operatorErrorText({ code: 'EMPTY_CAPTURE_EVIDENCE', source: WING_ITEMWINNER_SOURCE }),
             checksum,
           );
           return { failure: 'EMPTY_CAPTURE_EVIDENCE' as const, row: failed };
@@ -357,7 +357,7 @@ export class WingItemwinnerKpiSourceRepository
             tx,
             row,
             'ACCOUNT_CHANGED',
-            'The frozen Coupang account changed during collection.',
+            operatorErrorText({ code: 'ACCOUNT_CHANGED', source: WING_ITEMWINNER_SOURCE }),
             checksum,
           );
           return { failure: 'ACCOUNT_CHANGED' as const, row: failed };
@@ -510,7 +510,7 @@ export class WingItemwinnerKpiSourceRepository
         tx,
         row,
         expired(row) ? 'ATTEMPT_EXPIRED' : input.code,
-        expired(row) ? 'Wing itemwinner collection expired.' : message,
+        expired(row) ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : message,
         hash({ code: input.code, message }),
       );
       return this.controlView(tx, failed);
@@ -526,7 +526,7 @@ export class WingItemwinnerKpiSourceRepository
       const row = await this.find(tx, input.organizationId, input.attemptId);
       if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return this.attemptView(tx, row);
       const failed = expired(row)
-        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Wing itemwinner collection expired.')
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }))
         : await this.failIn(
             tx,
             row,
@@ -689,7 +689,7 @@ export class WingItemwinnerKpiSourceRepository
       contentChecksum: row.contentChecksum ?? null,
       itemCount: row.rowCount,
       errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
-      errorMessage: isExpired ? 'Wing itemwinner collection expired.' : row.errorMessage,
+      errorMessage: isExpired ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : row.errorMessage,
     };
   }
 

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
   SOURCE_IMPORT_RUN_FAILED_STATUS,
@@ -94,7 +95,7 @@ implements SellpiaShipmentTrackingSourcePort {
             tx,
             existing,
             'ATTEMPT_EXPIRED',
-            'Sellpia shipment tracking collection expired.',
+            operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
           );
         }
         return this.controlView(tx, existing);
@@ -118,7 +119,7 @@ implements SellpiaShipmentTrackingSourcePort {
           tx,
           expiredRun,
           'ATTEMPT_EXPIRED',
-          'Sellpia shipment tracking collection expired.',
+          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
         );
       }
 
@@ -332,7 +333,7 @@ implements SellpiaShipmentTrackingSourcePort {
           tx,
           row,
           'ATTEMPT_EXPIRED',
-          'Sellpia shipment tracking collection expired.',
+          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
         )
         : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
       return this.attemptView(tx, failed);
@@ -408,7 +409,7 @@ implements SellpiaShipmentTrackingSourcePort {
       sourceByteCount: row.contentByteCount,
       errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
       errorMessage: isExpired
-        ? 'Sellpia shipment tracking collection expired.'
+        ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
         : row.errorMessage,
     };
   }

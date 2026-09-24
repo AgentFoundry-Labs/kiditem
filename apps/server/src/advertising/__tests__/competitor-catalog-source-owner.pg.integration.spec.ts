@@ -174,7 +174,7 @@ describe('Competitor catalog source owner (PostgreSQL)', () => {
     });
     expect(alert).toMatchObject({
       status: 'OPEN',
-      message: '경쟁 판매자 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
+      message: '수집 시도가 만료됐습니다. 다시 시작해 주세요.',
     });
     // The code travels in the attempt's `errorCode`; the line the operator reads is a sentence.
     expect(alert.message).not.toMatch(/^[A-Z][A-Z0-9_]+:/);

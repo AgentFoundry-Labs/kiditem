@@ -8,7 +8,7 @@ import { Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { KiditemNotFoundError } from '@kiditem/shared/errors';
+import { KiditemNotFoundError, operatorErrorText } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
@@ -75,7 +75,7 @@ export class AdKeywordSourceRepository {
         if (replay.requestFingerprint !== hash(input))
           throw new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED');
         const row = expired(replay)
-          ? await this.failIn(tx, replay, 'ATTEMPT_EXPIRED', 'Ad keyword collection expired.')
+          ? await this.failIn(tx, replay, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }))
           : replay;
         return this.controlIn(tx, row);
       }
@@ -94,7 +94,7 @@ export class AdKeywordSourceRepository {
             code: 'ATTEMPT_IN_PROGRESS',
             attemptId: running.id,
           });
-        await this.failIn(tx, running, 'ATTEMPT_EXPIRED', 'Ad keyword collection expired.');
+        await this.failIn(tx, running, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }));
       }
       const advertiserId = resolveCoupangVendorId(account);
       if (!advertiserId) throw new BadRequestException('ADVERTISER_IDENTITY_MISSING');
@@ -220,7 +220,7 @@ export class AdKeywordSourceRepository {
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
       const failed = expired(row)
-        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad keyword collection expired.')
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }))
         : await this.failIn(tx, row, code, clean, checksum);
       return await this.attemptIn(tx, failed);
     });
@@ -233,7 +233,7 @@ export class AdKeywordSourceRepository {
       const row = await this.find(tx, org, id);
       if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return await this.attemptIn(tx, row);
       const failed = expired(row)
-        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad keyword collection expired.')
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }))
         : await this.failIn(
             tx,
             row,
@@ -289,7 +289,7 @@ export class AdKeywordSourceRepository {
       if (expired(row))
         return await this.attemptIn(
           tx,
-          await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad keyword collection expired.'),
+          await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' })),
         );
       const run = await this.staging(tx, row);
       const previous = await tx.channelScrapeChunk.findUnique({
@@ -314,7 +314,7 @@ export class AdKeywordSourceRepository {
             tx,
             row,
             'ADVERTISER_IDENTITY_MISMATCH',
-            'Ad keyword advertiser identity is not the frozen account.',
+            operatorErrorText({ code: 'ADVERTISER_IDENTITY_MISMATCH', source: SOURCE }),
             terminalChecksum,
           ),
         );
@@ -328,7 +328,7 @@ export class AdKeywordSourceRepository {
               tx,
               row,
               'INCOMPLETE_KEYWORD_ROSTER',
-              'Campaign roster did not reach a proven terminal page.',
+              operatorErrorText({ code: 'INCOMPLETE_KEYWORD_ROSTER', source: SOURCE }),
               terminalChecksum,
             ),
           );
@@ -350,7 +350,7 @@ export class AdKeywordSourceRepository {
                 tx,
                 row,
                 'INCOMPLETE_KEYWORD_GROUP',
-                'Ad group enumeration is missing, invalid or truncated.',
+                operatorErrorText({ code: 'INCOMPLETE_KEYWORD_GROUP', source: SOURCE }),
                 terminalChecksum,
               ),
             );
@@ -374,7 +374,7 @@ export class AdKeywordSourceRepository {
                 tx,
                 row,
                 'INCOMPLETE_KEYWORD_RESULT',
-                'Every frozen ad requires both successful keyword responses.',
+                operatorErrorText({ code: 'INCOMPLETE_KEYWORD_RESULT', source: SOURCE }),
                 terminalChecksum,
               ),
             );
@@ -487,7 +487,7 @@ export class AdKeywordSourceRepository {
       if (expired(row))
         return await this.attemptIn(
           tx,
-          await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Ad keyword collection expired.'),
+          await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' })),
         );
       const data = await this.receiptsIn(tx, row);
       const control = attemptView(row, data.chunks, data.roster);
@@ -500,7 +500,7 @@ export class AdKeywordSourceRepository {
             tx,
             row,
             'ADVERTISER_IDENTITY_MISMATCH',
-            'Ad keyword account changed.',
+            operatorErrorText({ code: 'ADVERTISER_IDENTITY_MISMATCH', source: SOURCE }),
             manifestChecksum,
           ),
         );
@@ -734,7 +734,7 @@ function attemptView(
       : 0,
     completedGroupCount: chunks.filter((chunk) => chunk.kind === 'group_result').length,
     errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
-    errorMessage: isExpired ? 'Ad keyword collection expired.' : row.errorMessage,
+    errorMessage: isExpired ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : row.errorMessage,
   };
 }
 function buildQueue(roster: AdKeywordRoster): AdKeywordQueueUnit[] {

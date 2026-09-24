@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   ConflictException,
   Inject,
@@ -435,7 +436,7 @@ implements SellpiaManualMatchRepositoryPort {
       data: {
         status: DB_FAILED,
         errorCode: 'ATTEMPT_EXPIRED',
-        errorMessage: 'Sellpia manual-match collection expired before publication.',
+        errorMessage: operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
       },
     });
     if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
@@ -443,7 +444,7 @@ implements SellpiaManualMatchRepositoryPort {
       organizationId: attempt.organizationId,
       attemptId: attempt.id,
       errorCode: 'ATTEMPT_EXPIRED',
-      errorMessage: 'Sellpia manual-match collection expired before publication.',
+      errorMessage: operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
     }));
     return findAttempt(tx, attempt.organizationId, attempt.id);
   }
@@ -725,7 +726,7 @@ function controlAttempt(attempt: SourceAttempt): SellpiaManualMatchAttempt {
       ? 'ATTEMPT_EXPIRED'
       : attempt.errorCode,
     errorMessage: attempt.status === DB_RUNNING && effectiveState(attempt, new Date()) === 'FAILED'
-      ? 'Sellpia manual-match collection expired before publication.'
+      ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
       : attempt.errorMessage,
   };
 }

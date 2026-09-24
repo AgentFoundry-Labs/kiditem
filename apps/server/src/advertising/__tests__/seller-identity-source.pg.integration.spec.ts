@@ -328,7 +328,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     const alert = (await get('/api/alerts').expect(200)).body;
     // The alert carries the sentence an operator reads. The reason code stays
     // on the run row, which the assertion above already checks.
-    expect(JSON.stringify(alert)).toContain('Seller identities do not cover every eligible frozen target.');
+    expect(JSON.stringify(alert)).toContain('경쟁 판매자 확인 작업이 실패했습니다. 다시 시도해 주세요.');
     expect(
       (await get('/api/ads/competitors?days=30&limit=20').expect(200)).body
         .sellers,
@@ -349,7 +349,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     ).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
     expect(
       JSON.stringify((await get('/api/alerts').expect(200)).body),
-    ).not.toContain('Seller identity collection expired before publication.');
+    ).not.toContain('수집 시도가 만료됐습니다. 다시 시작해 주세요.');
     expect((await submit(first, identities(first)).expect(409)).body).toMatchObject({
       code: 'ATTEMPT_EXPIRED',
       message: '수집 시도가 만료됐습니다. 다시 시작해 주세요.',
@@ -362,7 +362,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     expect(next.attemptId).not.toBe(first.attemptId);
     expect(
       JSON.stringify((await get('/api/alerts').expect(200)).body),
-    ).toContain('Seller identity collection expired before publication.');
+    ).toContain('수집 시도가 만료됐습니다. 다시 시작해 주세요.');
     const failure = {
       code: 'PROVIDER_INTERRUPTED',
       message: 'Original collector could not finish.',
@@ -376,7 +376,13 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     // Real wall clock remains before the new expiry; only the owner expiry predicate is advanced.
     vi.restoreAllMocks();
     const result = (await fail().expect(201)).body;
-    expect(result).toMatchObject({ state: 'FAILED', errorCode: failure.code });
+    // 확장이 종료 제출로 보낸 원문은 attempt에 그대로 남는다(확장이 자기 body.message와 비교한다).
+    expect(result).toMatchObject({ state: 'FAILED', errorCode: failure.code, errorMessage: failure.message });
+    // 알림은 원문 대신 한국어 문장이다(ADR-0023 알림 writer).
+    const alerts = JSON.stringify((await get('/api/alerts').expect(200)).body);
+    expect(alerts).not.toContain(failure.message);
+    expect(alerts).toContain('쿠팡 판매자 확인 실패');
+    expect(alerts).toContain('경쟁 판매자 확인 작업이 실패했습니다. 다시 시도해 주세요.');
     expect((await fail().expect(201)).body).toEqual(result);
     await fail({ ...failure, message: 'Different failure' }).expect(409);
     expect((await start(key).expect(201)).body).toMatchObject({
@@ -480,7 +486,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
       );
       expect(
         JSON.stringify((await get('/api/alerts').expect(200)).body),
-      ).toContain('Seller identities do not cover every eligible frozen target.');
+      ).toContain('경쟁 판매자 확인 작업이 실패했습니다. 다시 시도해 주세요.');
     } finally {
       await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT identity_test_no_resolve`;
     }

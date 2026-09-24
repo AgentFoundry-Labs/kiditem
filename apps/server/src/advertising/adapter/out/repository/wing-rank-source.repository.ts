@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   ConflictException,
   Inject,
@@ -75,7 +76,7 @@ export class WingRankSourceRepository {
               tx,
               replay,
               "ATTEMPT_EXPIRED",
-              "Wing rank collection expired.",
+              operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
             )
           : replay;
         return {
@@ -252,7 +253,7 @@ export class WingRankSourceRepository {
             row,
             expired(row) ? "ATTEMPT_EXPIRED" : "COLLECTION_CANCELLED",
             expired(row)
-              ? "Wing rank collection expired."
+              ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
               : "키워드 순위 수집이 취소되었습니다.",
           );
         }
@@ -308,7 +309,7 @@ export class WingRankSourceRepository {
         tx,
         old,
         "ATTEMPT_EXPIRED",
-        "Wing rank collection expired.",
+        operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
       );
     }
     const reused = await tx.sourceImportRun.findFirst({
@@ -430,7 +431,7 @@ export class WingRankSourceRepository {
               tx,
               row,
               "INCOMPLETE_WING_RANK_CAPTURE",
-              "Wing rank capture does not satisfy the frozen page plan.",
+              operatorErrorText({ code: 'INCOMPLETE_WING_RANK_CAPTURE', source: SOURCE }),
               checksum,
             ),
           );
@@ -591,7 +592,7 @@ function view(row: Attempt): WingRankSourceAttempt {
     itemCount: row.rowCount,
     errorCode: isExpired ? "ATTEMPT_EXPIRED" : row.errorCode,
     errorMessage: isExpired
-      ? "Wing rank collection expired."
+      ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
       : row.errorMessage,
   } satisfies WingRankSourceAttempt;
 }
