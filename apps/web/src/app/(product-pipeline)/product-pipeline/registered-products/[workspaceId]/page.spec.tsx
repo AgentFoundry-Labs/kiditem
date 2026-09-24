@@ -179,9 +179,6 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
       selectedDetailPageRevisionId: 'revision-1',
     }));
     expect(screen.getByText('저장된 자석 다트게임 상세페이지')).toBeInTheDocument();
-    expect(screen.getByText('쿠팡 원천 상세 정보')).toBeInTheDocument();
-    expect(screen.getAllByText(/공급자 원문/).some((element) => element.tagName === 'PRE')).toBe(true);
-    expect(screen.getByRole('link', { name: 'https://cdn.example.com/provider.png' })).toBeInTheDocument();
     expect(screen.queryByText('생성된 상세페이지가 없습니다')).not.toBeInTheDocument();
 
     const openDetailGeneration = props?.onOpenDetailTemplateGeneration as (() => void) | undefined;
@@ -231,7 +228,9 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     (listing as unknown as RegisteredChannelListing).channelPrice = null;
     render(<RegisteredWorkspaceDetailPage />);
 
-    expect(screen.getByText('판매가: 미수집')).toBeInTheDocument();
+    const basics = (productWorkspaceProps.at(-1)?.initialWorkspaceData as { product: { basicInfo: { salePrice: number | null; originalPrice: number | null } } }).product.basicInfo;
+    expect(basics.salePrice).toBeNull();
+    expect(basics.originalPrice).toBeNull();
     (listing as unknown as RegisteredChannelListing).channelPrice = 21900;
   });
 });

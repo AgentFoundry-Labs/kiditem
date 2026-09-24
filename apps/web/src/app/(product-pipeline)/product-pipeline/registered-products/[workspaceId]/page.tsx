@@ -84,56 +84,10 @@ export default function RegisteredWorkspaceDetailPage() {
             }))
           : undefined}
       />
-      <ProviderDetailPanel listing={listing} />
     </div>
   );
 }
 
-function ProviderDetailPanel({ listing }: { listing: RegisteredChannelListing }) {
-  const detail = listing.providerDetail;
-  if (!detail) return null;
-  const detailJson = detail.sourceDetail ? JSON.stringify(detail.sourceDetail, null, 2) : null;
-  return (
-    <section className="mx-auto mb-6 w-full max-w-6xl rounded-xl border border-slate-200 bg-white p-5 shadow-sm" aria-label="쿠팡 원천 상세 정보">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-black text-slate-900">쿠팡 원천 상세 정보</h2>
-          <p className="mt-1 text-xs font-medium text-slate-500">
-            운영자 선택 이미지와 생성 상세페이지와 분리된 공급자 원문입니다. HTML은 실행하지 않고 텍스트로 표시합니다.
-          </p>
-        </div>
-        <div className="text-right text-xs font-semibold text-slate-600">
-          <div>판매가: {listing.channelPrice == null ? '미수집' : `${listing.channelPrice.toLocaleString('ko-KR')}원`}</div>
-          <div className="mt-1">카테고리: {detail.category ?? '미수집'}</div>
-        </div>
-      </div>
-      <dl className="mt-4 grid gap-2 text-xs sm:grid-cols-3">
-        <div className="rounded-lg bg-slate-50 px-3 py-2"><dt className="font-bold text-slate-500">브랜드</dt><dd className="mt-1 text-slate-800">{detail.brand ?? '미수집'}</dd></div>
-        <div className="rounded-lg bg-slate-50 px-3 py-2"><dt className="font-bold text-slate-500">제조사</dt><dd className="mt-1 text-slate-800">{detail.manufacturer ?? '미수집'}</dd></div>
-        <div className="rounded-lg bg-slate-50 px-3 py-2"><dt className="font-bold text-slate-500">옵션</dt><dd className="mt-1 text-slate-800">{detail.options.length.toLocaleString('ko-KR')}개</dd></div>
-      </dl>
-      {detail.media.length > 0 && (
-        <div className="mt-4">
-          <h3 className="text-xs font-bold text-slate-700">공급자 이미지 URL ({detail.media.length})</h3>
-          <ul className="mt-2 grid gap-1 text-xs text-slate-600">
-            {detail.media.map((media) => (
-              <li key={`${media.role}:${media.sortOrder}:${media.sourceUrl}`} className="flex min-w-0 items-center gap-2">
-                <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-semibold">{media.role}</span>
-                <a className="truncate text-emerald-700 underline" href={media.sourceUrl} target="_blank" rel="noreferrer">{media.sourceUrl}</a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {detailJson && (
-        <details className="mt-4">
-          <summary className="cursor-pointer text-xs font-bold text-slate-700">전체 원문 JSON 보기</summary>
-          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">{detailJson}</pre>
-        </details>
-      )}
-    </section>
-  );
-}
 
 function channelListingToProductWorkspaceData(
   listing: RegisteredChannelListing,
@@ -206,7 +160,8 @@ function channelListingToProductWorkspaceData(
       category: '',
       description: '',
       thumbnailUrls: imageUrls,
-      salePrice: price,
+      // 몰이 판매가를 안 줬으면 null(미정)이다 — 0원이 아니다(KID-310).
+      salePrice: listing.channelPrice,
       selectedDetailPageGenerationId:
         contentWorkspace?.currentDetailPageId ?? null,
       selectedDetailPageRevisionId:
@@ -258,7 +213,7 @@ function buildFallbackBasicInfo(input: {
   category: string;
   description: string;
   thumbnailUrls: string[];
-  salePrice?: number;
+  salePrice?: number | null;
   selectedDetailPageGenerationId?: string | null;
   selectedDetailPageRevisionId?: string | null;
 }): ProductDetailResponse['basicInfo'] {
@@ -279,8 +234,8 @@ function buildFallbackBasicInfo(input: {
     colorVariantNames: '',
     boxSetStatus: '',
     boxSetQuantity: '',
-    originalPrice: input.salePrice ?? 0,
-    salePrice: input.salePrice ?? 0,
+    originalPrice: input.salePrice ?? null,
+    salePrice: input.salePrice ?? null,
     discountRate: 0,
     rocketBundleQuantity: 0,
     rocketUnitCost: 0,
