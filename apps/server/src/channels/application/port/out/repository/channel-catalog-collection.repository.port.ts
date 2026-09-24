@@ -42,6 +42,8 @@ export interface ChannelCatalogCollectionRepositoryPort {
     collectorVersion: string;
     stage?: CoupangCatalogStage;
     expectedBasicAttemptId?: string;
+    /** 운영자가 지목한 상품만 상세를 다시 받는 details 시도 (KID-348). */
+    detailProductIds?: string[];
   }): Promise<ChannelCatalogCollectionRunRecord>;
 
   getOwnedRunWithChunks(input: {

@@ -279,7 +279,8 @@ export async function assertCatalogPublicationPlan(
     throw new ConflictException('Catalog account changed after admission');
   if (BigInt(plan.publicationRevision) !== (await catalogPublicationRevision(tx, scope, stage)))
     throw new ConflictException('A newer catalog publication superseded this attempt');
-  if (stage === 'details') {
+  // 상품 하나 다시 받기는 목록 단계 기준이 없다 (KID-348).
+  if (stage === 'details' && plan.basicAttemptId) {
     const basis = await latestCompletedCatalogBasics(tx, scope);
     if (!basis || plan.basicAttemptId !== basis.id || plan.basicManifestHash !== basis.manifestHash ||
       plan.basicPublicationSequence !== basis.publicationSequence) {

@@ -12,7 +12,7 @@ import {
   SOURCE_IMPORT_RUN_FAILED_STATUS,
   SOURCE_IMPORT_RUN_RUNNING_STATUS,
 } from '@kiditem/shared/source-import';
-import { KiditemInvalidValueError } from '@kiditem/shared/errors';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
@@ -76,6 +76,9 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
   private async admitOrResume(tx: Prisma.TransactionClient, input: StartInput) {
     await lockCatalogAccount(tx, input);
     const stage = input.stage ?? 'full';
+    const refetchProductIds = stage === 'details' && input.detailProductIds
+      ? [...new Set(input.detailProductIds)]
+      : null;
     // `stage` is additive. Keep the legacy full-catalog fingerprint byte
     // for omitted/explicit full requests so an in-flight pre-stage run can
     // still be recovered with the same idempotency key. Named staged
@@ -87,6 +90,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       ...(stage === 'details'
         ? { expectedBasicAttemptId: input.expectedBasicAttemptId ?? null }
         : {}),
+      ...(refetchProductIds ? { detailProductIds: refetchProductIds } : {}),
     }, channelIntegrity.sha256);
     const existing = await tx.sourceImportRun.findFirst({
       where: {
@@ -105,7 +109,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         existing.sourceType !== catalogSourceForStage(stage)
       )
         throw new ConflictException('Idempotency-Key has a different catalog input');
-      if (stage === 'details') {
+      if (stage === 'details' && !refetchProductIds) {
         await assertExpectedDetailsBasis(tx, input, existing.plan);
       }
       const locked = await lockCatalogAttempt(tx, {
@@ -154,7 +158,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
     // One import runs per account: a new browser import waits for the account's
     // live import in either stage or a live workbook import. A details begin is
     // that import's own handoff, so only a workbook import holds it back.
-    if (stage === 'details') {
+    if (stage === 'details' && !refetchProductIds) {
       const workbook = await liveCatalogWorkbookImport(tx, input);
       if (workbook) throw attemptInProgress(workbook.id, WORKBOOK_IMPORT_IN_PROGRESS);
     } else {
@@ -195,8 +199,9 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       where: catalogWhere(input, stage),
       _max: { freshnessGeneration: true },
     });
-    const basics = stage === 'details' ? await latestCompletedCatalogBasics(tx, input) : null;
-    if (stage === 'details' && !basics) {
+    if (refetchProductIds) await assertRefetchListingsExist(tx, input, refetchProductIds);
+    const basics = stage === 'details' && !refetchProductIds ? await latestCompletedCatalogBasics(tx, input) : null;
+    if (stage === 'details' && !refetchProductIds && !basics) {
       throw new ConflictException('A completed basic catalog publication is required first');
     }
     if (stage === 'details' && input.expectedBasicAttemptId &&
@@ -213,7 +218,9 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       channelAccountId: input.channelAccountId,
       vendorId,
       publicationRevision: (await catalogPublicationRevision(tx, input, stage)).toString(),
-      rootAttemptId: stage === 'details' ? input.expectedBasicAttemptId ?? basics?.id : ownerId,
+      rootAttemptId: stage === 'details' && !refetchProductIds ? input.expectedBasicAttemptId ?? basics?.id : ownerId,
+      // 다시 받기는 지목한 상품만 대상이고 삭제 확인은 없다 (KID-348).
+      ...(refetchProductIds ? { detailTargetProductIds: refetchProductIds, absentProductIds: [] } : {}),
       ...(detailsIdempotencyKey ? { detailsIdempotencyKey } : {}),
       ...(basics
         ? {
@@ -693,6 +700,33 @@ function assertCatalogChunkKindForStage(
       : ['discovery_page', 'product_details', 'manifest_confirmation'];
   if (!allowed.includes(kind)) {
     throw new ConflictException(`Catalog chunk kind ${kind} is not valid for ${stage} stage`);
+  }
+}
+
+/**
+ * 다시 받을 상품은 이 계정에 저장된, 삭제로 기록되지 않은 활성 리스팅이어야 한다. 상세는
+ * 식별을 만들지 않으므로(목록 단계만 만든다) 없는 상품의 상세는 받을 곳이 없다.
+ */
+async function assertRefetchListingsExist(
+  tx: Prisma.TransactionClient,
+  scope: { organizationId: string; channelAccountId: string },
+  externalProductIds: readonly string[],
+): Promise<void> {
+  const rows = await tx.channelListing.findMany({
+    where: {
+      organizationId: scope.organizationId,
+      channelAccountId: scope.channelAccountId,
+      externalId: { in: [...externalProductIds] },
+      isActive: true,
+    },
+    select: { externalId: true },
+  });
+  const found = new Set(rows.map((row) => row.externalId));
+  const missing = externalProductIds.filter((id) => !found.has(id));
+  if (missing.length > 0) {
+    throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND', {
+      details: { reason: 'CATALOG_REFETCH_LISTING_MISSING', externalProductIds: missing },
+    });
   }
 }
 

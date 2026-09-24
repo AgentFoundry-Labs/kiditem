@@ -350,12 +350,16 @@ export function assembleListingBasicsSnapshot(
 export function assembleFullDetailsSnapshot(
   chunks: CatalogCollectionChunk[],
   rawPlan: unknown,
-): { manifest: CoupangCatalogManifestV1; products: CanonicalDetailProduct[] } {
+): { manifest: CoupangCatalogManifestV1 | null; products: CanonicalDetailProduct[] } {
   const state = inspectChunks(chunks);
-  assertDiscoveryCoverage(state);
   const plan = CoupangCatalogCollectionPlanSchema.parse(rawPlan);
+  const refetch = isDetailRefetchPlan(plan);
+  // 다시 받기는 목록을 발견하지 않는다: 순번은 지목한 상품 목록의 자리다 (KID-348).
+  if (!refetch) assertDiscoveryCoverage(state);
   const expectedIds = new Set(detailTargetProductIds(plan, state.discovered));
-  const discoveredByOrdinal = new Map(state.discovered.map((item) => [item.ordinal, item]));
+  const discoveredByOrdinal = refetch
+    ? new Map((plan.detailTargetProductIds ?? []).map((externalProductId, ordinal) => [ordinal, { externalProductId }]))
+    : new Map(state.discovered.map((item) => [item.ordinal, item]));
   const ids = new Set<string>();
   const optionOwners = new Map<string, string>();
   const products: CanonicalDetailProduct[] = [];
@@ -381,7 +385,15 @@ export function assembleFullDetailsSnapshot(
   if (products.length !== expectedIds.size) {
     throw new BadRequestException(`Full details are missing: ${missingDetailTargetIds([...expectedIds], products).join(', ')}`);
   }
-  return { manifest: state.manifest!, products };
+  return { manifest: state.manifest, products };
+}
+
+/**
+ * 운영자가 상품을 지목해 연 details 시도(목록 단계 기준 없음, KID-348). 목록 발견·확인 없이
+ * 지목한 상품의 상세만 받는다.
+ */
+export function isDetailRefetchPlan(plan: { stage?: string; basicAttemptId?: string; detailTargetProductIds?: string[] }): boolean {
+  return plan.stage === 'details' && !plan.basicAttemptId && Array.isArray(plan.detailTargetProductIds);
 }
 
 function assertDiscoveryCoverage(state: InspectedChunks): void {

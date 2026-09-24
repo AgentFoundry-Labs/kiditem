@@ -17,6 +17,7 @@ import {
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { z, type ZodType } from 'zod';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
   SOURCE_IMPORT_RUN_FAILED_STATUS,
@@ -43,6 +44,7 @@ import {
   missingStageProductIds,
   missingDetailTargetIds,
   detailTargetProductIds,
+  isDetailRefetchPlan,
   stringValue,
   type CanonicalProduct,
   type InspectedChunks,
@@ -67,6 +69,12 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
     input: Parameters<ChannelCatalogCollectionPort['start']>[0],
   ): Promise<CoupangCatalogCollectionPermit> {
     const request = parseRequest(StartCoupangCatalogCollectionRequestSchema, input.request);
+    // 상품 하나 상세 다시 받기는 목록 단계 기준 없이 details 단계로만 연다 (KID-348).
+    if (request.detailProductIds && (request.stage !== 'details' || request.expectedBasicAttemptId)) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: { reason: 'CATALOG_REFETCH_REQUEST_INVALID', field: 'detailProductIds' },
+      });
+    }
     const run = await this.repository.startOrResume({
       organizationId: input.organizationId,
       userId: input.userId,
@@ -77,6 +85,7 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
       ...(request.expectedBasicAttemptId
         ? { expectedBasicAttemptId: parseRequest(z.string().uuid(), request.expectedBasicAttemptId) }
         : {}),
+      ...(request.detailProductIds ? { detailProductIds: request.detailProductIds } : {}),
     });
     return CoupangCatalogCollectionPermitSchema.parse({
       attemptId: run.id,
@@ -424,6 +433,9 @@ function derivePhase(
   plan?: ReturnType<typeof CoupangCatalogCollectionPlanSchema.parse>,
 ): CoupangCatalogCollectionPhase {
   if (status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) return 'finished';
+  if (plan && isDetailRefetchPlan(plan)) {
+    return state.detailProducts.length < (plan.detailTargetProductIds?.length ?? 0) ? 'hydration' : 'ready_to_finalize';
+  }
   if (!state.manifest || !state.confirmation || missingDiscoverySequences(state).length > 0)
     return 'discovery';
   const products = stage === 'basics'

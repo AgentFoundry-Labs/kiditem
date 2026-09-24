@@ -671,6 +671,56 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
     expect(nextDetails.plan.absentProductIds).toEqual(['P3', 'P4']);
   });
 
+  it('상품 하나 상세 다시 받기는 목록 단계 없이 그 상품만 대상으로 열고 같은 종료 경로로 반영한다', async () => {
+    const products: SyncProduct[] = [
+      { id: 'P1', modifiedOn: '2026-09-01T00:00:00' },
+      { id: 'P2', modifiedOn: '2026-09-01T00:00:00' },
+    ];
+    await syncAll(products);
+    const p1Before = await detailSection('P1');
+
+    await expect(owner.start({
+      ...scope(),
+      userId: USER,
+      idempotencyKey: randomUUID(),
+      request: { collectorVersion: 'wing-inventory-v1', stage: 'details', detailProductIds: ['P-UNKNOWN'] },
+    })).rejects.toMatchObject({ code: 'CHANNELS_LISTING_NOT_FOUND' });
+
+    const refetch = await owner.start({
+      ...scope(),
+      userId: USER,
+      idempotencyKey: randomUUID(),
+      request: { collectorVersion: 'wing-inventory-v1', stage: 'details', detailProductIds: ['P2'] },
+    });
+    expect(refetch.plan).toMatchObject({
+      stage: 'details',
+      detailTargetProductIds: ['P2'],
+      absentProductIds: [],
+      rootAttemptId: refetch.attemptId,
+    });
+    expect(refetch.plan.basicAttemptId).toBeUndefined();
+    // 계정당 가져오기 하나: 다시 받기가 도는 동안 새 동기화는 기다린다.
+    await expect(owner.start({
+      ...scope(),
+      userId: USER,
+      idempotencyKey: randomUUID(),
+      request: { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
+    })).rejects.toMatchObject({ response: { code: 'ATTEMPT_IN_PROGRESS', attemptId: refetch.attemptId } });
+
+    await put(refetch, {
+      version: 1,
+      kind: 'full_details',
+      startOrdinal: 0,
+      products: [{ ordinal: 0, product: wireDetailProduct('P2', '다시 받은 장난감') }],
+    }, 1);
+    const completed = await finalize(refetch);
+    expect(completed.quality).toMatchObject({ detailTargets: 1, detailApplied: 1, detailUnchanged: 0, deletedProducts: 0 });
+    await expect(detailSection('P2')).resolves.toMatchObject({
+      documents: [{ id: 'P2-D2', value: { 품명: '다시 받은 장난감' } }],
+    });
+    await expect(detailSection('P1')).resolves.toEqual(p1Before);
+  });
+
   it('목록에서 사라진 상품을 삭제 확인 대상으로 계획하고, 목록 단계 종료는 그 상품을 끄지 않는다', async () => {
     await syncAll([
       { id: 'P1', modifiedOn: '2026-09-01T00:00:00' },
