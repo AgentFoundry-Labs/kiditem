@@ -47,11 +47,11 @@
 2 apps/server/src/content/application/service/content-workspace-thumbnail-selection.service.spec.ts
 1 apps/server/src/alerts/__tests__/source-failure-alerts.pg.integration.spec.ts
 1 apps/server/src/alerts/alerts.module.spec.ts
-4 apps/server/src/analytics/dashboard/__tests__/effective-period-source-agreement.pg.integration.spec.ts
-1 apps/server/src/analytics/dashboard/__tests__/inventory-abc-read.pg.integration.spec.ts
-2 apps/server/src/analytics/dashboard/application/service/dashboard-ad.service.spec.ts
-4 apps/server/src/analytics/dashboard/application/service/dashboard-sales.service.spec.ts
-9 apps/server/src/analytics/dashboard/application/service/dashboard-trend.service.spec.ts
+4 apps/server/src/analytics/__tests__/dashboard/effective-period-source-agreement.pg.integration.spec.ts
+1 apps/server/src/analytics/__tests__/dashboard/inventory-abc-read.pg.integration.spec.ts
+2 apps/server/src/analytics/application/service/dashboard/dashboard-ad.service.spec.ts
+4 apps/server/src/analytics/application/service/dashboard/dashboard-sales.service.spec.ts
+9 apps/server/src/analytics/application/service/dashboard/dashboard-trend.service.spec.ts
 2 apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales-inventory.pg.integration.spec.ts
 5 apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales.service.spec.ts
 1 apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-profitability-source.pg.integration.spec.ts

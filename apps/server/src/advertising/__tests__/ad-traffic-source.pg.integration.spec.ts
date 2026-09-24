@@ -28,7 +28,7 @@ import {
 import { currentBusinessDate } from '../domain/business-date';
 import type { AdsConfig } from '../domain/model/strategy-types';
 import { readListingTrafficWindowFacts } from '../../channels/adapter/out/persistence/channel-listing-daily-facts';
-import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
 import type { INestApplication } from '@nestjs/common';
 
 const base = '/api/ads/traffic';

@@ -34,7 +34,7 @@ const catalogIdentityUpsert = readFileSync(
 const dashboardSalesRepository = readFileSync(
   join(
     repoRoot,
-    "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-sales.repository.adapter.ts",
+    "apps/server/src/analytics/adapter/out/repository/dashboard/dashboard-sales.repository.adapter.ts",
   ),
   "utf8",
 );
@@ -60,8 +60,8 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/advertising/__tests__/ad-action-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/ad-strategy-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/profitability-ad-import.repository.pg.integration.spec.ts",
-  "apps/server/src/analytics/dashboard/__tests__/dashboard-inventory.pg.integration.spec.ts",
-  "apps/server/src/analytics/dashboard/__tests__/inventory-abc-read.pg.integration.spec.ts",
+  "apps/server/src/analytics/__tests__/dashboard/dashboard-inventory.pg.integration.spec.ts",
+  "apps/server/src/analytics/__tests__/dashboard/inventory-abc-read.pg.integration.spec.ts",
   "apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales-inventory.pg.integration.spec.ts",
   "apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-profitability-source.pg.integration.spec.ts",
   "apps/server/src/analytics/supplier-stats/__tests__/supplier-stats-flow.pg.integration.spec.ts",
