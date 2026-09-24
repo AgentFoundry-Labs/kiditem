@@ -1,3 +1,5 @@
+import type { AttributeReplaceBy, ListingAttributeKind } from './channel-listing-attributes';
+
 export type ChannelCatalogIdentityOption = {
   externalOptionId: string;
   optionName: string | null;
@@ -9,6 +11,12 @@ export type ChannelCatalogIdentityOption = {
   attributes: unknown;
   raw: Record<string, unknown>;
   media?: readonly ChannelCatalogIdentityMedia[];
+  /**
+   * `rawJsonWrite: 'section'`에서만 쓴다: `attributes`(StoredListingAttribute[])로 바꿀 kind와 그
+   * 단위(`kind`는 통째로, `attributeType`은 실린 속성 종류만). 여기 없는 kind의 저장값은 그대로
+   * 남는다. 빈 목록이면 속성을 건드리지 않는다.
+   */
+  attributeMerge?: ReadonlyArray<{ kind: ListingAttributeKind; replaceBy: AttributeReplaceBy }>;
 };
 
 export type ChannelCatalogIdentityMedia = {
@@ -62,6 +70,13 @@ export type ChannelCatalogIdentityUpsertInput = {
    * 옵션 쪽은 원천이 옵션 한 줄을 통째로 관측하므로 빈 값이 "비어 있더라"가 된다.
    */
   unobservedOptionFields: readonly ChannelCatalogUnobservedOptionField[];
+  /**
+   * `raw_json` 쓰기 방식. `replace`(기본)는 이번 관측으로 통째로 바꾼다 — Rocket PO·사방넷·몰
+   * 관리자 목록·로켓–셀피아 CSV. `section`은 [쿠팡상품정보] 엑셀 전용이다 (KID-349): listing·option
+   * `raw`를 `||` 병합 patch(자기 구역 + 공유 평면 키)로 받고, 속성은 `attributeMerge`로 kind·속성 종류별로
+   * 합치며, 옵션명·판매상태·바코드·모델번호는 빈 값이 저장값을 지우지 않는다(`COALESCE`).
+   */
+  rawJsonWrite?: 'replace' | 'section';
 };
 
 /**
@@ -87,6 +102,8 @@ export type ChannelCatalogDetailIdentityProduct = {
   externalProductId: string;
   documents: Array<{ id: string; kind: string; value?: unknown }>;
   raw?: Record<string, unknown>;
+  /** 상세가 준 미디어. 상세 구역에 함께 저장해 같은 상세인지 비교한다 (KID-348). */
+  media?: readonly unknown[];
   options: ChannelCatalogDetailIdentityOption[];
 };
 

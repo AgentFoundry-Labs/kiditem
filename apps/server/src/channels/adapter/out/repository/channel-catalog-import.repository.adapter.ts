@@ -29,8 +29,14 @@ import {
   type ChannelsProductMappingGenerationPort,
 } from '../../../application/port/out/cross-domain/product-mapping-generation.port';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
-import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
-import { deactivateCatalogAbsence } from './catalog-absence';
+import {
+  rawSectionPatch,
+  type OptionCatalogExcelSection,
+} from '../../../domain/collection/channel-listing-raw-sections';
+import {
+  LISTING_ATTRIBUTE_KINDS,
+  attributesFromWire,
+} from '../../../domain/collection/channel-listing-attributes';
 import { liveCatalogImport, lockCatalogAccount } from './channel-catalog-attempt-fence';
 import {
   upsertChannelCatalogIdentities,
@@ -73,7 +79,14 @@ type CanonicalParent = Pick<
   | 'brand'
   | 'productStatus'
   | 'rawJson'
->;
+> & {
+  /** 상품의 첫 옵션 줄 가운데 비지 않은 `판매상태`. */
+  saleStatus: string | null;
+  /** 상품 칸(검색어·노출상품ID·성인 여부): 첫 비지 않은 값. */
+  searchTags: string[];
+  exposedProductId: string | null;
+  adult: boolean | null;
+};
 
 @Injectable()
 export class ChannelCatalogImportRepositoryAdapter
@@ -194,13 +207,10 @@ implements ChannelCatalogImportRepositoryPort {
       }
 
       const canonicalParents = canonicalParentRows(input.rows);
-      const snapshotCoverage = buildCoupangWingSnapshotCoverage(
-        input.rows,
-        input.skippedRows,
-      );
       const optionsByProduct = new Map<string, ChannelCatalogIdentityOption[]>();
       for (const row of input.rows) {
         const options = optionsByProduct.get(row.externalProductId) ?? [];
+        const attributes = attributesFromWire(row.attributesJson, 'search');
         options.push({
           externalOptionId: row.externalSkuId,
           optionName: row.optionName,
@@ -209,8 +219,13 @@ implements ChannelCatalogImportRepositoryPort {
           barcode: row.barcode,
           modelNumber: row.modelNumber,
           skuStatus: row.skuStatus,
-          attributes: row.attributesJson,
-          raw: row.rawJson,
+          attributes,
+          // 빈 칸은 "못 봤다" (KID-349, 리더 결정): 검색옵션은 엑셀에서만 오므로 실린 줄이면 통째로
+          // 바꾸고, 구매옵션은 이 줄이 값을 실은 속성 종류만 바꿔 상세가 준 다른 구매속성을 지킨다.
+          attributeMerge: LISTING_ATTRIBUTE_KINDS
+            .filter((kind) => attributes.some((attribute) => attribute.kind === kind))
+            .map((kind) => ({ kind, replaceBy: kind === 'purchase' ? 'attributeType' as const : 'kind' as const })),
+          raw: rawSectionPatch('catalogExcel', excelSection(input.observedAt, row.rawJson)),
         });
         optionsByProduct.set(row.externalProductId, options);
       }
@@ -223,6 +238,8 @@ implements ChannelCatalogImportRepositoryPort {
         // 윙 엑셀에는 판매자코드 칸도 판매가 칸도 없다. 브라우저 수집이 본 값을 지우지 않는다.
         // 옵션명·판매상태·모델번호·바코드는 양식의 필수 칸이라 그대로 관측한다.
         unobservedOptionFields: ['sellerSku', 'salePrice'],
+        // 엑셀은 자기 구역(catalogExcel)만 쓴다: 목록·상세가 쓴 구역과 값을 지우지 않는다 (KID-349).
+        rawJsonWrite: 'section',
         products: canonicalParents.map((parent) => ({
           externalProductId: parent.externalProductId,
           registeredName: parent.registeredName,
@@ -231,7 +248,23 @@ implements ChannelCatalogImportRepositoryPort {
           manufacturer: parent.manufacturer,
           brand: parent.brand,
           productStatus: parent.productStatus,
-          raw: parent.rawJson,
+          raw: rawSectionPatch(
+            'catalogExcel',
+            {
+              ...excelSection(input.observedAt, parent.rawJson),
+              searchTags: parent.searchTags,
+              exposedProductId: parent.exposedProductId,
+              adult: parent.adult,
+            },
+            {
+              source: SOURCE_TYPE,
+              externalProductId: parent.externalProductId,
+              // 판매상태·승인상태 평면 키는 Products·Analytics가 판매상태로 읽는다: 엑셀로 처음 만든
+              // 리스팅에도 둔다. 빈 칸은 싣지 않아 저장값을 지우지 않는다.
+              ...(parent.saleStatus ? { saleStatus: parent.saleStatus } : {}),
+              ...(parent.productStatus ? { productStatus: parent.productStatus } : {}),
+            },
+          ),
           options: optionsByProduct.get(parent.externalProductId) ?? [],
         })),
       });
@@ -248,24 +281,9 @@ implements ChannelCatalogImportRepositoryPort {
         channelListingIds: [...identities.listingIds.values()],
       });
 
-      // 건너뛴 줄 때문에 한 차원을 완전히 덮지 못했으면 그 차원은 끄지 않는다.
-      const absence = await deactivateCatalogAbsence(tx, {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        sourceImportRunId: input.runId,
-        // 윙 엑셀은 계정의 상품 목록 전체를 한 번에 담는다.
-        scope: { kind: 'account' },
-        presentExternalProductIds: snapshotCoverage.canDeactivateUnseenProducts
-          ? snapshotCoverage.externalProductIds
-          : null,
-        presentExternalOptionIds: snapshotCoverage.canDeactivateUnseenSkus
-          ? snapshotCoverage.externalSkuIds
-          : null,
-      });
-      const deactivatedSkuCount = absence.options;
-      const deactivatedProductCount = absence.listings;
-
-      if (mappingIdentityChanged || deactivatedSkuCount > 0 || deactivatedProductCount > 0) {
+      // 엑셀은 목록에 없는 상품을 끄지 않는다. 사라진 상품은 브라우저 동기화의 삭제 확인으로만
+      // 바뀐다 (KID-348). 건너뛴 줄 수는 응답으로 알린다.
+      if (mappingIdentityChanged) {
         await this.productMapping.advance(tx, input.organizationId);
       }
 
@@ -484,6 +502,10 @@ function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
         manufacturer: row.manufacturer,
         brand: row.brand,
         productStatus: row.productStatus,
+        saleStatus: row.skuStatus,
+        searchTags: row.searchTags,
+        exposedProductId: row.exposedProductId,
+        adult: row.adult,
         rawJson: row.rawJson,
       });
       continue;
@@ -494,8 +516,23 @@ function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
     existing.manufacturer ??= row.manufacturer;
     existing.brand ??= row.brand;
     existing.productStatus ??= row.productStatus;
+    existing.saleStatus ??= row.skuStatus;
+    existing.exposedProductId ??= row.exposedProductId;
+    existing.adult ??= row.adult;
+    if (existing.searchTags.length === 0) existing.searchTags = row.searchTags;
   }
   return [...parents.values()];
+}
+
+/** 엑셀 한 줄의 `catalogExcel` 구역. 빈 칸은 `null`로 남긴다. */
+function excelSection(observedAt: string, rawJson: Record<string, unknown>): OptionCatalogExcelSection {
+  return {
+    observedAt,
+    row: Object.fromEntries(Object.entries(rawJson).map(([header, value]) => {
+      const text = value === null || value === undefined ? '' : String(value).trim();
+      return [header, text ? String(value) : null];
+    })),
+  };
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

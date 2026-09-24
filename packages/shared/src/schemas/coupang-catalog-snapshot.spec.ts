@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CoupangCatalogAttributeV1Schema,
+  CoupangCatalogCollectionPlanSchema,
   CoupangCatalogCollectionRunSchema,
   CoupangCatalogCollectionPermitSchema,
+  CoupangCatalogDeletionConfirmationChunkV1Schema,
   CoupangCatalogDetailProductV1Schema,
   CoupangCatalogDiscoveryPageV1Schema,
   CoupangCatalogManifestConfirmationV1Schema,
-  CoupangCatalogProductDetailsChunkV1Schema,
-  CoupangCatalogProductV1Schema,
+  CoupangCatalogBasicProductV1Schema,
+  CoupangCatalogListingBasicsChunkV1Schema,
   PutCoupangCatalogChunkRequestSchema,
   StartCoupangCatalogCollectionRequestSchema,
 } from './coupang-catalog-snapshot';
@@ -58,8 +61,8 @@ const manifest = {
 
 describe('Coupang catalog snapshot contracts', () => {
   it('accepts single-option and multi-option products', () => {
-    expect(CoupangCatalogProductV1Schema.parse(product).options).toHaveLength(1);
-    const parsed = CoupangCatalogProductV1Schema.parse({
+    expect(CoupangCatalogBasicProductV1Schema.parse(product).options).toHaveLength(1);
+    const parsed = CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: [
         product.options[0],
@@ -76,44 +79,44 @@ describe('Coupang catalog snapshot contracts', () => {
   });
 
   it('rejects blank identities and duplicate option IDs', () => {
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       externalProductId: ' ',
     })).toThrow();
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: [product.options[0], product.options[0]],
     })).toThrow(/duplicate externalOptionId/i);
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: [{ ...product.options[0], salePrice: -1 }],
     })).toThrow();
   });
 
   it('rejects media assigned to an option outside its owner', () => {
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: [{
         ...product.options[0],
         media: [{ ...media, role: 'option', externalOptionId: '99999' }],
       }],
     })).toThrow(/media externalOptionId/i);
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       media: [{ ...media, role: 'option', externalOptionId: '99999' }],
     })).toThrow(/unknown option/i);
   });
 
   it('accepts only HTTP(S) provider URLs and bounded cardinality', () => {
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       media: [{ ...media, sourceUrl: 'javascript:alert(1)' }],
     })).toThrow();
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       media: Array.from({ length: 101 }, (_, sortOrder) => ({ ...media, sortOrder })),
     })).toThrow();
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: Array.from({ length: 501 }, (_, index) => ({
         ...product.options[0],
@@ -254,10 +257,10 @@ describe('Coupang catalog snapshot contracts', () => {
     })).toThrow(/duplicate externalProductId/i);
   });
 
-  it('requires deterministic contiguous product-detail ordinals', () => {
-    const chunk = CoupangCatalogProductDetailsChunkV1Schema.parse({
+  it('requires deterministic contiguous listing-basics ordinals', () => {
+    const chunk = CoupangCatalogListingBasicsChunkV1Schema.parse({
       version: 1,
-      kind: 'product_details',
+      kind: 'listing_basics',
       startOrdinal: 0,
       products: [
         { ordinal: 0, product },
@@ -265,10 +268,27 @@ describe('Coupang catalog snapshot contracts', () => {
       ],
     });
     expect(chunk.products).toHaveLength(2);
-    expect(() => CoupangCatalogProductDetailsChunkV1Schema.parse({
+    expect(() => CoupangCatalogListingBasicsChunkV1Schema.parse({
       ...chunk,
       products: [chunk.products[0], { ...chunk.products[1], ordinal: 2 }],
     })).toThrow(/contiguous/i);
+  });
+
+  it('removes the legacy full stage and its product_details chunk (KID-348)', () => {
+    expect(() => StartCoupangCatalogCollectionRequestSchema.parse({
+      collectorVersion: 'wing-inventory-v1',
+      stage: 'full',
+    })).toThrow();
+    expect(() => StartCoupangCatalogCollectionRequestSchema.parse({
+      collectorVersion: 'wing-inventory-v1',
+    })).toThrow();
+    expect(() => PutCoupangCatalogChunkRequestSchema.parse({
+      kind: 'product_details',
+      sequence: 1,
+      checksum,
+      itemCount: 1,
+      payload: { version: 1, kind: 'product_details', startOrdinal: 0, products: [{ ordinal: 0, product }] },
+    })).toThrow();
   });
 
   it('validates all chunk kinds, checksums, and route sequences', () => {
@@ -316,6 +336,7 @@ describe('Coupang catalog snapshot contracts', () => {
   it('validates start and resumable status responses', () => {
     expect(StartCoupangCatalogCollectionRequestSchema.parse({
       collectorVersion: 'wing-inventory-v1',
+      stage: 'basics',
     }).collectorVersion).toBe('wing-inventory-v1');
     expect(() => StartCoupangCatalogCollectionRequestSchema.parse({
       clientRunKey: 'not-a-uuid',
@@ -328,7 +349,7 @@ describe('Coupang catalog snapshot contracts', () => {
       idempotencyKey: clientRunKey,
       state: 'RUNNING',
       expiresAt: '2026-07-15T00:00:00.000Z',
-      plan: { channelAccountId: accountId, vendorId: 'V1', collectorVersion: 'wing-inventory-v1', listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail', publicationRevision: '0' },
+      plan: { stage: 'basics', channelAccountId: accountId, vendorId: 'V1', collectorVersion: 'wing-inventory-v1', listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail', publicationRevision: '0' },
       phase: 'hydration',
       collectorVersion: 'wing-inventory-v1',
       manifest,
@@ -366,5 +387,59 @@ describe('Coupang catalog snapshot contracts', () => {
       ...parsed,
       progress: { ...parsed.progress, publishedProducts: -1 },
     })).toThrow();
+  });
+});
+
+describe('KID-348·349 additive contracts', () => {
+  it('accepts a deletion confirmation chunk and rejects a duplicated product', () => {
+    const chunk = {
+      version: 1,
+      kind: 'deletion_confirmation',
+      products: [
+        { externalProductId: '1', outcome: 'deleted', productStatus: 'DELETED' },
+        { externalProductId: '2', outcome: 'not_found' },
+      ],
+    };
+    const parsed = CoupangCatalogDeletionConfirmationChunkV1Schema.parse(chunk);
+    expect(parsed.products[1]?.productStatus).toBeNull();
+    expect(PutCoupangCatalogChunkRequestSchema.safeParse({
+      sequence: 3, checksum, itemCount: 2, kind: 'deletion_confirmation', payload: chunk,
+    }).success).toBe(true);
+    expect(PutCoupangCatalogChunkRequestSchema.safeParse({
+      sequence: 3, checksum, itemCount: 1, kind: 'deletion_confirmation', payload: chunk,
+    }).success).toBe(false);
+    expect(CoupangCatalogDeletionConfirmationChunkV1Schema.safeParse({
+      ...chunk,
+      products: [chunk.products[0], chunk.products[0]],
+    }).success).toBe(false);
+  });
+
+  it('keeps the legacy attribute shape and takes the new optional fields', () => {
+    expect(CoupangCatalogAttributeV1Schema.parse({ type: '색상', value: '빨강' })).toEqual({ type: '색상', value: '빨강' });
+    expect(CoupangCatalogAttributeV1Schema.parse({
+      type: '색상', value: '빨강', kind: 'search', attributeTypeId: '7', exposed: false,
+    }).kind).toBe('search');
+    expect(CoupangCatalogAttributeV1Schema.safeParse({ type: '색상', value: '빨강', kind: 'other' }).success).toBe(false);
+  });
+
+  it('carries detail targets and absent products in the plan and a requested product list in the start request', () => {
+    const plan = CoupangCatalogCollectionPlanSchema.parse({
+      collectorVersion: 'wing-inventory-v1',
+      stage: 'details',
+      listUrl: 'https://wing.coupang.com/list',
+      detailUrl: 'https://wing.coupang.com/detail',
+      channelAccountId: accountId,
+      vendorId: 'A0001',
+      publicationRevision: '1',
+      detailTargetProductIds: ['1', '2'],
+      absentProductIds: ['9'],
+    });
+    expect(plan.detailTargetProductIds).toEqual(['1', '2']);
+    expect(StartCoupangCatalogCollectionRequestSchema.parse({
+      collectorVersion: 'wing-inventory-v1', stage: 'details', detailProductIds: ['1'],
+    }).detailProductIds).toEqual(['1']);
+    expect(StartCoupangCatalogCollectionRequestSchema.safeParse({
+      collectorVersion: 'wing-inventory-v1', detailProductIds: [],
+    }).success).toBe(false);
   });
 });

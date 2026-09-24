@@ -5,7 +5,6 @@ import { ChannelCatalogCollectionService } from '../channel-catalog-collection.s
 import {
   hashCatalogChunkPayload,
   hashCatalogStageSnapshot,
-  hashCoupangCatalogSnapshot,
 } from '../../../../domain/collection/catalog-collection-hash';
 import type { ChannelCatalogCollectionRepositoryPort } from '../../../port/out/repository/channel-catalog-collection.repository.port';
 import type { ChannelCatalogPublicationPort } from '../../../port/out/repository/channel-catalog-publication.port';
@@ -39,6 +38,7 @@ describe('ChannelCatalogCollectionService', () => {
       idempotencyKey: CLIENT_RUN_KEY,
       request: {
         collectorVersion: 'wing-inventory-v1',
+        stage: 'basics',
       },
     });
 
@@ -48,6 +48,7 @@ describe('ChannelCatalogCollectionService', () => {
       channelAccountId: ACCOUNT_ID,
       idempotencyKey: CLIENT_RUN_KEY,
       collectorVersion: 'wing-inventory-v1',
+      stage: 'basics',
     });
     expect(result).toMatchObject({
       attemptId: RUN_ID,
@@ -410,7 +411,7 @@ describe('ChannelCatalogCollectionService', () => {
   });
 
   it.each(['running', 'paused', 'failed', 'completed'] as const)(
-    'derives published detail progress from receipts while the run is %s',
+    'counts staged details as hydrated and published only after the terminal commit while the run is %s (KID-348)',
     async (state) => {
       const firstPublishedAt = new Date('2026-07-14T00:18:40.000Z');
       const secondPublishedAt = new Date('2026-07-14T00:20:53.000Z');
@@ -452,6 +453,7 @@ describe('ChannelCatalogCollectionService', () => {
                 phase: 'hydration',
               }
             : null,
+        stage: 'details' as const,
         plan: {
           ...runRecord().plan,
           stage: 'details' as const,
@@ -490,20 +492,20 @@ describe('ChannelCatalogCollectionService', () => {
       const service = new ChannelCatalogCollectionService(repository, makePublisher(), channelIntegrity);
 
       const result = await service.getStatus(ownedInput());
-      const expectedPublishedProducts = state === 'completed' ? 2 : 1;
+      const completed = state === 'completed';
       expect(result.progress).toMatchObject({
-        publishedProducts: expectedPublishedProducts,
-        publishedOptionCount: state === 'completed' ? 3 : 2,
-        publishedMediaCount: state === 'completed' ? 5 : 3,
-        publishedChunks: expectedPublishedProducts,
-        firstPublishedAt: firstPublishedAt.toISOString(),
-        lastPublishedAt: (state === 'completed' ? secondPublishedAt : firstPublishedAt).toISOString(),
+        hydratedProducts: 2,
+        publishedProducts: completed ? 2 : 0,
+        publishedChunks: completed ? 2 : 0,
+        firstPublishedAt: completed ? secondPublishedAt.toISOString() : null,
+        lastPublishedAt: completed ? secondPublishedAt.toISOString() : null,
       });
+      expect(firstPublishedAt).toBeInstanceOf(Date);
       expect((await service.getStatus(ownedInput())).progress).toEqual(result.progress);
     },
   );
 
-  it('keeps compact receipt progress equal to full and falls back to legacy payload receipts', async () => {
+  it('keeps compact receipt progress equal to full', async () => {
     const manifest = { ...onePageManifest(), totalItems: 1 };
     const published = publishedFullDetailsChunk({
       id: 'details-published',
@@ -516,6 +518,7 @@ describe('ChannelCatalogCollectionService', () => {
     });
     const fullRun = {
       ...runRecord(),
+      stage: 'details' as const,
       plan: {
         ...runRecord().plan,
         stage: 'details' as const,
@@ -551,32 +554,6 @@ describe('ChannelCatalogCollectionService', () => {
       makePublisher(), channelIntegrity,
     ).getStatus(ownedInput());
     expect(compactResult.progress).toEqual(fullResult.progress);
-
-    const legacyPublished = {
-      ...published,
-      publicationJson: { changes: { imageCount: 1 } },
-    };
-    const legacyRepository = makeRepository();
-    legacyRepository.getOwnedRunWithChunks.mockResolvedValue({
-      ...fullRun,
-      chunks: [
-        fullRun.chunks[0],
-        legacyPublished,
-        fullRun.chunks[2],
-      ],
-    } as never);
-    const legacyResult = await new ChannelCatalogCollectionService(
-      legacyRepository,
-      makePublisher(), channelIntegrity,
-    ).getStatus(ownedInput());
-    expect(legacyResult.progress).toMatchObject({
-      publishedProducts: 1,
-      publishedOptionCount: 1,
-      publishedMediaCount: 1,
-      publishedChunks: 1,
-      firstPublishedAt: '2026-07-14T00:18:40.000Z',
-      lastPublishedAt: '2026-07-14T00:18:40.000Z',
-    });
   });
 
   it('rejects a checksum mismatch before writing JSONB', async () => {
@@ -638,10 +615,7 @@ describe('ChannelCatalogCollectionService', () => {
 
   it('exposes the server canonical hash when a resumable snapshot is ready', async () => {
     const repository = makeRepository();
-    const productWithSaleStatus = withSaleStatus(
-      productChunk(0, ['P-1']).payload.products[0]!,
-      '판매중',
-    );
+    const stagedProduct = productChunk(0, ['P-1']).payload.products[0]!;
     const chunks = [
       discoveryChunk(
         1,
@@ -665,15 +639,12 @@ describe('ChannelCatalogCollectionService', () => {
     const result = await service.getStatus(ownedInput());
 
     expect(result.phase).toBe('ready_to_finalize');
-    expect(result.snapshotHash).toBe(hashCoupangCatalogSnapshot([productWithSaleStatus], channelIntegrity.sha256));
+    expect(result.snapshotHash).toBe(hashCatalogStageSnapshot([stagedProduct], channelIntegrity.sha256));
   });
 
   it('publishes one complete canonical snapshot with the server-computed hash', async () => {
     const repository = makeRepository();
-    const productWithSaleStatus = withSaleStatus(
-      productChunk(0, ['P-1']).payload.products[0]!,
-      '판매중',
-    );
+    const stagedProduct = productChunk(0, ['P-1']).payload.products[0]!;
     const chunks = [
       discoveryChunk(
         1,
@@ -694,7 +665,7 @@ describe('ChannelCatalogCollectionService', () => {
     repository.getOwnedRunWithChunks.mockResolvedValue(runWithChunks(chunks));
     const publisher = makePublisher();
     const service = new ChannelCatalogCollectionService(repository, publisher, channelIntegrity);
-    const snapshotHash = hashCoupangCatalogSnapshot([productWithSaleStatus], channelIntegrity.sha256);
+    const snapshotHash = hashCatalogStageSnapshot([stagedProduct], channelIntegrity.sha256);
 
     await service.finalize({
       ...ownedInput(),
@@ -805,11 +776,6 @@ function makeRepository() {
 
 function makePublisher() {
   return {
-    publishDetailChunk: vi.fn<ChannelCatalogPublicationPort['publishDetailChunk']>().mockResolvedValue({
-      sourceImportRunId: RUN_ID,
-      duplicate: false,
-      changes: {},
-    }),
     publish: vi.fn<ChannelCatalogPublicationPort['publish']>().mockResolvedValue({
       sourceImportRunId: '00000000-0000-4000-8000-000000000006',
       duplicate: false,
@@ -825,7 +791,9 @@ function runRecord() {
     collectionRunId: RUN_ID,
     attemptToken: CLIENT_RUN_KEY,
     expiresAt: new Date('2099-01-01T00:00:00Z'),
+    stage: 'basics' as 'basics' | 'details',
     plan: {
+      stage: 'basics' as 'basics' | 'details',
       collectorVersion: 'wing-inventory-v1',
       listUrl: 'https://wing.coupang.com/list',
       detailUrl: 'https://wing.coupang.com/detail',
@@ -864,6 +832,7 @@ function stagedReadyRun(stage: 'basics' | 'details') {
   const base = runRecord();
   return {
     ...base,
+    stage,
     plan: {
       ...base.plan,
       stage,
@@ -1165,13 +1134,13 @@ function productChunk(startOrdinal: number, productIds: string[]) {
   }));
   return {
     id: `products-${startOrdinal}`,
-    kind: 'product_details',
+    kind: 'listing_basics',
     sequence: startOrdinal + 1,
     checksum: 'b'.repeat(64),
     itemCount: products.length,
     payload: {
       version: 1 as const,
-      kind: 'product_details' as const,
+      kind: 'listing_basics' as const,
       startOrdinal,
       products,
     },
@@ -1189,22 +1158,6 @@ function confirmationChunk(manifest = onePageManifest()) {
       version: 1 as const,
       kind: 'manifest_confirmation' as const,
       manifest,
-    },
-  };
-}
-
-function withSaleStatus(
-  product: ReturnType<typeof productChunk>['payload']['products'][number],
-  saleStatus: string | null,
-) {
-  return {
-    ...product,
-    product: {
-      ...product.product,
-      raw: {
-        ...product.product.raw,
-        saleStatus,
-      },
     },
   };
 }

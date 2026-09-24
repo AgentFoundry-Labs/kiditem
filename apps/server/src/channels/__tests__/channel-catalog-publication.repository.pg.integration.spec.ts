@@ -28,7 +28,7 @@ import { freezeProductRegistrationPayload } from '../domain/registration/registr
 import { ChannelCatalogCollectionService } from '../application/service/collection/channel-catalog-collection.service';
 import { hashCatalogChunkPayload } from '../domain/collection/catalog-collection-hash';
 import type {
-  CoupangCatalogProductV1,
+  CoupangCatalogBasicProductV1,
   PutCoupangCatalogChunkRequest,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { Prisma, PrismaClient } from '@prisma/client';
@@ -78,7 +78,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       new ChannelCatalogCollectionRepositoryAdapter(
         prisma as unknown as PrismaService,
         alerts,
-        publisher,
       ),
       publisher, channelIntegrity,
     );
@@ -219,8 +218,9 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
         }),
       ],
     });
-    expect(absentAfter.isActive).toBe(false);
-    expect(absentAfter.options[0]?.isActive).toBe(false);
+    // KID-348: 목록에서 빠진 상품은 삭제 확인 전까지 그대로 둔다.
+    expect(absentAfter.isActive).toBe(true);
+    expect(absentAfter.options[0]?.isActive).toBe(true);
     expect(await prisma.productRegistrationExecution.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(0);
   });
 
@@ -421,16 +421,17 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     await publish(randomUUID(), [product('P-1', 'S-1'), product('P-2', 'S-2')]);
     await expect(mappingGeneration()).resolves.toBe(2n);
 
+    // KID-348: 목록 단계는 목록에서 빠진 상품을 끄지 않으므로 식별이 바뀌지 않는다.
     await publish(randomUUID(), [product('P-1', 'S-1')]);
-    await expect(mappingGeneration()).resolves.toBe(3n);
+    await expect(mappingGeneration()).resolves.toBe(2n);
 
     await publish(randomUUID(), [product('P-1', 'S-1'), product('P-2', 'S-2')]);
-    await expect(mappingGeneration()).resolves.toBe(4n);
+    await expect(mappingGeneration()).resolves.toBe(2n);
 
     await expect(publish(randomUUID(), [product('P-3', 'S-1')])).rejects.toBeInstanceOf(
       ConflictException,
     );
-    await expect(mappingGeneration()).resolves.toBe(4n);
+    await expect(mappingGeneration()).resolves.toBe(2n);
     await expect(
       prisma.masterProductAbcFormulaState.findUnique({
         where: { organizationId: OTHER_ORGANIZATION_ID },
@@ -454,7 +455,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       userId: TEST_USER_ID,
       channelAccountId: ACCOUNT_ID,
       idempotencyKey: key,
-      request: { collectorVersion: 'wing-inventory-v1' },
+      request: { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
     });
     const scope = {
       organizationId: TEST_ORGANIZATION_ID,
@@ -485,7 +486,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
       {
         version: 1,
-        kind: 'product_details',
+        kind: 'listing_basics',
         startOrdinal: 0,
         products: products.map((p, ordinal) => ({
           ordinal,
@@ -509,12 +510,13 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       });
     }
     const ready = await collection.getStatus(scope);
-    return (
-      await collection.finalize({
-        ...scope,
-        request: { snapshotHash: ready.snapshotHash! },
-      })
-    ).publication!;
+    const completed = await collection.finalize({
+      ...scope,
+      request: { snapshotHash: ready.snapshotHash! },
+    });
+    // 목록 단계가 남긴 상세 넘겨받기를 끝내 다음 수집이 계정을 잡을 수 있게 한다.
+    await collection.cancel({ ...scope });
+    return completed.publication!;
   }
 
   async function mappingGeneration(): Promise<bigint> {
@@ -597,7 +599,7 @@ function product(
   externalProductId: string,
   externalOptionId: string,
   overrides: { displayName?: string | null; sellerSku?: string | null } = {},
-): CoupangCatalogProductV1 {
+): CoupangCatalogBasicProductV1 {
   return {
     externalProductId,
     registeredName: `${externalProductId} 등록상품`,

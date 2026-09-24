@@ -27,6 +27,8 @@ export interface ChannelCatalogImportRepositoryPort {
     attemptToken: string;
     rows: ParsedWingCatalogRow[];
     skippedRows: ParsedWingCatalogSkippedRow[];
+    /** 엑셀 값이 가리키는 시각(내보내기 요청 시각). `catalogExcel.observedAt`으로 저장한다. */
+    observedAt: string;
   }): Promise<CoupangWingCatalogImportResponse>;
 
   markImportFailed(

@@ -190,6 +190,8 @@ describe('upsertChannelCatalogIdentities', () => {
       'EXCLUDED.barcode',
       'channel_listing_options.model_number',
       'EXCLUDED.status',
+      // 엑셀 밖 원천은 옵션 raw를 통째로 바꾼다(`rawJsonWrite` 기본값 replace).
+      'EXCLUDED.raw_json',
     ]);
   });
 
@@ -559,10 +561,12 @@ describe('updateChannelCatalogDetails', () => {
     }]);
 
     const listingPayload = jsonArrayParameter(executeRaw.mock.calls[0]);
-    const detailDocuments = listingPayload[0]?.rawJson as {
-      detailDocuments: Array<{ id: string; kind: string; value: unknown }>;
+    const listingRaw = listingPayload[0]?.rawJson as {
+      detail: { documents: Array<{ id: string; kind: string; value: unknown }> };
     };
-    expect(detailDocuments.detailDocuments).toEqual([
+    // KID-349: 상세는 평면 detailDocuments 대신 detail 구역에 쓴다.
+    expect(listingRaw).not.toHaveProperty('detailDocuments');
+    expect(listingRaw.detail.documents).toEqual([
       { id: 'old-b', kind: 'contents', value: 'old B' },
       { id: 'notice-1', kind: 'notices', value: ['notice'] },
       { id: 'new-a', kind: 'contents', value: 'new contents' },
@@ -570,19 +574,21 @@ describe('updateChannelCatalogDetails', () => {
     ]);
 
     const optionPayload = jsonArrayParameter(executeRaw.mock.calls[1]);
-    expect((optionPayload.find((row) => row.id === 'option-a')?.rawJson as Record<string, unknown>)
-      .detailDocumentIds).toEqual(['notice-1', 'new-a']);
-    expect((optionPayload.find((row) => row.id === 'option-b')?.rawJson as Record<string, unknown>)
-      .detailDocumentIds).toEqual(['old-b', 'notice-1']);
+    const optionDetail = (id: string) =>
+      (optionPayload.find((row) => row.id === id)?.rawJson as { detail: { documentIds: string[] } }).detail;
+    expect(optionDetail('option-a').documentIds).toEqual(['notice-1', 'new-a']);
+    expect(optionDetail('option-b').documentIds).toEqual(['old-b', 'notice-1']);
     expect(optionPayload.find((row) => row.id === 'option-b')).toEqual(expect.objectContaining({
       hasModelNumber: false,
       hasBarcode: false,
       hasSellerSku: false,
     }));
     expect(optionPayload.find((row) => row.id === 'option-b')?.rawJson).toEqual(expect.objectContaining({
-      anotherProviderField: null,
       vendorItemId: null,
-      detailDocumentIds: ['old-b', 'notice-1'],
+      detail: expect.objectContaining({
+        documentIds: ['old-b', 'notice-1'],
+        raw: expect.objectContaining({ anotherProviderField: null }),
+      }),
     }));
   });
 

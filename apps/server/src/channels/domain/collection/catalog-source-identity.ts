@@ -6,7 +6,7 @@ import {
 // Source-import identity of Channels' catalog publications. The catalog
 // adapters write these values and `read/completed-catalog-run` selects by them.
 
-/** A full browser catalog or a catalog workbook import. */
+/** The catalog workbook import. (The removed legacy full browser stage shared this source type.) */
 export const CATALOG_SOURCE = 'coupang_wing_catalog';
 /** The basics root of a staged browser catalog import. */
 export const CATALOG_BASICS_SOURCE = COUPANG_CATALOG_BASIC_SOURCE_TYPE;

@@ -13,7 +13,22 @@ export type ParsedWingCatalogRow = {
   skuStatus: string | null;
   modelNumber: string | null;
   barcode: string | null;
-  attributesJson: Array<{ type: string; value: string }>;
+  /**
+   * 이 옵션 줄의 속성. 검색옵션(`검색옵션유형N`·`검색옵션값N`)은 kind `search`, 구매옵션 칸
+   * (`[속성ID]이름 (필수)`)은 kind `purchase`에 속성 ID를 싣는다. 값이 빈 칸은 싣지 않는다 (KID-349).
+   */
+  attributesJson: Array<{
+    kind: 'purchase' | 'search';
+    type: string;
+    value: string;
+    attributeTypeId?: string | null;
+  }>;
+  /** `검색어` 칸의 쉼표 목록. */
+  searchTags: string[];
+  /** `노출상품ID`. */
+  exposedProductId: string | null;
+  /** `성인상품여부(Y/N)`. 칸이 없거나 비면 `null`. */
+  adult: boolean | null;
   rawJson: Record<string, unknown>;
 };
 

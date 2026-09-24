@@ -95,7 +95,10 @@ sync, registration, matching, and capacity behavior is executable in
 ## Matching And Capacity Contract
 
 - Matching reads all persisted listing/option rows for the account workspace.
-  Only a complete full snapshot may reconcile absence.
+- A Wing listing absent from the list changes only through the details stage's
+  `deletion_confirmation`: `deleted` → `DELETED` and inactive; present or
+  unconfirmed stays active and unconfirmed goes into `run.quality`. No Wing path
+  (basics, details, workbook) deactivates account-wide (KID-348).
 - Candidate rows are transient evidence. Automatic matching may fill an empty
   recipe when a typed identifier or one clearly separated name candidate has
   no identifier/spec/option conflict and the selling quantity is confirmed.
@@ -138,10 +141,15 @@ sync, registration, matching, and capacity behavior is executable in
   Products identities, replaces the full composition atomically. Listing summaries are read from
   recipes; empty replacement clears the option recipe. Consumers import the
   published capability, never the concrete service.
-- Catalog imports use a fenced `SourceImportRun` attempt and publish only a
-  complete source snapshot; stale or post-terminal submissions are rejected.
+- Catalog imports use a fenced `SourceImportRun` attempt; stale or
+  post-terminal submissions are rejected. The browser import has two stages,
+  basics → details (no `full` stage). Details chunks only stage; the details
+  finalize applies the planned targets in one transaction and skips unchanged
+  details. Each path writes only its own `raw_json` section
+  (`domain/collection/channel-listing-raw-sections.ts`).
 - One catalog import runs per account: a browser import from its basics root
-  through its details child, or a workbook import. A new begin or workbook claim
+  through its details child, a single-product details refetch
+  (`detailProductIds`), or a workbook import. A new begin or workbook claim
   returns `ATTEMPT_IN_PROGRESS` naming that import's root, and an operator stop
   of the root ends the whole import. The source read returns the latest root
   and its child.

@@ -5,21 +5,22 @@
  */
 import {
   CoupangCatalogCollectionPlanSchema,
+  CoupangCatalogDeletionConfirmationChunkV1Schema,
   CoupangCatalogDetailManifestConfirmationV1Schema,
   CoupangCatalogDiscoveryPageV1Schema,
   CoupangCatalogFullDetailsChunkV1Schema,
   CoupangCatalogListingBasicsChunkV1Schema,
   CoupangCatalogManifestConfirmationV1Schema,
   CoupangCatalogManifestV1Schema,
-  CoupangCatalogProductDetailsChunkV1Schema,
   type CoupangCatalogBasicProductV1,
   type CoupangCatalogDetailProductV1,
   type CoupangCatalogManifestV1,
-  type CoupangCatalogProductV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { ZodType } from 'zod';
+import { KiditemConflictError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { ChannelInputError as BadRequestException, ChannelConflictError as ConflictException } from '../exception/channel-business-error';
 import { stableStringify } from './catalog-collection-hash';
+import type { CatalogDeletionConfirmation } from './catalog-deletion-confirmation';
 
 /** One stored collection chunk as the catalog collection ledger returns it. */
 export interface CatalogCollectionChunk {
@@ -34,16 +35,9 @@ export interface CatalogCollectionChunk {
   publicationJson?: unknown;
 }
 
-export type CanonicalProduct = { ordinal: number; product: CoupangCatalogProductV1 };
-
 type CanonicalBasicProduct = { ordinal: number; product: CoupangCatalogBasicProductV1 };
 
 type CanonicalDetailProduct = { ordinal: number; product: CoupangCatalogDetailProductV1 };
-
-type CompleteSnapshot = {
-  manifest: CoupangCatalogManifestV1;
-  products: CanonicalProduct[];
-};
 
 export type InspectedChunks = {
   manifest: CoupangCatalogManifestV1 | null;
@@ -54,9 +48,10 @@ export type InspectedChunks = {
     externalProductId: string;
     saleStatus: string | null;
   }>;
-  products: CanonicalProduct[];
   basicProducts: CanonicalBasicProduct[];
   detailProducts: CanonicalDetailProduct[];
+  /** details 단계가 받은 삭제 확인 (KID-348). 청크 순서대로다. */
+  deletionConfirmations: CatalogDeletionConfirmation[];
   optionCount: number;
   mediaCount: number;
 };
@@ -66,9 +61,9 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
   let confirmation: CoupangCatalogManifestV1 | null = null;
   const discoveryPages = new Set<number>();
   const discovered: InspectedChunks['discovered'] = [];
-  const products: CanonicalProduct[] = [];
   const basicProducts: CanonicalBasicProduct[] = [];
   const detailProducts: CanonicalDetailProduct[] = [];
+  const deletionConfirmations: CatalogDeletionConfirmation[] = [];
   let optionCount = 0;
   let mediaCount = 0;
 
@@ -81,9 +76,9 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
         set confirmation(value) { confirmation = value; },
         discoveryPages,
         discovered,
-        products,
         basicProducts,
         detailProducts,
+        deletionConfirmations,
         get optionCount() { return optionCount; },
         set optionCount(value) { optionCount = value; },
         get mediaCount() { return mediaCount; },
@@ -103,12 +98,6 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
           saleStatus: saleStatus ?? null,
         })),
       );
-    } else if (chunk.kind === 'product_details') {
-      const payload = parseStoredChunk(CoupangCatalogProductDetailsChunkV1Schema, chunk);
-      products.push(...payload.products);
-      optionCount += payload.products.reduce((sum, item) => sum + item.product.options.length, 0);
-      mediaCount += payload.products.reduce((sum, item) => sum + item.product.media.length +
-        item.product.options.reduce((optionSum, option) => optionSum + option.media.length, 0), 0);
     } else if (chunk.kind === 'listing_basics') {
       const payload = parseStoredChunk(CoupangCatalogListingBasicsChunkV1Schema, chunk);
       basicProducts.push(...payload.products);
@@ -126,6 +115,9 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
     } else if (chunk.kind === 'detail_manifest_confirmation') {
       const payload = parseStoredChunk(CoupangCatalogDetailManifestConfirmationV1Schema, chunk);
       confirmation = payload.manifest;
+    } else if (chunk.kind === 'deletion_confirmation') {
+      const payload = parseStoredChunk(CoupangCatalogDeletionConfirmationChunkV1Schema, chunk);
+      deletionConfirmations.push(...payload.products.map(({ externalProductId, outcome }) => ({ externalProductId, outcome })));
     } else {
       throw new ConflictException(`Unknown stored catalog chunk kind: ${chunk.kind}`);
     }
@@ -135,9 +127,9 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
     confirmation,
     discoveryPages,
     discovered: discovered.sort((a, b) => a.ordinal - b.ordinal),
-    products: products.sort((a, b) => a.ordinal - b.ordinal),
     basicProducts: basicProducts.sort((a, b) => a.ordinal - b.ordinal),
     detailProducts: detailProducts.sort((a, b) => a.ordinal - b.ordinal),
+    deletionConfirmations,
     optionCount,
     mediaCount,
   };
@@ -180,7 +172,22 @@ function applyCompactProjection(
     state.confirmation = manifest.data;
     return;
   }
-  if (chunk.kind !== 'product_details' && chunk.kind !== 'listing_basics' && chunk.kind !== 'full_details') {
+  if (chunk.kind === 'deletion_confirmation') {
+    const products = Array.isArray(projection.products) ? projection.products : [];
+    for (const value of products) {
+      const item = jsonRecord(value);
+      const externalProductId = stringValue(item?.externalProductId);
+      const outcome = item?.outcome;
+      if (!externalProductId || (outcome !== 'deleted' && outcome !== 'present' && outcome !== 'not_found')) {
+        throw new KiditemConflictError('STATE_CONFLICT', {
+          details: { reason: 'CATALOG_DELETION_RECEIPT_INVALID', sequence: chunk.sequence },
+        });
+      }
+      state.deletionConfirmations.push({ externalProductId, outcome });
+    }
+    return;
+  }
+  if (chunk.kind !== 'listing_basics' && chunk.kind !== 'full_details') {
     throw new ConflictException(`Unknown stored catalog chunk kind: ${chunk.kind}`);
   }
   const products = Array.isArray(projection.products) ? projection.products : [];
@@ -200,91 +207,16 @@ function applyCompactProjection(
         options: Array.from({ length: optionCount }, () => ({})),
         media: Array.from({ length: mediaCount }, () => ({})),
       },
-    } as unknown as CanonicalProduct;
+    };
     state.optionCount += optionCount;
     state.mediaCount += mediaCount;
-    if (chunk.kind === 'product_details') state.products.push(placeholder);
-    else if (chunk.kind === 'listing_basics') state.basicProducts.push(placeholder as unknown as CanonicalBasicProduct);
+    if (chunk.kind === 'listing_basics') state.basicProducts.push(placeholder as unknown as CanonicalBasicProduct);
     else state.detailProducts.push(placeholder as unknown as CanonicalDetailProduct);
   }
 }
 
 function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-export function assembleCompleteSnapshot(
-  chunks: CatalogCollectionChunk[],
-): CompleteSnapshot {
-  const state = inspectChunks(chunks);
-  if (!state.manifest) throw new BadRequestException('Discovery manifest is missing');
-  if (!state.confirmation) {
-    throw new BadRequestException('Stable manifest confirmation is missing');
-  }
-  assertSameManifest(state.manifest, state.confirmation);
-  const missingPages = missingDiscoverySequences(state);
-  if (missingPages.length > 0) {
-    throw new BadRequestException(`Discovery pages are missing: ${missingPages.join(', ')}`);
-  }
-  if (state.discovered.length !== state.manifest.totalItems) {
-    throw new BadRequestException(
-      `Discovered product count ${state.discovered.length} does not match manifest ${state.manifest.totalItems}`,
-    );
-  }
-
-  const discoveredIds = new Set<string>();
-  const ordinals = new Set<number>();
-  for (const item of state.discovered) {
-    if (discoveredIds.has(item.externalProductId)) {
-      throw new BadRequestException(`Duplicate discovered product ID: ${item.externalProductId}`);
-    }
-    if (ordinals.has(item.ordinal)) {
-      throw new BadRequestException(`Duplicate discovery ordinal: ${item.ordinal}`);
-    }
-    discoveredIds.add(item.externalProductId);
-    ordinals.add(item.ordinal);
-  }
-  for (let ordinal = 0; ordinal < state.manifest.totalItems; ordinal += 1) {
-    if (!ordinals.has(ordinal)) {
-      throw new BadRequestException(`Discovery ordinal is missing: ${ordinal}`);
-    }
-  }
-
-  const hydratedIds = new Set<string>();
-  const externalOptionOwners = new Map<string, string>();
-  const products: CanonicalProduct[] = [];
-  for (const item of state.products) {
-    const expected = state.discovered.find((discovered) => discovered.ordinal === item.ordinal);
-    if (!expected || expected.externalProductId !== item.product.externalProductId) {
-      throw new BadRequestException(
-        `Hydrated product does not match discovery ordinal ${item.ordinal}`,
-      );
-    }
-    if (hydratedIds.has(item.product.externalProductId)) {
-      throw new BadRequestException(
-        `Duplicate hydrated product ID: ${item.product.externalProductId}`,
-      );
-    }
-    hydratedIds.add(item.product.externalProductId);
-    products.push(withDiscoverySaleStatus(item, expected.saleStatus));
-    for (const option of item.product.options) {
-      const owner = externalOptionOwners.get(option.externalOptionId);
-      if (owner && owner !== item.product.externalProductId) {
-        throw new BadRequestException(
-          `Option ${option.externalOptionId} belongs to multiple products`,
-        );
-      }
-      if (owner) {
-        throw new BadRequestException(`Duplicate option ID: ${option.externalOptionId}`);
-      }
-      externalOptionOwners.set(option.externalOptionId, item.product.externalProductId);
-    }
-  }
-  const missingProducts = missingHydratedProductIds(state);
-  if (missingProducts.length > 0 || state.products.length !== state.discovered.length) {
-    throw new BadRequestException(`Product details are missing: ${missingProducts.join(', ')}`);
-  }
-  return { manifest: state.manifest, products };
 }
 
 export function assembleListingBasicsSnapshot(
@@ -324,19 +256,29 @@ export function assembleListingBasicsSnapshot(
 export function assembleFullDetailsSnapshot(
   chunks: CatalogCollectionChunk[],
   rawPlan: unknown,
-): { manifest: CoupangCatalogManifestV1; products: CanonicalDetailProduct[] } {
+): { manifest: CoupangCatalogManifestV1 | null; products: CanonicalDetailProduct[] } {
   const state = inspectChunks(chunks);
-  assertDiscoveryCoverage(state);
   const plan = CoupangCatalogCollectionPlanSchema.parse(rawPlan);
-  const expectedIds = new Set(plan.basicProductIds ?? state.discovered.map((item) => item.externalProductId));
-  const discoveredByOrdinal = new Map(state.discovered.map((item) => [item.ordinal, item]));
+  const refetch = isDetailRefetchPlan(plan);
+  // 다시 받기는 목록을 발견하지 않는다: 순번은 지목한 상품 목록의 자리다 (KID-348).
+  if (!refetch) assertDiscoveryCoverage(state);
+  const expectedIds = new Set(detailTargetProductIds(plan, state.discovered));
+  const discoveredByOrdinal = refetch
+    ? new Map((plan.detailTargetProductIds ?? []).map((externalProductId, ordinal) => [ordinal, { externalProductId }]))
+    : new Map(state.discovered.map((item) => [item.ordinal, item]));
   const ids = new Set<string>();
   const optionOwners = new Map<string, string>();
   const products: CanonicalDetailProduct[] = [];
   for (const item of state.detailProducts) {
     const expected = discoveredByOrdinal.get(item.ordinal);
     if (!expected || expected.externalProductId !== item.product.externalProductId || !expectedIds.has(item.product.externalProductId)) {
-      throw new BadRequestException(`Detail product does not match the completed basics manifest at ordinal ${item.ordinal}`);
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: {
+          reason: 'CATALOG_DETAIL_NOT_PLANNED',
+          externalProductId: item.product.externalProductId,
+          ordinal: item.ordinal,
+        },
+      });
     }
     if (ids.has(item.product.externalProductId)) {
       throw new BadRequestException(`Duplicate detail product ID: ${item.product.externalProductId}`);
@@ -352,10 +294,23 @@ export function assembleFullDetailsSnapshot(
     }
     products.push(item);
   }
-  if (products.length !== expectedIds.size || products.length !== state.manifest!.totalItems) {
-    throw new BadRequestException(`Full details are missing: ${missingStageProductIds(state.discovered, products)}`);
+  if (products.length !== expectedIds.size) {
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: {
+        reason: 'CATALOG_DETAILS_INCOMPLETE',
+        missingProductIds: missingDetailTargetIds([...expectedIds], products),
+      },
+    });
   }
-  return { manifest: state.manifest!, products };
+  return { manifest: state.manifest, products };
+}
+
+/**
+ * 운영자가 상품을 지목해 연 details 시도(목록 단계 기준 없음, KID-348). 목록 발견·확인 없이
+ * 지목한 상품의 상세만 받는다.
+ */
+export function isDetailRefetchPlan(plan: { stage?: string; basicAttemptId?: string; detailTargetProductIds?: string[] }): boolean {
+  return plan.stage === 'details' && !plan.basicAttemptId && Array.isArray(plan.detailTargetProductIds);
 }
 
 function assertDiscoveryCoverage(state: InspectedChunks): void {
@@ -384,6 +339,27 @@ function assertDiscoveryCoverage(state: InspectedChunks): void {
   }
 }
 
+/**
+ * details 단계가 상세를 받아야 하는 상품 (KID-348). 목록 단계가 계산한 대상이 있으면 그것만,
+ * 그 전 계획은 목록 전체(`basicProductIds`, 없으면 발견한 상품 전부)다.
+ */
+export function detailTargetProductIds(
+  plan: { detailTargetProductIds?: string[]; basicProductIds?: string[] },
+  discovered: ReadonlyArray<{ externalProductId: string }>,
+): string[] {
+  return plan.detailTargetProductIds
+    ?? plan.basicProductIds
+    ?? discovered.map((item) => item.externalProductId);
+}
+
+export function missingDetailTargetIds(
+  targets: readonly string[],
+  products: ReadonlyArray<{ product: { externalProductId: string } }>,
+): string[] {
+  const present = new Set(products.map(({ product }) => product.externalProductId));
+  return targets.filter((id) => !present.has(id));
+}
+
 export function missingStageProductIds(
   discovered: Array<{ externalProductId: string }>,
   products: Array<{ product: { externalProductId: string } }>,
@@ -397,29 +373,6 @@ export function missingDiscoverySequences(state: InspectedChunks): number[] {
   return Array.from({ length: state.manifest.expectedPages }, (_, index) => index + 1).filter(
     (sequence) => !state.discoveryPages.has(sequence),
   );
-}
-
-export function missingHydratedProductIds(state: InspectedChunks): string[] {
-  const hydrated = new Set(state.products.map((item) => item.product.externalProductId));
-  return state.discovered
-    .filter((item) => !hydrated.has(item.externalProductId))
-    .map((item) => item.externalProductId);
-}
-
-function withDiscoverySaleStatus(
-  item: CanonicalProduct,
-  saleStatus: string | null,
-): CanonicalProduct {
-  return {
-    ...item,
-    product: {
-      ...item.product,
-      raw: {
-        ...item.product.raw,
-        saleStatus,
-      },
-    },
-  };
 }
 
 function assertSameManifest(

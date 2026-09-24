@@ -4,7 +4,6 @@ import {
   CoupangCatalogCollectionPlanSchema,
   CoupangCatalogDetailManifestConfirmationV1Schema,
   CoupangCatalogListingBasicsChunkV1Schema,
-  CoupangCatalogStageSchema,
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS, SOURCE_IMPORT_RUN_RUNNING_STATUS } from '@kiditem/shared/source-import';
@@ -18,23 +17,18 @@ import { resolveCoupangVendorId } from '../../../domain/account/coupang-account-
 
 export const CATALOG_STAGING_SOURCE = 'coupang_wing_catalog_browser';
 export const CATALOG_RATE_LIMIT_CODE = 'WING_PROVIDER_RATE_LIMITED';
-export const CATALOG_LEGACY_LIST_URL =
-  'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1';
 export const CATALOG_STAGED_LIST_URL =
   'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=500&page=1';
-export const CATALOG_LEGACY_DETAIL_URL =
-  'https://wing.coupang.com/tenants/seller-web/vendor-inventory/modify';
 export const CATALOG_STAGED_DETAIL_URL =
   'https://wing.coupang.com/tenants/seller-web/v2/vendor-inventory/seller-product';
-// Keep the old names as compatibility aliases for legacy full-catalog plans.
-export const CATALOG_LIST_URL = CATALOG_LEGACY_LIST_URL;
-export const CATALOG_DETAIL_URL = CATALOG_LEGACY_DETAIL_URL;
 export type CatalogScope = { organizationId: string; channelAccountId: string };
-export const catalogSourceForStage = (stage: CoupangCatalogStage = 'full') =>
-  stage === 'basics' ? CATALOG_BASICS_SOURCE : stage === 'details' ? CATALOG_DETAILS_SOURCE : CATALOG_SOURCE;
+export const catalogSourceForStage = (stage: CoupangCatalogStage) =>
+  stage === 'basics' ? CATALOG_BASICS_SOURCE : CATALOG_DETAILS_SOURCE;
+/** 브라우저 카탈로그 수집이 쓰는 두 단계의 원천. */
+export const CATALOG_BROWSER_SOURCES = [CATALOG_BASICS_SOURCE, CATALOG_DETAILS_SOURCE];
 export const catalogWhere = (
   scope: CatalogScope,
-  stage: CoupangCatalogStage = 'full',
+  stage: CoupangCatalogStage,
 ) => ({
   organizationId: scope.organizationId,
   channelAccountId: scope.channelAccountId,
@@ -43,7 +37,7 @@ export const catalogWhere = (
 });
 export const catalogAlertKey = (
   channelAccountId: string,
-  stage: CoupangCatalogStage = 'full',
+  stage: CoupangCatalogStage,
 ) => `channels:${catalogSourceForStage(stage)}:${channelAccountId}`;
 export async function lockCatalogAccount(tx: Prisma.TransactionClient, scope: CatalogScope) {
   const key = `channel-catalog-publication:${scope.organizationId}:${CATALOG_SOURCE}:${scope.channelAccountId}`;
@@ -51,9 +45,9 @@ export async function lockCatalogAccount(tx: Prisma.TransactionClient, scope: Ca
 }
 export async function lockCatalogAttempt(
   tx: Prisma.TransactionClient,
-  input: CatalogScope & { runId: string; attemptToken: string; stage?: CoupangCatalogStage },
+  input: CatalogScope & { runId: string; attemptToken: string; stage: CoupangCatalogStage },
 ) {
-  const stage = input.stage ?? 'full';
+  const stage = input.stage;
   const sourceType = catalogSourceForStage(stage);
   const rows = await tx.$queryRaw<Array<{ id: string }>>`
     SELECT id FROM source_import_runs
@@ -84,7 +78,7 @@ export const CATALOG_WORKBOOK_STALE_AFTER_MS = 30 * 60 * 1_000;
 
 const liveBrowserAttempt = (now: Date) => ({
   parserVersion: CATALOG_PARSER,
-  sourceType: { in: [CATALOG_SOURCE, CATALOG_BASICS_SOURCE, CATALOG_DETAILS_SOURCE] },
+  sourceType: { in: CATALOG_BROWSER_SOURCES },
   expiresAt: { gt: now },
 });
 const liveWorkbookImport = (now: Date) => ({
@@ -252,7 +246,7 @@ export async function catalogAccountVendor(tx: Prisma.TransactionClient, scope: 
 export async function catalogPublicationRevision(
   tx: Prisma.TransactionClient,
   scope: CatalogScope,
-  stage: CoupangCatalogStage = 'full',
+  stage: CoupangCatalogStage,
 ) {
   const aggregate = await tx.sourceImportRun.aggregate({
     where: {
@@ -271,7 +265,7 @@ export async function assertCatalogPublicationPlan(
   rawPlan: unknown,
 ) {
   const plan = CoupangCatalogCollectionPlanSchema.parse(rawPlan);
-  const stage = CoupangCatalogStageSchema.parse(plan.stage ?? 'full');
+  const stage = plan.stage;
   if (
     plan.channelAccountId !== scope.channelAccountId ||
     plan.vendorId !== (await catalogAccountVendor(tx, scope))
@@ -279,7 +273,8 @@ export async function assertCatalogPublicationPlan(
     throw new ConflictException('Catalog account changed after admission');
   if (BigInt(plan.publicationRevision) !== (await catalogPublicationRevision(tx, scope, stage)))
     throw new ConflictException('A newer catalog publication superseded this attempt');
-  if (stage === 'details') {
+  // 상품 하나 다시 받기는 목록 단계 기준이 없다 (KID-348).
+  if (stage === 'details' && plan.basicAttemptId) {
     const basis = await latestCompletedCatalogBasics(tx, scope);
     if (!basis || plan.basicAttemptId !== basis.id || plan.basicManifestHash !== basis.manifestHash ||
       plan.basicPublicationSequence !== basis.publicationSequence) {
@@ -321,6 +316,9 @@ export type CatalogBasicsBasis = {
   manifestHash: string;
   publicationSequence: string;
   productIds: string[];
+  /** 목록 단계 종료가 계산한 상세 대상·사라진 상품 (KID-348). 그 전 목록 단계에는 없다. */
+  detailTargetProductIds?: string[];
+  absentProductIds?: string[];
 };
 
 /**
@@ -374,12 +372,20 @@ export async function latestCompletedCatalogBasics(
       : null;
   const productIds = publishedProductIds ?? collectBasicProductIds(scrapeRuns.flatMap((scrape) => scrape.chunks));
   if (!manifestHash || !run.publicationSequence || productIds.length === 0) return null;
+  const detailTargetProductIds = stringList(quality?.detailTargetProductIds);
+  const absentProductIds = stringList(quality?.absentProductIds);
   return {
     id: run.id,
     manifestHash,
     publicationSequence: run.publicationSequence.toString(),
     productIds,
+    ...(detailTargetProductIds ? { detailTargetProductIds } : {}),
+    ...(absentProductIds ? { absentProductIds } : {}),
   };
+}
+
+function stringList(value: unknown): string[] | null {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : null;
 }
 
 function collectBasicProductIds(chunks: Array<{ kind: string; sequence: number; payload: unknown }>) {

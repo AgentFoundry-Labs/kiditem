@@ -1,5 +1,5 @@
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import {
@@ -12,6 +12,7 @@ import {
   SOURCE_IMPORT_RUN_FAILED_STATUS,
   SOURCE_IMPORT_RUN_RUNNING_STATUS,
 } from '@kiditem/shared/source-import';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
@@ -29,11 +30,10 @@ import {
   catalogAlertKey,
   catalogPublicationRevision,
   catalogWhere,
-  CATALOG_LEGACY_DETAIL_URL,
-  CATALOG_LEGACY_LIST_URL,
   CATALOG_STAGED_DETAIL_URL,
   CATALOG_STAGED_LIST_URL,
   CATALOG_STAGING_SOURCE,
+  CATALOG_BROWSER_SOURCES,
   catalogSourceForStage,
   assertExpectedDetailsBasis,
   liveCatalogImport,
@@ -43,10 +43,6 @@ import {
   latestCompletedCatalogBasics,
 } from './channel-catalog-attempt-fence';
 import type { ChannelCatalogCollectionRepositoryPort } from '../../../application/port/out/repository/channel-catalog-collection.repository.port';
-import {
-  CHANNEL_CATALOG_PUBLICATION_PORT,
-  type ChannelCatalogPublicationPort,
-} from '../../../application/port/out/repository/channel-catalog-publication.port';
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -64,8 +60,6 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
-    @Inject(CHANNEL_CATALOG_PUBLICATION_PORT)
-    private readonly publisher: ChannelCatalogPublicationPort,
   ) {}
   async startOrResume(input: StartInput) {
     return this.prisma
@@ -80,25 +74,23 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
   // that admits a pending details child so the stop can end the import.
   private async admitOrResume(tx: Prisma.TransactionClient, input: StartInput) {
     await lockCatalogAccount(tx, input);
-    const stage = input.stage ?? 'full';
-    // `stage` is additive. Keep the legacy full-catalog fingerprint byte
-    // for omitted/explicit full requests so an in-flight pre-stage run can
-    // still be recovered with the same idempotency key. Named staged
-    // attempts get their own fingerprint and source type.
+    const stage = input.stage;
+    const refetchProductIds = stage === 'details' && input.detailProductIds
+      ? [...new Set(input.detailProductIds)]
+      : null;
     const requestFingerprint = hashCatalogChunkPayload({
       channelAccountId: input.channelAccountId,
       collectorVersion: input.collectorVersion,
-      ...(stage !== 'full' ? { stage } : {}),
+      stage,
       ...(stage === 'details'
         ? { expectedBasicAttemptId: input.expectedBasicAttemptId ?? null }
         : {}),
+      ...(refetchProductIds ? { detailProductIds: refetchProductIds } : {}),
     }, channelIntegrity.sha256);
     const existing = await tx.sourceImportRun.findFirst({
       where: {
         organizationId: input.organizationId,
-        sourceType: {
-          in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')],
-        },
+        sourceType: { in: CATALOG_BROWSER_SOURCES },
         idempotencyKey: input.idempotencyKey,
       },
     });
@@ -110,7 +102,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         existing.sourceType !== catalogSourceForStage(stage)
       )
         throw new ConflictException('Idempotency-Key has a different catalog input');
-      if (stage === 'details') {
+      if (stage === 'details' && !refetchProductIds) {
         await assertExpectedDetailsBasis(tx, input, existing.plan);
       }
       const locked = await lockCatalogAttempt(tx, {
@@ -159,7 +151,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
     // One import runs per account: a new browser import waits for the account's
     // live import in either stage or a live workbook import. A details begin is
     // that import's own handoff, so only a workbook import holds it back.
-    if (stage === 'details') {
+    if (stage === 'details' && !refetchProductIds) {
       const workbook = await liveCatalogWorkbookImport(tx, input);
       if (workbook) throw attemptInProgress(workbook.id, WORKBOOK_IMPORT_IN_PROGRESS);
     } else {
@@ -200,8 +192,9 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       where: catalogWhere(input, stage),
       _max: { freshnessGeneration: true },
     });
-    const basics = stage === 'details' ? await latestCompletedCatalogBasics(tx, input) : null;
-    if (stage === 'details' && !basics) {
+    if (refetchProductIds) await assertRefetchListingsExist(tx, input, refetchProductIds);
+    const basics = stage === 'details' && !refetchProductIds ? await latestCompletedCatalogBasics(tx, input) : null;
+    if (stage === 'details' && !refetchProductIds && !basics) {
       throw new ConflictException('A completed basic catalog publication is required first');
     }
     if (stage === 'details' && input.expectedBasicAttemptId &&
@@ -213,12 +206,14 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
     const plan = {
       collectorVersion: input.collectorVersion,
       stage,
-      listUrl: stage === 'full' ? CATALOG_LEGACY_LIST_URL : CATALOG_STAGED_LIST_URL,
-      detailUrl: stage === 'full' ? CATALOG_LEGACY_DETAIL_URL : CATALOG_STAGED_DETAIL_URL,
+      listUrl: CATALOG_STAGED_LIST_URL,
+      detailUrl: CATALOG_STAGED_DETAIL_URL,
       channelAccountId: input.channelAccountId,
       vendorId,
       publicationRevision: (await catalogPublicationRevision(tx, input, stage)).toString(),
-      rootAttemptId: stage === 'details' ? input.expectedBasicAttemptId ?? basics?.id : ownerId,
+      rootAttemptId: stage === 'details' && !refetchProductIds ? input.expectedBasicAttemptId ?? basics?.id : ownerId,
+      // 다시 받기는 지목한 상품만 대상이고 삭제 확인은 없다 (KID-348).
+      ...(refetchProductIds ? { detailTargetProductIds: refetchProductIds, absentProductIds: [] } : {}),
       ...(detailsIdempotencyKey ? { detailsIdempotencyKey } : {}),
       ...(basics
         ? {
@@ -226,6 +221,8 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
             basicManifestHash: basics.manifestHash,
             basicPublicationSequence: basics.publicationSequence,
             basicProductIds: basics.productIds,
+            ...(basics.detailTargetProductIds ? { detailTargetProductIds: basics.detailTargetProductIds } : {}),
+            ...(basics.absentProductIds ? { absentProductIds: basics.absentProductIds } : {}),
           }
         : {}),
     };
@@ -250,7 +247,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         sourceImportRunId: owner.id,
         channel: 'coupang',
         source: CATALOG_STAGING_SOURCE,
-        pageType: stage === 'basics' ? 'catalog_listing_basics' : stage === 'details' ? 'catalog_full_details' : 'catalog_full_snapshot',
+        pageType: stage === 'basics' ? 'catalog_listing_basics' : 'catalog_full_details',
         parserVersion: input.collectorVersion,
       },
     });
@@ -272,9 +269,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
           organizationId: input.organizationId,
           channelAccountId: input.channelAccountId,
           parserVersion: CATALOG_PARSER,
-          sourceType: {
-            in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')],
-          },
+          sourceType: { in: CATALOG_BROWSER_SOURCES },
         },
         select: { id: true, sourceType: true, status: true, plan: true, expiresAt: true },
       });
@@ -316,17 +311,24 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       await this.stopRunningAttempt(tx, input, admitted.id, 'details');
     });
   }
+  /**
+   * 계정의 가장 최근 가져오기 뿌리: 목록 단계, 또는 목록 단계 기준 없이 연 상품 하나 상세 다시
+   * 받기(KID-348). 목록 단계의 details 자식은 뿌리가 아니다.
+   */
   async findLatestRootAttempt(input: LatestRootInput) {
-    return this.prisma.sourceImportRun.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        parserVersion: CATALOG_PARSER,
-        sourceType: { in: [catalogSourceForStage('full'), catalogSourceForStage('basics')] },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { id: true },
-    });
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM source_import_runs
+      WHERE organization_id = ${input.organizationId}::uuid
+        AND channel_account_id = ${input.channelAccountId}::uuid
+        AND parser_version = ${CATALOG_PARSER}
+        AND (
+          source_type = ${catalogSourceForStage('basics')}
+          OR (source_type = ${catalogSourceForStage('details')} AND plan->>'basicAttemptId' IS NULL)
+        )
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `;
+    return rows[0] ?? null;
   }
   // The stop ends the attempt through the owner's failure path under its row
   // lock, so uploads and terminal writes serialize with it. A lease that
@@ -369,6 +371,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       const owner = await lockCatalogAttempt(tx, { ...input, stage });
       assertCatalogWritable(owner);
       assertCatalogChunkKindForStage(stage, input.kind);
+      if (input.kind === 'deletion_confirmation') assertDeletionConfirmationPlanned(owner.plan, input.payload);
       const staging = await tx.channelScrapeRun.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -391,19 +394,6 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       if (existing) {
         if (existing.checksum !== input.checksum)
           throw new ConflictException('Chunk coordinate already exists with a different checksum');
-        if (input.kind === 'full_details' && !existing.publishedAt) {
-          if (!this.publisher)
-            throw new ConflictException('Detail publication capability is not configured');
-          await this.publisher.publishDetailChunk({
-            transaction: tx,
-            organizationId: input.organizationId,
-            channelAccountId: input.channelAccountId,
-            collectionRunId: staging.id,
-            attemptId: owner.id,
-            attemptToken: input.attemptToken,
-            chunk: existing,
-          });
-        }
         return { stored: false, chunk: existing };
       }
       const chunk = await tx.channelScrapeChunk.create({
@@ -421,19 +411,6 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         },
         select: chunkSelect,
       });
-      if (input.kind === 'full_details') {
-        if (!this.publisher)
-          throw new ConflictException('Detail publication capability is not configured');
-        await this.publisher.publishDetailChunk({
-          transaction: tx,
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          collectionRunId: staging.id,
-          attemptId: owner.id,
-          attemptToken: input.attemptToken,
-          chunk,
-        });
-      }
       assertCatalogWritable(owner);
       return { stored: true, chunk };
     });
@@ -461,10 +438,10 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       return readOwned(tx, { ...input, stage, includePayload: false });
     });
   }
-  private async saveFailure(tx: Prisma.TransactionClient, input: FailInput) {
+  private async saveFailure(tx: Prisma.TransactionClient, input: FailInput & { stage: CoupangCatalogStage }) {
     const changed = await tx.sourceImportRun.updateMany({
       where: {
-        ...catalogWhere(input, input.stage ?? 'full'),
+        ...catalogWhere(input, input.stage),
         id: input.runId,
         status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         attemptToken: input.attemptToken,
@@ -482,13 +459,13 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
     await this.alerts.recordTerminalOutcome(tx, {
         code: input.error.code,
         organizationId: input.organizationId,
-        dedupeKey: catalogAlertKey(input.channelAccountId, input.stage ?? 'full'),
-        sourceType: catalogSourceForStage(input.stage ?? 'full'),
+        dedupeKey: catalogAlertKey(input.channelAccountId, input.stage),
+        sourceType: catalogSourceForStage(input.stage),
         attemptId: input.runId,
         title: 'Wing catalog collection failed',
         message: input.error.message,
         href: `/product-pipeline/registered-products?collectionAttempt=${input.runId}&channelAccountId=${input.channelAccountId}`
-          + (input.stage && input.stage !== 'full' ? `&collectionStage=${input.stage}` : ''),
+          + `&collectionStage=${input.stage}`,
       });
   }
 
@@ -587,7 +564,7 @@ async function readOwned(tx: Prisma.TransactionClient, input: OwnedInput) {
       id: input.runId,
       ...(input.stage
         ? { sourceType: catalogSourceForStage(input.stage) }
-        : { sourceType: { in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')] } }),
+        : { sourceType: { in: CATALOG_BROWSER_SOURCES } }),
     },
   });
   if (!owner) throw new NotFoundException('Catalog attempt not found');
@@ -696,7 +673,7 @@ async function ownerStage(
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       parserVersion: CATALOG_PARSER,
-      sourceType: { in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')] },
+      sourceType: { in: CATALOG_BROWSER_SOURCES },
     },
     select: { sourceType: true },
   });
@@ -705,9 +682,7 @@ async function ownerStage(
 }
 
 function sourceStage(sourceType: string): CoupangCatalogStage {
-  if (sourceType === catalogSourceForStage('basics')) return 'basics';
-  if (sourceType === catalogSourceForStage('details')) return 'details';
-  return 'full';
+  return sourceType === catalogSourceForStage('basics') ? 'basics' : 'details';
 }
 
 function assertCatalogChunkKindForStage(
@@ -716,11 +691,53 @@ function assertCatalogChunkKindForStage(
 ): void {
   const allowed = stage === 'basics'
     ? ['discovery_page', 'listing_basics', 'manifest_confirmation']
-    : stage === 'details'
-      ? ['discovery_page', 'full_details', 'detail_manifest_confirmation']
-      : ['discovery_page', 'product_details', 'manifest_confirmation'];
+    : ['discovery_page', 'full_details', 'detail_manifest_confirmation', 'deletion_confirmation'];
   if (!allowed.includes(kind)) {
     throw new ConflictException(`Catalog chunk kind ${kind} is not valid for ${stage} stage`);
+  }
+}
+
+/**
+ * 다시 받을 상품은 이 계정에 저장된, 삭제로 기록되지 않은 활성 리스팅이어야 한다. 상세는
+ * 식별을 만들지 않으므로(목록 단계만 만든다) 없는 상품의 상세는 받을 곳이 없다.
+ */
+async function assertRefetchListingsExist(
+  tx: Prisma.TransactionClient,
+  scope: { organizationId: string; channelAccountId: string },
+  externalProductIds: readonly string[],
+): Promise<void> {
+  const rows = await tx.channelListing.findMany({
+    where: {
+      organizationId: scope.organizationId,
+      channelAccountId: scope.channelAccountId,
+      externalId: { in: [...externalProductIds] },
+      isActive: true,
+    },
+    select: { externalId: true },
+  });
+  const found = new Set(rows.map((row) => row.externalId));
+  const missing = externalProductIds.filter((id) => !found.has(id));
+  if (missing.length > 0) {
+    throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND', {
+      details: { reason: 'CATALOG_REFETCH_LISTING_MISSING', externalProductIds: missing },
+    });
+  }
+}
+
+/**
+ * 삭제 확인은 목록 단계가 사라졌다고 계획한 상품에만 받는다 (KID-348). 그 밖의 상품은 이 동기화가
+ * 확인할 대상이 아니다 — 이미 삭제로 기록된 상품이나 한 번도 저장한 적 없는 상품을 싣지 않는다.
+ */
+function assertDeletionConfirmationPlanned(rawPlan: unknown, payload: unknown): void {
+  const planned = new Set(CoupangCatalogCollectionPlanSchema.parse(rawPlan).absentProductIds ?? []);
+  const products = Array.isArray(jsonRecord(payload)?.products) ? jsonRecord(payload)!.products as unknown[] : [];
+  for (const product of products) {
+    const externalProductId = jsonRecord(product)?.externalProductId;
+    if (typeof externalProductId !== 'string' || !planned.has(externalProductId)) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: { reason: 'CATALOG_DELETION_UNEXPECTED_PRODUCT', externalProductId },
+      });
+    }
   }
 }
 
@@ -760,7 +777,19 @@ function compactChunkProjection(kind: string, payload: unknown): Record<string, 
   if (kind === 'manifest_confirmation' || kind === 'detail_manifest_confirmation') {
     return { kind, manifest: record.manifest };
   }
-  if (kind === 'listing_basics' || kind === 'product_details' || kind === 'full_details') {
+  if (kind === 'deletion_confirmation') {
+    const products = Array.isArray(record.products) ? record.products : [];
+    return {
+      kind,
+      products: products.flatMap((item) => {
+        const row = jsonRecord(item);
+        return typeof row?.externalProductId === 'string' && typeof row.outcome === 'string'
+          ? [{ externalProductId: row.externalProductId, outcome: row.outcome }]
+          : [];
+      }),
+    };
+  }
+  if (kind === 'listing_basics' || kind === 'full_details') {
     const products = Array.isArray(record.products) ? record.products : [];
     return {
       kind,

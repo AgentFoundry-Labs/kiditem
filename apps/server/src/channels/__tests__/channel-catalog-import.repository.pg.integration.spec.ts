@@ -168,6 +168,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       attemptToken: retry.attemptToken,
       rows: [makeRow(0)],
       skippedRows: [],
+      observedAt: '2026-09-24T09:00:00.000Z',
     });
     await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_import_alert_resolution CHECK (source_type <> 'coupang_wing_catalog' OR status <> 'RESOLVED')`;
     try {
@@ -552,6 +553,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         attemptToken: claimed.attemptToken,
         rows: [makeRow(0)],
         skippedRows: [],
+        observedAt: '2026-09-24T09:00:00.000Z',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
@@ -599,7 +601,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(runs.map((run) => run.publicationSequence)).toEqual([1n, 2n]);
   });
 
-  it('deactivates only unseen account identities and reuses them when they reappear', async () => {
+  // KID-348: 엑셀은 목록에 없는 상품을 끄지 않는다. 사라진 상품은 브라우저 동기화의 삭제 확인으로만 바뀐다.
+  it('keeps unseen account identities active and reuses them when they reappear', async () => {
     await importCatalog(
       [
         makeRow(0, {
@@ -636,7 +639,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    const absentPublication = await importCatalog(
+    await importCatalog(
       [
         makeRow(1, {
           externalProductId: 'P-NEW',
@@ -647,7 +650,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       WING_ACCOUNT_ID,
     );
 
-    const [inactiveProduct, inactiveSku, otherAccountProduct, otherAccountSku] = await Promise.all([
+    const [unseenProduct, unseenSku, otherAccountProduct, otherAccountSku] = await Promise.all([
       prisma.channelListing.findUniqueOrThrow({
         where: { id: productBefore.id },
       }),
@@ -670,15 +673,15 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       }),
     ]);
 
-    expect(inactiveProduct).toMatchObject({
+    expect(unseenProduct).toMatchObject({
       id: productBefore.id,
-      isActive: false,
-      lastImportRunId: absentPublication.run.id,
+      isActive: true,
+      lastImportRunId: productBefore.lastImportRunId,
     });
-    expect(inactiveSku).toMatchObject({
+    expect(unseenSku).toMatchObject({
       id: skuBefore.id,
-      isActive: false,
-      lastImportRunId: absentPublication.run.id,
+      isActive: true,
+      lastImportRunId: skuBefore.lastImportRunId,
     });
     expect(otherAccountProduct.isActive).toBe(true);
     expect(otherAccountSku.isActive).toBe(true);
@@ -718,7 +721,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('uses recoverable skipped identities without deactivating an incomplete snapshot dimension', async () => {
+  it('counts skipped rows and deactivates nothing the workbook left out (KID-348)', async () => {
     const completeRows = [
       makeRow(0, {
         externalProductId: 'P-VALID',
@@ -756,8 +759,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(missingSkuPublication.changes.skippedRowCount).toBe(1);
     expect(productsAfterMissingSku).toEqual({
       'P-PRODUCT-RECOVERED': true,
-      'P-SKU-PARENT': false,
-      'P-UNSEEN': false,
+      'P-SKU-PARENT': true,
+      'P-UNSEEN': true,
       'P-VALID': true,
     });
     expect(skusAfterMissingSku).toEqual({
@@ -790,9 +793,9 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       'P-VALID': true,
     });
     expect(skusAfterMissingProduct).toEqual({
-      'S-PRODUCT-RECOVERED': false,
+      'S-PRODUCT-RECOVERED': true,
       'S-SKU-RECOVERED': true,
-      'S-UNSEEN': false,
+      'S-UNSEEN': true,
       'S-VALID': true,
     });
   });
@@ -1049,7 +1052,10 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         salePrice: preserved[2],
         lastImportRunId: second.run.id,
         isActive: true,
-        rawJson: expect.objectContaining({ revision: 2 }),
+        // KID-349: 엑셀은 옵션 raw의 catalogExcel 구역만 바꾼다.
+        rawJson: expect.objectContaining({
+          catalogExcel: expect.objectContaining({ row: expect.objectContaining({ revision: '2' }) }),
+        }),
       });
     }
     expect(componentsAfter).toEqual(componentsBefore);
@@ -1058,9 +1064,10 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       sellerSku: 'SELLER-ABSENT',
       salePrice: 40_000,
       status: 'absent-status',
-      isActive: false,
-      lastImportRunId: second.run.id,
+      // KID-348: 엑셀에서 빠진 옵션은 끄지 않는다.
+      isActive: true,
     });
+    expect(absentAfter.lastImportRunId).not.toBe(second.run.id);
     expect(contentAfter).toEqual(contentBefore);
     expect(linkedProductAfter).toMatchObject({
       id: linkedProduct.id,
@@ -1072,7 +1079,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('keeps the stored Wing registration date when a workbook import replaces listing raw JSON', async () => {
+  it('keeps the stored Wing registration date and browser sections when a workbook import writes its own section', async () => {
     const identities = [
       { externalProductId: 'P-REGISTERED', externalSkuId: 'S-REGISTERED' },
       { externalProductId: 'P-UNREGISTERED', externalSkuId: 'S-UNREGISTERED' },
@@ -1097,8 +1104,27 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       select: { externalId: true, rawJson: true },
       orderBy: { externalId: 'asc' },
     })).resolves.toEqual([
-      { externalId: 'P-REGISTERED', rawJson: { revision: 2, createdOn: '2026-04-01 11:32:06' } },
-      { externalId: 'P-UNREGISTERED', rawJson: { revision: 2 } },
+      {
+        externalId: 'P-REGISTERED',
+        rawJson: {
+          source: 'coupang_wing_catalog',
+          externalProductId: 'P-REGISTERED',
+          saleStatus: '판매중',
+          productStatus: '승인완료',
+          createdOn: '2026-04-01 11:32:06',
+          catalogExcel: { observedAt: expect.any(String), row: { revision: '2' }, searchTags: [], exposedProductId: null, adult: null },
+        },
+      },
+      {
+        externalId: 'P-UNREGISTERED',
+        rawJson: {
+          source: 'coupang_wing_catalog',
+          externalProductId: 'P-UNREGISTERED',
+          saleStatus: '판매중',
+          productStatus: '승인완료',
+          catalogExcel: { observedAt: expect.any(String), row: { revision: '2' }, searchTags: [], exposedProductId: null, adult: null },
+        },
+      },
     ]);
   });
 
@@ -1188,33 +1214,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID, fileHash: rejectedHash },
       }),
     ).toMatchObject({ status: 'failed', publicationSequence: null });
-  });
-
-  it('turns off another sources listing that left the account list', async () => {
-    await importCatalog([makeRow(0, { externalProductId: 'P-WORKBOOK' })], fileHash('scope-first'));
-    // 같은 윙 계정을 브라우저 수집도 본다. 윙 엑셀과 브라우저 수집은 둘 다 계정의 상품 목록
-    // 전체를 한 번에 담으므로, 서로가 만든 행도 목록에서 사라지면 몰에서 내려간 것이다.
-    const browserListing = await prisma.channelListing.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: WING_ACCOUNT_ID,
-        externalId: 'P-BROWSER',
-        rawJson: { source: 'coupang_catalog_basics' },
-      },
-      select: { id: true },
-    });
-
-    await importCatalog([makeRow(0, { externalProductId: 'P-WORKBOOK' })], fileHash('scope-second'));
-
-    await expect(prisma.channelListing.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: WING_ACCOUNT_ID },
-      select: { externalId: true, isActive: true },
-      orderBy: { externalId: 'asc' },
-    })).resolves.toEqual([
-      { externalId: 'P-BROWSER', isActive: false },
-      { externalId: 'P-WORKBOOK', isActive: true },
-    ]);
-    expect(browserListing.id).toBeTruthy();
   });
 
   it('keeps the previous complete snapshot when the latest attempt fails', async () => {
@@ -1429,11 +1428,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     const collection = new ChannelCatalogCollectionRepositoryAdapter(
       prisma as unknown as PrismaService,
       alerts,
-      {
-        publishDetailChunk: async () => {
-          throw new Error('detail publication is not part of this fixture');
-        },
-      } as never,
     );
     const browser = await collection.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
@@ -1483,6 +1477,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       attemptToken: workerAToken,
       rows: [makeRow(0, { externalSkuId: 'S-WORKER-A' })],
       skippedRows: [],
+      observedAt: '2026-09-24T09:00:00.000Z',
       }),
     ).rejects.toThrow();
     await repository.markImportFailed(TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, run.id, workerAToken);
@@ -1502,6 +1497,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       attemptToken: workerB.attemptToken,
       rows: [makeRow(0, { externalSkuId: 'S-WORKER-B' })],
       skippedRows: [],
+      observedAt: '2026-09-24T09:00:00.000Z',
     });
     const lateWorkerA = await repository.upsertCoupangWingCatalog({
       organizationId: TEST_ORGANIZATION_ID,
@@ -1510,6 +1506,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       attemptToken: workerAToken,
       rows: [makeRow(0, { externalSkuId: 'S-WORKER-A' })],
       skippedRows: [],
+      observedAt: '2026-09-24T09:00:00.000Z',
     });
     expect(completed.duplicate).toBe(false);
     expect(lateWorkerA).toMatchObject({
@@ -1551,7 +1548,9 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       makeRow(index, {
       externalProductId: `P-FAIL-${String(index).padStart(4, '0')}`,
       externalSkuId: `S-FAIL-${String(index).padStart(4, '0')}`,
-      rawJson: index === 500 ? { cannotSerialize: BigInt(1) } : { index },
+      // 두 번째 upsert 묶음(500건 단위)에서 PostgreSQL jsonb가 NUL 문자를 거절한다.
+      ...(index === 500 ? { registeredName: 'NUL \u0000 name' } : {}),
+      rawJson: { index },
       }),
     );
     const hash = fileHash('mid-write-failure');
@@ -1764,6 +1763,9 @@ function makeRow(
     modelNumber: `MODEL-${index}`,
     barcode: `000${String(index).padStart(9, '0')}`,
     attributesJson: [],
+    searchTags: [],
+    exposedProductId: null,
+    adult: null,
     rawJson: { index },
     ...overrides,
   };

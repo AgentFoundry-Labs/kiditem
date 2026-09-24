@@ -8,29 +8,9 @@ export interface ChannelCatalogPublicationResult {
 
 export interface ChannelCatalogPublicationPort {
   /**
-   * Atomically enrich one accepted full-details chunk inside the collection
-   * owner's transaction. The source attempt remains running until every
-   * product is accepted; already published products survive a later failure.
+   * 한 시도의 종료 트랜잭션. details 단계는 여기서만 리스팅에 상세를 반영한다 — 청크는
+   * 스테이징에만 쌓인다 (KID-348).
    */
-  publishDetailChunk(input: {
-    transaction: unknown;
-    organizationId: string;
-    channelAccountId: string;
-    collectionRunId: string;
-    attemptId: string;
-    attemptToken: string;
-    chunk: {
-      id: string;
-      kind: string;
-      sequence: number;
-      checksum: string;
-      itemCount: number;
-      payload: unknown;
-      publishedAt?: Date | null;
-      publicationJson?: unknown;
-    };
-  }): Promise<ChannelCatalogPublicationResult>;
-
   publish(input: {
     organizationId: string;
     userId: string;
@@ -40,7 +20,7 @@ export interface ChannelCatalogPublicationPort {
     attemptToken: string;
     snapshotHash: string;
     chunkSetHash: string;
-    stage?: CoupangCatalogStage;
+    stage: CoupangCatalogStage;
   }): Promise<ChannelCatalogPublicationResult>;
 }
 

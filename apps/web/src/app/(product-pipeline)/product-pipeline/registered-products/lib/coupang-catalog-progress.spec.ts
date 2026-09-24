@@ -12,10 +12,11 @@ describe('Coupang catalog progress', () => {
     expect(buildCoupangCatalogProgress(
       run,
       Date.parse('2026-07-14T01:00:00.000Z'),
+      'details',
     )).toMatchObject({
       discoveredLabel: '목록 발견 1,228 / 1,228',
       hydratedLabel: '상세 수집 80 / 1,228',
-      publishedLabel: '전체 수집 후 한 번에 반영',
+      publishedLabel: '상세는 모두 받은 뒤 한 번에 반영',
       publicationDetailsLabel: '수집 중에는 기존 상품 데이터 유지',
       rateLabel: '수집 1.3개/분',
       etaLabel: '상세 수집 예상 14시간 21분',
@@ -57,7 +58,7 @@ describe('Coupang catalog progress', () => {
       phase: 'ready_to_finalize',
     });
     expect(buildCoupangCatalogProgress(run, Date.parse('2026-07-14T00:30:00Z')))
-      .toMatchObject({ percent: 99, publishedLabel: '전체 수집 후 한 번에 반영', etaLabel: null });
+      .toMatchObject({ percent: 99, publishedLabel: '기본 목록 완료 후 반영', etaLabel: null });
     expect(buildCoupangCatalogProgress({ ...run, phase: 'finished' }, 0).percent).toBe(99);
   });
 
@@ -74,7 +75,7 @@ describe('Coupang catalog progress', () => {
 
     expect(progress.percent).toBe(100);
     expect(progress.etaLabel).toBeNull();
-    expect(progress.publishedLabel).toBe('DB 반영 10 / 10');
+    expect(progress.publishedLabel).toBe('기본 목록 보강 완료 10 / 10');
     expect(progress.publicationDetailsLabel).toBe('옵션 20개 · 이미지 30개 반영');
     expect(progress.rateLabel).toBeNull();
   });
@@ -88,24 +89,45 @@ describe('Coupang catalog progress', () => {
     });
   });
 
-  it('distinguishes per-product detail reinforcement from whole-catalog coverage', () => {
-    const progress = buildCoupangCatalogProgress(collectionRun({
+  it('measures the details stage against its planned targets and publishes nothing before the terminal commit (KID-348)', () => {
+    const run = collectionRun({
       state: 'FAILED',
       discoveredProducts: 10,
-      hydratedProducts: 7,
-      publishedProducts: 4,
-      publishedOptionCount: 6,
-      publishedMediaCount: 9,
-    }), Date.parse('2026-07-14T00:30:00Z'), 'details');
-
-    expect(progress).toMatchObject({
-      discoveredLabel: '목록 발견 10 / 10',
-      hydratedLabel: '상세 수집 7 / 10',
-      publishedLabel: '상세 보강 반영 4 / 10',
-      publicationDetailsLabel: '옵션 6개 · 이미지 9개 보강 · 미완료 상품은 기존 상세 유지',
-      percent: 70,
+      hydratedProducts: 2,
+      detailTargetProductIds: ['P1', 'P2', 'P3'],
     });
-    expect(progress.publishedLabel).not.toContain('완료');
+    expect(buildCoupangCatalogProgress(run, Date.parse('2026-07-14T00:30:00Z'), 'details')).toMatchObject({
+      discoveredLabel: '목록 발견 10 / 10',
+      hydratedLabel: '상세 수집 2 / 3',
+      publishedLabel: '상세는 모두 받은 뒤 한 번에 반영',
+      publicationDetailsLabel: '수집 중에는 기존 상품 데이터 유지',
+      percent: 67,
+    });
+  });
+
+  it('reports the details quality once the terminal commit applied the targets', () => {
+    const progress = buildCoupangCatalogProgress(collectionRun({
+      state: 'COMPLETE',
+      phase: 'finished',
+      discoveredProducts: 10,
+      hydratedProducts: 3,
+      publishedProducts: 3,
+      publishedOptionCount: 4,
+      publishedMediaCount: 5,
+      detailTargetProductIds: ['P1', 'P2', 'P3'],
+      quality: {
+        detailTargets: 3,
+        detailApplied: 2,
+        detailUnchanged: 1,
+        deletedProducts: 1,
+        unconfirmedAbsentProductIds: ['P9'],
+      },
+    }), Date.parse('2026-07-14T00:30:00Z'), 'details');
+    expect(progress).toMatchObject({
+      percent: 100,
+      publishedLabel: '상세 반영 2 · 변경 없음 1 / 3',
+      publicationDetailsLabel: '옵션 4개 · 이미지 5개 반영 · 삭제 1개 · 삭제 미확인 1개',
+    });
   });
 });
 
@@ -118,6 +140,8 @@ function collectionRun(
     publishedProducts: number;
     publishedOptionCount: number;
     publishedMediaCount: number;
+    detailTargetProductIds: string[];
+    quality: CoupangCatalogCollectionRun['quality'];
   }> = {},
 ): CoupangCatalogCollectionRun {
   return {
@@ -131,6 +155,8 @@ function collectionRun(
       collectorVersion: 'wing-inventory-v1', vendorId: 'A001',
       listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail',
       publicationRevision: '0',
+      stage: 'basics',
+      ...(overrides.detailTargetProductIds ? { detailTargetProductIds: overrides.detailTargetProductIds } : {}),
     },
     phase: overrides.phase ?? 'hydration',
     collectorVersion: 'wing-inventory-v1',
@@ -160,6 +186,7 @@ function collectionRun(
     snapshotHash: null,
     error: null,
     publication: null,
+    ...(overrides.quality ? { quality: overrides.quality } : {}),
     createdAt: '2026-07-14T00:00:00.000Z',
     updatedAt: '2026-07-14T00:00:00.000Z',
     finishedAt: null,

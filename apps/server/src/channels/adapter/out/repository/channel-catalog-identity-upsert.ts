@@ -3,6 +3,20 @@ import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { readListingProductIds } from '../persistence/listing-product-summary.reader';
 import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
+import {
+  SHARED_LISTING_RAW_KEYS,
+  detailSectionUnchanged,
+  rawSectionPatch,
+  readListingRawSections,
+  readOptionRawSections,
+  type SharedListingRawKey,
+} from '../../../domain/collection/channel-listing-raw-sections';
+import {
+  attributesFromWire,
+  mergeAttributesByKind,
+  type StoredListingAttribute,
+  type WireListingAttribute,
+} from '../../../domain/collection/channel-listing-attributes';
 
 const UPSERT_BATCH_SIZE = 500;
 
@@ -80,6 +94,7 @@ export async function upsertChannelCatalogBasics(
     throw new ConflictException('Channel option identity is ambiguous');
   }
 
+  const observedAt = new Date().toISOString();
   for (let offset = 0; offset < input.products.length; offset += UPSERT_BATCH_SIZE) {
     const payload = JSON.stringify(input.products
       .slice(offset, offset + UPSERT_BATCH_SIZE)
@@ -92,11 +107,7 @@ export async function upsertChannelCatalogBasics(
         brand: product.brand,
         productStatus: product.productStatus,
         imageUrl: primaryImageUrl(product),
-        rawJson: {
-          ...product.raw,
-          source: input.rawSource,
-          externalProductId: product.externalProductId,
-        },
+        rawJson: basicsListingRawPatch(product, input.rawSource, observedAt),
       })));
     await tx.$executeRaw`
       INSERT INTO channel_listings (
@@ -191,15 +202,18 @@ export async function upsertChannelCatalogBasics(
         status: option.skuStatus,
         barcode: option.barcode,
         modelNumber: option.modelNumber,
-        attributesJson: option.attributes,
-        rawJson: mergeBasicOptionRaw(
-          jsonRecord(existing?.rawJson),
-          option.raw,
-          input.rawSource,
-          product.externalProductId,
-          externalOptionId,
-          existing?.externalOptionId ?? null,
-        ),
+        attributesJson: attributesFromWire(wireAttributes(option.attributes), 'purchase'),
+        rawJson: {
+          ...mergeBasicOptionRaw(
+            jsonRecord(existing?.rawJson),
+            pickKeys(option.raw, OPTION_IDENTITY_RAW_KEYS),
+            input.rawSource,
+            product.externalProductId,
+            externalOptionId,
+            existing?.externalOptionId ?? null,
+          ),
+          ...rawSectionPatch('list', { observedAt, raw: option.raw }),
+        },
       };
     });
   });
@@ -337,7 +351,12 @@ export async function updateChannelCatalogDetails(
     lastImportRunId: string;
     rawSource: string;
   },
-): Promise<Pick<ChannelCatalogIdentityUpsertResult, 'mappingIdentityChanged' | 'changes' | 'externalProductIds' | 'externalOptionIds' | 'identityRemaps' | 'listingIds' | 'persistedListings'>> {
+): Promise<Pick<ChannelCatalogIdentityUpsertResult, 'mappingIdentityChanged' | 'changes' | 'externalProductIds' | 'externalOptionIds' | 'identityRemaps' | 'listingIds' | 'persistedListings'> & {
+  /** 저장값이 바뀌어 쓴 상품. */
+  appliedProductIds: string[];
+  /** 같은 상세라 한 칸도 쓰지 않은 상품 (KID-348). */
+  unchangedProductIds: string[];
+}> {
   const externalProductIds = input.products.map((product) => product.externalProductId);
   const requestedOptionIds = input.products.flatMap((product) =>
     product.options.map((option) => option.externalOptionId));
@@ -365,6 +384,10 @@ export async function updateChannelCatalogDetails(
       id: true,
       externalOptionId: true,
       rawJson: true,
+      attributesJson: true,
+      barcode: true,
+      modelNumber: true,
+      sellerSku: true,
       listing: { select: { externalId: true } },
     },
   });
@@ -379,6 +402,10 @@ export async function updateChannelCatalogDetails(
       id: true,
       externalOptionId: true,
       rawJson: true,
+      attributesJson: true,
+      barcode: true,
+      modelNumber: true,
+      sellerSku: true,
       listing: { select: { externalId: true } },
     },
   });
@@ -431,6 +458,7 @@ export async function updateChannelCatalogDetails(
   }
 
   const listingByExternalId = new Map(listings.map((listing) => [listing.externalId, listing]));
+  const observedAt = new Date().toISOString();
   const detailMerges = new Map<string, DetailMergeResult>();
   for (const product of input.products) {
     const listing = listingByExternalId.get(product.externalProductId);
@@ -442,6 +470,7 @@ export async function updateChannelCatalogDetails(
       product,
       input.rawSource,
       resolvedOptionByIncomingId,
+      observedAt,
     ));
   }
 
@@ -457,7 +486,50 @@ export async function updateChannelCatalogDetails(
     }];
   }));
 
-  const listingUpdates = input.products.map((product) => ({
+  const optionUpdates = input.products.flatMap((product) => product.options.map((option) => {
+    const resolved = resolvedOptionByIncomingId.get(
+      `${product.externalProductId}\u0000${option.externalOptionId}`,
+    );
+    if (!resolved) throw new ConflictException('DETAIL_IDENTITY_CONFLICT');
+    const detailMerge = detailMerges.get(product.externalProductId);
+    if (!detailMerge) throw new ConflictException('DETAIL_DOCUMENT_MERGE_MISSING');
+    const incomingAttributes = attributesFromWire(wireAttributes(option.attributes), 'purchase');
+    return {
+      id: resolved.id,
+      // 상세는 구매속성만 관측한다: 엑셀이 준 검색옵션은 그대로 둔다 (KID-349).
+      attributesJson: mergeAttributesByKind(resolved.attributesJson, incomingAttributes, ['purchase']),
+      modelNumber: option.modelNumber,
+      barcode: option.barcode,
+      sellerSku: option.externalVendorSku,
+      hasAttributes: incomingAttributes.length > 0,
+      rawJson: mergeDetailOptionRaw(
+        jsonRecord(resolved.rawJson),
+        option,
+        input.rawSource,
+        product.externalProductId,
+        detailMerge.optionDocumentIds.get(resolved.id) ?? [],
+        resolved.externalOptionId,
+        observedAt,
+      ),
+    };
+  }));
+  const optionUpdateById = new Map(optionUpdates.map((row) => [row.id, row]));
+  // 같은 상세를 다시 받았으면 쓰지 않는다: 구역은 관측 시각을 빼고, 칸은 저장값과 비교한다.
+  // 해시는 비교할 때만 계산하고 저장하지 않는다 (KID-348).
+  const unchangedProductIds = new Set(input.products
+    .filter((product) => detailProductUnchanged(
+      listingByExternalId.get(product.externalProductId)!,
+      detailMerges.get(product.externalProductId)!.listingRaw,
+      product.options.map((option) => {
+        const resolved = resolvedOptionByIncomingId.get(`${product.externalProductId}\u0000${option.externalOptionId}`)!;
+        return { stored: resolved, next: optionUpdateById.get(resolved.id)! };
+      }),
+    ))
+    .map((product) => product.externalProductId));
+  const appliedProducts = input.products.filter((product) => !unchangedProductIds.has(product.externalProductId));
+  const appliedOptionIds = new Set(appliedProducts.flatMap((product) => product.options.map((option) =>
+    resolvedOptionByIncomingId.get(`${product.externalProductId}\u0000${option.externalOptionId}`)!.id)));
+  const listingUpdates = appliedProducts.map((product) => ({
     id: listingIds.get(product.externalProductId)!,
     rawJson: detailMerges.get(product.externalProductId)!.listingRaw,
   }));
@@ -477,32 +549,9 @@ export async function updateChannelCatalogDetails(
     if (updated !== batch.length) throw new ConflictException('DETAIL_LISTING_UPDATE_FENCE');
   }
 
-  const optionUpdates = input.products.flatMap((product) => product.options.map((option) => {
-    const resolved = resolvedOptionByIncomingId.get(
-      `${product.externalProductId}\u0000${option.externalOptionId}`,
-    );
-    if (!resolved) throw new ConflictException('DETAIL_IDENTITY_CONFLICT');
-    const detailMerge = detailMerges.get(product.externalProductId);
-    if (!detailMerge) throw new ConflictException('DETAIL_DOCUMENT_MERGE_MISSING');
-    return {
-      id: resolved.id,
-      attributesJson: option.attributes,
-      modelNumber: option.modelNumber,
-      barcode: option.barcode,
-      sellerSku: option.externalVendorSku,
-      hasAttributes: hasMeaningfulValue(option.attributes),
-      rawJson: mergeDetailOptionRaw(
-        jsonRecord(resolved.rawJson),
-        option,
-        input.rawSource,
-        product.externalProductId,
-        detailMerge.optionDocumentIds.get(resolved.id) ?? [],
-        resolved.externalOptionId,
-      ),
-    };
-  }));
-  for (let offset = 0; offset < optionUpdates.length; offset += UPSERT_BATCH_SIZE) {
-    const batch = optionUpdates.slice(offset, offset + UPSERT_BATCH_SIZE);
+  const appliedOptionUpdates = optionUpdates.filter((row) => appliedOptionIds.has(row.id));
+  for (let offset = 0; offset < appliedOptionUpdates.length; offset += UPSERT_BATCH_SIZE) {
+    const batch = appliedOptionUpdates.slice(offset, offset + UPSERT_BATCH_SIZE);
     const updated = await tx.$executeRaw`
       UPDATE channel_listing_options AS option_row
       SET attributes_json = CASE WHEN incoming."hasAttributes" THEN incoming."attributesJson" ELSE option_row.attributes_json END,
@@ -550,10 +599,12 @@ export async function updateChannelCatalogDetails(
     mappingIdentityChanged: false,
     changes: {
       createdProductCount: 0,
-      updatedProductCount: externalProductIds.length,
+      updatedProductCount: appliedProducts.length,
       createdSkuCount: 0,
-      updatedSkuCount: usedOptionIds.size,
+      updatedSkuCount: appliedOptionIds.size,
     },
+    appliedProductIds: appliedProducts.map((product) => product.externalProductId),
+    unchangedProductIds: [...unchangedProductIds],
     externalProductIds,
     externalOptionIds: requestedOptionIds,
     identityRemaps,
@@ -627,6 +678,7 @@ function mergeDetailState(
   product: ChannelCatalogDetailIdentityProduct,
   source: string,
   resolvedOptionByIncomingId: ReadonlyMap<string, DetailOptionRow>,
+  observedAt: string,
 ): DetailMergeResult {
   const documents: DetailDocument[] = [];
   const documentByKey = new Map<string, DetailDocument>();
@@ -652,7 +704,9 @@ function mergeDetailState(
     return document.id;
   };
 
-  for (const document of detailDocumentsFromRaw(existing)) addDocument(document);
+  for (const document of readListingRawSections(existing, { externalProductId: product.externalProductId }).detail?.documents ?? []) {
+    addDocument({ id: document.id, kind: document.kind, value: document.value });
+  }
   const incomingDocumentById = new Map<string, DetailDocument>();
   for (const rawDocument of product.documents) {
     if (rawDocument.value === undefined) continue;
@@ -670,7 +724,7 @@ function mergeDetailState(
   const oldRefsByOption = new Map<string, string[]>();
   for (const option of existingOptions) {
     oldRefsByOption.set(option.id, canonicalizeRefs(
-      jsonRecord(option.rawJson)?.detailDocumentIds,
+      readOptionRawSections(option.rawJson, { externalProductId: product.externalProductId }).detail?.documentIds,
       sourceIdToCanonicalId,
     ));
   }
@@ -718,13 +772,23 @@ function mergeDetailState(
     || !replacedDocumentIds.has(document.id));
   const incomingRaw = withoutKey(product.raw, 'detailDocuments');
   return {
-    listingRaw: {
-      ...(existing ?? {}),
-      ...incomingRaw,
-      source,
-      externalProductId: product.externalProductId,
-      detailDocuments: persistedDocuments,
-    },
+    listingRaw: rawSectionPatch(
+      'detail',
+      {
+        observedAt,
+        documents: persistedDocuments,
+        // 옵션 이미지는 문서에 없어 상세 불변 비교에 들어가도록 상세가 준 미디어 목록을 함께 둔다.
+        raw: {
+          ...withoutKeys(incomingRaw, SHARED_LISTING_RAW_KEYS),
+          ...(product.media ? { media: product.media } : {}),
+        },
+      },
+      {
+        ...(pickKeys(incomingRaw, SHARED_LISTING_RAW_KEYS) as Partial<Record<SharedListingRawKey, unknown>>),
+        source,
+        externalProductId: product.externalProductId,
+      },
+    ),
     optionDocumentIds,
   };
 }
@@ -736,20 +800,18 @@ function mergeDetailOptionRaw(
   externalProductId: string,
   detailDocumentIds: string[],
   canonicalExternalOptionId: string,
+  observedAt: string,
 ): Record<string, unknown> {
   const incoming = withoutKey(option.raw, 'detailDocumentIds');
   const result: Record<string, unknown> = {
     ...(existing ?? {}),
-    ...incoming,
+    ...pickKeys(incoming, OPTION_IDENTITY_RAW_KEYS),
     source,
     externalProductId,
   };
   for (const [key, value] of [
     ['vendorItemId', option.vendorItemId],
     ['sellerProductItemId', option.sellerProductItemId],
-    ['externalVendorSku', option.externalVendorSku],
-    ['barcode', option.barcode],
-    ['modelNumber', option.modelNumber],
   ] as const) {
     if (value !== undefined) result[key] = value;
   }
@@ -776,22 +838,20 @@ function mergeDetailOptionRaw(
     if (existingHasRelation && existingSource) result.externalOptionIdentitySource = existingSource;
     else delete result.externalOptionIdentitySource;
   }
-  result.detailDocumentIds = dedupe(detailDocumentIds);
-  return result;
-}
-
-function detailDocumentsFromRaw(raw: Record<string, unknown> | null): DetailDocument[] {
-  if (!Array.isArray(raw?.detailDocuments)) return [];
-  return raw.detailDocuments.flatMap((value) => {
-    const document = jsonRecord(value);
-    return typeof document?.id === 'string'
-      && document.id.trim().length > 0
-      && typeof document.kind === 'string'
-      && document.kind.trim().length > 0
-      && Object.prototype.hasOwnProperty.call(document, 'value')
-      ? [{ id: document.id, kind: document.kind, value: document.value }]
-      : [];
-  });
+  // 구역 이전 평면 키는 그대로 두면 읽기 함수가 새 구역보다 뒤에 본다. 쓰기는 구역에만 한다.
+  delete result.detailDocumentIds;
+  const detailRaw: Record<string, unknown> = withoutKeys(incoming, OPTION_IDENTITY_RAW_KEYS);
+  for (const [key, value] of [
+    ['externalVendorSku', option.externalVendorSku],
+    ['barcode', option.barcode],
+    ['modelNumber', option.modelNumber],
+  ] as const) {
+    if (value !== undefined) detailRaw[key] = value;
+  }
+  return {
+    ...result,
+    ...rawSectionPatch('detail', { observedAt, documentIds: dedupe(detailDocumentIds), raw: detailRaw }),
+  };
 }
 
 function canonicalizeRefs(value: unknown, sourceIdToCanonicalId: ReadonlyMap<string, string>): string[] {
@@ -991,6 +1051,133 @@ function withoutKey(
   return result;
 }
 
+type DetailComparableOption = {
+  stored: {
+    rawJson: unknown;
+    attributesJson: unknown;
+    barcode: string | null;
+    modelNumber: string | null;
+    sellerSku: string | null;
+  };
+  next: {
+    rawJson: Record<string, unknown>;
+    attributesJson: unknown;
+    hasAttributes: boolean;
+    barcode?: string | null;
+    modelNumber?: string | null;
+    sellerSku?: string | null;
+  };
+};
+
+/**
+ * 이번 상세를 `||` 병합으로 썼을 때 저장값이 달라지는가. 구역의 관측 시각과 마지막으로 쓴 원천
+ * 표시(`source`)는 비교에서 뺀다 — 같은 상세를 다시 받았다는 사실만으로는 쓰지 않는다.
+ */
+function detailProductUnchanged(
+  listing: { rawJson: unknown },
+  listingPatch: Record<string, unknown>,
+  options: readonly DetailComparableOption[],
+): boolean {
+  const storedListing = jsonRecord(listing.rawJson) ?? {};
+  const nextListing = { ...storedListing, ...listingPatch };
+  if (!detailSectionUnchanged(
+    readListingRawSections(storedListing).detail,
+    withoutObservedAt(readListingRawSections(nextListing).detail),
+  )) return false;
+  if (comparableRaw(storedListing) !== comparableRaw(nextListing)) return false;
+  return options.every(({ stored, next }) => {
+    const storedRaw = jsonRecord(stored.rawJson) ?? {};
+    const nextRaw = { ...storedRaw, ...next.rawJson };
+    if (!detailSectionUnchanged(
+      readOptionRawSections(storedRaw).detail,
+      withoutObservedAt(readOptionRawSections(nextRaw).detail),
+    )) return false;
+    if (comparableRaw(storedRaw) !== comparableRaw(nextRaw)) return false;
+    if (next.hasAttributes && stableJson(next.attributesJson) !== stableJson(stored.attributesJson ?? null)) return false;
+    return [
+      [next.barcode, stored.barcode],
+      [next.modelNumber, stored.modelNumber],
+      [next.sellerSku, stored.sellerSku],
+    ].every(([incoming, kept]) => meaningfulText(incoming) === null || incoming === kept);
+  });
+}
+
+function withoutObservedAt<T extends { observedAt: string | null }>(section: T | null): Omit<T, 'observedAt'> {
+  if (!section) return { documents: [], documentIds: [], raw: {} } as unknown as Omit<T, 'observedAt'>;
+  const { observedAt: _observedAt, ...rest } = section;
+  return rest;
+}
+
+function comparableRaw(raw: Record<string, unknown>): string {
+  const { detail: _detail, source: _source, ...rest } = raw;
+  return stableJson(rest);
+}
+
+/**
+ * 옵션 raw에서 구역 밖 평면으로 남기는 키. 옵션 식별(`resolveBasicOptionIdentity`·상세 식별),
+ * readiness의 식별 출처, 품절 송신의 `registrationType`이 평면으로 읽는다.
+ */
+const OPTION_IDENTITY_RAW_KEYS = [
+  'vendorItemId',
+  'vendorInventoryItemId',
+  'sellerProductItemId',
+  'registrationType',
+  'externalOptionIdentitySource',
+] as const;
+
+function pickKeys(
+  value: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (value && Object.prototype.hasOwnProperty.call(value, key)) picked[key] = value[key];
+  }
+  return picked;
+}
+
+function withoutKeys(
+  value: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): Record<string, unknown> {
+  const result = { ...(value ?? {}) };
+  for (const key of keys) delete result[key];
+  return result;
+}
+
+/** Wing 목록 한 줄의 listing raw patch: 공유 평면 키 + `list` 구역 (KID-349). */
+function basicsListingRawPatch(
+  product: ChannelCatalogIdentityProduct,
+  source: string,
+  observedAt: string,
+): Record<string, unknown> {
+  const shared = pickKeys(product.raw, SHARED_LISTING_RAW_KEYS) as Partial<Record<SharedListingRawKey, unknown>>;
+  return rawSectionPatch('list', {
+    observedAt,
+    modifiedOn: meaningfulText(product.raw.modifiedOn),
+    createdOn: meaningfulText(product.raw.createdOn),
+    productStatus: product.productStatus ?? meaningfulText(product.raw.productStatus),
+    raw: withoutKeys(product.raw, SHARED_LISTING_RAW_KEYS),
+  }, { ...shared, source, externalProductId: product.externalProductId });
+}
+
+function wireAttributes(value: unknown): WireListingAttribute[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = jsonRecord(item);
+    const type = meaningfulText(record?.type);
+    const text = typeof record?.value === 'string' ? record.value : null;
+    if (!record || !type || text === null) return [];
+    return [{
+      type,
+      value: text,
+      ...(record.kind === 'purchase' || record.kind === 'search' ? { kind: record.kind } : {}),
+      ...(typeof record.attributeTypeId === 'string' ? { attributeTypeId: record.attributeTypeId } : {}),
+      ...(typeof record.exposed === 'boolean' ? { exposed: record.exposed } : {}),
+    }];
+  });
+}
+
 function stableJson(value: unknown): string {
   if (value === null) return 'null';
   if (typeof value === 'string') return JSON.stringify(value);
@@ -1047,8 +1234,16 @@ function observedOptionColumn(
   field: ChannelCatalogUnobservedOptionField,
 ): Prisma.Sql {
   const column = OPTION_COLUMN_SQL[field];
-  return input.unobservedOptionFields.includes(field) ? column.kept : column.observed;
+  if (input.unobservedOptionFields.includes(field)) return column.kept;
+  // 구역 쓰기(엑셀)에서는 빈 칸이 "못 봤다"이다: 저장된 관측값을 지우지 않는다 (KID-349).
+  if (input.rawJsonWrite === 'section') return Prisma.sql`COALESCE(${column.observed}, ${column.kept})`;
+  return column.observed;
 }
+
+const REPLACE_LISTING_RAW_SQL = listingRawJsonReplacementSql;
+const MERGE_LISTING_RAW_SQL = Prisma.sql`COALESCE(channel_listings.raw_json, '{}'::jsonb) || EXCLUDED.raw_json`;
+const REPLACE_OPTION_RAW_SQL = Prisma.sql`EXCLUDED.raw_json`;
+const MERGE_OPTION_RAW_SQL = Prisma.sql`COALESCE(channel_listing_options.raw_json, '{}'::jsonb) || EXCLUDED.raw_json`;
 
 export async function upsertChannelCatalogIdentities(
   tx: Prisma.TransactionClient,
@@ -1076,10 +1271,12 @@ export async function upsertChannelCatalogIdentities(
         id: true,
         externalOptionId: true,
         isActive: true,
+        attributesJson: true,
         listing: { select: { externalId: true } },
       },
     }),
   ]);
+  const sectionWrite = input.rawJsonWrite === 'section';
   const existingProductIds = new Set(existingListings.map(({ externalId }) => externalId));
   const existingOptionIds = new Set(existingOptions.map(({ externalOptionId }) =>
     externalOptionId));
@@ -1149,7 +1346,7 @@ export async function upsertChannelCatalogIdentities(
         brand = COALESCE(EXCLUDED.brand, channel_listings.brand),
         status = COALESCE(EXCLUDED.status, channel_listings.status),
         image_url = COALESCE(EXCLUDED.image_url, channel_listings.image_url),
-        raw_json = ${listingRawJsonReplacementSql},
+        raw_json = ${sectionWrite ? MERGE_LISTING_RAW_SQL : REPLACE_LISTING_RAW_SQL},
         last_import_run_id = COALESCE(
           EXCLUDED.last_import_run_id,
           channel_listings.last_import_run_id
@@ -1175,11 +1372,22 @@ export async function upsertChannelCatalogIdentities(
   const options = input.products.flatMap((product) => {
     const listingId = listingIds.get(product.externalProductId);
     if (!listingId) throw new ConflictException('Published listing ID is missing');
-    return product.options.map((option) => ({
+    return product.options.map(({ attributeMerge, ...option }) => ({
       id: randomUUID(),
       listingId,
       ...option,
-      attributesJson: option.attributes,
+      // 이 읽기-합치기-쓰기는 호출자가 잡은 lockProductMapping(org)이 같은 조직의 상세 종료와 줄 세운다.
+      attributesJson: sectionWrite
+        ? (attributeMerge ?? []).reduce<unknown>(
+          (merged, { kind, replaceBy }) => mergeAttributesByKind(
+            merged,
+            option.attributes as StoredListingAttribute[],
+            [kind],
+            replaceBy,
+          ),
+          existingOptionByExternalId.get(option.externalOptionId)?.attributesJson ?? [],
+        )
+        : option.attributes,
       rawJson: {
         ...option.raw,
         source: input.rawSource,
@@ -1223,7 +1431,7 @@ export async function upsertChannelCatalogIdentities(
         model_number = ${observedOptionColumn(input, 'modelNumber')},
         status = ${observedOptionColumn(input, 'skuStatus')},
         attributes_json = EXCLUDED.attributes_json,
-        raw_json = EXCLUDED.raw_json,
+        raw_json = ${sectionWrite ? MERGE_OPTION_RAW_SQL : REPLACE_OPTION_RAW_SQL},
         last_import_run_id = COALESCE(
           EXCLUDED.last_import_run_id,
           channel_listing_options.last_import_run_id

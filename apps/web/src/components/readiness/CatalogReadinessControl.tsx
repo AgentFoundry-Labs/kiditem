@@ -41,7 +41,7 @@ function phaseLabel(status: CoupangCatalogSourceStatus): string | null {
   if (!root || !current) return null;
   const state = catalogImportState(status);
   if (state === 'COMPLETE') {
-    const savedBasicsOnly = (root.plan.stage ?? 'full') === 'basics' &&
+    const savedBasicsOnly = root.plan.stage === 'basics' &&
       !status.detailsAttempt && !root.plan.detailsIdempotencyKey;
     return savedBasicsOnly ? '기본 목록 반영 완료 · 전체 상세 수집 필요' : '전체 상품 반영 완료';
   }
@@ -51,12 +51,12 @@ function phaseLabel(status: CoupangCatalogSourceStatus): string | null {
       ? 'Wing 요청 한도 대기 끝 · 이어서 받을 수 있음'
       : 'Wing 요청 한도 대기 중';
   }
-  const stage = current.plan.stage ?? 'full';
+  const stage = current.plan.stage;
   switch (current.phase) {
     case 'discovery':
       return stage === 'details' ? '상세 목록 확인 중' : '기본 목록 확인 중';
     case 'hydration':
-      return stage === 'details' ? '전체 상세 수집 중' : '상품 상세 수집 중';
+      return stage === 'details' ? '변경된 상품 상세 수집 중' : '기본 목록 수집 중';
     case 'ready_to_finalize':
       return '전체 상품 반영 준비';
     default:
@@ -185,7 +185,7 @@ function CatalogImportProgress({ status }: { status: CoupangCatalogSourceStatus 
   const current = currentCatalogAttempt(status);
   if (!current) return null;
   const state = catalogImportState(status);
-  const progress = buildCoupangCatalogProgress(current, Date.now(), current.plan.stage ?? 'full');
+  const progress = buildCoupangCatalogProgress(current, Date.now(), current.plan.stage);
 
   return (
     <>

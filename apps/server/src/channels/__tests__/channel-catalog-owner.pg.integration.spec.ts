@@ -74,7 +74,8 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       query: {
         async $allOperations({ model, operation, args, query }) {
           const result = await query(args);
-          if (expireAfterCatalogWrite && model === 'ChannelListing' && operation === 'updateMany') {
+          // 목록 단계가 리스팅을 쓴 뒤 다시 읽는 순간(종료 CAS 전)에 시계를 넘긴다.
+          if (expireAfterCatalogWrite && model === 'ChannelListing' && operation === 'findMany') {
             expireAfterCatalogWrite = false;
             vi.setSystemTime(Date.now() + 25 * 60 * 60 * 1000);
           }
@@ -108,7 +109,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     const owner = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
+      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts),
       publisher, channelIntegrity,
     );
     const module = await Test.createTestingModule({
@@ -169,13 +170,13 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
   const start = (
     key: string = randomUUID(),
     collectorVersion = 'wing-inventory-v1',
-    stage?: 'full' | 'basics' | 'details',
+    stage: 'basics' | 'details' = 'basics',
     expectedBasicAttemptId?: string,
   ) =>
     request(httpUrl)
       .post(base)
       .set('Idempotency-Key', key)
-      .send({ collectorVersion, ...(stage ? { stage } : {}),
+      .send({ collectorVersion, stage,
         ...(expectedBasicAttemptId ? { expectedBasicAttemptId } : {}) });
   const read = (id: string) => request(httpUrl).get(`${base}/${id}`).expect(200);
   const fail = (permit: { attemptId: string; attemptToken: string }, code = 'PROVIDER_ERROR') =>
@@ -208,6 +209,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       .post(`${base}/${permit.attemptId}/finalize`)
       .set('x-source-attempt-token', permit.attemptToken)
       .send({ snapshotHash });
+  // 목록 단계 하나를 끝까지 스테이징한다(KID-348: 옛 full 단계 대신). 종료는 호출자가 한다.
   async function stage(id = 'P1') {
     const permit: CoupangCatalogCollectionPermit = (await start().expect(201)).body;
     const manifest = {
@@ -233,7 +235,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     }).expect(200);
     await upload(permit, {
       version: 1,
-      kind: 'product_details',
+      kind: 'listing_basics',
       startOrdinal: 0,
       products: [
         {
@@ -494,6 +496,17 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       select: { id: true, publishedAt: true, publicationJson: true },
     });
   }
+  async function completeDetails(permit: CoupangCatalogCollectionPermit, manifest: { totalItems: number; pageSize: number; expectedPages: number; firstPageFingerprint: string }) {
+    await upload(permit, {
+      version: 1,
+      kind: 'detail_manifest_confirmation',
+      manifest,
+      basicAttemptId: permit.plan.basicAttemptId!,
+      basicManifestHash: permit.plan.basicManifestHash!,
+    }).expect(200);
+    const ready = await read(permit.attemptId);
+    return finish(permit, ready.body.snapshotHash as string).expect(201);
+  }
   async function channelListingMediaAssets(externalId = 'BASIC-P1') {
     const listing = await prisma.channelListing.findFirstOrThrow({
       where: { organizationId: ORG, channelAccountId: ACCOUNT, externalId },
@@ -594,18 +607,17 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     const firstStatus = (await read(details.permit.attemptId)).body;
     const firstReceipts = await detailReceipts(details.permit.attemptId);
     expect(firstReceipts).toHaveLength(1);
-    expect(firstReceipts[0]?.publishedAt).toBeInstanceOf(Date);
-    const publishedAt = firstReceipts[0]!.publishedAt!.toISOString();
+    // KID-348: 상세 청크는 스테이징에만 쌓인다. 반영은 종료 트랜잭션에서만 한다.
+    expect(firstReceipts[0]?.publishedAt).toBeNull();
     expect(firstStatus).toMatchObject({
       state: 'RUNNING',
       missing: { productIds: ['BASIC-P1-P2'] },
       progress: {
-        publishedProducts: 1,
-        publishedOptionCount: 1,
-        publishedMediaCount: 0,
-        publishedChunks: 1,
-        firstPublishedAt: publishedAt,
-        lastPublishedAt: publishedAt,
+        hydratedProducts: 1,
+        publishedProducts: 0,
+        publishedChunks: 0,
+        firstPublishedAt: null,
+        lastPublishedAt: null,
       },
     });
     await publishOneDetailChunk(details.permit);
@@ -615,10 +627,6 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     } });
     await expect(prisma.channelListingOption.findFirst({
       where: { organizationId: ORG, externalOptionId: 'BASIC-P1-O' },
-      select: { lastImportRunId: true },
-    })).resolves.toMatchObject({ lastImportRunId: details.permit.attemptId });
-    await expect(prisma.channelListingOption.findFirst({
-      where: { organizationId: ORG, externalOptionId: 'BASIC-P1-P2-O' },
       select: { lastImportRunId: true },
     })).resolves.toMatchObject({ lastImportRunId: basics.permit.attemptId });
     await expectBasicsConsumers();
@@ -748,54 +756,39 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     await publishOneDetailChunk(details.permit);
     const firstReceipts = await detailReceipts(details.permit.attemptId);
     expect(firstReceipts).toHaveLength(1);
-    expect(firstReceipts[0]?.publishedAt).toBeInstanceOf(Date);
-    const publishedAt = firstReceipts[0]!.publishedAt!.toISOString();
     await fail(details.permit).expect(201);
     expect((await read(details.permit.attemptId)).body).toMatchObject({
       state: 'FAILED',
       missing: { productIds: ['BASIC-P1-P2'] },
-      progress: {
-        publishedProducts: 1,
-        publishedOptionCount: 1,
-        publishedMediaCount: 0,
-        publishedChunks: 1,
-        firstPublishedAt: publishedAt,
-        lastPublishedAt: publishedAt,
-      },
+      progress: { hydratedProducts: 1, publishedProducts: 0, publishedChunks: 0 },
     });
     await expect(detailReceipts(details.permit.attemptId)).resolves.toEqual(firstReceipts);
-    await expect(prisma.channelListingOption.findFirst({
-      where: { organizationId: ORG, externalOptionId: 'BASIC-P1-O' },
-      select: { lastImportRunId: true },
-    })).resolves.toMatchObject({ lastImportRunId: details.permit.attemptId });
-    await expect(prisma.channelListingOption.findFirst({
-      where: { organizationId: ORG, externalOptionId: 'BASIC-P1-P2-O' },
-      select: { lastImportRunId: true },
-    })).resolves.toMatchObject({ lastImportRunId: basics.permit.attemptId });
+    // 실패한 상세 시도는 리스팅에 아무것도 남기지 않는다 (KID-348).
+    for (const externalOptionId of ['BASIC-P1-O', 'BASIC-P1-P2-O']) {
+      await expect(prisma.channelListingOption.findFirst({
+        where: { organizationId: ORG, externalOptionId },
+        select: { lastImportRunId: true },
+      })).resolves.toMatchObject({ lastImportRunId: basics.permit.attemptId });
+    }
     await expectBasicsConsumers();
   });
-  it('publishes aggregate detail media across option owners and replays it exactly', async () => {
+  it('publishes aggregate detail media across option owners at the terminal commit and stages a replayed chunk once', async () => {
     const basics = await stageBasics('BASIC-P1', true);
     const details = await startDetails(undefined, basics.manifest);
     await publishAggregateDetailChunk(details.permit);
-
-    const status = (await read(details.permit.attemptId)).body;
     const receipts = await detailReceipts(details.permit.attemptId);
     expect(receipts).toHaveLength(1);
-    expect(receipts[0]?.publishedAt).toBeInstanceOf(Date);
-    const publishedAt = receipts[0]!.publishedAt!.toISOString();
-    expect(status).toMatchObject({
-      state: 'RUNNING',
-      missing: { productIds: ['BASIC-P1-P2'] },
-      progress: {
-        publishedProducts: 1,
-        publishedOptionCount: 2,
-        publishedMediaCount: 120,
-        publishedChunks: 1,
-        firstPublishedAt: publishedAt,
-        lastPublishedAt: publishedAt,
-      },
-    });
+    await publishAggregateDetailChunk(details.permit);
+    await expect(detailReceipts(details.permit.attemptId)).resolves.toEqual(receipts);
+    // 종료 전에는 미디어도 반영하지 않는다.
+    await expect(prisma.contentAsset.count({ where: { organizationId: ORG, source: 'catalog' } })).resolves.toBe(0);
+
+    await publishOneDetailChunk(details.permit, {}, 'BASIC-P1-P2', 2);
+    await completeDetails(details.permit, basics.manifest);
+    await expect(read(details.permit.attemptId)).resolves.toMatchObject({ body: {
+      state: 'COMPLETE',
+      progress: { publishedProducts: 2, publishedOptionCount: 3, publishedMediaCount: 120, publishedChunks: 2 },
+    } });
 
     const assets = await channelListingMediaAssets();
     expect(assets).toHaveLength(120);
@@ -818,13 +811,6 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       ['BASIC-P1-O', 60],
       ['BASIC-P1-O-2', 60],
     ]));
-
-    await publishAggregateDetailChunk(details.permit);
-    await expect(detailReceipts(details.permit.attemptId)).resolves.toEqual(receipts);
-    await expect(channelListingMediaAssets()).resolves.toEqual(assets);
-    await expect(read(details.permit.attemptId)).resolves.toMatchObject({ body: {
-      progress: status.progress,
-    } });
   });
   it('carries staged Wing sale age through detail publication and a later basics refresh', async () => {
     const basics = await stageBasics();
@@ -836,6 +822,8 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     await publishOneDetailChunk(details.permit, {
       saleStartedAt: '2026-04-01T14:41:57',
     });
+    await publishOneDetailChunk(details.permit, {}, 'BASIC-P1-P2', 2);
+    await completeDetails(details.permit, basics.manifest);
     await expect(prisma.channelListing.findFirstOrThrow({
       where: { organizationId: ORG, channelAccountId: ACCOUNT, externalId: 'BASIC-P1' },
       select: { rawJson: true },
@@ -883,9 +871,6 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       '2026-09-01',
     )).toBeGreaterThanOrEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.minimumSaleAgeDays);
 
-    // One import runs per account: the refresh begins once the operator stopped
-    // the partial details import, whose published product detail stays.
-    await fail(details.permit, 'USER_CANCELLED').expect(201);
     await stageBasics();
     await expect(prisma.channelListing.findFirstOrThrow({
       where: { organizationId: ORG, channelAccountId: ACCOUNT, externalId: 'BASIC-P1' },
@@ -1001,6 +986,8 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
 
     const staged = await stage('P-STOP');
     await finish(staged.permit, staged.hash).expect(201);
+    // 완료된 목록 단계는 상세 넘겨받기가 남아 있다: 첫 중단이 그 넘겨받기를 끝낸다.
+    await cancel(staged.permit.attemptId).expect(200);
     const completed = (await read(staged.permit.attemptId)).body;
     expect(completed.state).toBe('COMPLETE');
     expect((await cancel(staged.permit.attemptId).expect(200)).body).toEqual(completed);
@@ -1036,7 +1023,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     const basics = await stageBasics();
     const rootId = basics.permit.attemptId;
     const beginsConflictWithRoot = async () => {
-      for (const stage of ['basics', undefined] as const) {
+      for (const stage of ['basics'] as const) {
         const conflict = await start(randomUUID(), 'wing-inventory-v1', stage).expect(409);
         expect(conflict.body).toMatchObject({ code: 'ATTEMPT_IN_PROGRESS', attemptId: rootId });
       }
@@ -1131,7 +1118,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     expect(before[0]).toMatchObject({
       attemptId: permit.attemptId,
       status: 'OPEN',
-      href: `/product-pipeline/registered-products?collectionAttempt=${permit.attemptId}&channelAccountId=${ACCOUNT}`,
+      href: `/product-pipeline/registered-products?collectionAttempt=${permit.attemptId}&channelAccountId=${ACCOUNT}&collectionStage=basics`,
     });
     expect((await fail(permit).expect(201)).body).toEqual(failed);
     expect(await alerts.list(ORG)).toEqual(before);
@@ -1188,7 +1175,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
   });
   it('rolls back failure, expiry admission and successful publication when their Alert write fails', async () => {
     const first = (await start().expect(201)).body;
-    await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_alert_failure CHECK (source_type <> 'coupang_wing_catalog')`;
+    await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_alert_failure CHECK (source_type <> 'coupang_wing_catalog_basics')`;
     try {
       await fail(first).expect(500);
       expect((await read(first.attemptId)).body.state).toBe('RUNNING');
@@ -1204,7 +1191,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     const next = (await start().expect(201)).body;
     await fail(next).expect(201);
     const ready = await stage();
-    await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_alert_resolution CHECK (source_type <> 'coupang_wing_catalog' OR status <> 'RESOLVED')`;
+    await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_alert_resolution CHECK (source_type <> 'coupang_wing_catalog_basics' OR status <> 'RESOLVED')`;
     try {
       await finish(ready.permit, ready.hash).expect(500);
       expect((await read(ready.permit.attemptId)).body.state).toBe('RUNNING');
@@ -1215,10 +1202,12 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     }
     await finish(ready.permit, ready.hash).expect(201);
   });
-  it('rejects a late browser snapshot after a real file import publishes to the same account', async () => {
+  it('publishes a browser basics that began behind a stale file import without erasing the file publication (KID-348·349)', async () => {
     // One import runs per account: a browser import begins only once the file
-    // import that claimed the account went stale, and that file import's later
-    // publication still fences the browser snapshot out.
+    // import that claimed the account went stale. The basics stage no longer
+    // shares the workbook's publication revision (the legacy full stage did), and
+    // both paths now merge into their own rawJson section without deactivating
+    // absent products, so the late basics publishes next to the file listing.
     const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const claim = await importer.claimCoupangWingImport({
       organizationId: ORG,
@@ -1244,6 +1233,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       runId: claim.runId,
       attemptToken: claim.attemptToken,
       skippedRows: [],
+      observedAt: new Date().toISOString(),
       rows: [
         {
           rowNumber: 2,
@@ -1260,16 +1250,17 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
           modelNumber: null,
           barcode: null,
           attributesJson: [],
+          searchTags: [],
+          exposedProductId: null,
+          adult: null,
           rawJson: {},
         },
       ],
     });
     const before = await visible();
     expect(before.items.map((row) => row.externalId)).toEqual(['FILE']);
-    const late = await finish(ready.permit, ready.hash).expect(409);
-    // main.ts와 같은 전역 필터 아래에서는 영어 문장이 봉투에 실리지 않는다. 전용 코드는 KID-338(수집 시도 fence).
-    expect(late.body).toMatchObject({ statusCode: 409, code: 'STATE_CONFLICT' });
-    expect(await visible()).toEqual(before);
+    await finish(ready.permit, ready.hash).expect(201);
+    expect((await visible()).items.map((row) => row.externalId).sort()).toEqual(['FILE', 'P1']);
   });
   it('checks fixed expiry after waiting for the mapping lock and after media work before terminal CAS', async () => {
     const ready = await stage();
@@ -1362,7 +1353,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     const second = request(httpUrl)
       .post(base.replace(ACCOUNT, secondAccount))
       .set('Idempotency-Key', key)
-      .send({ collectorVersion: 'wing-inventory-v1' })
+      .send({ collectorVersion: 'wing-inventory-v1', stage: 'basics' })
       .then((response) => response);
     try {
       await expect

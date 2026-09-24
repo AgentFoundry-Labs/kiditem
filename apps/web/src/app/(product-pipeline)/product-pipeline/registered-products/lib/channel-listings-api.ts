@@ -38,7 +38,8 @@ export function readCoupangCatalogCollectionLink(
   const parsed = z.object({
     attemptId: CoupangCatalogCollectionRunSchema.shape.attemptId,
     channelAccountId: CoupangCatalogCollectionRunSchema.shape.channelAccountId,
-    stage: CoupangCatalogStageSchema.default('full'),
+    // 이 PR 이전 알림 링크에는 collectionStage가 없다: 목록 단계(뿌리)로 읽는다.
+    stage: CoupangCatalogStageSchema.default('basics'),
   }).safeParse({
     attemptId: query.get('collectionAttempt'),
     channelAccountId: query.get('channelAccountId'),

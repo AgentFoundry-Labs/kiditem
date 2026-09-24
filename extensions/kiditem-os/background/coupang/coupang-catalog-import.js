@@ -40,7 +40,7 @@
   }
 
   function chainCurrentStage(state) {
-    return state?.currentStage || state?.stage || state?.permit?.plan?.stage || "full";
+    return state?.currentStage || state?.stage || state?.permit?.plan?.stage || "basics";
   }
 
   function chainIsStopped(state) {
@@ -50,7 +50,7 @@
   async function start(message, dependencies) {
     const permit = validatePermit(message?.permit);
     const channelAccountId = permit.plan.channelAccountId;
-    const incomingStage = permit.plan.stage || "full";
+    const incomingStage = permit.plan.stage || "basics";
     const existingSession = await dependencies.collectionSessions.getOwned(
       permit.attemptId,
       dependencies.environmentId,
@@ -106,9 +106,9 @@
       ? {
           ...current,
           permit: ownerPermit,
-          stage: ownerPermit.plan.stage || current.stage || "full",
+          stage: ownerPermit.plan.stage || current.stage || "basics",
           currentAttemptId: ownerAttemptId,
-          currentStage: ownerPermit.plan.stage || current.currentStage || current.stage || "full",
+          currentStage: ownerPermit.plan.stage || current.currentStage || current.stage || "basics",
           status: server.state === "COMPLETE" && !rootNeedsDetails ? "done" : "running",
           error: null,
           nextAllowedAt,
@@ -119,9 +119,9 @@
           rootAttemptId: permitRoot,
           channelAccountId,
           permit: ownerPermit,
-          stage: ownerPermit.plan.stage || "full",
+          stage: ownerPermit.plan.stage || "basics",
           currentAttemptId: ownerAttemptId,
-          currentStage: ownerPermit.plan.stage || "full",
+          currentStage: ownerPermit.plan.stage || "basics",
           status: server.state === "COMPLETE" && !rootNeedsDetails ? "done" : "running",
           phase: "discovery",
           currentPage: 0,
@@ -383,7 +383,7 @@
       headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
       body: JSON.stringify({
         collectorVersion: state.permit.plan.collectorVersion,
-        ...(stage !== "full" ? { stage } : {}),
+        stage,
         ...(stage === "details" ? { expectedBasicAttemptId: rootAttemptId(state) } : {}),
       }),
     });
@@ -432,7 +432,7 @@
     if (permit.plan.detailsIdempotencyKey !== undefined) {
       requiredUuid(permit.plan.detailsIdempotencyKey, "detailsIdempotencyKey");
     }
-    if ((permit.plan.stage || "full") === "basics" && permit.plan.rootAttemptId &&
+    if ((permit.plan.stage || "basics") === "basics" && permit.plan.rootAttemptId &&
       permit.plan.rootAttemptId !== permit.attemptId) {
       throw new Error("기본 수집 계획의 rootAttemptId가 일치하지 않습니다");
     }

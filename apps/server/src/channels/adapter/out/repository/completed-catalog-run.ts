@@ -21,9 +21,9 @@ import {
 } from '@kiditem/shared/sabangnet-mall-listings';
 
 /**
- * Raw source markers only a catalog owner publication writes on an option: a
- * browser full-catalog or basics publication at completion, or a details
- * chunk of the child of a completed basics run.
+ * Raw source markers only a catalog owner publication writes on an option: the
+ * basics or details terminal of a browser import. `coupang_catalog_browser`
+ * remains on rows the removed full stage wrote.
  */
 const PUBLISHED_CATALOG_OPTION_SOURCES = [
   'coupang_catalog_browser',
@@ -108,73 +108,22 @@ export function publishedCatalogOptionWhere(
 
 /**
  * Counts an account's active listings whose catalog identity is published: the
- * last import is a completed catalog run, or the details child of a completed
- * basics run. A details publication moves each enriched listing onto its child
- * run while the child is running and leaves it there if the child fails; those
- * listings keep the completed basics identity. No other running or failed run
- * publishes a countable listing.
+ * last import is a completed catalog run. Details write listings only in their
+ * terminal transaction (KID-348), so no running or failed run publishes a
+ * countable listing.
  */
 export async function countPublishedCatalogListings(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; channelAccountId: string },
 ): Promise<number> {
   const { organizationId, channelAccountId } = input;
-  const listingScope = {
-    organizationId,
-    channelAccountId,
-    isActive: true,
-  } satisfies Prisma.ChannelListingWhereInput;
-  const unfinishedDetails = await tx.sourceImportRun.findMany({
+  const completedRunIds = await readCompletedCatalogRunIds(tx, { organizationId, channelAccountId });
+  return tx.channelListing.count({
     where: {
       organizationId,
       channelAccountId,
-      sourceType: CATALOG_DETAILS_SOURCE,
-      parserVersion: CATALOG_PARSER,
-      status: { not: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-    },
-    select: { id: true, plan: true },
-  });
-  const referencedUnfinishedDetails = unfinishedDetails.length === 0
-    ? new Set<string>()
-    : new Set((await tx.channelListing.findMany({
-        where: {
-          ...listingScope,
-          lastImportRunId: { in: unfinishedDetails.map(({ id }) => id) },
-        },
-        select: { lastImportRunId: true },
-      })).flatMap(({ lastImportRunId }) => lastImportRunId ? [lastImportRunId] : []));
-  const rootByDetails = new Map(unfinishedDetails
-    .filter((details) => referencedUnfinishedDetails.has(details.id))
-    .flatMap((details) => {
-      const rootAttemptId = rootAttemptIdOf(details.plan);
-      return rootAttemptId ? [[details.id, rootAttemptId] as const] : [];
-    }));
-  const completedBasics = rootByDetails.size === 0
-    ? new Set<string>()
-    : new Set((await tx.sourceImportRun.findMany({
-        where: {
-          ...completedCatalogRunWhere(organizationId, channelAccountId),
-          id: { in: [...new Set(rootByDetails.values())] },
-          sourceType: CATALOG_BASICS_SOURCE,
-        },
-        select: { id: true },
-      })).map(({ id }) => id));
-  const admittedDetails = [...rootByDetails]
-    .filter(([, rootAttemptId]) => completedBasics.has(rootAttemptId))
-    .map(([detailsId]) => detailsId);
-  const completedRunIds = await readCompletedCatalogRunIds(tx, { organizationId, channelAccountId });
-  const publishedRunIds = [...new Set([...completedRunIds, ...admittedDetails])];
-  return tx.channelListing.count({
-    where: {
-      ...listingScope,
-      lastImportRunId: { in: publishedRunIds },
+      isActive: true,
+      lastImportRunId: { in: completedRunIds },
     },
   });
-}
-
-/** The basics attempt a details child was admitted for, as the owner pins it. */
-function rootAttemptIdOf(plan: Prisma.JsonValue | null): string | null {
-  if (plan === null || typeof plan !== 'object' || Array.isArray(plan)) return null;
-  const rootAttemptId = (plan as Record<string, Prisma.JsonValue>).rootAttemptId;
-  return typeof rootAttemptId === 'string' ? rootAttemptId : null;
 }

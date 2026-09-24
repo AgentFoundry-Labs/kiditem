@@ -138,6 +138,9 @@ describe('parseCoupangWingWorkbook', () => {
         modelNumber: 'MODEL-1',
         barcode: '001234567890',
         attributesJson: [],
+        searchTags: [],
+        exposedProductId: null,
+        adult: null,
         rawJson: {
           등록상품ID: '00001234',
           등록상품명: '등록 상품',
@@ -184,8 +187,8 @@ describe('parseCoupangWingWorkbook', () => {
     ]));
 
     expect(parsed.rows[0]?.attributesJson).toEqual([
-      { type: '색상', value: '파랑' },
-      { type: '재질', value: '실리콘' },
+      { kind: 'search', type: '색상', value: '파랑' },
+      { kind: 'search', type: '재질', value: '실리콘' },
     ]);
   });
 
@@ -364,6 +367,57 @@ describe('parseCoupangWingWorkbook', () => {
     expect(errorMessage(() =>
       parseCoupangWingWorkbook(workbookBuffer(twoParentRows)),
     )).toContain('서로 다른 등록상품');
+  });
+
+  it('normalizes search tags, purchase options with their attribute IDs, exposure ID and adult flag (KID-349)', () => {
+    const headers = [
+      ...REQUIRED_HEADERS,
+      '검색어',
+      '노출상품ID',
+      '성인상품여부(Y/N)',
+      '[1001]색상\n(필수)',
+      '[2002]수량',
+      '[안내]구매옵션',
+      '검색옵션유형1',
+      '검색옵션값1',
+    ];
+    const row = (skuId: string, color: string, count: string, tags: string, adult: string) =>
+      headers.map((header) => {
+        if (header === '등록상품ID') return 'P-1';
+        if (header === '옵션 ID') return skuId;
+        if (header === '검색어') return tags;
+        if (header === '노출상품ID') return `EXP-${skuId}`;
+        if (header === '성인상품여부(Y/N)') return adult;
+        if (header === '[1001]색상\n(필수)') return color;
+        if (header === '[2002]수량') return count;
+        if (header === '[안내]구매옵션') return '숫자 ID가 아닌 칸은 구매옵션이 아니다';
+        if (header === '검색옵션유형1') return '재질';
+        if (header === '검색옵션값1') return '플라스틱';
+        return '';
+      });
+
+    const parsed = parseCoupangWingWorkbook(workbookBuffer([
+      ['title'], [], [], headers,
+      row('S-A', '빨강', '1개', ' 블록, 장난감 ,,블록 ', 'N'),
+      row('S-B', '', '', '', ''),
+    ]));
+
+    expect(parsed.rows[0]).toMatchObject({
+      searchTags: ['블록', '장난감'],
+      exposedProductId: 'EXP-S-A',
+      adult: false,
+      attributesJson: [
+        { kind: 'search', type: '재질', value: '플라스틱' },
+        { kind: 'purchase', type: '색상', value: '빨강', attributeTypeId: '1001' },
+        { kind: 'purchase', type: '수량', value: '1개', attributeTypeId: '2002' },
+      ],
+    });
+    // 빈 구매옵션 칸은 속성으로 싣지 않는다 — 저장값을 지우는 관측이 아니다.
+    expect(parsed.rows[1]).toMatchObject({
+      searchTags: [],
+      adult: null,
+      attributesJson: [{ kind: 'search', type: '재질', value: '플라스틱' }],
+    });
   });
 
   it('rejects conflicting nonblank normalized parent metadata but allows raw exposure IDs to differ', () => {

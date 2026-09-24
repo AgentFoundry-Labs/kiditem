@@ -14,7 +14,7 @@ export interface ChannelCatalogCollectionRunRecord {
   idempotencyKey: string;
   expiresAt: Date;
   plan: unknown;
-  stage?: CoupangCatalogStage;
+  stage: CoupangCatalogStage;
   status: string;
   rowCount: number;
   errorCount: number;
@@ -40,8 +40,10 @@ export interface ChannelCatalogCollectionRepositoryPort {
     channelAccountId: string;
     idempotencyKey: string;
     collectorVersion: string;
-    stage?: CoupangCatalogStage;
+    stage: CoupangCatalogStage;
     expectedBasicAttemptId?: string;
+    /** 운영자가 지목한 상품만 상세를 다시 받는 details 시도 (KID-348). */
+    detailProductIds?: string[];
   }): Promise<ChannelCatalogCollectionRunRecord>;
 
   getOwnedRunWithChunks(input: {
@@ -111,7 +113,7 @@ export interface ChannelCatalogCollectionRepositoryPort {
     runId: string;
   }): Promise<void>;
 
-  /** The account's most recent browser import root: a basics attempt, or a legacy full one. */
+  /** The account's most recent browser import root: its basics attempt or a single-product details refetch. */
   findLatestRootAttempt(input: {
     organizationId: string;
     channelAccountId: string;

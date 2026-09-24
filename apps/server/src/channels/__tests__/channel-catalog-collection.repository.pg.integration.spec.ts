@@ -30,11 +30,6 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
     repository = new ChannelCatalogCollectionRepositoryAdapter(
       prisma as unknown as PrismaService,
       alerts,
-      {
-        publishDetailChunk: async () => {
-          throw new Error('full-details publication is not part of this legacy repository fixture');
-        },
-      } as never,
     );
   });
 
@@ -56,6 +51,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       channelAccountId: WING_ACCOUNT_ID,
       idempotencyKey,
       collectorVersion: '1.0.0',
+      stage: 'basics',
     });
     const resumed = await repository.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
@@ -63,6 +59,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       channelAccountId: WING_ACCOUNT_ID,
       idempotencyKey,
       collectorVersion: '1.0.0',
+      stage: 'basics',
     });
     const secondAccount = await repository.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
@@ -70,6 +67,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       channelAccountId: SECOND_WING_ACCOUNT_ID,
       idempotencyKey: randomUUID(),
       collectorVersion: '1.0.0',
+      stage: 'basics',
     });
 
     expect(resumed.id).toBe(first.id);
@@ -90,6 +88,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       channelAccountId: WING_ACCOUNT_ID,
       idempotencyKey: randomUUID(),
       collectorVersion: '1.0.0',
+      stage: 'basics' as const,
     };
     const run = await repository.startOrResume(input);
     const pause = {
@@ -149,6 +148,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       channelAccountId: WING_ACCOUNT_ID,
       idempotencyKey: randomUUID(),
       collectorVersion: '1.0.0',
+      stage: 'basics' as const,
     };
     const run = await repository.startOrResume(input);
     await repository.markPaused({
@@ -175,6 +175,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       channelAccountId: WING_ACCOUNT_ID,
       idempotencyKey: randomUUID(),
       collectorVersion: '1.0.0',
+      stage: 'basics' as const,
     };
     const run = await repository.startOrResume(input);
     const pause = {
@@ -251,6 +252,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
         channelAccountId: WING_ACCOUNT_ID,
         idempotencyKey: randomUUID(),
         collectorVersion: '1.0.0',
+        stage: 'basics',
       }),
     ).resolves.toMatchObject({ status: 'running' });
   });
@@ -268,7 +270,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
         createdBy: TEST_USER_ID,
       },
     });
-    for (const stage of ['full', 'basics'] as const) {
+    for (const stage of ['basics'] as const) {
       const blocked = await repository.startOrResume({
         organizationId: TEST_ORGANIZATION_ID,
         userId: TEST_USER_ID,
@@ -289,6 +291,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       channelAccountId: SECOND_WING_ACCOUNT_ID,
       idempotencyKey: randomUUID(),
       collectorVersion: '1.0.0',
+      stage: 'basics',
     });
     expect(otherAccount.status).toBe('running');
 
@@ -344,7 +347,7 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
       channelAccountId: WING_ACCOUNT_ID,
       runId: run.id,
       attemptToken: run.attemptToken,
-      kind: 'product_details' as const,
+      kind: 'listing_basics' as const,
       sequence: 3,
       itemCount: 1,
       payload: { items: [{ externalProductId: '123' }] },
@@ -379,8 +382,8 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
   });
 
   it.each([
-    { stage: 'full' as const, kind: 'listing_basics' as const },
-    { stage: 'basics' as const, kind: 'product_details' as const },
+    { stage: 'basics' as const, kind: 'full_details' as const },
+    { stage: 'basics' as const, kind: 'deletion_confirmation' as const },
   ])('rejects a %s receipt kind before inserting the chunk', async ({ stage, kind }) => {
     const run = await repository.startOrResume({
       organizationId: TEST_ORGANIZATION_ID,
@@ -422,6 +425,7 @@ async function startRun(repository: ChannelCatalogCollectionRepositoryAdapter) {
     channelAccountId: WING_ACCOUNT_ID,
     idempotencyKey: randomUUID(),
     collectorVersion: '1.0.0',
+    stage: 'basics',
   });
 }
 

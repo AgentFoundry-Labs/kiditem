@@ -26,7 +26,7 @@ import { ChannelListingQueryService } from '../application/service/listing/chann
 import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { lockProductMapping } from '../../products/transaction/product-mapping-lock';
 import type {
-  CoupangCatalogProductV1,
+  CoupangCatalogBasicProductV1,
   PutCoupangCatalogChunkRequest,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
@@ -61,7 +61,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
     new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     collection = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
+      new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts),
       publisher, channelIntegrity,
     );
     listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never), realRegistrationStates(prisma as never));
@@ -88,7 +88,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
       ...scope,
       userId: USER,
       idempotencyKey: randomUUID(),
-      request: { collectorVersion },
+      request: { collectorVersion, stage: 'basics' },
     });
     tokens.set(permit.attemptId, permit.attemptToken);
     return permit;
@@ -112,14 +112,14 @@ describe('Wing catalog private staging and atomic publication (public service + 
         payload,
         checksum: hashCatalogChunkPayload(payload, channelIntegrity.sha256),
         itemCount:
-          payload.kind === 'product_details'
+          payload.kind === 'listing_basics'
             ? payload.products.length
             : payload.kind === 'discovery_page'
               ? payload.items.length
               : 1,
       } as PutCoupangCatalogChunkRequest,
     });
-  async function stage(products: CoupangCatalogProductV1[], collectorVersion?: string) {
+  async function stage(products: CoupangCatalogBasicProductV1[], collectorVersion?: string) {
     const run = await start(collectorVersion);
     const manifest = {
       totalItems: products.length,
@@ -145,7 +145,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
     for (let offset = 0; offset < products.length; offset += 10) {
       await upload(run.attemptId, offset + 1, {
         version: 1,
-        kind: 'product_details',
+        kind: 'listing_basics',
         startOrdinal: offset,
         products: products
           .slice(offset, offset + 10)
@@ -158,6 +158,9 @@ describe('Wing catalog private staging and atomic publication (public service + 
       manifest,
     });
   }
+  // 완료된 목록 단계는 상세 넘겨받기가 남아 계정의 가져오기를 잡고 있다. 다음 목록 단계 전에
+  // 운영자 중단으로 그 가져오기를 끝낸다 (상세 자식이 열리고 바로 중단된다).
+  const endImport = (runId: string) => collection.cancel({ ...scope, userId: USER, runId });
   const finalize = (runId: string, snapshotHash: string) =>
     collection.finalize({
       ...scope,
@@ -166,11 +169,11 @@ describe('Wing catalog private staging and atomic publication (public service + 
       attemptToken: tokens.get(runId)!,
       request: { snapshotHash },
     });
-  it('accepts product details privately without changing visible catalog or media', async () => {
+  it('accepts listing basics privately without changing visible catalog or media', async () => {
     const run = await start();
     const payload = {
       version: 1 as const,
-      kind: 'product_details' as const,
+      kind: 'listing_basics' as const,
       startOrdinal: 0,
       products: [{ ordinal: 0, product: product('P1') }],
     };
@@ -229,19 +232,22 @@ describe('Wing catalog private staging and atomic publication (public service + 
     expect(await current()).toEqual(visible);
   });
   it('publishes a new A → B → A collection instead of returning a historical receipt', async () => {
+    // KID-348: 목록 단계는 사라진 상품을 끄지 않는다(삭제 확인으로만). B 뒤에도 A의 상품이 보인다.
     const a = [product('P1'), product('P2')];
     const first = await stage(a);
     const firstComplete = await finalize(first.attemptId, first.snapshotHash!);
+    await endImport(first.attemptId);
     const second = await stage([product('P3')]);
     const secondComplete = await finalize(second.attemptId, second.snapshotHash!);
-    expect((await current()).items.map((item) => item.externalId)).toEqual(['P3']);
+    await endImport(second.attemptId);
+    expect((await current()).items.map((item) => item.externalId).sort()).toEqual(['P1', 'P2', 'P3']);
     const third = await stage(a);
     const thirdComplete = await finalize(third.attemptId, third.snapshotHash!);
     expect(thirdComplete.publication).toMatchObject({ duplicate: false });
     expect(thirdComplete.publication!.sourceImportRunId).not.toBe(
       firstComplete.publication!.sourceImportRunId,
     );
-    expect((await current()).items.map((item) => item.externalId).sort()).toEqual(['P1', 'P2']);
+    expect((await current()).items.map((item) => item.externalId).sort()).toEqual(['P1', 'P2', 'P3']);
     const receipts = [firstComplete, secondComplete, thirdComplete].map(
       (run) => run.publication!.sourceImportRunId,
     );
@@ -297,12 +303,12 @@ describe('Wing catalog private staging and atomic publication (public service + 
       await expect(
         upload(ready.attemptId, 2, {
           version: 1,
-          kind: 'product_details',
+          kind: 'listing_basics',
           startOrdinal: 1,
           products: [{ ordinal: 1, product: product('P2') }],
         }),
       ).rejects.toMatchObject({
-        message: 'Hydrated product does not match discovery ordinal 1',
+        message: 'Basic product does not match discovery ordinal 1',
       });
     } finally {
       unlock();
@@ -314,11 +320,12 @@ describe('Wing catalog private staging and atomic publication (public service + 
   it('keeps the previous catalog and selected media when an incomplete final is rejected', async () => {
     const baseline = await stage([product('P1')]);
     await finalize(baseline.attemptId, baseline.snapshotHash!);
+    await endImport(baseline.attemptId);
     const visible = await current();
     const partial = await start();
     await upload(partial.attemptId, 1, {
       version: 1,
-      kind: 'product_details',
+      kind: 'listing_basics',
       startOrdinal: 0,
       products: [{ ordinal: 0, product: product('P2') }],
     });
@@ -339,7 +346,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
         where: {
           organizationId: ORG,
           scrapeRun: { sourceImportRunId: ready.attemptId },
-          kind: 'product_details',
+          kind: 'listing_basics',
         },
         data: corruption,
       });
@@ -352,6 +359,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
   it('rolls back canonical identity and media work when the final collection write fails', async () => {
     const baseline = await stage([product('P1'), product('P2')]);
     await finalize(baseline.attemptId, baseline.snapshotHash!);
+    await endImport(baseline.attemptId);
     const visible = await current();
     const replacement = product('P1', 'replacement');
     replacement.media[0]!.sourceUrl = 'https://example.com/replacement.jpg';
@@ -369,7 +377,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
     expect((await finalize(ready.attemptId, ready.snapshotHash!)).state).toBe('COMPLETE');
     expect(await current()).not.toEqual(visible);
   });
-  it('measures a full finalization of 1000 products, 3000 options and 1000 media', async () => {
+  it('measures a basics finalization of 1000 products, 3000 options and 1000 media', async () => {
     const products = Array.from({ length: 1000 }, (_, i) => {
       const p = product(`P${i}`);
       p.options = Array.from({ length: 3 }, (_, j) => ({
@@ -402,7 +410,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
     new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     const owner = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts, measuredPublisher),
+      new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts),
       measuredPublisher, channelIntegrity,
     );
     try {
@@ -416,7 +424,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
       });
       const elapsedMs = Math.round(performance.now() - started);
       process.stdout.write(
-        `WING_FULL_FINALIZATION_MEASUREMENT ${JSON.stringify({
+        `WING_BASICS_FINALIZATION_MEASUREMENT ${JSON.stringify({
           products: 1000,
           options: 3000,
           media: 1000,
@@ -436,6 +444,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
         publishedMediaCount: 1000,
       });
       expect((await current()).total).toBe(1000);
+      await endImport(ready.attemptId);
       const refresh = await stage(products);
       statements.length = 0;
       const refreshStarted = performance.now();
@@ -447,7 +456,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
         request: { snapshotHash: refresh.snapshotHash! },
       });
       process.stdout.write(
-        `WING_FULL_REFRESH_MEASUREMENT ${JSON.stringify({
+        `WING_BASICS_REFRESH_MEASUREMENT ${JSON.stringify({
           products: 1000,
           options: 3000,
           media: 1000,
@@ -472,7 +481,7 @@ describe('Wing catalog private staging and atomic publication (public service + 
   }, 120_000);
 });
 
-function product(id: string, name = id): CoupangCatalogProductV1 {
+function product(id: string, name = id): CoupangCatalogBasicProductV1 {
   return {
     externalProductId: id,
     registeredName: name,

@@ -6,6 +6,7 @@ import type {
   ListingStateFact,
   ListingSaleStatusFact,
 } from '../../../../domain/listing/observation-facts';
+import type { StoredListingAttribute } from '../../../../domain/collection/channel-listing-attributes';
 export const CHANNEL_LISTING_QUERY_PORT = Symbol('CHANNEL_LISTING_QUERY_PORT');
 
 export type ChannelListingSort = 'newest' | 'oldest' | 'name_asc';
@@ -43,7 +44,8 @@ export interface ChannelListingProviderDetail {
     barcode: string | null;
     modelNumber: string | null;
     status: string | null;
-    attributes: unknown;
+    /** kind별 속성(구매·검색, KID-349). 옛 `{type, value}` 행은 구매속성으로 읽힌다. */
+    attributes: StoredListingAttribute[];
   }>;
   media: Array<{
     sourceUrl: string;
