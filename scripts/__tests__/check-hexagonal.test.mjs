@@ -134,3 +134,11 @@ test('a known violation cannot allow a non-adapter rule or another owner (KID-31
   const channels = 'channels/application/service/listing/a.ts';
   assert.ok(evaluateHexagonal([{ file: channels, source: readerImport }], [{ ...listed, file: channels }]).length >= 2);
 });
+
+test('finance joins the scanner with the same exact known-violation list (KID-311)', () => {
+  const settlements = 'finance/application/service/settlement/settlements.service.ts';
+  const source = "import { x } from '../../../adapter/out/persistence/read/settlement/settlement-facts';";
+  const entry = { owner: 'finance', file: settlements, specifier: '../../../adapter/out/persistence/read/settlement/settlement-facts', removeWith: 'KID-334' };
+  assert.deepEqual(evaluateHexagonal([{ file: settlements, source }], [entry]), []);
+  assert.equal(evaluateHexagonal([{ file: settlements, source }], []).length, 1);
+});

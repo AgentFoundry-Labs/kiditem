@@ -17,7 +17,7 @@ const builtins = new Set(builtinModules.map(name => name.replace(/^node:/, '')))
 // application/, domain/) is the pre-hexagonal shape; application/service/ is
 // the correct nested location and is not matched by this check.
 const RETIRED_TOP_LEVEL_DIRS = new Set(['read', 'mapper', 'service']);
-const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders'];
+const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders', 'finance'];
 
 // KID-311: pure-layer adapter imports that predate an owner's move into the
 // scanner. Each entry allows exactly one { file, specifier } pair (file is
@@ -139,5 +139,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const roots = HEXAGONAL_DOMAINS.map(name => path.join(serverSrc, name));
   const violations = scanHexagonalDomains(roots, serverSrc);
   if (violations.length) { console.error(violations.join('\n')); process.exitCode = 1; }
-  else console.log('PASS: Channels/Sourcing/Content/Orders domain, application and business directories preserve hexagonal boundaries.');
+  else console.log('PASS: Channels/Sourcing/Content/Orders/Finance domain, application and business directories preserve hexagonal boundaries.');
 }
