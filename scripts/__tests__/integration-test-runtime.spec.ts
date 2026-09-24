@@ -57,6 +57,7 @@ describe('integration test runtime contract', () => {
     expect(readWorkflowJobNames(prWorkflowSource)).toEqual([
       'pr-hygiene',
       'gateway_fast_checks',
+      'unit_tests',
       'script_contract_checks',
     ]);
     expect(prJobSource).toContain('runs-on: ubuntu-latest');
@@ -170,10 +171,33 @@ describe('integration test runtime contract', () => {
       'run: npm run test:scripts',
     ]);
     expect(scriptJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
-    expect(workflowSource.match(/^\s*DATABASE_URL:/gm)).toHaveLength(1);
+    expect(scriptJob.match(/^\s*DATABASE_URL:/gm)).toHaveLength(1);
     expect(generateStep).toBeGreaterThan(-1);
     expect(databaseUrlLine).toBeGreaterThan(generateStep);
     expect(databaseUrlLine).toBeLessThan(jobLines.indexOf('run: npx prisma generate'));
+  });
+
+  // KID-312: shared and server unit specs had no PR gate; PG integration stays
+  // in develop-validation.yml because it needs Testcontainers.
+  it('runs the shared and server unit suites on PRs without a database', () => {
+    const workflowSource = readRepoFile('.github/workflows/pr-checks.yml');
+    const unitJob = readWorkflowJobSource(workflowSource, 'unit_tests');
+    const jobLines = unitJob.split('\n').map((line) => line.trim());
+
+    expect(jobLines).toContain('runs-on: ubuntu-latest');
+    expect(jobLines).toContain('contents: read');
+    expect(jobLines).toContain('node-version: 22');
+    expect(jobLines.filter((line) => line.startsWith('run:') || line.startsWith('npm '))).toEqual([
+      'run: npm ci --ignore-scripts',
+      'run: npx prisma generate',
+      'run: |',
+      'npm run build --workspace=packages/copilotkit-sqlite-runner',
+      'npm run build --workspace=packages/templates',
+      'run: npm exec --workspace=packages/shared vitest -- run',
+      'run: npm exec --workspace=apps/server vitest -- run',
+    ]);
+    expect(unitJob).not.toContain('test:integration');
+    expect(unitJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
   });
 
   it('removes the legacy fixed-port database lifecycle files', () => {
