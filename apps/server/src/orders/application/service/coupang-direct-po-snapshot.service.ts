@@ -3,7 +3,7 @@ import type {
   CoupangDirectPoSnapshotEntry,
   CoupangDirectPoSnapshotResponse,
 } from '@kiditem/shared/coupang-direct-order';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 
 /**
  * 쿠팡직배송 발주 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 마지막 수집분을

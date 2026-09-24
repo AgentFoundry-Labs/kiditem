@@ -1,4 +1,4 @@
-// apps/server/src/orders/dto/list-reviews.dto.ts
+// apps/server/src/orders/adapter/in/web/dto/list-reviews.dto.ts
 import { Transform } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 

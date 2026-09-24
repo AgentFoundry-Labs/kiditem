@@ -43,8 +43,8 @@ describe('Orders stock boundary', () => {
   });
 
   it('does not register a duplicate Rocket purchase-decision backend', () => {
-    expect(existsSync(path.join(ORDERS_ROOT, 'controllers/rocket-po.controller.ts'))).toBe(false);
-    expect(existsSync(path.join(ORDERS_ROOT, 'services/rocket-po-confirm.service.ts'))).toBe(false);
+    expect(existsSync(path.join(ORDERS_ROOT, 'adapter/in/web/rocket-po.controller.ts'))).toBe(false);
+    expect(existsSync(path.join(ORDERS_ROOT, 'application/service/rocket-po-confirm.service.ts'))).toBe(false);
 
     const moduleSource = readFileSync(path.join(ORDERS_ROOT, 'orders.module.ts'), 'utf8');
     expect(moduleSource).not.toContain('RocketPoController');

@@ -3,14 +3,14 @@ import { computeSummary, ReviewsService } from '../reviews.service';
 import {
   readCurrentReviewListingAggregates,
   readCurrentReviewRecentCounts,
-} from '../../read/review-facts.reader';
+} from '../../../adapter/out/persistence/read/review-facts.reader';
 import {
   readListingOptionOrderFacts,
   readObservedOrderBounds,
   readOrderWindowFacts,
-} from '../../read/order-facts.reader';
+} from '../../../adapter/out/persistence/read/order-facts.reader';
 
-vi.mock('../../read/review-facts.reader', () => ({
+vi.mock('../../../adapter/out/persistence/read/review-facts.reader', () => ({
   readCurrentReviewContentCount: vi.fn(),
   readCurrentReviewItemCount: vi.fn(),
   readCurrentReviewItems: vi.fn(),
@@ -19,13 +19,13 @@ vi.mock('../../read/review-facts.reader', () => ({
   readCurrentReviewRatingCounts: vi.fn(),
   readCurrentReviewRecentCounts: vi.fn(),
 }));
-vi.mock('../../read/order-facts.reader', () => ({
+vi.mock('../../../adapter/out/persistence/read/order-facts.reader', () => ({
   ORDER_FACT_EXCLUDED_STATUSES: ['cancelled', 'returned', 'refunded'],
   readListingOptionOrderFacts: vi.fn(),
   readObservedOrderBounds: vi.fn(),
   readOrderWindowFacts: vi.fn(),
 }));
-vi.mock('../../../products/adapter/out/persistence/read/product-abc-publication.reader', () => ({
+vi.mock('../../../../products/adapter/out/persistence/read/product-abc-publication.reader', () => ({
   readPublishedProductAbcGrades: vi.fn().mockResolvedValue(new Map()),
 }));
 

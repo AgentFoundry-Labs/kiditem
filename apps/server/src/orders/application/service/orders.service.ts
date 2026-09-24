@@ -1,15 +1,15 @@
 import { Inject, Injectable, NotFoundException, BadRequestException, NotImplementedException } from '@nestjs/common';
 import { OrderStatusSchema } from '@kiditem/shared/order';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import {
   readOrderByIdFact,
   readOrderListFacts,
   readOrderStatusCounts,
   readOrderWindowFacts,
   type OrderWindowFacts,
-} from '../read/order-facts.reader';
-import { addDays, kstBusinessDate, kstDayStart } from '../../common/kst';
-import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
+} from '../../adapter/out/persistence/read/order-facts.reader';
+import { addDays, kstBusinessDate, kstDayStart } from '../../../common/kst';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../channels/application/port/in/account/channel-account.port';
 import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
 
 @Injectable()

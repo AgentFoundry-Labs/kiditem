@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import officeCrypto = require('officecrypto-tool');
 import * as XLSX from 'xlsx';
 
-import type { MulterFile } from '../../../common/types';
+import type { MulterFile } from '../../../../common/types';
 import { OrderCollectionService } from '../order-collection.service';
 
 const SOURCE_HEADERS = [

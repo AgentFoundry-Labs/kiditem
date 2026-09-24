@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import type { AuthUser } from '../../auth/auth.types';
-import { ROLES_METADATA_KEY } from '../../auth/decorators/roles.decorator';
-import type { SellpiaOrderTransmissionPort } from '../application/port/in/sellpia-order-transmission.port';
+import type { AuthUser } from '../../../../auth/auth.types';
+import { ROLES_METADATA_KEY } from '../../../../auth/decorators/roles.decorator';
+import type { SellpiaOrderTransmissionPort } from '../../../application/port/in/sellpia-order-transmission.port';
 import { SellpiaOrderTransmissionController } from './sellpia-order-transmission.controller';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';

@@ -75,8 +75,7 @@
 4 apps/server/src/inventory/adapter/out/persistence/sellpia-import-run.repository.adapter.spec.ts
 8 apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.spec.ts
 4 apps/server/src/inventory/application/usecase/sellpia-inventory-import.service.spec.ts
-3 apps/server/src/orders/mapper/coupang-direct-order.mapper.spec.ts
-3 apps/server/src/orders/services/__tests__/order-collection-mall-account.service.spec.ts
+3 apps/server/src/orders/domain/coupang-direct-order.mapper.spec.ts
 1 apps/server/src/products/application/service/master-product-abc.service.spec.ts
 3 apps/server/src/products/application/service/product-operations-data-status.service.spec.ts
 9 apps/server/src/products/application/service/product-operations.service.spec.ts

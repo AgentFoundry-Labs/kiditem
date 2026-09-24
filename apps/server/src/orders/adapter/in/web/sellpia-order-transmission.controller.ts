@@ -1,16 +1,16 @@
 import { Body, Controller, Inject, Post } from '@nestjs/common';
-import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import { Roles } from '../../auth/decorators/roles.decorator';
-import type { AuthUser } from '../../auth/auth.types';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import { Roles } from '../../../../auth/decorators/roles.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 import {
   SELLPIA_ORDER_TRANSMISSION_PORT,
   type SellpiaOrderTransmissionPort,
-} from '../application/port/in/sellpia-order-transmission.port';
+} from '../../../application/port/in/sellpia-order-transmission.port';
 import {
   SellpiaOrderTransmissionIntentReconcileRequestDto,
   SellpiaOrderTransmissionIntentRequestDto,
-} from '../dto/sellpia-order-transmission.dto';
+} from './dto/sellpia-order-transmission.dto';
 
 @Controller('orders/sellpia-transmissions/intents')
 export class SellpiaOrderTransmissionController {

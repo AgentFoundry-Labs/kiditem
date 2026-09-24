@@ -1,16 +1,16 @@
 import { channelFactTestPorts } from '../../../../../test-helpers/channel-fact-ports';
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../../../../../prisma/prisma.service";
-import { readOrderLineWindowFacts } from "../../../../../orders/read/order-facts.reader";
+import { readOrderLineWindowFacts } from "../../../../../orders/adapter/out/persistence/read/order-facts.reader";
 import { ProfitCalculationRepositoryAdapter } from "./profit-calculation.repository.adapter";
 import { periodOf } from "../../../__tests__/test-helpers/period";
 import { ProductTransactionalReadRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-transactional-read.repository.adapter";
 
 vi.mock(
-  "../../../../../orders/read/order-facts.reader",
+  "../../../../../orders/adapter/out/persistence/read/order-facts.reader",
   async (importOriginal) => ({
     ...(await importOriginal<
-      typeof import("../../../../../orders/read/order-facts.reader")
+      typeof import("../../../../../orders/adapter/out/persistence/read/order-facts.reader")
     >()),
     readOrderLineWindowFacts: vi.fn(),
   }),

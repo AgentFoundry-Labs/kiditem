@@ -22,7 +22,7 @@ import { businessDateKey, kstBusinessDate } from '../../../../common/kst';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
-import { ReviewIngestService } from '../../../services/review-ingest.service';
+import { ReviewIngestService } from '../../../application/service/review-ingest.service';
 import {
   COUPANG_REVIEW_COLLECTION_MAX_MONTHS,
   COUPANG_REVIEW_COLLECTION_MAX_PAGES,

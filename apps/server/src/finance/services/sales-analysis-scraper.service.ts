@@ -15,7 +15,7 @@ import {
 import {
   readObservedOrderBounds,
   readObservedOrderCount,
-} from '../../orders/read/order-facts.reader';
+} from '../../orders/adapter/out/persistence/read/order-facts.reader';
 import { readAdWindowFacts } from '../../advertising/read/ad-target-facts';
 import type {
   AdTrafficSourceAccountDaily,

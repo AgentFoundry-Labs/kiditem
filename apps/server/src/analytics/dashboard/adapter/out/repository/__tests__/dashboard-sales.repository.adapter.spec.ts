@@ -7,7 +7,7 @@ import {
 } from "@kiditem/shared/product-abc";
 import { DashboardSalesRepositoryAdapter } from "../dashboard-sales.repository.adapter";
 import { readProductAbcPublication } from "../../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
-import { readOrderLineWindowFacts } from "../../../../../../orders/read/order-facts.reader";
+import { readOrderLineWindowFacts } from "../../../../../../orders/adapter/out/persistence/read/order-facts.reader";
 import { readCurrentSellpiaProductMonthlyFacts } from "../../../../../sellpia-product-sales/read/sellpia-product-monthly-facts";
 import { businessDatesInWindow } from "../../../../domain/period/dashboard-period";
 
@@ -19,10 +19,10 @@ vi.mock(
   }),
 );
 vi.mock(
-  "../../../../../../orders/read/order-facts.reader",
+  "../../../../../../orders/adapter/out/persistence/read/order-facts.reader",
   async (importOriginal) => ({
     ...(await importOriginal<
-      typeof import("../../../../../../orders/read/order-facts.reader")
+      typeof import("../../../../../../orders/adapter/out/persistence/read/order-facts.reader")
     >()),
     readOrderLineWindowFacts: vi.fn(),
   }),

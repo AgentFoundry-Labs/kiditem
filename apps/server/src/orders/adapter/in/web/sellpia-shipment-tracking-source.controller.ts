@@ -16,15 +16,15 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import {
   SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
   type SellpiaShipmentTrackingSourcePort,
-} from '../application/port/in/sellpia-shipment-tracking-source.port';
+} from '../../../application/port/in/sellpia-shipment-tracking-source.port';
 import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import type { Response } from 'express';
-import type { AuthUser } from '../../auth/auth.types';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 type UploadedArtifact = {
   buffer: Buffer;

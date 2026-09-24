@@ -4,11 +4,11 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   readObservedOrderBounds,
   readObservedOrderCount,
-} from '../../../orders/read/order-facts.reader';
+} from '../../../orders/adapter/out/persistence/read/order-facts.reader';
 import { readAdWindowFacts } from '../../../advertising/read/ad-target-facts';
 import { SalesAnalysisScraperService } from '../sales-analysis-scraper.service';
 
-vi.mock('../../../orders/read/order-facts.reader', () => ({
+vi.mock('../../../orders/adapter/out/persistence/read/order-facts.reader', () => ({
   readObservedOrderBounds: vi.fn(),
   readObservedOrderCount: vi.fn(),
 }));

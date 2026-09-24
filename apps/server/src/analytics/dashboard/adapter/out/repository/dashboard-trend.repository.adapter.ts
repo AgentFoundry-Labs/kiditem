@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
-} from '../../../../../orders/read/order-facts.reader';
+} from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import type {
   DashboardTrendRepositoryPort,
   TrendRevenueRow,

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { canonicalOwnerInputHash } from "../../apps/server/src/common/owner-idempotency-key";
-import { canonicalCoupangDirectOrderHash } from "../../apps/server/src/orders/mapper/coupang-direct-order.mapper";
+import { canonicalCoupangDirectOrderHash } from "../../apps/server/src/orders/domain/coupang-direct-order.mapper";
 import {
   normalizedTransportProjectionForMigration,
   parseCaptureArtifactForMigration,

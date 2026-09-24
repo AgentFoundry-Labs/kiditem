@@ -1,27 +1,27 @@
-// apps/server/src/orders/services/reviews.service.ts
+// apps/server/src/orders/application/service/reviews.service.ts
 import { Inject, Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ownerTransaction } from '../../prisma/owner-transaction';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../prisma/owner-transaction';
 import {
   CHANNEL_LISTING_QUERY_PORT,
   type ChannelListingQueryPort,
-} from '../../channels/application/port/in/listing/channel-listing-query.port';
+} from '../../../channels/application/port/in/listing/channel-listing-query.port';
 import {
   CHANNEL_OPTION_RECIPE_PORT,
   type ChannelOptionRecipePort,
-} from '../../channels/application/port/in/channel-option-recipe.port';
+} from '../../../channels/application/port/in/channel-option-recipe.port';
 import {
   CHANNEL_ACCOUNT_PORT,
   type ChannelAccountPort,
-} from '../../channels/application/port/in/account/channel-account.port';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+} from '../../../channels/application/port/in/account/channel-account.port';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
-} from '../../products/application/port/in/product-transactional-read.port';
-import { readPublishedProductAbcGrades } from '../../products/adapter/out/persistence/read/product-abc-publication.reader';
-import { ListReviewsQueryDto, type ReviewFilter } from '../dto/list-reviews.dto';
-import { ListReviewItemsQueryDto } from '../dto/list-review-items.dto';
+} from '../../../products/application/port/in/product-transactional-read.port';
+import { readPublishedProductAbcGrades } from '../../../products/adapter/out/persistence/read/product-abc-publication.reader';
+import { ListReviewsQueryDto, type ReviewFilter } from '../../adapter/in/web/dto/list-reviews.dto';
+import { ListReviewItemsQueryDto } from '../../adapter/in/web/dto/list-review-items.dto';
 import {
   readCurrentReviewContentCount,
   readCurrentReviewItemCount,
@@ -31,13 +31,13 @@ import {
   readCurrentReviewRecentCounts,
   type CurrentReviewListingAggregate,
   type CurrentReviewItemFilter,
-} from '../read/review-facts.reader';
+} from '../../adapter/out/persistence/read/review-facts.reader';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readListingOptionOrderFacts,
   readObservedOrderBounds,
   readOrderWindowFacts,
-} from '../read/order-facts.reader';
+} from '../../adapter/out/persistence/read/order-facts.reader';
 import type {
   ReviewItem,
   ReviewItemListResponse,

@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ProfitCalculationRepositoryAdapter } from "../adapter/out/repository/profit-calculation.repository.adapter";
 import type { PrismaService } from "../../../prisma/prisma.service";
 import type { ProductTransactionalReadPort } from "../../../products/application/port/in/product-transactional-read.port";
-import { readOrderLineWindowFacts } from "../../../orders/read/order-facts.reader";
+import { readOrderLineWindowFacts } from "../../../orders/adapter/out/persistence/read/order-facts.reader";
 import {
   advertisingApplies,
   readAdWindowFacts,
@@ -12,9 +12,9 @@ import { businessDateKey, kstBusinessDate } from "../../../common/kst";
 import { businessDatesInWindow } from "../domain/period/dashboard-period";
 import { periodOf } from "./test-helpers/period";
 
-vi.mock("../../../orders/read/order-facts.reader", async (importOriginal) => ({
+vi.mock("../../../orders/adapter/out/persistence/read/order-facts.reader", async (importOriginal) => ({
   ...(await importOriginal<
-    typeof import("../../../orders/read/order-facts.reader")
+    typeof import("../../../orders/adapter/out/persistence/read/order-facts.reader")
   >()),
   readOrderLineWindowFacts: vi.fn(),
 }));

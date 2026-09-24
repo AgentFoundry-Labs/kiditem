@@ -5,7 +5,7 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
-} from '../../../test-helpers/real-prisma';
+} from '../../../../../../test-helpers/real-prisma';
 import {
   readOrderByIdFact,
   readOrderCountsByChannelAccount,
@@ -20,13 +20,13 @@ import {
   type OrderWindowInput,
 } from '../order-facts.reader';
 import type { Prisma, PrismaClient } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
-import type { ChannelAccountPort } from '../../../channels/application/port/in/account/channel-account.port';
-import { ChannelAccountService } from '../../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../../channels/adapter/out/persistence/channel-account.persistence.adapter';
-import { ChannelCredentialsAdapter } from '../../../channels/adapter/out/credentials/channel-credentials.adapter';
-import { ChannelsProductMappingGenerationAdapter } from "../../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { PrismaService } from '../../../../../../prisma/prisma.service';
+import type { ChannelAccountPort } from '../../../../../../channels/application/port/in/account/channel-account.port';
+import { ChannelAccountService } from '../../../../../../channels/application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../../../../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelCredentialsAdapter } from '../../../../../../channels/adapter/out/credentials/channel-credentials.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../../../../../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const ACCOUNT_ID = '71000000-0000-4000-8000-000000000001';
 const SECOND_ACCOUNT_ID = '71000000-0000-4000-8000-000000000002';

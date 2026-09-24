@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { PaginationQueryDto } from '../pagination.dto';
-import { OrderActionBodyDto } from '../../../orders/dto/order-action.dto';
+import { OrderActionBodyDto } from '../../../orders/adapter/in/web/dto/order-action.dto';
 import {
   PurchaseOrderActionBodyDto,
 } from '../../../supply/adapter/in/http/dto/purchase-order-action.dto';

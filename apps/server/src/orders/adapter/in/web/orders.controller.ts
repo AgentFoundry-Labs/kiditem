@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Param, Query, BadRequestException } from '@nestjs/common';
-import { OrdersService } from '../services/orders.service';
-import { ListOrdersQueryDto, OrderActionBodyDto } from '../dto';
-import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import { OrdersService } from '../../../application/service/orders.service';
+import { ListOrdersQueryDto, OrderActionBodyDto } from './dto';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 
 @Controller('orders')
 export class OrdersController {

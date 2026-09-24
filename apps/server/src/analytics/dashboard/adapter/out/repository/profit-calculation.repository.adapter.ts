@@ -35,7 +35,7 @@ import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
   type OrderWindowFacts,
-} from '../../../../../orders/read/order-facts.reader';
+} from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,

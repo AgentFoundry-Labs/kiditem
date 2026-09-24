@@ -7,7 +7,7 @@ import {
   readListingOptionOrderFacts,
   readOrderStatusCount,
   readOrderWindowFacts,
-} from '../../../../orders/read/order-facts.reader';
+} from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import type {
   ChannelDashboardSummary,
   RevenueTrendPoint,

@@ -10,7 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { findAutoBatchCandidates } from '../../content/adapter/out/repository/thumbnail-generation-ledger.query';
 import { buildPerListingProfit } from '../../common/per-listing-profit';
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
-import { ReviewsService } from '../../orders/services/reviews.service';
+import { ReviewsService } from '../../orders/application/service/reviews.service';
 import { seedCompletedOrderCoverageRun, seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
 import {
   makeTestPrisma,

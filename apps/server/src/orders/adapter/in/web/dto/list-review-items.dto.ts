@@ -1,4 +1,4 @@
-// apps/server/src/orders/dto/list-review-items.dto.ts
+// apps/server/src/orders/adapter/in/web/dto/list-review-items.dto.ts
 import { Transform } from 'class-transformer';
 import { IsBooleanString, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 

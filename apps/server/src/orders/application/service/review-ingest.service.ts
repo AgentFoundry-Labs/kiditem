@@ -1,4 +1,4 @@
-// apps/server/src/orders/services/review-ingest.service.ts
+// apps/server/src/orders/application/service/review-ingest.service.ts
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
@@ -6,12 +6,12 @@ import type {
   ReviewIngestRequest,
   ReviewIngestResponse,
 } from '@kiditem/shared/reviews';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ownerTransaction } from '../../prisma/owner-transaction';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../prisma/owner-transaction';
 import {
   CHANNEL_LISTING_QUERY_PORT,
   type ChannelListingQueryPort,
-} from '../../channels/application/port/in/listing/channel-listing-query.port';
+} from '../../../channels/application/port/in/listing/channel-listing-query.port';
 
 /**
  * 확장이 정규화한 채널 상품평을 Review facts에 적재한다.

@@ -35,7 +35,7 @@ import {
   type ProductSourceReadPort,
 } from '../../../../../products/application/port/in/product-source-read.port';
 import { readCurrentProductAbcGradeChanges } from "../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
-import { readCurrentReviewListingStats } from "../../../../../orders/read/review-facts.reader";
+import { readCurrentReviewListingStats } from "../../../../../orders/adapter/out/persistence/read/review-facts.reader";
 import {
   buildPerListingMetricsCoverage,
   readAdEvidenceFromLedger,

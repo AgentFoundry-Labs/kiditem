@@ -12,17 +12,17 @@ import {
   Query,
 } from '@nestjs/common';
 import { ReviewIngestItemSchema } from '@kiditem/shared/reviews';
-import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import {
   REVIEW_COLLECTION_SOURCE_PORT,
   type ReviewCollectionSourcePort,
   type ReviewCollectionWindowCompletion,
-} from '../application/port/in/review-collection-source.port';
-import { ListReviewItemsQueryDto } from '../dto/list-review-items.dto';
-import { ListReviewsQueryDto } from '../dto/list-reviews.dto';
-import { ReviewsService } from '../services/reviews.service';
-import type { AuthUser } from '../../auth/auth.types';
+} from '../../../application/port/in/review-collection-source.port';
+import { ListReviewItemsQueryDto } from './dto/list-review-items.dto';
+import { ListReviewsQueryDto } from './dto/list-reviews.dto';
+import { ReviewsService } from '../../../application/service/reviews.service';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 

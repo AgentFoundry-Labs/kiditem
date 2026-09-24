@@ -1,9 +1,9 @@
 import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { readPublishedOrderLines } from '../../../orders/read/order-facts.reader';
+import { readPublishedOrderLines } from '../../../orders/adapter/out/persistence/read/order-facts.reader';
 import { SupplierStatsService } from '../supplier-stats.service';
 
-vi.mock('../../../orders/read/order-facts.reader', () => ({
+vi.mock('../../../orders/adapter/out/persistence/read/order-facts.reader', () => ({
   readPublishedOrderLines: vi.fn(),
 }));
 

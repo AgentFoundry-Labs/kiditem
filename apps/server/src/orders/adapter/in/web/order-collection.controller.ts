@@ -23,7 +23,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 
-import type { MulterFile } from '../../common/types';
+import type { MulterFile } from '../../../../common/types';
 import {
   OrderCollectionService,
   type OrderCollectionRowsInput,
@@ -34,33 +34,33 @@ import {
   type KidkidsConvertInput,
   type HaebeopConvertInput,
   type IcecreamSendFinishInput,
-} from '../services/order-collection.service';
+} from '../../../application/service/order-collection.service';
 import {
   CoupangDirectshipService,
-} from '../coupang-directship/coupang-directship.service';
+} from '../../../coupang-directship/coupang-directship.service';
 import {
   type CoupangDirectOrderCollectionRequest,
   type CoupangDirectPoSnapshotResponse,
   SaveCoupangDirectPoSnapshotRequestSchema,
 } from '@kiditem/shared/coupang-direct-order';
-import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
+import { CoupangDirectPoSnapshotService } from '../../../application/service/coupang-direct-po-snapshot.service';
 import {
   orderCollectionOrderCount,
   type OrderCollectionSourceStatus,
 } from '@kiditem/shared/order-collection-source';
-import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../auth/auth.types';
+import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 import {
   COUPANG_DIRECT_ORDER_COLLECTION_PORT,
   type CoupangDirectOrderCollectionPort,
-} from '../application/port/in/coupang-direct-order-collection.port';
+} from '../../../application/port/in/coupang-direct-order-collection.port';
 import {
   ORDER_COLLECTION_SOURCE_PORT,
   orderCollectionJsonSubmission,
   type OrderCollectionConfirmedCoverage,
   type OrderCollectionSourcePort,
-} from '../application/port/in/order-collection-source.port';
+} from '../../../application/port/in/order-collection-source.port';
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([

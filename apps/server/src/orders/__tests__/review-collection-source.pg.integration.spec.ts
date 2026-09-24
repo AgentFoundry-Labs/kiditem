@@ -21,10 +21,10 @@ import { ReviewCollectionSourceRepository } from '../adapter/out/repository/revi
 import {
   readCurrentReviewListingStats,
   readCurrentReviewRecentCounts,
-} from '../read/review-facts.reader';
-import { ReviewsController } from '../controllers/reviews.controller';
-import { ReviewIngestService } from '../services/review-ingest.service';
-import { ReviewsService } from '../services/reviews.service';
+} from '../adapter/out/persistence/read/review-facts.reader';
+import { ReviewsController } from '../adapter/in/web/reviews.controller';
+import { ReviewIngestService } from '../application/service/review-ingest.service';
+import { ReviewsService } from '../application/service/reviews.service';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
 import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';

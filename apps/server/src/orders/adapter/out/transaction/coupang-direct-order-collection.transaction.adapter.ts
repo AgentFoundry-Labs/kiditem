@@ -43,7 +43,7 @@ import type { CoupangDirectOrderCollectionRequest } from '@kiditem/shared/coupan
 import {
   canonicalCoupangDirectOrderHash,
   mapCoupangDirectOrder,
-} from '../../../mapper/coupang-direct-order.mapper';
+} from '../../../domain/coupang-direct-order.mapper';
 
 const LOCK_NAMESPACE = 'coupang-direct-order-collection';
 const SOURCE_TYPE = 'coupang_rocket_final_order';

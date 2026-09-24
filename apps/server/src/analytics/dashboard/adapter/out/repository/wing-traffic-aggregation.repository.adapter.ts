@@ -13,7 +13,7 @@ import {
   readOrderLineWindowFacts,
   type DailyOrderFacts,
   type OrderLineWindowFacts,
-} from '../../../../../orders/read/order-facts.reader';
+} from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import {
   businessDateText,
   businessDatesInWindow,

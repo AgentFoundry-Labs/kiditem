@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import { TextDecoder } from 'util';
 import { basename, extname } from 'path';
 
-import type { MulterFile } from '../../common/types';
+import type { MulterFile } from '../../../common/types';
 import { KIDSNOTE_SUMMARY_INFO, KIDSNOTE_DOC_SUMMARY_INFO } from './kidsnote-sellpia-meta';
 
 /**

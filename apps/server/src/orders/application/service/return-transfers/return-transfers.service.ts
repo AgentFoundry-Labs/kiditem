@@ -1,11 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
-} from '../../products/application/port/in/product-transactional-read.port';
-import { readOrderIdentityFact } from '../read/order-facts.reader';
-import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
+} from '../../../../products/application/port/in/product-transactional-read.port';
+import { readOrderIdentityFact } from '../../../adapter/out/persistence/read/order-facts.reader';
+import { CreateReturnTransferDto, UpdateReturnTransferDto } from '../../../adapter/in/web/return-transfers/dto';
 
 @Injectable()
 export class ReturnTransfersService {
