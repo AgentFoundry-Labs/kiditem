@@ -21,15 +21,25 @@ const OTHER_OWNERS =
   'automation|ai|channels|finance|inventory|orders|products|rules|agent-os|analytics|advertising';
 
 /**
- * Known violations in files PR #557 also edits. Each entry names its removal
- * issue; an entry whose violation is gone fails as stale.
+ * Known violations in files PR #557 also edits, keyed by file and the exact
+ * module specifier it imports. Only that import line is exempt; another
+ * violating import in the same file still fails, and an entry whose import is
+ * gone fails as stale.
  */
-const KNOWN_VIOLATIONS: Record<string, string> = {
-  // removeWith: KID-328 — takes the channels transaction type from channels application/port/out.
-  'application/service/sourcing-workspace-archive.service.ts': 'KID-328',
-  // removeWith: KID-328 — takes launch-candidate status constants from application/port/out.
-  'adapter/in/http/dto/sourcing-intelligence.dto.ts': 'KID-328',
-};
+const KNOWN_VIOLATIONS: readonly { file: string; specifier: string; removeWith: string }[] = [
+  // Takes the channels transaction type from channels application/port/out.
+  {
+    file: 'application/service/sourcing-workspace-archive.service.ts',
+    specifier: '../../../channels/application/port/out/transaction/repository-transaction',
+    removeWith: 'KID-328',
+  },
+  // Takes launch-candidate status constants from application/port/out.
+  {
+    file: 'adapter/in/http/dto/sourcing-intelligence.dto.ts',
+    specifier: '../../../../application/port/out/repository/sourcing-launch-candidate.repository.port',
+    removeWith: 'KID-328',
+  },
+];
 
 function at(...segments: string[]): string {
   return path.join(SOURCING_ROOT, ...segments);
@@ -43,9 +53,35 @@ function ownerFiles(): string[] {
   return [...scanSource({ roots: [SOURCING_ROOT], relativeTo: SOURCING_ROOT }).hits];
 }
 
-/** Splits hits into new violations and the known entries this rule still sees. */
-function unexpected(hits: readonly string[]): string[] {
-  return hits.filter((file) => !(file.split(':')[0]! in KNOWN_VIOLATIONS));
+/** `file:line:text` hits → the file and the module specifier the line imports. */
+function importOf(hit: string): { file: string; specifier: string | null } {
+  const [file = '', , ...text] = hit.split(':');
+  return { file, specifier: /['"]([^'"]+)['"]/.exec(text.join(':'))?.[1] ?? null };
+}
+
+function isKnown(hit: string): boolean {
+  const { file, specifier } = importOf(hit);
+  return KNOWN_VIOLATIONS.some((entry) => entry.file === file && entry.specifier === specifier);
+}
+
+/** Application-service import lines that reach another owner's application layer outside port/in. */
+function crossOwnerImportLines(): string[] {
+  return scanSource({
+    roots: [at('application/service')],
+    pattern: importFromPattern(String.raw`(?:\.\./)+(?:${OTHER_OWNERS})/application/`),
+    mode: 'lines',
+    relativeTo: SOURCING_ROOT,
+  }).hits.filter((line) => !/\/application\/port\/in\//.test(line));
+}
+
+/** Incoming HTTP adapter import lines that reach an outgoing port or adapter. */
+function httpOutgoingImportLines(): string[] {
+  return [...scanSource({
+    roots: [at('adapter/in/http')],
+    pattern: importFromPattern(String.raw`[^'"]*(?:application/port/out|adapter/out)/`),
+    mode: 'lines',
+    relativeTo: SOURCING_ROOT,
+  }).hits];
 }
 
 describe('sourcing architecture contract', () => {
@@ -92,13 +128,7 @@ describe('sourcing architecture contract', () => {
     // Another owner's published application/port/in/** interface is allowed
     // (apps/server/CLAUDE.md, Module Boundaries); anything else in its
     // application layer is not.
-    const hits = scanSource({
-      roots: [at('application/service')],
-      pattern: importFromPattern(String.raw`(?:\.\./)+(?:${OTHER_OWNERS})/application/`),
-      mode: 'lines',
-      relativeTo: SOURCING_ROOT,
-    }).hits.filter((line) => !/\/application\/port\/in\//.test(line));
-    const violators = unexpected(hits);
+    const violators = crossOwnerImportLines().filter((line) => !isKnown(line));
     expect(
       violators,
       `application services must reach other owner domains through ports, not services:\n${violators.join('\n')}`,
@@ -110,8 +140,7 @@ describe('sourcing architecture contract', () => {
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
-    const hits = importers([at('adapter/in/http')], String.raw`[^'"]*(?:application/port/out|adapter/out)/`);
-    const violators = unexpected(hits);
+    const violators = httpOutgoingImportLines().filter((line) => !isKnown(line));
     expect(
       violators,
       `incoming adapters must call application services, not outgoing ports/adapters:\n${violators.join('\n')}`,
@@ -119,15 +148,10 @@ describe('sourcing architecture contract', () => {
   });
 
   it('keeps each known violation entry live until its removal issue lands', () => {
-    const stillViolating = new Set([
-      ...scanSource({
-        roots: [at('application/service')],
-        pattern: importFromPattern(String.raw`(?:\.\./)+(?:${OTHER_OWNERS})/application/port/out/`),
-        relativeTo: SOURCING_ROOT,
-      }).hits,
-      ...importers([at('adapter/in/http')], String.raw`[^'"]*(?:application/port/out|adapter/out)/`),
-    ]);
-    const stale = Object.keys(KNOWN_VIOLATIONS).filter((file) => !stillViolating.has(file));
+    const live = [...crossOwnerImportLines(), ...httpOutgoingImportLines()].map(importOf);
+    const stale = KNOWN_VIOLATIONS.filter(
+      (entry) => !live.some(({ file, specifier }) => file === entry.file && specifier === entry.specifier),
+    ).map((entry) => `${entry.file} -> ${entry.specifier} (${entry.removeWith})`);
     expect(stale, `remove fixed entries from KNOWN_VIOLATIONS:\n${stale.join('\n')}`).toEqual([]);
   });
 
