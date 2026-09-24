@@ -66,7 +66,14 @@ export function normalizeStoredAttributes(value: unknown): StoredListingAttribut
 }
 
 /**
- * `kinds`에 든 kind는 `incoming`으로 통째로 바꾸고 나머지 kind는 저장값을 지킨다. 같은
+ * 속성을 합치는 단위. `kind`는 `kinds`에 든 kind를 `incoming`으로 통째로 바꾼다. `attributeType`은
+ * `incoming`이 싣는 (kind, attributeTypeId ?? 이름)만 바꾸고 같은 kind의 다른 속성은 지킨다 —
+ * 엑셀 구매옵션 줄이 일부 칸만 채웠을 때 상세가 준 나머지 구매속성을 지우지 않는다(KID-349).
+ */
+export type AttributeReplaceBy = 'kind' | 'attributeType';
+
+/**
+ * `kinds`에 든 kind만 `incoming`으로 바꾸고(단위는 `replaceBy`) 나머지 kind는 저장값을 지킨다. 같은
  * (kind, id 또는 이름, 값)은 한 번만 남는다. 결과는 (kind, attributeTypeId ?? 이름, 값) 순서로
  * 정렬한다 — 어느 경로가 먼저 썼든 같은 배열이 나와야 상세 불변 비교가 순서에 흔들리지 않는다.
  */
@@ -74,10 +81,13 @@ export function mergeAttributesByKind(
   existing: unknown,
   incoming: readonly StoredListingAttribute[],
   kinds: readonly ListingAttributeKind[],
+  replaceBy: AttributeReplaceBy = 'kind',
 ): StoredListingAttribute[] {
   const replaced = new Set(kinds);
-  const kept = normalizeStoredAttributes(existing).filter((attribute) => !replaced.has(attribute.kind));
   const added = incoming.filter((attribute) => replaced.has(attribute.kind));
+  const replacedTypes = new Set(added.map(attributeTypeKey));
+  const kept = normalizeStoredAttributes(existing).filter((attribute) => !replaced.has(attribute.kind)
+    || (replaceBy === 'attributeType' && !replacedTypes.has(attributeTypeKey(attribute))));
   const seen = new Set<string>();
   return [...kept, ...added]
     .filter((attribute) => {
@@ -87,6 +97,10 @@ export function mergeAttributesByKind(
       return true;
     })
     .sort((left, right) => compareText(attributeSortKey(left), attributeSortKey(right)));
+}
+
+function attributeTypeKey(attribute: StoredListingAttribute): string {
+  return `${attribute.kind}\u0000${attribute.attributeTypeId ?? attribute.name}`;
 }
 
 function attributeSortKey(attribute: StoredListingAttribute): string {

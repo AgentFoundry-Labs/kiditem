@@ -63,4 +63,15 @@ describe('mergeAttributesByKind', () => {
     expect(mergeAttributesByKind([], [search('a', '1'), purchase('b', '2'), search('a', '1')], ['search']))
       .toEqual([search('a', '1')]);
   });
+  it('replaces only the attribute types the incoming entries carry when replacing by attribute type (KID-349)', () => {
+    const stored = [purchase('색상', '빨강', '1001'), purchase('수량', '1개', '2002'), search('소재', '면')];
+    expect(mergeAttributesByKind(stored, [purchase('색상', '파랑', '1001')], ['purchase'], 'attributeType')).toEqual([
+      purchase('색상', '파랑', '1001'),
+      purchase('수량', '1개', '2002'),
+      search('소재', '면'),
+    ]);
+    // 속성 ID가 없는 옛 값은 이름으로 맞춘다.
+    expect(mergeAttributesByKind([purchase('사이즈', 'M')], [purchase('사이즈', 'L')], ['purchase'], 'attributeType'))
+      .toEqual([purchase('사이즈', 'L')]);
+  });
 });

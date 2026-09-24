@@ -1372,15 +1372,20 @@ export async function upsertChannelCatalogIdentities(
   const options = input.products.flatMap((product) => {
     const listingId = listingIds.get(product.externalProductId);
     if (!listingId) throw new ConflictException('Published listing ID is missing');
-    return product.options.map(({ attributeMergeKinds, ...option }) => ({
+    return product.options.map(({ attributeMerge, ...option }) => ({
       id: randomUUID(),
       listingId,
       ...option,
+      // 이 읽기-합치기-쓰기는 호출자가 잡은 lockProductMapping(org)이 같은 조직의 상세 종료와 줄 세운다.
       attributesJson: sectionWrite
-        ? mergeAttributesByKind(
+        ? (attributeMerge ?? []).reduce<unknown>(
+          (merged, { kind, replaceBy }) => mergeAttributesByKind(
+            merged,
+            option.attributes as StoredListingAttribute[],
+            [kind],
+            replaceBy,
+          ),
           existingOptionByExternalId.get(option.externalOptionId)?.attributesJson ?? [],
-          option.attributes as StoredListingAttribute[],
-          attributeMergeKinds ?? [],
         )
         : option.attributes,
       rawJson: {

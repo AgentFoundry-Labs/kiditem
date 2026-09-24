@@ -166,6 +166,19 @@ describe('Wing catalog incremental sync and rawJson sections (PG integration)', 
     await expectAllPathsKept();
   });
 
+  it('엑셀 구매옵션 줄이 일부 속성만 채우면 그 속성만 바꾸고 상세가 준 다른 구매속성은 남는다', async () => {
+    await writeBasics([basicProduct('P1')]);
+    await writeDetails([detailProduct('P1')]);
+    await writeExcel([excelRow('P1', {
+      attributesJson: [{ kind: 'purchase', type: '수량', value: '2개', attributeTypeId: '2002' }],
+    })]);
+    const option = (await listingRow()).options[0]!;
+    expect(option.attributesJson).toEqual([
+      { kind: 'purchase', attributeTypeId: '1001', name: '색상', value: '빨강', exposed: null },
+      { kind: 'purchase', attributeTypeId: '2002', name: '수량', value: '2개', exposed: null },
+    ]);
+  });
+
   it('엑셀의 빈 칸은 저장된 바코드·모델번호·옵션명·판매상태를 지우지 않고, 엑셀은 목록에 없는 상품을 끄지 않는다', async () => {
     await writeBasics([basicProduct('P1'), basicProduct('P2')]);
     await writeDetails([detailProduct('P1')]);

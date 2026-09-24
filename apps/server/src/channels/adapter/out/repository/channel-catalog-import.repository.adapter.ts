@@ -220,9 +220,11 @@ implements ChannelCatalogImportRepositoryPort {
           modelNumber: row.modelNumber,
           skuStatus: row.skuStatus,
           attributes,
-          // 빈 칸은 "못 봤다": 이 줄이 값을 실은 kind만 바꾸고 나머지 kind는 지킨다 (KID-349).
-          attributeMergeKinds: LISTING_ATTRIBUTE_KINDS.filter((kind) =>
-            attributes.some((attribute) => attribute.kind === kind)),
+          // 빈 칸은 "못 봤다" (KID-349, 리더 결정): 검색옵션은 엑셀에서만 오므로 실린 줄이면 통째로
+          // 바꾸고, 구매옵션은 이 줄이 값을 실은 속성 종류만 바꿔 상세가 준 다른 구매속성을 지킨다.
+          attributeMerge: LISTING_ATTRIBUTE_KINDS
+            .filter((kind) => attributes.some((attribute) => attribute.kind === kind))
+            .map((kind) => ({ kind, replaceBy: kind === 'purchase' ? 'attributeType' as const : 'kind' as const })),
           raw: rawSectionPatch('catalogExcel', excelSection(input.observedAt, row.rawJson)),
         });
         optionsByProduct.set(row.externalProductId, options);
