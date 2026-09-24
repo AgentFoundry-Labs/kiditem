@@ -39,16 +39,25 @@ describe('mergeAttributesByKind', () => {
   it('replaces only the given kind and keeps the other kind from the stored value', () => {
     const stored = [purchase('색상', '빨강'), search('소재', '면')];
     expect(mergeAttributesByKind(stored, [search('소재', '울'), search('계절', '겨울')], ['search']))
-      .toEqual([purchase('색상', '빨강'), search('소재', '울'), search('계절', '겨울')]);
+      .toEqual([purchase('색상', '빨강'), search('계절', '겨울'), search('소재', '울')]);
     expect(mergeAttributesByKind(stored, [purchase('색상', '파랑', '7')], ['purchase']))
-      .toEqual([search('소재', '면'), purchase('색상', '파랑', '7')]);
+      .toEqual([purchase('색상', '파랑', '7'), search('소재', '면')]);
   });
   it('is order independent across paths: excel then detail equals detail then excel', () => {
     const detail = [purchase('색상', '빨강', '7')];
     const excel = [search('소재', '면')];
     const a = mergeAttributesByKind(mergeAttributesByKind([], excel, ['search']), detail, ['purchase']);
     const b = mergeAttributesByKind(mergeAttributesByKind([], detail, ['purchase']), excel, ['search']);
-    expect(new Set(a.map((x) => JSON.stringify(x)))).toEqual(new Set(b.map((x) => JSON.stringify(x))));
+    expect(a).toEqual(b);
+  });
+  it('emits one canonical order (kind, attribute type or name, value) whatever order the inputs came in', () => {
+    const stored = [search('소재', '면'), purchase('색상', '빨강', '9'), purchase('수량', '1개', '2')];
+    expect(mergeAttributesByKind(stored, [search('재질', '면'), search('계절', '겨울')], ['search'])).toEqual([
+      purchase('수량', '1개', '2'),
+      purchase('색상', '빨강', '9'),
+      search('계절', '겨울'),
+      search('재질', '면'),
+    ]);
   });
   it('ignores incoming entries outside the kinds being replaced and dedupes', () => {
     expect(mergeAttributesByKind([], [search('a', '1'), purchase('b', '2'), search('a', '1')], ['search']))

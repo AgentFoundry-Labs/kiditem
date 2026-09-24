@@ -66,8 +66,9 @@ export function normalizeStoredAttributes(value: unknown): StoredListingAttribut
 }
 
 /**
- * `kinds`에 든 kind는 `incoming`으로 통째로 바꾸고 나머지 kind는 저장값을 지킨다. 저장값이
- * 먼저, 새 값이 뒤에 온다. 같은 (kind, id 또는 이름, 값)은 한 번만 남는다.
+ * `kinds`에 든 kind는 `incoming`으로 통째로 바꾸고 나머지 kind는 저장값을 지킨다. 같은
+ * (kind, id 또는 이름, 값)은 한 번만 남는다. 결과는 (kind, attributeTypeId ?? 이름, 값) 순서로
+ * 정렬한다 — 어느 경로가 먼저 썼든 같은 배열이 나와야 상세 불변 비교가 순서에 흔들리지 않는다.
  */
 export function mergeAttributesByKind(
   existing: unknown,
@@ -78,10 +79,20 @@ export function mergeAttributesByKind(
   const kept = normalizeStoredAttributes(existing).filter((attribute) => !replaced.has(attribute.kind));
   const added = incoming.filter((attribute) => replaced.has(attribute.kind));
   const seen = new Set<string>();
-  return [...kept, ...added].filter((attribute) => {
-    const key = `${attribute.kind}\u0000${attribute.attributeTypeId ?? attribute.name}\u0000${attribute.value}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return [...kept, ...added]
+    .filter((attribute) => {
+      const key = attributeSortKey(attribute);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => compareText(attributeSortKey(left), attributeSortKey(right)));
+}
+
+function attributeSortKey(attribute: StoredListingAttribute): string {
+  return `${attribute.kind}\u0000${attribute.attributeTypeId ?? attribute.name}\u0000${attribute.value}`;
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }

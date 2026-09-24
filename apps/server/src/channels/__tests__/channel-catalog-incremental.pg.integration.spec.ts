@@ -374,6 +374,7 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
   let prisma: PrismaClient;
   let owner: ChannelCatalogCollectionService;
   let channelAccountId: string;
+  let workbook: ChannelCatalogImportRepositoryAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -397,6 +398,7 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
       publisher,
       channelIntegrity,
     );
+    workbook = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes, mappingGeneration);
   });
 
   afterAll(async () => {
@@ -810,6 +812,26 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
       where: { organizationId: ORG, channelAccountId, rawJson: { path: ['detail', 'documents', '0', 'id'], string_starts_with: 'P' } },
     })).resolves.toBe(320);
   }, 120_000);
+
+  it('상세 → 엑셀 뒤에 같은 상세를 다시 받아도 속성 순서 때문에 바뀐 것으로 세지 않는다', async () => {
+    const products: SyncProduct[] = [{ id: 'P1', modifiedOn: '2026-09-01T00:00:00' }];
+    await syncAll(products);
+    const claim = await workbook.claimCoupangWingImport({
+      organizationId: ORG, userId: USER, channelAccountId, fileName: 'wing.xlsx', fileHash: 'e'.repeat(64), rowCount: 1,
+    });
+    if (claim.kind !== 'started') throw new Error('workbook import was not admitted');
+    await workbook.upsertCoupangWingCatalog({
+      organizationId: ORG, channelAccountId, runId: claim.runId, attemptToken: claim.attemptToken,
+      rows: [excelRow('P1', { attributesJson: [{ kind: 'search', type: '가재질', value: '면' }] })],
+      skippedRows: [], observedAt: '2026-09-24T09:00:00.000Z',
+    });
+    const bumped: SyncProduct[] = [{ id: 'P1', modifiedOn: '2026-09-20T00:00:00' }];
+    const basics = await runBasics(bumped);
+    const details = await startDetails(basics, bumped);
+    await sendDetail(details, bumped, 'P1');
+    const completed = await finalize(details);
+    expect(completed.quality).toMatchObject({ detailApplied: 0, detailUnchanged: 1 });
+  });
 
   it('목록에서 사라진 상품을 삭제 확인 대상으로 계획하고, 목록 단계 종료는 그 상품을 끄지 않는다', async () => {
     await syncAll([
