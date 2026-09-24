@@ -1871,8 +1871,9 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 /**
  * 이미 이 계정에 올라간 상품에 새 `register` 를 열지 않는다(KID-320 S7). 막는 근거는 둘이다: 이 상품의 살아 있는
- * 리스팅, 또는 성공한 등록성 실행(register · update · composition_change) 뒤에 취소된 등록성 실행이 없는 것.
- * 내린 리스팅만 남은 계정은 리스팅으로는 막지 않는다. 빠른 등록처럼 계획을 거치지 않는 제출도 여기서 막힌다.
+ * 리스팅, 또는 성공한 등록성 실행(register · update · composition_change) 가운데 그 실행이 만든 리스팅이 아직
+ * 내려지지 않은 것(카탈로그가 아직 안 가져왔으면 실행만으로 막는다). 취소된 실행은 몰에 아무것도 하지 않았으므로
+ * 앞선 성공을 지우지 않는다. 내린 리스팅만 남은 계정은 막지 않는다. 빠른 등록처럼 계획을 거치지 않는 제출도 여기서 막힌다.
  */
 async function assertAccountNotRegistered(
   tx: Prisma.TransactionClient,
@@ -1902,14 +1903,11 @@ async function assertAccountNotRegistered(
       AND e.status = 'succeeded'
       AND NOT EXISTS (
         SELECT 1
-        FROM product_registration_executions c
-        JOIN registration_targets ct ON ct.id = c.registration_target_id AND ct.organization_id = c.organization_id
-        WHERE c.organization_id = e.organization_id
-          AND ct.sales_product_id = t.sales_product_id
-          AND c.channel_account_id = e.channel_account_id
-          AND c.execution_kind IN (${Prisma.join([...LISTING_SHAPING_EXECUTION_KINDS])})
-          AND c.status = 'cancelled'
-          AND c.created_at > e.created_at
+        FROM channel_listings l
+        WHERE l.organization_id = e.organization_id
+          AND l.channel_account_id = e.channel_account_id
+          AND l.is_active = false
+          AND (l.id = e.channel_listing_id OR (e.external_listing_id IS NOT NULL AND l.external_id = e.external_listing_id))
       )
     ORDER BY e.created_at DESC, e.id DESC
     LIMIT 1

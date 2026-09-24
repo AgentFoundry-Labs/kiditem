@@ -172,7 +172,7 @@ describe('registration execution fence (PG integration)', () => {
     await expect(prepare(await resolveTarget(SECOND_ACCOUNT_ID), SECOND_ACCOUNT_ID)).resolves.toMatchObject({ status: 'prepared' });
   });
 
-  it('refuses a new register after a succeeded listing-shaping execution unless a later one was cancelled; a taken-down listing alone does not block', async () => {
+  it('refuses a new register after a succeeded listing-shaping execution until the listing it made is taken down; a later cancelled execution changes nothing', async () => {
     const targetId = await resolveTarget(MALL_ACCOUNT_ID);
     await prisma.channelListing.create({
       data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: MALL_ACCOUNT_ID, salesProductId: SALES_PRODUCT_ID, externalId: 'gone-1', status: '판매중지', isActive: false },
@@ -185,11 +185,18 @@ describe('registration execution fence (PG integration)', () => {
         createdAt: new Date(Date.UTC(2026, 8, 20, 0, 0, seconds)), completedAt: new Date(Date.UTC(2026, 8, 20, 0, 0, seconds)),
       },
     });
-    await row('register', 'succeeded', 1, 'kk-41');
+    // 내린 리스팅(gone-1)을 만든 성공 실행은 막지 않는다 — 몰에 더는 없다.
+    await row('register', 'succeeded', 1, 'gone-1');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).resolves.toMatchObject({ status: 'prepared' });
+    await prisma.productRegistrationExecution.deleteMany({ where: { status: 'prepared' } });
+
+    // 카탈로그가 아직 가져오지 않은 성공 실행(kk-41)은 실행만으로 막는다.
+    await row('register', 'succeeded', 2, 'kk-41');
     await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-41');
 
-    await row('register', 'cancelled', 2);
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).resolves.toMatchObject({ status: 'prepared' });
+    // 취소는 몰에 아무것도 하지 않았으므로 앞선 성공을 지우지 않는다.
+    await row('register', 'cancelled', 3);
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-41');
   });
 
   it('replays concurrent same-key preparations as one execution and grants one lease to concurrent starts', async () => {
