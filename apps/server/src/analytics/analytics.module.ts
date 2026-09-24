@@ -30,9 +30,10 @@ import { ANALYTICS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/cap
  *     listing-day traffic publisher.
  *   - Raw SQL and report hydration code lives under
  *     `adapter/out/repository/dashboard/*.repository.adapter.ts` (the only
- *     sub-domain that needed an out-adapter lane in this wave). Statistics,
- *     traffic, and supplier-stats use Prisma directly because they have no
- *     `$queryRaw` surfaces.
+ *     sub-domain that needed an out-adapter lane in this wave). Statistics
+ *     and supplier-stats use Prisma directly because they have no
+ *     `$queryRaw` surfaces (documented legacy exception, KID-334); traffic
+ *     reads through Advertising's `ad-traffic-source` input port.
  *   - Tenant predicates: every read binds `organizationId` from
  *     `@CurrentOrganization()`. Raw SQL paths bind `${organizationId}::uuid` per
  *     tenant-scope rule; ORM paths use `where: { organizationId, ... }`.

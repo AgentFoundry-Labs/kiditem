@@ -54,7 +54,12 @@ const DASHBOARD_ROOTS = [
   path.join(ANALYTICS_ROOT, 'dashboard.module.ts'),
   path.join(ANALYTICS_ROOT, 'dashboard-capability.module.ts'),
 ];
-const APPLICATION_ROOTS = ['application/port/in', 'application/port/out/repository', 'application/service'].map(at);
+// Every application lane's dashboard/ subfolder, including lanes that do not
+// exist yet (e.g. `application/port/out/cross-domain/dashboard/`), so a new
+// lane cannot slip out of the Prisma-free and port-purity rules.
+const APPLICATION_ROOTS = ['application/port/in', 'application/port/out', 'application/service']
+  .map((lane) => path.join(ANALYTICS_ROOT, lane));
+const dashboardOnly = (file: string): boolean => /(^|\/)dashboard\//.test(file);
 const dashboardFiles = (): string[] => [...scanSource({ roots: DASHBOARD_ROOTS, relativeTo: ANALYTICS_ROOT }).hits];
 const OTHER_OWNERS =
   'automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|advertising';
@@ -83,7 +88,7 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('application layer does not import Prisma client or expose Prisma types', () => {
-    const hits = importers(APPLICATION_ROOTS, '@prisma/client');
+    const hits = importers(APPLICATION_ROOTS, '@prisma/client').filter(dashboardOnly);
     expect(
       hits,
       `application ports/services must stay Prisma-free; Prisma belongs in outgoing adapters:\n${hits.join('\n')}`,
@@ -140,9 +145,9 @@ describe('analytics/dashboard architecture contract', () => {
 
   it('outgoing port contracts do not import concrete helpers or adapters', () => {
     const hits = importers(
-      [at('application/port/out/repository')],
+      [path.join(ANALYTICS_ROOT, 'application/port/out')],
       String.raw`[^'"]*adapter/out|[^'"]*common/per-listing-profit|[^'"]*prisma\.service|@prisma/client`,
-    );
+    ).filter(dashboardOnly);
     expect(
       hits,
       `application ports should define local contracts, not depend on concrete implementations:\n${hits.join('\n')}`,
@@ -157,21 +162,18 @@ describe('analytics/dashboard architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('no legacy top-level dto/, util/, helpers/, or adapter/out/prisma/ folders remain', () => {
+  it('no legacy dto/, util/, helpers/, services/, or adapter/out/prisma/ folders remain for dashboard', () => {
+    // The pre-KID-311 bundle root (`analytics/dashboard/`) is gone and the
+    // flat lanes it used to hold must not reappear at the analytics root or
+    // under a dashboard/ subfolder.
     const violators = ownerFiles().filter((file) =>
-      ['dto/', 'util/', 'helpers/', 'adapter/out/prisma/'].some((prefix) => file.startsWith(`dashboard/${prefix}`)),
+      file.startsWith('dashboard/')
+      || ['dto/', 'util/', 'helpers/', 'services/'].some((prefix) => file.startsWith(prefix))
+      || file.startsWith('adapter/out/prisma/'),
     );
     expect(
       violators,
-      `Legacy folders detected — move to hex layout (adapter/in/http/dto/, domain/util/, adapter/out/repository/):\n${violators.join('\n')}`,
-    ).toEqual([]);
-  });
-
-  it('no services/ folder under dashboard — application code lives in application/service/', () => {
-    const hits = ownerFiles().filter((file) => file.startsWith('dashboard/services/'));
-    expect(
-      hits,
-      `dashboard has no legacy services/ facade; new logic belongs in application/service/:\n${hits.join('\n')}`,
+      `Legacy folders detected — move to hex layout (adapter/in/http/dashboard/dto/, domain/dashboard/util/, adapter/out/repository/dashboard/, application/service/dashboard/):\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 

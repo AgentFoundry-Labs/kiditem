@@ -11,6 +11,11 @@ statistics, traffic, and supplier-stats code sits in a `<bundle>/` subfolder of
 each root lane (`adapter/in/http/<bundle>/`, `application/service/<bundle>/`,
 `__tests__/<bundle>/`, …) with `<bundle>.module.ts` at the analytics root. The
 `sellpia-sales/` and `sellpia-product-sales/` bundles keep their own layout.
+Documented legacy exception: the statistics and supplier-stats application
+services inject `PrismaService` directly and read Orders through
+`orders/adapter/out/persistence/read/order-facts.reader` (frozen in
+`check:hexagonal` `KNOWN_VIOLATIONS`, removed with KID-334); the dashboard
+architecture spec therefore scopes its Prisma-free rules to `*/dashboard/`.
 
 ## Ownership and source boundaries
 
