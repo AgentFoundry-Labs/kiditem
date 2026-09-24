@@ -17,7 +17,7 @@ const builtins = new Set(builtinModules.map(name => name.replace(/^node:/, '')))
 // application/, domain/) is the pre-hexagonal shape; application/service/ is
 // the correct nested location and is not matched by this check.
 const RETIRED_TOP_LEVEL_DIRS = new Set(['read', 'mapper', 'service']);
-const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders', 'finance'];
+const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders', 'finance', 'advertising'];
 
 // KID-311: pure-layer adapter imports that predate an owner's move into the
 // scanner. Each entry allows exactly one { file, specifier } pair (file is
@@ -38,12 +38,20 @@ export const KNOWN_VIOLATIONS = [
   // Finance services read settlement and Orders ledger helpers until KID-334.
   { owner: 'finance', file: 'finance/application/service/settlement/settlements.service.ts', specifier: '../../../adapter/out/persistence/read/settlement/settlement-facts', removeWith: 'KID-334' },
   { owner: 'finance', file: 'finance/application/service/sales-analysis/sales-analysis-scraper.service.ts', specifier: '../../../../orders/adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
+  { owner: 'finance', file: 'finance/application/service/sales-analysis/sales-analysis-scraper.service.ts', specifier: '../../../../advertising/adapter/out/persistence/read/ad-target-facts', removeWith: 'KID-334' },
   // Finance services take incoming DTOs until KID-335.
   { owner: 'finance', file: 'finance/application/service/report-export/finance-report-export.service.ts', specifier: '../../../adapter/in/web/report-export/dto/report-export-query.dto', removeWith: 'KID-335' },
   { owner: 'finance', file: 'finance/application/service/report-export/finance-report-export.service.ts', specifier: '../../../adapter/in/web/report-export/dto/profit-loss-export-query.dto', removeWith: 'KID-335' },
   { owner: 'finance', file: 'finance/application/service/sales-plan/sales-plans.service.ts', specifier: '../../../adapter/in/web/sales-plan/dto', removeWith: 'KID-335' },
   { owner: 'finance', file: 'finance/application/service/settlement/settlements.service.ts', specifier: '../../../adapter/in/web/settlement/dto', removeWith: 'KID-335' },
   { owner: 'finance', file: 'finance/application/service/supplier-payment/supplier-payments.service.ts', specifier: '../../../adapter/in/web/supplier-payment/dto', removeWith: 'KID-335' },
+  // Advertising outgoing ports take read-helper types until KID-334.
+  { owner: 'advertising', file: 'advertising/application/port/out/repository/ad-action.repository.port.ts', specifier: '../../../../adapter/out/persistence/read/ad-action-execution', removeWith: 'KID-334' },
+  { owner: 'advertising', file: 'advertising/application/port/out/repository/keyword-rank.repository.port.ts', specifier: '../../../../adapter/out/persistence/read/keyword-rank-facts', removeWith: 'KID-334' },
+  // Advertising services take incoming DTOs until KID-335.
+  { owner: 'advertising', file: 'advertising/application/service/ad-export.service.ts', specifier: '../../adapter/in/http/dto/ad-export.dto', removeWith: 'KID-335' },
+  { owner: 'advertising', file: 'advertising/application/service/ad-strategy.service.ts', specifier: '../../adapter/in/http/dto/register-campaign.dto', removeWith: 'KID-335' },
+  { owner: 'advertising', file: 'advertising/application/service/keyword-rank-ingest.handler.ts', specifier: '../../adapter/in/http/dto', removeWith: 'KID-335' },
 ];
 
 function domainOwner(file) {
@@ -148,5 +156,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const roots = HEXAGONAL_DOMAINS.map(name => path.join(serverSrc, name));
   const violations = scanHexagonalDomains(roots, serverSrc);
   if (violations.length) { console.error(violations.join('\n')); process.exitCode = 1; }
-  else console.log('PASS: Channels/Sourcing/Content/Orders/Finance domain, application and business directories preserve hexagonal boundaries.');
+  else console.log('PASS: Channels/Sourcing/Content/Orders/Finance/Advertising domain, application and business directories preserve hexagonal boundaries.');
 }

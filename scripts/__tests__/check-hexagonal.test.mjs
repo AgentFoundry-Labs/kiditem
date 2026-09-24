@@ -142,3 +142,8 @@ test('finance joins the scanner with the same exact known-violation list (KID-31
   assert.deepEqual(evaluateHexagonal([{ file: settlements, source }], [entry]), []);
   assert.equal(evaluateHexagonal([{ file: settlements, source }], []).length, 1);
 });
+
+test('advertising joins the scanner (KID-311)', () => {
+  assert.ok(hexagonalBoundaryViolations('apps/server/src/advertising/read/ad-target-facts.ts', '').length);
+  assert.ok(hexagonalBoundaryViolations('apps/server/src/advertising/mapper/ad-campaign.mapper.ts', '').length);
+});
