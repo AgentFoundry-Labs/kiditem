@@ -48,8 +48,7 @@ in Supply, but the backend capability owner is finance.
 - Returns have no owner publication, so return counts, rates, and orphan
   counts publish `null` here until a return source declares coverage.
 - Profit and return rates derive from raw values, not persisted rates.
-- `common/option-pricing-resolver.ts`, `common/kst`, and
-  `common/per-listing-profit` are shared finance helpers.
+- `common/kst` and `common/per-listing-profit` are shared finance helpers.
 
 ## Cross-Domain Ports
 

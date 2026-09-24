@@ -148,9 +148,10 @@ is `needs_review`. Neither is treated as a confirmed zero-capacity product.
 
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run \
-  src/channels/application/service/__tests__/channel-product-matching.service.spec.ts \
-  src/channels/application/service/__tests__/channel-sku-availability.service.spec.ts \
-  src/products/application/service/product-operations.service.spec.ts
+  src/channels/application/service/listing/__tests__/channel-product-matching.service.spec.ts \
+  src/channels/application/service/listing/__tests__/channel-sku-availability.service.spec.ts \
+  src/channels/adapter/out/repository/channel-product-matching.repository.adapter.spec.ts \
+  src/products/adapter/in/web/product-operations.controller.spec.ts
 rtk npm exec --workspace=apps/web vitest -- run 'src/app/(catalog)/product-hub'
 rtk npm run build --workspace=packages/shared
 rtk npm run build --workspace=apps/server

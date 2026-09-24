@@ -766,14 +766,16 @@ the domain ledger or alert, and the lease heartbeat aborts in-flight provider
 and image-download work. Gemini adapters receive the model captured at enqueue
 time and never select an environment fallback during execution.
 
-## Wing Detail-Page Client Rasterization
+## Detail-Page Client Rasterization
 
-Wing direct registration requires one finalized 780px JPEG derived from the
-candidate's current immutable `DetailPageRevision`. It is intentionally not an
+A channel adapter whose mall form takes the detail page as one image (today
+the Coupang form adapter) requires one finalized 780px JPEG derived from the
+sales product's current immutable `DetailPageRevision`. Rasterization is a
+Content capability, not a mall lifecycle; it is intentionally not an
 `AiDirectJob` and never launches Chromium on the server.
 
 ```text
-Wing preparation
+registration preparation
   -> server selects current DetailPageRevision
   -> reuse DetailPageImageArtifact, or issue DetailPageImageRenderIntent
   -> verified company extension claims the intent
@@ -782,15 +784,15 @@ Wing preparation
   -> extension PUTs JPEG directly to the server-derived presigned object key
   -> server bounded-reads and verifies metadata, JPEG dimensions, bytes, SHA-256
   -> server finalizes DetailPageImageArtifact
-  -> Wing form handoff receives exactly that one public object-storage URL
+  -> the form adapter receives exactly that one public object-storage URL
 ```
 
 The browser never chooses organization, revision, variant, output width,
 object key, or storage origin. IndexedDB is a bounded retry cache only; it is
 not artifact authority. Capture failure does not fall back to server
 Puppeteer, image splitting/stitching, a blob URL, or unrelated candidate
-images. `DetailPageRevision` remains the source of truth even though the Wing
-raster executor was removed.
+images. `DetailPageRevision` remains the source of truth even though the
+server raster executor was removed.
 
 ## Sourcing Intelligence Evidence And Test-Intent Boundary
 
@@ -956,8 +958,8 @@ sales product, and account. The fence lifecycle — state, prepare, match
 preview, start, status, unresolved, not-submitted, confirm — is Channels' own
 route family, `/api/products/sales-products/:salesProductId/registration/*`
 beside `/api/channels/registration-targets/:id/executions` and
-`/api/channels/registration-executions/:id`, and the product-pipeline Wing flow
-and the mall wizard reach it through the one web client
+`/api/channels/registration-executions/:id`, and the product-pipeline
+registration screens and the mall wizard reach it through the one web client
 `(channels)/_shared/registration-execution-api.ts`.
 
 Historical sourcing migrations populated compatibility rows for older candidate

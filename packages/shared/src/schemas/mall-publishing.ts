@@ -165,7 +165,7 @@ export type MallPreflightResponse = z.infer<typeof MallPreflightResponseSchema>;
  * 상품 × 몰 등록 현황 매트릭스.
  *
  * 행이 우리 상품, 열이 몰, 칸이 그 몰에서의 상태다. 판정 규칙은 서버 도메인
- * (`channels/domain/mall/mall-listing-state.ts`)이 소유하고 여기는 나르기만 한다.
+ * (`channels/domain/listing/mall-listing-state.ts`)이 소유하고 여기는 나르기만 한다.
  */
 export { MallListingStateSchema, type MallListingState } from './registration-state.js';
 
