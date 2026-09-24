@@ -266,3 +266,20 @@ ${padding}
   const result = scan({ 'far-global-lock.ts': source });
   assert.equal(result.status, 1, result.stdout + result.stderr);
 });
+
+test('does not let a global-lock marker exempt a neighbouring unmarked raw SELECT', () => {
+  const source = `export async function readThenLock(tx) {
+  const rows = await tx.$queryRaw\`
+    SELECT id FROM channel_listings
+  \`;
+  await tx.$queryRaw\`
+    -- queryraw-tenancy-exempt: global lock — KID item codes come from one database-wide sequence.
+    SELECT pg_advisory_xact_lock(hashtextextended('kid-item-code', 0))::text AS "lock"
+  \`;
+  return rows;
+}
+`;
+  const result = scan({ 'neighbour-global-lock.ts': source });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.ok(result.stdout.includes('neighbour-global-lock.ts'), result.stdout);
+});
