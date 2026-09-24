@@ -198,7 +198,7 @@ export class SourcingConfirmReportService {
     }
     if (!setup.chatConfigured) {
       throw new ServiceUnavailableException(
-        '보고받을 채팅이 정해지지 않았습니다. 봇에게 /start 를 보내 채팅 ID를 받은 뒤 SOURCING_CONFIRM_TELEGRAM_CHAT_ID 에 넣어 주세요.',
+        '보고받을 채팅이 정해지지 않았습니다. Agent Org 텔레그램 칸에서 설정 토큰을 받아 채팅에 /start <토큰>을 보내고, 표시된 채팅 ID를 SOURCING_CONFIRM_TELEGRAM_CHAT_ID에 넣은 뒤 다시 시작하세요.',
       );
     }
     if (this.sending.has(organizationId)) {
