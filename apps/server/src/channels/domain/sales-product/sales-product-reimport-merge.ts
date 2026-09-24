@@ -7,7 +7,7 @@ import type { SalesProductBasicsRecord } from './sales-product-basics';
  * 지금 값이 기준값과 다르면 사람이 고친 것이라 지금 값을 지키고, 같으면 파일 값을 받는다. 기준값이
  * 없으면(원문이 없는 상품) 모든 칸을 지킨다. 상세 HTML 은 판매 상품 칸이 아니다 — Content 의
  * 상세 revision 이 정본이고, 다시 가져오기는 `imported` revision 을 쌓을 뿐 사람이 고친 revision 을 덮지
- * 않는다(KID-313 W2, `detail-page-import-rule`). 원문의 상세 디지스트가 그 revision 의 digest 다.
+ * 않는다(KID-313 W2, Content `domain/detail-page/detail-page-lifecycle.ts`). 원문의 상세 디지스트가 그 revision 의 digest 다.
  *
  * 자체상품코드(`ownCode`)는 상품을 찾는 열쇠라 병합하지 않는다 — 지금 값이 있으면 그대로 두고, 비어 있을
  * 때만 파일 값으로 채운다.

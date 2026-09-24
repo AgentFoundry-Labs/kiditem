@@ -26,8 +26,6 @@ export const ProductPreparationProjectionSchema = z.object({
   channelListingId: z.string().uuid().nullable(),
   status: ProductPreparationStatusSchema,
   selectedThumbnailUrl: z.string().nullable(),
-  selectedThumbnailGenerationId: z.string().uuid().nullable(),
-  selectedThumbnailGenerationCandidateId: z.string().uuid().nullable(),
   selectedDetailPageRevisionId: z.string().uuid().nullable(),
   selectedDetailPageGenerationId: z.string().uuid().nullable(),
   updatedAt: zIsoDate.nullable(),

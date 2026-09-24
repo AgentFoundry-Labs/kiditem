@@ -50,8 +50,6 @@ interface Props {
   onGenerate: () => void;
   onCoupang: () => void;
   onReEditFromSelected: () => void;
-  /** 편집 지시사항 textarea 바로 아래에 들어가는 추가 영역 (RecomposeVariantPicker 등). */
-  recomposeSlot?: React.ReactNode;
 }
 
 const SCENE_PRESETS = [
@@ -96,7 +94,6 @@ export function EditorControlPanel({
   onGenerate,
   onCoupang,
   onReEditFromSelected,
-  recomposeSlot,
 }: Props) {
   const generateDisabled = !hasInput || isPending;
 
@@ -198,9 +195,6 @@ export function EditorControlPanel({
                 className={cn(INPUT_CLASS, 'resize-none')}
               />
             </div>
-
-            {/* AI 분류 picker 등 — 편집 지시사항 바로 아래 영역 */}
-            {recomposeSlot}
           </>
         ) : (
           <>

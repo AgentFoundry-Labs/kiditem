@@ -12,7 +12,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direct-job.repository.adapter';
 import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository/detail-page-generation.repository.adapter';
-import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-content-generation-sink.adapter';
+import { DetailPageGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-generation-sink.adapter';
 import { DetailPageGenerateDirectOutputSchema } from '../domain/direct-generation';
 import type { DetailPageRawInput } from '../application/service/detail-page-ai.types';
 
@@ -25,7 +25,7 @@ describe('detail page generation (PG integration)', () => {
   let prisma: PrismaClient;
   let pages: DetailPageRepositoryAdapter;
   let generations: DetailPageGenerationRepositoryAdapter;
-  let sink: DetailPageContentGenerationSinkAdapter;
+  let sink: DetailPageGenerationSinkAdapter;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -33,7 +33,7 @@ describe('detail page generation (PG integration)', () => {
     const service = prisma as unknown as PrismaService;
     pages = new DetailPageRepositoryAdapter(service);
     generations = new DetailPageGenerationRepositoryAdapter(service, pages, new AiDirectJobRepositoryAdapter(service));
-    sink = new DetailPageContentGenerationSinkAdapter(pages);
+    sink = new DetailPageGenerationSinkAdapter(pages);
   });
 
   afterAll(async () => prisma?.$disconnect());

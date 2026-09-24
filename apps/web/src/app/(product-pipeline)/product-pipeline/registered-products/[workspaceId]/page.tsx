@@ -286,7 +286,6 @@ function buildFallbackBasicInfo(input: {
     rocketUnitCost: 0,
     thumbnailUrls: input.thumbnailUrls,
     selectedThumbnailUrl: null,
-    selectedThumbnailGenerationId: null,
     selectedThumbnailAssetId: null,
     selectedDetailPageGenerationId: input.selectedDetailPageGenerationId ?? null,
     selectedDetailPageRevisionId: input.selectedDetailPageRevisionId ?? null,

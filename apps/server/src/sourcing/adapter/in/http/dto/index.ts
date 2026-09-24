@@ -2,8 +2,6 @@ export { RegisterManualProductDto } from './register-manual-product.dto';
 export { CreateProductGenerationDto } from './product-generation.dto';
 export { ScrapeUrlBodyDto, ScrapeUrlStatusQueryDto } from './scrape-url.dto';
 export { QuickProcessCandidateDto } from './quick-process-candidate.dto';
-export { SelectPreparationThumbnailDto } from './select-preparation-thumbnail.dto';
-export { SelectPreparationDetailDto } from './select-preparation-detail.dto';
 export { Search1688KeywordDto } from './search-1688-keyword.dto';
 export { QuerySourcingAgentRagDto } from './sourcing-agent-rag.dto';
 export { ListEntryRecommendationsQueryDto } from './sourcing-entry-recommendation.dto';

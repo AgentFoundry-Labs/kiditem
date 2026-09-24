@@ -25,8 +25,6 @@ describe('RegistrationTarget shared contract', () => {
       channelListingId: '55555555-5555-4555-8555-555555555555',
       status: 'registered',
       selectedThumbnailUrl: 'https://cdn.example.com/thumb.png',
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
       selectedDetailPageRevisionId: null,
       selectedDetailPageGenerationId: null,
       updatedAt: '2026-07-13T00:00:00.000Z',

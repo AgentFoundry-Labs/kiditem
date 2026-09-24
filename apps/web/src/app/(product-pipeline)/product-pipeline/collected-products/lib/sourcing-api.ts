@@ -153,8 +153,6 @@ export interface ProductBasics {
    */
   mallRegisterShared?: Record<string, string>;
   selectedThumbnailUrl: string | null;
-  /** 채택한 대표이미지가 AI 후보면 그 job id. */
-  selectedThumbnailGenerationId: string | null;
   /** 초안 작업공간의 대표이미지 자산 id. */
   selectedThumbnailAssetId: string | null;
   selectedDetailPageGenerationId: string | null;
@@ -436,7 +434,6 @@ function productBasicsFromSalesProduct(
     mallRegisterValues: {},
     mallRegisterShared: normalizeStringMap(product.registrationDefaults),
     selectedThumbnailUrl: media.currentThumbnail?.url ?? thumbnailUrls[0] ?? null,
-    selectedThumbnailGenerationId: media.currentThumbnail?.thumbnailGenerationId ?? null,
     selectedThumbnailAssetId: media.currentThumbnail?.assetId ?? null,
     selectedDetailPageGenerationId: null,
     selectedDetailPageRevisionId: null,

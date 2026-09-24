@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ContentWorkspaceController } from './content-workspace.controller';
+import type { CreateManualDetailPageResult } from '../../../application/port/in/workspace/registration-content-workspace.port';
 
 describe('ContentWorkspaceController current thumbnail', () => {
   it('adopts one asset of the session organization workspace', async () => {
@@ -59,12 +60,12 @@ describe('ContentWorkspaceController draft lookups', () => {
 describe('ContentWorkspaceController manual first detail page', () => {
   it('writes the first detail page for the session organization and user only', async () => {
     const registrationContent = {
-      createManualDetailPage: vi.fn().mockResolvedValue({ workspaceId: 'w-1', revisionId: 'r-1', contentGenerationId: 'g-1' }),
+      createManualDetailPage: vi.fn<(input: unknown) => Promise<CreateManualDetailPageResult>>().mockResolvedValue({ workspaceId: 'w-1', revisionId: 'r-1', detailPageId: 'd-1' }),
     };
     const controller = new ContentWorkspaceController({} as never, {} as never, registrationContent as never);
 
     await expect(controller.createManualDetailPage('org-1', 'product-1', { id: 'user-1' } as never, { html: '<p>상세</p>' }))
-      .resolves.toEqual({ workspaceId: 'w-1', revisionId: 'r-1', contentGenerationId: 'g-1' });
+      .resolves.toEqual({ workspaceId: 'w-1', revisionId: 'r-1', detailPageId: 'd-1' });
     expect(registrationContent.createManualDetailPage).toHaveBeenCalledWith({
       organizationId: 'org-1', salesProductId: 'product-1', html: '<p>상세</p>', createdByUserId: 'user-1',
     });

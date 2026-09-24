@@ -114,7 +114,6 @@ const basicInfo = {
   rocketUnitCost: 0,
   thumbnailUrls: ['https://cdn.example.com/product.jpg'],
   selectedThumbnailUrl: null,
-  selectedThumbnailGenerationId: null,
   selectedThumbnailAssetId: null,
   selectedDetailPageGenerationId: null,
   selectedDetailPageRevisionId: null,

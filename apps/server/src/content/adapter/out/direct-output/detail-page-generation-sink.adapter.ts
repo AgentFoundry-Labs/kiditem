@@ -21,8 +21,8 @@ const RUNNABLE = new Set(['pending', 'processing']);
  * 건드리지 않는다(재시도 job · 늦은 결과는 no-op).
  */
 @Injectable()
-export class DetailPageContentGenerationSinkAdapter implements DetailPageDirectOutputSinkPort {
-  private readonly logger = new Logger(DetailPageContentGenerationSinkAdapter.name);
+export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSinkPort {
+  private readonly logger = new Logger(DetailPageGenerationSinkAdapter.name);
 
   constructor(
     @Inject(DETAIL_PAGE_REPOSITORY_PORT)

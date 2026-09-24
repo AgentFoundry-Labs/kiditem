@@ -26,7 +26,7 @@ import { ThumbnailAutoController } from './adapter/in/http/thumbnail-auto.contro
 import { ThumbnailEditorController } from './adapter/in/http/thumbnail-editor.controller';
 // adapter/in/agent
 // adapter/out
-import { DetailPageContentGenerationSinkAdapter } from './adapter/out/direct-output/detail-page-content-generation-sink.adapter';
+import { DetailPageGenerationSinkAdapter } from './adapter/out/direct-output/detail-page-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from './adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { CatalogDisplayMediaRepositoryAdapter } from './adapter/out/repository/catalog-display-media.repository.adapter';
@@ -294,7 +294,7 @@ export class AiAgentRuntimeModule {}
     { provide: LISTING_THUMBNAIL_EVALUATION_REPOSITORY_PORT, useExisting: ListingThumbnailEvaluationRepositoryAdapter },
     AiCatalogMediaPublicationRepositoryAdapter,
     CatalogDisplayMediaRepositoryAdapter,
-    DetailPageContentGenerationSinkAdapter,
+    DetailPageGenerationSinkAdapter,
     ThumbnailGenerationSinkAdapter,
     GeminiTextCompletionAdapter,
     GeminiThumbnailVisionAdapter,
@@ -317,7 +317,7 @@ export class AiAgentRuntimeModule {}
     },
     {
       provide: DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
-      useExisting: DetailPageContentGenerationSinkAdapter,
+      useExisting: DetailPageGenerationSinkAdapter,
     },
     {
       provide: THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
