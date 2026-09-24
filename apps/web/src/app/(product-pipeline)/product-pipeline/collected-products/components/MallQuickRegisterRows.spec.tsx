@@ -157,7 +157,7 @@ describe('MallQuickRegisterRows', () => {
     renderRows({
       registrationAccounts: [{
         channelAccountId: '00000000-0000-4000-8000-000000000001', channel: 'kidsnote', channelAccountName: '키즈노트',
-        registrationTargetId: null, channelListingId: null, externalListingId: null, state: 'registered',
+        registrationTargetId: null, channelListingId: null, externalListingId: null, listingState: null, listingRawStatus: null, listingActive: false, state: 'registered',
         soldOut: false, changedSinceRegistration: true, selectedThumbnailAssetId: null,
         selectedDetailPageRevisionId: null, lastExecution: null,
       }],

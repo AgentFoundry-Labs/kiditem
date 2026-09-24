@@ -497,7 +497,8 @@ describe('등록 현황 (상품 × 몰 매트릭스)', () => {
       ...rows[0]!.cells[0],
       registration: {
         channelAccountId: '99999999-9999-4999-8999-999999999999', channel: 'coupang', channelAccountName: '쿠팡',
-        registrationTargetId: null, channelListingId: null, externalListingId: '16290876620', state: 'registered',
+        registrationTargetId: null, channelListingId: null, externalListingId: '16290876620',
+        listingState: 'published', listingRawStatus: '승인완료', listingActive: true, state: 'registered',
         soldOut: true, changedSinceRegistration: true, selectedThumbnailAssetId: null,
         selectedDetailPageRevisionId: null, lastExecution: null,
       },
@@ -509,6 +510,27 @@ describe('등록 현황 (상품 × 몰 매트릭스)', () => {
     expect(within(table).getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
     // 판매상품 없는 칸(두 번째 줄)은 리스팅 상태 그대로다.
     expect(within(table).getByText('확인필요')).toBeInTheDocument();
+  });
+
+  it('몰이 아직 승인하지 않은 리스팅은 등록됨 옆에 미승인을 그대로 보인다 — 초록 등록됨으로 덮지 않는다', () => {
+    withMatrix();
+    const rows = (matrixData as { rows: { cells: Record<string, unknown>[] }[] }).rows;
+    rows[0]!.cells[0] = {
+      ...rows[0]!.cells[0],
+      state: 'reviewing',
+      rawStatus: '승인대기',
+      registration: {
+        channelAccountId: '99999999-9999-4999-8999-999999999999', channel: 'coupang', channelAccountName: '쿠팡',
+        registrationTargetId: null, channelListingId: null, externalListingId: '16290876620',
+        listingState: 'reviewing', listingRawStatus: '승인대기', listingActive: true, state: 'registered',
+        soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null,
+        selectedDetailPageRevisionId: null, lastExecution: null,
+      },
+    };
+    render(<MallListingsPage />);
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('등록됨')).toBeInTheDocument();
+    expect(within(table).getByText('미승인')).toBeInTheDocument();
   });
 
   it('리스팅을 안 가져온 몰은 열에 미수집이 붙고 아래에 설명이 나온다', () => {

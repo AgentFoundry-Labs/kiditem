@@ -8,6 +8,7 @@ import {
   registrationStateLabel,
   registrationStateTone,
 } from './registration-account-state';
+import { MALL_STOP_TONE } from './mall-presentation';
 
 function account(overrides: Partial<RegistrationAccountState> = {}): RegistrationAccountState {
   return {
@@ -17,6 +18,9 @@ function account(overrides: Partial<RegistrationAccountState> = {}): Registratio
     registrationTargetId: '00000000-0000-4000-8000-0000000000a1',
     channelListingId: null,
     externalListingId: null,
+    listingState: null,
+    listingRawStatus: null,
+    listingActive: false,
     state: 'unregistered',
     soldOut: false,
     changedSinceRegistration: false,
@@ -66,12 +70,39 @@ describe('registrationBadges', () => {
     ]);
   });
 
-  it('adds sold-out and needs-re-send after the state of a registered account', () => {
-    expect(registrationBadges(account({ state: 'registered', soldOut: true, changedSinceRegistration: true }))).toEqual([
+  it('adds sold-out (red, like every sold-out cell) and needs-re-send after the state of a registered account', () => {
+    expect(registrationBadges(account({
+      state: 'registered', listingState: 'published', listingRawStatus: '승인완료', listingActive: true, soldOut: true, changedSinceRegistration: true,
+    }))).toEqual([
       { key: 'state', label: '등록됨', tone: 'success' },
-      { key: 'soldOut', label: '품절', tone: 'warning' },
+      { key: 'soldOut', label: '품절', tone: 'danger', className: MALL_STOP_TONE.sold_out },
       { key: 'changed', label: '변경됨 · 재전송 필요', tone: 'warning' },
     ]);
+  });
+
+  it('greens 등록됨 only for a published listing or a fence-confirmed success the mall has not returned yet', () => {
+    expect(registrationBadges(account({ state: 'registered', listingState: 'published', listingActive: true }))[0])
+      .toEqual({ key: 'state', label: '등록됨', tone: 'success' });
+    expect(registrationBadges(account({ state: 'registered', listingState: null })))
+      .toEqual([{ key: 'state', label: '등록됨', tone: 'success' }]);
+  });
+
+  it('keeps the mall listing pill beside 등록됨 when the mall has not published it — 미승인 · 반려 · 판매중지 · 검수중', () => {
+    const registered = (listingState: RegistrationAccountState['listingState'], listingRawStatus: string | null) =>
+      registrationBadges(account({ state: 'registered', listingState, listingRawStatus, listingActive: true }));
+    expect(registered('reviewing', '승인대기')).toEqual([
+      { key: 'state', label: '등록됨', tone: 'neutral' },
+      { key: 'listing', label: '미승인', tone: 'progress', className: MALL_STOP_TONE.pending },
+    ]);
+    expect(registered('error', '승인반려')[1]).toEqual({ key: 'listing', label: '승인반려', tone: 'danger', className: MALL_STOP_TONE.blocked });
+    expect(registered('paused', '판매중지')[1]).toEqual({ key: 'listing', label: '판매중지', tone: 'danger', className: MALL_STOP_TONE.sold_out });
+    expect(registered('reviewing', null)[1]).toMatchObject({ key: 'listing', label: '검수중' });
+    expect(registered('unknown', 'observed')[1]).toMatchObject({ key: 'listing', label: '확인필요' });
+  });
+
+  it('reads a taken-down listing as 등록됨 · 내림', () => {
+    expect(registrationBadges(account({ state: 'registered', listingState: 'paused', listingRawStatus: '판매중지', listingActive: false })))
+      .toEqual([{ key: 'state', label: '등록됨 · 내림', tone: 'neutral' }]);
   });
 });
 

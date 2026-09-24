@@ -4,21 +4,22 @@ import {
   REGISTRATION_TONE_CLASS,
   productRegistrationSummary,
   registrationBadges,
+  type RegistrationBadgeAccount,
   type RegistrationTone,
 } from '../registration-account-state';
 
-type BadgeAccount = Pick<RegistrationAccountState, 'state' | 'soldOut' | 'changedSinceRegistration'>;
+type BadgeAccount = RegistrationBadgeAccount;
 
 type RegistrationStateBadgeProps =
   | { account: BadgeAccount; accounts?: never; className?: string }
   | { accounts: readonly (BadgeAccount & Partial<Pick<RegistrationAccountState, 'channelAccountName' | 'channel'>>)[]; account?: never; className?: string };
 
-function Chip({ label, tone, title }: { label: string; tone: RegistrationTone; title?: string }) {
+function Chip({ label, tone, className, title }: { label: string; tone: RegistrationTone; className?: string; title?: string }) {
   return (
     <span
       className={cn(
         'inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold',
-        REGISTRATION_TONE_CLASS[tone],
+        className ? cn('border-transparent', className) : REGISTRATION_TONE_CLASS[tone],
       )}
       title={title}
     >
@@ -36,7 +37,7 @@ export function RegistrationStateBadge(props: RegistrationStateBadgeProps) {
     return (
       <span className={cn('inline-flex flex-wrap items-center gap-1', props.className)}>
         {registrationBadges(props.account).map((badge) => (
-          <Chip key={badge.key} label={badge.label} tone={badge.tone} />
+          <Chip key={badge.key} label={badge.label} tone={badge.tone} className={badge.className} />
         ))}
       </span>
     );

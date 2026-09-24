@@ -3,6 +3,8 @@ import {
   type RegistrationAccountState,
   type RegistrationAccountStateValue,
 } from '@kiditem/shared/sales-product';
+import type { MallListingState } from '@kiditem/shared/mall-publishing';
+import { MALL_STOP_TONE, listingStatePill, type MallStopKind } from './mall-presentation';
 
 /**
  * 몰 계정별 등록 상태를 화면 말로 옮기는 하나뿐인 표(KID-313 결정 11 · KID-320).
@@ -13,9 +15,14 @@ import {
 export type RegistrationTone = 'neutral' | 'progress' | 'success' | 'warning' | 'danger';
 
 export interface RegistrationBadge {
-  key: 'state' | 'soldOut' | 'changed';
+  key: 'state' | 'listing' | 'soldOut' | 'changed';
   label: string;
   tone: RegistrationTone;
+  /**
+   * 몰 칸과 같은 색을 써야 하는 칩(몰이 보고한 리스팅 상태 · 품절)의 칸 색(`mall-presentation.ts`). 있으면 `tone` 색
+   * 대신 이것으로 그린다 — 같은 판매중지 · 품절이 칸에선 빨강, 배지에선 주황이면 안 된다(사장님 2026-09-18 · 19).
+   */
+  className?: string;
 }
 
 export interface ProductRegistrationSummary {
@@ -65,14 +72,61 @@ export function canPrepareRegistration(state: RegistrationAccountStateValue): bo
   return state === 'unregistered' || state === 'failed';
 }
 
-/** 계정 한 줄의 배지: 상태, 그 위에 품절 · 변경됨(재전송 필요). */
-export function registrationBadges(
-  account: Pick<RegistrationAccountState, 'state' | 'soldOut' | 'changedSinceRegistration'>,
-): RegistrationBadge[] {
-  const badges: RegistrationBadge[] = [
-    { key: 'state', label: registrationStateLabel(account.state), tone: registrationStateTone(account.state) },
-  ];
-  if (account.soldOut) badges.push({ key: 'soldOut', label: '품절', tone: 'warning' });
+export const TAKEN_DOWN_LABEL = '등록됨 · 내림';
+
+export type RegistrationBadgeAccount = Pick<
+  RegistrationAccountState,
+  'state' | 'soldOut' | 'changedSinceRegistration' | 'listingState' | 'listingRawStatus' | 'listingActive'
+>;
+
+const STOP_KIND_TONES: Record<MallStopKind, RegistrationTone> = {
+  sold_out: 'danger',
+  blocked: 'danger',
+  partial: 'progress',
+  pending: 'progress',
+  ended: 'neutral',
+};
+
+const LISTING_STATE_TONES: Record<MallListingState, RegistrationTone> = {
+  published: 'success',
+  reviewing: 'progress',
+  error: 'danger',
+  paused: 'danger',
+  discontinued: 'neutral',
+  unknown: 'warning',
+  unregistered: 'neutral',
+};
+
+/**
+ * 몰이 보고한 리스팅 상태가 "올라가 있다"를 넘어 할 말이 있는가 — 발행(`published`)이 아닌 살아 있는 리스팅.
+ * 그 말(미승인 · 반려 · 판매중지 · 검수중 · 확인필요)은 매트릭스 칸과 같은 알약(`listingStatePill`)으로 등록 상태 옆에 선다.
+ */
+function listingBadge(account: RegistrationBadgeAccount): RegistrationBadge | null {
+  const state = account.listingState;
+  if (!state || state === 'published' || state === 'unregistered' || !account.listingActive) return null;
+  const pill = listingStatePill(state, account.listingRawStatus);
+  const tone = pill.kind ? STOP_KIND_TONES[pill.kind] : LISTING_STATE_TONES[state];
+  return { key: 'listing', label: pill.label, tone, className: pill.tone };
+}
+
+/**
+ * 계정 한 줄의 배지: 상태, 몰이 발행하지 않은 리스팅이면 그 몰 상태, 그 위에 품절 · 변경됨(재전송 필요).
+ *
+ * "등록됨"이 초록인 것은 몰이 발행했다고 보고했거나(`published`) 울타리가 확인한 성공을 몰이 아직 돌려주지 않았을
+ * 때(`listingState` null)뿐이다 — 성공은 몰 재조회로 확인된 것이다(`(channels)/CLAUDE.md`). 내린 리스팅은
+ * "등록됨 · 내림"이다(2026-09-23 사용자 결정 "비활성화는 등록된 상태에서 내린 것").
+ */
+export function registrationBadges(account: RegistrationBadgeAccount): RegistrationBadge[] {
+  const badges: RegistrationBadge[] = [];
+  if (account.state === 'registered' && account.listingState !== null && !account.listingActive) {
+    badges.push({ key: 'state', label: TAKEN_DOWN_LABEL, tone: 'neutral' });
+  } else {
+    const listing = listingBadge(account);
+    const tone = account.state === 'registered' && listing ? 'neutral' : registrationStateTone(account.state);
+    badges.push({ key: 'state', label: registrationStateLabel(account.state), tone });
+    if (listing) badges.push(listing);
+  }
+  if (account.soldOut) badges.push({ key: 'soldOut', label: '품절', tone: 'danger', className: MALL_STOP_TONE.sold_out });
   if (account.changedSinceRegistration) {
     badges.push({ key: 'changed', label: CHANGED_SINCE_REGISTRATION_LABEL, tone: 'warning' });
   }

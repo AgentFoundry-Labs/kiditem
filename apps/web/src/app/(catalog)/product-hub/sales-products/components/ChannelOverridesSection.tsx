@@ -198,7 +198,9 @@ function isLiveExecutionStatus(status: string): boolean {
   return isActiveTargetExecution({ status: status as TargetExecutionResult['status'], providerOutcome: 'not_attempted' });
 }
 
-const UNREGISTERED = { state: 'unregistered', soldOut: false, changedSinceRegistration: false } as const;
+const UNREGISTERED = {
+  state: 'unregistered', soldOut: false, changedSinceRegistration: false, listingState: null, listingRawStatus: null, listingActive: false,
+} as const;
 
 /** 등록 설정(대상) 하나의 등록 상태 — 대상 id 로, 없으면 계정으로 찾는다. */
 function accountStateFor(

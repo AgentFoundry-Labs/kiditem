@@ -45,6 +45,9 @@ describe('RegisteredListingCard', () => {
             registrationTargetId: null,
             channelListingId: '00000000-0000-4000-8000-0000000000c1',
             externalListingId: 'seller-product-1',
+            listingState: 'published',
+            listingRawStatus: 'APPROVED',
+            listingActive: true,
             state: 'registered',
             soldOut: true,
             changedSinceRegistration: true,
@@ -61,6 +64,22 @@ describe('RegisteredListingCard', () => {
     expect(screen.getByText('품절')).toBeInTheDocument();
     expect(screen.getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
     expect(screen.queryByText('APPROVED')).not.toBeInTheDocument();
+  });
+
+  it('keeps the mall pill (반려) beside 등록됨 and marks a taken-down listing', () => {
+    const registration = {
+      channelAccountId: '00000000-0000-4000-8000-000000000001', channel: 'coupang', channelAccountName: '쿠팡 본계정',
+      registrationTargetId: null, channelListingId: '00000000-0000-4000-8000-0000000000c1', externalListingId: 'seller-product-1',
+      listingState: 'error' as const, listingRawStatus: '반려', listingActive: true, state: 'registered' as const,
+      soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null, selectedDetailPageRevisionId: null, lastExecution: null,
+    };
+    const { unmount } = render(<RegisteredListingCard listing={listingFixture({ salesProductId: 'sales-product-1', registration })} onOpen={vi.fn()} />);
+    expect(screen.getByText('등록됨')).toBeInTheDocument();
+    expect(screen.getByText('반려')).toBeInTheDocument();
+    unmount();
+
+    render(<RegisteredListingCard listing={listingFixture({ salesProductId: 'sales-product-1', registration: { ...registration, listingActive: false } })} onOpen={vi.fn()} />);
+    expect(screen.getByText('등록됨 · 내림')).toBeInTheDocument();
   });
 
   it('falls back to the raw listing status only for a listing without a sales product', () => {
