@@ -3,7 +3,7 @@ import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { periodBasisStatus } from '@kiditem/shared/dashboard';
-import { StatisticsService } from '../statistics.service';
+import { StatisticsService } from '../../application/service/statistics/statistics.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   IDOR_SENTINEL,

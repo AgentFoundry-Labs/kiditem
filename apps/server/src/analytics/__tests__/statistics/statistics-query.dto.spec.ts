@@ -1,6 +1,6 @@
 import { ValidationPipe } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { StatisticsQueryDto } from '../dto';
+import { StatisticsQueryDto } from '../../adapter/in/http/statistics/dto';
 
 /** The global pipe: whitelist and transform. */
 const pipe = new ValidationPipe({ whitelist: true, transform: true });

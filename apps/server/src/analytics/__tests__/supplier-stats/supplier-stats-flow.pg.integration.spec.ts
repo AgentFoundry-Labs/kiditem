@@ -2,7 +2,7 @@ import { channelFactTestProviders } from '../../../test-helpers/channel-fact-por
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
-import { SupplierStatsService } from '../supplier-stats.service';
+import { SupplierStatsService } from '../../application/service/supplier-stats/supplier-stats.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {
   makeTestPrisma,

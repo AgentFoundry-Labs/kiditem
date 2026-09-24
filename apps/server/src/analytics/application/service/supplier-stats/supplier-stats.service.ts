@@ -1,5 +1,5 @@
-import { ownerTransaction } from '../../prisma/owner-transaction';
-import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../channels/application/port/in/channel-option-recipe.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
   SupplierHistoryItem,
@@ -9,12 +9,12 @@ import type {
   SupplierSalesReport,
   SupplierSalesRow,
 } from '@kiditem/shared/supplier-stats';
-import { PrismaService } from '../../prisma/prisma.service';
-import { readPublishedOrderLines } from '../../orders/adapter/out/persistence/read/order-facts.reader';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import { readPublishedOrderLines } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import {
   PRODUCT_SOURCE_READ_PORT,
   type ProductSourceReadPort,
-} from '../../products/application/port/in/product-source-read.port';
+} from '../../../../products/application/port/in/product-source-read.port';
 
 const ORDER_STATUS_EXCLUDE = ['cancelled', 'returned'] as const;
 

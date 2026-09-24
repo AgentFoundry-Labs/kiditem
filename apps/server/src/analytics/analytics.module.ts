@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { DashboardModule } from './dashboard.module';
-import { StatisticsModule } from './statistics/statistics.module';
-import { TrafficModule } from './traffic/traffic.module';
-import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
+import { StatisticsModule } from './statistics.module';
+import { TrafficModule } from './traffic.module';
+import { SupplierStatsModule } from './supplier-stats.module';
 import { SellpiaSalesModule } from './sellpia-sales/sellpia-sales.module';
 import { SellpiaProductSalesModule } from './sellpia-product-sales/sellpia-product-sales.module';
 import { AnalyticsOwnerOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';

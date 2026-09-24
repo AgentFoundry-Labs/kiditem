@@ -6,6 +6,12 @@ Before working in this directory, always read this document first rather than re
 models. It may read across owner-domain tables for reporting, but it does not
 take mutation authority from them.
 
+Analytics is one hexagonal owner (`npm run check:hexagonal`). Dashboard,
+statistics, traffic, and supplier-stats code sits in a `<bundle>/` subfolder of
+each root lane (`adapter/in/http/<bundle>/`, `application/service/<bundle>/`,
+`__tests__/<bundle>/`, …) with `<bundle>.module.ts` at the analytics root. The
+`sellpia-sales/` and `sellpia-product-sales/` bundles keep their own layout.
+
 ## Ownership and source boundaries
 
 - Analytics reads, but does not own, order, channel, product, inventory, alert,

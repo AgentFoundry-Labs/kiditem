@@ -3,8 +3,8 @@ import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TrafficController } from '../traffic.controller';
-import { TrafficService } from '../traffic.service';
+import { TrafficController } from './traffic.controller';
+import { TrafficService } from '../../../../application/service/traffic/traffic.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 

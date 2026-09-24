@@ -2,7 +2,7 @@ import { channelFactTestPorts, channelFactTestProviders } from '../../../test-he
 import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
-import { TrafficService } from '../traffic.service';
+import { TrafficService } from '../../application/service/traffic/traffic.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { AdTrafficSourceRepository } from '../../../advertising/adapter/out/repository/ad-traffic-source.repository';

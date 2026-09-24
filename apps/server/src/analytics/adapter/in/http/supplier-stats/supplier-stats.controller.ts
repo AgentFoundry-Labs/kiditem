@@ -1,7 +1,7 @@
 import { Controller, Get, Query, BadRequestException } from '@nestjs/common';
-import { SupplierStatsService } from './supplier-stats.service';
+import { SupplierStatsService } from '../../../../application/service/supplier-stats/supplier-stats.service';
 import { SupplierStatsQueryDto } from './dto';
-import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 
 @Controller('supplier-stats')
 export class SupplierStatsController {

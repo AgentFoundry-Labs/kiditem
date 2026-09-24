@@ -1,7 +1,7 @@
 import { Controller, Get, Query, BadRequestException } from '@nestjs/common';
-import { StatisticsService } from './statistics.service';
+import { StatisticsService } from '../../../../application/service/statistics/statistics.service';
 import { StatisticsQueryDto } from './dto';
-import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 
 @Controller('statistics')
 export class StatisticsController {

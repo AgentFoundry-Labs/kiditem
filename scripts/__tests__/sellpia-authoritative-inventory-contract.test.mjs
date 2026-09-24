@@ -64,7 +64,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/analytics/__tests__/dashboard/inventory-abc-read.pg.integration.spec.ts",
   "apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales-inventory.pg.integration.spec.ts",
   "apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-profitability-source.pg.integration.spec.ts",
-  "apps/server/src/analytics/supplier-stats/__tests__/supplier-stats-flow.pg.integration.spec.ts",
+  "apps/server/src/analytics/__tests__/supplier-stats/supplier-stats-flow.pg.integration.spec.ts",
   "apps/server/src/automation/application/service/__tests__/action-board-get-tasks.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-import.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-publication.repository.pg.integration.spec.ts",
