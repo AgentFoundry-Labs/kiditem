@@ -57,6 +57,8 @@ export const ALLOWLIST = new Map([
   ['apps/server/src/channels/domain/account/channel-account-sales-costs.ts', ACCOUNT],
   ['apps/server/src/channels/domain/account/coupang-account-identity.ts',
     'Coupang vendor-id resolution shared with Advertising collection; under adapter/ it would be an owner implementation import (check:ledger-readers)'],
+  ['apps/server/src/channels/domain/collection/catalog-chunk-snapshot.ts', CATALOG],
+  ['apps/server/src/channels/domain/collection/catalog-collection-hash.ts', CATALOG],
   ['apps/server/src/channels/domain/collection/catalog-source-identity.ts', CATALOG],
   ['apps/server/src/channels/domain/listing/mall-product-url.ts', CATALOG],
   ['apps/server/src/channels/domain/registration/bulk-sheet/coupang-catalog-edit.ts', SHEET],
