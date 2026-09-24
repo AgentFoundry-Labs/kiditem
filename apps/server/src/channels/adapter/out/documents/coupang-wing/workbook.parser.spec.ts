@@ -428,7 +428,7 @@ describe('parseCoupangWingWorkbook', () => {
     expect(merges).toHaveLength(137 * PARENT_COLUMN_INDEXES.length);
   });
 
-  it('rejects empty, no-Template, missing-column, late-header, and over-limit files', () => {
+  it('rejects empty, no-Template, missing-column, and late-header files', () => {
     expect(() => parseCoupangWingWorkbook(workbookBuffer([
       ['title'], [], [], [...REQUIRED_HEADERS],
     ]))).toThrow('비어');
@@ -444,7 +444,10 @@ describe('parseCoupangWingWorkbook', () => {
       [...REQUIRED_HEADERS],
       REQUIRED_HEADERS.map((header) => header === '등록상품ID' ? 'P-LATE' : header === '옵션 ID' ? 'S-LATE' : ''),
     ]))).toThrow('필수 컬럼');
+  });
 
+  // Building a 10,001-row workbook exceeded the default 5s timeout under load (KID-196).
+  it('rejects an over-limit workbook', () => {
     const overLimitRows = Array.from(
       { length: MAX_COUPANG_WING_IMPORT_ROWS + 1 },
       (_, index) => REQUIRED_HEADERS.map((header) => {
@@ -456,7 +459,7 @@ describe('parseCoupangWingWorkbook', () => {
     expect(() => parseCoupangWingWorkbook(workbookBuffer([
       ['title'], [], [], [...REQUIRED_HEADERS], ...overLimitRows,
     ]))).toThrow('행 수');
-  });
+  }, 30_000);
 });
 
 function representativeRows(): { rows: unknown[][]; merges: XLSX.Range[] } {
