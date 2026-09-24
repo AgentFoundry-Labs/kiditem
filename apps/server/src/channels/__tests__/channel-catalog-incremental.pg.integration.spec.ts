@@ -25,6 +25,7 @@ import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapte
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { ParsedWingCatalogRow } from '../application/port/out/documents/channel-document.models';
 import { randomUUID } from 'node:crypto';
+import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { ChannelCatalogCollectionService } from '../application/service/collection/channel-catalog-collection.service';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
@@ -187,6 +188,25 @@ describe('Wing catalog incremental sync and rawJson sections (PG integration)', 
       productStatus: '승인완료',
       catalogExcel: { row: { 등록상품ID: 'P-EXCEL' } },
     });
+  });
+
+  it('옛 교체 경로가 남긴 평면 판매상태보다 엑셀이 쓴 saleStatus를 판매상태 읽기가 먼저 본다', async () => {
+    // 구역 이전 엑셀 가져오기는 raw_json을 한글 헤더 그대로 통째로 바꿨다.
+    await prisma.channelListing.create({
+      data: {
+        organizationId: ORG,
+        channelAccountId,
+        externalId: 'P-LEGACY',
+        rawJson: { 등록상품ID: 'P-LEGACY', 판매상태: '판매중지' },
+      },
+    });
+    await writeExcel([excelRow('P-LEGACY', { skuStatus: '판매중' })]);
+    const raw = (await listingRow('P-LEGACY')).rawJson as Record<string, unknown>;
+    expect(raw).toMatchObject({ saleStatus: '판매중', 판매상태: '판매중지' });
+    // Products·Analytics·매칭의 판매상태 읽기는 이 순서의 첫 키를 본다.
+    const readerKeys = ['saleStatus', 'salesStatus', 'sale_status', '판매상태'];
+    const rawStatus = readerKeys.map((key) => raw[key]).find((value) => typeof value === 'string' && value.trim());
+    expect(resolveChannelListingSaleStatus({ rawStatus: rawStatus as string, isActive: true })).toBe('판매중');
   });
 
   it('목록은 list 구역에, 상세는 detail 구역에 쓰고 평면 modifiedOn·detailDocuments는 쓰지 않는다', async () => {
