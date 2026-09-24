@@ -29,7 +29,7 @@ import {
   advertisingApplies,
   readAdWindowFacts,
   readListingAdWindowFacts,
-} from '../advertising/read/ad-target-facts';
+} from '../advertising/adapter/out/persistence/read/ad-target-facts';
 import {
   adSweepCoversChannelAccount,
   advertisingAppliesToSale,

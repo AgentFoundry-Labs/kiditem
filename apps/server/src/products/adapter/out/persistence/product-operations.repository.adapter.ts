@@ -21,7 +21,7 @@ import {
   readAdWindowFacts,
   readListingAdWindowFacts,
   type AdListingWindowFacts,
-} from '../../../../advertising/read/ad-target-facts';
+} from '../../../../advertising/adapter/out/persistence/read/ad-target-facts';
 import { addDays, businessDateKey, kstDayStart } from '../../../../common/kst';
 import { readOrderWindowFacts, readListingOptionOrderFacts, type ListingOptionOrderFacts } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import {

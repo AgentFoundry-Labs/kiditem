@@ -5,7 +5,7 @@ import {
   readObservedOrderBounds,
   readObservedOrderCount,
 } from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
-import { readAdWindowFacts } from '../../../../../advertising/read/ad-target-facts';
+import { readAdWindowFacts } from '../../../../../advertising/adapter/out/persistence/read/ad-target-facts';
 import { SalesAnalysisScraperService } from '../sales-analysis-scraper.service';
 
 vi.mock('../../../../../orders/adapter/out/persistence/read/order-facts.reader', () => ({
@@ -13,7 +13,7 @@ vi.mock('../../../../../orders/adapter/out/persistence/read/order-facts.reader',
   readObservedOrderCount: vi.fn(),
 }));
 
-vi.mock('../../../../../advertising/read/ad-target-facts', () => ({
+vi.mock('../../../../../advertising/adapter/out/persistence/read/ad-target-facts', () => ({
   readAdWindowFacts: vi.fn(),
 }));
 

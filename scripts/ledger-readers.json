@@ -969,7 +969,7 @@
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-trend.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/profit-calculation.repository.adapter.ts"
@@ -981,7 +981,7 @@
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/profit-calculation.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter.ts"
@@ -1023,7 +1023,7 @@
       "from": "apps/server/src/channels/adapter/out/repository/mall-publishing.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/common/per-listing-profit.ts"
@@ -1041,7 +1041,7 @@
       "from": "apps/server/src/common/per-listing-profit.ts"
     },
     {
-      "to": "apps/server/src/advertising/read/monthly-ad-allocation.reader.ts",
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/monthly-ad-allocation.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.ts"
@@ -1053,7 +1053,7 @@
       "from": "apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/finance/application/service/sales-analysis/sales-analysis-scraper.service.ts"
@@ -1095,7 +1095,7 @@
       "from": "apps/server/src/products/adapter/out/persistence/product-operations-data-status.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
@@ -1125,13 +1125,13 @@
       "from": "apps/server/src/products/application/port/out/persistence/master-product-abc.repository.port.ts"
     },
     {
-      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
-      "to": "apps/server/src/advertising/read/keyword-rank-facts.ts",
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/keyword-rank-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/readiness/readiness.service.ts"
@@ -1219,6 +1219,18 @@
       "reason": "KID-311 moved the settlement read helper under adapter/out/persistence/read; the settlement service keeps this import until its read port lands.",
       "removeWith": "KID-334",
       "from": "apps/server/src/finance/application/service/settlement/settlements.service.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-action-execution.ts",
+      "reason": "KID-311 moved the Advertising read helpers under adapter/out/persistence/read; this outgoing port keeps the type import until its read port lands.",
+      "removeWith": "KID-334",
+      "from": "apps/server/src/advertising/application/port/out/repository/ad-action.repository.port.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/adapter/out/persistence/read/keyword-rank-facts.ts",
+      "reason": "KID-311 moved the Advertising read helpers under adapter/out/persistence/read; this outgoing port keeps the type import until its read port lands.",
+      "removeWith": "KID-334",
+      "from": "apps/server/src/advertising/application/port/out/repository/keyword-rank.repository.port.ts"
     }
   ]
 }

@@ -14,7 +14,7 @@ import {
   PROFITABILITY_SOURCE_TYPE,
   profitabilityCoverageForKstYesterday,
 } from '../adapter/out/repository/profitability-ad-import.repository.adapter';
-import { readMonthlyAdAllocationPublication } from '../read/monthly-ad-allocation.reader';
+import { readMonthlyAdAllocationPublication } from '../adapter/out/persistence/read/monthly-ad-allocation.reader';
 import { lockProductMapping } from '../../common/product-mapping-generation';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type {

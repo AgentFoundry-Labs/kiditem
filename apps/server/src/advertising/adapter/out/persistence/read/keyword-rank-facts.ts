@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
-import { addDays, currentBusinessDate } from '../../common/kst';
+import { addDays, currentBusinessDate } from '../../../../../common/kst';
 
 export interface RankHistoryRow {
   vendorItemId: string;

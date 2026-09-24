@@ -11,7 +11,7 @@ import type {
   RankOverviewSnapshotRow,
   SerpSnapshotRow,
   WingSalesRankSnapshotRow,
-} from "../../../../read/keyword-rank-facts";
+} from "../../../../adapter/out/persistence/read/keyword-rank-facts";
 
 /** Rank and SERP facts `read/keyword-rank-facts.ts` returns. */
 export type {

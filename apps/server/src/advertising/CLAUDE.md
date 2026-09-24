@@ -77,7 +77,7 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   a product grade or coercing a missing/stale source to C.
 - `ChannelAdTargetDailySnapshot`, what the campaign sweep publishes, is the
   one advertising ledger. Outside its owner publication it is read only through
-  `read/ad-target-facts`, whose gate is the current completed sweep, product
+  `adapter/out/persistence/read/ad-target-facts`, whose gate is the current completed sweep, product
   grain, no keyword rows; `npm run check:ledger-readers` fails any undeclared
   production read and inventories the remaining exact owner and legacy paths.
   A day the sweep never reported is absent, never a

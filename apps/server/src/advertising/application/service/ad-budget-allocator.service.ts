@@ -5,7 +5,7 @@ import type {
   Top20Input,
   GradeBudgetAllocation,
 } from '../../domain/model/strategy-types';
-import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
+import { hydratedListingToSummary } from '../../domain/ad-listing.mapper';
 
 /**
  * Pure calculator — Ad spend / budget / Top 20 집계.

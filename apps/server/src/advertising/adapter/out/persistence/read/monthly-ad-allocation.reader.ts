@@ -1,6 +1,6 @@
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
-import { businessDateKey, inclusiveDayCount } from '../../common/kst';
-import { clampProfitabilityMonthCoverage } from '../domain/profitability-month-coverage';
+import { businessDateKey, inclusiveDayCount } from '../../../../../common/kst';
+import { clampProfitabilityMonthCoverage } from '../../../../domain/profitability-month-coverage';
 import type { Prisma } from '@prisma/client';
 
 export const MAX_MONTHLY_AD_ALLOCATION_ROWS = 100_000;

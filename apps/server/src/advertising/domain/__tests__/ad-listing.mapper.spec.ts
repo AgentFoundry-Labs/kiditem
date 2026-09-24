@@ -4,7 +4,7 @@ import {
   scopedListingToSummary,
   toListingSummary,
 } from '../ad-listing.mapper';
-import type { HydratedListing } from '../../domain/model/strategy-types';
+import type { HydratedListing } from '../model/strategy-types';
 import type { ScopedAdListingReadModel } from '../../application/port/out/repository/ad-listing.repository.port';
 
 describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {

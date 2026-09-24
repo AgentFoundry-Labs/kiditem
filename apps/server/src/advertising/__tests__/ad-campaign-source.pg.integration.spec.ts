@@ -18,7 +18,7 @@ import { AdCampaignSourceController } from '../adapter/in/http/ad-campaign-sourc
 import { AdCampaignSourceRepository } from '../adapter/out/repository/ad-campaign-source.repository';
 import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
 import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
-import { readAdWindowFacts } from '../read/ad-target-facts';
+import { readAdWindowFacts } from '../adapter/out/persistence/read/ad-target-facts';
 import { businessDateKey, evidenceCutoffDate } from '../../common/kst';
 import type { PrismaClient } from '@prisma/client';
 import type { INestApplication } from '@nestjs/common';

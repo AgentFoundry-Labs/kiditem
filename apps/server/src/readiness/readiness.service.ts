@@ -19,8 +19,8 @@ import { ownerTransaction } from '../prisma/owner-transaction';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../channels/application/port/in/account/channel-account.port';
 import { countPublishedCatalogListings } from '../channels/adapter/out/repository/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
-import { readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/read/ad-target-facts';
-import { readWingRankCoverage } from '../advertising/read/keyword-rank-facts';
+import { readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/adapter/out/persistence/read/ad-target-facts';
+import { readWingRankCoverage } from '../advertising/adapter/out/persistence/read/keyword-rank-facts';
 import type {
   ReadinessCheck,
   ReadinessResponse,

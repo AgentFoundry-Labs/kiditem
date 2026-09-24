@@ -5,7 +5,7 @@ import {
   readAdWindowFacts,
   readLatestAdDate,
   readListingAdWindowFacts,
-} from '../read/ad-target-facts';
+} from '../adapter/out/persistence/read/ad-target-facts';
 import {
   makeTestPrisma,
   resetDb,

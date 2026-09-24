@@ -47,7 +47,7 @@ import {
   advertisingApplies,
   readAdWindowFacts,
   type AdWindowDay,
-} from '../../../../../advertising/read/ad-target-facts';
+} from '../../../../../advertising/adapter/out/persistence/read/ad-target-facts';
 import { addDays } from '../../../../../common/kst';
 import {
   resolveOrderLineSalesCosts,

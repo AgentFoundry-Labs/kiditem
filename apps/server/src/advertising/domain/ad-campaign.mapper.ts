@@ -1,5 +1,5 @@
-import { buildAdMetrics } from '../domain/ad-metrics';
-import { normalizeAdKeywordOrigin } from '../domain/ad-keyword';
+import { buildAdMetrics } from './ad-metrics';
+import { normalizeAdKeywordOrigin } from './ad-keyword';
 import { scopedListingToSummary } from './ad-listing.mapper';
 import { businessDateKey, datesInclusive } from '../../common/kst';
 import type {
@@ -11,7 +11,7 @@ import type {
   AdTrendsDay,
   AdTrendsSummary,
 } from '@kiditem/shared/advertising';
-import type { AdPeriod } from '../domain/ad-metrics';
+import type { AdPeriod } from './ad-metrics';
 import type { ScopedAdListingReadModel } from '../application/port/out/repository/ad-listing.repository.port';
 import type { KeywordPauseProposalRow } from '../application/port/out/repository/ad-action.repository.port';
 import type {

@@ -8,7 +8,7 @@ import { periodBounds } from '../domain/ad-metrics';
 import { AdvertisingModule } from '../advertising.module';
 import { AdActionService } from '../application/service/ad-action.service';
 import { AdStrategyService } from '../application/service/ad-strategy.service';
-import { deriveAdActionExecution, readLatestExecutionTasks } from '../read/ad-action-execution';
+import { deriveAdActionExecution, readLatestExecutionTasks } from '../adapter/out/persistence/read/ad-action-execution';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,

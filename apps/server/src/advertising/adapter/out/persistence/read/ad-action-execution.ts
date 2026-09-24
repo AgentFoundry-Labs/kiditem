@@ -4,7 +4,7 @@ import {
   executionDeadlineCutoff,
   isExpiredRunningExecutionTask,
   type ExecutionTaskStatus,
-} from '../domain/execution-task-lifecycle';
+} from '../../../../domain/execution-task-lifecycle';
 
 /**
  * An AdAction's execution state is its latest ExecutionTask; the action keeps

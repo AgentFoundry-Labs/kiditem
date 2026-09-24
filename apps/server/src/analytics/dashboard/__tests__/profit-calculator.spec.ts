@@ -7,7 +7,7 @@ import { readOrderLineWindowFacts } from "../../../orders/adapter/out/persistenc
 import {
   advertisingApplies,
   readAdWindowFacts,
-} from "../../../advertising/read/ad-target-facts";
+} from "../../../advertising/adapter/out/persistence/read/ad-target-facts";
 import { businessDateKey, kstBusinessDate } from "../../../common/kst";
 import { businessDatesInWindow } from "../domain/period/dashboard-period";
 import { periodOf } from "./test-helpers/period";
@@ -18,8 +18,8 @@ vi.mock("../../../orders/adapter/out/persistence/read/order-facts.reader", async
   >()),
   readOrderLineWindowFacts: vi.fn(),
 }));
-vi.mock("../../../advertising/read/ad-target-facts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../advertising/read/ad-target-facts")>()),
+vi.mock("../../../advertising/adapter/out/persistence/read/ad-target-facts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../advertising/adapter/out/persistence/read/ad-target-facts")>()),
   advertisingApplies: vi.fn(),
   readAdWindowFacts: vi.fn(),
 }));
