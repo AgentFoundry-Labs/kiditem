@@ -47,3 +47,27 @@ test('fails when a retired entry is still registered or its source is missing', 
   ]);
 });
 
+
+test('fails an unregistered migration outside the README pre-retirement exemptions', () => {
+  const plan = planDataMigrationTypeCheck({
+    versionFiles: [
+      'scripts/data-migrations/v0.1.3/001_exempt_release.ts',
+      'scripts/data-migrations/v0.1.7/002_exempt_id.ts',
+      'scripts/data-migrations/v0.1.21/001_exempt_id.ts',
+      'scripts/data-migrations/v0.1.7/003_not_exempt.ts',
+      'scripts/data-migrations/v0.1.31/099_forgotten.ts',
+    ],
+    indexSource: INDEX,
+    retired: [],
+  });
+
+  assert.deepEqual(plan.errors, [
+    'scripts/data-migrations/v0.1.31/099_forgotten.ts is neither registered in index.ts, retired in retired.json, nor a README pre-retirement exemption',
+    'scripts/data-migrations/v0.1.7/003_not_exempt.ts is neither registered in index.ts, retired in retired.json, nor a README pre-retirement exemption',
+  ]);
+  assert.deepEqual(plan.unregistered, [
+    'scripts/data-migrations/v0.1.21/001_exempt_id.ts',
+    'scripts/data-migrations/v0.1.3/001_exempt_release.ts',
+    'scripts/data-migrations/v0.1.7/002_exempt_id.ts',
+  ]);
+});

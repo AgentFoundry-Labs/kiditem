@@ -9,8 +9,8 @@
 //
 // Checked set: every file the committed tsconfig includes, minus
 //   - retired sources (retired.json `sourcePath`), which never run again, and
-//   - version files index.ts does not register or re-export (registrations
-//     removed before retired.json existed; see data-migrations/README.md).
+//   - the README's pre-retirement exemptions that index.ts no longer registers.
+// Any other unregistered version file stops the gate (exit 2).
 // Both lists are derived here on every run; nothing is written by hand.
 //
 // Policy: zero errors. A promoted migration that no longer type-checks stays
@@ -29,6 +29,19 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const MIGRATIONS_DIR = 'scripts/data-migrations';
 const TSCONFIG = `${MIGRATIONS_DIR}/tsconfig.json`;
+
+// Registrations removed before retired.json existed (data-migrations/README.md):
+// every file of v0.1.0–v0.1.3, `v0.1.7:002` (#325), and `v0.1.21:001` (#481).
+// Any other unregistered, unretired version file is a mistake, not an exemption.
+const PRE_RETIREMENT_EXEMPT_RELEASES = new Set(['0.1.0', '0.1.1', '0.1.2', '0.1.3']);
+const PRE_RETIREMENT_EXEMPT_IDS = new Set(['v0.1.7:002', 'v0.1.21:001']);
+
+function isPreRetirementExempt(file) {
+  const match = /\/v(\d+\.\d+\.\d+)\/(\d+)_[^/]+\.ts$/.exec(file);
+  if (!match) return false;
+  const [, release, sequence] = match;
+  return PRE_RETIREMENT_EXEMPT_RELEASES.has(release) || PRE_RETIREMENT_EXEMPT_IDS.has(`v${release}:${sequence}`);
+}
 
 const IMPORT_SPECIFIER = /(?:import|export)\b[^'"]*?\bfrom\s+['"](\.\/v[^'"]+)['"]/g;
 
@@ -51,9 +64,17 @@ export function planDataMigrationTypeCheck({ versionFiles, indexSource, retired 
     }
   }
   const retiredSet = new Set(retiredPaths);
-  const unregistered = versionFiles
-    .filter((file) => !registered.has(file) && !retiredSet.has(file))
-    .sort();
+  const unregistered = [];
+  for (const file of [...versionFiles].sort()) {
+    if (registered.has(file) || retiredSet.has(file)) continue;
+    if (isPreRetirementExempt(file)) {
+      unregistered.push(file);
+    } else {
+      errors.push(
+        `${file} is neither registered in index.ts, retired in retired.json, nor a README pre-retirement exemption`,
+      );
+    }
+  }
   return {
     errors,
     retired: [...retiredPaths].sort(),
