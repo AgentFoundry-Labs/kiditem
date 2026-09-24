@@ -152,7 +152,11 @@ describe("retired data migration lineage", () => {
       });
 
       it("names registered replacements that declare their ids", () => {
-        expect(entry.replacementMigrations.length).toBeGreaterThan(0);
+        // A promoted migration with nothing left to replace states why instead
+        // (KID-262); the release contract guard checks it is promoted.
+        if (entry.replacementMigrations.length === 0) {
+          expect(entry.noReplacementReason?.trim()).toBeTruthy();
+        }
         for (const replacement of entry.replacementMigrations) {
           expect(migrationIdentity(replacement.path)?.id).toBe(replacement.id);
           expect(DATA_MIGRATION_IDS).toContain(replacement.id);
