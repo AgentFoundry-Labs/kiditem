@@ -36,11 +36,11 @@ export interface CatalogCollectionChunk {
 
 export type CanonicalProduct = { ordinal: number; product: CoupangCatalogProductV1 };
 
-export type CanonicalBasicProduct = { ordinal: number; product: CoupangCatalogBasicProductV1 };
+type CanonicalBasicProduct = { ordinal: number; product: CoupangCatalogBasicProductV1 };
 
-export type CanonicalDetailProduct = { ordinal: number; product: CoupangCatalogDetailProductV1 };
+type CanonicalDetailProduct = { ordinal: number; product: CoupangCatalogDetailProductV1 };
 
-export type CompleteSnapshot = {
+type CompleteSnapshot = {
   manifest: CoupangCatalogManifestV1;
   products: CanonicalProduct[];
 };
@@ -143,7 +143,7 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
   };
 }
 
-export function applyCompactProjection(
+function applyCompactProjection(
   chunk: CatalogCollectionChunk,
   state: InspectedChunks,
 ): void {
@@ -209,7 +209,7 @@ export function applyCompactProjection(
   }
 }
 
-export function numberValue(value: unknown): number | null {
+function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
@@ -358,7 +358,7 @@ export function assembleFullDetailsSnapshot(
   return { manifest: state.manifest!, products };
 }
 
-export function assertDiscoveryCoverage(state: InspectedChunks): void {
+function assertDiscoveryCoverage(state: InspectedChunks): void {
   if (!state.manifest) throw new BadRequestException('Discovery manifest is missing');
   if (!state.confirmation) throw new BadRequestException('Stable manifest confirmation is missing');
   assertSameManifest(state.manifest, state.confirmation);
@@ -406,7 +406,7 @@ export function missingHydratedProductIds(state: InspectedChunks): string[] {
     .map((item) => item.externalProductId);
 }
 
-export function withDiscoverySaleStatus(
+function withDiscoverySaleStatus(
   item: CanonicalProduct,
   saleStatus: string | null,
 ): CanonicalProduct {
@@ -422,7 +422,7 @@ export function withDiscoverySaleStatus(
   };
 }
 
-export function assertSameManifest(
+function assertSameManifest(
   expected: CoupangCatalogManifestV1,
   actual: CoupangCatalogManifestV1,
 ): void {
