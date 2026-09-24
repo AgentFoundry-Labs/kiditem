@@ -78,6 +78,16 @@ describe('ChannelAccountPersistenceAdapter mapping generation (PG integration)',
     await expect(mappingGeneration()).resolves.toBe(2n);
   });
 
+  it('lists configured mall accounts alongside active marketplace accounts, and leaves paused ones out (KID-330)', async () => {
+    for (const [channel, status] of [['coupang', 'active'], ['kidsnote', 'configured'], ['onch', 'paused']] as const) {
+      await prisma.channelAccount.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, channel, name: `${channel} account`, status },
+      });
+    }
+    const listed = await repository.listActive(TEST_ORGANIZATION_ID);
+    expect(listed.map((account) => account.channel).sort()).toEqual(['coupang', 'kidsnote']);
+  });
+
   it.each(['coupang', 'rocket'] as const)(
     'advances once when a %s account claims its provider identity — mapping generation is channel-neutral',
     async (channel) => {

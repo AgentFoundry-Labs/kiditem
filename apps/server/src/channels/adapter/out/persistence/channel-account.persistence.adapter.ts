@@ -366,9 +366,13 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
     return this.getCoupangSettings(organizationId);
   }
 
+  /**
+   * 쓸 수 있는 계정. `active`(마켓플레이스 부트스트랩)와 `configured`(쇼핑몰 계정에서 연결한 몰) 둘 다다 —
+   * `paused` 만 뺀다. 예전엔 `active` 만 돌려줘 쇼핑몰 계정으로 연결한 몰이 등록 준비 · 등록 확인 창에 안 나왔다(KID-330).
+   */
   listActive(organizationId: string): Promise<ChannelAccountListRow[]> {
     return this.prisma.channelAccount.findMany({
-      where: { organizationId, status: 'active' },
+      where: { organizationId, status: { in: ['active', 'configured'] } },
       orderBy: [{ channel: 'asc' }, { isPrimary: 'desc' }, { name: 'asc' }],
       select: CHANNEL_ACCOUNT_LIST_SELECT,
     });
