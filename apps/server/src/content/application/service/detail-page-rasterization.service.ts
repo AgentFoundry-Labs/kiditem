@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import * as fs from 'fs';
 import * as path from 'path';
 import puppeteer, { type Page } from 'puppeteer';
@@ -203,7 +204,7 @@ function resolveRasterConfig(body: RenderImageInput): RasterConfig {
     ? body.outputWidth / viewportWidth
     : body.renderScale ?? 1;
   if (!Number.isFinite(renderScale) || renderScale <= 0 || renderScale > MAX_RENDER_SCALE) {
-    throw new BadRequestException('render scale too large');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'RENDER_SCALE_INVALID' }, message: '렌더 배율이 허용 범위를 벗어났습니다. 출력 너비를 줄여 주세요.' });
   }
   const format = body.format ?? 'png';
   return {
@@ -222,7 +223,7 @@ function assertRasterPixelBudget(
   const height = clip?.height ?? DEFAULT_VIEWPORT_HEIGHT;
   const outputPixels = Math.ceil(width * height * config.renderScale * config.renderScale);
   if (outputPixels > MAX_RASTER_OUTPUT_PIXELS) {
-    throw new BadRequestException('render output too large');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'RENDER_OUTPUT_TOO_LARGE' }, message: '렌더 결과가 너무 큽니다. 상세페이지 길이나 출력 너비를 줄여 주세요.' });
   }
 }
 

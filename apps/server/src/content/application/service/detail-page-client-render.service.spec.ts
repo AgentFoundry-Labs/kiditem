@@ -1,9 +1,3 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  GoneException,
-} from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DETAIL_PAGE_CLIENT_RENDER_OUTPUT_WIDTH,
@@ -192,7 +186,7 @@ describe('DetailPageClientRenderService', () => {
     await expect(service.prepare({
       organizationId: ORG_ID, userId: USER_ID, contentWorkspaceId: WORKSPACE_ID,
       detailPageRevisionId: '99999999-9999-4999-8999-999999999999',
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
     expect(images.createIntent).not.toHaveBeenCalled();
     expect(rasterization.render).not.toHaveBeenCalled();
   });
@@ -335,7 +329,7 @@ describe('DetailPageClientRenderService', () => {
       organizationId: ORG_ID,
       userId: USER_ID,
       intentId: INTENT_ID,
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'RENDER_CLAIMED_BY_OTHER' } });
 
     const result = await service.claim({
       organizationId: ORG_ID,
@@ -417,7 +411,7 @@ describe('DetailPageClientRenderService', () => {
       organizationId: ORG_ID,
       userId: USER_ID,
       intentId: INTENT_ID,
-    })).rejects.toBeInstanceOf(GoneException);
+    })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'RENDER_REQUEST_EXPIRED' } });
     expect(images.expireIntent).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       intentId: INTENT_ID,
@@ -430,7 +424,7 @@ describe('DetailPageClientRenderService', () => {
     detailPages.findRevision.mockResolvedValue({ ...savedDetailPage(), detailPageId: '99999999-9999-4999-8999-999999999999' });
 
     await expect(service.document({ organizationId: ORG_ID, userId: USER_ID, intentId: INTENT_ID }))
-      .rejects.toThrow('렌더할 상세페이지 revision을 찾을 수 없습니다.');
+      .rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'detail_revision' } });
   });
 
   it('document는 claimant에게 bound revision의 렌더 문서만 반환한다', async () => {
@@ -468,7 +462,7 @@ describe('DetailPageClientRenderService', () => {
       organizationId: ORG_ID,
       userId: USER_ID,
       intentId: INTENT_ID,
-    })).rejects.toBeInstanceOf(ForbiddenException);
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', details: { reason: 'RENDER_NOT_CLAIMANT' } });
   });
 
   it('fail은 claim한 사용자만 수행할 수 있다', async () => {
@@ -482,7 +476,7 @@ describe('DetailPageClientRenderService', () => {
       userId: USER_ID,
       intentId: INTENT_ID,
       body: { code: 'capture_failed', message: 'capture failed' },
-    })).rejects.toBeInstanceOf(ForbiddenException);
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', details: { reason: 'RENDER_NOT_CLAIMANT' } });
     expect(images.failIntent).not.toHaveBeenCalled();
   });
 
@@ -550,7 +544,7 @@ describe('DetailPageClientRenderService', () => {
         pixelHeight: 7846,
         sha256: 'a'.repeat(64),
       },
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'RENDER_UPLOAD_MISMATCH' } });
   });
 
   it.each([
@@ -582,6 +576,6 @@ describe('DetailPageClientRenderService', () => {
         pixelHeight: 7846,
         sha256: 'a'.repeat(64),
       },
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'RENDER_UPLOAD_MISMATCH' } });
   });
 });

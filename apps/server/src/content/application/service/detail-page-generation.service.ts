@@ -1,11 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import type { GenerateDetailPageInput } from './detail-page-requests';
 import {
   IMAGE_STORAGE_PORT,
@@ -67,7 +62,7 @@ export class DetailPageGenerationService {
     organizationId: string,
   ): Promise<{ url: string }> {
     if (!file?.buffer?.length) {
-      throw new BadRequestException('이미지 파일이 필요합니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IMAGE_FILE_REQUIRED' }, message: '이미지 파일이 필요합니다.' });
     }
     const ext = this.extForMime(file.mimetype);
     const fileRole = await this.detectUploadedImageRole(file.buffer);
@@ -99,7 +94,7 @@ export class DetailPageGenerationService {
     const kcCertificationNumber = normalizeKcCertificationNumber(dto.kcCertificationNumber);
     const imageUrls = moveSafetyLabelImagesToEnd(dto.imageUrls ?? []);
     if (imageUrls.length === 0) {
-      throw new BadRequestException(DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE);
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'PRODUCT_IMAGE_REQUIRED' }, message: DETAIL_PAGE_IMAGE_REQUIRED_MESSAGE });
     }
     const rawInput: DetailPageRawInput = {
       rawTitle: dto.rawTitle,
@@ -145,7 +140,7 @@ export class DetailPageGenerationService {
       : null;
     if (generationMode === 'image') {
       if (!imageOnlyBase) {
-        throw new BadRequestException('이미지만 생성하려면 먼저 같은 작업공간/템플릿의 카피 생성 결과가 필요합니다.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IMAGE_ONLY_BASE_REQUIRED' }, message: '이미지만 생성하려면 먼저 같은 작업공간/템플릿의 카피 생성 결과가 필요합니다.' });
       }
       rawInput.baseDetailPageId = imageOnlyBase.id;
     }
@@ -172,7 +167,7 @@ export class DetailPageGenerationService {
       organizationId,
       contentWorkspaceId,
     });
-    if (!row) throw new NotFoundException('Content workspace not found');
+    if (!row) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
     return row;
   }
 
@@ -266,7 +261,7 @@ export class DetailPageGenerationService {
     for (const [index, ref] of input.sourceReferences.entries()) {
       if (ref.sourceType === 'sourcing_candidate') {
         if (!ref.sourceCandidateId) {
-          throw new BadRequestException(`sourceReferences[${index}].sourceCandidateId is required`);
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'SOURCE_REFERENCE_ID_REQUIRED', index, field: 'sourceCandidateId' } });
         }
         // Provenance only. Sourcing rows are another owner's, so the id is
         // recorded as given and the caller supplies the human label.
@@ -280,13 +275,13 @@ export class DetailPageGenerationService {
 
       if (ref.sourceType === 'detail_page') {
         if (!ref.sourceDetailPageId) {
-          throw new BadRequestException(`sourceReferences[${index}].sourceDetailPageId is required`);
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'SOURCE_REFERENCE_ID_REQUIRED', index, field: 'sourceDetailPageId' } });
         }
         const page = await this.repository.findSourceDetailPage({
           organizationId: input.organizationId,
           detailPageId: ref.sourceDetailPageId,
         });
-        if (!page) throw new NotFoundException('Detail page source not found');
+        if (!page) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
         out.push({
           sourceType: 'detail_page',
           sourceDetailPageId: page.id,
@@ -297,13 +292,13 @@ export class DetailPageGenerationService {
 
       if (ref.sourceType === 'input_asset') {
         if (!ref.contentAssetId) {
-          throw new BadRequestException(`sourceReferences[${index}].contentAssetId is required`);
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'SOURCE_REFERENCE_ID_REQUIRED', index, field: 'contentAssetId' } });
         }
         const asset = await this.repository.findSourceContentAsset({
           organizationId: input.organizationId,
           contentAssetId: ref.contentAssetId,
         });
-        if (!asset) throw new NotFoundException('Input asset source not found');
+        if (!asset) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'asset' } });
         out.push({
           sourceType: 'input_asset',
           contentAssetId: asset.id,
@@ -329,7 +324,7 @@ export class DetailPageGenerationService {
       reason: DETAIL_PAGE_CANCELLED_MESSAGE,
     });
     if (result.status === 'not_found') {
-      throw new NotFoundException('Detail page generation not found');
+      throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
     }
     return this.query.getById(id, organizationId);
   }

@@ -1,5 +1,6 @@
 import { aiUsageMeter } from '../../../application/usage/ai-usage-meter';
 import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { KiditemExternalError } from '@kiditem/shared/errors';
 import { GoogleGenAI } from '@google/genai';
 import {
   requireGeminiApiKey,
@@ -184,7 +185,7 @@ export class GeminiThumbnailVisionAdapter implements ThumbnailVisionProviderPort
   private extractJsonArray<T>(text: string, errorCode: string): T[] {
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
-      throw new ServiceUnavailableException(errorCode);
+      throw new KiditemExternalError('CONTENT_GENERATION_FAILED', { details: { reason: errorCode } });
     }
     return JSON.parse(jsonMatch[0]) as T[];
   }
@@ -192,7 +193,7 @@ export class GeminiThumbnailVisionAdapter implements ThumbnailVisionProviderPort
   private extractJsonObject<T>(text: string, errorCode: string): T {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new ServiceUnavailableException(errorCode);
+      throw new KiditemExternalError('CONTENT_GENERATION_FAILED', { details: { reason: errorCode } });
     }
     return JSON.parse(jsonMatch[0]) as T;
   }

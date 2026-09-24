@@ -130,7 +130,7 @@ describe('ThumbnailEditorController draft-bound', () => {
       salesProductId: SALES_PRODUCT_ID,
       productImage: 'main-product-url',
       purpose: 'compliance',
-    } satisfies ThumbnailEditorDto, ORGANIZATION_ID)).rejects.toThrow('함께 보낼 수 없습니다');
+    } satisfies ThumbnailEditorDto, ORGANIZATION_ID)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'THUMBNAIL_SUBJECT_INVALID' }, message: expect.stringContaining('함께 보낼 수 없습니다') });
     expect(contentWorkspaces.ensureForGeneration).not.toHaveBeenCalled();
   });
 });
@@ -259,8 +259,8 @@ describe('ThumbnailEditorController workspace-bound generation', () => {
       mode: 'edit',
     } satisfies ThumbnailEditorDto;
 
-    await expect(controller.generate(body, ORGANIZATION_ID)).rejects.toThrow(
-      `ContentWorkspace ${REGISTRATION_WORKSPACE_ID} not found`,
+    await expect(controller.generate(body, ORGANIZATION_ID)).rejects.toMatchObject(
+      { code: 'CONTENT_NOT_FOUND', details: { reason: 'workspace' } },
     );
     expect(generationService.enqueueStandaloneGeneration).not.toHaveBeenCalled();
   });

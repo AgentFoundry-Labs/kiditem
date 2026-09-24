@@ -50,7 +50,7 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       channelListingId: null,
       normalizedTitle: 'kidsrainboots',
       createdByUserId: 'user-1',
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'WORKSPACE_OWNER_FIELDS_MISMATCH' } });
 
     expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
   });
@@ -68,8 +68,8 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       createdByUserId: 'user-1',
     };
 
-    await expect(repository.ensureActiveWorkspace({ ...base, channelListingId: 'listing-1' })).rejects.toBeInstanceOf(BadRequestException);
-    await expect(repository.ensureActiveWorkspace({ ...base, normalizedTitle: 'kidsrainboots' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(repository.ensureActiveWorkspace({ ...base, channelListingId: 'listing-1' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'WORKSPACE_OWNER_FIELDS_MISMATCH' } });
+    await expect(repository.ensureActiveWorkspace({ ...base, normalizedTitle: 'kidsrainboots' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'WORKSPACE_OWNER_FIELDS_MISMATCH' } });
     expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
   });
 

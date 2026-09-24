@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
+import { KiditemError, KiditemExternalError } from '@kiditem/shared/errors';
 import {
   DetailPageGenerateDirectInputSchema,
   type DetailPageGenerateDirectInput,
@@ -40,10 +41,7 @@ export class DetailPageDirectGenerationJobService {
   }): Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'> {
     const parsed = DetailPageGenerateDirectInputSchema.parse(input.payload);
     if (!('text' in input.models) || !('vision' in input.models)) {
-      throw Object.assign(
-        new Error('Detail page direct job requires image, text, and vision models.'),
-        { code: 'model_required' },
-      );
+      throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'DETAIL_PAGE_MODELS_MISSING' } });
     }
     return {
       jobType: 'detail_page_generate',
@@ -60,7 +58,7 @@ export class DetailPageDirectGenerationJobService {
   async release(input: { organizationId: string; jobId: string }): Promise<void> {
     const released = await this.repository.release(input);
     if (!released) {
-      throw new Error(`Failed to release detail-page AI direct job ${input.jobId}.`);
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_RELEASE_FAILED', jobId: input.jobId } });
     }
     this.worker?.wake();
   }

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import {
   ThumbnailGenerateDirectInputSchema,
   type ThumbnailGenerateDirectInput,
@@ -58,7 +59,7 @@ export class ThumbnailDirectGenerationJobService {
   async release(input: { organizationId: string; jobId: string }): Promise<void> {
     const released = await this.repository.release(input);
     if (!released) {
-      throw new Error(`Failed to release thumbnail AI direct job ${input.jobId}.`);
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_RELEASE_FAILED', jobId: input.jobId } });
     }
     this.worker?.wake();
   }
@@ -114,7 +115,7 @@ export class ThumbnailDirectGenerationJobService {
       jobId: job.id,
     });
     if (!released) {
-      throw new Error(`Failed to release thumbnail re-edit job ${job.id}.`);
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_RELEASE_FAILED', jobId: job.id } });
     }
     this.worker?.wake();
     return { jobId: job.id };

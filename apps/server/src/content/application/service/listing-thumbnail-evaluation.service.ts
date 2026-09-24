@@ -1,6 +1,6 @@
-import { BadRequestException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { ImageSpec } from '@kiditem/shared/ai';
-import { KiditemInvalidValueError } from '@kiditem/shared/errors';
+import { KiditemExternalError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { ListingThumbnailEvaluationSummary } from '@kiditem/shared/product-content';
 import type {
   ListingThumbnailEvaluationPort,
@@ -35,7 +35,7 @@ export class ListingThumbnailEvaluationService implements ListingThumbnailEvalua
     const modelId = input.modelId?.trim();
     if (!modelId) throw new KiditemInvalidValueError('AGENT_OS_MODEL_REQUIRED');
     const imageUrl = input.imageUrl.trim();
-    if (!imageUrl) throw new BadRequestException('imageUrl is required.');
+    if (!imageUrl) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IMAGE_URL_REQUIRED' }, message: '평가할 이미지 주소가 필요합니다.' });
     const existing = await this.repository.find({ organizationId: input.organizationId, channelListingId: input.channelListingId, imageUrl });
     if (existing) return existing;
 
@@ -46,7 +46,7 @@ export class ListingThumbnailEvaluationService implements ListingThumbnailEvalua
     );
     const quality = results.get(input.channelListingId);
     // 점수 없는 응답을 0점(F)으로 적으면 (리스팅, URL) 열쇠 때문에 다시 평가되지 않는다 — 적지 않고 다시 시도하게 한다.
-    if (!quality) throw new ServiceUnavailableException('The vision model returned no score for this image. Try again.');
+    if (!quality) throw new KiditemExternalError('CONTENT_GENERATION_FAILED', { details: { reason: 'VISION_NO_SCORE' } });
     const score = clampScore(quality.overallScore);
     return this.repository.insert({
       organizationId: input.organizationId,

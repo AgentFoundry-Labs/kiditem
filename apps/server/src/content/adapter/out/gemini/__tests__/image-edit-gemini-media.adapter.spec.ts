@@ -1,4 +1,3 @@
-import { ServiceUnavailableException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ImageEditGeminiMediaAdapter } from '../image-edit-gemini-media.adapter';
 
@@ -121,7 +120,7 @@ describe('ImageEditGeminiMediaAdapter', () => {
         imageUrl: 'data:image/png;base64,aW1n',
         userPrompt: 'make it brighter',
       }),
-    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    ).rejects.toMatchObject({ code: 'CONTENT_GENERATION_FAILED', details: { reason: 'IMAGE_EDIT_RETURNED_NO_IMAGE' } });
   });
 
   it('does not fetch or invoke Gemini when already cancelled', async () => {

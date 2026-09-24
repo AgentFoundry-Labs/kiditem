@@ -1,5 +1,5 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import { isKiditemError } from '@kiditem/shared/errors';
+import { Inject, Injectable } from '@nestjs/common';
+import { isKiditemError, KiditemConflictError, KiditemError } from '@kiditem/shared/errors';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
@@ -104,14 +104,16 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
       existing.isDeleted ||
       readProductGenerationRequestHash(existing.generationInput) !== input.productGenerationIdentity.requestHash
     ) {
-      throw new ConflictException('product_generation_idempotency_conflict');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } });
     }
     const page = await this.detailPages.findById({ organizationId: input.organizationId, detailPageId: existing.id });
     const directJob = await scope.aiDirectJob.findFirst({
       where: { organizationId: input.organizationId, jobType: 'detail_page_generate', sourceResourceId: existing.id },
       select: { id: true, status: true },
     });
-    if (!page || !directJob) throw new Error(`Missing detail-page AI direct job for ${existing.id}.`);
+    if (!page || !directJob) {
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DETAIL_PAGE_DIRECT_JOB_MISSING', detailPageId: existing.id } });
+    }
     return { status: 'existing', page, directJobId: directJob.id, releaseRequired: directJob.status === 'held' };
   }
 

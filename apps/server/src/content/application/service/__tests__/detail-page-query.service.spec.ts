@@ -70,8 +70,8 @@ describe('DetailPageQueryService', () => {
   it('rejects JSON before saving and a blank title before renaming', async () => {
     const { service, repository } = makeService({ findById: vi.fn(), rename: vi.fn() });
 
-    await expect(service.saveEditedHtml(PAGE_ID, ORG, '{"hook":{}}')).rejects.toThrow('렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.');
-    await expect(service.renameVersion(PAGE_ID, ORG, '   ')).rejects.toThrow('title is required');
+    await expect(service.saveEditedHtml(PAGE_ID, ORG, '{"hook":{}}')).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'DETAIL_HTML_NOT_RENDERABLE' }, message: '렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.' });
+    await expect(service.renameVersion(PAGE_ID, ORG, '   ')).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'TITLE_REQUIRED' } });
     expect(repository.findById).not.toHaveBeenCalled();
     expect(repository.rename).not.toHaveBeenCalled();
   });

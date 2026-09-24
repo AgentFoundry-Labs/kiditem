@@ -1,13 +1,5 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  GoneException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  Optional,
-} from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { KiditemConflictError, KiditemError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { createHash } from 'node:crypto';
 import {
   DETAIL_PAGE_CLIENT_RENDER_CONTENT_TYPE,
@@ -133,7 +125,7 @@ export class DetailPageClientRenderService {
       revisionId: input.detailPageRevisionId ?? null,
     });
     if (!saved && input.detailPageRevisionId) {
-      throw new BadRequestException('고른 상세 revision 이 이 작업공간의 것이 아닙니다.');
+      throw new KiditemInvalidValueError('CONTENT_SELECTION_INVALID', { details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
     }
     if (!saved) {
       return {
@@ -176,7 +168,7 @@ export class DetailPageClientRenderService {
       claimedAt: currentTime,
     });
     if (claimed.status !== 'claimed') {
-      throw new ConflictException('상세페이지 서버 렌더 작업을 시작하지 못했습니다. 다시 시도해 주세요.');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RENDER_CLAIM_FAILED' } });
     }
 
     try {
@@ -197,7 +189,7 @@ export class DetailPageClientRenderService {
         raster.buffer.byteLength <= 0 ||
         raster.buffer.byteLength > DETAIL_PAGE_CLIENT_RENDER_MAX_BYTES
       ) {
-        throw new BadRequestException('서버에서 생성한 상세페이지 JPEG 크기가 허용 범위를 벗어났습니다.');
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'RENDER_OUTPUT_OUT_OF_RANGE', byteLength: raster.buffer.byteLength } });
       }
       const metadata = await sharp(raster.buffer, { failOn: 'error' }).metadata();
       const pixelWidth = metadata.width ?? 0;
@@ -208,9 +200,9 @@ export class DetailPageClientRenderService {
         pixelHeight <= 0 ||
         pixelHeight > DETAIL_PAGE_CLIENT_RENDER_MAX_HEIGHT
       ) {
-        throw new BadRequestException(
-          `서버에서 생성한 상세페이지 JPEG 규격이 올바르지 않습니다 (${pixelWidth}x${pixelHeight}).`,
-        );
+        throw new KiditemError('INTERNAL_ERROR', {
+          details: { reason: 'RENDER_OUTPUT_OUT_OF_RANGE', pixelWidth, pixelHeight },
+        });
       }
       const sha256 = createHash('sha256').update(raster.buffer).digest('hex');
       const imageUrl = await this.storage.save(
@@ -232,7 +224,7 @@ export class DetailPageClientRenderService {
         completedAt: this.now(),
       });
       if (!completed) {
-        throw new ConflictException('상세페이지 서버 렌더 결과를 확정하지 못했습니다. 다시 시도해 주세요.');
+        throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RENDER_COMPLETE_FAILED' } });
       }
       return readyArtifact(completed);
     } catch (error) {
@@ -257,7 +249,7 @@ export class DetailPageClientRenderService {
     const current = await this.requireIntent(input.organizationId, input.intentId);
     await this.requireNotExpired(current, currentTime);
     if (current.state === 'completed') {
-      throw new ConflictException('이미 완료된 상세페이지 이미지 렌더 요청입니다.');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RENDER_ALREADY_COMPLETED' } });
     }
 
     const result = await this.images.claimIntent({
@@ -267,10 +259,10 @@ export class DetailPageClientRenderService {
       claimedAt: currentTime,
     });
     if (result.status === 'missing') {
-      throw new NotFoundException('상세페이지 이미지 렌더 요청을 찾을 수 없습니다.');
+      throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'render_request' } });
     }
     if (result.status === 'conflict') {
-      throw new ConflictException('다른 브라우저가 상세페이지 이미지 렌더를 수행 중입니다.');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RENDER_CLAIMED_BY_OTHER' } });
     }
 
     const claimed = result.intent;
@@ -313,7 +305,7 @@ export class DetailPageClientRenderService {
       revisionId: renderIntent.revisionId,
     });
     if (!revision || revision.detailPageId !== renderIntent.detailPageId || !revision.html.trim()) {
-      throw new NotFoundException('렌더할 상세페이지 revision을 찾을 수 없습니다.');
+      throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_revision' } });
     }
 
     return {
@@ -355,7 +347,7 @@ export class DetailPageClientRenderService {
       inspected.pixelHeight > 0 &&
       inspected.pixelHeight <= DETAIL_PAGE_CLIENT_RENDER_MAX_HEIGHT;
     if (!metadataMatches || !observationsMatch) {
-      throw new BadRequestException('업로드된 상세페이지 JPEG 검증값이 일치하지 않습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'RENDER_UPLOAD_MISMATCH' }, message: '업로드된 상세페이지 JPEG 검증값이 일치하지 않습니다.' });
     }
 
     const artifact = await this.images.completeIntent({
@@ -372,7 +364,7 @@ export class DetailPageClientRenderService {
       completedAt: this.now(),
     });
     if (!artifact) {
-      throw new ConflictException('상세페이지 이미지 렌더 요청을 완료할 수 없습니다.');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RENDER_COMPLETE_FAILED' } });
     }
     return this.toStatus({
       ...renderIntent,
@@ -391,7 +383,7 @@ export class DetailPageClientRenderService {
   }): Promise<DetailPageClientRenderStatusResponse> {
     const renderIntent = await this.requireIntent(input.organizationId, input.intentId);
     if (renderIntent.state === 'completed') {
-      throw new ConflictException('완료된 상세페이지 이미지 렌더 요청은 실패 처리할 수 없습니다.');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RENDER_ALREADY_COMPLETED' } });
     }
     await this.requireNotExpired(renderIntent, this.now());
     this.requireClaimant(renderIntent, input.userId);
@@ -402,7 +394,7 @@ export class DetailPageClientRenderService {
       failureMessage: input.body.message,
       failedAt: this.now(),
     });
-    if (!failed) throw new ConflictException('렌더 요청을 실패 처리할 수 없습니다.');
+    if (!failed) throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RENDER_FAIL_REJECTED' } });
     return this.toStatus(failed);
   }
 
@@ -438,7 +430,7 @@ export class DetailPageClientRenderService {
   ): Promise<DetailPageImageRenderIntentRecord> {
     const renderIntent = await this.images.findIntent({ organizationId, intentId });
     if (!renderIntent) {
-      throw new NotFoundException('상세페이지 이미지 렌더 요청을 찾을 수 없습니다.');
+      throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'render_request' } });
     }
     return renderIntent;
   }
@@ -453,7 +445,7 @@ export class DetailPageClientRenderService {
       intentId: renderIntent.id,
       expiredAt: currentTime,
     });
-    throw new GoneException('상세페이지 이미지 렌더 요청이 만료되었습니다.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RENDER_REQUEST_EXPIRED' } });
   }
 
   private requireClaimant(
@@ -464,7 +456,7 @@ export class DetailPageClientRenderService {
       renderIntent.state !== 'claimed' ||
       renderIntent.claimedByUserId !== userId
     ) {
-      throw new ForbiddenException('이 렌더 요청을 claim한 사용자만 접근할 수 있습니다.');
+      throw new KiditemError('FORBIDDEN', { details: { reason: 'RENDER_NOT_CLAIMANT' } });
     }
   }
 

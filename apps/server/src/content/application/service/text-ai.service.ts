@@ -1,4 +1,5 @@
-import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemExternalError } from '@kiditem/shared/errors';
 import {
   TEXT_COMPLETION_PORT,
   type TextCompletionPort,
@@ -18,10 +19,7 @@ export class TextAiService {
   }): Promise<{ result: string }> {
     const model = process.env.AI_TEXT_MODEL;
     if (!model) {
-      throw new HttpException(
-        'AI_TEXT_MODEL이 설정되지 않았습니다.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'TEXT_MODEL_MISSING' } });
     }
 
     const systemPrompt = this.buildSystemPrompt(dto.preset, dto.custom_prompt);

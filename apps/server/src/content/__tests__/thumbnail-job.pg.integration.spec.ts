@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
@@ -155,9 +154,9 @@ describe('thumbnail job (PG integration)', () => {
       assetId: adopted!.id,
     });
 
-    await expect(generations.deleteGeneration(jobId, TEST_ORGANIZATION_ID)).rejects.toBeInstanceOf(ConflictException);
+    await expect(generations.deleteGeneration(jobId, TEST_ORGANIZATION_ID)).rejects.toMatchObject({ code: 'CONTENT_ASSET_IN_USE', details: { reason: 'ADOPTED_REPRESENTATIVE_IMAGE' } });
     await expect(generations.removeCandidate(jobId, TEST_ORGANIZATION_ID, adopted!.id))
-      .rejects.toBeInstanceOf(ConflictException);
+      .rejects.toMatchObject({ code: 'CONTENT_ASSET_IN_USE', details: { reason: 'ADOPTED_REPRESENTATIVE_IMAGE' } });
     await expect(generations.removeCandidate(jobId, TEST_ORGANIZATION_ID, spare!.id))
       .resolves.toEqual({ ok: true, generationDeleted: false, remaining: 1 });
     await expect(prisma.contentAsset.findUniqueOrThrow({ where: { id: spare!.id } }))

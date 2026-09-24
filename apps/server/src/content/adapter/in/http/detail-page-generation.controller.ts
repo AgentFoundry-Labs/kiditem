@@ -1,11 +1,11 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Post,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
@@ -31,7 +31,10 @@ export class DetailPageGenerationController {
       limits: { fileSize: MAX_DETAIL_PAGE_IMAGE_SIZE_BYTES },
       fileFilter: (_req, file, cb) => {
         if (!ALLOWED_DETAIL_PAGE_IMAGE_MIME_TYPES.has(file.mimetype)) {
-          cb(new BadRequestException(`unsupported mime type: ${file.mimetype}`), false);
+          cb(new KiditemInvalidValueError('VALIDATION_FAILED', {
+            details: { reason: 'IMAGE_MIME_UNSUPPORTED' },
+            message: '지원하지 않는 이미지 형식입니다. 다른 이미지로 다시 시도해 주세요.',
+          }), false);
           return;
         }
         cb(null, true);

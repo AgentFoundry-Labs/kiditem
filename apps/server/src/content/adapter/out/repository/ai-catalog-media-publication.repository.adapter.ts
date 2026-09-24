@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import { Prisma, type ContentAsset } from '@prisma/client';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import {
@@ -83,7 +84,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       ORDER BY id FOR UPDATE
     `;
     if (locked.length !== workspaceIds.length)
-      throw new Error('Catalog workspace changed before publication');
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_WORKSPACE_FENCE_LOST' } });
     const workspaces = await tx.contentWorkspace.findMany({
       where: { organizationId: input.organizationId, id: { in: workspaceIds } },
       select: {
@@ -149,7 +150,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
           AND asset.content_workspace_id = incoming."workspaceId"
       `;
       if (updated !== batch.length) {
-        throw new Error('Catalog provider option identity remap fence lost');
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_OPTION_REMAP_FENCE_LOST' } });
       }
     }
     const newAssets: Prisma.ContentAssetCreateManyInput[] = [];
@@ -392,7 +393,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         AND asset.id = incoming.id AND asset.content_workspace_id = incoming."workspaceId"
     `;
       if (updated !== batch.length)
-        throw new Error('Catalog provider asset changed before publication');
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_ASSET_FENCE_LOST' } });
     }
     for (let offset = 0; offset < absentAssets.length; offset += BULK_ROWS) {
       const batch = absentAssets.slice(offset, offset + BULK_ROWS);
@@ -405,7 +406,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         AND asset.id = incoming.id AND asset.content_workspace_id = incoming."workspaceId"
     `;
       if (updated !== batch.length)
-        throw new Error('Catalog provider asset changed before publication');
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_ASSET_FENCE_LOST' } });
     }
     for (let offset = 0; offset < preservedAbsentAssets.length; offset += BULK_ROWS) {
       const batch = preservedAbsentAssets.slice(offset, offset + BULK_ROWS);
@@ -418,7 +419,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         AND asset.id = incoming.id AND asset.content_workspace_id = incoming."workspaceId"
     `;
       if (updated !== batch.length)
-        throw new Error('Catalog provider asset changed before publication');
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_ASSET_FENCE_LOST' } });
     }
     for (let offset = 0; offset < preservedOptionAssets.length; offset += BULK_ROWS) {
       const batch = preservedOptionAssets.slice(offset, offset + BULK_ROWS);
@@ -431,7 +432,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         AND asset.id = incoming.id AND asset.content_workspace_id = incoming."workspaceId"
     `;
       if (updated !== batch.length)
-        throw new Error('Catalog provider asset changed before publication');
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_ASSET_FENCE_LOST' } });
     }
     for (let offset = 0; offset < pointerUpdates.length; offset += BULK_ROWS) {
       const batch = pointerUpdates.slice(offset, offset + BULK_ROWS);
@@ -444,7 +445,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
           AND workspace.id = incoming."contentWorkspaceId" AND workspace.channel_listing_id = incoming."listingId"
           AND workspace.owner_type = 'channel_listing' AND workspace.status = 'active' AND workspace.is_deleted = false
       `;
-      if (updated !== batch.length) throw new Error('Catalog workspace changed before publication');
+      if (updated !== batch.length) throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_WORKSPACE_FENCE_LOST' } });
     }
     // 카탈로그가 세운 대표이미지 자산에 표시를 남긴다 — 다음 publication 이 이 포인터를 자기 몫으로 안다.
     const representativeAssetIds = pointerUpdates.flatMap((update) => (update.assetId ? [update.assetId] : []));
@@ -462,7 +463,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
 
 function transactionClient(value: unknown): Prisma.TransactionClient {
   if (!value || typeof value !== 'object' || !('contentWorkspace' in value)) {
-    throw new Error('Catalog media publication requires a Prisma transaction');
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_PUBLICATION_TRANSACTION_REQUIRED' } });
   }
   return value as Prisma.TransactionClient;
 }
@@ -559,7 +560,7 @@ function normalizeOptionIdentityRemaps(
     if (!oldId || !newId || oldId === newId) continue;
     const previous = normalized.get(oldId);
     if (previous && previous !== newId) {
-      throw new Error(`Catalog option identity remap is ambiguous: ${oldId}`);
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_OPTION_REMAP_AMBIGUOUS', externalOptionId: oldId } });
     }
     normalized.set(oldId, newId);
   }

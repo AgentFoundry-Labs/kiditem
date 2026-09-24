@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { ServiceUnavailableException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -101,7 +100,7 @@ describe('listing thumbnail evaluation (PG integration)', () => {
     );
 
     await expect(empty.evaluate({ organizationId: ORG, channelListingId: randomUUID(), imageUrl: 'https://mall/a.jpg', modelId: 'vision-model-x' }))
-      .rejects.toBeInstanceOf(ServiceUnavailableException);
+      .rejects.toMatchObject({ code: 'CONTENT_GENERATION_FAILED', details: { reason: 'VISION_NO_SCORE' } });
     await expect(prisma.listingThumbnailEvaluation.count()).resolves.toBe(0);
   });
 

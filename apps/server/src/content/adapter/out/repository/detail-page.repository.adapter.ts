@@ -1,5 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { isKiditemError, KiditemConflictError, KiditemError, KiditemNotFoundError } from '@kiditem/shared/errors';
+import { Injectable } from '@nestjs/common';
+import { isKiditemError, KiditemConflictError, KiditemError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
@@ -78,14 +78,16 @@ export class DetailPageRepositoryAdapter implements DetailPageRepositoryPort {
 
   async create(transaction: OwnerTransaction, input: CreateDetailPageInput): Promise<DetailPageRow> {
     if (input.status !== initialDetailPageStatus(input.source)) {
-      throw new ConflictException(`A ${input.source} detail page starts ${initialDetailPageStatus(input.source)}.`);
+      throw new KiditemError('INTERNAL_ERROR', {
+        details: { reason: 'DETAIL_PAGE_INITIAL_STATUS', source: input.source, status: input.status },
+      });
     }
     const tx = ownerTransactionClient(transaction);
     const workspace = await tx.contentWorkspace.findFirst({
       where: { id: input.contentWorkspaceId, organizationId: input.organizationId, status: 'active', isDeleted: false },
       select: { id: true },
     });
-    if (!workspace) throw new NotFoundException('Content workspace not found.');
+    if (!workspace) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
     const row = await tx.detailPage.create({
       data: {
         ...(input.id ? { id: input.id } : {}),
@@ -234,7 +236,7 @@ export class DetailPageRepositoryAdapter implements DetailPageRepositoryPort {
       },
       select: { id: true, detailPageId: true },
     });
-    if (!revision) throw new BadRequestException('Selected detail revision is not source-owned.');
+    if (!revision) throw new KiditemInvalidValueError('CONTENT_SELECTION_INVALID', { details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
     await tx.detailPage.updateMany({
       where: { id: revision.detailPageId, organizationId: input.organizationId },
       data: { currentRevisionId: revision.id },
@@ -479,12 +481,12 @@ function parseRevisionType(value: string): DetailPageRevisionType {
 
 function parseStatus(value: string): DetailPageStatus {
   if ((DETAIL_PAGE_STATUSES as readonly string[]).includes(value)) return value as DetailPageStatus;
-  throw new Error(`Unknown detail page status ${value}.`);
+  throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DETAIL_PAGE_STATUS_UNKNOWN', status: value } });
 }
 
 function toPageRow(row: PageRecord): DetailPageRow {
   if (!(DETAIL_PAGE_SOURCES as readonly string[]).includes(row.source)) {
-    throw new Error(`Unknown detail page source ${row.source}.`);
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DETAIL_PAGE_SOURCE_UNKNOWN', source: row.source } });
   }
   return {
     ...row,

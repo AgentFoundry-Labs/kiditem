@@ -1,4 +1,5 @@
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import {
   DetailPageGenerateDirectOutputSchema,
   ImageEditDirectOutputSchema,
@@ -236,5 +237,5 @@ function throwIfAborted(signal: AbortSignal): void {
 }
 
 function assertNever(value: never): never {
-  throw new Error(`Unsupported AI direct job type: ${String(value)}`);
+  throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_TYPE_UNSUPPORTED', jobType: String(value) } });
 }

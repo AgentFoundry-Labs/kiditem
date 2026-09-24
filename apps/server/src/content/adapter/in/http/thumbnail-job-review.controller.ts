@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,6 +8,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -41,13 +41,13 @@ export class ThumbnailJobReviewController {
     @Query('limit') limit?: string,
   ) {
     if (productId) {
-      throw new BadRequestException('productId는 제거되었습니다. contentWorkspaceId를 사용하세요');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'FILTER_REMOVED', field: 'productId' }, message: 'productId는 제거되었습니다. contentWorkspaceId를 사용하세요' });
     }
     if (masterId) {
-      throw new BadRequestException('masterId는 제거되었습니다. contentWorkspaceId를 사용하세요');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'FILTER_REMOVED', field: 'masterId' }, message: 'masterId는 제거되었습니다. contentWorkspaceId를 사용하세요' });
     }
     if (sourceCandidateId) {
-      throw new BadRequestException('sourceCandidateId는 제거되었습니다. contentWorkspaceId를 사용하세요');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'FILTER_REMOVED', field: 'sourceCandidateId' }, message: 'sourceCandidateId는 제거되었습니다. contentWorkspaceId를 사용하세요' });
     }
     const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
     let normalizedScope: ReturnType<typeof normalizeThumbnailGenerationListScope>;
@@ -55,7 +55,7 @@ export class ThumbnailJobReviewController {
       normalizedScope = normalizeThumbnailGenerationListScope(scope);
     } catch (err) {
       if (err instanceof ThumbnailGenerationSubjectError) {
-        throw new BadRequestException(err.message);
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'THUMBNAIL_SUBJECT_INVALID' }, message: err.message });
       }
       throw err;
     }

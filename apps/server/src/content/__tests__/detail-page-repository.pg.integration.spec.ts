@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
-import { BadRequestException, ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -142,7 +141,7 @@ describe('detail page repository (PG integration)', () => {
     const manual = await create(workspaceId, { source: 'manual', status: 'ready', templateId: null });
     await expect(setStatus(manual.id, 'pending')).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'DETAIL_PAGE_STATUS_TRANSITION' } });
     // 생성이 아닌 페이지는 처음부터 ready 이고, 생성 페이지를 ready 로 만들어 두고 시작할 수 없다.
-    await expect(create(workspaceId, { status: 'ready' })).rejects.toBeInstanceOf(ConflictException);
+    await expect(create(workspaceId, { status: 'ready' })).rejects.toMatchObject({ code: 'INTERNAL_ERROR', details: { reason: 'DETAIL_PAGE_INITIAL_STATUS' } });
   });
 
   it('never lets a machine revision replace a human edit as the workspace current, but keeps it in history', async () => {
@@ -218,7 +217,7 @@ describe('detail page repository (PG integration)', () => {
 
     await expect(prisma.$transaction((tx) => pages.setCurrentRevision(ownerTransaction(tx), {
       organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspaceId, revisionId: foreign.id,
-    }))).rejects.toBeInstanceOf(BadRequestException);
+    }))).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
     expect(await workspaceCurrent(workspaceId)).toBe(first.id);
     await expect(pages.findRevision({ organizationId: TEST_ORGANIZATION_ID, revisionId: foreign.id }))
       .resolves.toMatchObject({ contentWorkspaceId: foreignWorkspaceId, html: '<p>남의 것</p>' });

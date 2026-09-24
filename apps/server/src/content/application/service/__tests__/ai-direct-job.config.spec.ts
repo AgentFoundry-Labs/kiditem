@@ -1,4 +1,3 @@
-import { ServiceUnavailableException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import {
   resolveAiDirectJobModels,
@@ -9,7 +8,11 @@ describe('ai direct job configuration', () => {
   it('requires the image model for every direct media job', () => {
     expect(() =>
       resolveAiDirectJobModels('image_edit', {}),
-    ).toThrow(ServiceUnavailableException);
+    ).toThrow(expect.objectContaining({
+      code: 'CONTENT_MODEL_NOT_CONFIGURED',
+      details: { reason: 'DIRECT_JOB_MODEL_MISSING' },
+      cause: 'AI_IMAGE_MODEL',
+    }));
   });
 
   it.each(['AI_TEXT_MODEL', 'AI_IMAGE_ANALYSIS_MODEL'] as const)(
@@ -24,7 +27,11 @@ describe('ai direct job configuration', () => {
 
       expect(() =>
         resolveAiDirectJobModels('detail_page_generate', env),
-      ).toThrow(expect.objectContaining({ code: 'model_required' }));
+      ).toThrow(expect.objectContaining({
+        code: 'CONTENT_MODEL_NOT_CONFIGURED',
+        details: { reason: 'DIRECT_JOB_MODEL_MISSING' },
+        cause: missing,
+      }));
     },
   );
 
@@ -65,9 +72,11 @@ describe('ai direct job configuration', () => {
 
       expect(() =>
         resolveAiDirectJobModels('detail_page_generate', env),
-      ).toThrow(
-        `${name} ${deprecated} is deprecated or unavailable. Set ${name}=${replacement}.`,
-      );
+      ).toThrow(expect.objectContaining({
+        code: 'CONTENT_MODEL_NOT_CONFIGURED',
+        details: { reason: 'DIRECT_JOB_MODEL_DEPRECATED', model: deprecated, replacement },
+        cause: name,
+      }));
     },
   );
 
@@ -78,7 +87,7 @@ describe('ai direct job configuration', () => {
         resolveAiDirectJobRuntimeConfig({
           AI_DIRECT_JOB_WORKER_INTERVAL_MS: value,
         }),
-      ).toThrow(/positive integer/);
+      ).toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR', details: { reason: 'DIRECT_JOB_RUNTIME_VALUE_INVALID', value } }));
     },
   );
 
@@ -88,14 +97,14 @@ describe('ai direct job configuration', () => {
         AI_DIRECT_JOB_WORKER_INTERVAL_MS: '5000',
         AI_DIRECT_JOB_WORKER_MAX_INTERVAL_MS: '1000',
       }),
-    ).toThrow(/maximum interval/i);
+    ).toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR', details: { reason: 'DIRECT_JOB_MAX_INTERVAL_TOO_SMALL' } }));
 
     expect(() =>
       resolveAiDirectJobRuntimeConfig({
         AI_DIRECT_JOB_WORKER_INTERVAL_MS: '5000',
         AI_DIRECT_JOB_WORKER_ERROR_MAX_INTERVAL_MS: '1000',
       }),
-    ).toThrow(/error maximum interval/i);
+    ).toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR', details: { reason: 'DIRECT_JOB_ERROR_INTERVAL_TOO_SMALL' } }));
   });
 
   it('rejects a lease heartbeat that is not shorter than the lease', () => {
@@ -104,7 +113,7 @@ describe('ai direct job configuration', () => {
         AI_DIRECT_JOB_LEASE_MS: '5000',
         AI_DIRECT_JOB_HEARTBEAT_MS: '5000',
       }),
-    ).toThrow(/heartbeat/i);
+    ).toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR', details: { reason: 'DIRECT_JOB_HEARTBEAT_NOT_SHORTER_THAN_LEASE' } }));
   });
 
   it('uses always-enabled runtime defaults', () => {

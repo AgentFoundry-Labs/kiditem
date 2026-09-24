@@ -1,3 +1,4 @@
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 /**
  * 다른 데서 가져온 상품의 **이미 있는 상세페이지**를 우리 상세페이지로 만든다(사장님 2026-09-22:
  * "다른데서 가져오는 상품들이 있어 ... 상세페이지를 업로드해서 등록을 하고 싶어").
@@ -37,10 +38,13 @@ function escapeHtml(value: string): string {
 export function buildUploadedDetailPageHtml(input: UploadedDetailPageInput): string {
   const imageUrls = input.imageUrls.map((url) => url.trim()).filter(Boolean);
   if (imageUrls.length === 0) {
-    throw new Error('상세페이지 이미지가 필요합니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'UPLOADED_IMAGES_REQUIRED' }, message: '상세페이지 이미지가 필요합니다.' });
   }
   if (imageUrls.length > UPLOADED_DETAIL_PAGE_MAX_IMAGES) {
-    throw new Error(`상세페이지 이미지는 최대 ${UPLOADED_DETAIL_PAGE_MAX_IMAGES}장입니다.`);
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: { reason: 'UPLOADED_IMAGES_TOO_MANY', max: UPLOADED_DETAIL_PAGE_MAX_IMAGES },
+      message: `상세페이지 이미지는 최대 ${UPLOADED_DETAIL_PAGE_MAX_IMAGES}장입니다.`,
+    });
   }
   const title = escapeHtml(input.title.trim() || '상세페이지');
   const images = imageUrls

@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailJobReviewController } from '../adapter/in/http/thumbnail-job-review.controller';
 
@@ -17,7 +16,7 @@ describe('ThumbnailJobReviewController identity contract', () => {
         undefined,
         undefined,
       ),
-    ).toThrow(BadRequestException);
+    ).toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED', details: { reason: 'FILTER_REMOVED', field: 'masterId' } }));
     expect(generationService.findAll).not.toHaveBeenCalled();
   });
 

@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -84,9 +83,9 @@ describe('registrable thumbnail (PostgreSQL)', () => {
     await expect(service.findRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: null }))
       .resolves.toBeNull();
     await expect(service.readRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: null }))
-      .rejects.toBeInstanceOf(NotFoundException);
+      .rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'representative_image' } });
     await expect(service.readRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: foreign.id }))
-      .rejects.toBeInstanceOf(BadRequestException);
+      .rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'THUMBNAIL_ASSET_NOT_OWNED' } });
     await expect(service.findRegistrableThumbnail({ organizationId: ORG, salesProductId: randomUUID(), selectedThumbnailAssetId: null }))
       .resolves.toBeNull();
   });
@@ -99,7 +98,7 @@ describe('registrable thumbnail (PostgreSQL)', () => {
         url: 'https://storage.example.com/detail.png', role,
       } });
       await expect(service.readRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: detail.id }))
-        .rejects.toBeInstanceOf(BadRequestException);
+        .rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'THUMBNAIL_ASSET_NOT_OWNED' } });
     }
   });
 
@@ -111,7 +110,7 @@ describe('registrable thumbnail (PostgreSQL)', () => {
     await expect(service.findRegistrableThumbnail({ organizationId: ORG, salesProductId, selectedThumbnailAssetId: null }))
       .resolves.toBeNull();
     await expect(service.loadThumbnailImage({ organizationId: ORG, assetId: upload.id }))
-      .rejects.toBeInstanceOf(NotFoundException);
+      .rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'asset' } });
   });
 
   it('loads the asset photo from a data URL or trusted storage with its digest', async () => {

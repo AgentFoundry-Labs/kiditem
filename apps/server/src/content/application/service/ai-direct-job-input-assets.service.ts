@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   MAX_FETCH_BYTES,
   parseDataImageUrl,
@@ -41,10 +42,10 @@ export class AiDirectJobInputAssetsService {
         this.imageFetcher.assertSupportedMime(mimeType);
         buffer = Buffer.from(dataImage.base64, 'base64');
         if (buffer.length === 0) {
-          throw new BadRequestException('image data is empty');
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IMAGE_DATA_EMPTY' }, message: '이미지 파일이 비어 있습니다. 다른 이미지로 다시 시도해 주세요.' });
         }
         if (buffer.length > MAX_FETCH_BYTES) {
-          throw new BadRequestException('image too large');
+          throw new KiditemInvalidValueError('CONTENT_IMAGE_TOO_LARGE');
         }
       } else {
         const fetched = await this.imageFetcher.fetchImage(source);

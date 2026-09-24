@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../domain/model/thumbnail-editor';
 import { resolveWorkspaceThumbnailSource } from '../../domain/thumbnail-workspace-source';
@@ -199,7 +200,7 @@ export class ThumbnailGenerationJobService {
       const existing = await this.ledger.findGenerationOrThrow(id, organizationId);
       const workspace = await this.ledger.findWorkspaceForThumbnailJob(existing.contentWorkspaceId, organizationId);
       if (!workspace) {
-        throw new BadRequestException('상품 정보를 찾을 수 없습니다');
+        throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
       }
 
       // 재편집은 job 의 `input_meta` 에 남은 입력 사진을 다시 읽는다. 없으면 원본 · 작업공간 사진 하나로.
@@ -215,7 +216,7 @@ export class ThumbnailGenerationJobService {
           }];
       const validSeedRows = seedRows.flatMap((row) => (row.url ? [{ ...row, url: row.url }] : []));
       if (validSeedRows.length === 0) {
-        throw new BadRequestException('재편집할 원본 이미지가 없습니다');
+        throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'REEDIT_SOURCE_IMAGE_MISSING' } });
       }
 
       const inputImages: ThumbnailEditorInputImage[] = [];

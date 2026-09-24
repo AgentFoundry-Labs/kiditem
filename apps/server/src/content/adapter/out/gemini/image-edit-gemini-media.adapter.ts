@@ -1,11 +1,6 @@
 import { aiUsageMeter } from '../../../application/usage/ai-usage-meter';
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { KiditemExternalError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { GoogleGenAI, Modality } from '@google/genai';
 import {
   buildColorGuideImageEditPrompt,
@@ -57,7 +52,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
   async editImage(command: ImageEditMediaCommand): Promise<ImageEditMediaResult> {
     command.signal?.throwIfAborted();
     if (!command.model) {
-      throw new ServiceUnavailableException('image_edit_model_not_configured');
+      throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'IMAGE_EDIT_MODEL_MISSING' } });
     }
 
     const preset = command.preset || 'custom';
@@ -85,7 +80,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
         ?.text
         ?.slice(0, 300);
       this.logger.warn(`Gemini image_edit response had no inline image. text=${text ?? '(empty)'}`);
-      throw new ServiceUnavailableException('image_edit_returned_no_image');
+      throw new KiditemExternalError('CONTENT_GENERATION_FAILED', { details: { reason: 'IMAGE_EDIT_RETURNED_NO_IMAGE' } });
     }
 
     return {
@@ -96,7 +91,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
 
   private async buildSingleImageParts(command: ImageEditMediaCommand): Promise<GeminiPart[]> {
     if (!command.imageUrl) {
-      throw new BadRequestException('image_url is required');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IMAGE_URL_REQUIRED' }, message: '편집할 이미지를 골라 주세요.' });
     }
     const image = await this.resolveInlineImage(command.imageUrl, command.signal);
     return [
@@ -113,7 +108,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
   private async buildColorGuideParts(command: ImageEditMediaCommand): Promise<GeminiPart[]> {
     const imageUrls = command.imageUrls ?? [];
     if (imageUrls.length < 2) {
-      throw new BadRequestException('color_guide requires at least two image URLs');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'COLOR_GUIDE_IMAGES_REQUIRED' }, message: '색상 안내를 만들려면 이미지를 두 장 이상 골라 주세요.' });
     }
     const images = await Promise.all(
       imageUrls.map((imageUrl) => this.resolveInlineImage(imageUrl, command.signal)),
@@ -132,7 +127,7 @@ export class ImageEditGeminiMediaAdapter implements ImageEditMediaPort {
       this.imageFetcher.assertSupportedMime(mimeType);
       const buffer = Buffer.from(dataImage.base64, 'base64');
       if (buffer.length > MAX_FETCH_BYTES) {
-        throw new BadRequestException('image too large');
+        throw new KiditemInvalidValueError('CONTENT_IMAGE_TOO_LARGE');
       }
       return {
         inlineData: {

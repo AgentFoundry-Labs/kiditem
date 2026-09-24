@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import type { RegistrableThumbnailPort, RegistrableThumbnailView } from '../port/in/workspace/registrable-thumbnail.port';
 import { IMAGE_FETCH_PORT, type ImageFetchPort } from '../port/out/provider/image-fetch.port';
 import {
@@ -27,7 +28,7 @@ export class RegistrableThumbnailService implements RegistrableThumbnailPort {
     selectedThumbnailAssetId: string | null;
   }): Promise<RegistrableThumbnailView> {
     const found = await this.findRegistrableThumbnail(input);
-    if (!found) throw new NotFoundException('이 판매 상품에 대표이미지가 없습니다 — 대표이미지를 먼저 고르세요');
+    if (!found) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'representative_image' } });
     return found;
   }
 
@@ -42,7 +43,7 @@ export class RegistrableThumbnailService implements RegistrableThumbnailPort {
       assetId: input.selectedThumbnailAssetId,
     });
     if (found.mode === 'foreign_asset') {
-      throw new BadRequestException('고른 대표이미지가 이 판매 상품의 이미지가 아닙니다');
+      throw new KiditemInvalidValueError('CONTENT_SELECTION_INVALID', { details: { reason: 'THUMBNAIL_ASSET_NOT_OWNED' } });
     }
     if (found.mode === 'none') return null;
     return {
@@ -55,13 +56,13 @@ export class RegistrableThumbnailService implements RegistrableThumbnailPort {
 
   async loadThumbnailImage(input: { organizationId: string; assetId: string }) {
     const url = await this.repository.findAssetUrl(input);
-    if (!url) throw new NotFoundException(`ContentAsset ${input.assetId} not found`);
+    if (!url) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'asset' } });
     const inline = parseDataImageUrl(url);
     const image = inline
       ? { buffer: Buffer.from(inline.base64, 'base64'), mimeType: inline.mimeType }
       : await this.imageFetcher.fetchTrustedStorageImage(url);
     this.imageFetcher.assertSupportedMime(image.mimeType);
-    if (image.buffer.length > MAX_FETCH_BYTES) throw new BadRequestException('image too large');
+    if (image.buffer.length > MAX_FETCH_BYTES) throw new KiditemInvalidValueError('CONTENT_IMAGE_TOO_LARGE');
     const ext = this.imageFetcher.extForMime(image.mimeType);
     return {
       dataUrl: inline ? url : `data:${image.mimeType};base64,${image.buffer.toString('base64')}`,

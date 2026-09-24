@@ -1,6 +1,5 @@
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { randomUUID } from 'node:crypto';
-import { NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -97,7 +96,7 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
 
     releaseWorkspace();
     await archive;
-    await expect(adoption).rejects.toBeInstanceOf(NotFoundException);
+    await expect(adoption).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'workspace' } });
     expect(adoptionState).toBe('blocked');
     await expect(prisma.contentWorkspace.findUniqueOrThrow({
       where: { id: workspace.id },

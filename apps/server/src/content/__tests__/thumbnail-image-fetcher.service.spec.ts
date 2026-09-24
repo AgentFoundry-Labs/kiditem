@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
 import {
   ThumbnailImageFetcherService,
   MAX_FETCH_BYTES,
@@ -53,7 +52,7 @@ describe('ThumbnailImageFetcherService SSRF guards', () => {
 
     await expect(
       fetcher.fetchImage('https://attacker.example/image.png'),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_URL_NOT_ALLOWED' } });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -86,46 +85,34 @@ describe('ThumbnailImageFetcherService SSRF guards', () => {
 
     await expect(
       fetcher.fetchImage('https://public.example/image.png'),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_URL_NOT_ALLOWED' } });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects localhost and loopback hosts', async () => {
     const { fetcher } = makeService();
-    await expect(fetcher.fetchImage('http://localhost/x.jpg')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-    await expect(fetcher.fetchImage('http://127.0.0.1/x.jpg')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(fetcher.fetchImage('http://localhost/x.jpg')).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_URL_NOT_ALLOWED' } });
+    await expect(fetcher.fetchImage('http://127.0.0.1/x.jpg')).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_URL_NOT_ALLOWED' } });
   });
 
   it('rejects private IPv4 ranges (10/8, 192.168/16, 172.16/12, link-local)', async () => {
     const { fetcher } = makeService();
     for (const host of ['10.0.0.1', '192.168.1.1', '172.16.0.1', '169.254.0.1']) {
-      await expect(fetcher.fetchImage(`http://${host}/x.jpg`)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(fetcher.fetchImage(`http://${host}/x.jpg`)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_URL_NOT_ALLOWED' } });
     }
   });
 
   it('rejects IPv6 loopback / ULA / link-local / IPv4-mapped private', async () => {
     const { fetcher } = makeService();
     for (const host of ['[::1]', '[fe80::1]', '[fc00::1]', '[fd00::1]', '[::ffff:10.0.0.1]']) {
-      await expect(fetcher.fetchImage(`http://${host}/x.jpg`)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(fetcher.fetchImage(`http://${host}/x.jpg`)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_URL_NOT_ALLOWED' } });
     }
   });
 
   it('rejects non-http(s) protocols', async () => {
     const { fetcher } = makeService();
-    await expect(fetcher.fetchImage('file:///etc/passwd')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-    await expect(fetcher.fetchImage('javascript:alert(1)')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(fetcher.fetchImage('file:///etc/passwd')).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_URL_NOT_ALLOWED' } });
+    await expect(fetcher.fetchImage('javascript:alert(1)')).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_URL_NOT_ALLOWED' } });
   });
 
   it('rejects unsupported content-type values', async () => {
@@ -136,9 +123,7 @@ describe('ThumbnailImageFetcherService SSRF guards', () => {
         headers: { 'content-type': 'text/html' },
       }),
     );
-    await expect(fetcher.fetchImage('https://example.com/x.html')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(fetcher.fetchImage('https://example.com/x.html')).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_MIME_UNSUPPORTED' } });
   });
 
   it('rejects payloads larger than MAX_FETCH_BYTES', async () => {
@@ -150,9 +135,7 @@ describe('ThumbnailImageFetcherService SSRF guards', () => {
         headers: { 'content-type': 'image/png' },
       }),
     );
-    await expect(fetcher.fetchImage('https://example.com/x.png')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(fetcher.fetchImage('https://example.com/x.png')).rejects.toMatchObject({ code: 'CONTENT_IMAGE_TOO_LARGE' });
   });
 
   it('cancels the response stream as soon as the byte ceiling is exceeded', async () => {
@@ -174,7 +157,7 @@ describe('ThumbnailImageFetcherService SSRF guards', () => {
 
     await expect(
       fetcher.fetchImage('https://example.com/stream.png'),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toMatchObject({ code: 'CONTENT_IMAGE_TOO_LARGE' });
     expect(cancel).toHaveBeenCalled();
   });
 
@@ -188,9 +171,7 @@ describe('ThumbnailImageFetcherService SSRF guards', () => {
         headers: { location: 'https://example.com/next' },
       });
     });
-    await expect(fetcher.fetchImage('https://example.com/start')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(fetcher.fetchImage('https://example.com/start')).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_FETCH_FAILED' } });
     expect(calls).toBeGreaterThanOrEqual(MAX_REDIRECTS);
   });
 
@@ -226,7 +207,7 @@ describe('ThumbnailImageFetcherService SSRF guards', () => {
       }),
     );
 
-    await expect(fetcher.fetchImage(url)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(fetcher.fetchImage(url)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IMAGE_URL_NOT_ALLOWED' } });
     const result = await fetcher.fetchTrustedStorageImage(url);
     expect(result.storageKey).toBe('thumbnail-inputs/local.jpg');
   });

@@ -1,6 +1,7 @@
 import { aiUsageMeter } from '../../../application/usage/ai-usage-meter';
 import type { GeminiUsageMetadata } from '../../../domain/ai-usage';
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { KiditemExternalError } from '@kiditem/shared/errors';
 import type {
   TextCompletionPort,
   TextCompletionRequest,
@@ -29,10 +30,7 @@ export class GeminiTextCompletionAdapter implements TextCompletionPort {
     request.signal?.throwIfAborted();
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new HttpException(
-        'GEMINI_API_KEY가 설정되지 않았습니다.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'GEMINI_API_KEY_MISSING' } });
     }
 
     const url =
@@ -60,20 +58,20 @@ export class GeminiTextCompletionAdapter implements TextCompletionPort {
 
     if (!res.ok) {
       const body = await res.text();
-      throw new HttpException(
-        `Gemini API 오류: ${res.status} ${body.slice(0, 500)}`,
-        res.status,
-      );
+      throw new KiditemExternalError(res.status === 429 ? 'RATE_LIMITED' : 'CONTENT_GENERATION_FAILED', {
+        details: { reason: 'PROVIDER_HTTP_ERROR', providerStatus: res.status },
+        cause: body.slice(0, 500),
+      });
     }
 
     const data = (await res.json()) as GeminiResponse;
     aiUsageMeter.recordGemini({ model: request.model, operation: 'text_completion', usage: data.usageMetadata });
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
-      throw new HttpException(
-        `Gemini 응답이 비어있습니다: ${JSON.stringify(data).slice(0, 500)}`,
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new KiditemExternalError('CONTENT_GENERATION_FAILED', {
+        details: { reason: 'PROVIDER_EMPTY_RESPONSE' },
+        cause: JSON.stringify(data).slice(0, 500),
+      });
     }
     return { text: text.trim() };
   }

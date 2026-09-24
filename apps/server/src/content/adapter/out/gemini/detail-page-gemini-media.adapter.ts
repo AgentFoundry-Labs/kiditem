@@ -1,5 +1,6 @@
 import { aiUsageMeter } from '../../../application/usage/ai-usage-meter';
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { KiditemExternalError } from '@kiditem/shared/errors';
 import { GoogleGenAI, Modality } from '@google/genai';
 import {
   requireGeminiApiKey,
@@ -43,7 +44,7 @@ export class DetailPageGeminiMediaAdapter implements DetailPageMediaPort {
     if (!imagePart?.data) {
       const text = parts.find((part) => part.text)?.text?.slice(0, 300);
       this.logger.warn(`${input.logContext} response had no image. text=${text ?? '(empty)'}`);
-      throw new ServiceUnavailableException(input.noImageErrorCode);
+      throw new KiditemExternalError('CONTENT_GENERATION_FAILED', { details: { reason: input.noImageErrorCode } });
     }
 
     return {

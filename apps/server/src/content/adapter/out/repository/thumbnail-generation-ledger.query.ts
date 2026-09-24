@@ -1,9 +1,9 @@
 import type { ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import type { ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { readListingWorkspaceSources, type ListingWorkspaceSource } from './listing-workspace-context';
 import { Prisma } from '@prisma/client';
-import { NotFoundException } from '@nestjs/common';
 import { readProductAbcPublication } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-generation-subject';
@@ -246,7 +246,7 @@ export async function findGenerationOrThrow(
     where: { id, organizationId, isDeleted: false },
     select: thumbnailJobSelect,
   });
-  if (!row) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+  if (!row) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'thumbnail_generation' } });
   return row;
 }
 

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   IMAGE_FETCH_PORT,
   type ImageFetchPort,
@@ -91,7 +92,7 @@ export class ImageAssetOperationService {
     const image = sharp(source.buffer, { failOn: 'none' }).rotate();
     const metadata = await image.metadata();
     if (!metadata.width || !metadata.height) {
-      throw new BadRequestException('crop image dimensions unavailable');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IMAGE_DIMENSIONS_UNAVAILABLE' }, message: '이미지 크기를 읽지 못했습니다. 다른 이미지로 다시 시도해 주세요.' });
     }
 
     const box = cropToExtractBox(command.crop, metadata.width, metadata.height);
@@ -115,7 +116,7 @@ export class ImageAssetOperationService {
       this.imageFetcher.assertSupportedMime(dataImage.mimeType);
       const buffer = Buffer.from(dataImage.base64, 'base64');
       if (buffer.byteLength > MAX_FETCH_BYTES) {
-        throw new BadRequestException('image is too large');
+        throw new KiditemInvalidValueError('CONTENT_IMAGE_TOO_LARGE');
       }
       return {
         buffer,
