@@ -311,17 +311,24 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       await this.stopRunningAttempt(tx, input, admitted.id, 'details');
     });
   }
+  /**
+   * 계정의 가장 최근 가져오기 뿌리: 목록 단계, 또는 목록 단계 기준 없이 연 상품 하나 상세 다시
+   * 받기(KID-348). 목록 단계의 details 자식은 뿌리가 아니다.
+   */
   async findLatestRootAttempt(input: LatestRootInput) {
-    return this.prisma.sourceImportRun.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        parserVersion: CATALOG_PARSER,
-        sourceType: catalogSourceForStage('basics'),
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { id: true },
-    });
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM source_import_runs
+      WHERE organization_id = ${input.organizationId}::uuid
+        AND channel_account_id = ${input.channelAccountId}::uuid
+        AND parser_version = ${CATALOG_PARSER}
+        AND (
+          source_type = ${catalogSourceForStage('basics')}
+          OR (source_type = ${catalogSourceForStage('details')} AND plan->>'basicAttemptId' IS NULL)
+        )
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `;
+    return rows[0] ?? null;
   }
   // The stop ends the attempt through the owner's failure path under its row
   // lock, so uploads and terminal writes serialize with it. A lease that

@@ -768,6 +768,11 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
       startOrdinal: 0,
       products: [{ ordinal: 0, product: wireDetailProduct('P2', '다시 받은 장난감') }],
     }, 1);
+    // 다시 받기는 그 자체가 가져오기의 뿌리다: 원천 읽기가 그것을 보여 줘야 진행 중 충돌을 설명한다.
+    await expect(owner.readSource(scope())).resolves.toMatchObject({
+      latestAttempt: { attemptId: refetch.attemptId, currentStage: 'details', overallState: 'RUNNING' },
+      detailsAttempt: null,
+    });
     const completed = await finalize(refetch);
     expect(completed.quality).toMatchObject({ detailTargets: 1, detailApplied: 1, detailUnchanged: 0, deletedProducts: 0 });
     await expect(detailSection('P2')).resolves.toMatchObject({

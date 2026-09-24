@@ -113,7 +113,7 @@ export interface ChannelCatalogCollectionRepositoryPort {
     runId: string;
   }): Promise<void>;
 
-  /** The account's most recent browser import root: its basics attempt. */
+  /** The account's most recent browser import root: its basics attempt or a single-product details refetch. */
   findLatestRootAttempt(input: {
     organizationId: string;
     channelAccountId: string;
