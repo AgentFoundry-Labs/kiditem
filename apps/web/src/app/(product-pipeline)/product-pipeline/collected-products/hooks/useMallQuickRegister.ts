@@ -164,9 +164,15 @@ export function useMallQuickRegister(input: {
     }
   }, [item, values]);
 
+  /** 이 모달 밖(등록 실행)에서 난 결과를 그 몰 줄에 적는다 — 예: 이미 등록된 계정이라 울타리가 거절했다. */
+  const recordOutcome = useCallback((outcome: MallRunOutcome) => {
+    setResults((current) => ({ ...current, [outcome.mallKey]: outcome }));
+  }, []);
+
   return {
     values,
     item,
+    recordOutcome,
     readiness,
     readyMallKeys,
     /** 누르면 확인 창을 여는 몰. */

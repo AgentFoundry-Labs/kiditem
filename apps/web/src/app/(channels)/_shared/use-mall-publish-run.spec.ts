@@ -6,7 +6,8 @@ import { executeTargetRegistration } from './target-registration-execution';
 import { listRegistrationTargetExecutions } from './registration-execution-api';
 import { useMallPublishRun, type PublishTask } from './use-mall-publish-run';
 import type { MallPublishAdapter, MallPublishItem } from './mall-publish-adapter';
-import type { TargetExecutionResult } from '@kiditem/shared/sales-product';
+import { REGISTRATION_ALREADY_REGISTERED_CODE, type TargetExecutionResult } from '@kiditem/shared/sales-product';
+import { ApiError } from '@/lib/api-error';
 
 const mocks = vi.hoisted(() => ({
   getAdapter: vi.fn(),
@@ -124,6 +125,22 @@ describe('useMallPublishRun target execution', () => {
 
     expect(mocks.resolve).not.toHaveBeenCalled();
     expect(result.current.tasks[0]).toMatchObject({ status: 'failed', error: expect.stringContaining('판매상품 초안') });
+  });
+
+  it('keeps the fence refusal code on a failed task so a screen can say the account is already registered', async () => {
+    mocks.execute.mockRejectedValue(new ApiError(409, 'Conflict', '이미 이 몰 계정에 등록된 상품입니다(몰 상품 kk-9).', {
+      code: REGISTRATION_ALREADY_REGISTERED_CODE,
+    }));
+    const { result } = renderHook(() => useMallPublishRun());
+
+    let finished: PublishTask[] = [];
+    await act(async () => { finished = await result.current.start([task()]); });
+
+    expect(finished[0]).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('kk-9'),
+      errorCode: REGISTRATION_ALREADY_REGISTERED_CODE,
+    });
   });
 
   it('stops before target creation when the selected mall has no exact account ID', async () => {

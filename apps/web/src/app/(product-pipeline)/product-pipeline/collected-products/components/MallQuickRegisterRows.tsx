@@ -85,7 +85,7 @@ interface MallQuickRegisterRowsProps {
   onRunOne: (mallKey: string) => void;
 }
 
-type RowStatus = 'blocked' | 'idle' | 'running' | 'filled' | 'failed';
+type RowStatus = 'blocked' | 'idle' | 'running' | 'filled' | 'failed' | 'already_registered';
 
 const STATUS_STYLE: Record<RowStatus, { label: string; className: string }> = {
   blocked: { label: '값 필요', className: 'bg-amber-50 text-amber-700 ring-amber-200' },
@@ -93,6 +93,7 @@ const STATUS_STYLE: Record<RowStatus, { label: string; className: string }> = {
   running: { label: '채우는 중', className: 'bg-blue-50 text-blue-700 ring-blue-200' },
   filled: { label: '채움', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
   failed: { label: '실패', className: 'bg-red-50 text-red-700 ring-red-200' },
+  already_registered: { label: '이미 등록됨', className: 'bg-slate-100 text-slate-700 ring-slate-300' },
 };
 
 export function MallQuickRegisterRows({
@@ -147,6 +148,7 @@ export function MallQuickRegisterRows({
     if (runningMallKeys.includes(row.mallKey)) return 'running';
     const result = results[row.mallKey] ?? null;
     if (!result) return 'idle';
+    if (result.status === 'already_registered') return 'already_registered';
     return result.status === 'filled' ? 'filled' : 'failed';
   };
 
@@ -253,7 +255,10 @@ export function MallQuickRegisterRows({
                   </p>
                 ) : null}
                 {result && result.status !== 'filled' ? (
-                  <p className="px-3 pb-2 pl-[30px] text-[11px] font-bold text-red-600">
+                  <p className={`px-3 pb-2 pl-[30px] text-[11px] font-bold ${
+                    result.status === 'already_registered' ? 'text-slate-600' : 'text-red-600'
+                  }`}
+                  >
                     {result.message}
                   </p>
                 ) : null}

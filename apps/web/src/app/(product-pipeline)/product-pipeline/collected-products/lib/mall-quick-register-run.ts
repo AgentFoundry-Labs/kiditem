@@ -23,7 +23,11 @@ import { isApiError } from '@/lib/api-error';
  * 결과도 등록됐다고 말하지 않는다. [등록]은 등록 실행(`useMallPublishRun`) 안에서만 누른다.
  */
 
-export type MallRunStatus = 'filled' | 'blocked' | 'failed';
+/**
+ * `already_registered` 는 폼 채우기 결과가 아니라 등록 실행 울타리의 거절이다 — 그 몰 계정에 이 상품이 이미
+ * 올라가 있어 새 등록을 열지 않았다(KID-320 S7).
+ */
+export type MallRunStatus = 'filled' | 'blocked' | 'failed' | 'already_registered';
 
 export interface MallRunOutcome {
   mallKey: string;

@@ -90,6 +90,12 @@ export const SalesProductRegistrationStateSchema = z.object({
 }).strict();
 export type SalesProductRegistrationState = z.infer<typeof SalesProductRegistrationStateSchema>;
 
+/**
+ * 이미 그 몰 계정에 등록된 상품에 새 `register` 를 열려고 할 때 등록 실행 울타리가 409 와 함께 싣는 `code`(KID-320 S7).
+ * 화면은 이 값으로 그 몰 줄에 "이미 등록됨"을 적는다.
+ */
+export const REGISTRATION_ALREADY_REGISTERED_CODE = 'REGISTRATION_ALREADY_REGISTERED';
+
 /** 화면이 상품 하나를 배지 하나로 줄일 때 쓰는 순서 — 살아 있는 실행이 있으면 그것, 없으면 실패 > 등록됨 > 미등록. */
 const SUMMARY_PRIORITY: readonly RegistrationAccountStateValue[] = [
   'submitting',

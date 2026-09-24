@@ -7,7 +7,7 @@ import type { TargetExecutionIntent } from '../application/port/out/repository/r
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
-import type { PrepareTargetExecutionInput, ReportTargetExecutionInput } from '@kiditem/shared/sales-product';
+import { REGISTRATION_ALREADY_REGISTERED_CODE, type PrepareTargetExecutionInput, type ReportTargetExecutionInput } from '@kiditem/shared/sales-product';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -152,6 +152,43 @@ describe('registration execution fence (PG integration)', () => {
       .resolves.toMatchObject({ status: 'succeeded' });
     await expect(prisma.registrationTarget.findUniqueOrThrow({ where: { id: targetId }, select: { archivedAt: true } }))
       .resolves.toEqual({ archivedAt: null });
+    // 이미 등록된 계정에 새 register 는 열리지 않는다 — 몰에 올라간 리스팅을 이름으로 말한다(KID-320 S7).
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow(ConflictException);
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-9');
+  });
+
+  it('refuses a new register when the account already has an active listing of the product, naming it, before any intent', async () => {
+    const targetId = await resolveTarget(MALL_ACCOUNT_ID);
+    await prisma.channelListing.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: MALL_ACCOUNT_ID, salesProductId: SALES_PRODUCT_ID, externalId: 'catalog-77', status: '판매중' },
+    });
+
+    const refusal = await prepare(targetId, MALL_ACCOUNT_ID).catch((error: unknown) => error);
+    expect(refusal).toBeInstanceOf(ConflictException);
+    expect((refusal as ConflictException).message).toContain('catalog-77');
+    expect((refusal as ConflictException).getResponse()).toMatchObject({ code: REGISTRATION_ALREADY_REGISTERED_CODE });
+    expect(await prisma.productRegistrationExecution.count()).toBe(0);
+    // 다른 계정은 막지 않는다.
+    await expect(prepare(await resolveTarget(SECOND_ACCOUNT_ID), SECOND_ACCOUNT_ID)).resolves.toMatchObject({ status: 'prepared' });
+  });
+
+  it('refuses a new register after a succeeded listing-shaping execution unless a later one was cancelled; a taken-down listing alone does not block', async () => {
+    const targetId = await resolveTarget(MALL_ACCOUNT_ID);
+    await prisma.channelListing.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: MALL_ACCOUNT_ID, salesProductId: SALES_PRODUCT_ID, externalId: 'gone-1', status: '판매중지', isActive: false },
+    });
+    const row = (kind: string, status: string, seconds: number, externalListingId: string | null = null) => prisma.productRegistrationExecution.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID, registrationTargetId: targetId, channelAccountId: MALL_ACCOUNT_ID, executionKind: kind,
+        idempotencyKey: randomUUID(), requestHash: 'a'.repeat(64), status,
+        providerOutcome: status === 'succeeded' ? 'succeeded' : 'not_attempted', externalListingId,
+        createdAt: new Date(Date.UTC(2026, 8, 20, 0, 0, seconds)), completedAt: new Date(Date.UTC(2026, 8, 20, 0, 0, seconds)),
+      },
+    });
+    await row('register', 'succeeded', 1, 'kk-41');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-41');
+
+    await row('register', 'cancelled', 2);
     await expect(prepare(targetId, MALL_ACCOUNT_ID)).resolves.toMatchObject({ status: 'prepared' });
   });
 

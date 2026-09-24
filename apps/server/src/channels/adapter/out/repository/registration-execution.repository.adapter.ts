@@ -26,7 +26,8 @@ import {
 } from '@kiditem/shared/sales-product';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { canStartRegistration } from '../../../domain/sales-product/sales-product-status';
-import type { SalesProductStatus } from '@kiditem/shared/sales-product';
+import { LISTING_SHAPING_EXECUTION_KINDS } from '../../../domain/registration/registration-account-state';
+import { REGISTRATION_ALREADY_REGISTERED_CODE, type SalesProductStatus } from '@kiditem/shared/sales-product';
 import { isReservedExecutionIdempotencyKey } from '../../../domain/registration/thumbnail-update';
 import { preparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -584,6 +585,11 @@ export class RegistrationExecutionRepositoryAdapter
         if (intent.kind === 'register'
           && options.some((option) => option.supplyStatus === 'unused')) {
           throw new ConflictException('Unused sales product options cannot start a new registration.');
+        }
+
+        // 새 리스팅을 만드는 register 만 막는다 — 몰 상품을 이름으로 가리키는 register 는 그 리스팅에 다시 보내는 것이다.
+        if (intent.kind === 'register' && !intent.channelListingId) {
+          await assertAccountNotRegistered(tx, input.organizationId, target.salesProductId, target.channelAccountId);
         }
 
         if (intent.channelListingId) {
@@ -1861,4 +1867,55 @@ function issuedKidItemCode(option: TargetProductOption): string {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
+
+/**
+ * 이미 이 계정에 올라간 상품에 새 `register` 를 열지 않는다(KID-320 S7). 막는 근거는 둘이다: 이 상품의 살아 있는
+ * 리스팅, 또는 성공한 등록성 실행(register · update · composition_change) 뒤에 취소된 등록성 실행이 없는 것.
+ * 내린 리스팅만 남은 계정은 리스팅으로는 막지 않는다. 빠른 등록처럼 계획을 거치지 않는 제출도 여기서 막힌다.
+ */
+async function assertAccountNotRegistered(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  salesProductId: string,
+  channelAccountId: string,
+): Promise<void> {
+  const listing = await tx.channelListing.findFirst({
+    where: { organizationId, salesProductId, channelAccountId, isActive: true },
+    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    select: { externalId: true },
+  });
+  if (listing) {
+    throw new ConflictException({
+      code: REGISTRATION_ALREADY_REGISTERED_CODE,
+      message: `이미 이 몰 계정에 등록된 상품입니다(몰 상품 ${listing.externalId}).`,
+    });
+  }
+  const [succeeded] = await tx.$queryRaw<{ id: string; external_listing_id: string | null }[]>(Prisma.sql`
+    SELECT e.id::text AS id, e.external_listing_id
+    FROM product_registration_executions e
+    JOIN registration_targets t ON t.id = e.registration_target_id AND t.organization_id = e.organization_id
+    WHERE e.organization_id = ${organizationId}::uuid
+      AND t.sales_product_id = ${salesProductId}::uuid
+      AND e.channel_account_id = ${channelAccountId}::uuid
+      AND e.execution_kind IN (${Prisma.join([...LISTING_SHAPING_EXECUTION_KINDS])})
+      AND e.status = 'succeeded'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM product_registration_executions c
+        JOIN registration_targets ct ON ct.id = c.registration_target_id AND ct.organization_id = c.organization_id
+        WHERE c.organization_id = e.organization_id
+          AND ct.sales_product_id = t.sales_product_id
+          AND c.channel_account_id = e.channel_account_id
+          AND c.execution_kind IN (${Prisma.join([...LISTING_SHAPING_EXECUTION_KINDS])})
+          AND c.status = 'cancelled'
+          AND c.created_at > e.created_at
+      )
+    ORDER BY e.created_at DESC, e.id DESC
+    LIMIT 1
+  `);
+  if (succeeded) {
+    const name = succeeded.external_listing_id ? `몰 상품 ${succeeded.external_listing_id}` : `실행 ${succeeded.id}`;
+    throw new ConflictException({ code: REGISTRATION_ALREADY_REGISTERED_CODE, message: `이미 이 몰 계정에 등록된 상품입니다(${name}).` });
+  }
 }

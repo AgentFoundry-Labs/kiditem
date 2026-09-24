@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { SalesProductListItem } from '@kiditem/shared/sales-product';
+import { REGISTRATION_ALREADY_REGISTERED_CODE, type SalesProductListItem } from '@kiditem/shared/sales-product';
 import { FileSpreadsheet, Loader2, RefreshCw, Store, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { MallSheetDialog } from '@/components/mall-sheet/MallSheetDialog';
@@ -297,6 +297,19 @@ export default function SourcingPage() {
         error: null,
       }]);
       if (!task) return;
+      // 이미 그 몰 계정에 올라간 상품이라 울타리가 새 등록을 거절했다 — 확인 창을 닫고 그 몰 줄에 적는다(KID-320 S7).
+      if (task.errorCode === REGISTRATION_ALREADY_REGISTERED_CODE) {
+        mallRegister.recordOutcome({
+          mallKey,
+          mallName: adapter.mallName,
+          status: 'already_registered',
+          message: task.error ?? '이미 이 몰 계정에 등록된 상품입니다.',
+          manualSteps: [],
+        });
+        toast.error(`${adapter.mallName}에 이미 등록된 상품이에요`);
+        setConfirmMallKey(null);
+        return;
+      }
       const notice = registrationRunNotice(task);
       const toastOptions = notice.description ? { description: notice.description } : {};
       if (notice.tone === 'success') toast.success(notice.title, toastOptions);

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { REGISTRATION_ALREADY_REGISTERED_CODE } from '@kiditem/shared/sales-product';
 import SourcingPage from './page';
 
 const {
@@ -9,7 +10,9 @@ const {
   runMallsMock,
   fillConfirmedMock,
   invalidateMock,
+  recordOutcomeMock,
 } = vi.hoisted(() => ({
+  recordOutcomeMock: vi.fn(),
   invalidateMock: vi.fn(),
   pushMock: vi.fn(),
   toastMock: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
@@ -51,6 +54,7 @@ vi.mock('./hooks/useMallQuickRegister', () => ({
     confirmationMallKeys: ['coupang'],
     runMalls: runMallsMock,
     fillConfirmed: fillConfirmedMock,
+    recordOutcome: recordOutcomeMock,
   }),
 }));
 
@@ -179,6 +183,25 @@ describe('SourcingPage 몰 등록', () => {
       queryKey: ['sales-products', 'registration-state', 'sales-product-1'],
     }));
     expect(invalidateMock).toHaveBeenCalledWith({ queryKey: ['sales-products', 'list'] });
+  });
+
+  it('writes 이미 등록됨 on the mall row when the fence refuses a second registration for that account (KID-320 S7)', async () => {
+    startMock.mockResolvedValue([{
+      id: 'coupang#0', mallKey: 'coupang', mallName: '쿠팡 WING', channelAccountId: 'account-1', items: [ITEM],
+      values: VALUES, adapterValues: {}, status: 'failed', outcome: null,
+      error: '이미 이 몰 계정에 등록된 상품입니다(몰 상품 kk-9).', errorCode: REGISTRATION_ALREADY_REGISTERED_CODE,
+    }]);
+    openCoupangConfirmation();
+
+    fireEvent.click(screen.getByRole('button', { name: '확인 창 등록 실행' }));
+
+    await waitFor(() => expect(recordOutcomeMock).toHaveBeenCalledWith({
+      mallKey: 'coupang', mallName: '쿠팡 WING', status: 'already_registered',
+      message: '이미 이 몰 계정에 등록된 상품입니다(몰 상품 kk-9).', manualSteps: [],
+    }));
+    // 확인 창은 닫히고 그 몰 줄이 이유를 말한다.
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'coupang 확인 창' })).not.toBeInTheDocument());
+    expect(pushMock).not.toHaveBeenCalled();
   });
 
   it('fills the form only through the quick-register hook when registration is not asked for', async () => {

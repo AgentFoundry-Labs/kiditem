@@ -92,6 +92,20 @@ describe('MallQuickRegisterRows', () => {
     }
   });
 
+  it('등록 실행 울타리가 이미 등록됐다고 거절한 몰은 그 줄에 "이미 등록됨"과 몰 상품을 적는다', () => {
+    renderRows({
+      readiness: withConfirmRow().readiness,
+      confirmationMallKeys: ['coupang'],
+      results: {
+        coupang: { mallKey: 'coupang', mallName: '쿠팡 WING', status: 'already_registered', message: '이미 이 몰 계정에 등록된 상품입니다(몰 상품 kk-9).', manualSteps: [] },
+      },
+    });
+    const row = rowOf('쿠팡 WING');
+    expect(within(row).getByText('이미 등록됨')).toBeInTheDocument();
+    expect(within(row).queryByText('실패')).not.toBeInTheDocument();
+    expect(screen.getByText(/몰 상품 kk-9/)).toBeInTheDocument();
+  });
+
   describe('몰 하나만 등록', () => {
     it('그 몰키만 넘긴다 — 선택과 무관하다', () => {
       const props = renderRows();

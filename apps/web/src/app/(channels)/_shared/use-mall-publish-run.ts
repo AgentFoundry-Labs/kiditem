@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { registrationTargetApi } from '@/lib/registration-target-api';
+import { isApiError } from '@/lib/api-error';
 import { executeTargetRegistration, isActiveTargetExecution } from './target-registration-execution';
 import { listRegistrationTargetExecutions } from './registration-execution-api';
 import { getMallPublishAdapter } from './adapters';
@@ -28,6 +29,11 @@ export interface PublishTask {
   status: PublishTaskStatus;
   outcome: MallSendOutcome | null;
   error: string | null;
+  /**
+   * 실패가 서버 거절이면 그 거절의 `code`(예: 이미 등록된 계정 — `REGISTRATION_ALREADY_REGISTERED_CODE`).
+   * 화면은 이 값으로 이유를 그 몰 줄에 적는다. 서버 거절이 아니면 없다.
+   */
+  errorCode?: string | null;
 }
 
 
@@ -199,6 +205,7 @@ export function useMallPublishRun() {
           const itemOutcomes: MallSendOutcome[] = [];
           let finalStatus: PublishTaskStatus = 'succeeded';
           let errorMessage: string | null = null;
+          let errorCode: string | null = null;
           try {
             if (adapter.mode === 'sheet') {
               const outcome = await adapter.send({ items: task.items, values: task.values });
@@ -220,11 +227,13 @@ export function useMallPublishRun() {
             finalStatus = 'failed';
             const message = toMessage(error);
             errorMessage = adapter.describeError?.(message) ?? message;
+            errorCode = isApiError(error) ? error.details.code ?? null : null;
           }
           const result = {
             status: finalStatus,
             outcome: itemOutcomes.length > 0 ? combineOutcomes(itemOutcomes) : null,
             error: errorMessage,
+            ...(errorCode ? { errorCode } : {}),
           };
           patch(task.id, result);
           finished.push({ ...task, ...result });
