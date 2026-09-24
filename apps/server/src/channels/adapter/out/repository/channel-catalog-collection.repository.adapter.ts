@@ -12,6 +12,7 @@ import {
   SOURCE_IMPORT_RUN_FAILED_STATUS,
   SOURCE_IMPORT_RUN_RUNNING_STATUS,
 } from '@kiditem/shared/source-import';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
@@ -365,6 +366,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       const owner = await lockCatalogAttempt(tx, { ...input, stage });
       assertCatalogWritable(owner);
       assertCatalogChunkKindForStage(stage, input.kind);
+      if (input.kind === 'deletion_confirmation') assertDeletionConfirmationPlanned(owner.plan, input.payload);
       const staging = await tx.channelScrapeRun.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -687,10 +689,27 @@ function assertCatalogChunkKindForStage(
   const allowed = stage === 'basics'
     ? ['discovery_page', 'listing_basics', 'manifest_confirmation']
     : stage === 'details'
-      ? ['discovery_page', 'full_details', 'detail_manifest_confirmation']
+      ? ['discovery_page', 'full_details', 'detail_manifest_confirmation', 'deletion_confirmation']
       : ['discovery_page', 'product_details', 'manifest_confirmation'];
   if (!allowed.includes(kind)) {
     throw new ConflictException(`Catalog chunk kind ${kind} is not valid for ${stage} stage`);
+  }
+}
+
+/**
+ * 삭제 확인은 목록 단계가 사라졌다고 계획한 상품에만 받는다 (KID-348). 그 밖의 상품은 이 동기화가
+ * 확인할 대상이 아니다 — 이미 삭제로 기록된 상품이나 한 번도 저장한 적 없는 상품을 싣지 않는다.
+ */
+function assertDeletionConfirmationPlanned(rawPlan: unknown, payload: unknown): void {
+  const planned = new Set(CoupangCatalogCollectionPlanSchema.parse(rawPlan).absentProductIds ?? []);
+  const products = Array.isArray(jsonRecord(payload)?.products) ? jsonRecord(payload)!.products as unknown[] : [];
+  for (const product of products) {
+    const externalProductId = jsonRecord(product)?.externalProductId;
+    if (typeof externalProductId !== 'string' || !planned.has(externalProductId)) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: { reason: 'CATALOG_DELETION_UNEXPECTED_PRODUCT', externalProductId },
+      });
+    }
   }
 }
 
@@ -729,6 +748,18 @@ function compactChunkProjection(kind: string, payload: unknown): Record<string, 
   }
   if (kind === 'manifest_confirmation' || kind === 'detail_manifest_confirmation') {
     return { kind, manifest: record.manifest };
+  }
+  if (kind === 'deletion_confirmation') {
+    const products = Array.isArray(record.products) ? record.products : [];
+    return {
+      kind,
+      products: products.flatMap((item) => {
+        const row = jsonRecord(item);
+        return typeof row?.externalProductId === 'string' && typeof row.outcome === 'string'
+          ? [{ externalProductId: row.externalProductId, outcome: row.outcome }]
+          : [];
+      }),
+    };
   }
   if (kind === 'listing_basics' || kind === 'product_details' || kind === 'full_details') {
     const products = Array.isArray(record.products) ? record.products : [];

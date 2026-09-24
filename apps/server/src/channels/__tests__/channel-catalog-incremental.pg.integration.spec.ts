@@ -533,6 +533,11 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
     });
   });
 
+  const listingState = (id: string) => prisma.channelListing.findFirstOrThrow({
+    where: { organizationId: ORG, channelAccountId, externalId: id },
+    select: { status: true, isActive: true, options: { select: { isActive: true } } },
+  });
+
   const listingAndOptionStamps = async (id: string) => {
     const row = await prisma.channelListing.findFirstOrThrow({
       where: { organizationId: ORG, channelAccountId, externalId: id },
@@ -620,6 +625,50 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
     const next = await runBasics(bumped);
     const nextDetails = await startDetails(next, bumped);
     expect(nextDetails.plan.detailTargetProductIds).toEqual([]);
+  });
+
+  const confirmDeletion = (
+    permit: CoupangCatalogCollectionPermit,
+    products: Array<{ externalProductId: string; outcome: 'deleted' | 'present' | 'not_found' }>,
+    sequence = 1,
+  ) => put(permit, { version: 1, kind: 'deletion_confirmation', products: products.map((item) => ({ ...item, productStatus: null })) }, sequence);
+
+  it('삭제로 확인된 상품만 DELETED로 끄고, 돌아온 상품과 확인 못 한 상품은 그대로 두며 미확인을 품질 보고에 남긴다', async () => {
+    const all: SyncProduct[] = ['P1', 'P2', 'P3', 'P4'].map((id) => ({ id, modifiedOn: '2026-09-01T00:00:00' }));
+    await syncAll(all);
+    const listed: SyncProduct[] = [{ id: 'P1', modifiedOn: '2026-09-01T00:00:00' }];
+    const basics = await runBasics(listed);
+    const details = await startDetails(basics, listed);
+    expect(details.plan).toMatchObject({ detailTargetProductIds: [], absentProductIds: ['P2', 'P3', 'P4'] });
+
+    await expect(confirmDeletion(details, [{ externalProductId: 'P1', outcome: 'deleted' }])).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      details: { reason: 'CATALOG_DELETION_UNEXPECTED_PRODUCT', externalProductId: 'P1' },
+    });
+    await confirmDeletion(details, [
+      { externalProductId: 'P2', outcome: 'deleted' },
+      { externalProductId: 'P3', outcome: 'present' },
+    ], 1);
+    await confirmDeletion(details, [{ externalProductId: 'P4', outcome: 'not_found' }], 2);
+    // 확인을 받는 동안에는 아무것도 바뀌지 않는다.
+    await expect(listingState('P2')).resolves.toMatchObject({ isActive: true });
+
+    const completed = await finalize(details);
+    expect(completed.quality).toEqual({
+      detailTargets: 0,
+      detailApplied: 0,
+      detailUnchanged: 0,
+      deletedProducts: 1,
+      unconfirmedAbsentProductIds: ['P4'],
+    });
+    await expect(listingState('P2')).resolves.toEqual({ status: 'DELETED', isActive: false, options: [{ isActive: false }] });
+    await expect(listingState('P3')).resolves.toEqual({ status: 'APPROVED', isActive: true, options: [{ isActive: true }] });
+    await expect(listingState('P4')).resolves.toEqual({ status: 'APPROVED', isActive: true, options: [{ isActive: true }] });
+
+    // 삭제로 기록한 상품은 다시 확인하지 않는다.
+    const next = await runBasics(listed);
+    const nextDetails = await startDetails(next, listed);
+    expect(nextDetails.plan.absentProductIds).toEqual(['P3', 'P4']);
   });
 
   it('목록에서 사라진 상품을 삭제 확인 대상으로 계획하고, 목록 단계 종료는 그 상품을 끄지 않는다', async () => {

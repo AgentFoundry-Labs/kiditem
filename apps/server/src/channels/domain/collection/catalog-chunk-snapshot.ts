@@ -5,6 +5,7 @@
  */
 import {
   CoupangCatalogCollectionPlanSchema,
+  CoupangCatalogDeletionConfirmationChunkV1Schema,
   CoupangCatalogDetailManifestConfirmationV1Schema,
   CoupangCatalogDiscoveryPageV1Schema,
   CoupangCatalogFullDetailsChunkV1Schema,
@@ -20,6 +21,7 @@ import {
 import type { ZodType } from 'zod';
 import { ChannelInputError as BadRequestException, ChannelConflictError as ConflictException } from '../exception/channel-business-error';
 import { stableStringify } from './catalog-collection-hash';
+import type { CatalogDeletionConfirmation } from './catalog-deletion-confirmation';
 
 /** One stored collection chunk as the catalog collection ledger returns it. */
 export interface CatalogCollectionChunk {
@@ -57,6 +59,8 @@ export type InspectedChunks = {
   products: CanonicalProduct[];
   basicProducts: CanonicalBasicProduct[];
   detailProducts: CanonicalDetailProduct[];
+  /** details 단계가 받은 삭제 확인 (KID-348). 청크 순서대로다. */
+  deletionConfirmations: CatalogDeletionConfirmation[];
   optionCount: number;
   mediaCount: number;
 };
@@ -69,6 +73,7 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
   const products: CanonicalProduct[] = [];
   const basicProducts: CanonicalBasicProduct[] = [];
   const detailProducts: CanonicalDetailProduct[] = [];
+  const deletionConfirmations: CatalogDeletionConfirmation[] = [];
   let optionCount = 0;
   let mediaCount = 0;
 
@@ -84,6 +89,7 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
         products,
         basicProducts,
         detailProducts,
+        deletionConfirmations,
         get optionCount() { return optionCount; },
         set optionCount(value) { optionCount = value; },
         get mediaCount() { return mediaCount; },
@@ -126,6 +132,9 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
     } else if (chunk.kind === 'detail_manifest_confirmation') {
       const payload = parseStoredChunk(CoupangCatalogDetailManifestConfirmationV1Schema, chunk);
       confirmation = payload.manifest;
+    } else if (chunk.kind === 'deletion_confirmation') {
+      const payload = parseStoredChunk(CoupangCatalogDeletionConfirmationChunkV1Schema, chunk);
+      deletionConfirmations.push(...payload.products.map(({ externalProductId, outcome }) => ({ externalProductId, outcome })));
     } else {
       throw new ConflictException(`Unknown stored catalog chunk kind: ${chunk.kind}`);
     }
@@ -138,6 +147,7 @@ export function inspectChunks(chunks: CatalogCollectionChunk[]): InspectedChunks
     products: products.sort((a, b) => a.ordinal - b.ordinal),
     basicProducts: basicProducts.sort((a, b) => a.ordinal - b.ordinal),
     detailProducts: detailProducts.sort((a, b) => a.ordinal - b.ordinal),
+    deletionConfirmations,
     optionCount,
     mediaCount,
   };
@@ -178,6 +188,19 @@ function applyCompactProjection(
     if (!manifest.success) throw new ConflictException('Stored manifest receipt is invalid');
     if (state.manifest) assertSameManifest(state.manifest, manifest.data);
     state.confirmation = manifest.data;
+    return;
+  }
+  if (chunk.kind === 'deletion_confirmation') {
+    const products = Array.isArray(projection.products) ? projection.products : [];
+    for (const value of products) {
+      const item = jsonRecord(value);
+      const externalProductId = stringValue(item?.externalProductId);
+      const outcome = item?.outcome;
+      if (!externalProductId || (outcome !== 'deleted' && outcome !== 'present' && outcome !== 'not_found')) {
+        throw new ConflictException('Stored deletion confirmation receipt is invalid');
+      }
+      state.deletionConfirmations.push({ externalProductId, outcome });
+    }
     return;
   }
   if (chunk.kind !== 'product_details' && chunk.kind !== 'listing_basics' && chunk.kind !== 'full_details') {

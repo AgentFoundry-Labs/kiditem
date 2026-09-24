@@ -27,7 +27,13 @@ import {
   assembleCompleteSnapshot,
   assembleFullDetailsSnapshot,
   assembleListingBasicsSnapshot,
+  inspectChunks,
 } from '../../../domain/collection/catalog-chunk-snapshot';
+import {
+  CATALOG_DELETED_STATUS,
+  resolveAbsentProducts,
+} from '../../../domain/collection/catalog-deletion-confirmation';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   hashCatalogStageSnapshot,
   hashCatalogChunkPayload,
@@ -170,18 +176,38 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           products: snapshot.products,
         });
         const plan = CoupangCatalogCollectionPlanSchema.parse(sourceRun.plan);
+        // 사라진 상품은 삭제로 확인된 것만 바꾼다. 돌아왔거나 확인 못 한 상품은 그대로 둔다 (KID-348).
+        const absence = resolveAbsentProducts(plan.absentProductIds ?? [], inspectChunks(chunks).deletionConfirmations);
+        if (absence.unexpected.length > 0) {
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+            details: { reason: 'CATALOG_DELETION_UNEXPECTED_PRODUCT', externalProductId: absence.unexpected[0] },
+          });
+        }
+        const deleted = await markCatalogProductsDeleted(tx, {
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          sourceImportRunId: sourceRun.id,
+          externalProductIds: absence.deleted,
+        });
+        if (deleted.listings > 0 || deleted.options > 0) {
+          await this.productMapping.advance(tx, input.organizationId);
+        }
         optionCount = snapshot.products.reduce((sum, item) => sum + item.product.options.length, 0);
         result = {
           sourceImportRunId: sourceRun.id,
           duplicate: false,
-          changes: applied.changes,
+          changes: {
+            ...applied.changes,
+            deactivatedProductCount: deleted.listings,
+            deactivatedSkuCount: deleted.options,
+          },
         };
         const quality: CoupangCatalogCollectionQuality = {
           detailTargets: snapshot.products.length,
           detailApplied: applied.appliedProductIds.length,
           detailUnchanged: applied.unchangedProductIds.length,
-          deletedProducts: 0,
-          unconfirmedAbsentProductIds: plan.absentProductIds ?? [],
+          deletedProducts: deleted.listings,
+          unconfirmedAbsentProductIds: absence.unconfirmed,
         };
         qualityReport = {
           snapshotHash: input.snapshotHash,
@@ -513,6 +539,44 @@ async function upsertCoupangCatalogBasicsRows(
       ...media,
     },
   };
+}
+
+/**
+ * Wing이 삭제 상태로 돌려준 상품을 `DELETED`·비활성으로 기록한다. 옵션도 끈다. 확정 구성은
+ * 지우지 않는다. 이미 삭제로 기록된 행은 다시 쓰지 않는다.
+ */
+async function markCatalogProductsDeleted(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    channelAccountId: string;
+    sourceImportRunId: string;
+    externalProductIds: readonly string[];
+  },
+): Promise<{ listings: number; options: number }> {
+  if (input.externalProductIds.length === 0) return { listings: 0, options: 0 };
+  const options = await tx.channelListingOption.updateMany({
+    where: {
+      organizationId: input.organizationId,
+      listing: {
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+        externalId: { in: [...input.externalProductIds] },
+      },
+      isActive: true,
+    },
+    data: { isActive: false, lastImportRunId: input.sourceImportRunId },
+  });
+  const listings = await tx.channelListing.updateMany({
+    where: {
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      externalId: { in: [...input.externalProductIds] },
+      status: { not: CATALOG_DELETED_STATUS },
+    },
+    data: { status: CATALOG_DELETED_STATUS, isActive: false, lastImportRunId: input.sourceImportRunId },
+  });
+  return { listings: listings.count, options: options.count };
 }
 
 /**
