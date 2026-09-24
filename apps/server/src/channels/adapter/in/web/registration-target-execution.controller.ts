@@ -69,4 +69,3 @@ export class RegistrationTargetExecutionController {
     return this.executions.reportTargetExecution(organizationId, executionId, user.id ?? null, parsed.data);
   }
 }
-
