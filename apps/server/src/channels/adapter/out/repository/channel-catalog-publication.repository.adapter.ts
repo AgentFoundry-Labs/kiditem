@@ -484,7 +484,8 @@ async function markCatalogProductsDeleted(
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       externalId: { in: [...input.externalProductIds] },
-      status: { not: CATALOG_DELETED_STATUS },
+      // `<>`는 NULL과 맞지 않는다: 상태가 비어 있는 행도 삭제로 기록해야 한다.
+      OR: [{ status: null }, { status: { not: CATALOG_DELETED_STATUS } }],
     },
     data: { status: CATALOG_DELETED_STATUS, isActive: false, lastImportRunId: input.sourceImportRunId },
   });

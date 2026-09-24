@@ -644,6 +644,28 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
     sequence = 1,
   ) => put(permit, { version: 1, kind: 'deletion_confirmation', products: products.map((item) => ({ ...item, productStatus: null })) }, sequence);
 
+  it('상태 칸이 비어(NULL) 있는 리스팅도 삭제로 확인되면 DELETED로 끄고 다음 계획에 다시 넣지 않는다', async () => {
+    await syncAll([
+      { id: 'P1', modifiedOn: '2026-09-01T00:00:00' },
+      { id: 'P-NULL', modifiedOn: '2026-09-01T00:00:00' },
+    ]);
+    await prisma.channelListing.updateMany({
+      where: { organizationId: ORG, channelAccountId, externalId: 'P-NULL' },
+      data: { status: null },
+    });
+    const listed: SyncProduct[] = [{ id: 'P1', modifiedOn: '2026-09-01T00:00:00' }];
+    const basics = await runBasics(listed);
+    const details = await startDetails(basics, listed);
+    expect(details.plan.absentProductIds).toEqual(['P-NULL']);
+    await confirmDeletion(details, [{ externalProductId: 'P-NULL', outcome: 'deleted' }]);
+    const completed = await finalize(details);
+    expect(completed.quality).toMatchObject({ deletedProducts: 1, unconfirmedAbsentProductIds: [] });
+    await expect(listingState('P-NULL')).resolves.toEqual({ status: 'DELETED', isActive: false, options: [{ isActive: false }] });
+    const next = await runBasics(listed);
+    const nextDetails = await startDetails(next, listed);
+    expect(nextDetails.plan.absentProductIds).toEqual([]);
+  });
+
   it('삭제로 확인된 상품만 DELETED로 끄고, 돌아온 상품과 확인 못 한 상품은 그대로 두며 미확인을 품질 보고에 남긴다', async () => {
     const all: SyncProduct[] = ['P1', 'P2', 'P3', 'P4'].map((id) => ({ id, modifiedOn: '2026-09-01T00:00:00' }));
     await syncAll(all);
