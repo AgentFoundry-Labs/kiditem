@@ -30,12 +30,12 @@ describe('sales product option helpers', () => {
 });
 
 describe('sales product input contract', () => {
-  const base = { name: '애니멀 스마트 만능패드', salePrice: 5900 };
+  const base = { name: '애니멀 스마트 만능패드' };
 
   it('accepts a single product with one option and no levels', () => {
     const parsed = SalesProductCreateInputSchema.parse({
       ...base,
-      options: [{ values: [], components: [{ sellpiaInventorySkuId: SKU, quantity: 1 }] }],
+      options: [{ values: [], salePrice: 5900, components: [{ masterProductId: SKU, quantity: 1 }] }],
     });
     expect(parsed.optionAxes).toEqual([]);
     expect(parsed.options[0]!.supplyStatus).toBe('selling');
@@ -45,17 +45,17 @@ describe('sales product input contract', () => {
   it('rejects several options without a level, values that miss a level, and repeated options', () => {
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
-      options: [{ values: [] }, { values: [] }],
+      options: [{ values: [], salePrice: 5900 }, { values: [], salePrice: 5900 }],
     }).success).toBe(false);
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
       optionAxes: ['색상', '사이즈'],
-      options: [{ values: ['빨강'] }],
+      options: [{ values: ['빨강'], salePrice: 5900 }],
     }).success).toBe(false);
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
       optionAxes: ['색상'],
-      options: [{ values: ['빨강'] }, { values: [' 빨강 '] }],
+      options: [{ values: ['빨강'], salePrice: 5900 }, { values: [' 빨강 '], salePrice: 5900 }],
     }).success).toBe(false);
   });
 
@@ -63,24 +63,24 @@ describe('sales product input contract', () => {
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
       optionAxes: ['색상'],
-      options: [{ values: ['빨강:파랑'] }],
+      options: [{ values: ['빨강:파랑'], salePrice: 5900 }],
     }).success).toBe(false);
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
       optionAxes: ['색<상'],
-      options: [{ values: ['빨강'] }],
+      options: [{ values: ['빨강'], salePrice: 5900 }],
     }).success).toBe(false);
   });
 
   it('requires the version the operator read before replacing options', () => {
     expect(SalesProductOptionsReplaceInputSchema.safeParse({
       optionAxes: ['색상'],
-      options: [{ values: ['빨강'] }],
+      options: [{ values: ['빨강'], salePrice: 5900 }],
     }).success).toBe(false);
     expect(SalesProductOptionsReplaceInputSchema.parse({
       expectedVersion: 3,
       optionAxes: ['색상'],
-      options: [{ values: ['빨강'], extraPrice: 500 }],
-    }).options[0]!.extraPrice).toBe(500);
+      options: [{ values: ['빨강'], salePrice: 6400 }],
+    }).options[0]!.salePrice).toBe(6400);
   });
 });
