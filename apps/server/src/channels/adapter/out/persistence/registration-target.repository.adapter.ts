@@ -6,7 +6,7 @@ import {
   type ProductTransactionalReadPort,
 } from '../../../../products/application/port/in/product-transactional-read.port';
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
-import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import type {
   RegistrationMallInput,
   RegistrationTargetResolveInput,
@@ -98,7 +98,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
       });
       if (existing) return existing.id;
       if (product.status === 'archived') {
-        throw new RegistrationTargetException('invalid', '보관된 판매상품에는 새 등록 설정을 만들 수 없습니다.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '보관된 판매상품에는 새 등록 설정을 만들 수 없습니다.' });
       }
       // 첫 등록 설정을 만드는 순간이 곧 판매 결정이다 — 여기서 KID 를 발급한다(KID-310).
       // 발급은 트랜잭션 밖 시퀀스라 되돌아오지 않는다: 거절할 이유는 모두 이 앞에서 본다.
@@ -162,10 +162,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
       return await this.createTarget(organizationId, input);
     } catch (error) {
       if (error && typeof error === 'object' && (error as { code?: unknown }).code === 'P2002') {
-        throw new RegistrationTargetException(
-          'conflict',
-          '이 판매상품과 몰 계정에는 이미 등록 설정이 있습니다. 기존 설정을 고쳐주세요.',
-        );
+        throw new KiditemConflictError('CHANNELS_REGISTRATION_TARGET_CONFLICT', { cause: error });
       }
       throw error;
     }
@@ -221,7 +218,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         where: { id: targetId, organizationId, archivedAt: null },
         select: { id: true },
       });
-      if (!current) throw new RegistrationTargetException('not_found', '등록 설정을 찾지 못했습니다.');
+      if (!current) throw new KiditemNotFoundError('CHANNELS_REGISTRATION_TARGET_NOT_FOUND');
       const live = await tx.productRegistrationExecution.count({
         where: {
           organizationId,
@@ -230,10 +227,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         },
       });
       if (live > 0) {
-        throw new RegistrationTargetException(
-          'conflict',
-          'An active execution must be resolved before archiving its target.',
-        );
+        throw new KiditemConflictError('CHANNELS_LISTING_EXECUTION_ACTIVE', { details: { reason: 'TARGET_HAS_LIVE_EXECUTION' } });
       }
       await tx.registrationTarget.updateMany({
         where: { id: targetId, organizationId, archivedAt: null },
@@ -271,10 +265,10 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         },
       });
       if (!current) {
-        throw new RegistrationTargetException('not_found', '등록 설정을 찾지 못했습니다.');
+        throw new KiditemNotFoundError('CHANNELS_REGISTRATION_TARGET_NOT_FOUND');
       }
       if (current.version !== input.expectedVersion) {
-        throw new RegistrationTargetException('conflict', '등록 설정이 다른 곳에서 변경되었습니다.');
+        throw new KiditemConflictError('CHANNELS_REGISTRATION_TARGET_STALE');
       }
 
       const product = await validateReferences(tx, organizationId, current.salesProductId, current.channelAccountId, {
@@ -319,7 +313,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         },
       });
       if (updated.count !== 1) {
-        throw new RegistrationTargetException('conflict', '등록 설정이 다른 곳에서 변경되었습니다.');
+        throw new KiditemConflictError('CHANNELS_REGISTRATION_TARGET_STALE');
       }
 
       await tx.registrationTargetOption.deleteMany({
@@ -360,7 +354,7 @@ async function validateReferences(
     select: { id: true },
   });
   if (!organization) {
-    throw new RegistrationTargetException('invalid', '조직에 속하지 않은 등록 설정입니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '조직에 속하지 않은 등록 설정입니다.' });
   }
 
   const product = await tx.salesProduct.findFirst({
@@ -368,10 +362,10 @@ async function validateReferences(
     select: { id: true, name: true, status: true, sourceRecordId: true },
   });
   if (!product) {
-    throw new RegistrationTargetException('invalid', '판매상품이 이 조직에 속하지 않습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '판매상품이 이 조직에 속하지 않습니다.' });
   }
   if (product.status === 'archived' && !options.allowArchivedProduct) {
-    throw new RegistrationTargetException('invalid', '보관된 판매상품에는 새 등록 설정을 만들 수 없습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '보관된 판매상품에는 새 등록 설정을 만들 수 없습니다.' });
   }
 
   const account = await tx.channelAccount.findFirst({
@@ -379,7 +373,7 @@ async function validateReferences(
     select: { id: true },
   });
   if (!account) {
-    throw new RegistrationTargetException('invalid', '활성 채널 계정이 이 조직에 속하지 않습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '활성 채널 계정이 이 조직에 속하지 않습니다.' });
   }
   return { name: product.name, status: product.status, sourceRecordId: product.sourceRecordId };
 }
@@ -395,7 +389,7 @@ async function validateSelectedOptions(
 ): Promise<void> {
   const ids = input.selectedOptions.map((option) => option.salesProductOptionId);
   if (new Set(ids).size !== ids.length) {
-    throw new RegistrationTargetException('invalid', '같은 옵션을 두 번 선택할 수 없습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '같은 옵션을 두 번 선택할 수 없습니다.' });
   }
   if (ids.length === 0) return;
 
@@ -408,12 +402,12 @@ async function validateSelectedOptions(
     select: { id: true, supplyStatus: true },
   });
   if (options.length !== ids.length) {
-    throw new RegistrationTargetException('invalid', '선택한 옵션이 해당 판매상품에 없습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '선택한 옵션이 해당 판매상품에 없습니다.' });
   }
 
   const existing = input.existingOptionIds ?? new Set<string>();
   if (options.some((option) => option.supplyStatus === 'unused' && !existing.has(option.id))) {
-    throw new RegistrationTargetException('invalid', '미사용 처리된 옵션은 새 등록 설정에 선택할 수 없습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '미사용 처리된 옵션은 새 등록 설정에 선택할 수 없습니다.' });
   }
 }
 
@@ -445,10 +439,10 @@ function mallInputOrInvalid(raw: unknown): RegistrationMallInput {
   try {
     return normalizeRegistrationMallInput(raw);
   } catch (error) {
-    if (error instanceof RegistrationMallInputError) throw new RegistrationTargetException('invalid', error.message);
+    if (error instanceof RegistrationMallInputError) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: error.message });
     if (error instanceof ZodError) {
       const keys = [...new Set(error.issues.map((issue) => issue.path.join('.')))];
-      throw new RegistrationTargetException('invalid', `등록 설정의 몰 값이 올바르지 않습니다(${keys.join(', ')}).`);
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: `등록 설정의 몰 값이 올바르지 않습니다(${keys.join(', ')}).` });
     }
     throw error;
   }

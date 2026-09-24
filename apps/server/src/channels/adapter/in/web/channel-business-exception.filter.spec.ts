@@ -14,7 +14,6 @@ import {
 import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 import { ChannelAccountException } from '../../../application/exception/channel-account.exception';
 import { ListingException } from '../../../application/exception/listing.exception';
-import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { ChannelListingController } from './listing/channel-listing.controller';
 import { RegistrationTargetController } from './registration-target.controller';
@@ -70,7 +69,6 @@ describe('ChannelBusinessExceptionFilter HTTP contract', () => {
     [new ChannelAccountException('invalid', '계정 이름이 비어 있습니다.'), 400, 'CHANNELS_ACCOUNT_INVALID', '계정 이름이 비어 있습니다.'],
     [new ChannelAccountException('conflict', 'duplicate'), 409, 'DB_CONFLICT', ERROR_DEFINITIONS.DB_CONFLICT.text],
     [new ListingException('not_found', 'listing missing'), 404, 'CHANNELS_LISTING_NOT_FOUND', ERROR_DEFINITIONS.CHANNELS_LISTING_NOT_FOUND.text],
-    [new RegistrationTargetException('conflict', 'target exists'), 409, 'CHANNELS_REGISTRATION_TARGET_CONFLICT', ERROR_DEFINITIONS.CHANNELS_REGISTRATION_TARGET_CONFLICT.text],
   ] as const)('maps channel application exception case %#', (error, statusCode, code, message) => {
     const { host, json } = responseHost();
     new ChannelBusinessExceptionFilter().catch(error, host);

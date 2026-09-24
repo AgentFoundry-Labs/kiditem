@@ -1,6 +1,5 @@
 import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { RegistrationTargetException } from '../../exception/registration-target.exception';
 import { ChannelRegistrationService } from './channel-registration.service';
 
 describe('ChannelRegistrationService browser registration boundary', () => {
@@ -69,7 +68,7 @@ describe('ChannelRegistrationService browser registration boundary', () => {
       organizationId: 'org-1',
       channelAccountId: 'account-1',
       externalVendorSku: '  ',
-    })).rejects.toThrow('real Sellpia SKU code is required');
+    })).rejects.toMatchObject({ code: 'CHANNELS_PREFLIGHT_FAILED', details: { reason: 'SELLPIA_SKU_REQUIRED' } });
     expect(repository.findExistingActiveListingBySellerSku).not.toHaveBeenCalled();
   });
 });

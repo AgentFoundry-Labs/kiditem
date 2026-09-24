@@ -2,7 +2,7 @@ import { STOCKOUT_CHECK_PORT, type StockoutCheckPort } from '../../port/in/listi
 import type { PrepareListingAvailabilityInput, ReportListingAvailabilityInput } from '@kiditem/shared/sales-product';
 import { SALES_PRODUCT_PORT, type SalesProductPort } from '../../port/in/sales-product.port';
 import { REGISTRATION_TARGET_PORT, type RegistrationTargetPort } from '../../port/in/registration-target.port';
-import { RegistrationTargetException } from '../../exception/registration-target.exception';
+import { KiditemConflictError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type {
   RegistrationExecutionRepositoryPort,
   TargetExecutionIntent,
@@ -49,28 +49,28 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
 
   async prepareTargetExecution(organizationId: string, targetId: string, userId: string | null, input: PrepareTargetExecutionInput) {
     if (input.kind !== 'register' && !input.channelListingId) {
-      throw new RegistrationTargetException('invalid', '기존 쇼핑몰 상품을 선택하세요.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '기존 쇼핑몰 상품을 선택하세요.' });
     }
     if ((input.kind === 'update') !== Boolean(input.updateFields?.length)) {
-      throw new RegistrationTargetException('invalid', '가격 수정 실행은 변경할 판매가 항목을 지정해야 합니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '가격 수정 실행은 변경할 판매가 항목을 지정해야 합니다.' });
     }
     const transitions = input.optionTransitions ?? [];
     if (input.kind === 'composition_change' ? transitions.length === 0 : transitions.length > 0) {
-      throw new RegistrationTargetException('invalid', '구성 전환에는 변경할 쇼핑몰 옵션과 새 판매옵션을 지정해야 합니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '구성 전환에는 변경할 쇼핑몰 옵션과 새 판매옵션을 지정해야 합니다.' });
     }
     if (new Set(transitions.map(item => item.channelListingOptionId)).size !== transitions.length
       || new Set(transitions.map(item => item.salesProductOptionId)).size !== transitions.length) {
-      throw new RegistrationTargetException('invalid', '구성 전환 옵션을 중복 지정할 수 없습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '구성 전환 옵션을 중복 지정할 수 없습니다.' });
     }
     const replay = await this.executions.findTargetReplay({ organizationId, requestedByUserId: userId, targetId, request: input });
     if (replay) return replay;
     const target = await this.targets.get(organizationId, targetId);
-    if (target.version !== input.expectedVersion) throw new RegistrationTargetException('conflict', '등록 설정이 변경됐습니다. 다시 불러오세요.');
+    if (target.version !== input.expectedVersion) throw new KiditemConflictError('CHANNELS_REGISTRATION_TARGET_STALE');
     const product = await this.salesProducts.get(organizationId, target.salesProductId);
-    if (target.selectedOptions.length === 0) throw new RegistrationTargetException('invalid', '실행할 옵션을 선택하세요.');
+    if (target.selectedOptions.length === 0) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '실행할 옵션을 선택하세요.' });
     const options = new Map(product.options.map(option => [option.id, option]));
     if (transitions.some(item => !target.selectedOptions.some(option => option.salesProductOptionId === item.salesProductOptionId))) {
-      throw new RegistrationTargetException('invalid', '새 판매옵션이 등록 대상에 선택되어 있지 않습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '새 판매옵션이 등록 대상에 선택되어 있지 않습니다.' });
     }
     if (input.kind === 'update') {
       const listing = product.channelListings.find(item => item.id === input.channelListingId
@@ -79,12 +79,12 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
       const selection = target.selectedOptions.find(item => item.salesProductOptionId === optionId);
       const option = optionId ? options.get(optionId) : undefined;
       if (!listing || !selection || !option) {
-        throw new RegistrationTargetException('invalid', '가격 수정은 등록 대상에 선택된 단일 옵션의 몰 상품만 지원합니다.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '가격 수정은 등록 대상에 선택된 단일 옵션의 몰 상품만 지원합니다.' });
       }
       // 가격은 판매 상품 옵션 한 곳에만 있다(KID-313 W2).
       const price = option.salePrice;
       if (price === null || !['kakao', 'kidsnote'].includes(listing.mallKey) || price < 10 || price > 10_000_000) {
-        throw new RegistrationTargetException('invalid', '이 몰 또는 판매가는 현재 가격 전송 범위에 포함되지 않습니다.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '이 몰 또는 판매가는 현재 가격 전송 범위에 포함되지 않습니다.' });
       }
     }
     // 상세는 새 상품 문서를 보내는 실행(등록 · 구성 전환)만 얼린다 — 나머지 kind 는 읽지도 않는다.
@@ -119,7 +119,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
         channelOverrides: [],
         options: target.selectedOptions.map(selection => {
           const option = options.get(selection.salesProductOptionId);
-          if (!option) throw new RegistrationTargetException('invalid', '선택한 옵션이 해당 판매상품에 없습니다.');
+          if (!option) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '선택한 옵션이 해당 판매상품에 없습니다.' });
           return option;
         }),
       }),
