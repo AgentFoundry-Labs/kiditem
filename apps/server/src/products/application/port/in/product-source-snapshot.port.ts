@@ -1,6 +1,7 @@
 import type {
   InventorySkuLinkedChannelOption,
   InventorySkuLinkedProduct,
+  InventorySkuSnapshotSummary,
   InventorySkuStockStatus,
   SellpiaImportRunSummary,
   SellpiaInventorySkuLinkStatus,
@@ -21,16 +22,8 @@ export type ProductSourceSnapshotFilters = Pick<
   'query' | 'stockStatus' | 'linkStatus'
 >;
 
-export type ProductSourceSnapshotSummary = Readonly<{
-  totalProducts: number;
-  linkedProducts: number;
-  unlinkedProducts: number;
-  inStockProducts: number;
-  outOfStockProducts: number;
-  totalUnits: number;
-  pricedAssetValue: number;
-  unpricedProductCount: number;
-}>;
+/** 셀피아 재고 요약 — 공개 계약은 shared `InventorySkuSnapshotSummarySchema` 다(KID-331: 웹은 이 스키마로 parse 한다). */
+export type ProductSourceSnapshotSummary = InventorySkuSnapshotSummary;
 
 export type ProductSourceSnapshotItem = Readonly<{
   masterProductId: string;

@@ -22,8 +22,6 @@ beforeEach(() => {
       barcode: null,
       currentStock: 8,
       purchasePrice: null,
-      salePrice: null,
-      isActive: true,
       stockValue: null,
       lastImportRunId: null,
       lastImportedAt: null,

@@ -104,12 +104,6 @@ export function InventoryTable({
                         {price(item.purchasePrice)}
                       </dd>
                     </div>
-                    <div className="flex flex-wrap justify-between gap-x-2">
-                      <dt className="text-[var(--text-secondary)]">판매가</dt>
-                      <dd className={cn('font-medium', item.salePrice === null && 'text-amber-700')}>
-                        {price(item.salePrice)}
-                      </dd>
-                    </div>
                   </dl>
                 </td>
                 <td className="overflow-hidden align-top">

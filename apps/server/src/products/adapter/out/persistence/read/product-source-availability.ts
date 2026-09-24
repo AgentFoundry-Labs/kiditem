@@ -18,6 +18,7 @@ import {
 import type {
   ProductSourceReadModel,
 } from '../../../../domain/product-source-read-model';
+import type { InventorySkuSnapshotSummary } from '@kiditem/shared/inventory';
 
 type ProductAvailabilityQuery = {
   organizationId: string;
@@ -110,17 +111,6 @@ type ProductSourceSnapshotRow = Readonly<{
   linkedProductCount: number;
   linkedProducts: ProductSourceSnapshotLinkedProduct[];
   linkedChannelOptions: ProductSourceSnapshotLinkedChannelOption[];
-}>;
-
-type ProductSourceSnapshotSummary = Readonly<{
-  totalProducts: number;
-  linkedProducts: number;
-  unlinkedProducts: number;
-  inStockProducts: number;
-  outOfStockProducts: number;
-  totalUnits: number;
-  pricedAssetValue: number;
-  unpricedProductCount: number;
 }>;
 
 type ProductSourceImportRunRow = Readonly<{
@@ -312,7 +302,7 @@ export async function readProductSourceSnapshotList(
 ): Promise<{
   rows: ProductSourceSnapshotRow[];
   total: number;
-  summary: ProductSourceSnapshotSummary;
+  summary: InventorySkuSnapshotSummary;
   latestImport: ProductSourceImportRunRow | null;
 }> {
   const latestImport = await readPublishedInventoryImport(tx, organizationId);
@@ -408,15 +398,16 @@ export async function readProductSourceSnapshotList(
       };
     }),
     total,
+    // 공개 계약(shared `InventorySkuSnapshotSummarySchema`)의 이름으로 낸다 — 단위는 마스터 상품이지만 계약 이름은 sku 다(KID-331).
     summary: {
-      totalProducts: productSourceSafeInteger(summary.totalProducts, 'totalProducts'),
-      linkedProducts: productSourceSafeInteger(summary.linkedProducts, 'linkedProducts'),
-      unlinkedProducts: productSourceSafeInteger(summary.unlinkedProducts, 'unlinkedProducts'),
-      inStockProducts: productSourceSafeInteger(summary.inStockProducts, 'inStockProducts'),
-      outOfStockProducts: productSourceSafeInteger(summary.outOfStockProducts, 'outOfStockProducts'),
+      totalSkus: productSourceSafeInteger(summary.totalProducts, 'totalProducts'),
+      linkedSkus: productSourceSafeInteger(summary.linkedProducts, 'linkedProducts'),
+      unlinkedSkus: productSourceSafeInteger(summary.unlinkedProducts, 'unlinkedProducts'),
+      inStockSkus: productSourceSafeInteger(summary.inStockProducts, 'inStockProducts'),
+      outOfStockSkus: productSourceSafeInteger(summary.outOfStockProducts, 'outOfStockProducts'),
       totalUnits: productSourceSafeInteger(summary.totalUnits, 'totalUnits'),
       pricedAssetValue: productSourceSafeInteger(summary.pricedAssetValue, 'pricedAssetValue'),
-      unpricedProductCount: productSourceSafeInteger(summary.unpricedProductCount, 'unpricedProductCount'),
+      unpricedSkuCount: productSourceSafeInteger(summary.unpricedProductCount, 'unpricedProductCount'),
     },
     latestImport,
   };

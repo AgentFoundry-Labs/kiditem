@@ -23,8 +23,6 @@ const snapshotItem = {
   barcode: null,
   currentStock: 8,
   purchasePrice: 1_000,
-  salePrice: null,
-  isActive: true,
   stockValue: 8_000,
   lastImportRunId: runId,
   lastImportedAt: '2026-07-12T00:00:00.000Z',
@@ -161,7 +159,6 @@ describe('InventorySku snapshot contracts', () => {
   it.each([
     ['currentStock', { currentStock: -1 }],
     ['purchasePrice', { purchasePrice: -1 }],
-    ['salePrice', { salePrice: -1 }],
     ['stockValue', { stockValue: -1 }],
   ])('rejects a negative %s', (_field, override) => {
     expect(() => InventorySkuSnapshotItemSchema.parse({
@@ -174,11 +171,9 @@ describe('InventorySku snapshot contracts', () => {
     expect(InventorySkuSnapshotItemSchema.parse({
       ...snapshotItem,
       purchasePrice: null,
-      salePrice: null,
       stockValue: null,
     })).toMatchObject({
       purchasePrice: null,
-      salePrice: null,
       stockValue: null,
     });
 

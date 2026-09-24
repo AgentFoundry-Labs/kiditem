@@ -12,8 +12,6 @@ describe('InventoryTable', () => {
     barcode: null,
     currentStock: 0,
     purchasePrice: null,
-    salePrice: 3000,
-    isActive: true,
     stockValue: null,
     lastImportRunId: null,
     lastImportedAt: null,
@@ -59,7 +57,6 @@ describe('InventoryTable', () => {
     expect(screen.getByText('Sellpia 코드')).toBeInTheDocument();
     expect(screen.getByText('바코드')).toBeInTheDocument();
     expect(screen.getByText('매입가')).toBeInTheDocument();
-    expect(screen.getByText('판매가')).toBeInTheDocument();
     expect(screen.getByText('현재고')).toBeInTheDocument();
     expect(screen.queryByText('활성')).not.toBeInTheDocument();
     expect(screen.queryByText('비활성')).not.toBeInTheDocument();
