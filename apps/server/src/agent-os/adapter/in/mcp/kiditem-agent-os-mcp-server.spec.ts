@@ -60,7 +60,7 @@ describe('KidItem stateless capability MCP server', () => {
         name: 'capability_catalog_search',
         arguments: {},
       });
-      expect(catalog.result.structuredContent.capabilities).toHaveLength(13);
+      expect(catalog.result.structuredContent.capabilities).toHaveLength(FINAL_CAPABILITY_DEFINITIONS.length);
 
       await call(handler, 'tools/call', {
         name: 'capability_invoke',
@@ -100,7 +100,7 @@ describe('KidItem stateless capability MCP server', () => {
         arguments: {},
       });
       const entries = catalog.result.structuredContent.capabilities;
-      expect(entries).toHaveLength(13);
+      expect(entries).toHaveLength(FINAL_CAPABILITY_DEFINITIONS.length);
       expect(entries.map((entry: { key: string }) => entry.key)).toEqual(
         FINAL_CAPABILITY_DEFINITIONS.map(({ key }) => key),
       );

@@ -17,7 +17,7 @@ new idempotent migration in the next train. Follow
 An approved hard cutover may make a promoted migration incompatible with the
 current Prisma client. Keep its source file unchanged and move its executable
 registration to `retired.json`. The entry records the exact source SHA-256,
-the promoted baseline commit, and every active replacement migration. Retired
+the promoted baseline commit, and every active replacement migration (or, for a promoted migration with nothing left to replace, an empty list and a `noReplacementReason`). Retired
 entries appear separately in `data:migrate -- status`; `data:migrate -- up`
 never selects them and never fabricates an application ledger row for them.
 

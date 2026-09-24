@@ -158,7 +158,7 @@ describe('dashboard schemas', () => {
 
   it('strips the retired Rocket monthly projection and rejects Rocket revenue sources', () => {
     const parsed = DashboardSalesSummarySchema.parse({
-      today: { revenue: 0, orders: 0 },
+      today: { revenue: 0, orders: 0, collectedOrders: 0, missingDateCount: 0 },
       monthly: {
         revenue: 10_000,
         wingRevenue: 10_000,
@@ -193,7 +193,7 @@ describe('dashboard schemas', () => {
 
   it('strips the retired dashboard blob field from the sales endpoint', () => {
     const sales = DashboardSalesSummarySchema.parse({
-      today: { revenue: null, orders: null },
+      today: { revenue: null, orders: null, collectedOrders: 3, missingDateCount: 1 },
       monthly: {
         revenue: null,
         profit: null,
@@ -210,7 +210,7 @@ describe('dashboard schemas', () => {
       rawAdSummary: { stale: true },
     });
     expect(sales).not.toHaveProperty('rawAdSummary');
-    expect(sales.today).toEqual({ revenue: null, orders: null });
+    expect(sales.today).toEqual({ revenue: null, orders: null, collectedOrders: 3, missingDateCount: 1 });
   });
 
   it('rejects the retired duplicate stock field', () => {

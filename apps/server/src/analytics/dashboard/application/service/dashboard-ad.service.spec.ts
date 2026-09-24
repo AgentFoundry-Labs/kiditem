@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildDashboardContext } from '../../domain/context';
+import { businessDateText } from '../../domain/period/dashboard-period';
 import {
   buildMockProfitCalculationRepo,
   buildMockWingTrafficAggregationRepo,
@@ -123,7 +124,8 @@ function adsForRange(from: Date, to: Date): CoupangAdsMetrics {
   // Preset month calls are clipped at the explicit KST cutoff in the service;
   // classify them by their month-start origin rather than their shortened day
   // count. A current-day clip is intentionally empty.
-  if (from.getDate() === 1) return MONTH_ADS;
+  // The month start is a KST business date; host-local getters differ by runner TZ.
+  if (businessDateText(from).endsWith('-01')) return MONTH_ADS;
   if (days === 1) return DAY_ADS;
   if (days === 14) return RANGE_ADS;
   if (days === 30) return MONTH_ADS;

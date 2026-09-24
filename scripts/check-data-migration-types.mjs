@@ -1,0 +1,169 @@
+#!/usr/bin/env node
+// Data-migration type gate (KID-262).
+//
+// `npm run data:migrate` runs scripts/run-data-migrations.ts through tsx, which
+// strips types without checking them, and no tsconfig covered scripts/, so a
+// migration left broken by a Prisma schema change was only found when Office
+// ran it. This gate type-checks the runner, scripts/_shared, and the
+// executable data migrations with scripts/data-migrations/tsconfig.json.
+//
+// Checked set: every file the committed tsconfig includes, minus
+//   - retired sources (retired.json `sourcePath`), which never run again, and
+//   - the README's pre-retirement exemptions that index.ts no longer registers.
+// Any other unregistered version file stops the gate (exit 2).
+// Both lists are derived here on every run; nothing is written by hand.
+//
+// Policy: zero errors. A promoted migration that no longer type-checks stays
+// byte-identical and leaves the registry through retired.json.
+
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseTscDiagnostics } from './check-server-type-baseline.mjs';
+
+const require = createRequire(import.meta.url);
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
+const MIGRATIONS_DIR = 'scripts/data-migrations';
+const TSCONFIG = `${MIGRATIONS_DIR}/tsconfig.json`;
+
+// Registrations removed before retired.json existed (data-migrations/README.md):
+// every file of v0.1.0–v0.1.3, `v0.1.7:002` (#325), and `v0.1.21:001` (#481).
+// Any other unregistered, unretired version file is a mistake, not an exemption.
+const PRE_RETIREMENT_EXEMPT_RELEASES = new Set(['0.1.0', '0.1.1', '0.1.2', '0.1.3']);
+const PRE_RETIREMENT_EXEMPT_IDS = new Set(['v0.1.7:002', 'v0.1.21:001']);
+
+function isPreRetirementExempt(file) {
+  const match = /\/v(\d+\.\d+\.\d+)\/(\d+)_[^/]+\.ts$/.exec(file);
+  if (!match) return false;
+  const [, release, sequence] = match;
+  return PRE_RETIREMENT_EXEMPT_RELEASES.has(release) || PRE_RETIREMENT_EXEMPT_IDS.has(`v${release}:${sequence}`);
+}
+
+const IMPORT_SPECIFIER = /(?:import|export)\b[^'"]*?\bfrom\s+['"](\.\/v[^'"]+)['"]/g;
+
+/** Which version files to leave out of the check, derived from index.ts and retired.json. */
+export function planDataMigrationTypeCheck({ versionFiles, indexSource, retired }) {
+  const registered = new Set();
+  for (const match of indexSource.matchAll(IMPORT_SPECIFIER)) {
+    registered.add(`${MIGRATIONS_DIR}/${match[1].slice(2).replace(/\.ts$/, '')}.ts`);
+  }
+  const present = new Set(versionFiles);
+  const errors = [];
+  const retiredPaths = [];
+  for (const { sourcePath } of retired) {
+    if (registered.has(sourcePath)) {
+      errors.push(`${sourcePath} is retired but still registered in index.ts`);
+    } else if (!present.has(sourcePath)) {
+      errors.push(`${sourcePath} is retired but its source file is missing`);
+    } else {
+      retiredPaths.push(sourcePath);
+    }
+  }
+  const retiredSet = new Set(retiredPaths);
+  const unregistered = [];
+  for (const file of [...versionFiles].sort()) {
+    if (registered.has(file) || retiredSet.has(file)) continue;
+    if (isPreRetirementExempt(file)) {
+      unregistered.push(file);
+    } else {
+      errors.push(
+        `${file} is neither registered in index.ts, retired in retired.json, nor a README pre-retirement exemption`,
+      );
+    }
+  }
+  return {
+    errors,
+    retired: [...retiredPaths].sort(),
+    unregistered,
+    exclude: [...retiredPaths, ...unregistered].sort(),
+  };
+}
+
+function listVersionFiles() {
+  const root = path.join(REPO_ROOT, MIGRATIONS_DIR);
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^v\d/.test(entry.name))
+    .flatMap((dir) =>
+      readdirSync(path.join(root, dir.name))
+        .filter((name) => name.endsWith('.ts'))
+        .map((name) => `${MIGRATIONS_DIR}/${dir.name}/${name}`),
+    )
+    .sort();
+}
+
+function run() {
+  const plan = planDataMigrationTypeCheck({
+    versionFiles: listVersionFiles(),
+    indexSource: readFileSync(path.join(REPO_ROOT, MIGRATIONS_DIR, 'index.ts'), 'utf8'),
+    retired: JSON.parse(readFileSync(path.join(REPO_ROOT, MIGRATIONS_DIR, 'retired.json'), 'utf8')),
+  });
+  if (plan.errors.length > 0) {
+    console.error('ERROR: data-migration registry is inconsistent:');
+    for (const error of plan.errors) console.error(`  ${error}`);
+    process.exit(2);
+  }
+  console.log(`check:data-migration-types - type-checking ${TSCONFIG}`);
+  console.log(`  excluded: ${plan.retired.length} retired, ${plan.unregistered.length} unregistered pre-retirement file(s)`);
+
+  // A throwaway config that extends the committed one with the derived
+  // exclusions. Absolute paths keep it independent of the temp directory.
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), 'data-migration-types-'));
+  const tempConfig = path.join(tempDir, 'tsconfig.json');
+  const committedConfig = JSON.parse(readFileSync(path.join(REPO_ROOT, TSCONFIG), 'utf8'));
+  writeFileSync(
+    tempConfig,
+    JSON.stringify({
+      extends: path.join(REPO_ROOT, TSCONFIG),
+      include: committedConfig.include.map((pattern) => path.join(REPO_ROOT, MIGRATIONS_DIR, pattern)),
+      exclude: [
+        ...(committedConfig.exclude ?? []).map((pattern) => path.join(REPO_ROOT, MIGRATIONS_DIR, pattern)),
+        ...plan.exclude.map((file) => path.join(REPO_ROOT, file)),
+      ],
+    }),
+  );
+  let result;
+  try {
+    result = spawnSync(
+      process.execPath,
+      [require.resolve('typescript/bin/tsc'), '-p', tempConfig, '--pretty', 'false'],
+      { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+  if (result.error) {
+    console.error(`ERROR: failed to run tsc: ${result.error.message}`);
+    process.exit(2);
+  }
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+  const { counts, projectErrors } = parseTscDiagnostics(output, { repoRoot: REPO_ROOT });
+  if (projectErrors.length > 0 || (counts.size === 0 && result.status !== 0)) {
+    console.error(`ERROR: tsc could not check ${TSCONFIG}:`);
+    console.error(output.trim().slice(0, 4000));
+    process.exit(2);
+  }
+
+  if (counts.size > 0) {
+    console.log('');
+    console.log('FAIL: data-migration type errors:');
+    for (const [file, count] of [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      console.log(`   - ${file}: ${count} type error(s)`);
+    }
+    console.log(`
+  Reproduce with the file list above and:
+      npx tsc -p ${TSCONFIG}
+  (that run also checks the excluded retired and unregistered files).
+  A migration whose release has not reached release/office is fixed in place.
+  A promoted migration stays byte-identical and retires through retired.json.`);
+    process.exit(1);
+  }
+  console.log('PASS: no data-migration type errors.');
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  run();
+}

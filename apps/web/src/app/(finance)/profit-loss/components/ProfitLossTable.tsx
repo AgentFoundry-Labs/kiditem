@@ -1,6 +1,6 @@
 'use client';
 
-import { cn, formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
+import { cn, formatKRW, formatPercent, getAdCostColor, getGradeColor, getProfitColor } from '@/lib/utils';
 import type { PLData } from '@kiditem/shared/finance';
 import SortableHeader from '@/components/ui/SortableHeader';
 
@@ -164,7 +164,7 @@ export default function ProfitLossTable({
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(d.cogs)}</td>
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(d.commission)}</td>
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(d.shippingCost)}</td>
-                  <td className="text-right tabular-nums text-orange-600">{formatKRW(d.adCost)}</td>
+                  <td className={cn('text-right tabular-nums', getAdCostColor(d.adCost))}>{formatKRW(d.adCost)}</td>
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(d.otherCost)}</td>
                   <td className={cn('text-right tabular-nums font-semibold', getProfitColor(d.profitRate))}>{formatKRW(d.netProfit)}</td>
                   <td className={cn('text-right tabular-nums font-semibold', getProfitColor(d.profitRate))}>{formatPercent(d.profitRate)}</td>

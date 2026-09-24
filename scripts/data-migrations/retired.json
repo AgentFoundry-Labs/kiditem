@@ -136,5 +136,15 @@
         "path": "scripts/data-migrations/v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows.ts"
       }
     ]
+  },
+  {
+    "id": "v0.1.25:004_rekey_ad_campaign_product_targets",
+    "releaseVersion": "0.1.25",
+    "name": "Rekey Coupang campaign product targets by campaign identity",
+    "sourcePath": "scripts/data-migrations/v0.1.25/004_rekey_ad_campaign_product_targets.ts",
+    "sourceSha256": "fde0af31cb65e0475c67bb520300372775872ea6d5272fb21b4a8f6e011eb847",
+    "baselineCommit": "9d213b49f06d64a0fa1af20feae73575ad0cad3a",
+    "replacementMigrations": [],
+    "noReplacementReason": "0.1.25에서 승격돼 Office가 실행 기록을 가짐; 새 DB에는 옮길 옛 행이 없어 대체 migration이 없다"
   }
 ]
