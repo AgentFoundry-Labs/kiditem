@@ -10,7 +10,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   readListingTrafficWindowFacts,
 } from '../../../../channels/adapter/out/persistence/channel-listing-daily-facts';
-import { readOrderWindowFacts } from '../../../../orders/read/order-facts.reader';
+import { readOrderWindowFacts } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
 import {
   businessDateKey,

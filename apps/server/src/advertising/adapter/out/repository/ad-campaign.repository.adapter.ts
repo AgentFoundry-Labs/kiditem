@@ -15,7 +15,7 @@ import {
   readCampaignWindowRollups,
   readCompleteAdKeywordFacts,
   readProductWindowRollups,
-} from '../../../read/ad-target-facts';
+} from '../persistence/read/ad-target-facts';
 import type {
   AdCampaignRepositoryPort,
   AdTrendWindow,

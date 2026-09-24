@@ -39,7 +39,7 @@ import {
   readRocketPoSource,
   ROCKET_PO_CATALOG_PARSER_VERSION,
   ROCKET_PO_CATALOG_SOURCE_TYPE,
-} from '../../../read/rocket-po-catalog.reader';
+} from '../persistence/read/rocket-po-catalog.reader';
 
 const SOURCE_TYPE = ROCKET_PO_CATALOG_SOURCE_TYPE;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;

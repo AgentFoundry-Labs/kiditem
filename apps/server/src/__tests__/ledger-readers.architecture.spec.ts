@@ -148,9 +148,9 @@ describe('internal ledger helper purity (ADR-0021)', () => {
     const files = readerFiles(SERVER_SRC);
 
     expect(files).toEqual(expect.arrayContaining([
-      'advertising/read/ad-target-facts.ts',
+      'advertising/adapter/out/persistence/read/ad-target-facts.ts',
       'analytics/sellpia-sales/read/sellpia-sales-daily-facts.ts',
-      'orders/read/rocket-po-catalog.reader.ts',
+      'orders/adapter/out/persistence/read/rocket-po-catalog.reader.ts',
       'products/adapter/out/persistence/read/product-source-availability.ts',
     ]));
     expect(files.filter((file) => file.includes('__tests__') || file.endsWith('.spec.ts')))

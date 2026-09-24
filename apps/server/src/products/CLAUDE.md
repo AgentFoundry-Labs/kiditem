@@ -33,7 +33,7 @@ retains warehouse records only; no second mutable source stock exists.
 ## Hexagonal Boundaries
 
 - Put public capability contracts in `application/port/in`, external contracts
-  in `application/port/out`, orchestration in `application/usecase`, pure product
+  in `application/port/out`, orchestration in `application/service`, pure product
   and ABC rules in `domain`, and failures in the relevant `exception` directory.
 - Web adapters live in `adapter/in/web`; persistence readers and locks live in
   `adapter/out/persistence`. Module wiring binds tokens to implementations.

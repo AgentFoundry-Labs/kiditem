@@ -4,7 +4,7 @@ import type {
   ProductAbcEvaluation,
   ProductAbcFormulaPayload,
 } from '@kiditem/shared/product-abc';
-import { productAbcEvaluation } from '../../../../mapper/product-abc-evaluation.mapper';
+import { productAbcEvaluation } from '../../../../domain/product-abc-evaluation.mapper';
 
 export type PublishedProductAbcFacts = Readonly<{
   publicationRevision: number;

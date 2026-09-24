@@ -30,7 +30,7 @@ import {
 import {
   toAdRulesData,
   toRecommendationCards,
-} from '../../mapper/ad-strategy.mapper';
+} from '../../domain/ad-strategy.mapper';
 import type {
   AdRulesData,
   AdStrategyAction,

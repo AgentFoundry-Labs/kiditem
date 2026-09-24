@@ -10,7 +10,7 @@ import {
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
-import { ProductSourceReadUseCase } from '../../products/application/usecase/product-source-read.usecase';
+import { ProductSourceReadUseCase } from '../../products/application/service/product-source-read.usecase';
 
 const SELLPIA_SKU_ID = '21000000-0000-4000-8000-000000000001';
 

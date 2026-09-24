@@ -29,7 +29,7 @@ import {
   advertisingApplies,
   readAdWindowFacts,
   readListingAdWindowFacts,
-} from '../advertising/read/ad-target-facts';
+} from '../advertising/adapter/out/persistence/read/ad-target-facts';
 import {
   adSweepCoversChannelAccount,
   advertisingAppliesToSale,
@@ -40,7 +40,7 @@ import {
   ORDER_FACT_EXCLUDED_STATUSES,
   readOrderLineWindowFacts,
   type OrderWindowFacts,
-} from '../orders/read/order-facts.reader';
+} from '../orders/adapter/out/persistence/read/order-facts.reader';
 import { readPublishedProductAbcGrades } from '../products/adapter/out/persistence/read/product-abc-publication.reader';
 
 /** Owner capabilities used by the shared projection in its caller's transaction. */

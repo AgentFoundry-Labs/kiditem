@@ -45,7 +45,7 @@ import {
   kstMonthStart,
   parseBusinessDate,
 } from '../../../common/kst';
-import { ProfitLossService } from '../../../finance/services/profit-loss.service';
+import { ProfitLossService } from '../../../finance/application/service/profit-loss/profit-loss.service';
 import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';

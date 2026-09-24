@@ -11,7 +11,7 @@ import { kstInclusiveDaysStart } from '../../../../common/kst';
 import {
   readAdWindowFacts,
   readListingAdWindowFacts,
-} from '../../../read/ad-target-facts';
+} from '../persistence/read/ad-target-facts';
 import type {
   AdBenchmarkRepositoryPort,
   BenchmarkAggregates,

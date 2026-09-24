@@ -1,4 +1,4 @@
-import { ShipmentsModule } from '../shipments/shipments.module';
+import { ShipmentsModule } from '../shipments.module';
 import { RocketPoSourceModule } from '../rocket-po-source.module';
 import { RocketPoSourceController } from '../adapter/in/web/rocket-po-source.controller';
 import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';
@@ -25,22 +25,22 @@ import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from '../application/port/
 import { REVIEW_COLLECTION_SOURCE_PORT } from '../application/port/in/review-collection-source.port';
 import { CoupangDirectOrderCollectionService } from '../application/service/coupang-direct-order-collection.service';
 import { SellpiaOrderTransmissionService } from '../application/service/sellpia-order-transmission.service';
-import { OrderCollectionController } from '../controllers/order-collection.controller';
-import { OrderCollectionSourceController } from '../controllers/order-collection-source.controller';
-import { SellpiaShipmentTrackingSourceController } from '../controllers/sellpia-shipment-tracking-source.controller';
-import { OrdersController } from '../controllers/orders.controller';
-import { ReviewsController } from '../controllers/reviews.controller';
-import { SellpiaOrderTransmissionController } from '../controllers/sellpia-order-transmission.controller';
+import { OrderCollectionController } from '../adapter/in/web/order-collection.controller';
+import { OrderCollectionSourceController } from '../adapter/in/web/order-collection-source.controller';
+import { SellpiaShipmentTrackingSourceController } from '../adapter/in/web/sellpia-shipment-tracking-source.controller';
+import { OrdersController } from '../adapter/in/web/orders.controller';
+import { ReviewsController } from '../adapter/in/web/reviews.controller';
+import { SellpiaOrderTransmissionController } from '../adapter/in/web/sellpia-order-transmission.controller';
 import { CoupangDirectshipService } from '../coupang-directship/coupang-directship.service';
 import { OrdersModule } from '../orders.module';
-import { ReturnTransfersController } from '../return-transfers/return-transfers.controller';
-import { ReturnTransfersService } from '../return-transfers/return-transfers.service';
+import { ReturnTransfersController } from '../adapter/in/web/return-transfers/return-transfers.controller';
+import { ReturnTransfersService } from '../application/service/return-transfers/return-transfers.service';
 import { ReviewCollectionSourceRepository } from '../adapter/out/repository/review-collection-source.repository';
-import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
-import { OrderCollectionService } from '../services/order-collection.service';
-import { OrdersService } from '../services/orders.service';
-import { ReviewIngestService } from '../services/review-ingest.service';
-import { ReviewsService } from '../services/reviews.service';
+import { CoupangDirectPoSnapshotService } from '../application/service/coupang-direct-po-snapshot.service';
+import { OrderCollectionService } from '../application/service/order-collection.service';
+import { OrdersService } from '../application/service/orders.service';
+import { ReviewIngestService } from '../application/service/review-ingest.service';
+import { ReviewsService } from '../application/service/reviews.service';
 
 describe('OrdersModule owner wiring', () => {
   it('registers the complete surviving Orders capability set', () => {

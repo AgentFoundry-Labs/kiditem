@@ -1,6 +1,6 @@
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { InventoryItemNotFoundError } from '../application/exception/inventory-operation.error';
-import { ReturnTransfersService } from '../../orders/return-transfers/return-transfers.service';
+import { ReturnTransfersService } from '../../orders/application/service/return-transfers/return-transfers.service';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NotFoundException } from '@nestjs/common';

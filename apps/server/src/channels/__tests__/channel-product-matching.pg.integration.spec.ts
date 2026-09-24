@@ -9,7 +9,7 @@ import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { lockProductSource } from '../../products/adapter/out/persistence/transaction/product-source-lock';
-import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
+import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,

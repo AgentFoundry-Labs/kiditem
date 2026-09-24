@@ -19,9 +19,9 @@ import {
 } from '../../test-helpers/real-prisma';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
-import { RecalculateProductAbcUseCase } from '../application/usecase/recalculate-product-abc.usecase';
-import { ProductAbcReadUseCase } from '../application/usecase/product-abc-read.usecase';
-import { ProductDataStatusUseCase } from '../application/usecase/product-data-status.usecase';
+import { RecalculateProductAbcUseCase } from '../application/service/recalculate-product-abc.usecase';
+import { ProductAbcReadUseCase } from '../application/service/product-abc-read.usecase';
+import { ProductDataStatusUseCase } from '../application/service/product-data-status.usecase';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 
 /**

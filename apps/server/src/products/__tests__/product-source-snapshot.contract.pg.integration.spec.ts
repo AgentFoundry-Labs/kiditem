@@ -5,7 +5,7 @@ import { InventorySkuSnapshotListResponseSchema } from '@kiditem/shared/inventor
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ProductSourceSnapshotRepositoryAdapter } from '../adapter/out/persistence/product-source-snapshot.repository.adapter';
-import { ProductSourceSnapshotUseCase } from '../application/usecase/product-source-snapshot.usecase';
+import { ProductSourceSnapshotUseCase } from '../application/service/product-source-snapshot.usecase';
 
 /**
  * 셀피아 재고 목록 응답은 웹이 shared `InventorySkuSnapshotListResponseSchema` 로 parse 한다. KID-275 가 서버 요약을

@@ -21,7 +21,7 @@ import { ChannelOptionRecipeService } from '../application/service/listing/chann
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
-import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
+import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { freezeProductRegistrationPayload } from '../domain/registration/registration-submission-payload';

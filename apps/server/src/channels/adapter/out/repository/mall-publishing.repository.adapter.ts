@@ -11,7 +11,7 @@ import {
   type ProductSourceReadModel,
   type ProductSourceReadPort,
 } from '../../../../products/application/port/in/product-source-read.port';
-import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-facts.reader';
+import { readOrderCountsByChannelAccount } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { MALL_ACCOUNT_ROW_ORDER } from './mall-account-rows';
 import { readMallListingProfile } from '../../../domain/account/mall-listing-profile';

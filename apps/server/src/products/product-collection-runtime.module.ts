@@ -24,9 +24,9 @@ import {
 import {
   PRODUCT_SOURCE_READ_REPOSITORY_PORT,
 } from './application/port/out/persistence/product-source-read.repository.port';
-import { ProductAvailabilityUseCase } from './application/usecase/product-availability.usecase';
-import { ProductCollectionFreshnessUseCase } from './application/usecase/product-collection-freshness.usecase';
-import { ProductSourceReadUseCase } from './application/usecase/product-source-read.usecase';
+import { ProductAvailabilityUseCase } from './application/service/product-availability.usecase';
+import { ProductCollectionFreshnessUseCase } from './application/service/product-collection-freshness.usecase';
+import { ProductSourceReadUseCase } from './application/service/product-source-read.usecase';
 
 /**
  * Internal Products assembly for transaction-aware source reads. Keeping this

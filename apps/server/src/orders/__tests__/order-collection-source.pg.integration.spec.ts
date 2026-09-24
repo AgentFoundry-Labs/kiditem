@@ -26,11 +26,11 @@ import {
   orderCollectionJsonSubmission,
 } from '../application/port/in/order-collection-source.port';
 import { OrderCollectionSourceRepository } from '../adapter/out/repository/order-collection-source.repository';
-import { OrderCollectionController } from '../controllers/order-collection.controller';
-import { OrderCollectionSourceController } from '../controllers/order-collection-source.controller';
+import { OrderCollectionController } from '../adapter/in/web/order-collection.controller';
+import { OrderCollectionSourceController } from '../adapter/in/web/order-collection-source.controller';
 import { CoupangDirectshipService } from '../coupang-directship/coupang-directship.service';
-import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
-import { OrderCollectionService } from '../services/order-collection.service';
+import { CoupangDirectPoSnapshotService } from '../application/service/coupang-direct-po-snapshot.service';
+import { OrderCollectionService } from '../application/service/order-collection.service';
 import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import type { INestApplication } from '@nestjs/common';

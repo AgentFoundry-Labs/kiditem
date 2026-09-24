@@ -9,7 +9,7 @@ import {
 } from "../../test-helpers/real-prisma";
 import { seedSourceProduct } from "../../test-helpers/inventory-seeds";
 import { ProductTransactionalReadRepositoryAdapter } from "../../products/adapter/out/persistence/product-transactional-read.repository.adapter";
-import { ReturnTransfersService } from "../return-transfers/return-transfers.service";
+import { ReturnTransfersService } from "../application/service/return-transfers/return-transfers.service";
 import type { PrismaClient } from "@prisma/client";
 
 const OWN_SKU_ID = "26000000-0000-4000-8000-000000000001";

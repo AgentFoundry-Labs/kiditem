@@ -10,7 +10,7 @@ import type {
   SupplierSalesRow,
 } from '@kiditem/shared/supplier-stats';
 import { PrismaService } from '../../prisma/prisma.service';
-import { readPublishedOrderLines } from '../../orders/read/order-facts.reader';
+import { readPublishedOrderLines } from '../../orders/adapter/out/persistence/read/order-facts.reader';
 import {
   PRODUCT_SOURCE_READ_PORT,
   type ProductSourceReadPort,

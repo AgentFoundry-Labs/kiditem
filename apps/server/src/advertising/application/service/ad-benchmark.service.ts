@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { AdBenchmarkData, AdMetrics } from '@kiditem/shared/advertising';
 import { AdConfigService } from './ad-config.service';
 import { buildAdMetrics } from '../../domain/ad-metrics';
-import { scopedListingToSummary } from '../../mapper/ad-listing.mapper';
+import { scopedListingToSummary } from '../../domain/ad-listing.mapper';
 import {
   AD_BENCHMARK_REPOSITORY_PORT,
   type AdBenchmarkRepositoryPort,

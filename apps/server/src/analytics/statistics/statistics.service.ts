@@ -41,7 +41,7 @@ import {
   readOrderWindowFacts,
   readRepurchaseOrderFacts,
   type OrderWindowInput,
-} from '../../orders/read/order-facts.reader';
+} from '../../orders/adapter/out/persistence/read/order-facts.reader';
 
 const REPEATABLE_READ = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead };
 

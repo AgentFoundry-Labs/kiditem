@@ -18,7 +18,7 @@ import {
   ProductOperationsDataStatusQueryDto,
   ProductOperationsListQueryDto,
 } from './dto/product-operations.dto';
-import { ProductDataStatusUseCase } from '../../../application/usecase/product-data-status.usecase';
+import { ProductDataStatusUseCase } from '../../../application/service/product-data-status.usecase';
 
 @Controller('products')
 @UseFilters(ProductErrorFilter)

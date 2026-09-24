@@ -5,10 +5,10 @@ import {
   readListingOptionOrderFacts,
   readOrderStatusCount,
   readOrderWindowFacts,
-} from '../../../../../orders/read/order-facts.reader';
+} from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 
-vi.mock('../../../../../orders/read/order-facts.reader', () => ({
+vi.mock('../../../../../orders/adapter/out/persistence/read/order-facts.reader', () => ({
   readDailyOrderFacts: vi.fn(),
   readListingOptionOrderFacts: vi.fn(),
   readOrderStatusCount: vi.fn(),

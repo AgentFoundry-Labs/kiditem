@@ -1,0 +1,76 @@
+import { describe, it, expect } from 'vitest';
+import {
+  hydratedListingToSummary,
+  scopedListingToSummary,
+  toListingSummary,
+} from '../ad-listing.mapper';
+import type { HydratedListing } from '../model/strategy-types';
+import type { ScopedAdListingReadModel } from '../../application/port/out/repository/ad-listing.repository.port';
+
+describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
+  it('strips ad/inventory fields, returns AdListingSummary shape with option:null', () => {
+    const listing: HydratedListing = {
+      id: 'L1',
+      externalId: 'EXT-1',
+      channelName: '쿠팡상품',
+      channel: 'coupang',
+      masterProduct: {
+        id: 'M1',
+        code: 'M-00001',
+        name: 'Test',
+        abcGrade: 'A',
+      },
+      primaryOption: null,
+    };
+    const result = hydratedListingToSummary(listing);
+    expect(result).toEqual({
+      listingId: 'L1',
+      externalId: 'EXT-1',
+      channelName: '쿠팡상품',
+      masterProduct: { id: 'M1', code: 'M-00001', name: 'Test' },
+      option: null,
+    });
+  });
+
+  it('toListingSummary alias matches hydratedListingToSummary', () => {
+    const listing: HydratedListing = {
+      id: 'L2',
+      externalId: 'EXT-2',
+      channelName: null,
+      channel: 'coupang',
+      masterProduct: {
+        id: 'M2',
+        code: 'M-00002',
+        name: 'Aliased',
+        abcGrade: null,
+      },
+      primaryOption: null,
+    };
+    expect(toListingSummary(listing)).toEqual(hydratedListingToSummary(listing));
+  });
+});
+
+describe('mappers/ad-listing — ScopedAdListingReadModel → ScopedAdListingSummary', () => {
+  it('preserves the published abcGrade on master', () => {
+    const scoped: ScopedAdListingReadModel = {
+      id: 'L3',
+      externalId: 'EXT-3',
+      channelName: 'coupang',
+      masterProduct: {
+        id: 'M3',
+        code: 'M-3',
+        name: 'Scoped',
+        abcGrade: 'B',
+      },
+    };
+    const result = scopedListingToSummary(scoped);
+    expect(result).toEqual({
+      listingId: 'L3',
+      externalId: 'EXT-3',
+      channelName: 'coupang',
+      masterProduct: scoped.masterProduct,
+      option: null,
+    });
+    expect(result.masterProduct.abcGrade).toBe('B');
+  });
+});

@@ -13,7 +13,7 @@ import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../../../finance/applica
 import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository.adapter';
 import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from '../../../products/application/port/out/persistence/master-product-abc.repository.port';
 import { PRODUCT_ABC_READ_PORT } from '../../../products/application/port/in/product-abc-read.port';
-import { ProductAbcReadUseCase } from '../../../products/application/usecase/product-abc-read.usecase';
+import { ProductAbcReadUseCase } from '../../../products/application/service/product-abc-read.usecase';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { buildDashboardContext } from '../domain/context';

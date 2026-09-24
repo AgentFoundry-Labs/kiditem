@@ -5,7 +5,7 @@ import type { ListingTrafficDailyFact, ListingTrafficWindowFacts } from '../../.
 import { Inject,  Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { readAdWindowFacts, readLatestAdDate } from '../../../../../advertising/read/ad-target-facts';
+import { readAdWindowFacts, readLatestAdDate } from '../../../../../advertising/adapter/out/persistence/read/ad-target-facts';
 import { addDays, parseBusinessDate } from '../../../../../common/kst';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
@@ -13,7 +13,7 @@ import {
   readOrderLineWindowFacts,
   type DailyOrderFacts,
   type OrderLineWindowFacts,
-} from '../../../../../orders/read/order-facts.reader';
+} from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import {
   businessDateText,
   businessDatesInWindow,

@@ -9,7 +9,7 @@ import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/p
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
-import { readMonthlyAdAllocationPublication } from '../../../../advertising/read/monthly-ad-allocation.reader';
+import { readMonthlyAdAllocationPublication } from '../../../../advertising/adapter/out/persistence/read/monthly-ad-allocation.reader';
 import { readExactSellpiaProductMonthlyFacts } from '../../../../analytics/sellpia-product-sales/read/sellpia-product-monthly-facts';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,

@@ -9,7 +9,7 @@ import type {
 } from '@kiditem/shared/advertising';
 import type { ActionCandidate } from '../../../../domain/ad-action-rules';
 import type { AdActionRow } from '../../../../domain/ad-action-row';
-import type { AdActionExecution } from '../../../../read/ad-action-execution';
+import type { AdActionExecution } from '../../../../adapter/out/persistence/read/ad-action-execution';
 
 /** The execution words `read/ad-action-execution.ts` derives from the latest task. */
 export type { AdActionExecution };

@@ -4,13 +4,13 @@ import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository.adapter';
-import { ProductAbcReadUseCase } from '../../../products/application/usecase/product-abc-read.usecase';
+import { ProductAbcReadUseCase } from '../../../products/application/service/product-abc-read.usecase';
 import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-source.service';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-reader';
 import { SellpiaMasterProductProfitFactReader } from '../sellpia-master-product-profit-fact.reader';
 import { ProductAvailabilityRepositoryAdapter } from '../../../products/adapter/out/persistence/product-availability.repository.adapter';
-import { ProductAvailabilityUseCase } from '../../../products/application/usecase/product-availability.usecase';
+import { ProductAvailabilityUseCase } from '../../../products/application/service/product-availability.usecase';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
 import {

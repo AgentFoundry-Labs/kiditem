@@ -38,7 +38,7 @@ import { resolveCoupangVendorId } from '../../../../channels/domain/account/coup
 import { addDays, businessDateKey, evidenceCutoffDate } from '../../../../common/kst';
 import { normalizeAdKeywordTarget } from '../../../application/service/ad-keyword-normalizer';
 import { mergeKeywordTargets } from '../../../domain/ad-keyword-target-merge';
-import { readCompleteAdKeywordFacts } from '../../../read/ad-target-facts';
+import { readCompleteAdKeywordFacts } from '../persistence/read/ad-target-facts';
 import type { UpsertAdTargetDailyInput } from '../../../application/port/out/repository/channel-target-daily.repository.port';
 import type { ListingMap } from '../../../domain/listing-match';
 import { AdMetricUnparseableError } from '../../../domain/scrape-row-normalizers';

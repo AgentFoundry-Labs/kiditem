@@ -13,7 +13,7 @@ import { ProductSourceCollectionRepositoryAdapter } from '../adapter/out/persist
 import { ProductSourcePublicationRepositoryAdapter } from '../adapter/out/persistence/product-source-publication.repository.adapter';
 import { SellpiaPayloadDecoderAdapter } from '../adapter/out/sellpia/sellpia-payload-decoder.adapter';
 import { SellpiaPayloadValidator } from '../adapter/out/sellpia/sellpia-payload.validator';
-import { SellpiaCollectionUseCase } from '../application/usecase/sellpia-collection.usecase';
+import { SellpiaCollectionUseCase } from '../application/service/sellpia-collection.usecase';
 import type { SellpiaCollectionAttempt } from '../application/port/in/sellpia-collection.port';
 
 describe('Sellpia product source publication (PostgreSQL)', () => {

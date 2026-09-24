@@ -18,7 +18,7 @@ import { RocketFinalOrderReconciliationTransactionAdapter } from '../../supply/a
 import { RocketFinalOrderReconciliationService } from '../../supply/application/service/rocket-final-order-reconciliation.service';
 import { CoupangDirectOrderCollectionTransactionAdapter } from '../adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { CoupangDirectOrderCollectionService } from '../application/service/coupang-direct-order-collection.service';
-import { canonicalCoupangDirectOrderHash } from '../mapper/coupang-direct-order.mapper';
+import { canonicalCoupangDirectOrderHash } from '../domain/coupang-direct-order.mapper';
 import { backfillCoupangDirectTransportReceipts } from '../../../../../scripts/data-migrations/v0.1.31/006_backfill_coupang_direct_transport_receipts';
 
 const CHANNEL_ACCOUNT_ID = '51000000-0000-4000-8000-000000000001';

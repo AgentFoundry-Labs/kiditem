@@ -18,7 +18,7 @@ import {
   SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
 } from '../application/port/in/sellpia-shipment-tracking-source.port';
 import { SellpiaShipmentTrackingSourceRepository } from '../adapter/out/repository/sellpia-shipment-tracking-source.repository';
-import { SellpiaShipmentTrackingSourceController } from '../controllers/sellpia-shipment-tracking-source.controller';
+import { SellpiaShipmentTrackingSourceController } from '../adapter/in/web/sellpia-shipment-tracking-source.controller';
 import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 
 const BASE = '/api/orders/sellpia-shipment-tracking';

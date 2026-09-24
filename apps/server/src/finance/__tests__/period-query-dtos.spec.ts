@@ -1,13 +1,13 @@
 import { ValidationPipe, type Paramtype } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
+import { ProfitLossQueryDto } from '../adapter/in/web/profit-loss/dto';
 import {
   ProfitLossExportQueryDto,
-  ProfitLossQueryDto,
   ReportExportQueryDto,
-} from '../dto';
-import { SalesAnalysisQueryDto } from '../dto/sales-analysis-query.dto';
-import { CreateSalesPlanDto, UpdateSalesPlanDto } from '../sales-plans/dto';
-import { CreateSettlementDto } from '../settlements/dto';
+} from '../adapter/in/web/report-export/dto';
+import { SalesAnalysisQueryDto } from '../adapter/in/web/sales-analysis/dto/sales-analysis-query.dto';
+import { CreateSalesPlanDto, UpdateSalesPlanDto } from '../adapter/in/web/sales-plan/dto';
+import { CreateSettlementDto } from '../adapter/in/web/settlement/dto';
 
 /** The global pipe: whitelist and transform. */
 const pipe = new ValidationPipe({ whitelist: true, transform: true });

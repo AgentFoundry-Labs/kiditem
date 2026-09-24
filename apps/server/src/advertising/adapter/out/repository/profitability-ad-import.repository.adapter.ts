@@ -35,7 +35,7 @@ import {
   effectiveSourceImportRunState as effectiveState,
   sourceImportRunDbState as sourceDbState,
 } from './source-import-run-state';
-import { readMonthlyAdAllocationPublication } from '../../../read/monthly-ad-allocation.reader';
+import { readMonthlyAdAllocationPublication } from '../persistence/read/monthly-ad-allocation.reader';
 import type {
   AdvertisingProfitabilityGeneration,
   AdvertisingProfitabilityPlan,

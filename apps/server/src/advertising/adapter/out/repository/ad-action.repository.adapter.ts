@@ -19,7 +19,7 @@ import {
   readAdTargetRowEvidence,
   readCompleteAdKeywordFacts,
   readCurrentAdTargetRows,
-} from '../../../read/ad-target-facts';
+} from '../persistence/read/ad-target-facts';
 import {
   deriveAdActionExecution,
   derivedExecuteStatusIn,
@@ -28,7 +28,7 @@ import {
   latestExecutionTaskOf,
   readLatestExecutionTasks,
   type LatestExecutionTaskColumns,
-} from '../../../read/ad-action-execution';
+} from '../persistence/read/ad-action-execution';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 import { readPublishedProductAbcGrades } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import {

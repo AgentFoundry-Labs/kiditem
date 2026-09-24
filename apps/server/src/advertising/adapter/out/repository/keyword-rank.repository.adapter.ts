@@ -21,7 +21,7 @@ import {
   readLatestSerpSnapshot,
   readRecentSerpSnapshots,
   readWingSalesRankSnapshots,
-} from '../../../read/keyword-rank-facts';
+} from '../persistence/read/keyword-rank-facts';
 import { readPublishedProductAbcGrades } from "../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,

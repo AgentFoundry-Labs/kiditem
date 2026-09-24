@@ -17,7 +17,7 @@ import {
   deriveAdActionExecution,
   readLatestExecutionTasks,
   type AdActionExecution,
-} from '../read/ad-action-execution';
+} from '../adapter/out/persistence/read/ad-action-execution';
 import { backfillAdActionExecutionTasksMigration } from '../../../../../scripts/data-migrations/v0.1.31/011_backfill_ad_action_execution_tasks';
 import {
   closeStaleAdApprovalsAtCutoverMigration,

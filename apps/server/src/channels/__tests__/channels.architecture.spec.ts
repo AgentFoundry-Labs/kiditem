@@ -126,7 +126,7 @@ describe('channels architecture contract', () => {
     expect(consumers).toEqual([
       'channels/adapter/out/persistence/stockout-check.persistence.adapter.ts',
       'channels/application/service/listing/channel-inventory-availability.projection.ts',
-      'products/mapper/product-operations-inventory.mapper.ts',
+      'products/domain/product-operations-inventory.mapper.ts',
     ]);
 
     const internalImports = [...scanSource({

@@ -6,7 +6,7 @@ import {
   toAdKeywordSnapshot,
   toAdProductSnapshot,
   toAdTrendsData,
-} from '../../mapper/ad-campaign.mapper';
+} from '../../domain/ad-campaign.mapper';
 import {
   periodBounds,
   type AdPeriod,

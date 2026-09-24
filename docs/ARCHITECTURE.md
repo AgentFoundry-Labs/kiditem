@@ -356,7 +356,7 @@ folders are intentionally absent from this map.
 
 | Path | Structure | Required / Optional Contract |
 |---|---|---|
-| `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; architecture spec freezes invariants. |
+| `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; ledger read helpers live in `adapter/out/persistence/read/` and pure mappers in `domain/`; architecture spec freezes invariants. |
 | `apps/server/src/agent-os` | Hexagonal | Capability admission, transient Gateway control/conversation, MCP, repository, completed-event-history Interface at `application/port/out/history/`, outbound SQLite Adapter at `adapter/out/history/sqlite/`, and owner composition behind ports/adapters. The two cross-cutting contracts `application/port/out/capability-invocation.repository.port.ts` and `application/port/out/gateway-conversation.port.ts` are exact direct-port exceptions fixed by the approved KID-25 plan; every new outgoing port still requires an explicit lane directory. |
 | `apps/server/src/content` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
 | `apps/server/src/analytics/dashboard` | Hexagonal | port/adapter lanes complete; 8 outgoing ports + repository adapters cover Prisma reads, application services are Prisma-free, architecture + module wiring specs freeze invariants. |
@@ -367,12 +367,11 @@ folders are intentionally absent from this map.
 | `apps/server/src/alerts` | Flat | controller/service/repository; source owners pass their transaction to the concrete failure upsert/resolution API. |
 | `apps/server/src/channels` | Hexagonal | Account, sales-product, registration, listing and collection policies use pure `domain/<business>` and `application/service/<business>`. Incoming adapters call input ports; modules bind services and outgoing adapters. Provider, documents, credentials and persistence IO stay outside the application. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
-| `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
+| `apps/server/src/finance` | Hexagonal | Profit-loss, sales-analysis, report-export, sales-plan, settlement and supplier-payment folders under `adapter/in/web/` and `application/service/`; settlement facts stay in `adapter/out/persistence/read/`. |
 | `apps/server/src/inventory` | Hexagonal | Retained warehouse, stock-transfer and return-record capabilities; source products, collection and current stock belong to Products. |
-| `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities; Sellpia transmission fencing is a scoped `application/port` + `adapter/out/repository` sub-capability. |
+| `apps/server/src/orders` | Hexagonal | Controllers and DTOs under `adapter/in/web/`, services under `application/service/`, ledger read helpers in `adapter/out/persistence/read/`, pure mappers in `domain/`; Coupang shipments use a `shipments/` folder per layer and `coupang-directship/` stays at the root. Sellpia transmission fencing keeps its `application/port` + `adapter/out/repository` lanes. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
-| `apps/server/src/products` | Hexagonal | Source MasterProduct identity/current stock, Sellpia collection/publication, image metadata, exports and ABC; incoming ports, usecases, pure domain rules and outgoing adapters. |
-| `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
+| `apps/server/src/products` | Hexagonal | Source MasterProduct identity/current stock, Sellpia collection/publication, image metadata, exports and ABC; incoming ports, `application/service` orchestration, pure domain rules and outgoing adapters; the `/api/categories` compatibility capability sits in the `category/` folders. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; candidate/content provenance is provided to Channels-owned registration targets; Supply handoffs use only the exported incoming procurement port. The owner confirm report reaches Telegram only through `SOURCING_CONFIRM_MESSENGER_PORT` (long-polled answers, signed button values) and writes decisions through the existing final review selection. |
 | `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Products-fence transaction adapter, and collect-before-calculation Rocket policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
@@ -1019,7 +1018,8 @@ fall back to old stock. Supply preserves recipe ratios, bottleneck allocation,
 provider idempotency and explicit reconciliation. Ordinary inventory reads need
 no new collection. Orders transmission to Sellpia does not write local stock.
 
-Coupang shipment summary, files and source attempts belong to `orders/shipments`;
+Coupang shipment summary, files and source attempts belong to Orders'
+`shipments/` lanes (`orders/shipments.module.ts` plus a `shipments/` folder in each layer);
 existing routes and PDF download/merge behavior remain available. Existing Rocket
 workbook audit and Orders reconciliation are retained because they have active
 internal callers; they do not reserve or change physical inventory.

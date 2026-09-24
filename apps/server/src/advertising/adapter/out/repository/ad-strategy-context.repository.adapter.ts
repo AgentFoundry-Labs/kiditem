@@ -12,7 +12,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays, businessDateKey, kstInclusiveDaysStart, type KstQueryWindow } from '../../../../common/kst';
-import { readListingAdWindowFacts } from '../../../read/ad-target-facts';
+import { readListingAdWindowFacts } from '../persistence/read/ad-target-facts';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
 import { readPublishedProductAbcGrades } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import {

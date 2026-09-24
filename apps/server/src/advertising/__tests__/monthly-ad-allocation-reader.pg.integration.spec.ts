@@ -7,7 +7,7 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { readMonthlyAdAllocationPublication } from '../read/monthly-ad-allocation.reader';
+import { readMonthlyAdAllocationPublication } from '../adapter/out/persistence/read/monthly-ad-allocation.reader';
 import type { PrismaClient } from '@prisma/client';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 

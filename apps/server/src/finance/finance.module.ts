@@ -6,24 +6,24 @@ import { AnalyticsModule } from '../analytics/analytics.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { ProductSourceModule } from '../products/product-source.module';
-import { FinanceReportExportController } from './controllers/finance-report-export.controller';
-import { ProfitLossController } from './controllers/profit-loss.controller';
-import { ProfitLossService } from './services/profit-loss.service';
-import { SalesAnalysisController } from './controllers/sales-analysis.controller';
-import { SalesAnalysisService } from './services/sales-analysis.service';
-import { SalesAnalysisScraperService } from './services/sales-analysis-scraper.service';
-import { SupplierPaymentsController } from './supplier-payments/supplier-payments.controller';
-import { SupplierPaymentsService } from './supplier-payments/supplier-payments.service';
-import { SalesPlansController } from './sales-plans/sales-plans.controller';
-import { SalesPlansService } from './sales-plans/sales-plans.service';
-import { SettlementsController } from './settlements/settlements.controller';
-import { SettlementsService } from './settlements/settlements.service';
+import { FinanceReportExportController } from './adapter/in/web/report-export/finance-report-export.controller';
+import { ProfitLossController } from './adapter/in/web/profit-loss/profit-loss.controller';
+import { ProfitLossService } from './application/service/profit-loss/profit-loss.service';
+import { SalesAnalysisController } from './adapter/in/web/sales-analysis/sales-analysis.controller';
+import { SalesAnalysisService } from './application/service/sales-analysis/sales-analysis.service';
+import { SalesAnalysisScraperService } from './application/service/sales-analysis/sales-analysis-scraper.service';
+import { SupplierPaymentsController } from './adapter/in/web/supplier-payment/supplier-payments.controller';
+import { SupplierPaymentsService } from './application/service/supplier-payment/supplier-payments.service';
+import { SalesPlansController } from './adapter/in/web/sales-plan/sales-plans.controller';
+import { SalesPlansService } from './application/service/sales-plan/sales-plans.service';
+import { SettlementsController } from './adapter/in/web/settlement/settlements.controller';
+import { SettlementsService } from './application/service/settlement/settlements.service';
 import { ProfitabilityEvidenceModule } from './profitability-evidence.module';
 import { MasterProductContributionRepositoryAdapter } from './adapter/out/repository/master-product-contribution.repository.adapter';
 import { MASTER_PRODUCT_CONTRIBUTION_READ_PORT } from './application/port/in/master-product-contribution-read.port';
 import { MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT } from './application/port/out/repository/master-product-contribution.repository.port';
 import { MasterProductContributionReadService } from './application/service/master-product-contribution-read.service';
-import { FinanceReportExportService } from './report-export/finance-report-export.service';
+import { FinanceReportExportService } from './application/service/report-export/finance-report-export.service';
 
 @Module({
   imports: [AiListingContentQueryModule, ChannelCatalogModule,
