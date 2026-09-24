@@ -1,6 +1,5 @@
 import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/repository/catalog-display-media.repository.adapter';
 import { CatalogDisplayMediaService } from '../../content/application/service/catalog-display-media.service';
@@ -345,10 +344,10 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       OTHER_ORGANIZATION_ID,
       listing.id,
       { masterProductId: product.id },
-    )).rejects.toBeInstanceOf(NotFoundException);
+    )).rejects.toMatchObject({ code: 'CHANNELS_LISTING_NOT_FOUND', kind: 'not_found' });
     await expect(service.linkProduct(TEST_ORGANIZATION_ID, listing.id, {
       masterProductId: product.id,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'PRODUCT_LINK_DERIVED_FROM_RECIPES' } });
     expect((await service.list(TEST_ORGANIZATION_ID)).products
       .find((row) => row.listing.id === listing.id)?.listing.masterProductId).toBeNull();
     expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(0n);

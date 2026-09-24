@@ -5,7 +5,7 @@ import type {
   SalesProductDraftSource,
   SalesProductPort,
 } from '../../port/in/sales-product.port';
-import { ChannelInputError as BadRequestException, ChannelConflictError as ConflictException, ChannelNotFoundError as NotFoundException } from '../../../domain/exception/channel-business-error';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import {
   SalesProductCreateInputSchema,
   SalesProductListQuerySchema,
@@ -29,7 +29,6 @@ import {
   SalesProductStatusError,
   draftDeletion,
   statusAfterArchive,
-  type DraftDeletionBlock,
 } from '../../../domain/sales-product/sales-product-status';
 import type { ChannelSourceRecordPort } from '../../port/out/sourcing/source-record.port';
 import type { RegistrationStatePort } from '../../port/in/registration-state.port';
@@ -41,14 +40,8 @@ import {
   type SalesProductRepositoryPort,
 } from '../../port/out/persistence/sales-product.repository.port';
 
-const VERSION_CONFLICT = '다른 곳에서 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장하세요.';
 
 /** 초안 삭제를 막는 이유마다 운영자에게 보이는 문장. 판매 상품은 지우지 않고 보관한다(KID-313). */
-const DRAFT_DELETION_REFUSALS: Record<DraftDeletionBlock, string> = {
-  not_draft: '판매 중인 상품이라 지우지 않고 보관합니다.',
-  listing: '몰 상품과 이어져 있어 초안을 지우지 않았습니다.',
-  live_execution: '등록 실행이 남아 있어 초안을 지우지 않았습니다.',
-};
 
 /**
  * Channels 판매상품 · 옵션의 쓰기 계약(ADR-0020). 공유 입력 계약을 검증하고 원천 상품은
@@ -96,7 +89,7 @@ export class SalesProductUseCase implements SalesProductPort {
     transaction?: OwnerTransaction,
   ): Promise<SalesProduct> {
     const product = await this.repository.get(organizationId, salesProductId, transaction);
-    if (!product) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+    if (!product) throw new KiditemNotFoundError('CHANNELS_SALES_PRODUCT_NOT_FOUND');
     return product;
   }
 
@@ -224,10 +217,10 @@ export class SalesProductUseCase implements SalesProductPort {
   async deleteDraft(organizationId: string, salesProductId: string): Promise<SalesProductDraftDeletionResult> {
     await this.repository.runInTransaction(async (transaction) => {
       const facts = await this.repository.readDraftDeletionFacts(transaction, organizationId, salesProductId);
-      if (!facts) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+      if (!facts) throw new KiditemNotFoundError('CHANNELS_SALES_PRODUCT_NOT_FOUND');
       const decision = draftDeletion(facts);
       if (!decision.allowed) {
-        throw new ConflictException({ message: DRAFT_DELETION_REFUSALS[decision.reason], reason: decision.reason });
+        throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED', { details: { reason: decision.reason } });
       }
       await this.repository.deleteDraftRows(transaction, organizationId, salesProductId);
       await this.workspaceArchive.archiveSalesProductWorkspace(transaction, {
@@ -246,7 +239,7 @@ export class SalesProductUseCase implements SalesProductPort {
     const input = parseOrBadRequest(SalesProductUpdateInputSchema, body, '판매상품 내용이 올바르지 않습니다.');
     const { expectedVersion, status, ...patch } = input;
     const state = await this.repository.readOptionState(organizationId, salesProductId);
-    if (!state) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+    if (!state) throw new KiditemNotFoundError('CHANNELS_SALES_PRODUCT_NOT_FOUND');
     // 화면이 바꿀 수 있는 상태는 보관뿐이다(KID-313). 초안은 보관하지 않고 지운다.
     const nextStatus = status === 'archived'
       ? statusOrConflict(() => statusAfterArchive({ name: state.productName, status: state.status }))
@@ -260,7 +253,7 @@ export class SalesProductUseCase implements SalesProductPort {
         ...(nextStatus ? { status: nextStatus } : {}),
       },
     );
-    if (!updated) throw new ConflictException(VERSION_CONFLICT);
+    if (!updated) throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_STALE');
     return this.get(organizationId, salesProductId);
   }
 
@@ -269,8 +262,8 @@ export class SalesProductUseCase implements SalesProductPort {
     await this.assertSellpiaSkus(organizationId, input.options.flatMap((option) =>
       option.components.map((component) => component.masterProductId)));
     const state = await this.repository.readOptionState(organizationId, salesProductId);
-    if (!state) throw new NotFoundException('판매상품을 찾지 못했습니다.');
-    if (state.version !== input.expectedVersion) throw new ConflictException(VERSION_CONFLICT);
+    if (!state) throw new KiditemNotFoundError('CHANNELS_SALES_PRODUCT_NOT_FOUND');
+    if (state.version !== input.expectedVersion) throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_STALE');
     const plan = planOrBadRequest(() => planSalesProductOptionReplacement({
       productCode: state.productCode,
       existing: state.options,
@@ -286,7 +279,7 @@ export class SalesProductUseCase implements SalesProductPort {
       optionAxes: input.optionAxes,
       plan,
     });
-    if (!applied) throw new ConflictException(VERSION_CONFLICT);
+    if (!applied) throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_STALE');
     return this.get(organizationId, salesProductId);
   }
 
@@ -297,9 +290,9 @@ export class SalesProductUseCase implements SalesProductPort {
   private async assertSellpiaSkus(organizationId: string, skuIds: readonly string[]): Promise<void> {
     const invalid = await this.repository.findInvalidMasterProductIds(organizationId, skuIds);
     if (invalid.length > 0) {
-      throw new BadRequestException({
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
         message: '셀피아 상품을 찾지 못했거나 쓰지 않는 상품입니다.',
-        masterProductIds: invalid,
+        details: { masterProductIds: invalid },
       });
     }
   }
@@ -326,7 +319,10 @@ function statusOrConflict<T>(decide: () => T): T {
   try {
     return decide();
   } catch (error) {
-    if (error instanceof SalesProductStatusError) throw new ConflictException(error.message);
+    if (error instanceof SalesProductStatusError) {
+      // 화면이 바꿀 수 있는 상태는 보관뿐이라, 이 거절은 초안 보관 거절이다.
+      throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_DRAFT_NOT_ARCHIVABLE', { cause: error });
+    }
     throw error;
   }
 }
@@ -405,7 +401,7 @@ function planOrBadRequest<T>(plan: () => T): T {
   try {
     return plan();
   } catch (error) {
-    if (error instanceof SalesProductOptionPlanError) throw new BadRequestException(error.message);
+    if (error instanceof SalesProductOptionPlanError) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: error.message, cause: error });
     throw error;
   }
 }
@@ -416,6 +412,6 @@ export function parseOrBadRequest<T>(
   message: string,
 ): T {
   const parsed = schema.safeParse(input);
-  if (!parsed.success) throw new BadRequestException({ message, errors: parsed.error.flatten() });
+  if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message });
   return parsed.data;
 }

@@ -1,6 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelNotFoundError } from '../../../../domain/exception/channel-business-error';
 import type { ChannelRecipeSuggestionContext } from '../../../port/out/repository/channel-recipe-suggestion-context.repository.port';
 import { ChannelRecipeSuggestionService } from '../channel-recipe-suggestion.service';
 
@@ -423,7 +422,7 @@ describe('ChannelRecipeSuggestionService', () => {
     };
     const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
 
-    await expect(service.suggest(organizationId, optionId)).rejects.toBeInstanceOf(ChannelNotFoundError);
+    await expect(service.suggest(organizationId, optionId)).rejects.toMatchObject({ code: 'CHANNELS_LISTING_NOT_FOUND', kind: 'not_found' });
     expect(evidence.findByCodes).not.toHaveBeenCalled();
     expect(evidence.findByNormalizedBarcodes).not.toHaveBeenCalled();
     expect(evidence.findByNormalizedNames).not.toHaveBeenCalled();

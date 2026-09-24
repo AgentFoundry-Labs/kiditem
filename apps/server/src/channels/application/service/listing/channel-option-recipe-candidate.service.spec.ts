@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelInputError } from '../../../domain/exception/channel-business-error';
 import type { ProductAvailabilityPort } from '../../../../products/application/port/in/product-availability.port';
 import { ChannelOptionRecipeCandidateService } from './channel-option-recipe-candidate.service';
 
@@ -44,9 +43,9 @@ describe('ChannelOptionRecipeCandidateService', () => {
     const service = new ChannelOptionRecipeCandidateService(availability);
 
     await expect(service.search(organizationId, { search: 'x', limit: 100 }))
-      .rejects.toBeInstanceOf(ChannelInputError);
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(service.search(organizationId, { search: 'KI', organizationId }))
-      .rejects.toBeInstanceOf(ChannelInputError);
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     expect(availability.searchCandidates).not.toHaveBeenCalled();
   });
 });

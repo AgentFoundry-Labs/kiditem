@@ -1,4 +1,4 @@
-import { ChannelConflictError as ConflictException, ChannelNotFoundError as NotFoundException } from '../../../domain/exception/channel-business-error';
+import { KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import {
   ChannelRecipeSuggestionResponseSchema,
   type ChannelRecipeSuggestionResponse,
@@ -53,7 +53,7 @@ export class ChannelRecipeSuggestionService {
     channelListingOptionId: string,
   ): Promise<ChannelRecipeSuggestionResponse> {
     const context = await this.contextRepository.getContext(organizationId, channelListingOptionId);
-    if (!context) throw new NotFoundException('ChannelListingOption was not found');
+    if (!context) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND', { details: { reason: 'LISTING_OPTION_NOT_FOUND' } });
 
     const [suggestion] = await this.suggestBatch(organizationId, [{
       masterProductId: context.masterProductId!,
@@ -97,9 +97,7 @@ export class ChannelRecipeSuggestionService {
       [masterProductId],
     );
     if (!sku) {
-      throw new ConflictException(
-        '선택한 셀피아 상품을 현재 조직의 활성 재고에서 찾을 수 없습니다.',
-      );
+      throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'SELLPIA_SKU_NOT_ACTIVE' } });
     }
     return sku;
   }

@@ -1,3 +1,4 @@
+import { KiditemError } from '@kiditem/shared/errors';
 import { findChannel } from '@kiditem/shared/channel-registry';
 import { countFrozenSalesProductOptionReferences } from '../../../domain/registration/registration-execution-state';
 import type { Prisma } from '@prisma/client';
@@ -53,11 +54,11 @@ export async function readUnresolvedCompositionOptionIds(
   for (const row of rows) {
     const transitions = record(row.submissionPayloadJson)?.optionTransitions;
     if (!Array.isArray(transitions) || transitions.length === 0) {
-      throw new Error('Unresolved composition execution is missing its frozen option transitions.');
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'COMPOSITION_TRANSITIONS_MISSING' } });
     }
     for (const transition of transitions) {
       const id = record(transition)?.channelListingOptionId;
-      if (typeof id !== 'string' || !id) throw new Error('Invalid frozen composition option identity.');
+      if (typeof id !== 'string' || !id) throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'COMPOSITION_OPTION_IDENTITY_INVALID' } });
       ids.add(id);
     }
   }

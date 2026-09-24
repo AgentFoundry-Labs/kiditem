@@ -121,6 +121,8 @@ sync, registration, matching, and capacity behavior is executable in
   implemented by `application/service/<business>` → `application/port/out`
   → `adapter/out`. Application and domain are plain TypeScript; Nest DI lives
   in module composition and adapters. Queries follow the same direction.
+- 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 보고 경로의 거절은
+  409를 지킨다. 수집 계열(`ChannelBusinessError`·`ListingException`) 잔여는 KID-338이 옮긴다.
 - Persistence adapters may query Channels-owned facts without a dedicated
   reader file. Other owners use public capabilities (ADR-0021); preserve
   organization scope, complete-source evidence, and required transactions.

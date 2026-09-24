@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelInputError, ChannelNotFoundError } from '../../../../domain/exception/channel-business-error';
 import { ChannelProductMatchingService } from '../channel-product-matching.service';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
@@ -233,7 +232,7 @@ describe('ChannelProductMatchingService', () => {
   it('returns no candidates when the tenant-scoped listing does not exist', async () => {
     const { service: matching } = service();
     await expect(matching.productCandidates(organizationId, listingId, {}))
-      .rejects.toBeInstanceOf(ChannelNotFoundError);
+      .rejects.toMatchObject({ code: 'CHANNELS_LISTING_NOT_FOUND', kind: 'not_found' });
   });
 
   it('passes a direct MasterProduct link through the organization fence', async () => {
@@ -249,7 +248,7 @@ describe('ChannelProductMatchingService', () => {
   it('rejects malformed direct links before persistence', async () => {
     const { repo, service: matching } = service();
     await expect(matching.linkProduct(organizationId, listingId, { masterProductId: 'invalid' }))
-      .rejects.toBeInstanceOf(ChannelInputError);
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     expect(repo.linkProduct).not.toHaveBeenCalled();
   });
 

@@ -146,6 +146,10 @@ export const ERROR_DEFINITIONS = {
   CHANNELS_THUMBNAIL_EXECUTION_ACTIVE: def('channels', 'in_progress', '이 상품의 대표이미지를 이미 몰에 반영하는 중입니다. 끝나거나 반영 안 됨으로 표시한 뒤 다시 시도해 주세요.'),
   // 개발 서버 전용 자동 반영 — 스테이징·운영은 확장 프로그램으로만 반영한다(503은 Agent 경로 계약).
   CHANNELS_SERVER_AUTOMATION_BLOCKED: def('channels', 'precondition', '이 환경에서는 대표이미지를 크롬 확장 프로그램으로만 반영할 수 있습니다. 확장 프로그램에서 반영해 주세요.', { httpStatus: 503 }),
+  CHANNELS_SALES_PRODUCT_NOT_FOUND: def('channels', 'not_found', '판매상품을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
+  CHANNELS_SALES_PRODUCT_STALE: def('channels', 'conflict', '다른 곳에서 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장해 주세요.', { retryable: true }),
+  CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED: def('channels', 'conflict', '이 판매상품은 초안으로 지울 수 없습니다. 판매 중이거나 몰 상품·등록 실행과 이어진 상품은 보관해 주세요.'),
+  CHANNELS_SALES_PRODUCT_DRAFT_NOT_ARCHIVABLE: def('channels', 'conflict', '초안은 보관할 수 없습니다. 쓰지 않을 초안은 삭제해 주세요.'),
   CHANNELS_OPTION_RECIPE_INVALID: def('channels', 'validation', '옵션 구성이 올바르지 않습니다. 구성 상품과 수량을 확인해 주세요.'),
   // 웹 use-mall-publish-run·collected-products 화면이 철자로 비교한다(shared registration-state) — 접두 없음.
   REGISTRATION_ALREADY_REGISTERED: def('channels', 'conflict', '이미 이 몰 계정에 등록된 상품입니다. 몰 상품 목록을 확인해 주세요.'),

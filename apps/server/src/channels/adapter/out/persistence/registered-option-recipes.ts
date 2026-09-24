@@ -1,3 +1,4 @@
+import { KiditemError } from '@kiditem/shared/errors';
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
@@ -44,7 +45,7 @@ export async function applyRegisteredOptionRecipes(
     if (!fact.channelListingId || !fact.submissionPayloadJson) continue;
     const frozen = freezeProductRegistrationPayload(fact.submissionPayloadJson as RegistrationSubmissionJson, channelIntegrity.sha256);
     if (frozen.hash !== fact.submissionPayloadHash) {
-      throw new Error('Registered option recipe payload hash does not match its immutable execution');
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'REGISTERED_RECIPE_HASH_MISMATCH' } });
     }
     const recipe = preparedRegistrationRecipe(frozen.payload);
     if (!recipe) continue;

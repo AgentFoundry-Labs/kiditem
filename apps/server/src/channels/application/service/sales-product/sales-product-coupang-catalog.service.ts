@@ -1,7 +1,7 @@
 import type { SalesProductCoupangCatalogPort, CoupangCatalogFile } from "../../port/in/sales-product/sales-product-coupang-catalog.port";
 export type { CoupangCatalogFile } from "../../port/in/sales-product/sales-product-coupang-catalog.port";
 import { CHANNEL_DOCUMENTS_PORT, type ChannelDocumentsPort } from '../../port/out/documents/channel-documents.port';
-import { ChannelInputError as BadRequestException } from '../../../domain/exception/channel-business-error';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { CoupangCatalogPlanResult } from '@kiditem/shared/sales-product';
 import {
   planCoupangCatalogEdits,
@@ -57,16 +57,16 @@ export class SalesProductCoupangCatalogService implements SalesProductCoupangCat
     file: Uint8Array | undefined,
   ): Promise<{ sheet: CoupangCatalogSheet; plan: CoupangCatalogPlan }> {
     if (!file?.length) {
-      throw new BadRequestException('윙에서 내려받은 쿠팡상품정보 엑셀 파일이 필요합니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '윙에서 내려받은 쿠팡상품정보 엑셀 파일이 필요합니다.' });
     }
     let sheet: CoupangCatalogSheet;
     try {
       sheet = this.documents.readCoupangCatalog(file);
     } catch (error) {
-      throw new BadRequestException(error instanceof Error ? error.message : '엑셀을 읽지 못했습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: error instanceof Error ? error.message : '엑셀을 읽지 못했습니다.', cause: error });
     }
     if (sheet.rows.length === 0) {
-      throw new BadRequestException('이 파일에는 옵션 줄이 없습니다. 윙에서 파일 생성이 끝난 뒤 내려받으세요.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '이 파일에는 옵션 줄이 없습니다. 윙에서 파일 생성이 끝난 뒤 내려받으세요.' });
     }
     const facts = await this.repository.readCoupangCatalogFacts(
       organizationId,

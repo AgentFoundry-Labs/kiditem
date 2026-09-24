@@ -113,7 +113,7 @@ describe('mall sheets use the single registration setting of each product and ma
       options: [{ id: OPTION, code: null, values: [], salePrice: null, barcode: null, supplyStatus: 'selling' }],
     });
 
-    await expect(service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT] })).rejects.toThrow('판매가');
+    await expect(service.file(ORG, 'teacherville', { salesProductIds: [PRODUCT] })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     expect(files.write).not.toHaveBeenCalled();
   });
 

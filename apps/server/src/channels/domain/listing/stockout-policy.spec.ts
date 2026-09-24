@@ -17,6 +17,6 @@ describe('stockout decision', () => {
     expect(decideStockout(0, 100, true)).toBe('unknown');
   });
   it.each([-1, 0.5, NaN, Infinity])('rejects invalid threshold %s', (threshold) => {
-    expect(() => decideStockout(0, threshold)).toThrow('INVALID_SAFETY_STOCK');
+    expect(() => decideStockout(0, threshold)).toThrow(expect.objectContaining({ code: 'INTERNAL_ERROR', details: { reason: 'SAFETY_STOCK_INVALID' } }));
   });
 });

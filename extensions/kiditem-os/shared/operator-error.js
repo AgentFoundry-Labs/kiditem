@@ -400,6 +400,34 @@
       "text": "이 환경에서는 대표이미지를 크롬 확장 프로그램으로만 반영할 수 있습니다. 확장 프로그램에서 반영해 주세요.",
       "retryable": false
     },
+    "CHANNELS_SALES_PRODUCT_NOT_FOUND": {
+      "owner": "channels",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "판매상품을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SALES_PRODUCT_STALE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "다른 곳에서 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장해 주세요.",
+      "retryable": true
+    },
+    "CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이 판매상품은 초안으로 지울 수 없습니다. 판매 중이거나 몰 상품·등록 실행과 이어진 상품은 보관해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SALES_PRODUCT_DRAFT_NOT_ARCHIVABLE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "초안은 보관할 수 없습니다. 쓰지 않을 초안은 삭제해 주세요.",
+      "retryable": false
+    },
     "CHANNELS_OPTION_RECIPE_INVALID": {
       "owner": "channels",
       "kind": "validation",

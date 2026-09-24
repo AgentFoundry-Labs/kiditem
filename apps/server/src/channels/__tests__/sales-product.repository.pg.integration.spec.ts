@@ -648,7 +648,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     expect(archived.status).toBe('archived');
 
     await expect(service.update(TEST_ORGANIZATION_ID, draft.productId, { expectedVersion: 1, status: 'archived' }))
-      .rejects.toThrow('초안');
+      .rejects.toMatchObject({ code: 'CHANNELS_SALES_PRODUCT_DRAFT_NOT_ARCHIVABLE', kind: 'conflict' });
     await expect(service.update(TEST_ORGANIZATION_ID, selling.productId, { expectedVersion: archived.version, status: 'active' }))
       .rejects.toThrow('판매상품 내용이 올바르지 않습니다.');
     expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: draft.productId } })).status).toBe('draft');
@@ -1064,7 +1064,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     await expect(service.import(TEST_ORGANIZATION_ID, file({ 상품명: '바뀐 이름' }), false, [{
       salesProductId: imported.id,
       expectedVersion: imported.version,
-    }])).rejects.toThrow(/Ambiguous source product identity/);
+    }])).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'SOURCE_PRODUCT_IDENTITY_AMBIGUOUS' } });
     const after = await product();
     expect(after).toMatchObject({ name: '투명우산 그리기', version: imported.version, ownCode: OWN_CODE });
   });

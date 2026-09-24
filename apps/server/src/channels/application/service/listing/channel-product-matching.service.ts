@@ -1,6 +1,6 @@
 import type { ChannelProductMatchingPort } from "../../port/in/listing/channel-product-matching.port";
 import type { ChannelActivityPort } from '../../port/out/alerts/channel-activity.port';
-import { ChannelInputError as BadRequestException, ChannelNotFoundError as NotFoundException } from '../../../domain/exception/channel-business-error';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import {
   LinkChannelListingProductInputSchema,
   type ChannelOptionMatchingQueueRow,
@@ -133,7 +133,7 @@ export class ChannelProductMatchingService implements ChannelProductMatchingPort
       channelListingId,
       search,
     );
-    if (!context) throw new NotFoundException('ChannelListing was not found');
+    if (!context) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
     return {
       items: rankChannelProductCandidates({
         candidates: context.candidates,
@@ -155,10 +155,7 @@ export class ChannelProductMatchingService implements ChannelProductMatchingPort
   ): Promise<void> {
     const parsed = LinkChannelListingProductInputSchema.safeParse(rawInput);
     if (!parsed.success) {
-      throw new BadRequestException({
-        message: 'Invalid ChannelListing product link',
-        errors: parsed.error.flatten(),
-      });
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'PRODUCT_LINK_INVALID' } });
     }
     return this.repository.linkProduct({
       organizationId,
@@ -172,10 +169,7 @@ export class ChannelProductMatchingService implements ChannelProductMatchingPort
       channelAccountId: z.string().uuid().optional(),
     }).strict().safeParse(rawInput ?? {});
     if (!parsed.success) {
-      throw new BadRequestException({
-        message: 'Invalid automatic product matching request',
-        errors: parsed.error.flatten(),
-      });
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'AUTO_MATCH_REQUEST_INVALID' } });
     }
     return this.repository.autoMatch({
       organizationId,

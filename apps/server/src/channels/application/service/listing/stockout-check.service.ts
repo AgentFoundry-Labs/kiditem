@@ -4,7 +4,7 @@ import type { RegistrationExecutionRepositoryPort } from '../../port/out/reposit
 import type { ChannelAdapter, ChannelAdapterRegistryPort } from '../../port/out/channel/channel-adapter.port';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { ListingAvailabilitySnapshot } from '@kiditem/shared/sales-product';
-import { FactConflictError, FactNotFoundError } from '../../../../common/errors/fact-errors';
+import { KiditemConflictError, KiditemError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { decideStockout } from '../../../domain/listing/stockout-policy';
 import { SalesProductDraftError, requireConfirmedPrice } from '../../../domain/sales-product/sales-product-draft';
@@ -30,12 +30,12 @@ export class StockoutCheckService implements StockoutCheckPort {
     if (replay) {
       if (replay.payload.channelListingId !== input.listingId
         || replay.payload.kind !== 'sold_out' || replay.payload.stockoutPolicy !== POLICY) {
-        throw new FactConflictError('Idempotency key belongs to another availability intent.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT', { details: { reason: 'REQUEST_MISMATCH' } });
       }
       return replay;
     }
     const [subject] = await this.persistence.readSubjects(organizationId, [input.listingId]);
-    if (!subject) throw new FactNotFoundError('Active channel listing not found.');
+    if (!subject) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
     const result = evaluate(subject, this.adapters.get(subject.channel));
     requireEligible(result);
     return this.executions.prepareListingAvailability({
@@ -54,24 +54,25 @@ export class StockoutCheckService implements StockoutCheckPort {
 
   async assertEligible(transaction: OwnerTransaction, organizationId: string, snapshot: ListingAvailabilitySnapshot, executionId: string): Promise<void> {
     if (snapshot.stockoutPolicy !== POLICY || snapshot.kind !== 'sold_out') {
-      throw new FactConflictError('Inventory stockout requires a frozen sold-out policy.');
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'STOCKOUT_POLICY_NOT_FROZEN' } });
     }
     const [subject] = await this.persistence.readSubjects(organizationId, [snapshot.channelListingId], transaction);
-    if (!subject) throw new FactNotFoundError('Active channel listing not found.');
+    if (!subject) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
     const result = evaluate(subject, this.adapters.get(subject.channel), executionId);
     requireEligible(result);
     if (result.channelAccountId !== snapshot.channelAccountId
       || result.externalListingId !== snapshot.externalListingId
       || result.channel !== snapshot.mallKey
       || JSON.stringify(result.optionCodes) !== JSON.stringify([...snapshot.optionCodes].sort())) {
-      throw new FactConflictError('Inventory stockout targets changed after preparation.');
+      throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'STOCKOUT_TARGETS_CHANGED' } });
     }
   }
 }
 
 function requireEligible(result: StockoutCheckResult): void {
   if (result.decision !== 'eligible') {
-    throw new FactConflictError(`Inventory stockout is not eligible: ${result.decision}.`);
+    // 결정 이름(in_stock · active_execution · draft …)을 사유로 싣는다.
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: result.decision } });
   }
 }
 

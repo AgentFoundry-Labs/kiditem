@@ -1,3 +1,4 @@
+import { KiditemConflictError } from '@kiditem/shared/errors';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { resolveUnitCost } from '../../../../products/domain/option-pricing-resolver';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
@@ -534,7 +535,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           })),
         };
         for (const key of [row.sabangnetGoodsNo, row.ownCode].filter((key): key is string => !!key && codes.includes(key))) {
-          if (states.has(key) && states.get(key)!.productId !== row.id) throw new ConflictException('Ambiguous source product identity.');
+          if (states.has(key) && states.get(key)!.productId !== row.id) throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'SOURCE_PRODUCT_IDENTITY_AMBIGUOUS' } });
           states.set(key, state);
         }
       }
@@ -738,7 +739,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           })),
         });
         for (const key of [row.sabangnetGoodsNo, row.ownCode].filter((key): key is string => !!key && codes.includes(key))) {
-          if (owners.has(key) && owners.get(key) !== row.id) throw new ConflictException('Ambiguous source product identity.');
+          if (owners.has(key) && owners.get(key) !== row.id) throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'SOURCE_PRODUCT_IDENTITY_AMBIGUOUS' } });
           owners.set(key, row.id);
           fingerprints.set(key, {
             fingerprint,
@@ -1303,7 +1304,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
               result.unchanged += 1;
             } else if (existing) {
               if (existing.id !== write.existingProductId || existing.version !== write.expectedVersion) {
-                throw new ConflictException('Imported product was edited after the preview.');
+                throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_STALE', { details: { reason: 'EDITED_AFTER_PREVIEW' } });
               }
               await tx.salesProduct.update({
                 where: { id: existing.id, organizationId, version: write.expectedVersion },

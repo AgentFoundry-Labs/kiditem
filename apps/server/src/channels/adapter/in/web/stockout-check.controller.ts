@@ -1,4 +1,5 @@
-import { Body, Controller, Inject, Post, BadRequestException } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
+import { Body, Controller, Inject, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
@@ -14,13 +15,13 @@ export class StockoutCheckController {
   @Post('preview')
   preview(@CurrentOrganization() organizationId: string, @Body() body: unknown) {
     const parsed = PreviewSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException('Invalid stockout preview request.');
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'STOCKOUT_PREVIEW_REQUEST_INVALID' } });
     return this.stockout.preview(organizationId, parsed.data.listingIds);
   }
   @Post('prepare')
   prepare(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser, @Body() body: unknown) {
     const parsed = PrepareSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException('Invalid stockout preparation request.');
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'STOCKOUT_PREPARE_REQUEST_INVALID' } });
     return this.stockout.prepare(organizationId, user.id ?? null, parsed.data);
   }
 }

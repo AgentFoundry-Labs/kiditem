@@ -72,7 +72,7 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
       expect.objectContaining({ id: sibling.id, compositionUnconfirmed: false, capacity: 2, safetyStock: 2 }),
     ]));
     expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'active_execution', optionCodes: [] }]);
-    await expect(service.prepare(ORG, USER, { listingId: f.listing.id, idempotencyKey: randomUUID() })).rejects.toThrow('active_execution');
+    await expect(service.prepare(ORG, USER, { listingId: f.listing.id, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'active_execution' } });
     expect(await prisma.productRegistrationExecution.count({ where: { organizationId: ORG, executionKind: 'sold_out' } })).toBe(0);
     await prisma.productRegistrationExecution.update({ where: { id: execution.id }, data: { status: 'failed', providerOutcome: 'definitive_failure' } });
     expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'eligible', optionCodes: ['option-external', 'sibling-external'].sort() }]);
@@ -88,13 +88,13 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
     expect((await service.prepare(ORG, USER, input)).executionId).toBe(prepared.executionId);
     await expect(service.prepare(ORG, null, input)).rejects.toMatchObject({ code: 'CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT', details: { reason: 'ACTOR_MISMATCH' } });
     const guarded = { ...start, assertInventoryStockout: (tx: Parameters<StockoutCheckService['assertEligible']>[0], snapshot: typeof prepared.payload) => service.assertEligible(tx, ORG, snapshot, prepared.executionId) };
-    await expect(executions.startListingAvailability(guarded)).rejects.toThrow('in_stock');
+    await expect(executions.startListingAvailability(guarded)).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'in_stock' } });
     expect(await prisma.productRegistrationExecution.findUnique({ where: { id: prepared.executionId } })).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted', leaseToken: null });
     await prisma.masterProduct.update({ where: { id: f.product.id }, data: { currentStock: 5 } });
     expect(await executions.startListingAvailability(guarded)).toMatchObject({ maySubmit: true, status: 'executing', providerOutcome: 'uncertain' });
     expect(await executions.startListingAvailability(guarded)).toMatchObject({ maySubmit: false });
     expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'active_execution' }]);
-    await expect(service.prepare(ORG, USER, { ...input, idempotencyKey: randomUUID() })).rejects.toThrow('active_execution');
+    await expect(service.prepare(ORG, USER, { ...input, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'active_execution' } });
   });
   it('rejects resume with a stockout policy and distinguishes manual from stockout intent hashes', async () => {
     const f = await fixture();

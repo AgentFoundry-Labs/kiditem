@@ -1,3 +1,4 @@
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { PrepareListingAvailabilityInputSchema, ReportListingAvailabilityInputSchema } from '@kiditem/shared/sales-product';
 import { BadRequestException, Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { PrepareTargetExecutionInputSchema, ReportTargetExecutionInputSchema } from '@kiditem/shared/sales-product';
@@ -19,7 +20,7 @@ export class RegistrationTargetExecutionController {
   @Get('listing-availability-executions')
   listListing(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser,
     @Query('channelAccountId', new ParseUUIDPipe()) accountId: string, @Query('externalListingId') externalId: string) {
-    if (!externalId?.trim()) throw new BadRequestException('externalListingId is required.');
+    if (!externalId?.trim()) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'EXTERNAL_LISTING_ID_REQUIRED' } });
     return this.executions.listListingAvailability(organizationId, user.id ?? null, accountId, externalId);
   }
   @Post('listing-availability-executions/:id/start')
