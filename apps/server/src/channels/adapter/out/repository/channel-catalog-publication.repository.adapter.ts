@@ -163,7 +163,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
         // 청크는 스테이징에만 쌓였다: 리스팅 반영은 이 종료 트랜잭션에서 한 번에 한다 (KID-348).
         const userId = sourceRun.createdBy;
         if (!userId) throw new ConflictException('Catalog attempt creator is missing');
-        const applied = await applyCatalogDetails(tx, this.media, this.recipes, {
+        const appliedDetails = await applyCatalogDetails(tx, this.media, this.recipes, {
           organizationId: input.organizationId,
           channelAccountId: input.channelAccountId,
           userId,
@@ -192,23 +192,28 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           sourceImportRunId: sourceRun.id,
           duplicate: false,
           changes: {
-            ...applied.changes,
+            ...appliedDetails.changes,
             deactivatedProductCount: deleted.listings,
             deactivatedSkuCount: deleted.options,
           },
         };
         const quality: CoupangCatalogCollectionQuality = {
           detailTargets: snapshot.products.length,
-          detailApplied: applied.appliedProductIds.length,
-          detailUnchanged: applied.unchangedProductIds.length,
+          detailApplied: appliedDetails.appliedProductIds.length,
+          detailUnchanged: appliedDetails.unchangedProductIds.length,
           deletedProducts: deleted.listings,
           unconfirmedAbsentProductIds: absence.unconfirmed,
         };
+        const applied = new Set(appliedDetails.appliedProductIds);
         qualityReport = {
           snapshotHash: input.snapshotHash,
           chunkSetHash: input.chunkSetHash,
           publication: result,
           quality,
+          // 쓰지 않은(같은 상세) 상품의 이미지는 반영 수에 넣지 않는다.
+          publishedMediaCount: snapshot.products
+            .filter(({ product }) => applied.has(product.externalProductId))
+            .reduce((sum, { product }) => sum + product.media.length, 0),
           basicAttemptId: plan.basicAttemptId,
           basicManifestHash: plan.basicManifestHash,
         };

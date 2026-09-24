@@ -670,6 +670,8 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
     const completed = await finalize(details);
 
     expect(completed.quality).toMatchObject({ detailTargets: 1, detailApplied: 0, detailUnchanged: 1 });
+    // 쓰지 않은 상품의 이미지는 반영 수에 넣지 않는다.
+    expect(completed.progress).toMatchObject({ publishedProducts: 1, publishedMediaCount: 0 });
     await expect(listingAndOptionStamps('P1')).resolves.toEqual(afterBasics);
 
     // 반영하지 않았어도 대상은 끝났다: 다음 동기화의 대상이 아니다.
@@ -1010,7 +1012,12 @@ function wireDetailProduct(id: string, notice: string) {
       raw: {},
     }],
     documents: [{ id: documentId, kind: 'notices' as const, value: { 품명: notice } }],
-    media: [],
+    media: [{
+      sourceUrl: `https://image.example/${id}/detail.jpg`,
+      role: 'detail' as const,
+      sortOrder: 0,
+      externalOptionIds: [`${id}-O`],
+    }],
     raw: {},
   };
 }

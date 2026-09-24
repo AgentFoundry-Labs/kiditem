@@ -328,7 +328,9 @@ function buildCollectionStatus(
       storedChunks: run.chunks.length,
       publishedProducts: completed ? products.length : 0,
       publishedOptionCount: completed ? state.optionCount : 0,
-      publishedMediaCount: completed ? state.mediaCount : 0,
+      publishedMediaCount: completed
+        ? typeof metadata.publishedMediaCount === 'number' ? metadata.publishedMediaCount : state.mediaCount
+        : 0,
       publishedChunks: completed
         ? run.chunks.filter((chunk) => chunk.kind === (
           stage === 'basics' ? 'listing_basics' : 'full_details'

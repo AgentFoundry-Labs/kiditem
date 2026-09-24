@@ -15,6 +15,14 @@ describe('readCoupangCatalogCollectionLink', () => {
     expect(readCoupangCatalogCollectionLink(`channelAccountId=${accountId}`)).toEqual({ invalid: true });
     expect(readCoupangCatalogCollectionLink('page=2')).toBeNull();
   });
+
+  it('reads an alert link stored before collectionStage was always written as the basics root', () => {
+    expect(readCoupangCatalogCollectionLink(`collectionAttempt=${attemptId}&channelAccountId=${accountId}`))
+      .toEqual({ attemptId, channelAccountId: accountId, stage: 'basics' });
+    expect(readCoupangCatalogCollectionLink(
+      `collectionAttempt=${attemptId}&channelAccountId=${accountId}&collectionStage=full`,
+    )).toEqual({ invalid: true });
+  });
 });
 
 describe('channelListingsApi', () => {

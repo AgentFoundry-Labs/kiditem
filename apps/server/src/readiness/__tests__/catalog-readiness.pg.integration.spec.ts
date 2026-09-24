@@ -60,7 +60,7 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
     });
   }
 
-  it('counts listings of completed catalog runs and of the details child of a completed basics run only', async () => {
+  it('counts listings of completed catalog runs only', async () => {
     const completedBasics = await catalogRun({
       sourceType: 'coupang_wing_catalog_basics',
       status: 'completed',
@@ -81,9 +81,6 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
       ['COMPLETED-LEGACY', await catalogRun({ sourceType: 'coupang_wing_catalog', status: 'completed' })],
       ['COMPLETED-BASICS', completedBasics],
       ['COMPLETED-DETAILS', await detailsOf(completedBasics.id, 'completed')],
-      // Partial detail enrichment keeps the completed basics identity visible.
-      ['RUNNING-DETAILS-OF-COMPLETED-BASICS', await detailsOf(completedBasics.id, 'running')],
-      ['FAILED-DETAILS-OF-COMPLETED-BASICS', await detailsOf(completedBasics.id, 'failed')],
     ] as const;
     const notCounted = [
       ['RUNNING-LEGACY', await catalogRun({ sourceType: 'coupang_wing_catalog', status: 'running' })],
@@ -95,6 +92,10 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
       })],
       ['FAILED-BASICS', failedBasics],
       ['RUNNING-DETAILS-OF-FAILED-BASICS', await detailsOf(failedBasics.id, 'running')],
+      // KID-348: 상세는 종료 트랜잭션에서만 리스팅에 쓴다. 끝나지 않은 상세 시도를 가리키는 리스팅은
+      // 이 PR 이전에 청크 시점 반영이 남긴 행뿐이고, 다음 목록 단계가 완료 시도로 옮긴다.
+      ['RUNNING-DETAILS-OF-COMPLETED-BASICS', await detailsOf(completedBasics.id, 'running')],
+      ['FAILED-DETAILS-OF-COMPLETED-BASICS', await detailsOf(completedBasics.id, 'failed')],
     ] as const;
     for (const [externalId, run] of [...counted, ...notCounted]) {
       await prisma.channelListing.create({
