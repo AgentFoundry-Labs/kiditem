@@ -45,10 +45,10 @@ describe('makeQueryClient → onError', () => {
     );
   });
 
-  it('toasts non-401 ApiError using detail (regression: swallow must be selective)', () => {
+  it('toasts a non-401 ApiError in Korean even when the server text is English (regression: swallow must be selective)', () => {
     fireError(new ApiError(500, 'INTERNAL', 'database down'));
 
-    expect(toastErrorMock).toHaveBeenCalledWith('database down');
+    expect(toastErrorMock).toHaveBeenCalledWith('처리 중 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요.');
   });
 
   it('lets a query suppress the global error toast when it renders local error UI', () => {

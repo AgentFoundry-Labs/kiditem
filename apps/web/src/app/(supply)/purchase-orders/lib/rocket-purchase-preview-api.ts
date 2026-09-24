@@ -31,7 +31,7 @@ export function rocketPreviewErrorMessage(cause: unknown, fallback: string): str
     return '셀피아 재고 스냅샷이 최신이 아니어서 납품 수량을 계산할 수 없습니다.'
       + ' 주문 수집 결과는 보존되므로 셀피아 상태를 확인한 뒤 저장된 수집본으로 다시 시도해 주세요.';
   }
-  return friendlyError(cause) ?? fallback;
+  return friendlyError(cause, fallback) ?? fallback;
 }
 
 export async function listSavedRocketPos(

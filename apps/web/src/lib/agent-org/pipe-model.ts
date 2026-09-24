@@ -7,6 +7,7 @@ import {
   type PipeStageId,
 } from './pipe-stages';
 import { pipeStateRank, worstPipeState, type PipeState } from './pipe-states';
+import { attemptFailureText } from '@/lib/operator-error';
 
 /**
  * Agent Org 판정 — 지금 있는 기록만으로 단계마다 "어떤 상태인가"를 정한다.
@@ -270,7 +271,7 @@ export function collectionStatusSignal(view: SellpiaInventoryCollectionStatusVie
           ...base,
           state: 'blocked_external',
           at: lastAttemptAt,
-          reason: view.lastAttempt?.errorMessage ?? null,
+          reason: attemptFailureText(view.lastAttempt, 'sellpia_inventory'),
           cause: { key: 'login:sellpia', label: '셀피아 · 로그인 필요' },
           actionable: true,
           lane: { dir: 'rejoin', label: '로그인하면 이어짐' },
@@ -280,7 +281,7 @@ export function collectionStatusSignal(view: SellpiaInventoryCollectionStatusVie
         ...base,
         state: 'failed',
         at: lastAttemptAt,
-        reason: view.lastAttempt?.errorMessage ?? null,
+        reason: attemptFailureText(view.lastAttempt, 'sellpia_inventory'),
         cause: { key: `fail:sellpia:${code ?? 'unknown'}`, label: '셀피아 재고 · 수집 실패' },
         actionable: true,
         lane: { dir: 'exit', label: '실패' },

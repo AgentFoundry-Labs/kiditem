@@ -184,8 +184,8 @@ describe('Rocket PO collection control', () => {
   it('joins the collection the owner already runs for the account', async () => {
     vi.mocked(apiClient.post).mockImplementation(async () => {
       sources[ACCOUNT_A] = { ready: false, latestAttempt: attempt(ACCOUNT_A, 'RUNNING'), latestComplete: null, latestCompleteCoverage: null };
-      throw new ApiError(409, 'Conflict', 'Conflict', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
+        
         attemptId: ATTEMPT_ID,
       });
     });

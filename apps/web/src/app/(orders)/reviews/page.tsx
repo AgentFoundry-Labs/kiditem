@@ -78,7 +78,7 @@ export default function ReviewsPage() {
 
       {isError && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          리뷰 데이터를 불러오지 못했어요. {isApiError(error) ? error.detail : ''}
+          리뷰 데이터를 불러오지 못했어요. {isApiError(error) ? error.message : ''}
         </div>
       )}
 

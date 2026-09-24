@@ -605,7 +605,7 @@ export function usePersistedAllMarketplaceOrderCollection({
         toast.warning(`셀피아 대조: 아직 안 올라간 주문 ${formatNumber(reconciled.missingTotal)}건`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '셀피아 대조에 실패했습니다.');
+      toast.error(friendlyError(error, '셀피아 대조에 실패했습니다.'));
     }
   }, [collectAll, mallAccountsLoading, refetchMallAccounts]);
 

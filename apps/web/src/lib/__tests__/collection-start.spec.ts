@@ -83,8 +83,8 @@ describe('startWebOpenedCollection', () => {
 
   it("reports the owner's running attempt without handing anything off", async () => {
     begin = async () => {
-      throw new ApiError(409, 'Conflict', 'Conflict', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
+        
         attemptId: ATTEMPT_ID,
       });
     };

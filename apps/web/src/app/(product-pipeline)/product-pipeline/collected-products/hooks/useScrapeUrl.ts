@@ -8,6 +8,7 @@ import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-stat
 import { queryKeys } from '@/lib/query-keys';
 import { salesProductKeys } from '@/lib/sales-product-api';
 import { sourcingApi } from '../lib/sourcing-api';
+import { operatorReason } from '@/lib/operator-error';
 
 const SCRAPE_STATUS_DEBOUNCE_MS = 350;
 
@@ -151,7 +152,7 @@ export function useScrapeUrl() {
     toggleScrapeInput: () => setShowScrapeInput((v) => !v),
     scrapeUrl,
     setScrapeUrl,
-    scrapeError: ownerStatus?.errorMessage ?? scrapeError,
+    scrapeError: ownerStatus?.errorMessage ? operatorReason(ownerStatus.errorMessage, '수집에 실패했습니다.') : scrapeError,
     scrapeErrorLink: ownerStatus?.errorMessage ? null : scrapeErrorLink,
     scrapeSuccess,
     ownerStatus,

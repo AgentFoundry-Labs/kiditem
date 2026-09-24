@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 import { apiClient } from '../api-client';
 import { normalizeLoopbackApiBase } from '../api';
+import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 import { ApiError, isApiError } from '../api-error';
 
 const notifyAuthRequiredMock = vi.fn();
@@ -172,72 +173,99 @@ describe('apiClient HTTP method envelopes', () => {
     expect((fetchMock.mock.calls[3]?.[1] as RequestInit).body).toBe(JSON.stringify({ reason: 'duplicate' }));
   });
 
-  it('uses message, detail, then status fallback when building non-401 ApiError details', async () => {
+  it('parses the ADR-0023 envelope: code, kind, Korean message, field errors and details', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, {
+      statusCode: 400,
+      code: 'VALIDATION_FAILED',
+      kind: 'validation',
+      message: '입력값이 올바르지 않습니다. 표시된 항목을 확인해 주세요.',
+      errors: [{ field: 'name', value: 7, reason: '문자열이어야 합니다.' }],
+    }));
+
+    await expect(apiClient.post('/api/items', {})).rejects.toMatchObject({
+      status: 400,
+      code: 'VALIDATION_FAILED',
+      kind: 'validation',
+      message: '입력값이 올바르지 않습니다. 표시된 항목을 확인해 주세요.',
+      errors: [{ field: 'name', value: 7, reason: '문자열이어야 합니다.' }],
+      details: {},
+    });
+  });
+
+  it('moves an old envelope (error + English message) onto a registered code and a Korean sentence', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock
       .mockResolvedValueOnce(jsonResponse(400, { error: 'COMMON_BAD_REQUEST', message: 'Invalid input' }))
-      .mockResolvedValueOnce(jsonResponse(422, { error: 'VALIDATION', detail: 'Field X required' }))
       .mockResolvedValueOnce(jsonResponse(503, { error: 'Service Unavailable', message: '' }))
       .mockResolvedValueOnce(jsonResponse(500, {}, false));
 
     await expect(apiClient.get('/api/message')).rejects.toMatchObject({
       status: 400,
-      code: 'COMMON_BAD_REQUEST',
-      detail: 'Invalid input',
-    });
-    await expect(apiClient.post('/api/detail', {})).rejects.toMatchObject({
-      status: 422,
-      code: 'VALIDATION',
-      detail: 'Field X required',
+      code: 'VALIDATION_FAILED',
+      message: ERROR_DEFINITIONS.VALIDATION_FAILED.text,
     });
     await expect(apiClient.get('/api/blank-message')).rejects.toMatchObject({
       status: 503,
-      code: 'Service Unavailable',
-      detail: 'API error: 503',
+      code: 'SERVICE_UNAVAILABLE',
+      message: ERROR_DEFINITIONS.SERVICE_UNAVAILABLE.text,
     });
     await expect(apiClient.get('/api/fallback')).rejects.toMatchObject({
       status: 500,
-      code: null,
-      detail: 'API error: 500',
+      code: 'UNKNOWN',
+      message: ERROR_DEFINITIONS.INTERNAL_ERROR.text,
     });
   });
 
-  it("keeps a source owner's code and attempt id beside the HTTP error category", async () => {
+  it('reads the attempt id and sub-reason from details (and the top-level attempt id the server still copies)', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    const attemptId = '11111111-1111-4111-8111-111111111111';
     fetchMock
       .mockResolvedValueOnce(jsonResponse(409, {
         statusCode: 409,
-        error: 'Conflict',
-        message: 'Conflict',
         code: 'ATTEMPT_IN_PROGRESS',
-        attemptId: '11111111-1111-4111-8111-111111111111',
+        kind: 'in_progress',
+        message: '같은 수집이 이미 진행 중입니다. 끝나거나 중단한 뒤 다시 시작해 주세요.',
+        errors: [],
+        details: { attemptId },
+        attemptId,
       }))
-      .mockResolvedValueOnce(jsonResponse(400, { error: 'COMMON_BAD_REQUEST', message: 'Invalid input' }));
+      .mockResolvedValueOnce(jsonResponse(400, {
+        statusCode: 400,
+        code: 'VALIDATION_FAILED',
+        kind: 'validation',
+        message: '반영할 몰 상품을 골라 주세요.',
+        errors: [],
+        details: { reason: 'ambiguous_listing' },
+      }));
 
     await expect(apiClient.post('/api/owner/attempts', {})).rejects.toMatchObject({
       status: 409,
-      code: 'Conflict',
-      details: {
-        code: 'ATTEMPT_IN_PROGRESS',
-        attemptId: '11111111-1111-4111-8111-111111111111',
-      },
+      code: 'ATTEMPT_IN_PROGRESS',
+      details: { attemptId },
     });
-    await expect(apiClient.get('/api/plain')).rejects.toMatchObject({ details: {} });
+    await expect(apiClient.get('/api/plain')).rejects.toMatchObject({ details: { reason: 'ambiguous_listing' } });
   });
 
   it('keeps the existing draft a duplicate refusal names', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(jsonResponse(409, {
       statusCode: 409,
+      code: 'SOURCING_DUPLICATE_RECORD',
+      kind: 'conflict',
       message: '이미 수집한 원본입니다.',
-      reason: 'duplicate_source_record',
-      existing: { sourceRecordId: 'record-1', salesProductId: 'draft-1', salesProductStatus: 'draft' },
+      errors: [],
+      details: {
+        reason: 'draft_exists',
+        existing: { sourceRecordId: 'record-1', salesProductId: 'draft-1', salesProductStatus: 'draft' },
+      },
     }));
 
     await expect(apiClient.post('/api/sourcing/scrape-url', {})).rejects.toMatchObject({
       status: 409,
-      detail: '이미 수집한 원본입니다.',
-      details: { existingSalesProductId: 'draft-1', existingSalesProductStatus: 'draft' },
+      code: 'SOURCING_DUPLICATE_RECORD',
+      message: '이미 수집한 원본입니다.',
+      details: { reason: 'draft_exists', existingSalesProductId: 'draft-1', existingSalesProductStatus: 'draft' },
     });
   });
 
@@ -278,8 +306,8 @@ describe('apiClient HTTP method envelopes', () => {
 
     await expect(apiClient.get('/api/products')).rejects.toMatchObject({
       status: 0,
-      code: 'network_error',
-      detail: 'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
+      code: 'NETWORK_FAILED',
+      message: ERROR_DEFINITIONS.NETWORK_FAILED.text,
     });
     expect(error).toHaveBeenCalledWith(
       '[apiClient] Network request failed',
@@ -299,7 +327,7 @@ describe('apiClient HTTP method envelopes', () => {
       }),
     ).rejects.toMatchObject({
       status: 0,
-      code: 'network_error',
+      code: 'NETWORK_FAILED',
     });
     expect(error).not.toHaveBeenCalled();
     error.mockRestore();
@@ -380,7 +408,8 @@ describe('apiClient — 401 interceptor', () => {
     );
     await expect(apiClient.get('/api/foo')).rejects.toMatchObject({
       status: 401,
-      code: 'auth_required',
+      code: 'AUTH_REQUIRED',
+      message: ERROR_DEFINITIONS.AUTH_REQUIRED.text,
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -404,7 +433,7 @@ describe('apiClient — 401 interceptor', () => {
 
     await expect(apiClient.upload('/api/upload', formData)).rejects.toMatchObject({
       status: 401,
-      code: 'auth_required',
+      code: 'AUTH_REQUIRED',
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -425,10 +454,22 @@ describe('apiClient — 401 interceptor', () => {
 
     await expect(apiClient.get('/api/foo')).rejects.toMatchObject({
       status: 401,
-      code: 'no_organization_context',
+      code: 'NO_ORGANIZATION_CONTEXT',
     });
 
     expect(notifyAuthRequiredMock).not.toHaveBeenCalled();
+  });
+
+  it('AC3b: the ADR-0023 401 envelope notifies by code, not by message text', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401, { statusCode: 401, code: 'AUTH_REQUIRED', kind: 'auth', message: ERROR_DEFINITIONS.AUTH_REQUIRED.text, errors: [] }))
+      .mockResolvedValueOnce(jsonResponse(401, { statusCode: 401, code: 'NO_ORGANIZATION_CONTEXT', kind: 'auth', message: ERROR_DEFINITIONS.NO_ORGANIZATION_CONTEXT.text, errors: [] }));
+
+    await expect(apiClient.get('/api/foo')).rejects.toMatchObject({ status: 401, code: 'AUTH_REQUIRED' });
+    expect(notifyAuthRequiredMock).toHaveBeenCalledOnce();
+    await expect(apiClient.get('/api/bar')).rejects.toMatchObject({ status: 401, code: 'NO_ORGANIZATION_CONTEXT' });
+    expect(notifyAuthRequiredMock).toHaveBeenCalledOnce();
   });
 
   it('AC4: GET 401 unknown_message throws a generic ApiError without clearing', async () => {
@@ -452,7 +493,7 @@ describe('apiClient — 401 interceptor', () => {
 
     expect(isApiError(caught)).toBe(true);
     expect((caught as ApiError).status).toBe(401);
-    expect((caught as ApiError).code).toBe('Unauthorized');
+    expect((caught as ApiError).code).toBe('UNKNOWN');
     expect(notifyAuthRequiredMock).not.toHaveBeenCalled();
   });
 
@@ -477,8 +518,8 @@ describe('apiClient — 401 interceptor', () => {
 
     expect(isApiError(caught)).toBe(true);
     expect((caught as ApiError).status).toBe(500);
-    expect((caught as ApiError).code).toBe('INTERNAL');
-    expect((caught as ApiError).detail).toBe('database connection lost');
+    expect((caught as ApiError).code).toBe('UNKNOWN');
+    expect((caught as ApiError).message).toBe(ERROR_DEFINITIONS.INTERNAL_ERROR.text);
     expect(notifyAuthRequiredMock).not.toHaveBeenCalled();
   });
 
@@ -579,7 +620,7 @@ describe('apiClient request deadlines', () => {
 
     const rejected = expect(pending).rejects.toMatchObject({
       status: 0,
-      code: 'request_timeout',
+      code: 'REQUEST_TIMEOUT',
     });
     await vi.advanceTimersByTimeAsync(15_000);
 
@@ -591,7 +632,7 @@ describe('apiClient request deadlines', () => {
     installAbortableNeverSettlingFetch();
 
     const pending = apiClient.get('/api/slow', { timeoutMs: 10 });
-    const rejected = expect(pending).rejects.toMatchObject({ code: 'request_timeout' });
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
     await vi.advanceTimersByTimeAsync(10);
 
     await rejected;
@@ -606,7 +647,7 @@ describe('apiClient request deadlines', () => {
       timeoutMs: 11,
     });
     const rejected = expect(pending).rejects.toMatchObject({
-      code: 'request_timeout',
+      code: 'REQUEST_TIMEOUT',
     });
     await vi.advanceTimersByTimeAsync(11);
 
@@ -629,7 +670,7 @@ describe('apiClient request deadlines', () => {
     const pending = request();
     const rejected = expect(pending).rejects.toMatchObject({
       status: 0,
-      code: 'request_timeout',
+      code: 'REQUEST_TIMEOUT',
     });
     await vi.advanceTimersByTimeAsync(15_000);
 
@@ -745,7 +786,7 @@ describe('apiClient request deadlines', () => {
     rejectFetch(networkError);
     caller.abort(new Error('navigation after failure'));
 
-    await expect(pending).rejects.toMatchObject({ code: 'network_error' });
+    await expect(pending).rejects.toMatchObject({ code: 'NETWORK_FAILED' });
     expect(errorLog).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
     errorLog.mockRestore();
@@ -756,7 +797,7 @@ describe('apiClient request deadlines', () => {
     (fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new TypeError('offline'));
 
     await expect(apiClient.get('/api/fail-fast', { timeoutMs: 10_000 }))
-      .rejects.toMatchObject({ code: 'network_error' });
+      .rejects.toMatchObject({ code: 'NETWORK_FAILED' });
 
     expect(vi.getTimerCount()).toBe(0);
     error.mockRestore();
@@ -768,7 +809,7 @@ describe('apiClient request deadlines', () => {
     );
 
     await expect(apiClient.get('/api/http-error', { timeoutMs: 10_000 }))
-      .rejects.toMatchObject({ status: 503, code: 'unavailable' });
+      .rejects.toMatchObject({ status: 503, code: 'UNKNOWN' });
 
     expect(vi.getTimerCount()).toBe(0);
   });

@@ -38,7 +38,7 @@ export function MallListingProfileForm({ account }: { account: OrderCollectionMa
       void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
       toast.success(`${account.name} 등록 기본값을 저장했습니다.`);
     } catch (error) {
-      toast.error(isApiError(error) ? error.detail : `${account.name} 등록 기본값을 저장하지 못했습니다.`);
+      toast.error(isApiError(error) ? error.message : `${account.name} 등록 기본값을 저장하지 못했습니다.`);
     } finally {
       setSaving(false);
     }

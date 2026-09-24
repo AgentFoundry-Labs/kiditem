@@ -29,6 +29,8 @@ import {
   collectSourcingLiveCommerceFromExtension,
   type SourcingLiveCommerceSourceStatus,
 } from '../../lib/sourcing-live-commerce-source-owner';
+import { attemptFailureText, operatorReason } from '@/lib/operator-error';
+import { friendlyError } from '@/lib/api-error';
 
 const HISTORY_DAYS = 7;
 
@@ -74,7 +76,7 @@ export function LiveCommerceSection() {
         if (result.state === 'RUNNING') request.attemptId = result.attemptId;
         else taobaoRetryKeys.current.delete(fingerprint);
       }
-      if (result.state === 'FAILED') throw new Error(result.errorMessage ?? '타오바오 수집에 실패했습니다.');
+      if (result.state === 'FAILED') throw new Error(attemptFailureText(result) ?? '타오바오 수집에 실패했습니다.');
       return result;
     },
     onSettled: async () => {
@@ -220,7 +222,7 @@ export function LiveCommerceSection() {
             <p key={warning} className="mt-2 text-xs text-amber-700">{warning}</p>
           ))}
           {taobaoCollection.error && (
-            <p role="alert" className="mt-2 text-xs text-red-600">{taobaoCollection.error.message}</p>
+            <p role="alert" className="mt-2 text-xs text-red-600">{friendlyError(taobaoCollection.error, '타오바오 수집에 실패했습니다.')}</p>
           )}
         </div>
 
@@ -377,8 +379,8 @@ function BrowserLiveCommerceSourceStatus({
     : stopped
       ? COLLECTION_STOPPED_MESSAGE
       : unhealthy
-        ? `원천 상태 이상 · ${source?.errorMessage ?? collectionError?.message ?? '최신 완료 데이터를 확인할 수 없습니다.'}`
-        : collectionError?.message ?? '라이브 방송 원천 데이터가 최신 상태입니다.';
+        ? `원천 상태 이상 · ${operatorReason(source?.errorMessage ?? collectionError?.message, '') || '최신 완료 데이터를 확인할 수 없습니다.'}`
+        : collectionError ? friendlyError(collectionError, '라이브 방송 수집에 실패했습니다.') : '라이브 방송 원천 데이터가 최신 상태입니다.';
 
   return (
     <div
@@ -452,5 +454,5 @@ function splitLiveIds(value: string): string[] {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : '라이브 방송 수집에 실패했습니다.';
+  return friendlyError(error, '라이브 방송 수집에 실패했습니다.') ?? '라이브 방송 수집에 실패했습니다.';
 }

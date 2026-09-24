@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { keywordAnalysisSnapshotQueryKey, type KeywordAnalysisInput, type KeywordAnalysisSnapshot } from '../lib/keyword-analysis-snapshot-api';
+import { attemptFailureText } from '@/lib/operator-error';
 
 interface AnalysisAttempt { attemptId: string; state: 'RUNNING' | 'COMPLETE' | 'FAILED'; errorMessage: string | null }
 interface AnalysisStatus { latestAttempt: AnalysisAttempt | null; actualCutoffAt: string | null }
@@ -47,7 +48,7 @@ export function useNaverAnalysisSource({ input }: { input: KeywordAnalysisInput 
     if (result.attempt.state !== 'RUNNING') requestKeys.current.delete(fingerprint);
     else request.attemptId = result.attempt.attemptId;
     if (result.payload) client.setQueryData(keywordAnalysisSnapshotQueryKey(requested), result.payload);
-    if (result.attempt.state === 'FAILED') setError(result.attempt.errorMessage ?? '네이버 분석 수집 실패');
+    if (result.attempt.state === 'FAILED') setError(attemptFailureText(result.attempt) ?? '네이버 분석 수집 실패');
     await client.invalidateQueries({ queryKey: [...keywordAnalysisSnapshotQueryKey(requested), 'status'] });
     return result;
   } });
@@ -59,7 +60,7 @@ export function useNaverAnalysisSource({ input }: { input: KeywordAnalysisInput 
       setError(message); toast.error(message); return null;
     }
   };
-  return { collect, error: error ?? status.data?.latestAttempt?.errorMessage ?? null,
+  return { collect, error: error ?? attemptFailureText(status.data?.latestAttempt) ?? null,
     isCollecting: mutation.isPending || status.data?.latestAttempt?.state === 'RUNNING',
     actualCutoffAt: status.data?.actualCutoffAt ?? null };
 }

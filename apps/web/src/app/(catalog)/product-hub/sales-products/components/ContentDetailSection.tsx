@@ -73,7 +73,7 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
       await invalidate();
       toast.success('상세를 저장했습니다.');
     },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '상세를 저장하지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '상세를 저장하지 못했습니다.'),
   });
   // 상세가 아직 없으면 첫 상세를 직접 쓴다 — 그 뒤로는 위의 저장이 새 revision 을 쌓는다.
   const create = useMutation({
@@ -84,7 +84,7 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
       toast.success('상세를 저장했습니다.');
     },
     onError: async (error) => {
-      toast.error(isApiError(error) ? error.detail : '상세를 저장하지 못했습니다.');
+      toast.error(isApiError(error) ? error.message : '상세를 저장하지 못했습니다.');
       // 그 사이 상세가 생겼으면(409) 다시 읽어 그 상세를 고치게 한다.
       await invalidate();
     },
@@ -96,7 +96,7 @@ export function ContentDetailSection({ salesProductId }: { salesProductId: strin
       await invalidate();
       toast.success('현재 상세 페이지를 바꿨습니다.');
     },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '현재 상세 페이지를 바꾸지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '현재 상세 페이지를 바꾸지 못했습니다.'),
   });
 
   if (workspace.isPending) return <p className="text-sm text-slate-400">상세를 불러오는 중…</p>;

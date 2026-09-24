@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { AlertCircle, CheckCircle2, Loader2, Sparkles, Square, X } from 'lucide-react';
 import { cn, formatTime } from '@/lib/utils';
 import type { GenerationDialogState } from '../hooks/useGenerateForm';
+import { operatorReason } from '@/lib/operator-error';
 
 interface GenerationStartModalProps {
   state: GenerationDialogState | null;
@@ -125,7 +126,7 @@ export default function GenerationStartModal({ state, onClose, onAction, onCance
 
           {state.errorMessage && (
             <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-left text-xs font-bold leading-5 text-rose-700">
-              {state.errorMessage}
+              {operatorReason(state.errorMessage, '생성을 시작하지 못했습니다.')}
             </p>
           )}
 

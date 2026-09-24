@@ -12,6 +12,7 @@ import {
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
+import { attemptFailureText } from '@/lib/operator-error';
 
 export const REVIEW_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
 export const REVIEW_WINDOW_RECEIPT_CAPABILITY = 'coupangReviewCollectionWindowReceiptsV1';
@@ -298,7 +299,7 @@ function toStatus(attempt: ReviewCollectionAttempt | ReviewCollectionAttemptCont
     linked: attempt.linked,
     unlinked: attempt.unlinked,
     current: null,
-    failures: attempt.errorMessage ? [{ month: '', error: attempt.errorMessage }] : [],
+    failures: attempt.errorMessage ? [{ month: '', error: attemptFailureText(attempt, 'coupang_reviews') ?? '리뷰 수집에 실패했습니다.' }] : [],
     error: attempt.errorMessage,
     cancelRequested: false,
     endedAt: attempt.state === 'RUNNING' ? null : Date.now(),

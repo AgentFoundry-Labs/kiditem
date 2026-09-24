@@ -114,6 +114,7 @@ export const ERROR_DEFINITIONS = {
   MALL_LOGIN_REQUIRED: def('extension', 'precondition', '몰에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.'),
   MALL_LOGIN_PAGE_UNREACHABLE: def('extension', 'external', '몰 로그인 페이지를 열지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   MALL_CONTRACT_CHANGED: def('extension', 'external', '몰 화면이 바뀌어 읽지 못했습니다. 개발자에게 알려 주세요.'),
+  SOURCE_SNAPSHOT_INVALID: def('extension', 'external', '수집 결과가 올바르지 않아 저장하지 않았습니다. 다시 수집해 주세요.', { retryable: true }),
   EXTENSION_UNKNOWN_FAILURE: def('extension', 'internal', '확장 프로그램 작업이 실패했습니다. 다시 시도해 주세요.', { retryable: true }),
 
   // Agent OS · Gateway
@@ -202,6 +203,11 @@ export const EXTENSION_CODE_ALIASES: Readonly<Record<string, KiditemErrorCode>> 
   search_extraction_failed: 'SOURCING_SEARCH_EXTRACTION_FAILED',
   gateway_provider_unavailable: 'AGENT_OS_GATEWAY_UNAVAILABLE',
   SOURCE_ATTEMPT_TERMINAL: 'ATTEMPT_TERMINAL',
+  sellpia_manual_match_login_required: 'MALL_LOGIN_REQUIRED',
+  sellpia_manual_match_contract_drift: 'MALL_CONTRACT_CHANGED',
+  sellpia_manual_match_invalid_snapshot: 'SOURCE_SNAPSHOT_INVALID',
+  sellpia_manual_match_timeout: 'REQUEST_TIMEOUT',
+  sellpia_manual_match_network_failed: 'NETWORK_FAILED',
   SOURCE_ATTEMPT_IN_PROGRESS: 'ATTEMPT_IN_PROGRESS',
   ROCKET_PO_COLLECTION_INCOMPLETE: 'SUPPLY_ROCKET_COLLECTION_INCOMPLETE',
   COMMON_NOT_FOUND: 'NOT_FOUND',

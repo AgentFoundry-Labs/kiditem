@@ -61,7 +61,7 @@ The HttpOnly `kiditem_session` cookie is the browser's sole credential.
 `AuthProvider.tsx` projects `/api/auth/me` through React Query and owns
 cross-tab revalidation, expiry, and redirect. `apiClient` always uses cookie
 credentials, never reads or attaches a browser bearer token, and emits
-`auth_required` without retrying a 401. Extensions receive a token only through
+`AUTH_REQUIRED` without retrying a 401. Extensions receive a token only through
 the explicit `/api/auth/extension-handoff` boundary. CopilotKit uses
 same-origin `/api/copilotkit`; do not add a Next.js route handler for Nest-owned
 APIs.

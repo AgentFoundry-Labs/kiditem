@@ -18,6 +18,7 @@ import {
 } from './mall-availability-send';
 import type { MallAvailabilityCandidate } from '@kiditem/shared/mall-publishing';
 import type { ListingAvailabilityExecution } from '@kiditem/shared/sales-product';
+import { friendlyError } from '@/lib/api-error';
 
 /**
  * 품절 송신 컨트롤. 상품등록과 품절 관리 두 화면에 같은 것이 선다.
@@ -218,7 +219,7 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
       });
       void queryClient.invalidateQueries({ queryKey: queryKeys.mallPublishing.all });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '품절을 보내지 못했습니다.');
+      toast.error(friendlyError(error, '품절을 보내지 못했습니다.'));
     } finally {
       runLock.current = false;
       setRunning(null);

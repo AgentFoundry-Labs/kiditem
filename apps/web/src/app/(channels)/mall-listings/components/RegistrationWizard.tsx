@@ -506,7 +506,7 @@ function ErrorBox({ error, fallback }: { error: unknown; fallback: string }) {
   return (
     <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-600">
       <AlertCircle size={15} />
-      {isApiError(error) ? error.detail : fallback}
+      {isApiError(error) ? error.message : fallback}
     </div>
   );
 }

@@ -18,9 +18,9 @@ import type {
   CoupangCatalogSourceStatus,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { CatalogReadinessState } from './useReadinessCollection';
+import { operatorReason } from '@/lib/operator-error';
 
 const START_TITLE = '선택한 쿠팡 계정의 Wing 등록 상품을 기본 목록부터 전체 상세까지 받습니다.';
-const HANGUL = /[가-힣]/;
 // Nothing can start before an account is chosen.
 const NO_ACCOUNT_VIEW: CollectionControlView = {
   state: 'idle',
@@ -66,8 +66,7 @@ function phaseLabel(status: CoupangCatalogSourceStatus): string | null {
 
 function failureMessage(run: CoupangCatalogCollectionRun): string {
   if (run.error?.code === 'ATTEMPT_EXPIRED') return '수집 시간이 지나 끝났습니다.';
-  const message = run.error?.message?.trim() ?? '';
-  return HANGUL.test(message) ? message : '쿠팡 상품 받기에 실패했습니다.';
+  return operatorReason(run.error?.message, '쿠팡 상품 받기에 실패했습니다.');
 }
 
 /**

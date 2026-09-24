@@ -15,6 +15,7 @@ import {
   mallFrom,
   MALL_ADMIN_NO_ACCOUNT,
 } from './mall-admin-listings-collection';
+import { attemptFailureText } from '@/lib/operator-error';
 
 /**
  * 몰 관리자에서 등록 상품을 직접 가져오는 자리(KID-246 2단계) — 키드키즈 · 아이스크림몰처럼
@@ -101,8 +102,8 @@ export function MallAdminListingsImport({
           {stopped ? (
             <span role="status" className="text-slate-500" title={COLLECTION_STOPPED_MESSAGE}>중단함</span>
           ) : failure?.errorMessage ? (
-            <span role="status" className="max-w-[9rem] truncate text-red-600" title={failure.errorMessage}>
-              {failure.errorMessage}
+            <span role="status" className="max-w-[9rem] truncate text-red-600" title={attemptFailureText(failure, 'mall_admin_listings') ?? undefined}>
+              {attemptFailureText(failure, 'mall_admin_listings')}
             </span>
           ) : completedAt ? (
             <span className="text-slate-500" title={statusTitle}>
@@ -129,7 +130,7 @@ export function MallAdminListingsImport({
         <span role="status" className="text-xs text-slate-500">{COLLECTION_STOPPED_MESSAGE}</span>
       ) : failure?.errorMessage ? (
         <span role="status" className="max-w-xs text-xs text-red-600">
-          {failure.errorMessage}
+          {attemptFailureText(failure, 'mall_admin_listings')}
         </span>
       ) : null}
       {canLink ? (

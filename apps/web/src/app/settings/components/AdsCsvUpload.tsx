@@ -58,7 +58,7 @@ export default function AdsCsvUpload() {
         toast.error(data.error ?? '업로드 실패');
       }
     } catch (err) {
-      const msg = isApiError(err) ? err.detail : '업로드 실패';
+      const msg = isApiError(err) ? err.message : '업로드 실패';
       setUploadStatus('error');
       setUploadResult({ error: msg });
       toast.error(msg);

@@ -190,12 +190,9 @@ export function beginOrderCollectionSourceAttempt(
       if (
         isApiError(error)
         && error.status === 409
-        && (error.details.code === 'ATTEMPT_IN_PROGRESS' || error.detail === 'ATTEMPT_IN_PROGRESS')
+        && error.code === 'ATTEMPT_IN_PROGRESS'
       ) {
-        throw new ApiError(409, error.code, ORDER_COLLECTION_IN_PROGRESS_MESSAGE, {
-          ...error.details,
-          code: 'ATTEMPT_IN_PROGRESS',
-        });
+        throw new ApiError(409, error.code, ORDER_COLLECTION_IN_PROGRESS_MESSAGE, error.details);
       }
       throw error;
     });

@@ -83,6 +83,8 @@ import {
   buildTemplateSectionBlockHtml,
   TEMPLATE_SECTION_PRESETS,
 } from './template-section-blocks';
+import { friendlyError } from '@/lib/api-error';
+import { attemptFailureText } from '@/lib/operator-error';
 
 interface DetailPageEditorProps {
   html: string;
@@ -1823,7 +1825,7 @@ function EditorToolbar({
       editor.UndoManager.clear();
     } catch (err) {
       if (err instanceof Error && err.name === 'EditorSaveTimeoutError') {
-        toast.error(err.message);
+        toast.error(friendlyError(err, '저장 시간이 초과되었습니다.'));
       }
     } finally {
       setIsSaving(false);
@@ -3566,7 +3568,7 @@ function RightPanel({
         } catch { continue; }
 
         if (task.status === 'failed' || task.status === 'cancelled' || task.status === 'skipped') {
-          throw new Error(task.errorMessage || task.errorCode || '색상 안내 생성 실패');
+          throw new Error(attemptFailureText(task) ?? '색상 안내 생성 실패');
         }
 
         if (task.status !== 'succeeded') continue;

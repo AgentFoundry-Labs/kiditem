@@ -13,6 +13,7 @@ import {
   SABANGNET_NO_MALL_ACCOUNTS,
   sabangnetListingsCollection,
 } from './sabangnet-listings-collection';
+import { attemptFailureText } from '@/lib/operator-error';
 
 export const SABANGNET_IMPORT_TITLE =
   '사방넷 송신 기록에서 몰마다 등록된 상품(몰 상품코드)을 한 번에 가져옵니다. 사방넷에는 아무것도 보내지 않습니다.';
@@ -69,7 +70,7 @@ export function SabangnetListingsImport({ className }: { className?: string }) {
         <span role="status" className="text-xs text-slate-500">{COLLECTION_STOPPED_MESSAGE}</span>
       ) : failure?.errorMessage ? (
         <span role="status" className="max-w-xs text-xs text-red-600">
-          {failure.errorMessage}
+          {attemptFailureText(failure, 'sabangnet_mall_listings')}
         </span>
       ) : null}
       {malls > 0 && control.state !== 'running' ? (

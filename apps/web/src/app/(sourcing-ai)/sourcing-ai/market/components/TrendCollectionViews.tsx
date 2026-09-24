@@ -40,6 +40,7 @@ import {
   type SourcingTiktokCcSourceStatus,
 } from '../../lib/sourcing-tiktok-source-owner';
 import { LiveCommerceSection } from './LiveCommerceSection';
+import { attemptFailureText, operatorReason } from '@/lib/operator-error';
 
 const POPULAR_DAYS = 7;
 const NAVER_KEYWORD_DAYS = 30;
@@ -266,7 +267,7 @@ function TiktokCcSourceStatus({
     ? '틱톡 트렌드를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
     : stopped
       ? COLLECTION_STOPPED_MESSAGE
-      : source?.errorMessage ?? errorMessage ?? '틱톡 수집 데이터가 최신 계획과 일치하지 않습니다.';
+      : attemptFailureText(source) ?? operatorReason(errorMessage, '틱톡 수집 데이터가 최신 계획과 일치하지 않습니다.');
 
   return (
     <div

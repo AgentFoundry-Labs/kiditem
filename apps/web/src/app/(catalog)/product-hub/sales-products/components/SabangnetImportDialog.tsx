@@ -57,7 +57,7 @@ export function SabangnetImportDialog({ onClose }: { onClose: () => void }) {
       }
     },
     onError: (error) => {
-      toast.error(isApiError(error) ? error.detail : '사방넷 엑셀을 읽지 못했습니다.');
+      toast.error(isApiError(error) ? error.message : '사방넷 엑셀을 읽지 못했습니다.');
     },
   });
 

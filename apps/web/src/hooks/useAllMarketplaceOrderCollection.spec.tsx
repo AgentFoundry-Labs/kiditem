@@ -194,9 +194,9 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     const logActivity = vi.fn();
     mocks.begin.mockRejectedValue(new ApiError(
       409,
-      'HTTP_409',
+      'ATTEMPT_IN_PROGRESS',
       ORDER_COLLECTION_IN_PROGRESS_MESSAGE,
-      { code: 'ATTEMPT_IN_PROGRESS', attemptId: attemptFor('kidsnote', 9).attemptId },
+      {  attemptId: attemptFor('kidsnote', 9).attemptId },
     ));
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
@@ -233,7 +233,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     const ready = mall('onch', '온채널');
     mocks.begin.mockImplementation(async (_key: string, input: { mallKey: string }) => {
       if (input.mallKey === missing.key) {
-        throw new ApiError(404, 'Not Found', 'ORDER_COLLECTION_MALL_NOT_FOUND', {});
+        throw new ApiError(404, 'NOT_FOUND', null, { reason: 'ORDER_COLLECTION_MALL_NOT_FOUND' });
       }
       return { ...attemptFor(input.mallKey, 1), attemptToken: '33333333-3333-4333-8333-333333333333' };
     });
@@ -685,9 +685,9 @@ describe('useAllMarketplaceOrderCollection — 원천이 달라도 집계는 같
   it('⭐ 이미 진행 중인 직배송도 실패가 아니라 진행 중으로 센다', async () => {
     mocks.beginDirect.mockRejectedValue(new ApiError(
       409,
-      'HTTP_409',
+      'ATTEMPT_IN_PROGRESS',
       ORDER_COLLECTION_IN_PROGRESS_MESSAGE,
-      { code: 'ATTEMPT_IN_PROGRESS', attemptId: DIRECT_ATTEMPT_ID },
+      {  attemptId: DIRECT_ATTEMPT_ID },
     ));
     const { result } = collectBoth();
 

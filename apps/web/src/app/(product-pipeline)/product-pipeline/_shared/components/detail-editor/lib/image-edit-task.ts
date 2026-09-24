@@ -1,5 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 import { extractEditedImageUrl } from './image-edit-result';
+import { attemptFailureText } from '@/lib/operator-error';
 
 export class ImageEditPollingCancelledError extends Error {
   constructor() {
@@ -114,7 +115,7 @@ export async function pollImageEditTaskResult(
       continue;
     }
     if (task.status === 'failed' || task.status === 'cancelled' || task.status === 'skipped') {
-      throw new Error(task.errorMessage || task.errorCode || '이미지 편집에 실패했습니다');
+      throw new Error(attemptFailureText(task) ?? '이미지 편집에 실패했습니다');
     }
     if (task.status === 'succeeded') {
       const imageUrl = extractEditedImageUrl(task.output ?? null);

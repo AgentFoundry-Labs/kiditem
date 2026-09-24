@@ -56,7 +56,7 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
   };
 
   const errorMessage = mutation.error
-    ? (isApiError(mutation.error) ? mutation.error.detail : '상품을 저장하지 못했습니다.')
+    ? (isApiError(mutation.error) ? mutation.error.message : '상품을 저장하지 못했습니다.')
     : null;
 
   return (

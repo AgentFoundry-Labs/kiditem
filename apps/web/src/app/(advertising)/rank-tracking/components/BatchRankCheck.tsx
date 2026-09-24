@@ -8,6 +8,7 @@ import { stoppedAttempt } from "@/lib/collection-source-status-query";
 import { queryKeys } from "@/lib/query-keys";
 import { listWingRankSessions, openWingRankAttention } from "../lib/rank-extension";
 import { wingRankBatchCollection } from "../lib/wing-rank-batch-collection";
+import { attemptFailureText } from '@/lib/operator-error';
 
 /**
  * The organization's current Wing rank batch: the shared collection control,
@@ -75,7 +76,7 @@ export default function BatchRankCheck({
                 {failures.map((attempt) => (
                   <li key={attempt.attemptId} className="break-words">
                     {attempt.keyword}: {" "}
-                    {attempt.errorMessage ?? attempt.errorCode ?? "수집 실패"}
+                    {attemptFailureText(attempt, 'coupang_wing_rank') ?? '수집 실패'}
                   </li>
                 ))}
               </ul>

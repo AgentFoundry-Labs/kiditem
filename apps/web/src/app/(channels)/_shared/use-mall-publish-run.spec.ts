@@ -129,7 +129,7 @@ describe('useMallPublishRun target execution', () => {
 
   it('keeps the fence refusal code on a failed task so a screen can say the account is already registered', async () => {
     mocks.execute.mockRejectedValue(new ApiError(409, 'Conflict', '이미 이 몰 계정에 등록된 상품입니다(몰 상품 kk-9).', {
-      code: REGISTRATION_ALREADY_REGISTERED_CODE,
+      reason: REGISTRATION_ALREADY_REGISTERED_CODE,
     }));
     const { result } = renderHook(() => useMallPublishRun());
 

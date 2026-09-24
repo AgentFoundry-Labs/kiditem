@@ -15,6 +15,7 @@ import { readBrowserCollectionSession } from './browser-collection-session';
 import { transferExtensionAuthTo } from './extension-auth';
 import { detectExtensionId, sendToExtension } from './extension-bridge';
 import { createSecureRandomUuid } from './secure-random-uuid';
+import { operatorReason } from './operator-error';
 
 export type CollectionStartScope<TProducer extends CollectionStartProducer> = Extract<
   CollectionStartRequest,
@@ -27,7 +28,6 @@ const START_REPLY_TIMEOUT_MS = 60_000;
 const EXTENSION_MISSING = '브라우저 수집 익스텐션을 찾을 수 없습니다.';
 const START_REQUEST_FAILED = '확장 프로그램이 수집 시작 요청을 처리하지 못했습니다.';
 export const COLLECTION_START_UPDATE_REQUIRED = '확장 프로그램을 업데이트해 주세요.';
-const HANGUL = /[가-힣]/;
 // A web-opened start waits this long for the extension to take the attempt.
 const HANDOFF_DEADLINE_MS = 20_000;
 const HANDOFF_POLL_MS = 500;
@@ -40,8 +40,7 @@ const HANDOFF_UNANSWERED = '확장 프로그램이 수집을 넘겨받지 않았
 const HANDOFF_OTHER_RUN = '확장 프로그램이 다른 수집을 처리하느라 이 수집을 넘겨받지 못했습니다. 잠시 후 다시 시작해 주세요.';
 
 function koreanReason(message: unknown, fallback: string): string {
-  const text = typeof message === 'string' ? message.trim() : '';
-  return HANGUL.test(text) ? text : fallback;
+  return operatorReason(message, fallback);
 }
 
 /** A dispatch failure keeps the extension's `{ success: false, error }` shape. */
@@ -97,7 +96,7 @@ export async function requestCollectionStart<TProducer extends CollectionStartPr
  */
 export function attemptInProgress(error: unknown): Readonly<{ attemptId: string | null }> | null {
   if (!isApiError(error) || error.status !== 409) return null;
-  if (error.details.code !== 'ATTEMPT_IN_PROGRESS') return null;
+  if (error.code !== 'ATTEMPT_IN_PROGRESS') return null;
   return { attemptId: error.details.attemptId ?? null };
 }
 

@@ -199,8 +199,8 @@ describe('Sellpia sales collection control', () => {
   it('joins the collection the owner already runs instead of opening another', async () => {
     vi.mocked(apiClient.post).mockImplementation(async () => {
       source = { latestAttempt: latestAttempt('RUNNING'), latestComplete: null };
-      throw new ApiError(409, 'Conflict', 'Conflict', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
+        
         attemptId: ATTEMPT_ID,
       });
     });

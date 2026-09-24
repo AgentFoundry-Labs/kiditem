@@ -55,6 +55,7 @@ import {
   fetchCoupangKeywordSuggestionSnapshot,
   keywordSuggestionSnapshotQueryKey,
 } from '../lib/coupang-keyword-snapshot-api';
+import { attemptFailureText } from '@/lib/operator-error';
 
 interface CoupangPopularKeyword extends SourcingKeywordSuggestionItem {
   monthlyTotalSearchCount: number | null;
@@ -1083,7 +1084,7 @@ function CoupangKeywordCollectionControl({
   const statusMessage = source.isCollecting
     ? '쿠팡 키워드 수집 중입니다. 이전 완료 스냅샷은 계속 표시합니다.'
     : latestAttempt?.state === 'FAILED'
-      ? `마지막 쿠팡 키워드 수집 실패: ${latestAttempt.errorCode ?? 'UNKNOWN'}${latestAttempt.errorMessage ? ` — ${latestAttempt.errorMessage}` : ''}${source.latestComplete ? ' · 이전 완료 스냅샷을 유지합니다.' : ''}`
+      ? `마지막 쿠팡 키워드 수집 실패: ${attemptFailureText(latestAttempt, 'coupang_keyword_serp')}${source.latestComplete ? ' · 이전 완료 스냅샷을 유지합니다.' : ''}`
       : latestAttempt?.state === 'COMPLETE'
         ? '쿠팡 키워드 수집을 완료했습니다. 저장된 스냅샷을 갱신했습니다.'
         : source.latestComplete

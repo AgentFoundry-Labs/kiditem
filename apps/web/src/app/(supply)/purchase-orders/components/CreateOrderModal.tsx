@@ -65,7 +65,7 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
       });
       onCreated();
     } catch (err) {
-      setError(isApiError(err) ? err.detail : '발주 생성에 실패했습니다.');
+      setError(isApiError(err) ? err.message : '발주 생성에 실패했습니다.');
     } finally {
       setSubmitting(false);
     }

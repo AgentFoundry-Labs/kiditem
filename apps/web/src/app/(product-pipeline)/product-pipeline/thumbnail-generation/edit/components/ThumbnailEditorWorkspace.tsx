@@ -46,6 +46,7 @@ import { useGenerationAwaitingState } from '../hooks/useGenerationAwaitingState'
 import { EditorPageHeader } from './EditorPageHeader';
 import { DeleteCandidateConfirmDialog } from './DeleteCandidateConfirmDialog';
 import { getThemeHint } from '../lib/theme-hint';
+import { friendlyError } from '@/lib/api-error';
 
 export type { EditorMode, HistoryCandidate } from '../lib/edit-page-types';
 
@@ -326,7 +327,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
     } catch (err) {
       if (!mountedRef.current) return;
       clearAwaiting(); // 에러 시에만 해제. 정상 응답 시는 generationId 있어 useEffect 가 status 기반 해제.
-      toast.error(err instanceof Error ? err.message : '썸네일 생성 실패');
+      toast.error(friendlyError(err, '썸네일 생성 실패'));
     }
   };
 
@@ -387,7 +388,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
       }
     } catch (err) {
       if (!mountedRef.current) return;
-      toast.error(err instanceof Error ? err.message : 'Wing 연동 오류');
+      toast.error(friendlyError(err, 'Wing 연동 오류'));
     }
   };
 
@@ -442,7 +443,7 @@ export function ThumbnailEditorWorkspace({ embedded = false, onBack }: Thumbnail
       }
     } catch (err) {
       if (!mountedRef.current) return;
-      toast.error(err instanceof Error ? err.message : '삭제 실패');
+      toast.error(friendlyError(err, '삭제 실패'));
     }
   };
 

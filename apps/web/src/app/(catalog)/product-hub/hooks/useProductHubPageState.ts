@@ -186,7 +186,7 @@ export function useProductHubPageState() {
     data: listQuery.data,
     dataStatusOpen,
     errorMessage: listQuery.error
-      ? (isApiError(listQuery.error) ? listQuery.error.detail : '상품 운영 목록을 불러오지 못했습니다.')
+      ? (isApiError(listQuery.error) ? listQuery.error.message : '상품 운영 목록을 불러오지 못했습니다.')
       : null,
     goToPage,
     handleSearch,
@@ -199,7 +199,7 @@ export function useProductHubPageState() {
     overviewErrorMessage: shouldReuseListSummary
       ? null
       : overviewQuery.error
-      ? (isApiError(overviewQuery.error) ? overviewQuery.error.detail : '전체 상품 운영 현황을 불러오지 못했습니다.')
+      ? (isApiError(overviewQuery.error) ? overviewQuery.error.message : '전체 상품 운영 현황을 불러오지 못했습니다.')
       : null,
     page,
     periodDays,

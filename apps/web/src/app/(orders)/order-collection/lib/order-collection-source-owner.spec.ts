@@ -18,7 +18,7 @@ import {
 describe('beginOrderCollectionSourceAttempt', () => {
   /** 서버는 몰마다 진행 중인 시도를 하나만 둔다. 거절을 'Conflict Exception' 그대로 보여 주지 않는다. */
   it('⭐ says the mall still has a collection running instead of a bare conflict', async () => {
-    mockPost.mockRejectedValueOnce(new ApiError(409, 'HTTP_409', 'ATTEMPT_IN_PROGRESS'));
+    mockPost.mockRejectedValueOnce(new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Attempt in progress'));
 
     const started = beginOrderCollectionSourceAttempt('11111111-1111-4111-8111-111111111111', {
       mallKey: 'kidsnote',
@@ -30,8 +30,7 @@ describe('beginOrderCollectionSourceAttempt', () => {
 
   /** 진행 중이라는 사실은 기계가 읽는 자리에 남아야 화면이 실패가 아니라 진행 중으로 보여 준다. */
   it('⭐ keeps the running attempt readable so the screen shows it instead of a failed start', async () => {
-    mockPost.mockRejectedValueOnce(new ApiError(409, 'HTTP_409', 'ATTEMPT_IN_PROGRESS', {
-      code: 'ATTEMPT_IN_PROGRESS',
+    mockPost.mockRejectedValueOnce(new ApiError(409, 'ATTEMPT_IN_PROGRESS', null, {
       attemptId: '22222222-2222-4222-8222-222222222222',
     }));
 
@@ -40,8 +39,9 @@ describe('beginOrderCollectionSourceAttempt', () => {
       collectionDate: '2026-09-14',
     })).rejects.toMatchObject({
       status: 409,
+      code: 'ATTEMPT_IN_PROGRESS',
       message: ORDER_COLLECTION_IN_PROGRESS_MESSAGE,
-      details: { code: 'ATTEMPT_IN_PROGRESS', attemptId: '22222222-2222-4222-8222-222222222222' },
+      details: { attemptId: '22222222-2222-4222-8222-222222222222' },
     });
   });
 

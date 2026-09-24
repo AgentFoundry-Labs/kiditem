@@ -112,7 +112,7 @@ function SettingsBody({
         {mallsQuery.isError ? (
           <div className="flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-4 text-sm text-red-600">
             <AlertCircle size={15} />
-            {isApiError(mallsQuery.error) ? mallsQuery.error.detail : '몰 계정을 불러오지 못했습니다.'}
+            {isApiError(mallsQuery.error) ? mallsQuery.error.message : '몰 계정을 불러오지 못했습니다.'}
           </div>
         ) : mallsQuery.isLoading ? (
           <div className="flex items-center gap-2 text-sm text-slate-500">

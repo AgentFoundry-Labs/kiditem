@@ -64,7 +64,7 @@ describe('retained scrape URL action', () => {
     vi.mocked(sourcingApi.scrapeUrlStatus).mockResolvedValue({ ...missing, source } as never);
     vi.mocked(sourcingApi.scrapeUrl).mockRejectedValue(new Error('response lost'));
     const hook = mount();
-    await waitFor(() => expect(hook.result.current.scrapeError).toBe('provider unavailable'));
+    await waitFor(() => expect(hook.result.current.scrapeError).toBe('수집에 실패했습니다.'));
     expect(hook.result.current.ownerStatus?.actualCutoffAt).toBe(source.actualCutoffAt);
     expect(sourcingApi.scrapeUrl).not.toHaveBeenCalled();
     await act(async () => hook.result.current.handleSubmit());
@@ -74,7 +74,7 @@ describe('retained scrape URL action', () => {
     const saved = new URL(navigation.replace.mock.calls.at(-1)![0], 'https://app.test');
     hook.unmount(); navigation.query = saved.searchParams.toString();
     const reloaded = mount();
-    await waitFor(() => expect(reloaded.result.current.scrapeError).toBe('provider unavailable'));
+    await waitFor(() => expect(reloaded.result.current.scrapeError).toBe('수집에 실패했습니다.'));
     await act(async () => reloaded.result.current.handleSubmit());
     await waitFor(() => expect(sourcingApi.scrapeUrl).toHaveBeenCalledTimes(2));
     expect(vi.mocked(sourcingApi.scrapeUrl).mock.calls[1][1]).toBe(key);

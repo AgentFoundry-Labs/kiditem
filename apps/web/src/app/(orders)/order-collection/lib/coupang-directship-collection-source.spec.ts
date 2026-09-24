@@ -112,8 +112,8 @@ describe('coupangDirectshipCollectionSource', () => {
   it('reads the owner conflict as the account already collecting', async () => {
     const { handOff, source } = adapter();
     vi.mocked(apiClient.post).mockRejectedValue(
-      new ApiError(409, 'conflict', '이미 진행 중입니다.', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      new ApiError(409, 'ATTEMPT_IN_PROGRESS', '이미 진행 중입니다.', {
+        
         attemptId: RUNNING_ATTEMPT_ID,
       }),
     );
@@ -163,8 +163,8 @@ describe('coupangDirectshipCollectionSource', () => {
     expect(coupangDirectshipStartAlreadyRunning(
       queryClient,
       CHANNEL_ACCOUNT_ID,
-      new ApiError(409, 'conflict', '이미 진행 중입니다.', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      new ApiError(409, 'ATTEMPT_IN_PROGRESS', '이미 진행 중입니다.', {
+        
         attemptId: RUNNING_ATTEMPT_ID,
       }),
     )).toBe(true);

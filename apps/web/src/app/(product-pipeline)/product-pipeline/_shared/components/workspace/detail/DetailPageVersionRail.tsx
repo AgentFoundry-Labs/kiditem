@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn, formatDateTime } from '@/lib/utils';
 import type { DetailGenerationRow } from './detail-generation-rows';
+import { operatorReason } from '@/lib/operator-error';
 
 interface DetailPageVersionRailProps {
   rows: DetailGenerationRow[];
@@ -82,7 +83,7 @@ function rowSubtitle(row: DetailGenerationRow): string | null {
     const subtitle = result?.hook?.subtext;
     return typeof subtitle === 'string' && subtitle.trim() ? subtitle : null;
   }
-  return row.errorMessage;
+  return row.errorMessage ? operatorReason(row.errorMessage, '생성에 실패했습니다.') : row.errorMessage;
 }
 
 function applyLabel(row: DetailGenerationRow, state: 'idle' | 'applied' | 'applying') {

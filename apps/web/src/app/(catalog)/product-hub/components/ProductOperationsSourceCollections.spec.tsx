@@ -198,8 +198,8 @@ describe('ProductOperationsSourceCollections', () => {
         latestComplete: null,
         ready: false,
       };
-      throw new ApiError(409, 'Conflict', 'Conflict', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
+        
         attemptId: ATTEMPT_ID,
       });
     });

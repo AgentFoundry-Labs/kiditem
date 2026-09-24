@@ -364,7 +364,7 @@ export async function executeTargetRegistration(
     const reported = await reportWith('submitted', {
       ...report.evidence,
       observedStatus: 'submitted',
-      message: error.detail,
+      message: error.message,
     });
     return {
       execution: reported,

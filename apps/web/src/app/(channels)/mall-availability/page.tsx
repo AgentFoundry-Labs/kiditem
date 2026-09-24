@@ -110,7 +110,7 @@ export default function MallAvailabilityPage() {
       {previewQuery.isError ? (
         <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-5 text-sm text-red-600">
           <AlertCircle size={15} />
-          {isApiError(previewQuery.error) ? previewQuery.error.detail : '품절 후보를 불러오지 못했습니다.'}
+          {isApiError(previewQuery.error) ? previewQuery.error.message : '품절 후보를 불러오지 못했습니다.'}
         </div>
       ) : previewQuery.isLoading ? (
         <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-5 text-sm text-slate-500">

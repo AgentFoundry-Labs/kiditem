@@ -192,8 +192,8 @@ describe('SellpiaSyncAction', () => {
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
       freshnessView = freshness('running');
-      throw new ApiError(409, 'Conflict', 'Conflict', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
+        
         attemptId: ATTEMPT_ID,
       });
     });

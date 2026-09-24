@@ -21,7 +21,7 @@ describe('direct Naver analysis intent', () => {
     await act(async () => { await result.current.collect(); });
     vi.mocked(apiClient.get).mockResolvedValue({ latestAttempt: { attemptId: 'pending', state: 'FAILED', errorMessage: 'provider failed' } });
     await act(async () => { await client.refetchQueries(); });
-    await waitFor(() => expect(result.current.error).toBe('provider failed'));
+    await waitFor(() => expect(result.current.error).toBe('수집 작업이 실패했습니다. 다시 시도해 주세요.'));
     vi.mocked(apiClient.post).mockRejectedValueOnce(new Error('response lost'));
     await act(async () => { await result.current.collect(); });
     const calls = vi.mocked(apiClient.post).mock.calls;
@@ -48,7 +48,7 @@ describe('direct Naver analysis intent', () => {
     const calls = vi.mocked(apiClient.post).mock.calls;
     expect(calls[0][0]).toBe('/api/sourcing/keyword-analysis/collect');
     expect(calls[1][2]).toEqual(calls[0][2]);
-    expect(result.current.error).toBe('provider failed');
+    expect(result.current.error).toBe('수집 작업이 실패했습니다. 다시 시도해 주세요.');
     await act(async () => { await result.current.collect(); });
     expect(calls[2][2]).not.toEqual(calls[0][2]);
   });

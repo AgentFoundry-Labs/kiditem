@@ -10,6 +10,7 @@ import {
   type DashboardPeriod,
 } from '../hooks/use-wing-traffic-collection';
 import { formatWingTrafficRange } from '../lib/wing-traffic-collection';
+import { attemptFailureText } from '@/lib/operator-error';
 
 function statusLabel(
   state: 'RUNNING' | 'COMPLETE' | 'FAILED' | undefined,
@@ -159,7 +160,7 @@ export function WingDailyTrafficCollection({
         <p className={cn('mt-2 text-[13px]', cancelled ? 'text-amber-700' : 'text-rose-700')} data-testid="wing-traffic-error">
           {cancelled
             ? COLLECTION_STOPPED_MESSAGE
-            : attempt.errorMessage ?? '최근 Wing 일별 트래픽 수집에 실패했습니다.'}
+            : attemptFailureText(attempt, 'coupang_wing_traffic') ?? '최근 Wing 일별 트래픽 수집에 실패했습니다.'}
         </p>
       )}
     </section>

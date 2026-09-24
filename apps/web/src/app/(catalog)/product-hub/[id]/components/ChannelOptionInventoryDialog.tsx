@@ -145,7 +145,7 @@ export function ChannelOptionInventoryDialog({
   };
   const errorMessage = mutation.error
     ? recipeConflictMessage(mutation.error)
-      ?? (isApiError(mutation.error) ? mutation.error.detail : '옵션 레시피를 저장하지 못했습니다.')
+      ?? (isApiError(mutation.error) ? mutation.error.message : '옵션 레시피를 저장하지 못했습니다.')
     : null;
 
   return (

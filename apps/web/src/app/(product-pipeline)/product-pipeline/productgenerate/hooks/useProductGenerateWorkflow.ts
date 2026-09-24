@@ -126,7 +126,7 @@ export function useProductGenerateWorkflow() {
         editorUrl: collectedProductDetailHref(response.salesProductId),
       });
     } catch (err) {
-      form.setError(isApiError(err) ? err.detail : '상품 생성 요청에 실패했습니다.');
+      form.setError(isApiError(err) ? err.message : '상품 생성 요청에 실패했습니다.');
     } finally {
       setIsRegisteringCandidate(false);
     }
@@ -178,7 +178,7 @@ export function useProductGenerateWorkflow() {
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailJobs.all }),
       ]);
     } catch (err) {
-      form.setError(isApiError(err) ? err.detail : '상품 생성 중단 요청에 실패했습니다.');
+      form.setError(isApiError(err) ? err.message : '상품 생성 중단 요청에 실패했습니다.');
     }
   };
 

@@ -34,7 +34,7 @@ export function AutoEditSection() {
       });
     },
     onError: (err: unknown) => {
-      const message = isApiError(err) ? err.detail : err instanceof Error ? err.message : '요청 실패';
+      const message = isApiError(err) ? err.message : err instanceof Error ? err.message : '요청 실패';
       toast.error(`자동 재편집 실패: ${message}`);
     },
   });

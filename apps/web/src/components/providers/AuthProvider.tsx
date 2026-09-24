@@ -52,8 +52,8 @@ function statusFromQuery(input: {
 }): AuthStatus {
   if (input.user) return input.user.organizationId ? 'ready' : 'no_organization';
   if (input.isPending) return 'loading';
-  if (isApiError(input.error) && input.error.code === 'auth_required') return 'anonymous';
-  if (isApiError(input.error) && input.error.code === 'no_organization_context') {
+  if (isApiError(input.error) && input.error.code === 'AUTH_REQUIRED') return 'anonymous';
+  if (isApiError(input.error) && input.error.code === 'NO_ORGANIZATION_CONTEXT') {
     return 'no_organization';
   }
   return input.error ? 'error' : 'anonymous';

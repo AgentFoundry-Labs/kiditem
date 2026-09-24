@@ -154,7 +154,7 @@ export function GenerationProgressBannerStack({
       toast.success('상세페이지 생성 중단 요청을 보냈습니다');
       setCancelTarget(null);
     } catch (error) {
-      toast.error(isApiError(error) ? error.detail : '상세페이지 생성 중단 요청에 실패했습니다.');
+      toast.error(isApiError(error) ? error.message : '상세페이지 생성 중단 요청에 실패했습니다.');
     } finally {
       setIsCancelling(false);
     }

@@ -46,7 +46,7 @@ const MIN_RETRY_AFTER_MS = 1_000;
 function isTransientStatusReadFailure(error: unknown): boolean {
   if (error instanceof ZodError || !isApiError(error)) return false;
   if (error.status === 0) {
-    return error.code === 'network_error' || error.code === 'request_timeout';
+    return error.code === 'NETWORK_FAILED' || error.code === 'REQUEST_TIMEOUT';
   }
   return error.status === 429 || error.status >= 500;
 }

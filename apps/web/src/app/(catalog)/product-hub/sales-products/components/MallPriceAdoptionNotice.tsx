@@ -30,7 +30,7 @@ export function MallPriceAdoptionNotice() {
       setConfirming(false);
       void queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
     },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '몰 가격을 저장하지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '몰 가격을 저장하지 못했습니다.'),
   });
 
   const data = preview.data;

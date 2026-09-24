@@ -197,7 +197,7 @@ function SalesProductsContent() {
 
         {list.isError ? (
           <p className="empty-state text-red-600">
-            {isApiError(list.error) ? list.error.detail : '판매상품을 불러오지 못했습니다.'}
+            {isApiError(list.error) ? list.error.message : '판매상품을 불러오지 못했습니다.'}
           </p>
         ) : !data ? (
           <p className="empty-state">불러오는 중</p>

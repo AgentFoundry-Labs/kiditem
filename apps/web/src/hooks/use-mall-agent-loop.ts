@@ -20,6 +20,7 @@ import { sweepMallSessions } from '@/lib/mall-session-probe';
 import { formatNumber } from '@/lib/utils';
 import { usePersistedAllMarketplaceOrderCollection } from './useAllMarketplaceOrderCollection';
 import { useRocketChannelAccounts } from './useRocketChannelAccounts';
+import { friendlyError } from '@/lib/api-error';
 
 /** 화면이 루프 상태를 읽고 켜고 끄는 곳. */
 export function useMallAgentLoop(): MallAgentLoopState & {
@@ -109,7 +110,7 @@ export function useMallAgentLoopRunner(): void {
                 : '주문수집 완료',
             );
           } catch (error) {
-            parts.push(error instanceof Error ? `주문수집 멈춤 — ${error.message}` : '주문수집 멈춤');
+            parts.push(`주문수집 멈춤 — ${friendlyError(error, '주문 수집을 이어가지 못했습니다.')}`);
           }
         } else {
           parts.push('업무시간이 아니라 수집은 건너뜀');

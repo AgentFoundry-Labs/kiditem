@@ -227,7 +227,7 @@ export function useMallPublishRun() {
             finalStatus = 'failed';
             const message = toMessage(error);
             errorMessage = adapter.describeError?.(message) ?? message;
-            errorCode = isApiError(error) ? error.details.code ?? null : null;
+            errorCode = isApiError(error) ? error.details.reason ?? (error.code === 'UNKNOWN' ? null : error.code) : null;
           }
           const result = {
             status: finalStatus,

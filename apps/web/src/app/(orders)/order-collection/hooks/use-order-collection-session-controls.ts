@@ -37,6 +37,7 @@ import {
   type CoupangDirectOwnerAttemptControl,
 } from '../lib/coupang-directship-source-owner';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
+import { attemptFailureText } from '@/lib/operator-error';
 
 const UNMAPPED_RESTART_MESSAGE =
   '이 작업은 주문 수집 계정과 연결되지 않아 이 화면에서 자동 재실행할 수 없습니다. 원래 실행 화면에서 다시 시작해주세요.';
@@ -175,7 +176,7 @@ export function useOrderCollectionSessionControls(
     allowCompleted = false,
   ): Promise<OrderCollectionExtensionRun> => {
     if (owner.state !== 'RUNNING' && !(allowCompleted && owner.state === 'COMPLETE')) {
-      throw new Error(owner.errorMessage ?? `${account.name} 주문 수집 시도가 이미 종료되었습니다.`);
+      throw new Error(attemptFailureText(owner, 'order_collection_mall') ?? `${account.name} 주문 수집 시도가 이미 종료되었습니다.`);
     }
     const control: CoupangDirectOwnerAttemptControl = admittedToken
       ? { ...owner, attemptToken: admittedToken }

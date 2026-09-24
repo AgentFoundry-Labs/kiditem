@@ -24,7 +24,7 @@ function isTransientFetchError(error: unknown): boolean {
  * `?reason=session_expired` 안내 토스트와 중복된다.
  */
 function isHandledAuthRequiredError(error: unknown): boolean {
-  return isApiError(error) && error.status === 401 && error.code === 'auth_required';
+  return isApiError(error) && error.status === 401 && error.code === 'AUTH_REQUIRED';
 }
 
 type QueryCacheOnError = NonNullable<QueryCache['config']['onError']>;
@@ -55,7 +55,7 @@ const handleQueryError: QueryCacheOnError = (error, query) => {
   if (isTransientFetchError(error)) return;
   if (isHandledAuthRequiredError(error)) return;
   if (continuesToastedFailureStreak(query)) return;
-  const message = isApiError(error) ? error.detail : '요청 처리 중 오류가 발생했습니다.';
+  const message = isApiError(error) ? error.message : '요청 처리 중 오류가 발생했습니다.';
   toast.error(message);
 };
 

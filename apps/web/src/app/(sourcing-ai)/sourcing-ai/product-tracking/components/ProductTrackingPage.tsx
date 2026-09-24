@@ -44,6 +44,7 @@ import {
 } from '../lib/wing-tracking-score';
 import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
 import { WingTrackedHistoryChart, TrendSparkline } from './WingTrackedHistoryChart';
+import { attemptFailureText } from '@/lib/operator-error';
 
 const TRACKED_QUERY_KEY = queryKeys.sourcing.wingTrackedProducts();
 
@@ -532,7 +533,7 @@ function TrackedWingSourceStatus({
       {stopped && <span className="text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</span>}
       {latest?.state === 'FAILED' && !stopped && (
         <span role="alert" className="text-rose-600">
-          마지막 수집 실패: {latest.errorCode ?? 'UNKNOWN'}{latest.errorMessage ? ` — ${latest.errorMessage}` : ''}
+          마지막 수집 실패: {attemptFailureText(latest, 'wing_tracked_product')}
         </span>
       )}
       {source.latestComplete && (

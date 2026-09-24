@@ -13,6 +13,7 @@ import {
   detailPageEditorHref,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
 import { queryKeys } from '@/lib/query-keys';
+import { operatorReason } from '@/lib/operator-error';
 
 const IN_PROGRESS_STATUSES = new Set(['pending', 'processing']);
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
@@ -107,7 +108,7 @@ function showDetailGenerationToast(input: {
   }
 
   toast.error(`${input.productLabel} 생성 실패`, {
-    description: input.errorMessage || '알 수 없는 오류',
+    description: operatorReason(input.errorMessage, '생성에 실패했습니다.'),
     duration: 10000,
   });
 }

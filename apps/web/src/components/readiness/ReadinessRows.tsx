@@ -40,6 +40,7 @@ import { CatalogReadinessAction, CatalogReadinessStatus } from './CatalogReadine
 import type { LucideIcon } from 'lucide-react';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import type { CatalogReadinessState } from './useReadinessCollection';
+import { operatorReason } from '@/lib/operator-error';
 
 type DisplayMeta = { title: string; hint: string; icon: LucideIcon };
 
@@ -448,7 +449,7 @@ export function AdSyncRow() {
               {attempt.state === 'FAILED'
                 ? (stoppedAttempt(attempt)
                   ? COLLECTION_STOPPED_MESSAGE
-                  : attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
+                  : operatorReason(attempt.errorMessage, '수집 실패. 새로 수집해 주세요.'))
                 : attempt.state === 'RUNNING'
                   ? `캠페인 ${attempt.campaignCount}개 수집 중 · 미발행`
                   : `전체 수집 완료${attempt.rawOnlyCampaignCount ? ` · ${attempt.rawOnlyCampaignCount}개 원본만 보존` : ''}`}
@@ -504,7 +505,7 @@ export function AdKeywordRow() {
               {attempt.state === 'FAILED'
                 ? (stoppedAttempt(attempt)
                   ? COLLECTION_STOPPED_MESSAGE
-                  : attempt.errorMessage ?? '수집 실패. 새로 수집해 주세요.')
+                  : operatorReason(attempt.errorMessage, '수집 실패. 새로 수집해 주세요.'))
                 : attempt.state === 'COMPLETE'
                   ? '전체 수집 완료'
                   : `수집 진행 ${attempt.completedGroupCount}/${attempt.groupCount} 광고그룹 · 미발행`}
@@ -557,7 +558,7 @@ export function StockSyncRow() {
             마지막 수집 {formatRelative(state?.lastCompletedAt ?? null)}
           </p>
           {state?.status === 'failed' && state.errorMessage && (
-            <p className="mt-1 text-xs text-[var(--danger)]">{state.errorMessage}</p>
+            <p className="mt-1 text-xs text-[var(--danger)]">{operatorReason(state.errorMessage, '수집 실패. 새로 수집해 주세요.')}</p>
           )}
           {state?.stopped && (
             <p className="mt-1 text-xs text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</p>

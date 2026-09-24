@@ -30,7 +30,7 @@ function statusLabel(execution: ListingAvailabilityExecution): string {
 
 function errorMessage(error: unknown): string {
   return isApiError(error)
-    ? error.detail
+    ? error.message
     : error instanceof Error ? error.message : '몰 확인 결과를 기록하지 못했습니다.';
 }
 

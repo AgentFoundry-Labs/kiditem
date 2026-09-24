@@ -18,6 +18,7 @@ import {
   type TrendSeed,
   type TrendSeedSource,
 } from '../lib/trend-collection-api';
+import { friendlyError } from '@/lib/api-error';
 
 const pressable =
   'transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none';
@@ -47,20 +48,20 @@ export function TrendSeedManager({
       setSources(new Set(TREND_SOURCE_ORDER));
       invalidateSeeds();
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : '시드 저장 실패'),
+    onError: (err) => toast.error(friendlyError(err, '시드 저장 실패')),
   });
 
   const toggleMutation = useMutation({
     mutationFn: (seed: TrendSeed) => updateTrendSeed(seed.id, { enabled: !seed.enabled }),
     onSuccess: invalidateSeeds,
-    onError: (err) => toast.error(err instanceof Error ? err.message : '시드 상태 변경 실패'),
+    onError: (err) => toast.error(friendlyError(err, '시드 상태 변경 실패')),
   });
 
   const sourcesMutation = useMutation({
     mutationFn: (input: { seed: TrendSeed; next: TrendSeedSource[] }) =>
       updateTrendSeed(input.seed.id, { sources: input.next }),
     onSuccess: invalidateSeeds,
-    onError: (err) => toast.error(err instanceof Error ? err.message : '수집 소스 변경 실패'),
+    onError: (err) => toast.error(friendlyError(err, '수집 소스 변경 실패')),
   });
 
   const deleteMutation = useMutation({
@@ -69,7 +70,7 @@ export function TrendSeedManager({
       toast.success(`'${seed.keyword}' 시드를 삭제했습니다.`);
       invalidateSeeds();
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : '시드 삭제 실패'),
+    onError: (err) => toast.error(friendlyError(err, '시드 삭제 실패')),
   });
 
   const toggleFormSource = (source: TrendSeedSource) => {

@@ -18,6 +18,7 @@ import {
   useEvaluateListingThumbnail,
   useRefreshListingEvaluations,
 } from '../hooks/useListingThumbnailEvaluations';
+import { friendlyError } from '@/lib/api-error';
 
 const PAGE_SIZE = 50;
 /** 검색은 입력이 멈춘 뒤에 보낸다. */
@@ -106,7 +107,7 @@ export function ListingEvaluationTab({ onEditStarted }: { onEditStarted?: () => 
           toast.success('AI 편집을 시작했습니다 — AI 편집 탭에서 결과를 채택하세요');
           onEditStarted?.();
         },
-        onError: (error) => toast.error(error instanceof Error ? error.message : 'AI 편집을 시작하지 못했습니다'),
+        onError: (error) => toast.error(friendlyError(error, 'AI 편집을 시작하지 못했습니다')),
       },
     );
   };

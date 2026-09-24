@@ -23,7 +23,7 @@ here affect every route.
 
 - `AuthProvider` must stay inside `QueryProvider` because it uses
   `useQueryClient()`.
-- `apiClient` emits `auth_required`; `AuthProvider` clears projections and
+- `apiClient` emits `AUTH_REQUIRED`; `AuthProvider` clears projections and
   redirects. Global query error handling must not duplicate session-expired
   toasts or retry 401s.
 - Route queries that render their own local error UI may opt out of the global

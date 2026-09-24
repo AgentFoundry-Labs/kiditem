@@ -207,6 +207,6 @@ describe('usePurchaseOrderSubmission', () => {
 
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['purchaseOrders'] });
     expect(result.current.inventoryCollectionRequired).toBe(false);
-    expect(toast.error).toHaveBeenCalledWith('provider response unknown');
+    expect(toast.error).toHaveBeenCalledWith('처리 중 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요.');
   });
 });

@@ -53,7 +53,7 @@ export function GeneralPurchaseOrdersWorkspace({
   const orders = orderData?.items ?? [];
   const total = orderData?.total ?? 0;
   const counts = orderData?.counts ?? { all: 0, draft: 0, pending: 0, ordered: 0, shipped: 0, received: 0, cancelled: 0 };
-  const error = queryError ? (isApiError(queryError) ? queryError.detail : '발주 데이터를 불러오는데 실패했습니다.') : null;
+  const error = queryError ? (isApiError(queryError) ? queryError.message : '발주 데이터를 불러오는데 실패했습니다.') : null;
 
   const statusMutation = useMutation({
     mutationFn: (vars: { id: string; status: string }) =>
@@ -63,7 +63,7 @@ export function GeneralPurchaseOrdersWorkspace({
       }),
     onMutate: (vars) => setActionLoading(vars.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
-    onError: (err) => toast.error(isApiError(err) ? err.detail : '상태 변경에 실패했습니다.'),
+    onError: (err) => toast.error(isApiError(err) ? err.message : '상태 변경에 실패했습니다.'),
     onSettled: () => setActionLoading(null),
   });
 
@@ -72,7 +72,7 @@ export function GeneralPurchaseOrdersWorkspace({
       purchaseOrdersApi.delete(id),
     onMutate: (id) => setActionLoading(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
-    onError: (err) => toast.error(isApiError(err) ? err.detail : '삭제에 실패했습니다.'),
+    onError: (err) => toast.error(isApiError(err) ? err.message : '삭제에 실패했습니다.'),
     onSettled: () => setActionLoading(null),
   });
 
@@ -89,7 +89,7 @@ export function GeneralPurchaseOrdersWorkspace({
       queryKey: queryKeys.purchaseOrders.all,
     }),
     onError: (err) => toast.error(
-      isApiError(err) ? err.detail : '외부 주문 확인 반영에 실패했습니다.',
+      isApiError(err) ? err.message : '외부 주문 확인 반영에 실패했습니다.',
     ),
     onSettled: () => setActionLoading(null),
   });

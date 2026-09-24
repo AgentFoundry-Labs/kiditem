@@ -31,14 +31,13 @@ export const ExtensionAuthHandoffSchema = z.object({
 }).strict();
 export type ExtensionAuthHandoff = z.infer<typeof ExtensionAuthHandoffSchema>;
 
-// Shared response envelope for HTTP 401 `auth_required`. Backend
+// Shared response envelope for HTTP 401 `AUTH_REQUIRED` (ADR-0023). Backend
 // `GlobalExceptionFilter` and Next.js `proxy.ts` both emit this exact shape so
-// `apiClient` can branch the same way regardless of which layer rejected the
-// request. Field order mirrors backend filter output.
+// `apiClient` can branch on `code` regardless of which layer rejected the request.
 export type AuthRequiredErrorBody = {
   statusCode: 401;
-  error: 'Unauthorized';
-  message: 'auth_required';
-  timestamp: string;
-  path: string;
+  code: 'AUTH_REQUIRED';
+  kind: 'auth';
+  message: string;
+  errors: [];
 };

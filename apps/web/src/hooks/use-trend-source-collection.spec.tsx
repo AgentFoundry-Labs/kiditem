@@ -8,6 +8,7 @@ import { ApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import type { TrendSourceCollectionResult } from '@/lib/source-trend-api';
 import { useTrendSourceCollection } from './use-trend-source-collection';
+import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
@@ -148,7 +149,8 @@ describe('trend collection control', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '트렌드 수집' }));
 
-    expect(await screen.findByText('수집을 시작하지 못했습니다.')).toBeInTheDocument();
+    // 영어 원문('Service Unavailable')이 와도 화면은 등록 코드의 한국어 문장이다(ADR-0023).
+    expect(await screen.findByText(ERROR_DEFINITIONS.SERVICE_UNAVAILABLE.text)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '트렌드 수집' })).toBeEnabled();
   });
 });

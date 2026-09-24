@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import type { AuthRequiredErrorBody } from '@kiditem/shared/auth';
+import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 
 /**
  * 보호 라우트 가드 — KidItem 세션 쿠키가 없으면:
@@ -24,7 +25,7 @@ const AUTH_SESSION_COOKIE = 'kiditem_session';
  * `/api/copilotkit[...]`, Next rewrites it to the authenticated Nest API (see
  * `apps/web/next.config.mjs`). The proxy must NOT redirect these to
  * `/login` because the caller is `fetch`/SSE, not a navigation — Nest
- * already returns JSON `401 auth_required` when the cookie is missing,
+ * already returns JSON `401 AUTH_REQUIRED` when the cookie is missing,
  * which CopilotKit can surface to the user. Returning a 307 to `/login`
  * here would corrupt the SSE stream and break the chat UI on first
  * unauthenticated load.
@@ -37,13 +38,13 @@ function isApiFetchCaller(req: NextRequest, path: string): boolean {
   return accept.includes('application/json');
 }
 
-function authRequiredJsonResponse(path: string): NextResponse {
+function authRequiredJsonResponse(): NextResponse {
   const body: AuthRequiredErrorBody = {
     statusCode: 401,
-    error: 'Unauthorized',
-    message: 'auth_required',
-    timestamp: new Date().toISOString(),
-    path,
+    code: 'AUTH_REQUIRED',
+    kind: 'auth',
+    message: ERROR_DEFINITIONS.AUTH_REQUIRED.text,
+    errors: [],
   };
   return NextResponse.json(body, { status: 401 });
 }
@@ -63,7 +64,7 @@ export async function proxy(req: NextRequest) {
 
   if (isPublic) return NextResponse.next();
   if (!req.cookies.has(AUTH_SESSION_COOKIE)) {
-    if (isApiFetchCaller(req, path)) return authRequiredJsonResponse(path);
+    if (isApiFetchCaller(req, path)) return authRequiredJsonResponse();
     return redirectToLogin(req, path);
   }
   return NextResponse.next({ request: req });
