@@ -15,7 +15,7 @@ describe('Gemini media model configuration', () => {
 
     expect(() => requireGeminiImageModel()).toThrow(expect.objectContaining({
       code: 'CONTENT_MODEL_NOT_CONFIGURED',
-      details: { reason: 'IMAGE_MODEL_DEPRECATED', model: 'gemini-3.1-flash-image-preview', replacement: 'gemini-3.1-flash-image' },
+      details: { reason: 'IMAGE_MODEL_DEPRECATED', env: 'AI_IMAGE_MODEL', model: 'gemini-3.1-flash-image-preview', replacement: 'gemini-3.1-flash-image' },
     }));
   });
 
@@ -30,7 +30,7 @@ describe('Gemini media model configuration', () => {
 
     expect(() => requireGeminiVisionModel()).toThrow(expect.objectContaining({
       code: 'CONTENT_MODEL_NOT_CONFIGURED',
-      details: { reason: 'VISION_MODEL_DEPRECATED', model: 'gemini-3.1-flash-lite-preview', replacement: 'gemini-3.1-flash-lite' },
+      details: { reason: 'VISION_MODEL_DEPRECATED', env: 'AI_IMAGE_ANALYSIS_MODEL', model: 'gemini-3.1-flash-lite-preview', replacement: 'gemini-3.1-flash-lite' },
     }));
   });
 
@@ -47,7 +47,7 @@ describe('Gemini media model configuration', () => {
 
     expect(() => requireGeminiVerifyModel()).toThrow(expect.objectContaining({
       code: 'CONTENT_MODEL_NOT_CONFIGURED',
-      details: { reason: 'VERIFY_MODEL_DEPRECATED', model: 'models/gemini-3.1-flash-lite-preview', replacement: 'gemini-3.1-flash-lite' },
+      details: { reason: 'VERIFY_MODEL_DEPRECATED', env: 'AI_IMAGE_ANALYSIS_VERIFY_MODEL', model: 'models/gemini-3.1-flash-lite-preview', replacement: 'gemini-3.1-flash-lite' },
     }));
   });
 });

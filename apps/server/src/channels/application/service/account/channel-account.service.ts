@@ -134,7 +134,10 @@ export class ChannelAccountService implements ChannelAccountPort {
       const rows = await accounts.list();
       const existing = pickOrderCollectionMallAccounts(rows).get(mall.key) ?? null;
       if (!existing && identity.kind === 'shared') {
-        throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND', { details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' } });
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+          details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' },
+          message: `${mall.name} 로그인은 ${identity.channel} 채널 계정에 저장합니다. 그 채널 계정을 먼저 연결하세요.`,
+        });
       }
 
       const existingConfig = toJsonRecord(existing?.config);

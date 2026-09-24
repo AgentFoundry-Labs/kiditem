@@ -207,6 +207,20 @@ describe('GlobalExceptionFilter → ADR-0023 envelope', () => {
     if (code === 'ATTEMPT_IN_PROGRESS') expect(body).toMatchObject({ attemptId: ATTEMPT, details: { attemptId: ATTEMPT } });
   });
 
+  it('logs every KiditemError detail and a string cause, while the envelope keeps only the registered keys', () => {
+    const logWarn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const body = envelope(new KiditemConflictError('STATE_CONFLICT', {
+      details: { reason: 'TRANSITION_INVALID', from: 'draft', to: 'received' },
+      cause: 'AI_IMAGE_MODEL',
+    }));
+
+    expect(body.details).toEqual({ reason: 'TRANSITION_INVALID' });
+    const line = String(logWarn.mock.calls.at(-1)?.[0]);
+    expect(line).toContain('"from":"draft"');
+    expect(line).toContain('"to":"received"');
+    expect(line).toContain('AI_IMAGE_MODEL');
+  });
+
   it('anything else → 500 INTERNAL_ERROR; the raw text and stack go to the log only', () => {
     const body = envelope(new Error('Cannot read properties of undefined (reading sku)'));
     expect(body).toEqual({

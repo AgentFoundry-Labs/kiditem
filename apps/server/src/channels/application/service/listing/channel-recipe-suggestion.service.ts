@@ -97,7 +97,7 @@ export class ChannelRecipeSuggestionService {
       [masterProductId],
     );
     if (!sku) {
-      throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'SELLPIA_SKU_NOT_ACTIVE' } });
+      throw new KiditemPreconditionError('CHANNELS_SELLPIA_SKU_UNAVAILABLE');
     }
     return sku;
   }

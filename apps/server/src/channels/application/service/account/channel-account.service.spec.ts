@@ -126,7 +126,7 @@ describe('ChannelAccountService', () => {
     const missing = makeService([]);
     await expect(missing.service.update(ORGANIZATION_ID, 'coupang-direct', {
       loginId: 'supplier-id',
-    })).rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_NOT_FOUND', details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' } });
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' }, message: expect.stringContaining('채널 계정을 먼저 연결하세요') });
     expect(missing.rows()).toHaveLength(0);
 
     const fixture = makeService([

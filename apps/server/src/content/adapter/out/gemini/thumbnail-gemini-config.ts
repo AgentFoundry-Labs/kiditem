@@ -14,17 +14,17 @@ const DEPRECATED_ANALYSIS_MODELS = new Map<string, string>([
 
 export function requireGeminiApiKey(): string {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'GEMINI_API_KEY_MISSING' } });
+  if (!apiKey) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'GEMINI_API_KEY_MISSING', env: 'GEMINI_API_KEY' } });
   return apiKey;
 }
 
 export function requireGeminiImageModel(): string {
   const model = process.env.AI_IMAGE_MODEL?.trim();
-  if (!model) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'IMAGE_MODEL_MISSING' } });
+  if (!model) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'IMAGE_MODEL_MISSING', env: 'AI_IMAGE_MODEL' } });
   const replacement = DEPRECATED_IMAGE_MODELS.get(model);
   if (replacement) {
     throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', {
-      details: { reason: 'IMAGE_MODEL_DEPRECATED', model, replacement },
+      details: { reason: 'IMAGE_MODEL_DEPRECATED', env: 'AI_IMAGE_MODEL', model, replacement },
     });
   }
   return model;
@@ -32,11 +32,11 @@ export function requireGeminiImageModel(): string {
 
 export function requireGeminiVisionModel(): string {
   const model = process.env.AI_IMAGE_ANALYSIS_MODEL?.trim();
-  if (!model) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'VISION_MODEL_MISSING' } });
+  if (!model) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'VISION_MODEL_MISSING', env: 'AI_IMAGE_ANALYSIS_MODEL' } });
   const replacement = DEPRECATED_ANALYSIS_MODELS.get(model);
   if (replacement) {
     throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', {
-      details: { reason: 'VISION_MODEL_DEPRECATED', model, replacement },
+      details: { reason: 'VISION_MODEL_DEPRECATED', env: 'AI_IMAGE_ANALYSIS_MODEL', model, replacement },
     });
   }
   return model;
@@ -44,11 +44,11 @@ export function requireGeminiVisionModel(): string {
 
 export function requireGeminiVerifyModel(): string {
   const model = process.env.AI_IMAGE_ANALYSIS_VERIFY_MODEL?.trim();
-  if (!model) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'VERIFY_MODEL_MISSING' } });
+  if (!model) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'VERIFY_MODEL_MISSING', env: 'AI_IMAGE_ANALYSIS_VERIFY_MODEL' } });
   const replacement = DEPRECATED_ANALYSIS_MODELS.get(model);
   if (replacement) {
     throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', {
-      details: { reason: 'VERIFY_MODEL_DEPRECATED', model, replacement },
+      details: { reason: 'VERIFY_MODEL_DEPRECATED', env: 'AI_IMAGE_ANALYSIS_VERIFY_MODEL', model, replacement },
     });
   }
   return model;

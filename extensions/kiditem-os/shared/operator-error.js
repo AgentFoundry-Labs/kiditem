@@ -313,7 +313,35 @@
       "owner": "channels",
       "kind": "precondition",
       "httpStatus": 422,
-      "text": "송신 전 점검을 통과하지 못했습니다. 표시된 항목을 고쳐 주세요.",
+      "text": "송신 전 점검을 통과하지 못했습니다. 점검 사유를 확인한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SELLPIA_MATCH_REQUIRED": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "등록 전에 셀피아 상품을 연결하고 차감수량을 확인해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SELLPIA_DEDUCTION_REQUIRED": {
+      "owner": "channels",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "셀피아 상품의 판매 1개당 차감수량을 1 이상의 정수로 입력해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SELLPIA_SKU_UNAVAILABLE": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "선택한 셀피아 상품을 현재 조직의 활성 재고에서 찾을 수 없습니다. 셀피아 재고를 다시 수집하거나 다른 상품을 골라 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SELLPIA_SKU_AMBIGUOUS": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "같은 셀피아 상품이 이 몰 계정의 여러 상품에 연결돼 있습니다. 몰 상품 연결을 확인해 주세요.",
       "retryable": false
     },
     "CHANNELS_ACCOUNT_INACTIVE": {
@@ -410,7 +438,7 @@
     "CHANNELS_SERVER_AUTOMATION_BLOCKED": {
       "owner": "channels",
       "kind": "precondition",
-      "httpStatus": 503,
+      "httpStatus": 422,
       "text": "이 환경에서는 대표이미지를 크롬 확장 프로그램으로만 반영할 수 있습니다. 확장 프로그램에서 반영해 주세요.",
       "retryable": false
     },
@@ -718,7 +746,7 @@
     "CONTENT_MODEL_NOT_CONFIGURED": {
       "owner": "content",
       "kind": "external",
-      "httpStatus": 502,
+      "httpStatus": 503,
       "text": "AI 모델이 설정되지 않았습니다. 관리자에게 알려 주세요.",
       "retryable": false
     },

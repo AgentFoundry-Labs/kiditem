@@ -4,7 +4,7 @@ import type {
   ExternalProductRegistrationPreflightResult,
 } from '../../port/in/registration/channel-registration.port';
 import type { ListingRegistrationPersistencePort } from '../../port/out/persistence/listing-registration.persistence.port';
-import { KiditemPreconditionError } from '@kiditem/shared/errors';
+import { KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
 
 export interface RegistrationRecipeSuggestions {
   suggestRegistration(organizationId: string, input: { channelListingOptionId: string; listingName: string; itemName: string | null }): Promise<ChannelRecipeSuggestionResponse>;
@@ -30,7 +30,7 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
         !Number.isSafeInteger(input.selectedQuantity) ||
         (input.selectedQuantity ?? 0) <= 0
       ) {
-        throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'SELLPIA_QUANTITY_INVALID' } });
+        throw new KiditemInvalidValueError('CHANNELS_SELLPIA_DEDUCTION_REQUIRED');
       }
       return this.finishPreflight(
         input,
@@ -49,7 +49,7 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
     const quantity =
       proposal?.recommendedQuantity ?? suggestion.recommendedQuantity;
     if (!proposal || !Number.isSafeInteger(quantity) || (quantity ?? 0) <= 0) {
-      throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'SELLPIA_MATCH_REQUIRED' } });
+      throw new KiditemPreconditionError('CHANNELS_SELLPIA_MATCH_REQUIRED');
     }
     return this.finishPreflight(input, toSellpiaMatch(proposal, quantity!));
   }
@@ -81,7 +81,7 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
     await this.repository.assertActiveRegistrationAccount(input);
     const externalVendorSku = input.externalVendorSku.trim();
     if (!externalVendorSku) {
-      throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'SELLPIA_SKU_REQUIRED' } });
+      throw new KiditemPreconditionError('CHANNELS_SELLPIA_MATCH_REQUIRED', { details: { reason: 'SELLPIA_SKU_REQUIRED' } });
     }
     return this.repository.findExistingActiveListingBySellerSku({
       organizationId: input.organizationId,

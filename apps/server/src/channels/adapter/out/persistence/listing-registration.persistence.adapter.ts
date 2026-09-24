@@ -1,4 +1,4 @@
-import { KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
+import { KiditemConflictError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import type { ListingRegistrationPersistencePort } from "../../../application/port/out/persistence/listing-registration.persistence.port";
@@ -54,7 +54,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
       take: 2,
     });
     if (listings.length > 1) {
-      throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'SELLPIA_SKU_AMBIGUOUS' } });
+      throw new KiditemConflictError('CHANNELS_SELLPIA_SKU_AMBIGUOUS', { details: { sellerSku: input.sellerSku } });
     }
     const listing = listings[0];
     return listing

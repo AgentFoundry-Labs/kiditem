@@ -68,6 +68,6 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
         channelAccountId: "account-1",
         sellerSku: "10451-1",
       }),
-    ).rejects.toMatchObject({ code: 'CHANNELS_PREFLIGHT_FAILED', details: { reason: 'SELLPIA_SKU_AMBIGUOUS' } });
+    ).rejects.toMatchObject({ code: 'CHANNELS_SELLPIA_SKU_AMBIGUOUS' });
   });
 });

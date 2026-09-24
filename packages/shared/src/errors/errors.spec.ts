@@ -77,9 +77,14 @@ describe('error registry (ADR-0023)', () => {
     expect(ERROR_DEFINITIONS.CHANNELS_OPTION_RECIPE_INVALID.httpStatus).toBe(400);
   });
 
+  it('keeps the specific operator guidance the old channel sentences gave', () => {
+    expect(ERROR_DEFINITIONS.CHANNELS_PREFLIGHT_FAILED.text).toBe('송신 전 점검을 통과하지 못했습니다. 점검 사유를 확인한 뒤 다시 시도해 주세요.');
+    expect(ERROR_DEFINITIONS.CHANNELS_SELLPIA_MATCH_REQUIRED.text).toBe('등록 전에 셀피아 상품을 연결하고 차감수량을 확인해 주세요.');
+  });
+
   it('registers content and supply codes with the kind the operator flow needs (KID-343)', () => {
     const expected = {
-      CONTENT_MODEL_NOT_CONFIGURED: ['content', 'external', 502, false],
+      CONTENT_MODEL_NOT_CONFIGURED: ['content', 'external', 503, false],
       CONTENT_GENERATION_INPUT_MISSING: ['content', 'precondition', 422, false],
       CONTENT_IMAGE_TOO_LARGE: ['content', 'validation', 400, false],
       CONTENT_NOT_FOUND: ['content', 'not_found', 404, false],
@@ -101,6 +106,11 @@ describe('error registry (ADR-0023)', () => {
       SUPPLY_ROCKET_QUANTITY_EXCEEDED: ['supply', 'validation', 400, false],
       AGENT_OS_OWNER_INPUT_HASH_REQUIRED: ['agent_os', 'validation', 400, false],
       AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED: ['agent_os', 'validation', 400, false],
+      CHANNELS_SELLPIA_MATCH_REQUIRED: ['channels', 'precondition', 422, false],
+      CHANNELS_SELLPIA_DEDUCTION_REQUIRED: ['channels', 'validation', 400, false],
+      CHANNELS_SELLPIA_SKU_UNAVAILABLE: ['channels', 'precondition', 422, false],
+      CHANNELS_SELLPIA_SKU_AMBIGUOUS: ['channels', 'conflict', 409, false],
+      CHANNELS_SERVER_AUTOMATION_BLOCKED: ['channels', 'precondition', 422, false],
     } as const;
     for (const [code, [owner, kind, httpStatus, retryable]] of Object.entries(expected)) {
       expect(isKiditemErrorCode(code), code).toBe(true);

@@ -149,9 +149,8 @@ describe('ChannelRegistrationService registration matching', () => {
       listingName: '알 수 없는 상품',
       itemName: null,
     })).rejects.toMatchObject({
-      code: 'CHANNELS_PREFLIGHT_FAILED',
+      code: 'CHANNELS_SELLPIA_MATCH_REQUIRED',
       kind: 'precondition',
-      details: { reason: 'SELLPIA_MATCH_REQUIRED' },
     });
     expect(persistence.findExistingActiveListingBySellerSku).not.toHaveBeenCalled();
   });

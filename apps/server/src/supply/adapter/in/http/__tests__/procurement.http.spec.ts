@@ -64,7 +64,7 @@ describe('purchase-order HTTP error envelope (KID-343)', () => {
       kind: 'conflict',
       message: ERROR_DEFINITIONS.SUPPLY_PURCHASE_STATUS_INVALID.text,
       errors: [],
-      // 봉투는 details 중 reason만 싣는다(from·to는 로그 쪽 구조 데이터).
+      // 봉투는 등록된 details 키(reason·attemptId·existing)만 싣는다. from·to는 필터가 로그 줄에 남긴다.
       details: { reason: 'TRANSITION_INVALID' },
     });
     expect(repository.updateStatusScoped).not.toHaveBeenCalled();

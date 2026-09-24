@@ -55,12 +55,29 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const cause = isKiditemError(exception) && exception.cause instanceof Error ? exception.cause : undefined;
     const raw = [exception, cause].filter(Boolean).map(describe).join(' ← ');
-    const line = `${request.method} ${request.url} → ${body.statusCode} ${body.code} (${raw})`;
+    // 봉투는 등록된 details 키만 싣는다. 진단값(details 전체, 문자열 cause)은 로그 줄에 남긴다.
+    const diagnostics = isKiditemError(exception) ? describeDiagnostics(exception.details, exception.cause) : '';
+    const line = `${request.method} ${request.url} → ${body.statusCode} ${body.code} (${raw})${diagnostics}`;
     const stack = (cause ?? exception) instanceof Error ? ((cause ?? exception) as Error).stack : undefined;
     if (body.statusCode >= 500) this.logger.error(line, stack);
     else this.logger.warn(line);
 
     response.status(body.statusCode).json(body);
+  }
+}
+
+function describeDiagnostics(details: Readonly<Record<string, unknown>> | undefined, cause: unknown): string {
+  const parts: string[] = [];
+  if (details && Object.keys(details).length > 0) parts.push(`details=${safeJson(details)}`);
+  if (cause !== undefined && !(cause instanceof Error)) parts.push(`cause=${typeof cause === 'string' ? cause : safeJson(cause)}`);
+  return parts.length ? ` ${parts.join(' ')}` : '';
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
   }
 }
 

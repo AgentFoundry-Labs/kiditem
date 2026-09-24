@@ -133,7 +133,12 @@ export const ERROR_DEFINITIONS = {
   CHANNELS_REGISTRATION_TARGET_CONFLICT: def('channels', 'conflict', '같은 몰 계정에 이미 등록 대상이 있습니다.'),
   CHANNELS_LISTING_NOT_FOUND: def('channels', 'not_found', '몰 상품을 찾을 수 없습니다.'),
   CHANNELS_MALL_UNSUPPORTED: def('channels', 'precondition', '이 몰은 아직 지원하지 않는 작업입니다.', { httpStatus: 501 }),
-  CHANNELS_PREFLIGHT_FAILED: def('channels', 'precondition', '송신 전 점검을 통과하지 못했습니다. 표시된 항목을 고쳐 주세요.'),
+  // 던지는 곳은 details.reason을 반드시 싣는다. 옛 안내가 구체적이던 사유는 아래 전용 코드로 던진다.
+  CHANNELS_PREFLIGHT_FAILED: def('channels', 'precondition', '송신 전 점검을 통과하지 못했습니다. 점검 사유를 확인한 뒤 다시 시도해 주세요.'),
+  CHANNELS_SELLPIA_MATCH_REQUIRED: def('channels', 'precondition', '등록 전에 셀피아 상품을 연결하고 차감수량을 확인해 주세요.'),
+  CHANNELS_SELLPIA_DEDUCTION_REQUIRED: def('channels', 'validation', '셀피아 상품의 판매 1개당 차감수량을 1 이상의 정수로 입력해 주세요.'),
+  CHANNELS_SELLPIA_SKU_UNAVAILABLE: def('channels', 'precondition', '선택한 셀피아 상품을 현재 조직의 활성 재고에서 찾을 수 없습니다. 셀피아 재고를 다시 수집하거나 다른 상품을 골라 주세요.'),
+  CHANNELS_SELLPIA_SKU_AMBIGUOUS: def('channels', 'conflict', '같은 셀피아 상품이 이 몰 계정의 여러 상품에 연결돼 있습니다. 몰 상품 연결을 확인해 주세요.'),
   CHANNELS_ACCOUNT_INACTIVE: def('channels', 'precondition', '몰 계정이 비활성 상태입니다. 쇼핑몰 계정 화면에서 활성화한 뒤 다시 시도해 주세요.'),
   CHANNELS_KID_REQUIRED: def('channels', 'precondition', '판매상품에 KID가 아직 없습니다. 등록 설정을 먼저 만든 뒤 다시 시도해 주세요.'),
   CHANNELS_SALES_PRODUCT_NOT_SELLING: def('channels', 'precondition', '판매 중인 판매상품이 아닙니다. 판매상품 상태를 확인한 뒤 다시 시도해 주세요.'),
@@ -147,8 +152,8 @@ export const ERROR_DEFINITIONS = {
   CHANNELS_EXECUTION_EVIDENCE_REJECTED: def('channels', 'conflict', '몰에서 확인한 결과가 이 몰 작업과 맞지 않아 반영하지 않았습니다. 몰 화면을 확인해 주세요.'),
   CHANNELS_OPTION_RECIPE_STALE: def('channels', 'conflict', '옵션 구성이 그사이 바뀌었습니다. 새로고침한 뒤 다시 저장해 주세요.', { retryable: true }),
   CHANNELS_THUMBNAIL_EXECUTION_ACTIVE: def('channels', 'in_progress', '이 상품의 대표이미지를 이미 몰에 반영하는 중입니다. 끝나거나 반영 안 됨으로 표시한 뒤 다시 시도해 주세요.'),
-  // 개발 서버 전용 자동 반영 — 스테이징·운영은 확장 프로그램으로만 반영한다(503은 Agent 경로 계약).
-  CHANNELS_SERVER_AUTOMATION_BLOCKED: def('channels', 'precondition', '이 환경에서는 대표이미지를 크롬 확장 프로그램으로만 반영할 수 있습니다. 확장 프로그램에서 반영해 주세요.', { httpStatus: 503 }),
+  // 개발 서버 전용 자동 반영 — 스테이징·운영은 확장 프로그램으로만 반영한다.
+  CHANNELS_SERVER_AUTOMATION_BLOCKED: def('channels', 'precondition', '이 환경에서는 대표이미지를 크롬 확장 프로그램으로만 반영할 수 있습니다. 확장 프로그램에서 반영해 주세요.'),
   CHANNELS_SALES_PRODUCT_NOT_FOUND: def('channels', 'not_found', '판매상품을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
   CHANNELS_SALES_PRODUCT_STALE: def('channels', 'conflict', '다른 곳에서 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장해 주세요.', { retryable: true }),
   CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED: def('channels', 'conflict', '이 판매상품은 초안으로 지울 수 없습니다. 판매 중이거나 몰 상품·등록 실행과 이어진 상품은 보관해 주세요.'),
@@ -204,8 +209,8 @@ export const ERROR_DEFINITIONS = {
   // content (AI)
   CONTENT_GENERATION_FAILED: def('content', 'external', 'AI 생성에 실패했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   CONTENT_MODEL_UNAVAILABLE: def('content', 'external', '선택한 AI 모델을 지금 쓸 수 없습니다.', { retryable: true }),
-  // 서버 환경에 AI 모델이 비어 있다 — 운영자가 고르는 AGENT_OS_MODEL_REQUIRED와 다르다.
-  CONTENT_MODEL_NOT_CONFIGURED: def('content', 'external', 'AI 모델이 설정되지 않았습니다. 관리자에게 알려 주세요.'),
+  // 서버 환경에 AI 모델이 비어 있다 — 운영자가 고르는 AGENT_OS_MODEL_REQUIRED와 다르다. 서버 설정 문제라 503.
+  CONTENT_MODEL_NOT_CONFIGURED: def('content', 'external', 'AI 모델이 설정되지 않았습니다. 관리자에게 알려 주세요.', { httpStatus: 503 }),
   CONTENT_GENERATION_INPUT_MISSING: def('content', 'precondition', 'AI 생성에 필요한 이미지나 상품 정보가 없습니다. 먼저 채운 뒤 다시 시도해 주세요.'),
   CONTENT_IMAGE_TOO_LARGE: def('content', 'validation', '이미지 파일이 너무 큽니다. 더 작은 이미지로 다시 올려 주세요.'),
   CONTENT_NOT_FOUND: def('content', 'not_found', '콘텐츠를 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
