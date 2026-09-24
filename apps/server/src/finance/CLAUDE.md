@@ -78,7 +78,9 @@ in Supply, but the backend capability owner is finance.
 
 ## Transitional Exceptions
 
-- Finance stays flat while it is live aggregation plus focused payment, plan,
-  and settlement capabilities. Provider calls, raw SQL reporting, cross-domain
+- Finance keeps one folder per capability (`profit-loss`, `sales-analysis`,
+  `report-export`, `sales-plan`, `settlement`, `supplier-payment`) under
+  `adapter/in/web/` and `application/service/`; shared period rules live in
+  `adapter/in/web/dto/finance-period.ts`. Verify with `npm run check:hexagonal`. Provider calls, raw SQL reporting, cross-domain
   mutations, or long transaction invariants require a scoped reconstruction
   plan.

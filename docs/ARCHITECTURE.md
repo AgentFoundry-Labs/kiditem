@@ -367,7 +367,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/alerts` | Flat | controller/service/repository; source owners pass their transaction to the concrete failure upsert/resolution API. |
 | `apps/server/src/channels` | Hexagonal | Account, sales-product, registration, listing and collection policies use pure `domain/<business>` and `application/service/<business>`. Incoming adapters call input ports; modules bind services and outgoing adapters. Provider, documents, credentials and persistence IO stay outside the application. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
-| `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
+| `apps/server/src/finance` | Hexagonal | Profit-loss, sales-analysis, report-export, sales-plan, settlement and supplier-payment folders under `adapter/in/web/` and `application/service/`; settlement facts stay in `adapter/out/persistence/read/`. |
 | `apps/server/src/inventory` | Hexagonal | Retained warehouse, stock-transfer and return-record capabilities; source products, collection and current stock belong to Products. |
 | `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities; Sellpia transmission fencing is a scoped `application/port` + `adapter/out/repository` sub-capability. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |

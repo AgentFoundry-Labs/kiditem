@@ -1,0 +1,33 @@
+import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
+import { SettlementsService } from '../../../../application/service/settlement/settlements.service';
+import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto } from './dto';
+import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
+
+@Controller('settlements')
+export class SettlementsController {
+  constructor(
+    private readonly settlementsService: SettlementsService,
+  ) {}
+
+  @Get()
+  async findAll(
+    @CurrentOrganization() organizationId: string,
+    @Query() query: ListSettlementsQueryDto,
+  ) {
+    return this.settlementsService.findAll(organizationId, query.period);
+  }
+
+  @Post()
+  create(@Body() dto: CreateSettlementDto, @CurrentOrganization() organizationId: string) {
+    return this.settlementsService.create(organizationId, dto);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @Body() dto: UpdateSettlementDto,
+  ) {
+    return this.settlementsService.update(id, organizationId, dto);
+  }
+}

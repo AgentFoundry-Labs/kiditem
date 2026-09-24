@@ -74,7 +74,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/channels/__tests__/product-sync.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/rocket-po-source.pg.integration.spec.ts",
-  "apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts",
+  "apps/server/src/finance/application/service/profit-loss/__tests__/profit-loss.pg.integration.spec.ts",
   "apps/server/src/finance/__tests__/profitability-evidence.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-commitment.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sale-age.pg.integration.spec.ts",
