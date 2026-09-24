@@ -266,6 +266,7 @@ function channel(status: Partial<ConfirmReportStatus> | null, overrides: Partial
           listening: true,
           botUsername: 'kiditem_confirm_bot',
           setupChatId: null,
+          setupTokenExpiresAt: null,
           lastReport: { sentAt: ago(12), runId: 'run-1', itemCount: 8 },
           candidates: { runId: 'run-1', generatedAt: ago(90), total: 12, pending: 5, approved: 6, rejected: 1 },
           ...status,
@@ -273,6 +274,10 @@ function channel(status: Partial<ConfirmReportStatus> | null, overrides: Partial
     failed: false,
     sending: false,
     send: vi.fn(),
+    canSetup: true,
+    setupToken: null,
+    issuingSetupToken: false,
+    issueSetupToken: vi.fn(),
     ...overrides,
   };
 }
@@ -322,6 +327,48 @@ describe('사장님 컨펌 텔레그램 칸', () => {
     expect(within(box).getByText('채팅 설정 필요')).toBeInTheDocument();
     expect(within(box).getByText('424242')).toBeInTheDocument();
     expect(within(box).getByText('SOURCING_CONFIRM_TELEGRAM_CHAT_ID')).toBeInTheDocument();
+  });
+
+  it('⭐ 채팅 전에는 owner · admin 이 설정 토큰을 받고, /start <토큰> 안내와 남은 시간을 본다', async () => {
+    const confirm = channel({ chatConfigured: false });
+    const { rerender } = render(<AgentOrgView snapshot={snapshot()} connection="connected" now={NOW} confirm={confirm} />);
+    let box = screen.getByRole('region', { name: '텔레그램 컨펌 보고' });
+    await userEvent.click(within(box).getByRole('button', { name: '설정 토큰 발급' }));
+    expect(confirm.issueSetupToken).toHaveBeenCalledTimes(1);
+
+    const expiresAt = new Date(NOW + 7 * 60_000 + 10_000).toISOString();
+    rerender(
+      <AgentOrgView
+        snapshot={snapshot()}
+        connection="connected"
+        now={NOW}
+        confirm={channel({ chatConfigured: false, setupTokenExpiresAt: expiresAt }, { setupToken: { token: 'AB12CD34', expiresAt } })}
+      />,
+    );
+    box = screen.getByRole('region', { name: '텔레그램 컨펌 보고' });
+    expect(within(box).getByText('/start AB12CD34')).toBeInTheDocument();
+    expect(within(box).getByText(/8분 남음/)).toBeInTheDocument();
+  });
+
+  it('설정 토큰을 쓰거나 만료됐으면 토큰을 내리고, owner · admin 이 아니면 발급 버튼이 없다', () => {
+    const expiresAt = new Date(NOW + 60_000).toISOString();
+    const { rerender } = render(
+      <AgentOrgView
+        snapshot={snapshot()}
+        connection="connected"
+        now={NOW}
+        confirm={channel({ chatConfigured: false, setupChatId: '424242' }, { setupToken: { token: 'AB12CD34', expiresAt } })}
+      />,
+    );
+    let box = screen.getByRole('region', { name: '텔레그램 컨펌 보고' });
+    expect(within(box).queryByText('/start AB12CD34')).toBeNull();
+    expect(within(box).getByText('424242')).toBeInTheDocument();
+
+    rerender(
+      <AgentOrgView snapshot={snapshot()} connection="connected" now={NOW} confirm={channel({ chatConfigured: false }, { canSetup: false })} />,
+    );
+    box = screen.getByRole('region', { name: '텔레그램 컨펌 보고' });
+    expect(within(box).queryByRole('button', { name: '설정 토큰 발급' })).toBeNull();
   });
 
   it('상태를 아직 모르면 확인 중으로 선다', () => {

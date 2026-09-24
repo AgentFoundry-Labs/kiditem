@@ -199,7 +199,18 @@ export function renderConfirmHeader(input: {
   return { lines, buttons: [] };
 }
 
-/** 보고받을 채팅이 아직 정해지지 않았을 때 봇이 알려 주는 연결 안내. */
+/** 채팅이 정해지기 전, 설정 토큰 없이(또는 틀리게) 말을 건 채팅에 주는 안내. 채팅 ID는 싣지 않는다. */
+export function renderSetupTokenReply(): ConfirmMessage {
+  return {
+    lines: [
+      [{ text: 'KidItem 컨펌 봇입니다.', bold: true }],
+      [{ text: 'KidItem Agent Org 의 텔레그램 칸에서 설정 토큰을 받아 /start <토큰> 으로 보내 주세요.' }],
+    ],
+    buttons: [],
+  };
+}
+
+/** 설정 토큰이 맞았을 때 봇이 알려 주는 연결 안내. */
 export function renderSetupReply(chatId: string): ConfirmMessage {
   return {
     lines: [

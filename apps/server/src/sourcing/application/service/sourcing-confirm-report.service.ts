@@ -8,6 +8,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { randomInt, timingSafeEqual } from 'node:crypto';
 import {
   CONFIRM_PAGE_SIZE,
   CONFIRM_REPORT_MAX_ITEMS,
@@ -19,6 +20,7 @@ import {
   renderConfirmPage,
   renderHelpReply,
   renderSetupReply,
+  renderSetupTokenReply,
   selectionStateFor,
   type ConfirmAction,
   type ConfirmCandidate,
@@ -52,8 +54,13 @@ export interface SourcingConfirmReportStatus {
   chatConfigured: boolean;
   listening: boolean;
   botUsername: string | null;
-  /** 채팅이 정해지기 전에 봇에게 /start 를 보낸 채팅. 설정값으로 옮겨 적는 용도다. */
+  /**
+   * 설정 토큰과 함께 `/start <토큰>` 을 보낸 채팅. 설정값으로 옮겨 적는 용도다. owner · admin 에게만
+   * 보이고, 채팅이 이미 정해졌으면 `null`.
+   */
   setupChatId: string | null;
+  /** 아직 쓰지 않은 설정 토큰의 만료 시각. owner · admin 에게만 보인다. */
+  setupTokenExpiresAt: string | null;
   /** 이 서버가 켜진 뒤 보낸 마지막 보고. 서버를 다시 켜면 비어 있다. */
   lastReport: { sentAt: string; runId: string; itemCount: number } | null;
   /** 최신 추천의 최종 후보와 결정 수. 추천이 없으면 `null`. */
@@ -65,6 +72,11 @@ export interface SourcingConfirmReportStatus {
     approved: number;
     rejected: number;
   } | null;
+}
+
+export interface SourcingConfirmSetupToken {
+  token: string;
+  expiresAt: string;
 }
 
 export interface SourcingConfirmReportSendResult {
@@ -95,6 +107,12 @@ interface Board {
 }
 
 const ORGANIZATION_NOT_BOUND = 'TELEGRAM_ORGANIZATION_NOT_BOUND';
+/** 채팅 설정 토큰. 대문자 · 숫자 8자, 10분 동안 한 번만 쓴다. */
+const SETUP_TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const SETUP_TOKEN_LENGTH = 8;
+const SETUP_TOKEN_TTL_MS = 10 * 60_000;
+/** 채팅 ID와 설정 토큰을 볼 수 있는 역할. 보내기 · 토큰 발급과 같은 사람들이다. */
+const MANAGER_ROLES: ReadonlySet<string> = new Set(['owner', 'admin']);
 
 type ButtonEvent = Extract<ConfirmMessengerEvent, { kind: 'button' }>;
 type TextEvent = Extract<ConfirmMessengerEvent, { kind: 'text' }>;
@@ -113,6 +131,8 @@ export class SourcingConfirmReportService {
   private readonly lastReports = new Map<string, { sentAt: string; runId: string; itemCount: number }>();
   private readonly sending = new Set<string>();
   private setupChatId: string | null = null;
+  /** 설정 토큰은 이 프로세스 메모리에만 둔다. Office API 는 프로세스 하나다. */
+  private setupToken: { value: string; expiresAt: number } | null = null;
 
   constructor(
     @Inject(SOURCING_CONFIRM_MESSENGER_PORT)
@@ -121,10 +141,11 @@ export class SourcingConfirmReportService {
     private readonly reviews: SourcingReviewService,
   ) {}
 
-  async status(organizationId: string): Promise<SourcingConfirmReportStatus> {
+  async status(organizationId: string, role: string): Promise<SourcingConfirmReportStatus> {
     const setup = this.messenger.setup();
     if (setup.organizationId === null) return disabledStatus();
     assertBound(setup.organizationId, organizationId);
+    const manager = MANAGER_ROLES.has(role);
     const [botUsername, board] = await Promise.all([
       setup.configured
         ? this.messenger.identity().then((me) => me.username, () => null)
@@ -138,7 +159,8 @@ export class SourcingConfirmReportService {
       chatConfigured: setup.chatConfigured,
       listening: setup.listening,
       botUsername,
-      setupChatId: setup.chatConfigured ? null : this.setupChatId,
+      setupChatId: manager && !setup.chatConfigured ? this.setupChatId : null,
+      setupTokenExpiresAt: manager ? this.pendingSetupTokenExpiry() : null,
       lastReport: this.lastReports.get(organizationId) ?? null,
       candidates: board
         ? {
@@ -153,14 +175,21 @@ export class SourcingConfirmReportService {
     };
   }
 
+  /**
+   * 채팅을 정할 1회용 토큰을 만든다. 텔레그램 채팅에서 `/start <토큰>` 을 보내면 그 채팅이 설정
+   * 채팅이 된다. 새로 만들면 이전 토큰은 버린다.
+   */
+  async issueSetupToken(organizationId: string): Promise<SourcingConfirmSetupToken> {
+    requireBound(this.messenger.setup().organizationId, organizationId);
+    const value = Array.from({ length: SETUP_TOKEN_LENGTH }, () => SETUP_TOKEN_ALPHABET[randomInt(SETUP_TOKEN_ALPHABET.length)]).join('');
+    const expiresAt = Date.now() + SETUP_TOKEN_TTL_MS;
+    this.setupToken = { value, expiresAt };
+    return { token: value, expiresAt: new Date(expiresAt).toISOString() };
+  }
+
   async sendReport(organizationId: string): Promise<SourcingConfirmReportSendResult> {
     const setup = this.messenger.setup();
-    if (setup.organizationId === null) {
-      throw new ServiceUnavailableException(
-        '텔레그램 보고를 쓰려면 서버에 SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID 설정이 필요합니다.',
-      );
-    }
-    assertBound(setup.organizationId, organizationId);
+    requireBound(setup.organizationId, organizationId);
     if (!setup.configured) {
       throw new ServiceUnavailableException(
         '텔레그램 보고를 쓰려면 서버에 SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN 설정이 필요합니다.',
@@ -232,13 +261,19 @@ export class SourcingConfirmReportService {
   }
 
   private async handleText(event: TextEvent): Promise<void> {
-    const command = event.text.trim().split(/\s+/)[0]?.split('@')[0]?.toLowerCase();
+    const [head, argument] = event.text.trim().split(/\s+/);
+    const command = head?.split('@')[0]?.toLowerCase();
     if (command !== '/start' && command !== '/id') return;
     const setup = this.messenger.setup();
     if (setup.organizationId === null) return;
     if (!setup.chatConfigured) {
-      this.setupChatId = event.chatId;
-      await this.messenger.reply(event.chatId, renderSetupReply(event.chatId));
+      // 토큰이 맞을 때만 이 채팅을 정한다. 아무나 /start 를 보내 채팅 ID를 상태 화면에 띄우지 못하게.
+      if (argument && this.consumeSetupToken(argument)) {
+        this.setupChatId = event.chatId;
+        await this.messenger.reply(event.chatId, renderSetupReply(event.chatId));
+      } else {
+        await this.messenger.reply(event.chatId, renderSetupTokenReply());
+      }
       return;
     }
     if (event.authorized) await this.messenger.reply(event.chatId, renderHelpReply());
@@ -277,6 +312,26 @@ export class SourcingConfirmReportService {
     await this.safeAnswer(event.replyToken, `${ref.no}번 ${ANSWER[ref.action]}`);
     await this.rewritePage(event, ref.organizationId, changed ? await this.loadBoard(ref.organizationId) : board);
     if (changed) this.logger.log(`텔레그램 컨펌 반영: ${ref.action} (run ${board.runId})`);
+  }
+
+  private pendingSetupTokenExpiry(): string | null {
+    if (this.setupToken === null || this.setupToken.expiresAt <= Date.now()) return null;
+    return new Date(this.setupToken.expiresAt).toISOString();
+  }
+
+  /** 토큰이 맞고 만료 전이면 소진하고 `true`. 만료된 토큰은 버린다. */
+  private consumeSetupToken(candidate: string): boolean {
+    const token = this.setupToken;
+    if (token === null) return false;
+    if (token.expiresAt <= Date.now()) {
+      this.setupToken = null;
+      return false;
+    }
+    const given = Buffer.from(candidate.toUpperCase());
+    const expected = Buffer.from(token.value);
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) return false;
+    this.setupToken = null;
+    return true;
   }
 
   /** 최종 선택에 결정을 쓴다. 이미 같은 상태면 쓰지 않는다. */
@@ -360,6 +415,16 @@ export class SourcingConfirmReportService {
   }
 }
 
+/** 묶을 조직이 없으면 503, 다른 조직이면 403. */
+function requireBound(bound: string | null, organizationId: string): void {
+  if (bound === null) {
+    throw new ServiceUnavailableException(
+      '텔레그램 보고를 쓰려면 서버에 SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID 설정이 필요합니다.',
+    );
+  }
+  assertBound(bound, organizationId);
+}
+
 /** 봇이 묶인 조직이 아니면 거절한다. 보내기 · 상태 · 설정은 그 조직의 사람만 한다. */
 function assertBound(bound: string, organizationId: string): void {
   if (bound === organizationId.toLowerCase()) return;
@@ -378,6 +443,7 @@ function disabledStatus(): SourcingConfirmReportStatus {
     listening: false,
     botUsername: null,
     setupChatId: null,
+    setupTokenExpiresAt: null,
     lastReport: null,
     candidates: null,
   };
