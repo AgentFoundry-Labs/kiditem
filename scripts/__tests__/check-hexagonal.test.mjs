@@ -147,3 +147,8 @@ test('advertising joins the scanner (KID-311)', () => {
   assert.ok(hexagonalBoundaryViolations('apps/server/src/advertising/read/ad-target-facts.ts', '').length);
   assert.ok(hexagonalBoundaryViolations('apps/server/src/advertising/mapper/ad-campaign.mapper.ts', '').length);
 });
+
+test('products joins the scanner (KID-311)', () => {
+  assert.ok(hexagonalBoundaryViolations('apps/server/src/products/mapper/product-abc-evaluation.mapper.ts', '').length);
+  assert.ok(hexagonalBoundaryViolations('apps/server/src/products/read/product-abc-publication.reader.ts', '').length);
+});

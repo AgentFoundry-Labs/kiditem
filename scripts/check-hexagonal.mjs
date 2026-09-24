@@ -17,7 +17,7 @@ const builtins = new Set(builtinModules.map(name => name.replace(/^node:/, '')))
 // application/, domain/) is the pre-hexagonal shape; application/service/ is
 // the correct nested location and is not matched by this check.
 const RETIRED_TOP_LEVEL_DIRS = new Set(['read', 'mapper', 'service']);
-const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders', 'finance', 'advertising'];
+const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders', 'finance', 'advertising', 'products'];
 
 // KID-311: pure-layer adapter imports that predate an owner's move into the
 // scanner. Each entry allows exactly one { file, specifier } pair (file is
@@ -52,6 +52,10 @@ export const KNOWN_VIOLATIONS = [
   { owner: 'advertising', file: 'advertising/application/service/ad-export.service.ts', specifier: '../../adapter/in/http/dto/ad-export.dto', removeWith: 'KID-335' },
   { owner: 'advertising', file: 'advertising/application/service/ad-strategy.service.ts', specifier: '../../adapter/in/http/dto/register-campaign.dto', removeWith: 'KID-335' },
   { owner: 'advertising', file: 'advertising/application/service/keyword-rank-ingest.handler.ts', specifier: '../../adapter/in/http/dto', removeWith: 'KID-335' },
+  // Products outgoing port takes the ABC publication read type until KID-334.
+  { owner: 'products', file: 'products/application/port/out/persistence/master-product-abc.repository.port.ts', specifier: '../../../../adapter/out/persistence/read/product-abc-publication.reader', removeWith: 'KID-334' },
+  // Products categories service takes incoming DTOs until KID-335.
+  { owner: 'products', file: 'products/application/service/category/categories.service.ts', specifier: '../../../adapter/in/web/category/dto', removeWith: 'KID-335' },
 ];
 
 function domainOwner(file) {
@@ -156,5 +160,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const roots = HEXAGONAL_DOMAINS.map(name => path.join(serverSrc, name));
   const violations = scanHexagonalDomains(roots, serverSrc);
   if (violations.length) { console.error(violations.join('\n')); process.exitCode = 1; }
-  else console.log('PASS: Channels/Sourcing/Content/Orders/Finance/Advertising domain, application and business directories preserve hexagonal boundaries.');
+  else console.log('PASS: Channels/Sourcing/Content/Orders/Finance/Advertising/Products domain, application and business directories preserve hexagonal boundaries.');
 }
