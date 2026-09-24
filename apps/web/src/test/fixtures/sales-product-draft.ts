@@ -88,7 +88,6 @@ export function salesProductDraftListItem(overrides: Partial<SalesProductListIte
     sellingOptionCount: 1,
     unlinkedOptionCount: 1,
     channelListingCount: 0,
-    channelOverrideCount: 0,
     registrationAccounts: [],
     updatedAt: '2026-05-16T00:00:00.000Z',
     ...overrides,

@@ -72,7 +72,10 @@ export function mallFieldsFromDraft(draft: MallFieldsDraft, original: MallFields
     if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
       return { ok: false, error: '재고 비율은 0~100 사이 정수여야 합니다.' };
     }
-    value.stockPercent = parsed;
+    // 글자로 저장된 값을 고치지 않았으면 그대로 둔다 — 고친 값만 숫자로 쓴다.
+    value.stockPercent = typeof original.stockPercent === 'string' && original.stockPercent.trim() === stockPercent
+      ? original.stockPercent
+      : parsed;
   }
 
   for (const row of draft.extra) {

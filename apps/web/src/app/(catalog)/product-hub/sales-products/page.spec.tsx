@@ -37,7 +37,6 @@ function listItem(overrides: Record<string, unknown> = {}) {
     sellingOptionCount: 1,
     unlinkedOptionCount: 0,
     channelListingCount: 0,
-    channelOverrideCount: 0,
     registrationAccounts: [],
     updatedAt: '2026-09-22T00:00:00.000Z',
     ...overrides,
@@ -127,7 +126,6 @@ describe('판매상품 목록 화면', () => {
     });
     listQuery.mockResolvedValue({
       items: [listItem({
-        channelOverrideCount: 3,
         registrationAccounts: [account('몰 A', 'registered', true), account('몰 B', 'registered'), account('몰 C', 'failed')],
       })],
       total: 1,

@@ -262,7 +262,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           _count: {
             select: {
               channelListings: { where: { isActive: true } },
-              registrationTargets: { where: { archivedAt: null } },
             },
           },
         },
@@ -286,7 +285,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         unlinkedOptionCount: row.options.filter((option) =>
           option.supplyStatus !== 'unused' && option._count.components === 0).length,
         channelListingCount: row._count.channelListings,
-        channelOverrideCount: row._count.registrationTargets,
         updatedAt: row.updatedAt,
       })),
       total,

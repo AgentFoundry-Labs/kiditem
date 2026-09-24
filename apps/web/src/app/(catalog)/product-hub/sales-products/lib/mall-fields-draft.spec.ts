@@ -16,6 +16,13 @@ describe('mall fields draft (KID-310 e)', () => {
     expect(mallFieldsFromDraft(mallFieldsDraftOf(stored), stored)).toEqual({ ok: true, value: stored });
   });
 
+  it('keeps a stock percent stored as text as text when the operator did not touch it, and stores an edit as a number', () => {
+    const stored = { stockPercent: '80' };
+    expect(mallFieldsFromDraft(mallFieldsDraftOf(stored), stored)).toEqual({ ok: true, value: { stockPercent: '80' } });
+    expect(mallFieldsFromDraft({ ...mallFieldsDraftOf(stored), stockPercent: '70' }, stored))
+      .toEqual({ ok: true, value: { stockPercent: 70 } });
+  });
+
   it('stores supply price as text, stock percent as a number and drops empty fields', () => {
     const result = mallFieldsFromDraft({
       supplyPrice: ' 5000 ',

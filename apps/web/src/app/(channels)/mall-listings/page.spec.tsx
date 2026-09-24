@@ -50,7 +50,7 @@ vi.mock('@tanstack/react-query', () => ({
       const draft = (id: string, name: string, salePrice: number | null) => ({
         id, code: null, ownCode: null, sourceRecordId: null, sourcePlatform: '1688', sourceUrl: null, name,
         status: 'draft', salePrice, imageUrl: null, optionAxes: [], optionCount: 1, sellingOptionCount: 1,
-        unlinkedOptionCount: 1, channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+        unlinkedOptionCount: 1, channelListingCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
       });
       return {
         data: {
@@ -76,16 +76,17 @@ vi.mock('@tanstack/react-query', () => ({
             {
               id: 's1', code: '100300', ownCode: null, name: '애니멀 만능패드', status: 'active', salePrice: 5900,
               imageUrl: null, optionAxes: ['색상'], optionCount: 3, sellingOptionCount: 3, unlinkedOptionCount: 0,
-              channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+              channelListingCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
               registrationAccounts: [],
             },
             {
               id: 's2', code: '100017', ownCode: null, name: '투명우산 그리기', status: 'active', salePrice: 2880,
               imageUrl: null, optionAxes: [], optionCount: 1, sellingOptionCount: 1, unlinkedOptionCount: 0,
-              channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+              channelListingCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
               registrationAccounts: [{
                 channelAccountId: '11111111-1111-4111-8111-111111111111', channel: 'kidsnote', channelAccountName: '키즈노트',
-                registrationTargetId: null, channelListingId: null, externalListingId: null, state: 'registered',
+                registrationTargetId: null, channelListingId: null, externalListingId: null,
+                listingState: null, listingRawStatus: null, listingActive: false, state: 'registered',
                 soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null,
                 selectedDetailPageRevisionId: null, lastExecution: null,
               }],

@@ -141,7 +141,8 @@ describe('buildPublishPlan', () => {
   it('이미 그 몰 계정에 등록됐거나 보내는 중인 상품은 기본으로 빼고 이유를 남긴다(KID-320)', () => {
     const account = (state: string) => ({
       channelAccountId: 'channel-account-id', channel: 'kidsnote', channelAccountName: '키즈노트',
-      registrationTargetId: null, channelListingId: null, externalListingId: null, state,
+      registrationTargetId: null, channelListingId: null, externalListingId: null,
+      listingState: null, listingRawStatus: null, listingActive: false, state,
       soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null,
       selectedDetailPageRevisionId: null, lastExecution: null,
     });

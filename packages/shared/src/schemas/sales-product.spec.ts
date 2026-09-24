@@ -147,7 +147,6 @@ describe('sales product list contract', () => {
       sellingOptionCount: 1,
       unlinkedOptionCount: 0,
       channelListingCount: 0,
-      channelOverrideCount: 0,
       registrationAccounts: [],
       updatedAt: '2026-09-22T00:00:00.000Z',
     });
@@ -171,7 +170,6 @@ describe('sales product list contract', () => {
       sellingOptionCount: 1,
       unlinkedOptionCount: 1,
       channelListingCount: 0,
-      channelOverrideCount: 0,
       registrationAccounts: [],
       updatedAt: '2026-09-22T00:00:00.000Z',
     });
