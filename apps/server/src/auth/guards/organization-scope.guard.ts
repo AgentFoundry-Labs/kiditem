@@ -1,4 +1,5 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import { Reflector } from '@nestjs/core';
 import { SKIP_AUTH_KEY } from '../decorators/skip-auth.decorator';
 import { SERVICE_AUTH_KEY } from '../decorators/service-auth.decorator';
@@ -32,8 +33,10 @@ export class OrganizationScopeGuard implements CanActivate {
     if (skip || serviceAuth) return true;
 
     const req = context.switchToHttp().getRequest<Request>();
-    if (!req.authUser) throw new UnauthorizedException(req.authFailureReason ?? 'auth_required');
-    if (!req.authUser.organizationId) throw new UnauthorizedException('no_organization_context');
+    if (!req.authUser) {
+      throw new KiditemError('AUTH_REQUIRED', req.authFailureReason ? { details: { reason: req.authFailureReason } } : {});
+    }
+    if (!req.authUser.organizationId) throw new KiditemError('NO_ORGANIZATION_CONTEXT');
     return true;
   }
 }

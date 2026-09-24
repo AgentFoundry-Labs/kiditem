@@ -110,8 +110,8 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     const complete = (await collect('original').expect(201)).body;
     const before = await prisma.sourceRecord.findUniqueOrThrow({ where: { id: complete.sourceRecordId } });
     const refused = (await collect('new-key').expect(409)).body;
-    expect(refused).toMatchObject({ reason: 'draft_exists',
-      existing: { sourceRecordId: complete.sourceRecordId, salesProductId: complete.salesProductId, salesProductStatus: 'draft' } });
+    expect(refused).toMatchObject({ code: 'SOURCING_DUPLICATE_RECORD', details: { reason: 'draft_exists',
+      existing: { sourceRecordId: complete.sourceRecordId, salesProductId: complete.salesProductId, salesProductStatus: 'draft' } } });
     expect((await collect('original').expect(201)).body).toEqual(complete);
     expect(await prisma.sourcingEvidenceIngestionRun.count()).toBe(1);
     expect(await prisma.sourceRecord.findUniqueOrThrow({ where: { id: complete.sourceRecordId } })).toEqual(before);

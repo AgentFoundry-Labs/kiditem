@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { isKiditemError } from '@kiditem/shared/errors';
 import {
   addDays,
   businessDateKey,
@@ -197,8 +198,8 @@ export class TrafficService {
       });
     } catch (error) {
       if (
-        error instanceof NotFoundException
-        && ['COUPANG_ACCOUNT_NOT_FOUND', 'AD_TRAFFIC_SOURCE_MISSING'].includes(error.message)
+        (isKiditemError(error) && error.code === 'CHANNELS_ACCOUNT_NOT_FOUND')
+        || (error instanceof NotFoundException && error.message === 'AD_TRAFFIC_SOURCE_MISSING')
       ) {
         return { rows: [], coverage, reconciliation: null };
       }

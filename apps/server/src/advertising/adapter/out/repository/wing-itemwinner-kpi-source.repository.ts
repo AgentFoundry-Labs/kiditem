@@ -8,6 +8,7 @@ import { Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
@@ -165,7 +166,7 @@ export class WingItemwinnerKpiSourceRepository
       }
 
       const account = await this.account(tx, input.organizationId, input.channelAccountId);
-      if (!account) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
+      if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
       const expectedVendorId = resolveCoupangVendorId(account);
       if (!expectedVendorId) {
         throw new BadRequestException('VENDOR_IDENTITY_MISSING');
@@ -599,7 +600,7 @@ export class WingItemwinnerKpiSourceRepository
     channelAccountId?: string,
   ): Promise<WingItemwinnerSourceStatus> {
     const account = await this.account(tx, organizationId, channelAccountId);
-    if (!account && channelAccountId) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
+    if (!account && channelAccountId) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
     if (!account) {
       return {
         channelAccountId: null,

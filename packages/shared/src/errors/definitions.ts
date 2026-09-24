@@ -146,6 +146,10 @@ export const ERROR_DEFINITIONS = {
   SUPPLY_PURCHASE_ITEM_INACTIVE: def('supply', 'precondition', '발주 항목 중 판매 중이 아닌 상품이 있습니다.'),
   SUPPLY_PURCHASE_REFERENCE_INVALID: def('supply', 'validation', '발주 참조 정보가 올바르지 않습니다.'),
   SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED: def('supply', 'precondition', '이전 발주 제출 결과를 먼저 확인해야 합니다.', { httpStatus: 409 }),
+  SUPPLY_ROCKET_FINAL_ORDER_AMBIGUOUS: def('supply', 'conflict', '수집한 로켓 주문이 발주 엑셀의 여러 줄과 맞습니다. 발주 확정 엑셀을 확인해 주세요.'),
+  SUPPLY_ROCKET_FINAL_ORDER_BARCODE_MISMATCH: def('supply', 'conflict', '수집한 로켓 주문의 바코드가 발주 엑셀과 다릅니다. 발주 확정 엑셀을 확인해 주세요.'),
+  SUPPLY_ROCKET_FINAL_ORDER_ALREADY_COLLECTED: def('supply', 'conflict', '이 발주 엑셀 줄은 이미 다른 주문과 연결돼 있습니다.'),
+  SUPPLY_ROCKET_WORKBOOK_LINE_CHANGED: def('supply', 'conflict', '맞추는 동안 발주 엑셀 줄이 바뀌었습니다. 다시 시도해 주세요.', { retryable: true }),
   SUPPLY_ROCKET_COLLECTION_INCOMPLETE: def('supply', 'precondition', '로켓 발주 수집이 끝나지 않았습니다. 수집을 마친 뒤 다시 시도해 주세요.', { httpStatus: 409 }),
 
   // sourcing
@@ -198,6 +202,8 @@ export const EXTENSION_CODE_ALIASES: Readonly<Record<string, KiditemErrorCode>> 
   search_extraction_failed: 'SOURCING_SEARCH_EXTRACTION_FAILED',
   gateway_provider_unavailable: 'AGENT_OS_GATEWAY_UNAVAILABLE',
   SOURCE_ATTEMPT_TERMINAL: 'ATTEMPT_TERMINAL',
+  SOURCE_ATTEMPT_IN_PROGRESS: 'ATTEMPT_IN_PROGRESS',
+  ROCKET_PO_COLLECTION_INCOMPLETE: 'SUPPLY_ROCKET_COLLECTION_INCOMPLETE',
   COMMON_NOT_FOUND: 'NOT_FOUND',
   COMMON_BAD_REQUEST: 'VALIDATION_FAILED',
   COMMON_INTERNAL_ERROR: 'INTERNAL_ERROR',

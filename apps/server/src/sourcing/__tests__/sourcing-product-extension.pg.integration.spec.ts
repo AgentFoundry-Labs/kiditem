@@ -14,6 +14,7 @@ import { SourcingExtensionIngestService } from '../application/service/sourcing-
 import { SourcingService } from '../application/service/sourcing.service';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 
 const product = JSON.parse(readFileSync(resolve(__dirname, '../../../../../extensions/tests/fixtures/1688-product-detail-v1.json'), 'utf8'));
 const base = '/api/sourcing/extension/product-data';
@@ -37,6 +38,8 @@ describe('product extension actual HTTP source owner (PostgreSQL)', () => {
       if (req.headers.authorization) req.authUser = { id: TEST_USER_ID, organizationId: req.headers['test-organization'] || TEST_ORGANIZATION_ID };
       next();
     });
+    // KidItem 오류(인증 401 등)를 운영 main.ts와 같은 봉투로 낸다(ADR-0023).
+    app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
   });
   afterAll(async () => { await app?.close(); await prisma?.$disconnect(); });
@@ -138,7 +141,7 @@ describe('product extension actual HTTP source owner (PostgreSQL)', () => {
     expect(first.plan.sourceUrl).toBe(firstUrl);
     const blocked = await call().post(`${base}/attempts`).set('authorization', 'fixture')
       .set('idempotency-key', 'canonical-next').send({ sourceUrl: nextUrl }).expect(409);
-    expect(blocked.body.code).toBe('SOURCE_ATTEMPT_IN_PROGRESS');
+    expect(blocked.body).toMatchObject({ code: 'ATTEMPT_IN_PROGRESS', attemptId: first.attemptId });
     expect(await prisma.sourcingEvidenceIngestionRun.count()).toBe(1);
 
     await complete(first, { product: { ...product, source_url: firstUrl }, hadDescription: false } as never).expect(200);
@@ -172,8 +175,11 @@ describe('product extension actual HTTP source owner (PostgreSQL)', () => {
     const refused = await complete(again, { product, hadDescription: false } as never).expect(409);
 
     expect(refused.body).toMatchObject({
-      reason: 'draft_exists',
-      existing: { sourceRecordId: record.id, salesProductId: draft.id, salesProductStatus: 'draft' },
+      code: 'SOURCING_DUPLICATE_RECORD',
+      details: {
+        reason: 'draft_exists',
+        existing: { sourceRecordId: record.id, salesProductId: draft.id, salesProductStatus: 'draft' },
+      },
     });
     expect(await prisma.sourceRecord.count()).toBe(1);
     expect(await prisma.salesProduct.count()).toBe(1);

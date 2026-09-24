@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { OrganizationScopeGuard } from '../guards/organization-scope.guard';
 import { SKIP_AUTH_KEY } from '../decorators/skip-auth.decorator';
@@ -50,34 +50,19 @@ describe('OrganizationScopeGuard', () => {
   it('throws auth_required when req.authUser missing', () => {
     const guard = new OrganizationScopeGuard(makeReflector(() => undefined));
     const ctx = createCtx(undefined);
-    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
-    try {
-      guard.canActivate(ctx);
-    } catch (e) {
-      expect((e as UnauthorizedException).message).toContain('auth_required');
-    }
+    expect(() => guard.canActivate(ctx)).toThrow(expect.objectContaining({ code: 'AUTH_REQUIRED', httpStatus: 401 }));
   });
 
   it('throws recorded auth failure reason when req.authUser missing', () => {
     const guard = new OrganizationScopeGuard(makeReflector(() => undefined));
     const ctx = createCtx(undefined, {}, 'auth_user_not_mirrored');
-    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
-    try {
-      guard.canActivate(ctx);
-    } catch (e) {
-      expect((e as UnauthorizedException).message).toContain('auth_user_not_mirrored');
-    }
+    expect(() => guard.canActivate(ctx)).toThrow(expect.objectContaining({ code: 'AUTH_REQUIRED', details: { reason: 'auth_user_not_mirrored' } }));
   });
 
   it('throws no_organization_context when organizationId is null', () => {
     const guard = new OrganizationScopeGuard(makeReflector(() => undefined));
     const ctx = createCtx({ id: 'u1', organizationId: null, role: 'system', type: 'system', email: 's@x' });
-    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
-    try {
-      guard.canActivate(ctx);
-    } catch (e) {
-      expect((e as UnauthorizedException).message).toContain('no_organization_context');
-    }
+    expect(() => guard.canActivate(ctx)).toThrow(expect.objectContaining({ code: 'NO_ORGANIZATION_CONTEXT', httpStatus: 401 }));
   });
 
   it('passes when authUser has organizationId', () => {

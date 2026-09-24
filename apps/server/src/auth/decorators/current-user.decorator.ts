@@ -1,4 +1,5 @@
-import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import type { Request } from 'express';
 import type { AuthUser } from '../auth.types';
 
@@ -8,7 +9,7 @@ import type { AuthUser } from '../auth.types';
 export function currentUserFactory(ctx: ExecutionContext): AuthUser {
   const req = ctx.switchToHttp().getRequest<Request>();
   const user = req.authUser;
-  if (!user) throw new UnauthorizedException('auth_required');
+  if (!user) throw new KiditemError('AUTH_REQUIRED');
   return user;
 }
 

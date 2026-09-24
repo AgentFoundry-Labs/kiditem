@@ -361,7 +361,7 @@ describe('Coupang direct final-order collection (PG integration)', () => {
       attemptToken: attempt.attemptToken,
       capture: badCapture as never,
       transport: 'SHIPMENT',
-    })).rejects.toMatchObject({ code: 'ROCKET_FINAL_ORDER_BARCODE_MISMATCH' });
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_FINAL_ORDER_BARCODE_MISMATCH' });
 
     expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attempt.attemptId } })).toMatchObject({
       sourceType: 'coupang_direct_order_capture',

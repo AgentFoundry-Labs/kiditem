@@ -8,6 +8,7 @@ import { Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
@@ -100,7 +101,7 @@ export class AdCampaignSourceRepository {
         return this.viewIn(tx, row, true);
       }
       const account = await this.channelAccounts.resolveActiveProvider(ownerTransaction(tx), { organizationId: org, accountId: input.channelAccountId, channel: 'coupang' });
-      if (!account) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
+      if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
       const running = await tx.sourceImportRun.findFirst({
         where: {
           ...scope(org),
@@ -195,7 +196,7 @@ export class AdCampaignSourceRepository {
     return this.prisma.$transaction(
       async (tx) => {
         const account = await this.channelAccounts.resolveActiveProvider(ownerTransaction(tx), { organizationId: org, channel: 'coupang' });
-        if (!account) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
+        if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
         const rows = await tx.sourceImportRun.findMany({
           where: {
             ...scope(org),
@@ -242,7 +243,7 @@ export class AdCampaignSourceRepository {
     return this.prisma.$transaction(
       async (tx) => {
         const account = await this.channelAccounts.resolveActiveProvider(ownerTransaction(tx), { organizationId: org, accountId, channel: 'coupang' });
-        if (!account && accountId) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
+        if (!account && accountId) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
         if (!account)
           return {
             channelAccountId: null,

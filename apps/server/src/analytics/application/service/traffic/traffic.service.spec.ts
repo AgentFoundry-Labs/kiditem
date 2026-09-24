@@ -1,3 +1,4 @@
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TrafficService } from './traffic.service';
 
@@ -75,6 +76,15 @@ describe('TrafficService — owner-published Wing traffic reads', () => {
       from: '2026-05-01',
       to: '2026-05-31',
     });
+  });
+
+  it('reads a missing Coupang account (CHANNELS_ACCOUNT_NOT_FOUND) as no traffic yet', async () => {
+    const trafficRead = { readPublished: vi.fn().mockRejectedValue(new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND')) };
+    const service = new TrafficService(trafficRead as never);
+
+    const result = await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
+
+    expect(result.days).toEqual([]);
   });
 
   it('reads account daily metrics and leaves guessed Wing profit fields unavailable', async () => {

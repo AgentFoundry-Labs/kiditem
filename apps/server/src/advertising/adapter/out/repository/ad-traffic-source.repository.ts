@@ -8,6 +8,7 @@ import { Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
@@ -655,7 +656,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         input.organizationId,
         input.request.channelAccountId,
       );
-      if (!account) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
+      if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
       const expectedAdvertiserId = resolveCoupangVendorId(account);
       if (!expectedAdvertiserId) throw new BadRequestException('ADVERTISER_IDENTITY_MISSING');
 
@@ -786,7 +787,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
           throw new BadRequestException('INVALID_TRAFFIC_DATE_RANGE');
         }
         const account = await this.primaryAccount(tx, input.organizationId, input.channelAccountId);
-        if (!account) throw new NotFoundException('COUPANG_ACCOUNT_NOT_FOUND');
+        if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
         const runs = await tx.sourceImportRun.findMany({
           where: {
             organizationId: input.organizationId,

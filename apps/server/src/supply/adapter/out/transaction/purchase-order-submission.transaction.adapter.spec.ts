@@ -1,5 +1,5 @@
 import { ProductTransactionalReadRepositoryAdapter } from '../../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
-import { AppException } from '@kiditem/shared/server-errors';
+import { KiditemError } from '@kiditem/shared/errors';
 import { describe, expect, it, vi } from 'vitest';
 import { PurchaseOrderSubmissionTransactionAdapter } from './purchase-order-submission.transaction.adapter';
 
@@ -180,7 +180,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       purchaseOrderId: ORDER_ID,
       userId: 'inactive-user',
       idempotencyKey: 'submit-1',
-    })).rejects.toBeInstanceOf(AppException);
+    })).rejects.toBeInstanceOf(KiditemError);
     expect(tx.purchaseOrder.updateMany).not.toHaveBeenCalled();
   });
 
@@ -207,7 +207,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       purchaseOrderId: ORDER_ID,
       userId: 'user-1',
       idempotencyKey: 'submit-1',
-    })).rejects.toMatchObject({ code: 'PURCHASE_REFERENCE_INVALID' });
+    })).rejects.toMatchObject({ code: 'SUPPLY_PURCHASE_REFERENCE_INVALID' });
     expect(tx.purchaseOrder.updateMany).not.toHaveBeenCalled();
   });
 
@@ -248,7 +248,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       userId: 'user-1',
       outcome: 'provider_failed',
     })).rejects.toMatchObject({
-      code: 'PURCHASE_SUBMISSION_RECONCILIATION_REQUIRED',
+      code: 'SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED',
     });
     expect(tx.purchaseOrderSubmissionAttempt.updateMany).not.toHaveBeenCalled();
   });
@@ -344,7 +344,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       crossTenantHarness.prisma as never,
      new ProductTransactionalReadRepositoryAdapter());
     await expect(crossTenant.prepare(prepareInput())).rejects.toMatchObject({
-      code: 'PURCHASE_REFERENCE_INVALID',
+      code: 'SUPPLY_PURCHASE_REFERENCE_INVALID',
     });
     expect(crossTenantHarness.tx.purchaseOrderSubmissionAttempt.create)
       .not.toHaveBeenCalled();
@@ -405,7 +405,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
     tx.organizationMembership.findFirst.mockResolvedValue(null);
     const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter());
 
-    await expect(adapter.prepare(prepareInput())).rejects.toBeInstanceOf(AppException);
+    await expect(adapter.prepare(prepareInput())).rejects.toBeInstanceOf(KiditemError);
     expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
   });
 

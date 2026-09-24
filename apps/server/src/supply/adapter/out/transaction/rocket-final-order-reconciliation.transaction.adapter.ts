@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { AppException } from '@kiditem/shared/server-errors';
+import { KiditemConflictError } from '@kiditem/shared/errors';
 import type { RocketFinalOrderReconciliationTransactionPort } from '../../../application/port/out/transaction/rocket-final-order-reconciliation.transaction.port';
 
 @Injectable()
@@ -62,31 +62,19 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
         continue;
       }
       if (matches.length > 1) {
-        throw new AppException(
-          409,
-          'ROCKET_FINAL_ORDER_AMBIGUOUS',
-          'More than one Rocket workbook line matched the collected order line.',
-        );
+        throw new KiditemConflictError('SUPPLY_ROCKET_FINAL_ORDER_AMBIGUOUS');
       }
       const match = matches[0]!;
       const requestBarcode = match.barcode?.trim() || null;
       const finalBarcode = line.barcode?.trim() || null;
       if (requestBarcode && finalBarcode && requestBarcode !== finalBarcode) {
-        throw new AppException(
-          409,
-          'ROCKET_FINAL_ORDER_BARCODE_MISMATCH',
-          'The collected Rocket order barcode differs from the workbook export.',
-        );
+        throw new KiditemConflictError('SUPPLY_ROCKET_FINAL_ORDER_BARCODE_MISMATCH');
       }
       if (
         match.collectedOrderLineItemId &&
         match.collectedOrderLineItemId !== line.finalOrderLineId
       ) {
-        throw new AppException(
-          409,
-          'ROCKET_FINAL_ORDER_ALREADY_COLLECTED',
-          'The Rocket workbook line is already linked to a different collected order line.',
-        );
+        throw new KiditemConflictError('SUPPLY_ROCKET_FINAL_ORDER_ALREADY_COLLECTED');
       }
       const updated = await tx.rocketPurchaseConfirmationLine.updateMany({
         where: {
@@ -99,22 +87,14 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
         },
       });
       if (updated.count !== 1) {
-        throw new AppException(
-          409,
-          'ROCKET_WORKBOOK_LINE_CHANGED',
-          'The matched Rocket workbook line changed before reconciliation.',
-        );
+        throw new KiditemConflictError('SUPPLY_ROCKET_WORKBOOK_LINE_CHANGED');
       }
       matchedExportIds.add(match.confirmationId);
       reconciledRows += 1;
     }
 
     if (matchedExportIds.size > 1) {
-      throw new AppException(
-        409,
-        'ROCKET_FINAL_ORDER_AMBIGUOUS',
-        'Collected Rocket order lines matched more than one workbook export.',
-      );
+      throw new KiditemConflictError('SUPPLY_ROCKET_FINAL_ORDER_AMBIGUOUS');
     }
     const exportId =
       [...matchedExportIds][0] ??

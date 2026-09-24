@@ -102,7 +102,8 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
     await expect(executions.prepareListingAvailability({ organizationId: ORG, requestedByUserId: USER, request: { ...request, kind: 'resume' } })).rejects.toThrow('cannot resume');
     await executions.prepareListingAvailability({ organizationId: ORG, requestedByUserId: USER, request });
     const { stockoutPolicy: _policy, ...manual } = request;
-    await expect(executions.prepareListingAvailability({ organizationId: ORG, requestedByUserId: USER, request: manual })).rejects.toThrow();
+    await expect(executions.prepareListingAvailability({ organizationId: ORG, requestedByUserId: USER, request: { ...manual, idempotencyKey: randomUUID() } }))
+      .rejects.toMatchObject({ code: 'CHANNELS_LISTING_EXECUTION_ACTIVE' });
   });
   it('does not let an old successful stop override newer positive provider observations', async () => {
     const f = await fixture();

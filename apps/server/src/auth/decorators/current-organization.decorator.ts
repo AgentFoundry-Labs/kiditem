@@ -1,4 +1,5 @@
-import { createParamDecorator, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import type { Request } from 'express';
 
 /**
@@ -8,8 +9,8 @@ import type { Request } from 'express';
 export function currentOrganizationFactory(ctx: ExecutionContext): string {
   const req = ctx.switchToHttp().getRequest<Request>();
   const user = req.authUser;
-  if (!user) throw new UnauthorizedException('auth_required');
-  if (!user.organizationId) throw new UnauthorizedException('no_organization_context');
+  if (!user) throw new KiditemError('AUTH_REQUIRED');
+  if (!user.organizationId) throw new KiditemError('NO_ORGANIZATION_CONTEXT');
   return user.organizationId;
 }
 

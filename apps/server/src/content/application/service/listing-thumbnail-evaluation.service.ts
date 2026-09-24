@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { ImageSpec } from '@kiditem/shared/ai';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { ListingThumbnailEvaluationSummary } from '@kiditem/shared/product-content';
 import type {
   ListingThumbnailEvaluationPort,
@@ -32,7 +33,7 @@ export class ListingThumbnailEvaluationService implements ListingThumbnailEvalua
     modelId: string;
   }): Promise<ListingThumbnailEvaluationView> {
     const modelId = input.modelId?.trim();
-    if (!modelId) throw new BadRequestException('modelId is required: choose the vision model explicitly.');
+    if (!modelId) throw new KiditemInvalidValueError('AGENT_OS_MODEL_REQUIRED');
     const imageUrl = input.imageUrl.trim();
     if (!imageUrl) throw new BadRequestException('imageUrl is required.');
     const existing = await this.repository.find({ organizationId: input.organizationId, channelListingId: input.channelListingId, imageUrl });

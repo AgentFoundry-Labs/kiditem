@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RolesGuard } from '../guards/roles.guard';
 import { ROLES_METADATA_KEY } from '../decorators/roles.decorator';
@@ -43,12 +43,12 @@ describe('RolesGuard', () => {
   it('throws ForbiddenException when role not allowed', () => {
     const guard = new RolesGuard(makeReflector(['owner']));
     const ctx = createCtx({ id: 'u', organizationId: 'c', role: 'member', type: 'human', email: 'x@y' });
-    expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
+    expect(() => guard.canActivate(ctx)).toThrow(expect.objectContaining({ code: 'FORBIDDEN', httpStatus: 403 }));
   });
 
   it('throws Unauthorized when authUser missing but @Roles set', () => {
     const guard = new RolesGuard(makeReflector(['owner']));
     const ctx = createCtx(undefined);
-    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+    expect(() => guard.canActivate(ctx)).toThrow(expect.objectContaining({ code: 'AUTH_REQUIRED', httpStatus: 401 }));
   });
 });

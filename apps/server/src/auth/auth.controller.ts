@@ -7,9 +7,9 @@ import {
   Post,
   Req,
   Res,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { KiditemError } from '@kiditem/shared/errors';
 import type {
   AuthUserPublic,
   ExtensionAuthHandoff,
@@ -64,7 +64,7 @@ export class AuthController {
   ): Promise<ExtensionAuthHandoff> {
     const token = request.cookies?.[AUTH_SESSION_COOKIE];
     if (typeof token !== 'string' || !request.authSessionId) {
-      throw new UnauthorizedException('auth_required');
+      throw new KiditemError('AUTH_REQUIRED');
     }
     const authenticated = await this.authService.authenticateToken(token);
     if (
@@ -72,7 +72,7 @@ export class AuthController {
       authenticated.sessionId !== request.authSessionId ||
       authenticated.authUser.id !== authUser.id
     ) {
-      throw new UnauthorizedException('auth_required');
+      throw new KiditemError('AUTH_REQUIRED');
     }
     return { token };
   }
@@ -85,7 +85,7 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<void> {
-    if (!request.authSessionId) throw new UnauthorizedException('auth_required');
+    if (!request.authSessionId) throw new KiditemError('AUTH_REQUIRED');
     await this.authService.logout(request.authSessionId, authUser.id);
     clearAuthSessionCookie(response);
   }

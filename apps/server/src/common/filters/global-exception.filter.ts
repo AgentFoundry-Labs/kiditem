@@ -53,13 +53,19 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const body = toEnvelope(mapException(exception));
 
-    const raw = exception instanceof Error ? `${exception.name}: ${exception.message}` : String(exception);
+    const cause = isKiditemError(exception) && exception.cause instanceof Error ? exception.cause : undefined;
+    const raw = [exception, cause].filter(Boolean).map(describe).join(' ← ');
     const line = `${request.method} ${request.url} → ${body.statusCode} ${body.code} (${raw})`;
-    if (body.statusCode >= 500) this.logger.error(line, exception instanceof Error ? exception.stack : undefined);
+    const stack = (cause ?? exception) instanceof Error ? ((cause ?? exception) as Error).stack : undefined;
+    if (body.statusCode >= 500) this.logger.error(line, stack);
     else this.logger.warn(line);
 
     response.status(body.statusCode).json(body);
   }
+}
+
+function describe(value: unknown): string {
+  return value instanceof Error ? `${value.name}: ${value.message}` : String(value);
 }
 
 export function toEnvelope(mapped: MappedError): ErrorResponse {

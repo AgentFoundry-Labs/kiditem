@@ -37,6 +37,7 @@ import { KeywordRankIngestHandler } from '../application/service/keyword-rank-in
 import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
 import { KeywordSerpSourceRepository } from '../adapter/out/repository/keyword-serp-source.repository';
 import { SellerIdentitySourceRepository } from '../adapter/out/repository/seller-identity-source.repository';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 
 const base = '/api/ads/competitor-seller-identities/attempts';
 describe('Seller identity owner HTTP + PostgreSQL', () => {
@@ -113,6 +114,7 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
         next();
       },
     );
+    app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
     await app.listen(0, '127.0.0.1');
     httpUrl = await app.getUrl();
@@ -348,7 +350,14 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     expect(
       JSON.stringify((await get('/api/alerts').expect(200)).body),
     ).not.toContain('Seller identity collection expired before publication.');
-    await submit(first, identities(first)).expect(409);
+    expect((await submit(first, identities(first)).expect(409)).body).toMatchObject({
+      code: 'ATTEMPT_EXPIRED',
+      message: '수집 시도가 만료됐습니다. 다시 시작해 주세요.',
+    });
+    expect((await submit({ ...first, attemptToken: first.attemptToken.replace(/.$/, (last: string) => (last === '0' ? '1' : '0')) }, identities(first)).expect(409)).body).toMatchObject({
+      code: 'ATTEMPT_FENCE_LOST',
+      message: '이 수집 시도는 더 이상 유효하지 않습니다. 다시 시작해 주세요.',
+    });
     const next = (await start().expect(201)).body;
     expect(next.attemptId).not.toBe(first.attemptId);
     expect(
