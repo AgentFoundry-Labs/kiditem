@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CoupangCatalogAttributeV1Schema,
+  CoupangCatalogCollectionPlanSchema,
   CoupangCatalogCollectionRunSchema,
   CoupangCatalogCollectionPermitSchema,
+  CoupangCatalogDeletionConfirmationChunkV1Schema,
   CoupangCatalogDetailProductV1Schema,
   CoupangCatalogDiscoveryPageV1Schema,
   CoupangCatalogManifestConfirmationV1Schema,
@@ -366,5 +369,59 @@ describe('Coupang catalog snapshot contracts', () => {
       ...parsed,
       progress: { ...parsed.progress, publishedProducts: -1 },
     })).toThrow();
+  });
+});
+
+describe('KID-348·349 additive contracts', () => {
+  it('accepts a deletion confirmation chunk and rejects a duplicated product', () => {
+    const chunk = {
+      version: 1,
+      kind: 'deletion_confirmation',
+      products: [
+        { externalProductId: '1', outcome: 'deleted', productStatus: 'DELETED' },
+        { externalProductId: '2', outcome: 'not_found' },
+      ],
+    };
+    const parsed = CoupangCatalogDeletionConfirmationChunkV1Schema.parse(chunk);
+    expect(parsed.products[1]?.productStatus).toBeNull();
+    expect(PutCoupangCatalogChunkRequestSchema.safeParse({
+      sequence: 3, checksum, itemCount: 2, kind: 'deletion_confirmation', payload: chunk,
+    }).success).toBe(true);
+    expect(PutCoupangCatalogChunkRequestSchema.safeParse({
+      sequence: 3, checksum, itemCount: 1, kind: 'deletion_confirmation', payload: chunk,
+    }).success).toBe(false);
+    expect(CoupangCatalogDeletionConfirmationChunkV1Schema.safeParse({
+      ...chunk,
+      products: [chunk.products[0], chunk.products[0]],
+    }).success).toBe(false);
+  });
+
+  it('keeps the legacy attribute shape and takes the new optional fields', () => {
+    expect(CoupangCatalogAttributeV1Schema.parse({ type: '색상', value: '빨강' })).toEqual({ type: '색상', value: '빨강' });
+    expect(CoupangCatalogAttributeV1Schema.parse({
+      type: '색상', value: '빨강', kind: 'search', attributeTypeId: '7', exposed: false,
+    }).kind).toBe('search');
+    expect(CoupangCatalogAttributeV1Schema.safeParse({ type: '색상', value: '빨강', kind: 'other' }).success).toBe(false);
+  });
+
+  it('carries detail targets and absent products in the plan and a requested product list in the start request', () => {
+    const plan = CoupangCatalogCollectionPlanSchema.parse({
+      collectorVersion: 'wing-inventory-v1',
+      stage: 'details',
+      listUrl: 'https://wing.coupang.com/list',
+      detailUrl: 'https://wing.coupang.com/detail',
+      channelAccountId: accountId,
+      vendorId: 'A0001',
+      publicationRevision: '1',
+      detailTargetProductIds: ['1', '2'],
+      absentProductIds: ['9'],
+    });
+    expect(plan.detailTargetProductIds).toEqual(['1', '2']);
+    expect(StartCoupangCatalogCollectionRequestSchema.parse({
+      collectorVersion: 'wing-inventory-v1', stage: 'details', detailProductIds: ['1'],
+    }).detailProductIds).toEqual(['1']);
+    expect(StartCoupangCatalogCollectionRequestSchema.safeParse({
+      collectorVersion: 'wing-inventory-v1', detailProductIds: [],
+    }).success).toBe(false);
   });
 });
