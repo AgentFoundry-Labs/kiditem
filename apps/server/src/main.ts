@@ -8,12 +8,12 @@ config({ path: resolve(__dirname, '..', '.env') });
 config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
 import { ApiApplicationModule } from './api-application.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { createGlobalValidationPipe } from './common/validation/validation-pipe';
 import { ChannelBusinessExceptionFilter } from './channels/adapter/in/web/channel-business-exception.filter';
 import { requireWebOrigin } from './common/config/web-origin';
 import { configureAgentRuntimeBodyParsers } from './common/http/agent-runtime-body-parser';
@@ -57,10 +57,7 @@ async function bootstrap() {
   });
   // SessionAuthMiddleware 가 KidItem HttpOnly 세션 쿠키를 읽기 위해 필요.
   configureApiGlobalPrefix(app);
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    transform: true,
-  }));
+  app.useGlobalPipes(createGlobalValidationPipe());
   app.useGlobalFilters(new GlobalExceptionFilter(), new ChannelBusinessExceptionFilter());
 
   // 이미지는 S3-호환 스토리지(MinIO/R2/S3)에서 직접 서빙 (StorageService 참조)

@@ -941,11 +941,14 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
         .set('Idempotency-Key', randomUUID())
         .send({})
         .expect(409);
-      expect(conflict.body).toMatchObject({
+      expect(conflict.body).toEqual({
         statusCode: 409,
         code: 'ATTEMPT_IN_PROGRESS',
+        kind: 'in_progress',
+        message: expect.stringMatching(/[가-힣]/),
+        errors: [],
+        details: { attemptId: running.attemptId },
         attemptId: running.attemptId,
-        path: `${base}/attempts`,
       });
       const reused = await request(filteredUrl)
         .post(`${base}/attempts`)
@@ -954,8 +957,8 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
         .expect(409);
       expect(reused.body).toMatchObject({
         statusCode: 409,
-        error: 'Conflict',
-        message: 'SOURCE_IDEMPOTENCY_KEY_REUSED',
+        code: 'STATE_CONFLICT',
+        details: { reason: 'SOURCE_IDEMPOTENCY_KEY_REUSED' },
       });
       expect(reused.body).not.toHaveProperty('attemptId');
     });

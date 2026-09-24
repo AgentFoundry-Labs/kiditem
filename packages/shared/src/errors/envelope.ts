@@ -20,5 +20,7 @@ export const ErrorResponseSchema = z.object({
   message: z.string().min(1),
   errors: z.array(FieldErrorSchema),
   details: z.record(z.string(), z.unknown()).optional(),
+  // 확장이 409 ATTEMPT_IN_PROGRESS의 최상위 attemptId를 읽는다. KID-338이 확장을 `details.attemptId`로 옮기면 제거.
+  attemptId: z.string().uuid().optional(),
 }).strict();
 export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;

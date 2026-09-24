@@ -91,6 +91,8 @@ export const ERROR_DEFINITIONS = {
   NOT_FOUND: def('common', 'not_found', '요청한 항목을 찾을 수 없습니다.'),
   METHOD_NOT_ALLOWED: def('common', 'validation', '지원하지 않는 요청입니다.', { httpStatus: 405 }),
   DB_CONFLICT: def('common', 'conflict', '같은 항목이 이미 있어 저장하지 못했습니다.'),
+  STATE_CONFLICT: def('common', 'conflict', '지금 상태와 맞지 않아 처리하지 못했습니다. 새로고침한 뒤 다시 시도해 주세요.'),
+  RATE_LIMITED: def('common', 'external', '요청이 너무 많습니다. 잠시 뒤 다시 시도해 주세요.', { httpStatus: 429, retryable: true }),
   DB_NOT_FOUND: def('common', 'not_found', '저장된 항목을 찾을 수 없습니다.'),
   DB_ERROR: def('common', 'internal', '데이터를 저장하거나 읽는 중 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   INTERNAL_ERROR: def('common', 'internal', '처리 중 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
@@ -103,6 +105,7 @@ export const ERROR_DEFINITIONS = {
   ATTEMPT_EXPIRED: def('common', 'expired', '수집 시도가 만료됐습니다. 다시 시작해 주세요.', { retryable: true }),
   ATTEMPT_FENCE_LOST: def('common', 'conflict', '이 수집 시도는 더 이상 유효하지 않습니다. 다시 시작해 주세요.', { retryable: true }),
   ATTEMPT_TERMINAL: def('common', 'conflict', '이미 끝난 수집 시도입니다.'),
+  ATTEMPT_PAUSED: def('common', 'in_progress', '몰 요청 제한으로 수집을 잠시 멈췄습니다. 잠시 뒤 이어서 수집해 주세요.', { retryable: true }),
   USER_CANCELLED: def('common', 'cancelled', '운영자가 중단했습니다.'),
   COLLECTION_CANCELLED: def('common', 'cancelled', '수집이 중단됐습니다.'),
   COLLECTION_WINDOW_OWNER_CONFLICT: def('extension', 'in_progress', '다른 수집이 브라우저 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.'),
@@ -134,6 +137,7 @@ export const ERROR_DEFINITIONS = {
   // products
   PRODUCTS_NOT_FOUND: def('products', 'not_found', '상품을 찾을 수 없습니다.'),
   PRODUCTS_STATE_CONFLICT: def('products', 'conflict', '상품 상태가 바뀌어 이 작업을 할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
+  PRODUCTS_SOURCE_REFERENCE_INVALID: def('products', 'precondition', '상품 원천 정보가 이 조직의 상품과 맞지 않습니다.'),
   PRODUCTS_MAPPING_CONFLICT: def('products', 'conflict', '상품 매핑이 동시에 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.', { retryable: true }),
 
   // inventory · supply
@@ -201,6 +205,7 @@ export const EXTENSION_CODE_ALIASES: Readonly<Record<string, KiditemErrorCode>> 
   COMMON_UNAUTHORIZED: 'AUTH_REQUIRED',
   COMMON_SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
   PRODUCT_NOT_FOUND: 'PRODUCTS_NOT_FOUND',
+  PRODUCT_SOURCE_REFERENCE_INVALID: 'PRODUCTS_SOURCE_REFERENCE_INVALID',
   ORDER_NO_SELECTION: 'ORDERS_NO_SELECTION',
   ORDER_UNKNOWN_ACTION: 'ORDERS_UNKNOWN_ACTION',
   PURCHASE_ITEM_INACTIVE: 'SUPPLY_PURCHASE_ITEM_INACTIVE',

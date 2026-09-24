@@ -9,6 +9,10 @@ import {
   ChannelUnavailableError,
   ChannelUnsupportedError,
 } from '../../../domain/exception/channel-business-error';
+import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
+import { ChannelAccountException } from '../../../application/exception/channel-account.exception';
+import { ListingException } from '../../../application/exception/listing.exception';
+import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { ChannelListingController } from './listing/channel-listing.controller';
 
@@ -32,23 +36,41 @@ describe('ChannelBusinessExceptionFilter HTTP contract', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it.each([
-    [ChannelInputError, 400],
-    [ChannelForbiddenError, 403],
-    [ChannelNotFoundError, 404],
-    [ChannelConflictError, 409],
-    [ChannelUnsupportedError, 501],
-    [ChannelUnavailableError, 503],
-  ] as const)('maps %s to HTTP %i with the original business message', (ErrorType, statusCode) => {
+    [ChannelInputError, 400, 'VALIDATION_FAILED'],
+    [ChannelForbiddenError, 403, 'FORBIDDEN'],
+    [ChannelNotFoundError, 404, 'NOT_FOUND'],
+    [ChannelConflictError, 409, 'DB_CONFLICT'],
+    [ChannelUnsupportedError, 501, 'CHANNELS_MALL_UNSUPPORTED'],
+    [ChannelUnavailableError, 503, 'SERVICE_UNAVAILABLE'],
+  ] as const)('maps %s to HTTP %i %s and keeps a Korean business sentence', (ErrorType, statusCode, code) => {
     const { host, status, json } = responseHost();
     new ChannelBusinessExceptionFilter().catch(new ErrorType('업무 요청을 처리할 수 없습니다.'), host);
     expect(status).toHaveBeenCalledWith(statusCode);
     expect(json).toHaveBeenCalledWith({
       statusCode,
-      error: `HTTP_${statusCode}`,
+      code,
+      kind: ERROR_DEFINITIONS[code].kind,
       message: '업무 요청을 처리할 수 없습니다.',
-      timestamp: expect.any(String),
-      path: '/api/channels/listings',
+      errors: [],
     });
+  });
+
+  it('replaces an English channel sentence with the registry sentence', () => {
+    const { host, json } = responseHost();
+    new ChannelBusinessExceptionFilter().catch(new ChannelConflictError('representative image execution changed.'), host);
+    expect(json.mock.calls[0][0]).toMatchObject({ code: 'DB_CONFLICT', message: ERROR_DEFINITIONS.DB_CONFLICT.text });
+  });
+
+  it.each([
+    [new ChannelAccountException('not_found', 'Channel account not found'), 404, 'CHANNELS_ACCOUNT_NOT_FOUND', ERROR_DEFINITIONS.CHANNELS_ACCOUNT_NOT_FOUND.text],
+    [new ChannelAccountException('invalid', '계정 이름이 비어 있습니다.'), 400, 'CHANNELS_ACCOUNT_INVALID', '계정 이름이 비어 있습니다.'],
+    [new ChannelAccountException('conflict', 'duplicate'), 409, 'DB_CONFLICT', ERROR_DEFINITIONS.DB_CONFLICT.text],
+    [new ListingException('not_found', 'listing missing'), 404, 'CHANNELS_LISTING_NOT_FOUND', ERROR_DEFINITIONS.CHANNELS_LISTING_NOT_FOUND.text],
+    [new RegistrationTargetException('conflict', 'target exists'), 409, 'CHANNELS_REGISTRATION_TARGET_CONFLICT', ERROR_DEFINITIONS.CHANNELS_REGISTRATION_TARGET_CONFLICT.text],
+  ] as const)('maps channel application exception case %#', (error, statusCode, code, message) => {
+    const { host, json } = responseHost();
+    new ChannelBusinessExceptionFilter().catch(error, host);
+    expect(json.mock.calls[0][0]).toEqual({ statusCode, code, kind: ERROR_DEFINITIONS[code].kind, message, errors: [] });
   });
 
   it('keeps the listing routes behind the HTTP exception mapping', () => {
@@ -56,7 +78,7 @@ describe('ChannelBusinessExceptionFilter HTTP contract', () => {
     expect(filters).toContain(ChannelBusinessExceptionFilter);
   });
 
-  it('forwards the owner code and valid attempt identity through the shared HTTP envelope', () => {
+  it('resolves the owner code, keeps the attempt identity and drops private context', () => {
     const { host, status, json } = responseHost();
     const attemptId = '11111111-1111-4111-8111-111111111111';
     new ChannelBusinessExceptionFilter().catch(new ChannelConflictError({
@@ -68,12 +90,25 @@ describe('ChannelBusinessExceptionFilter HTTP contract', () => {
     expect(status).toHaveBeenCalledWith(409);
     expect(json).toHaveBeenCalledWith({
       statusCode: 409,
-      error: 'HTTP_409',
-      message: '이미 실행 중입니다.',
       code: 'ATTEMPT_IN_PROGRESS',
+      kind: 'in_progress',
+      message: '이미 실행 중입니다.',
+      errors: [],
+      details: { attemptId },
       attemptId,
-      timestamp: expect.any(String),
-      path: '/api/channels/listings',
+    });
+  });
+
+  it('an unregistered owner code stays readable as details.reason', () => {
+    const { host, json } = responseHost();
+    new ChannelBusinessExceptionFilter().catch(new ChannelInputError({ code: 'ambiguous_listing', message: '반영할 몰 상품을 골라 주세요.' }), host);
+    expect(json.mock.calls[0][0]).toEqual({
+      statusCode: 400,
+      code: 'VALIDATION_FAILED',
+      kind: 'validation',
+      message: '반영할 몰 상품을 골라 주세요.',
+      errors: [],
+      details: { reason: 'ambiguous_listing' },
     });
   });
 });
