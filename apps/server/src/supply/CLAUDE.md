@@ -19,6 +19,9 @@ payments.
   `domain/policy/purchase-order-status.ts` owns legal transitions. Delete is
   allowed only before ordering.
 - Supply does not write `SupplierPayment`.
+- Throw `Kiditem*Error` with a registered `SUPPLY_*` or common code (ADR-0023);
+  a `SourcingProcurementPolicyError` leaves as `VALIDATION_FAILED` with its
+  spelling in `details.reason`.
 
 The complete data authority is
 [prisma/models/supply.prisma](../../../../prisma/models/supply.prisma).
