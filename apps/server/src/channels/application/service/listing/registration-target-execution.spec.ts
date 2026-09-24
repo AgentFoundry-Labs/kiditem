@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { RegistrationExecutionService } from '../registration/registration-execution.service';
+import { freezeProductRegistrationPayload } from '../../../domain/registration/registration-submission-payload';
 import type { SalesProduct, PrepareTargetExecutionInput } from '@kiditem/shared/sales-product';
 import type { RegistrationExecutionRepositoryPort } from '../../port/out/repository/registration-execution.repository.port';
 import type { RegistrationTargetPort } from '../../port/in/registration-target.port';
@@ -61,6 +63,23 @@ describe('registration target execution public capability', () => {
     product.options[0]!.salePrice = 9999;
     expect(frozen.product.options[1].salePrice).toBe(3000);
     expect(executions.prepareTarget.mock.calls[0][0]).toMatchObject({ organizationId: 'org', requestedByUserId: 'actor' });
+  });
+
+  /** 저장소는 Date 를 주지만 얼린 payload 는 canonical JSON 이다 — 실제 준비에서 500 이 났던 회귀(2026-09-24 QA). */
+  it('freezes the selling product as plain JSON so repository Date values become ISO strings', async () => {
+    const { service, products, product, executions } = setup();
+    const createdAt = new Date('2026-09-24T03:02:05.026Z');
+    products.get.mockImplementation(async () => ({
+      ...structuredClone(product),
+      createdAt,
+      updatedAt: createdAt,
+      options: product.options.map(option => ({ ...option, updatedAt: createdAt })),
+    }));
+    await service.prepareTargetExecution('org', 'target', 'actor', request);
+    const frozen = executions.prepareTarget.mock.calls[0][0].snapshot;
+    expect(frozen.product.createdAt).toBe('2026-09-24T03:02:05.026Z');
+    expect(frozen.product.options[0].updatedAt).toBe('2026-09-24T03:02:05.026Z');
+    expect(() => freezeProductRegistrationPayload(frozen, value => createHash('sha256').update(value).digest('hex'))).not.toThrow();
   });
 
   it('freezes the detail of the revision the target chose, read from the content at preparation', async () => {

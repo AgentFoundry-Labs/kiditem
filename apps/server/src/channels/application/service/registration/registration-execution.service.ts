@@ -112,8 +112,9 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
       ...(input.adapterValues ? { adapterValues: input.adapterValues } : {}),
       applyCompositionTemplate: input.applyCompositionTemplate,
       optionTransitions: transitions,
-      product: {
-        // 이름 · 가격은 판매 상품 그대로다 — 등록 대상은 사본을 갖지 않는다(KID-313 W2).
+      // 이름 · 가격은 판매 상품 그대로다 — 등록 대상은 사본을 갖지 않는다(KID-313 W2). 얼리는 것은 API 가
+      // 내보내는 JSON 그대로다: 저장소가 준 Date 는 ISO 문자열이 된다(canonical JSON 은 plain 값만 받는다).
+      product: toFrozenJson({
         ...product,
         channelOverrides: [],
         options: target.selectedOptions.map(selection => {
@@ -121,7 +122,7 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
           if (!option) throw new RegistrationTargetException('invalid', '선택한 옵션이 해당 판매상품에 없습니다.');
           return option;
         }),
-      },
+      }),
       detailPage: detail ? { revisionId: detail.revisionId, html: detail.html } : null,
       representativeImage: representative ? { assetId: representative.assetId, url: representative.image.url } : null,
       registrationInput: target.registrationInput,
@@ -142,4 +143,12 @@ export class RegistrationExecutionService implements RegistrationExecutionPort {
   reportTargetExecution(organizationId: string, executionId: string, userId: string | null, input: ReportTargetExecutionInput) {
     return this.executions.reportTarget({ organizationId, executionId, requestedByUserId: userId, report: input });
   }
+}
+
+/**
+ * 얼릴 값을 API 가 내보내는 JSON 으로 만든다. 저장소가 준 `Date` 는 ISO 문자열이 되고 `undefined` 는 빠진다 —
+ * 등록 제출 payload 의 canonical JSON 은 plain 객체·문자열·수·불리언·null 만 받는다(`registration-submission-payload.ts`).
+ */
+function toFrozenJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
