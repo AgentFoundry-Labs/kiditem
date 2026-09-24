@@ -187,8 +187,10 @@ export default function ProductEditHeader({
     }
     return reasons;
   }, [registrationAccounts]);
-  // 계정 목록은 대화상자를 열 때 읽는다. 읽은 뒤 모든 계정이 막혔을 때만 버튼을 닫는다.
+  // 계정 목록은 대화상자를 열 때 읽는다. 읽은 뒤 계정이 하나라도 있고 전부 막혔을 때만 버튼을 닫는다.
+  // 계정이 0개면 버튼은 열려 있고 대화상자가 "사용할 수 있는 채널 계정이 없습니다"를 말한다(KID-330).
   const noPreparableAccount = accountsQuery.data !== undefined
+    && accountsQuery.data.length > 0
     && accountsQuery.data.every((account) => account.id in unavailableAccounts);
   const preparationBlockedReason = noPreparableAccount
     ? '모든 몰 계정이 이미 등록됐거나 진행 중입니다.'

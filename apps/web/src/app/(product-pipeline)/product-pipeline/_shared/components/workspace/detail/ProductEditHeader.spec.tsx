@@ -248,6 +248,18 @@ describe('ProductEditHeader preparation draft action', () => {
     expect(screen.queryByRole('button', { name: /반려/ })).not.toBeInTheDocument();
   });
 
+  /** 연결한 몰 계정이 하나도 없으면 버튼은 열려 있고 대화상자가 그 사실을 말한다 — "모두 막힘"이 아니다(KID-330). */
+  it('keeps preparation open when the active-account list is empty even though every known state is blocked', async () => {
+    listAccountsMock.mockResolvedValue([]);
+    renderHeader([account(MAIN_ACCOUNT, 'registered')]);
+    const button = screen.getByRole('button', { name: '제품 등록 준비' });
+
+    fireEvent.click(button);
+    expect(await screen.findByText(/사용할 수 있는 채널 계정이 없습니다/)).toBeInTheDocument();
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute('title', '모든 몰 계정이 이미 등록됐거나 진행 중입니다.');
+  });
+
   it('keeps preparation open for the other malls while one account is live', () => {
     renderHeader([account(ROCKET_ACCOUNT, 'submitting')]);
 
