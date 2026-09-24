@@ -94,6 +94,8 @@ function makeService(overrides: {
     detailPages as never,
     thumbnails as never,
     resolvedEditorAi as never,
+    {} as never,
+    {} as never,
   );
   return {
     service,
