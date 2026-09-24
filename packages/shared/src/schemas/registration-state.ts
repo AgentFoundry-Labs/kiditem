@@ -18,6 +18,21 @@ import { z } from 'zod';
  * 등록됨 위에 `soldOut`(품절)과 `changedSinceRegistration`(등록 뒤 값이 바뀌어 재전송 필요)이 얹힌다.
  * `thumbnail_update` 실행은 상태에 영향이 없고, `sold_out` · `resume` 는 `soldOut` 만 바꾼다.
  */
+/**
+ * 몰이 보고한 리스팅을 우리 어휘로 접은 상태. 판정 규칙은 서버 도메인(`channels/domain/listing/mall-listing-state.ts`)이
+ * 소유한다. 몰 매트릭스 칸의 `state` 와 계정별 등록 상태의 `listingState` 가 같은 어휘를 쓴다.
+ */
+export const MallListingStateSchema = z.enum([
+  'published',
+  'reviewing',
+  'error',
+  'paused',
+  'discontinued',
+  'unknown',
+  'unregistered',
+]);
+export type MallListingState = z.infer<typeof MallListingStateSchema>;
+
 export const REGISTRATION_ACCOUNT_STATES = [
   'unregistered',
   'preparing',
@@ -45,9 +60,15 @@ export const RegistrationAccountStateSchema = z.object({
   channelAccountName: z.string().nullable(),
   /** 이 계정의 등록 설정(상품 × 계정당 하나). 리스팅만 있고 설정이 없으면 null. */
   registrationTargetId: z.string().uuid().nullable(),
-  /** 몰에 있는 리스팅. 없으면 null. */
+  /** 몰에 있는 리스팅(활성이든 내렸든 가장 최근 것). 없으면 null. */
   channelListingId: z.string().uuid().nullable(),
   externalListingId: z.string().nullable(),
+  /** 그 리스팅을 몰이 보고한 상태(우리 어휘). 등록됨 배지는 `published` 일 때만 초록이고, 그 밖은 몰 상태를 옆에 보인다. */
+  listingState: MallListingStateSchema.nullable(),
+  /** 몰이 준 원문 상태. 툴팁용. */
+  listingRawStatus: z.string().nullable(),
+  /** 리스팅이 몰에 살아 있는가. 카탈로그 부재로 내린 리스팅은 false — "등록됨 · 내림". 리스팅이 없으면 false. */
+  listingActive: z.boolean(),
   state: RegistrationAccountStateValueSchema,
   /** 등록됨 위 품절 표시. 등록되지 않았으면 false. */
   soldOut: z.boolean(),

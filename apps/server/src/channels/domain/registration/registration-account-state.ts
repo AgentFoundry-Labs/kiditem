@@ -10,13 +10,14 @@ import type { MallListingState } from '../listing/mall-listing-state';
  *
  *  1. 살아 있는 등록성 실행이 있으면 그 단계가 상태다(준비 중 · 전송 중 · 확인 대기) — 리스팅이 있어도
  *     지금 고치는 중이라는 사실이 먼저다.
- *  2. 리스팅이 있으면 등록됨이다 — 몰이 보고한 사실이 fence 의 옛 결과보다 앞선다(카탈로그 import 로만
- *     들어온 리스팅도 등록됨).
+ *  2. 리스팅이 있으면(내린 것도) 등록됨이다 — 몰이 보고한 사실이 fence 의 옛 결과보다 앞선다(카탈로그 import 로만
+ *     들어온 리스팅도 등록됨; 내린 리스팅은 `listingActive: false` 로 화면이 "등록됨 · 내림"을 그린다 — 2026-09-23
+ *     사용자 결정 "비활성화는 등록된 상태에서 내린 것").
  *  3. 리스팅이 없으면 마지막 등록성 실행이 말한다: 실패 → 실패, 성공 → 등록됨(몰이 아직 안 돌려준
  *     리스팅), 취소 · 없음 → 미등록.
  *
- * 품절은 우리가 마지막으로 보낸 가용성 실행이 성공했으면 그것이, 아니면 몰이 보고한 원문 상태
- * (`listingStatusReportsSoldOut`)가 말한다. 재전송 필요는 등록됨일 때만, 마지막 성공 등록성 실행이 얼린 값(상품 · 등록 설정 version, 상세
+ * 품절은 몰이 보고한 리스팅 상태가 먼저다(fence 가 확인할 때 리스팅 상태를 함께 쓰고, 그 뒤 수집이 몰 사실로
+ * 덮어쓴다) — 몰 상태를 모르면(`unknown`) 우리가 마지막으로 보낸 가용성 실행의 성공만 근거가 된다. 재전송 필요는 등록됨일 때만, 마지막 성공 등록성 실행이 얼린 값(상품 · 등록 설정 version, 상세
  * revision id, 대표이미지 자산 id)과 지금 값이 다르면 true 다.
  */
 
@@ -45,10 +46,15 @@ export type CurrentRegistrationFacts = Readonly<{
 
 export type RegistrationAccountInputs = Readonly<{
   hasTarget: boolean;
-  /** 몰에 살아 있는 리스팅이 보고한 상태(우리 어휘). 리스팅이 없으면 null. */
-  listingState: MallListingState | null;
-  /** 몰이 그 리스팅을 품절이라 보고했는가(원문 기준, `listingStatusReportsSoldOut`). 리스팅이 없으면 false. */
-  listingSoldOut: boolean;
+  /** 몰에 있는 가장 최근 리스팅(내린 것도). 없으면 null. */
+  listing: Readonly<{
+    /** 몰이 보고한 상태(우리 어휘). */
+    state: MallListingState;
+    /** 몰에 살아 있는가. */
+    active: boolean;
+    /** 몰이 품절이라 보고했는가(원문 기준, `listingStatusReportsSoldOut`). */
+    soldOut: boolean;
+  }> | null;
   /** 가장 최근 등록성 실행. 없으면 null. */
   latestListingShaping: ListingShapingExecution | null;
   /** 가장 최근에 성공한 등록성 실행이 얼린 값. 없으면 null. */
@@ -77,7 +83,7 @@ export function decideRegistrationAccountState(input: RegistrationAccountInputs)
 function decideState(input: RegistrationAccountInputs): RegistrationAccountStateValue {
   const live = liveStage(input.latestListingShaping);
   if (live) return live;
-  if (input.listingState !== null) return 'registered';
+  if (input.listing !== null) return 'registered';
   const latest = input.latestListingShaping;
   if (latest?.status === 'failed') return 'failed';
   if (latest?.status === 'succeeded') return 'registered';
@@ -96,9 +102,9 @@ function liveStage(execution: ListingShapingExecution | null): RegistrationAccou
 }
 
 function decideSoldOut(input: RegistrationAccountInputs): boolean {
+  if (input.listing && input.listing.state !== 'unknown') return input.listing.soldOut;
   const availability = input.latestAvailability;
-  if (availability?.status === 'succeeded') return availability.kind === 'sold_out';
-  return input.listingSoldOut;
+  return availability?.status === 'succeeded' && availability.kind === 'sold_out';
 }
 
 function decideChanged(frozen: FrozenRegistrationFacts | null, current: CurrentRegistrationFacts): boolean {

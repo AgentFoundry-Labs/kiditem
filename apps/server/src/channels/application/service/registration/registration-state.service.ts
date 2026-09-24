@@ -54,11 +54,13 @@ function toAccountState(
   const listingState = account.listing
     ? resolveMallListingState({ hasListing: true, listingStatus: account.listing.status }).state
     : null;
+  const listing = account.listing && listingState
+    ? { state: listingState, active: account.listing.isActive, soldOut: listingStatusReportsSoldOut(account.listing.status) }
+    : null;
   const shaping = account.latestListingShaping;
   const decision = decideRegistrationAccountState({
     hasTarget: target !== null,
-    listingState,
-    listingSoldOut: account.listing ? listingStatusReportsSoldOut(account.listing.status) : false,
+    listing,
     latestListingShaping: shaping,
     lastSucceededFrozen: account.lastSucceededFrozen,
     latestAvailability: account.latestAvailability,
@@ -76,6 +78,9 @@ function toAccountState(
     registrationTargetId: target?.id ?? null,
     channelListingId: account.listing?.id ?? null,
     externalListingId: account.listing?.externalId ?? null,
+    listingState,
+    listingRawStatus: account.listing?.status ?? null,
+    listingActive: account.listing?.isActive ?? false,
     state: decision.state,
     soldOut: decision.soldOut,
     changedSinceRegistration: decision.changedSinceRegistration,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RegistrationAccountStateSchema } from './registration-state.js';
+import { MallListingStateSchema, RegistrationAccountStateSchema } from './registration-state.js';
 
 /**
  * 몰별 상품등록·품절 송신의 전송 규격.
@@ -167,16 +167,7 @@ export type MallPreflightResponse = z.infer<typeof MallPreflightResponseSchema>;
  * 행이 우리 상품, 열이 몰, 칸이 그 몰에서의 상태다. 판정 규칙은 서버 도메인
  * (`channels/domain/mall/mall-listing-state.ts`)이 소유하고 여기는 나르기만 한다.
  */
-export const MallListingStateSchema = z.enum([
-  'published',
-  'reviewing',
-  'error',
-  'paused',
-  'discontinued',
-  'unknown',
-  'unregistered',
-]);
-export type MallListingState = z.infer<typeof MallListingStateSchema>;
+export { MallListingStateSchema, type MallListingState } from './registration-state.js';
 
 export const MallListingMatrixColumnSchema = z.object({
   mallKey: z.string(),

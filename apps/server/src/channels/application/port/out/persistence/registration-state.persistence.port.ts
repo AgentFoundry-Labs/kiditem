@@ -18,6 +18,8 @@ export type RegistrationStateListingFact = Readonly<{
   id: string;
   externalId: string;
   status: string | null;
+  /** 몰에 살아 있는가(`isActive`). 내린 리스팅도 계정의 가장 최근 리스팅이면 여기 온다. */
+  isActive: boolean;
 }>;
 
 export type RegistrationStateExecutionFact = Readonly<{
@@ -35,7 +37,7 @@ export type RegistrationStateAccountFacts = Readonly<{
   channelAccountName: string | null;
   /** 이 계정의 활성 등록 설정. 보관된 설정은 없는 것으로 본다. */
   target: RegistrationStateTargetFact | null;
-  /** 이 계정에 살아 있는(`isActive`) 리스팅 중 가장 최근 것. */
+  /** 이 계정의 가장 최근 리스팅(내린 것도) — 2026-09-23 사용자 결정 "비활성화는 등록된 상태에서 내린 것". */
   listing: RegistrationStateListingFact | null;
   latestListingShaping: RegistrationStateExecutionFact | null;
   lastSucceededFrozen: FrozenRegistrationFacts | null;

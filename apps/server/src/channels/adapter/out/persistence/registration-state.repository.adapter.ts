@@ -73,7 +73,7 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
       this.prisma.channelListing.findMany({
         where: { organizationId, salesProductId: { in: productIds }, isActive: true },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-        select: { id: true, salesProductId: true, channelAccountId: true, externalId: true, status: true },
+        select: { id: true, salesProductId: true, channelAccountId: true, externalId: true, status: true, isActive: true },
       }),
     ]);
 
@@ -200,8 +200,8 @@ function toTarget(row: { id: string; version: number; selectedThumbnailAssetId: 
   };
 }
 
-function toListing(row: { id: string; externalId: string; status: string | null }): RegistrationStateListingFact {
-  return { id: row.id, externalId: row.externalId, status: row.status };
+function toListing(row: { id: string; externalId: string; status: string | null; isActive: boolean }): RegistrationStateListingFact {
+  return { id: row.id, externalId: row.externalId, status: row.status, isActive: row.isActive };
 }
 
 function toExecution(row: ExecutionRow | undefined): RegistrationStateExecutionFact | null {
