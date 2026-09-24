@@ -140,7 +140,7 @@ function ProfitLossContent() {
         sortDirection,
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '손익표 내보내기에 실패했습니다.');
+      toast.error(friendlyError(err, '손익표 내보내기에 실패했습니다.'));
     }
   };
 

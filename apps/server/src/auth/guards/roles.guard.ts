@@ -1,11 +1,10 @@
 import {
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { KiditemError } from '@kiditem/shared/errors';
 import type { Request } from 'express';
 import { ROLES_METADATA_KEY } from '../decorators/roles.decorator';
 
@@ -27,9 +26,9 @@ export class RolesGuard implements CanActivate {
     if (!required || required.length === 0) return true;
 
     const req = context.switchToHttp().getRequest<Request>();
-    if (!req.authUser) throw new UnauthorizedException('auth_required');
+    if (!req.authUser) throw new KiditemError('AUTH_REQUIRED');
     if (!required.includes(req.authUser.role)) {
-      throw new ForbiddenException('insufficient_role');
+      throw new KiditemError('FORBIDDEN');
     }
     return true;
   }

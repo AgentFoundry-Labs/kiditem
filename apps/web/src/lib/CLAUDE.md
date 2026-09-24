@@ -20,8 +20,13 @@ multiple route groups.
   uses `getNullable`, which normalizes the empty body to `null`. Do not flip
   the `get` default or re-implement the check at the call site.
 - `apiClient` sends the HttpOnly cookie with `credentials: 'include'` and never
-  reads or attaches a browser bearer token. It emits `auth_required` and never
+  reads or attaches a browser bearer token. It emits `AUTH_REQUIRED` and never
   refreshes or retries a 401.
+- Screens show failures in Korean through the ADR-0023 presenters:
+  `friendlyError(error, fallback)` for thrown errors, `attemptFailureText`
+  for a stored attempt and `operatorReason` for an extension reason
+  (`operator-error.ts`). Branch on `ApiError.code`; do not render
+  `error.message`, `errorMessage` or `errorCode` (`npm run check:error-codes`).
 
 ## Query Key Rules
 

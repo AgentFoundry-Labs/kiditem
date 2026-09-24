@@ -1,5 +1,4 @@
-import { AppException } from '@kiditem/shared/server-errors';
-import { ErrorCodes } from '@kiditem/shared/errors';
+import { KiditemError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
 import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import {
@@ -211,10 +210,6 @@ function errorMessage(error: unknown): string {
   return 'External purchase provider response was ambiguous.';
 }
 
-function reconciliationRequired(): AppException {
-  return new AppException(
-    409,
-    ErrorCodes.PURCHASE.SUBMISSION_RECONCILIATION_REQUIRED,
-    'The existing external purchase attempt must be reconciled before another submission.',
-  );
+function reconciliationRequired(): KiditemError {
+  return new KiditemPreconditionError('SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED');
 }

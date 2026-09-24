@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import type { CoupangCatalogPlanResult } from '@kiditem/shared/sales-product';
 import { salesProductApi } from '@/lib/sales-product-api';
 import { formatNumber } from '@/lib/utils';
+import { friendlyError } from '@/lib/api-error';
 
 /** 윙 상품 조회/수정. 여기 [엑셀 대량 수정] › Step 1·2 가 이 파일의 내려받기와 올리기다. */
 const WING_DOWNLOAD_URL = 'https://wing.coupang.com/vendor-inventory/list';
@@ -29,7 +30,7 @@ export function CoupangCatalogEdit() {
     onSuccess: (result) => setPlan(result),
     onError: (error: Error) => {
       setPlan(null);
-      toast.error(error.message || '엑셀을 읽지 못했습니다.');
+      toast.error(friendlyError(error, '엑셀을 읽지 못했습니다.'));
     },
   });
 
@@ -46,7 +47,7 @@ export function CoupangCatalogEdit() {
       return made.fileName;
     },
     onSuccess: () => toast.success('파일을 내려받았습니다. 윙 업로드 화면에 올려 주세요.'),
-    onError: (error: Error) => toast.error(error.message || '수정요청 파일을 만들지 못했습니다.'),
+    onError: (error: Error) => toast.error(friendlyError(error, '수정요청 파일을 만들지 못했습니다.')),
   });
 
   function pick(picked: File | undefined) {

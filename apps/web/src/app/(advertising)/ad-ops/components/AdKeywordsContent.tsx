@@ -15,6 +15,7 @@ import {
   type PauseProposalReview,
 } from '../lib/keyword-pause-proposal';
 import { useAdKeywords, useReviewKeywordProposals, useRunKeywordAgent } from '../hooks/useAdOpsData';
+import { operatorReason } from '@/lib/operator-error';
 
 type KeywordFilter = 'all' | 'serving' | 'idle' | 'irrelevant';
 
@@ -60,7 +61,7 @@ export default function AdKeywordsContent({ period }: Props) {
         },
         onError: (mutationError) => {
           toast.error(
-            isApiError(mutationError) ? mutationError.detail : '제안을 처리하지 못했습니다.',
+            isApiError(mutationError) ? mutationError.message : '제안을 처리하지 못했습니다.',
           );
         },
       },
@@ -79,7 +80,7 @@ export default function AdKeywordsContent({ period }: Props) {
         onError: (mutationError) => {
           toast.error(
             isApiError(mutationError)
-              ? mutationError.detail
+              ? mutationError.message
               : '키워드 판정에 실패했습니다.',
           );
         },
@@ -150,7 +151,7 @@ export default function AdKeywordsContent({ period }: Props) {
           키워드를 불러오지 못했습니다
         </p>
         <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-          {isApiError(error) ? error.detail : '잠시 후 다시 시도해 주세요.'}
+          {isApiError(error) ? error.message : '잠시 후 다시 시도해 주세요.'}
         </p>
         <button
           onClick={() => void refetch()}
@@ -495,7 +496,7 @@ function KeywordChip({
       role="group"
       aria-label={keyword.keyword}
       // The reason the latest attempt recorded, such as why it did not run, is on hover.
-      title={proposal?.errorMessage ? `${summary}\n${proposal.errorMessage}` : summary}
+      title={proposal?.errorMessage ? `${summary}\n${operatorReason(proposal.errorMessage, '실행하지 못했습니다.')}` : summary}
       className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]"
       style={{
         borderColor: isIrrelevant ? 'var(--danger)' : isLoose ? 'var(--warning)' : 'var(--border-subtle)',

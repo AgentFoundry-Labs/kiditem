@@ -13,6 +13,7 @@ import {
 } from "../../test-helpers/real-prisma";
 import { ShipmentsModule } from "../shipments.module";
 import { PrismaService } from "../../prisma/prisma.service";
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 
 const base = "/api/coupang-shipments/date-summary";
 const row = (date: string, count: number, boxes = count) => ({
@@ -54,6 +55,8 @@ describe("Shipment summary owner HTTP + disposable PostgreSQL", () => {
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, transform: true }),
     );
+    // KidItem 오류(인증 401 등)를 운영 main.ts와 같은 봉투로 낸다(ADR-0023).
+    app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
     await app.listen(0, "127.0.0.1");
     httpUrl = await app.getUrl();

@@ -30,6 +30,7 @@ import type { AdsConfig } from '../domain/model/strategy-types';
 import { readListingTrafficWindowFacts } from '../../channels/adapter/out/persistence/channel-listing-daily-facts';
 import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
 import type { INestApplication } from '@nestjs/common';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 
 const base = '/api/ads/traffic';
 const DAY_MS = 86_400_000;
@@ -144,6 +145,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       };
       next();
     });
+    app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
     await app.listen(0, '127.0.0.1');
     httpUrl = await app.getUrl();
@@ -647,7 +649,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       .set('x-test-org', ORG)
       .send({ channelAccountId: accountId, ...range(93) })
       .expect(400);
-    expect(explicit.body.message).toBe('TRAFFIC_RANGE_TOO_LONG');
+    expect(explicit.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'TRAFFIC_RANGE_TOO_LONG' } });
     // The end date defaults to the closed day.
     const defaultedEnd = await request(httpUrl)
       .post(`${base}/attempts`)
@@ -655,7 +657,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       .set('x-test-org', ORG)
       .send({ channelAccountId: accountId, startDate: dateShift(closedDate(), -92) })
       .expect(400);
-    expect(defaultedEnd.body.message).toBe('TRAFFIC_RANGE_TOO_LONG');
+    expect(defaultedEnd.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'TRAFFIC_RANGE_TOO_LONG' } });
     // A malformed scope keeps the generic code.
     const malformed = await request(httpUrl)
       .post(`${base}/attempts`)
@@ -663,7 +665,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       .set('x-test-org', ORG)
       .send({ channelAccountId: accountId, startDate: '2026-13-01', endDate: closedDate() })
       .expect(400);
-    expect(malformed.body.message).toBe('INVALID_TRAFFIC_SCOPE');
+    expect(malformed.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'INVALID_TRAFFIC_SCOPE' } });
     await expect(prisma.sourceImportRun.count({
       where: { organizationId: ORG, sourceType: 'coupang_wing_traffic' },
     })).resolves.toBe(0);

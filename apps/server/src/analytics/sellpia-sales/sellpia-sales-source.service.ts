@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   BadRequestException,
   ConflictException,
@@ -380,7 +381,7 @@ export class SellpiaSalesSourceService {
       });
       if (replay) {
         if (replay.requestFingerprint !== fingerprint) throw new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED');
-        if (isExpired(replay, now)) await this.failIn(tx, replay, 'ATTEMPT_EXPIRED', 'Sellpia sales collection expired.');
+        if (isExpired(replay, now)) await this.failIn(tx, replay, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }));
         const current = await tx.sourceImportRun.findFirst({ where: { id: replay.id, organizationId } });
         return this.attemptView(current ?? replay);
       }
@@ -389,7 +390,7 @@ export class SellpiaSalesSourceService {
       });
       if (running) {
         if (!isExpired(running, now)) throw new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId: running.id });
-        await this.failIn(tx, running, 'ATTEMPT_EXPIRED', 'Sellpia sales collection expired.');
+        await this.failIn(tx, running, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }));
       }
       const created = await tx.sourceImportRun.create({
         data: {
@@ -452,7 +453,7 @@ export class SellpiaSalesSourceService {
       }
       if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('ATTEMPT_TERMINAL');
       if (isExpired(row)) {
-        await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Sellpia sales collection expired.');
+        await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }));
         throw new ConflictException('ATTEMPT_EXPIRED');
       }
       const frozenPlan = parsePlan(row.plan);
@@ -569,7 +570,7 @@ export class SellpiaSalesSourceService {
       const row = await this.findAttempt(tx, organizationId, attemptId);
       if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) return this.attemptView(row);
       const failed = isExpired(row)
-        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', 'Sellpia sales collection expired.')
+        ? await this.failIn(tx, row, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }))
         : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
       return this.attemptView(failed);
     }, { timeout: TRANSACTION_TIMEOUT_MS });
@@ -686,7 +687,7 @@ export class SellpiaSalesSourceService {
       sellerCount: sellerCountFromQuality(quality),
       businessDates: businessDatesFromQuality(quality, plan),
       errorCode: expired ? 'ATTEMPT_EXPIRED' : row.errorCode,
-      errorMessage: expired ? 'Sellpia sales collection expired.' : row.errorMessage,
+      errorMessage: expired ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : row.errorMessage,
     };
   }
 }

@@ -150,12 +150,12 @@ export default function SourcingPage() {
       if (failedIds.length > 0) {
         toast.error(
           failedIds.length === 1 && isApiError(firstFailure)
-            ? firstFailure.detail
+            ? firstFailure.message
             : `${failedIds.length}개 수집상품 삭제에 실패했습니다.`,
         );
       }
     },
-    onError: (err) => toast.error(isApiError(err) ? err.detail : '수집상품 삭제에 실패했습니다.'),
+    onError: (err) => toast.error(isApiError(err) ? err.message : '수집상품 삭제에 실패했습니다.'),
     onSettled: (_data, _err, items) => {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -221,7 +221,7 @@ export default function SourcingPage() {
       setQuickProcessModalOpen(false);
       setQuickProcessTargetIds([]);
     },
-    onError: (err) => toast.error(isApiError(err) ? err.detail : 'AI 간편 처리 시작에 실패했습니다.'),
+    onError: (err) => toast.error(isApiError(err) ? err.message : 'AI 간편 처리 시작에 실패했습니다.'),
     onSettled: (_data, _err, { ids }) => {
       setQuickProcessingIds((prev) => {
         const next = new Set(prev);
@@ -245,7 +245,7 @@ export default function SourcingPage() {
     } catch (err) {
       toast.error(
         isApiError(err)
-          ? err.detail
+          ? err.message
           : err instanceof Error
             ? err.message
             : 'WING 엑셀 생성에 실패했습니다.',
@@ -257,7 +257,7 @@ export default function SourcingPage() {
   };
 
   const errorMessage = (err: unknown, fallback: string): string =>
-    isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback;
+    isApiError(err) ? err.message : err instanceof Error ? err.message : fallback;
 
   const closeConfirmation = () => {
     if (confirmSubmitting) return;

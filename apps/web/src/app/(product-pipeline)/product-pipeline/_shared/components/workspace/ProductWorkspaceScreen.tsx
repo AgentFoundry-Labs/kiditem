@@ -209,7 +209,7 @@ export function ProductWorkspaceScreen({
   });
   const loadError = queryError
     ? isApiError(queryError)
-      ? queryError.detail
+      ? queryError.message
       : '상품 정보를 불러올 수 없습니다.'
     : null;
 
@@ -356,7 +356,7 @@ export function ProductWorkspaceScreen({
           : '썸네일 미리보기 목록을 비웠습니다.',
       );
     } catch (err) {
-      toast.error(isApiError(err) ? err.detail : '썸네일 구성 저장에 실패했습니다.');
+      toast.error(isApiError(err) ? err.message : '썸네일 구성 저장에 실패했습니다.');
     }
   };
 

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   SOURCE_IMPORT_RUN_COMPLETED_STATUS,
   SOURCE_IMPORT_RUN_FAILED_STATUS,
@@ -96,7 +97,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
             tx,
             replay,
             'ATTEMPT_EXPIRED',
-            'Coupang direct order capture expired.',
+            operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
           )
           : replay;
         return this.controlView(tx, row);
@@ -120,7 +121,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
           tx,
           stale,
           'ATTEMPT_EXPIRED',
-          'Coupang direct order capture expired.',
+          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
         );
       }
 
@@ -430,7 +431,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
           tx,
           row,
           'ATTEMPT_EXPIRED',
-          'Coupang direct order capture expired.',
+          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
         )
         : await this.failIn(tx, row, input.code, message);
       return this.attemptView(tx, failed);
@@ -456,7 +457,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
           tx,
           row,
           'ATTEMPT_EXPIRED',
-          'Coupang direct order capture expired.',
+          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
         )
         : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
       return this.attemptView(tx, failed);
@@ -821,7 +822,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
       artifactId: artifact?.id ?? null,
       contentChecksum: row.contentChecksum,
       errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
-      errorMessage: isExpired ? 'Coupang direct order capture expired.' : row.errorMessage,
+      errorMessage: isExpired ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : row.errorMessage,
     };
   }
 

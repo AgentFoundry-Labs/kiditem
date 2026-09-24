@@ -34,7 +34,7 @@ export default function TodoPage() {
   const update = useMutation({
     mutationFn: ({ id, status }: { id: string; status: TodoStatus }) => todoApi.update(id, { status }),
     onSuccess: () => void invalidate(),
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '고치지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '고치지 못했습니다.'),
   });
   const remove = useMutation({
     mutationFn: (id: string) => todoApi.remove(id),
@@ -42,7 +42,7 @@ export default function TodoPage() {
       toast.success('지웠습니다.');
       void invalidate();
     },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '지우지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '지우지 못했습니다.'),
   });
 
   const items = list.data?.items ?? [];
@@ -217,7 +217,7 @@ function AddTodo({ onClose, onAdded }: { onClose: () => void; onAdded: () => voi
       toast.success('추가했습니다.');
       onAdded();
     },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '추가하지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '추가하지 못했습니다.'),
   });
   return (
     <form

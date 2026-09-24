@@ -9,6 +9,7 @@ import {
   advertisingProfitabilityCollection,
   type AdvertisingProfitabilitySourceView,
 } from '../lib/advertising-profitability-collection';
+import { attemptFailureText } from '@/lib/operator-error';
 
 type ProfitabilityAttempt = NonNullable<AdvertisingProfitabilitySourceView['latestAttempt']>;
 
@@ -73,7 +74,7 @@ export default function AdvertisingProfitabilityRefresh() {
             {running && <p>브라우저에서 상품별 보고서를 수집하고 있습니다.</p>}
             {attempt?.state === 'FAILED' && (
               <p style={{ color: cancelled ? 'var(--warning)' : 'var(--danger)' }}>
-                {cancelled ? COLLECTION_STOPPED_MESSAGE : attempt.errorMessage ?? '최근 수집에 실패했습니다.'}
+                {cancelled ? COLLECTION_STOPPED_MESSAGE : attemptFailureText(attempt, 'coupang_ad_profitability') ?? '최근 수집에 실패했습니다.'}
               </p>
             )}
             {latestComplete && (

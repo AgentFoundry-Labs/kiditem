@@ -20,6 +20,7 @@ import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter
 import { ProductOperationsDataStatusAction } from './ProductOperationsDataStatusAction';
 import { ProductRowCard } from './ProductRowCard';
 import { PRODUCT_TABLE_MIN_WIDTH, ProductsColumnHeader } from './ProductsColumnHeader';
+import { operatorReason } from '@/lib/operator-error';
 
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
@@ -58,7 +59,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
     <div className="space-y-4">
       {state.errorMessage ? (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <span>{state.errorMessage}</span>
+          <span>{operatorReason(state.errorMessage, '상품 목록을 불러오지 못했습니다.')}</span>
           <button type="button" onClick={() => void state.refetch()} className="rounded px-2 py-1 font-semibold underline" aria-label="상품 목록 다시 시도">
             다시 시도
           </button>

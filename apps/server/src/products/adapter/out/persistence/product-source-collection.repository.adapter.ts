@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type SellpiaInventoryState, type SourceImportRun } from '@prisma/client';
 import { ProductSourceConflictError, ProductSourceInputError, ProductSourceNotFoundError } from '../../../application/exception/product-source.error';
@@ -81,7 +82,7 @@ implements ProductSourceCollectionRepositoryPort {
             state,
             existing,
             'ATTEMPT_EXPIRED',
-            'Sellpia inventory collection expired.',
+            operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
           );
         }
         return ownerAttemptView(existing);
@@ -103,7 +104,7 @@ implements ProductSourceCollectionRepositoryPort {
           state,
           running,
           'ATTEMPT_EXPIRED',
-          'Sellpia inventory collection expired.',
+          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
         );
         state = await lockedState(tx, input.organizationId);
       } else if (
@@ -254,7 +255,7 @@ implements ProductSourceCollectionRepositoryPort {
             state,
             run,
             'ATTEMPT_EXPIRED',
-            'Sellpia inventory collection expired.',
+            operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
           )
         : await failOwnerIn(
             tx,
@@ -391,7 +392,7 @@ function ownerAttemptView(run: SourceImportRun): SellpiaCollectionAttempt {
     contentChecksum: run.contentChecksum,
     rowCount: run.rowCount,
     errorCode: expired ? 'ATTEMPT_EXPIRED' : run.errorCode,
-    errorMessage: expired ? 'Sellpia inventory collection expired.' : run.errorMessage,
+    errorMessage: expired ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : run.errorMessage,
   };
 }
 

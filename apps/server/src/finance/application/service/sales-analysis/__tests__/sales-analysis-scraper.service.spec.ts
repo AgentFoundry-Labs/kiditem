@@ -1,5 +1,6 @@
 import { profitCatalogTestReaders } from '../../../../../test-helpers/channel-fact-ports';
 import { NotFoundException } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   readObservedOrderBounds,
@@ -141,6 +142,14 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
     expect(result.orders.count).toBe(0);
     expect(result.ads.missingDates).toEqual([]);
     expect(trafficRead.readPublished).toHaveBeenCalledWith({ organizationId: ORG });
+  });
+
+  it('reads a missing Coupang account (CHANNELS_ACCOUNT_NOT_FOUND) as no Wing traffic', async () => {
+    const prisma = makePrisma();
+    const trafficRead = makeTrafficRead([], new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND'));
+    const service = new SalesAnalysisScraperService(prisma, trafficRead, profitCatalogTestReaders(prisma as never).accounts);
+    const result = await service.getDataSources(ORG);
+    expect(result.wing.dateCount).toBe(0);
   });
 
   it('lists ads businessDates that fall inside the wing window but are missing', async () => {

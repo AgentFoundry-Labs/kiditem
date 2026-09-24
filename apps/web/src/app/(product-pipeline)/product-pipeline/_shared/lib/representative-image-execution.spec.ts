@@ -156,7 +156,7 @@ describe('submitRepresentativeImageViaExtension', () => {
 
   it('asks the operator to pick a listing when the product has several, without touching the extension', async () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
-    mockedApiPost.mockRejectedValueOnce(new ApiError(400, 'Bad Request', '리스팅이 여럿입니다 — 하나를 고르세요', { code: 'ambiguous_listing' }));
+    mockedApiPost.mockRejectedValueOnce(new ApiError(400, 'Bad Request', '리스팅이 여럿입니다 — 하나를 고르세요', { reason: 'ambiguous_listing', }));
 
     const error = await submitRepresentativeImageViaExtension(SUBJECT).catch((caught: unknown) => caught);
 

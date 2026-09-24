@@ -15,7 +15,6 @@ export default defineConfig({
     'src/ai.ts',
     'src/advertising.ts',
     'src/errors/index.ts',
-    'src/server-errors.ts',
     'src/security/index.ts',
     'src/dashboard.ts',
     'src/finance.ts',

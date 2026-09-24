@@ -7,6 +7,7 @@ import {
   type OrderCollectionMallAccount,
 } from '@/lib/order-mall-account-api';
 import { moveMallKey, reorderMallKeys } from '../lib/mall-order';
+import { friendlyError } from '@/lib/api-error';
 
 interface UseMallOrderDragOptions {
   mallAccounts: OrderCollectionMallAccount[];
@@ -57,9 +58,7 @@ export function useMallOrderDrag({ mallAccounts, onSaved }: UseMallOrderDragOpti
       } catch (error) {
         setPendingKeys(null);
         toast.error(
-          error instanceof Error
-            ? `순서 저장 실패: ${error.message}`
-            : '순서를 저장하지 못했습니다.',
+          friendlyError(error, '순서를 저장하지 못했습니다.'),
         );
       } finally {
         setSaving(false);

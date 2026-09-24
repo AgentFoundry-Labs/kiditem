@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   BadRequestException,
   ConflictException,
@@ -409,7 +410,7 @@ export function toAttemptView(
     generation: attempt.publicationSequence?.toString() ?? null,
     errorCode: expired ? 'ATTEMPT_EXPIRED' : attempt.errorCode,
     errorMessage: expired
-      ? 'Sellpia profitability collection expired before publication.'
+      ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
       : attempt.errorMessage,
     plan: parsePlan(attempt.plan),
   };

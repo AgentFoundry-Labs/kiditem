@@ -133,7 +133,7 @@ export default function KidsPlayfulHistoryList({
     if (!confirm('이 생성 이력을 삭제할까요?')) return;
     deleteMut.mutate(id, {
       onError: (err) => {
-        toast.error(isApiError(err) ? err.detail : '삭제 실패');
+        toast.error(isApiError(err) ? err.message : '삭제 실패');
       },
     });
   };

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { describe, expect, it } from 'vitest';
 import { proxy } from '../proxy';
+import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 
 function makeRequest(
   path: string,
@@ -43,10 +44,10 @@ describe('proxy local session gate', () => {
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({
       statusCode: 401,
-      error: 'Unauthorized',
-      message: 'auth_required',
-      timestamp: expect.any(String),
-      path: '/api/dashboard/stats',
+      code: 'AUTH_REQUIRED',
+      kind: 'auth',
+      message: ERROR_DEFINITIONS.AUTH_REQUIRED.text,
+      errors: [],
     });
   });
 
@@ -65,7 +66,7 @@ describe('proxy local session gate', () => {
   it('returns JSON 401 for a non-API application/json request without a cookie', async () => {
     const response = await proxy(makeRequest('/dashboard', { accept: 'application/json' }));
     expect(response.status).toBe(401);
-    expect((await response.json()).message).toBe('auth_required');
+    expect((await response.json()).code).toBe('AUTH_REQUIRED');
   });
 
   it('allows authenticated API callers through to NestJS validation', async () => {

@@ -167,7 +167,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
     expect(reconciliation.status).toBe('rejected');
     if (reconciliation.status === 'rejected') {
       expect(reconciliation.reason).toMatchObject({
-        code: 'PURCHASE_SUBMISSION_RECONCILIATION_REQUIRED',
+        code: 'SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED',
       });
     }
     expect(observer.status).toBe('fulfilled');
@@ -205,7 +205,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
       purchaseOrderId: ORDER_ID,
       userId: OTHER_USER_ID,
       idempotencyKey: 'inactive-actor-key',
-    })).rejects.toMatchObject({ code: 'COMMON_UNAUTHORIZED' });
+    })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(adapter.prepareDraft({
       organizationId: TEST_ORGANIZATION_ID,
       purchaseOrderId: ORDER_ID,
@@ -277,7 +277,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
         data: { freshnessFence: '20000000-0000-4000-8000-0000000000ff' },
       });
 
-      await expect(adapter.prepare(input)).rejects.toMatchObject({ status: 409, code: 'SELLPIA_SYNC_REQUIRED' });
+      await expect(adapter.prepare(input)).rejects.toMatchObject({ httpStatus: 409, code: 'SELLPIA_SYNC_REQUIRED' });
       await expectNothingSubmitted();
     });
 
@@ -288,7 +288,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
         data: { lastVerifiedAt: new Date(verifiedAt.getTime() + 60_000) },
       });
 
-      await expect(adapter.prepare(input)).rejects.toMatchObject({ status: 409, code: 'SELLPIA_SYNC_REQUIRED' });
+      await expect(adapter.prepare(input)).rejects.toMatchObject({ httpStatus: 409, code: 'SELLPIA_SYNC_REQUIRED' });
       await expectNothingSubmitted();
     });
 
@@ -323,7 +323,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
     await expect(adapter.prepare({
       ...submissionInput('cross-tenant-key'),
       organizationId: OTHER_ORGANIZATION_ID,
-    })).rejects.toMatchObject({ code: 'PURCHASE_REFERENCE_INVALID' });
+    })).rejects.toMatchObject({ code: 'SUPPLY_PURCHASE_REFERENCE_INVALID' });
     expect(await prisma.purchaseOrderSubmissionAttempt.count()).toBe(0);
     expect(await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: ORDER_ID } }))
       .toMatchObject({ status: 'pending' });

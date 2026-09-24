@@ -65,7 +65,7 @@ export default function SalesProductEditorPage({ params }: { params: Promise<{ s
       <div className="space-y-4">
         <BackLink />
         <p className="empty-state text-red-600">
-          {isApiError(product.error) ? product.error.detail : '판매상품을 불러오지 못했습니다.'}
+          {isApiError(product.error) ? product.error.message : '판매상품을 불러오지 못했습니다.'}
         </p>
       </div>
     );
@@ -125,7 +125,7 @@ function Editor({ product }: { product: SalesProduct }) {
       void queryClient.invalidateQueries({ queryKey: salesProductKeys.registrationState(product.id) });
       toast.success('저장했습니다.');
     },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '저장하지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '저장하지 못했습니다.'),
   });
 
   const set = <K extends keyof BasicsDraft>(key: K, value: BasicsDraft[K]) =>

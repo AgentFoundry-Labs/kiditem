@@ -70,11 +70,6 @@
       "import": "./dist/errors/index.js",
       "require": "./dist/errors/index.cjs"
     },
-    "./server-errors": {
-      "types": "./dist/server-errors.d.ts",
-      "import": "./dist/server-errors.js",
-      "require": "./dist/server-errors.cjs"
-    },
     "./security": {
       "types": "./dist/security/index.d.ts",
       "import": "./dist/security/index.js",
@@ -324,9 +319,6 @@
       ],
       "errors": [
         "dist/errors/index.d.ts"
-      ],
-      "server-errors": [
-        "dist/server-errors.d.ts"
       ],
       "security": [
         "dist/security/index.d.ts"

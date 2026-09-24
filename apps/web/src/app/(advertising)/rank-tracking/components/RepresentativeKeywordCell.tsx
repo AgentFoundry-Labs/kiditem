@@ -11,6 +11,7 @@ import {
   setProductRepresentativeKeyword,
   type ProductKeywordRankRow,
 } from '../lib/rank-api';
+import { friendlyError } from '@/lib/api-error';
 
 const SOURCE_LABEL: Record<ProductKeywordRankRow['keywordSource'], string> = {
   manual_override: '직접 지정',
@@ -39,7 +40,7 @@ export default function RepresentativeKeywordCell({
     },
     onError: (error) =>
       toast.error(
-        error instanceof Error ? error.message : '대표 키워드 저장에 실패했습니다.',
+        friendlyError(error, '대표 키워드 저장에 실패했습니다.'),
       ),
   });
   const resetMutation = useMutation({
@@ -51,7 +52,7 @@ export default function RepresentativeKeywordCell({
     },
     onError: (error) =>
       toast.error(
-        error instanceof Error ? error.message : '자동 추천 복원에 실패했습니다.',
+        friendlyError(error, '자동 추천 복원에 실패했습니다.'),
       ),
   });
   const pending = saveMutation.isPending || resetMutation.isPending;

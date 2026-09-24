@@ -1,4 +1,5 @@
 import type { SellpiaInventoryCollectionStatusWithBlockers } from '@/lib/sellpia-inventory-freshness-api';
+import { operatorReason } from '@/lib/operator-error';
 
 /**
  * What a collection request actually achieved.
@@ -46,7 +47,7 @@ export function describeSellpiaStockSync(
       return {
         tone: 'error',
         message: outcome.errorMessage
-          ? `직전 수집이 실패한 상태입니다: ${outcome.errorMessage}`
+          ? `직전 수집이 실패한 상태입니다: ${operatorReason(outcome.errorMessage, '셀피아 재고 수집 작업이 실패했습니다.')}`
           : '직전 수집이 실패한 상태라 동기화를 예약하지 못했습니다.',
       };
     case 'complete':

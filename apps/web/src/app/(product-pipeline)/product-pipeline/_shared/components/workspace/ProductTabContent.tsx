@@ -185,7 +185,7 @@ export default function ProductTabContent({
       toast.success(value ? 'KC 인증 이미지를 저장했어요.' : 'KC 인증 이미지를 삭제했어요.');
     } catch (err) {
       setBasicDraft(initialBasicDraft);
-      toast.error(isApiError(err) ? err.detail : 'KC 인증 이미지 저장에 실패했어요.');
+      toast.error(isApiError(err) ? err.message : 'KC 인증 이미지 저장에 실패했어요.');
     } finally {
       setIsKcImageSaving(false);
     }

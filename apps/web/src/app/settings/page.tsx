@@ -40,7 +40,7 @@ export default function SettingsPage() {
       toast.success('쿠팡 Wing 계정 식별자를 저장했습니다.');
     },
     onError: (err) => {
-      toast.error(isApiError(err) ? err.detail : '쿠팡 Wing 계정 식별자 저장에 실패했습니다.');
+      toast.error(isApiError(err) ? err.message : '쿠팡 Wing 계정 식별자 저장에 실패했습니다.');
     },
   });
 

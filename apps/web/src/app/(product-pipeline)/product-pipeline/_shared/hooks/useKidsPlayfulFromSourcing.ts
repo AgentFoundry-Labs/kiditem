@@ -170,7 +170,7 @@ export function useKidsPlayfulFromSourcing() {
         });
         return res;
       } catch (err) {
-        const detail = isApiError(err) ? err.detail : '상세페이지 생성 실패';
+        const detail = isApiError(err) ? err.message : '상세페이지 생성 실패';
         toast.error(detail);
         return null;
       }

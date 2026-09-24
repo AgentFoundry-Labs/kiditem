@@ -1,4 +1,6 @@
 import { ServiceUnavailableException, type INestApplication } from '@nestjs/common';
+import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
+import { GlobalExceptionFilter } from '../../../../../common/filters/global-exception.filter';
 import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
@@ -104,15 +106,16 @@ describe('ConversationController', () => {
     expect(conversations.delete).toHaveBeenCalledWith({ ...owner, conversationId: 'conversation-1' });
   });
 
-  it('maps list control failures to a safe HTTP 503 response', async () => {
+  it('maps list control failures to a safe AGENT_OS_GATEWAY_UNAVAILABLE response', async () => {
     const server = await interactionApp({
       list: vi.fn().mockRejectedValue(new ServiceUnavailableException('provider private-reference-123 failed')),
     });
 
     const response = await request(server.getHttpServer())
       .get('/api/agent-os/conversations')
-      .expect(503);
+      .expect(502);
 
+    expect(response.body).toMatchObject({ code: 'AGENT_OS_GATEWAY_UNAVAILABLE', message: ERROR_DEFINITIONS.AGENT_OS_GATEWAY_UNAVAILABLE.text });
     expect(JSON.stringify(response.body)).not.toContain('private-reference-123');
   });
 
@@ -258,9 +261,19 @@ describe('ConversationController', () => {
     await expect(controller.delete('conversation-1', ORGANIZATION_ID, { id: USER_ID } as never))
       .rejects.toMatchObject({ status: 409 });
     const unavailable = await controller.create(create, ORGANIZATION_ID, { id: USER_ID } as never)
-      .catch((error: unknown) => error as { status: number; getResponse(): unknown });
-    expect(unavailable).toMatchObject({ status: 503 });
-    expect(JSON.stringify(unavailable.getResponse())).not.toContain('private-reference-123');
+      .catch((error: unknown) => error as Error);
+    expect(unavailable).toMatchObject({ code: 'AGENT_OS_GATEWAY_UNAVAILABLE', httpStatus: 502 });
+    expect(unavailable.message).not.toContain('private-reference-123');
+  });
+
+  it('answers a missing model with AGENT_OS_MODEL_REQUIRED', async () => {
+    const conversations = {
+      list: vi.fn(), rename: vi.fn(), delete: vi.fn(), preferences: vi.fn(), setPreference: vi.fn(),
+      create: vi.fn().mockRejectedValue(new AgentOsRuntimeError('conversation_model_required')),
+    };
+    const controller = new ConversationController(conversations as never);
+    await expect(controller.create({ runtime: 'codex_cli', agentKey: null, title: 'General' }, ORGANIZATION_ID, { id: USER_ID } as never))
+      .rejects.toMatchObject({ code: 'AGENT_OS_MODEL_REQUIRED', httpStatus: 400 });
   });
 
   it('does not expose provider history through the public conversation controller', async () => {
@@ -284,6 +297,7 @@ async function interactionApp(conversations: unknown): Promise<INestApplication>
   }).compile();
   app = moduleRef.createNestApplication();
   app.setGlobalPrefix('api');
+  app.useGlobalFilters(new GlobalExceptionFilter());
   app.use((
     req: Request & { authUser?: { id: string; organizationId: string } },
     _res: Response,

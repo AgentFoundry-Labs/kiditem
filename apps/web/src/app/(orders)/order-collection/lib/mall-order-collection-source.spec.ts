@@ -264,7 +264,7 @@ describe('mallOrderCollectionSource', () => {
   it('reads the owner`s unknown-mall answer as the same setup refusal', async () => {
     const { handOff, source } = adapter();
     vi.mocked(apiClient.post).mockRejectedValue(
-      new ApiError(404, 'Not Found', 'ORDER_COLLECTION_MALL_NOT_FOUND', {}),
+      new ApiError(404, 'NOT_FOUND', null, { reason: 'ORDER_COLLECTION_MALL_NOT_FOUND' }),
     );
 
     const outcome = await source.start!({}, { status: undefined });
@@ -300,8 +300,8 @@ describe('mallOrderCollectionSource', () => {
   it('reads the owner conflict as the mall already collecting, not as a failed start', async () => {
     const { handOff, source } = adapter();
     vi.mocked(apiClient.post).mockRejectedValue(
-      new ApiError(409, 'conflict', '이미 진행 중입니다.', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      new ApiError(409, 'ATTEMPT_IN_PROGRESS', '이미 진행 중입니다.', {
+
         attemptId: RUNNING_ATTEMPT_ID,
       }),
     );
@@ -353,8 +353,8 @@ describe('mallOrderCollectionSource', () => {
   it('starts fresh once the owner answered the last begin', async () => {
     const { source } = adapter();
     vi.mocked(apiClient.post)
-      .mockRejectedValueOnce(new ApiError(409, 'conflict', '이미 진행 중입니다.', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      .mockRejectedValueOnce(new ApiError(409, 'ATTEMPT_IN_PROGRESS', '이미 진행 중입니다.', {
+
         attemptId: RUNNING_ATTEMPT_ID,
       }))
       .mockResolvedValueOnce(openedAttempt());

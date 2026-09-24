@@ -52,7 +52,7 @@ export function SellpiaDashboard() {
   const syncedAt = data?.latestImport?.lastVerifiedAt ?? data?.latestImport?.importedAt ?? null;
 
   const totalCaption = snapshotQuery.isError
-    ? isApiError(snapshotQuery.error) ? snapshotQuery.error.detail : '셀피아 재고를 불러오지 못했습니다.'
+    ? isApiError(snapshotQuery.error) ? snapshotQuery.error.message : '셀피아 재고를 불러오지 못했습니다.'
     : snapshotQuery.isLoading
       ? '불러오는 중'
       : !collected

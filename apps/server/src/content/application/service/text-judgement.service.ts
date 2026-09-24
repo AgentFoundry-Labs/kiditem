@@ -3,6 +3,7 @@
 // consuming domains never see the provider contract.
 
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type {
   TextJudgementPort,
   TextJudgementRequest,
@@ -22,7 +23,7 @@ export class TextJudgementService implements TextJudgementPort {
 
   async judge(request: TextJudgementRequest): Promise<TextJudgementResult> {
     if (!request.model.trim()) {
-      throw new Error('TextJudgementService: model is required');
+      throw new KiditemInvalidValueError('AGENT_OS_MODEL_REQUIRED');
     }
     const result = await this.textCompletion.complete({
       system: request.system,

@@ -1,5 +1,6 @@
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { isKiditemError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import {
   AD_TRAFFIC_READ_PORT,
@@ -137,8 +138,8 @@ export class SalesAnalysisScraperService {
       return await this.adTrafficRead.readPublished({ organizationId });
     } catch (error) {
       if (
-        error instanceof NotFoundException
-        && ['COUPANG_ACCOUNT_NOT_FOUND', 'AD_TRAFFIC_SOURCE_MISSING'].includes(error.message)
+        (isKiditemError(error) && error.code === 'CHANNELS_ACCOUNT_NOT_FOUND')
+        || (error instanceof NotFoundException && error.message === 'AD_TRAFFIC_SOURCE_MISSING')
       ) {
         return null;
       }

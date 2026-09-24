@@ -45,6 +45,7 @@ import {
 import { useCompetitorProductTracking } from "../hooks/useCompetitorProductTracking";
 import { CompetitorSellerDetail } from "./CompetitorSellerDetail";
 import { CompetitorSellerList } from "./CompetitorSellerList";
+import { attemptFailureText } from '@/lib/operator-error';
 
 type GateState = CompetitorExtensionGate | { status: "checking" };
 const COMPETITOR_SOURCE_STATUS_QUERY_KEY =
@@ -400,7 +401,7 @@ function CollectionNotice({
     : stoppedAttempt(latestAttempt)
       ? COLLECTION_STOPPED_MESSAGE
       : latestAttempt?.state === "FAILED"
-        ? `마지막 수집 실패: ${latestAttempt.errorCode ?? "UNKNOWN"}${latestAttempt.errorMessage ? ` — ${latestAttempt.errorMessage}` : ""}`
+        ? `마지막 수집 실패: ${attemptFailureText(latestAttempt, "coupang_competitor_catalog")}`
         : sourceStatus?.latestComplete
           ? `마지막 완료 ${formatDateTime(sourceStatus.latestComplete.capturedAt)} · 기준일 ${sourceStatus.latestComplete.coveredThrough}`
           : null;

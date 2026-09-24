@@ -9,6 +9,7 @@ import {
 } from '../lib/order-detect';
 import {
   classifyOrderCollectionFailure,
+  orderCollectionFailureEvidence,
   isAutoDetectableMall,
 } from '../lib/order-collection-page-model';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
@@ -80,7 +81,7 @@ export function useOrderAutoDetect({
         } catch (err) {
           // 시작 자체가 안 됐으면 수집 절차가 돌지 않았으므로 아무도 남기지 않았다.
           const message = err instanceof Error ? err.message : '자동 감지 실패';
-          const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, message);
+          const kind: OrderActivityEvent['kind'] = classifyOrderCollectionFailure(err, orderCollectionFailureEvidence(err) || message);
           logActivity(kind, account.name, kind === 'empty' ? undefined : message);
           console.warn('[order-auto-detect]', account.key, err);
           continue;

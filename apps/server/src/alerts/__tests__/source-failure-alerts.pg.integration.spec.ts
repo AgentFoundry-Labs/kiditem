@@ -110,6 +110,27 @@ describe('SourceFailureAlerts (PostgreSQL)', () => {
     await expect(prisma.alert.count({ where: { organizationId: TEST_ORGANIZATION_ID, dedupeKey: DEDUPE_KEY } })).resolves.toBe(1);
   });
 
+  it('keeps a Korean producer sentence, which carries the source context', async () => {
+    await inTransaction((tx) => alerts.recordTerminalOutcome(tx, failure(ATTEMPT_ID_1)));
+    const [stored] = await alerts.list(TEST_ORGANIZATION_ID);
+    expect(stored).toMatchObject({ title: 'Sellpia 수익성 수집 실패', message: '공급가를 확인할 수 없습니다.' });
+  });
+
+  it('stores a Korean title and the registry sentence even when the producer passes English text', async () => {
+    await inTransaction((tx) => alerts.recordTerminalOutcome(tx, {
+      ...failure(ATTEMPT_ID_1),
+      code: 'ATTEMPT_EXPIRED',
+      title: 'Wing catalog collection failed',
+      message: 'Order collection expired. token=abcd1234',
+    }));
+    const [stored] = await alerts.list(TEST_ORGANIZATION_ID);
+    expect(stored).toMatchObject({
+      title: '셀피아 수익성 수집 실패',
+      message: '수집 시도가 만료됐습니다. 다시 시작해 주세요.',
+    });
+    expect(JSON.stringify(stored)).not.toMatch(/[A-Za-z]{4,} (collection|expired)|abcd1234/);
+  });
+
   it('resolves the current dedupe row for a newer completing attempt without creating a success notification', async () => {
     await inTransaction(async (tx) => {
       await tx.sourceImportRun.update({

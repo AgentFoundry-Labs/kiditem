@@ -3,7 +3,7 @@ import {
   type SellpiaInventorySkuListParams,
 } from '../../_shared/inventory-api';
 import { apiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
+import { readApiError } from '@/lib/api-error';
 import { downloadBlob } from '@/lib/browser-download';
 import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
@@ -24,17 +24,7 @@ export async function downloadSellpiaInventoryExport(
   const path = `/api/inventory/sellpia-skus/export${query ? `?${query}` : ''}`;
   const response = await apiClient.fetchRaw(path);
   if (!response.ok) {
-    let body: unknown = null;
-    try {
-      body = await response.json();
-    } catch {
-      // Preserve the HTTP status when the server did not return JSON.
-    }
-    const record = body as Record<string, unknown> | null;
-    const detail = typeof record?.message === 'string'
-      ? record.message
-      : '재고 엑셀 내보내기에 실패했습니다.';
-    throw new ApiError(response.status, typeof record?.error === 'string' ? record.error : null, detail);
+    throw await readApiError(response, '재고 엑셀 내보내기에 실패했습니다.');
   }
 
   const blob = await response.blob();

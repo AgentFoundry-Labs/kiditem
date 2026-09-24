@@ -210,7 +210,7 @@ if [ "$FAIL" -gt 0 ]; then
   Shared root-import policy
     - New code MUST use subpath imports, e.g.
         import { Foo } from '@kiditem/shared/product';
-        import { ErrorCodes } from '@kiditem/shared/errors';
+        import { KiditemError } from '@kiditem/shared/errors';
       The root barrel `from '@kiditem/shared'` is frozen to its current
       consumers; new files and new lines are blocked.
     - The baseline (scripts/.shared-root-imports-baseline.txt) is an upper

@@ -254,7 +254,7 @@ describe('<ProfitLossPage> 3-state', () => {
     });
     renderWithProvider();
     await waitFor(() => {
-      expect(screen.getByText(/502 Bad Gateway/)).toBeTruthy();
+      expect(screen.getByText(/처리 중 문제가 생겼습니다/)).toBeTruthy();
     });
   });
 
@@ -275,7 +275,7 @@ describe('<ProfitLossPage> 3-state', () => {
     });
     renderWithProvider();
     await waitFor(() => {
-      expect(screen.getByText(/응답 형식 오류/)).toBeTruthy();
+      expect(screen.getByText(/처리 중 문제가 생겼습니다/)).toBeTruthy();
     });
   });
 });

@@ -41,6 +41,8 @@ import { SourcingReadState } from '../../components/SourcingReadState';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
 import { EntryRecommendationDetail } from './EntryRecommendationDetail';
 import { EntryRecommendationTable } from './EntryRecommendationTable';
+import { friendlyError } from '@/lib/api-error';
+import { operatorReason } from '@/lib/operator-error';
 
 const LIMIT = 50;
 
@@ -141,7 +143,7 @@ export function EntryRecommendationBoard() {
       toast.success('1688 공급 후보를 갱신했습니다.');
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : '1688 공급 수집에 실패했습니다.');
+      toast.error(friendlyError(error, '1688 공급 수집에 실패했습니다.'));
       void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trend1688SourceStatus() });
     },
   });
@@ -378,7 +380,7 @@ function Sourcing1688SourceStatus({
     ? '1688 공급 후보를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
     : stopped
       ? COLLECTION_STOPPED_MESSAGE
-      : source.errorMessage ?? '1688 공급 데이터가 최신 계획과 일치하지 않습니다.';
+      : operatorReason(source.errorMessage, '1688 공급 데이터가 최신 계획과 일치하지 않습니다.');
 
   return (
     <div

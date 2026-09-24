@@ -322,7 +322,7 @@ describe('executeTargetRegistration', () => {
         expectedProviderAccountId: 'A00012345',
       })),
       report: vi.fn()
-        .mockRejectedValueOnce(new ApiError(409, 'Conflict', 'listing collision'))
+        .mockRejectedValueOnce(new ApiError(409, 'STATE_CONFLICT', '몰 상품이 다른 등록과 겹칩니다.'))
         .mockResolvedValueOnce(reconciling),
     };
     const confirming = adapter(send);
@@ -342,7 +342,7 @@ describe('executeTargetRegistration', () => {
         providerAccountId: 'A00012345',
         observedUrl: 'https://wing.example.test/vendor-inventory/427011919',
         observedStatus: 'submitted',
-        message: 'listing collision',
+        message: '몰 상품이 다른 등록과 겹칩니다.',
       },
     });
     expect(run.execution).toBe(reconciling);

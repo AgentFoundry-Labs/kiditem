@@ -46,7 +46,7 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
       if (result === 'empty') toast.warning('출력할 Sellpia SKU가 없습니다.');
       if (result === 'popup-blocked') toast.error('팝업이 차단되어 바코드 창을 열 수 없습니다.');
     } catch (cause) {
-      toast.error(isApiError(cause) ? cause.detail : '바코드 데이터를 불러오지 못했습니다.');
+      toast.error(isApiError(cause) ? cause.message : '바코드 데이터를 불러오지 못했습니다.');
     } finally {
       setExporting(false);
     }
@@ -61,7 +61,7 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
         linkStatus: state.linkStatus === 'all' ? undefined : state.linkStatus,
       });
     } catch (cause) {
-      toast.error(isApiError(cause) ? cause.detail : '재고 엑셀 내보내기에 실패했습니다.');
+      toast.error(isApiError(cause) ? cause.message : '재고 엑셀 내보내기에 실패했습니다.');
     } finally {
       setExporting(false);
     }
@@ -80,7 +80,7 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
       />
       {state.error ? (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {isApiError(state.error) ? state.error.detail : 'Sellpia 재고를 불러오지 못했습니다.'}
+          {isApiError(state.error) ? state.error.message : 'Sellpia 재고를 불러오지 못했습니다.'}
         </div>
       ) : null}
       {state.isFetching ? (

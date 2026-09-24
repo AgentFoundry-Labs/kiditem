@@ -130,7 +130,7 @@ export function refusedAsNotConfigured(outcome: CollectionStartOutcome): boolean
 function mallNotSetUp(error: unknown): boolean {
   return isApiError(error)
     && error.status === 404
-    && error.detail === 'ORDER_COLLECTION_MALL_NOT_FOUND';
+    && error.details.reason === 'ORDER_COLLECTION_MALL_NOT_FOUND';
 }
 
 /** The owner's operator stop. Organization-scoped, so any tab can end the attempt. */

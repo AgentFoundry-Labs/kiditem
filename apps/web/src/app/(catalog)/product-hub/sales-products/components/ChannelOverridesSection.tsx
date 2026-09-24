@@ -204,7 +204,7 @@ function compositionOptionLabel(
 
 function compositionApiError(error: unknown): string {
   return isApiError(error)
-    ? error.detail
+    ? error.message
     : error instanceof Error ? error.message : '구성 변경 실행을 기록하지 못했습니다.';
 }
 
@@ -291,7 +291,7 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
     },
     onError: (error) => {
       void queryClient.invalidateQueries({ queryKey: registrationTargetKeys.list(product.id) });
-      toast.error(isApiError(error) ? error.detail : error instanceof Error ? error.message : '몰별 값을 저장하지 못했습니다.');
+      toast.error(isApiError(error) ? error.message : error instanceof Error ? error.message : '몰별 값을 저장하지 못했습니다.');
     },
   });
 
@@ -714,7 +714,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
       setOpenTargetId(null);
       toast.success('등록 대상을 저장했습니다.');
     },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : error instanceof Error ? error.message : '등록 대상을 저장하지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : error instanceof Error ? error.message : '등록 대상을 저장하지 못했습니다.'),
   });
 
   const execute = useMutation({
@@ -766,7 +766,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
     },
     onError: (error) => {
       refreshRegistrationState();
-      toast.error(isApiError(error) ? error.detail : error instanceof Error ? error.message : '등록 실행을 시작하지 못했습니다.');
+      toast.error(isApiError(error) ? error.message : error instanceof Error ? error.message : '등록 실행을 시작하지 못했습니다.');
     },
   });
 

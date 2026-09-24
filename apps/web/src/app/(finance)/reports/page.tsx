@@ -26,7 +26,7 @@ export default function ReportsPage() {
       });
     } catch (e) {
       const detail = isApiError(e)
-        ? e.detail
+        ? e.message
         : "리포트 생성 중 오류가 발생했습니다. 다시 시도해주세요.";
       if (detail === '다운로드할 데이터가 없습니다.') {
         toast.warning('선택 기간의 데이터가 없습니다. 다른 기간을 선택해주세요.');

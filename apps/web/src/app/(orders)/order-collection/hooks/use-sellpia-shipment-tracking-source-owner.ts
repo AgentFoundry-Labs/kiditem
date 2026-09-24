@@ -21,6 +21,7 @@ import {
   type ActiveSellpiaShipmentTrackingAttempt,
   type SellpiaShipmentTrackingSourceAttempt,
 } from '../lib/sellpia-shipment-tracking-source-owner';
+import { attemptFailureText } from '@/lib/operator-error';
 
 type ActiveScope = {
   organizationId: string;
@@ -167,7 +168,7 @@ export function useSellpiaShipmentTrackingSourceOwner() {
         if (rows) return rows;
       }
       if (attempt.state === 'FAILED') {
-        throw new Error(attempt.errorMessage ?? '셀피아 송장 조회가 실패했습니다.');
+        throw new Error(attemptFailureText(attempt, 'sellpia_shipment_tracking') ?? '셀피아 송장 조회가 실패했습니다.');
       }
 
       const extensionId = await prepareSellpiaShipmentTrackingExtension();
@@ -191,7 +192,7 @@ export function useSellpiaShipmentTrackingSourceOwner() {
         if (rows) return rows;
       }
       if (observed.state === 'FAILED') {
-        throw new Error(observed.errorMessage ?? '셀피아 송장 조회가 실패했습니다.');
+        throw new Error(attemptFailureText(observed, 'sellpia_shipment_tracking') ?? '셀피아 송장 조회가 실패했습니다.');
       }
       throw new Error('셀피아 송장 조회가 아직 완료되지 않았습니다. 잠시 후 다시 시도해주세요.');
     } finally {

@@ -11,6 +11,7 @@ import {
   representativeImageUploadReached,
   type RepresentativeImageSubject,
 } from '../../../_shared/lib/representative-image-execution';
+import { friendlyError } from '@/lib/api-error';
 
 /**
  * 판매상품에 대표이미지를 받는 채널의 리스팅이 여럿이라 준비가 거절된(`ambiguous_listing`) 대표이미지에서, 운영자가
@@ -55,7 +56,7 @@ export function ListingPicker({ subject, onDone }: { subject: RepresentativeImag
               toast.success(representativeImageUploadedMessage());
               onDone();
             },
-            onError: (error) => toast.error(error instanceof Error ? error.message : '대표이미지를 올리지 못했습니다'),
+            onError: (error) => toast.error(friendlyError(error, '대표이미지를 올리지 못했습니다')),
           });
         }}
         className="shrink-0 rounded bg-primary px-2 py-1 text-[11px] font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
 import { currentOrganizationFactory } from '../decorators/current-organization.decorator';
 import { currentUserFactory } from '../decorators/current-user.decorator';
 
@@ -26,24 +26,14 @@ describe('currentOrganizationFactory', () => {
     expect(currentOrganizationFactory(ctx)).toBe('c1');
   });
 
-  it('throws UnauthorizedException("auth_required") when authUser is missing', () => {
+  it('throws AUTH_REQUIRED when authUser is missing', () => {
     const ctx = createCtx(undefined);
-    expect(() => currentOrganizationFactory(ctx)).toThrow(UnauthorizedException);
-    try {
-      currentOrganizationFactory(ctx);
-    } catch (e) {
-      expect((e as UnauthorizedException).message).toContain('auth_required');
-    }
+    expect(() => currentOrganizationFactory(ctx)).toThrow(expect.objectContaining({ code: 'AUTH_REQUIRED' }));
   });
 
-  it('throws UnauthorizedException("no_organization_context") when organizationId is null', () => {
+  it('throws NO_ORGANIZATION_CONTEXT when organizationId is null', () => {
     const ctx = createCtx({ id: 'u1', organizationId: null, role: 'system', type: 'system', email: 'sys@x' });
-    expect(() => currentOrganizationFactory(ctx)).toThrow(UnauthorizedException);
-    try {
-      currentOrganizationFactory(ctx);
-    } catch (e) {
-      expect((e as UnauthorizedException).message).toContain('no_organization_context');
-    }
+    expect(() => currentOrganizationFactory(ctx)).toThrow(expect.objectContaining({ code: 'NO_ORGANIZATION_CONTEXT' }));
   });
 });
 
@@ -56,6 +46,6 @@ describe('currentUserFactory', () => {
 
   it('throws when authUser missing', () => {
     const ctx = createCtx(undefined);
-    expect(() => currentUserFactory(ctx)).toThrow(UnauthorizedException);
+    expect(() => currentUserFactory(ctx)).toThrow(expect.objectContaining({ code: 'AUTH_REQUIRED' }));
   });
 });

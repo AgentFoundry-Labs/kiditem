@@ -26,6 +26,7 @@ import {
   isThumbnailJobEnded,
 } from '../../_shared/lib/thumbnail-status';
 import { thumbnailGenerationEditHref } from '../../_shared/lib/product-pipeline-routes';
+import { operatorReason } from '@/lib/operator-error';
 
 export type AiEditFilter = 'generating' | 'ready' | 'adopted' | 'failed';
 
@@ -40,7 +41,7 @@ const byNewest = (a: ThumbnailJobListItem, b: ThumbnailJobListItem) =>
   new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 
 function errorMessage(error: unknown, fallback: string): string {
-  if (isApiError(error)) return error.detail;
+  if (isApiError(error)) return error.message;
   return error instanceof Error ? error.message : fallback;
 }
 
@@ -135,7 +136,7 @@ function AiEditJobCard({ job, onDelete }: { job: ThumbnailJobListItem; onDelete:
               <span className="text-[10px] font-semibold text-emerald-700">몰 반영됨</span>
             )}
           </div>
-          {job.errorMessage && <p className="mt-1 truncate text-xs text-rose-600" title={job.errorMessage}>{job.errorMessage}</p>}
+          {job.errorMessage && <p className="mt-1 truncate text-xs text-rose-600">{operatorReason(job.errorMessage, 'AI 편집에 실패했습니다.')}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Link

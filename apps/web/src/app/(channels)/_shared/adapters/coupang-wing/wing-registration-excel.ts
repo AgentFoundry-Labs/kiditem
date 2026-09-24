@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
+import { readApiError } from '@/lib/api-error';
 
 // 쿠팡 WING "상품 일괄등록(엑셀)" V4.6 입력 모델과 서버 export transport.
 //
@@ -137,17 +137,7 @@ export async function requestWingRegistrationWorkbook(
     body: formData,
   });
   if (!response.ok) {
-    let body: unknown = null;
-    try {
-      body = await response.json();
-    } catch {
-      // Preserve the HTTP status when the server did not return JSON.
-    }
-    const record = body as Record<string, unknown> | null;
-    const detail = typeof record?.message === 'string'
-      ? record.message
-      : 'WING 엑셀 생성에 실패했습니다.';
-    throw new ApiError(response.status, typeof record?.error === 'string' ? record.error : null, detail);
+    throw await readApiError(response, 'WING 엑셀 생성에 실패했습니다.');
   }
 
   const blob = await response.blob();

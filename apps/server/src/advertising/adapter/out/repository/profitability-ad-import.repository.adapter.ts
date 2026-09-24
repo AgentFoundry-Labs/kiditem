@@ -1,4 +1,5 @@
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
@@ -896,7 +897,7 @@ export class ProfitabilityAdImportRepositoryAdapter
       data: {
         status: SOURCE_DB_FAILED,
         errorCode: 'ATTEMPT_EXPIRED',
-        errorMessage: 'Advertising profitability collection expired before publication.',
+        errorMessage: operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
       },
     });
     if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');

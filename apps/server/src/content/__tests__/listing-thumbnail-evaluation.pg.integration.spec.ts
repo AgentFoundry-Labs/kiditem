@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { ServiceUnavailableException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -140,7 +140,7 @@ describe('listing thumbnail evaluation (PG integration)', () => {
   it('requires an explicit model and keeps evaluations inside one organization', async () => {
     const listingId = randomUUID();
     await expect(service.evaluate({ organizationId: ORG, channelListingId: listingId, imageUrl: 'https://mall/a.jpg', modelId: '  ' }))
-      .rejects.toBeInstanceOf(BadRequestException);
+      .rejects.toMatchObject({ code: 'AGENT_OS_MODEL_REQUIRED' });
     expect(vision.calls).toEqual([]);
 
     await service.evaluate({ organizationId: ORG, channelListingId: listingId, imageUrl: 'https://mall/a.jpg', modelId: 'm' });

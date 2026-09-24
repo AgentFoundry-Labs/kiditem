@@ -54,7 +54,7 @@ describe('<Statistics> (Plan B1)', () => {
     renderWithProvider();
 
     await waitFor(() => {
-      expect(screen.getByText(/502 Bad Gateway/)).toBeTruthy();
+      expect(screen.getByText(/처리 중 문제가 생겼습니다/)).toBeTruthy();
     });
   });
 

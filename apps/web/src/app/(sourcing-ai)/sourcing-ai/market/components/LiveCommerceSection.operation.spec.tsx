@@ -139,9 +139,9 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '공식 수집' })).toBeEnabled());
     expect(mocks.taobaoStart).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '공식 수집' }));
-    await screen.findByText('response lost');
+    await screen.findByText('타오바오 수집에 실패했습니다.');
     fireEvent.click(screen.getByRole('button', { name: '공식 수집' }));
-    await screen.findByText('provider failed');
+    await screen.findByText('수집 작업이 실패했습니다. 다시 시도해 주세요.');
     fireEvent.click(screen.getByRole('button', { name: '공식 수집' }));
     await waitFor(() => expect(mocks.taobaoStart).toHaveBeenCalledTimes(3));
     const [first, second, third] = mocks.taobaoStart.mock.calls;
@@ -171,7 +171,7 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     renderSection();
     await waitFor(() => expect(screen.getByRole('button', { name: '공식 수집' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: '공식 수집' }));
-    await screen.findByText('response lost');
+    await screen.findByText('타오바오 수집에 실패했습니다.');
     fireEvent.click(screen.getByRole('button', { name: '공식 수집' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '수집 중…' })).toBeDisabled());
     expect(mocks.taobaoStart).toHaveBeenCalledTimes(2);
@@ -206,7 +206,7 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     selectRoom('room-a');
     await waitFor(() => expect(screen.getByRole('button', { name: '공식 수집' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: '공식 수집' }));
-    await screen.findByText('room-a response lost');
+    await screen.findByText('타오바오 수집에 실패했습니다.');
     selectRoom('room-b');
     await waitFor(() => expect(screen.getByRole('button', { name: '공식 수집' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: '공식 수집' }));

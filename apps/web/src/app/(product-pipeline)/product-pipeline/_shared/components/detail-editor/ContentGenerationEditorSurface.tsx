@@ -80,7 +80,7 @@ export function ContentGenerationEditorSurface({
       : null;
   const error = entryError
     ? isApiError(entryError)
-      ? entryError.detail
+      ? entryError.message
       : '선택한 생성 이력을 불러올 수 없습니다.'
     : activeFailureMessage;
   const validEditedHtml = isRenderableDetailHtml(editedHtmlRow?.html)
@@ -123,7 +123,7 @@ export function ContentGenerationEditorSurface({
       handleClose();
       return saved;
     } catch (err) {
-      const msg = isApiError(err) ? err.detail : '저장 실패';
+      const msg = isApiError(err) ? err.message : '저장 실패';
       toast.error(msg);
       throw err;
     }

@@ -10,7 +10,6 @@ import {
   Param,
   Patch,
   Post,
-  ServiceUnavailableException,
   Put,
 } from '@nestjs/common';
 import {
@@ -24,6 +23,7 @@ import {
   ReasoningEffortSchema,
 } from '@kiditem/shared/agent-runtime';
 import { z } from 'zod';
+import { KiditemExternalError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../../auth/auth.types';
@@ -170,7 +170,10 @@ function rethrowConversationError(error: unknown): never {
     throw new NotFoundException('Conversation was not found.');
   }
   if (error instanceof AgentOsRuntimeError && error.code === 'conversation_gateway_unavailable') {
-    throw new ServiceUnavailableException('The provider Gateway is unavailable.');
+    throw new KiditemExternalError('AGENT_OS_GATEWAY_UNAVAILABLE', { cause: error });
+  }
+  if (error instanceof AgentOsRuntimeError && error.code === 'conversation_model_required') {
+    throw new KiditemInvalidValueError('AGENT_OS_MODEL_REQUIRED');
   }
   if (error instanceof AgentOsRuntimeError && [
     'conversation_create_conflict',
@@ -182,7 +185,6 @@ function rethrowConversationError(error: unknown): never {
     'conversation_agent_invalid',
     'conversation_id_required',
     'conversation_message_required',
-    'conversation_model_required',
     'conversation_model_unsupported',
     'conversation_reasoning_effort_required',
     'conversation_reasoning_effort_unsupported',
@@ -190,5 +192,5 @@ function rethrowConversationError(error: unknown): never {
   ].includes(error.code)) {
     throw new BadRequestException(error.code);
   }
-  throw new ServiceUnavailableException('The provider Gateway is unavailable.');
+  throw new KiditemExternalError('AGENT_OS_GATEWAY_UNAVAILABLE', { cause: error });
 }

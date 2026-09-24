@@ -31,6 +31,7 @@ import {
 import { showAvailabilityWarnings } from '../../_shared/MallAvailabilitySend';
 import type { MallLiveCell } from '../hooks/use-mall-live-availability';
 import type { MallListingMatrixColumn, MallListingState } from '@kiditem/shared/mall-publishing';
+import { friendlyError } from '@/lib/api-error';
 
 /**
  * 액션 메뉴. 가능 여부는 목록의 채널 기능이 정하고, 품절·재개는 서버 실행 원장을
@@ -341,7 +342,7 @@ export function CellActionPopover({
       if (run.adapterCalled && liveReadable) readLive();
     } catch (error) {
       // 보내지 못한 것도 관찰 기록에 남긴다(일괄 화면과 같게).
-      toast.error(error instanceof Error ? error.message : '보내지 못했습니다.');
+      toast.error(friendlyError(error, '보내지 못했습니다.'));
     } finally {
       runLock.current = false;
       setRunning(null);

@@ -53,6 +53,6 @@ export function useGenerateDetailPage(salesProductId: string) {
         queryKey: queryKeys.contentWorkspaces.forSalesProduct(salesProductId),
       });
     },
-    onError: (error: unknown) => toast.error(isApiError(error) ? error.detail : error instanceof Error ? error.message : '상세페이지 생성 실패'),
+    onError: (error: unknown) => toast.error(isApiError(error) ? error.message : error instanceof Error ? error.message : '상세페이지 생성 실패'),
   });
 }

@@ -69,8 +69,8 @@ export async function submitRepresentativeImageViaExtension(
       ...(options.channelListingId ? { channelListingId: options.channelListingId } : {}),
     });
   } catch (error) {
-    if (isApiError(error) && error.details.code === THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE) {
-      throw new ListingChoiceRequiredError(subject.salesProductId, error.detail);
+    if (isApiError(error) && error.details.reason === THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE) {
+      throw new ListingChoiceRequiredError(subject.salesProductId, error.message);
     }
     throw error;
   }

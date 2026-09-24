@@ -6,6 +6,7 @@ import {
   SELLPIA_INVENTORY_SOURCE_PATH,
   SellpiaInventorySourceAttemptSchema,
 } from './sellpia-inventory-source-owner';
+import { attemptFailureText } from '@/lib/operator-error';
 
 /** One shared source start, then observe that exact attempt until publication commits.
  * Polling is active only while a calculation waits: at most 60 reads/minute.
@@ -42,7 +43,7 @@ export async function collectSellpiaInventoryBeforeCalculation(
   }, (attempt) => {
     if (attempt.state === 'COMPLETE') return attempt.attemptId;
     if (attempt.state === 'FAILED') {
-      throw new Error(attempt.errorMessage ?? '재고 수집이 완료되지 않아 계산을 중단했습니다.');
+      throw new Error(attemptFailureText(attempt, 'sellpia_inventory') ?? '재고 수집이 완료되지 않아 계산을 중단했습니다.');
     }
     return null;
   }, signal);

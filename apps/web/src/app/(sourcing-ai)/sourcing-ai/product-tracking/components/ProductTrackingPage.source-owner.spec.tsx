@@ -261,8 +261,8 @@ describe('ProductTrackingPage tracked-Wing source owner', () => {
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== `${BASE}/attempts`) throw new Error(`unexpected POST ${path}`);
       status = { ...status, latestAttempt: latestAttempt('RUNNING') };
-      throw new ApiError(409, 'Conflict', 'Conflict', {
-        code: 'ATTEMPT_IN_PROGRESS',
+      throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
+
         attemptId: ATTEMPT_ID,
       });
     });
@@ -353,9 +353,9 @@ describe('ProductTrackingPage tracked-Wing source owner', () => {
     renderPage();
 
     expect(await screen.findByText('이전 완료 스냅샷 표시 중')).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'TRACKED_WING_KEYWORD_COLLECTION_FAILED',
-    );
+    // 모르는 코드·영어 원문 대신 원천 문장이 보인다(ADR-0023).
+    expect(screen.getByRole('alert')).toHaveTextContent('마지막 수집 실패:');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('TRACKED_WING_KEYWORD_COLLECTION_FAILED');
     expect(screen.getByText(/마지막 완료/)).toBeInTheDocument();
   });
 });

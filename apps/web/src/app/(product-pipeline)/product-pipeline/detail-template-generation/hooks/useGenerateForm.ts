@@ -341,7 +341,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
         workspaceId: null,
         workspaceTitle: null,
       });
-      setError(isApiError(err) ? err.detail : '상품명 중복 확인에 실패했습니다.');
+      setError(isApiError(err) ? err.message : '상품명 중복 확인에 실패했습니다.');
     }
   };
 
@@ -387,7 +387,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       });
       toast.success('기존 최신 이력을 불러왔습니다.');
     } catch (err) {
-      setError(isApiError(err) ? err.detail : '기존 이력을 불러오지 못했습니다.');
+      setError(isApiError(err) ? err.message : '기존 이력을 불러오지 못했습니다.');
     }
   };
 
@@ -412,7 +412,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
         toast.success('AI가 카테고리와 핵심 정보를 채웠어요');
       }
     } catch (err) {
-      setError(isApiError(err) ? err.detail : 'AI 내용 채우기에 실패했습니다.');
+      setError(isApiError(err) ? err.message : 'AI 내용 채우기에 실패했습니다.');
     } finally {
       setIsPrefilling(false);
     }
@@ -565,7 +565,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
         description: options.successDescription ?? '완료되면 알림에서 에디터로 이동할 수 있습니다.',
       });
     } catch (err) {
-      setError(isApiError(err) ? err.detail : '상세페이지 생성 중 오류가 발생했습니다.');
+      setError(isApiError(err) ? err.message : '상세페이지 생성 중 오류가 발생했습니다.');
       setGenerationDialog(null);
     } finally {
       setIsLoading(false);

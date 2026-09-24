@@ -5,6 +5,7 @@ import { AlertCircle, Bell, Download, FileSpreadsheet, Inbox, LogIn, Send, Shiel
 import { cn, formatNumber } from '@/lib/utils';
 import { getHistoryOrderCount } from '../lib/order-history-count';
 import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
+import { operatorReason } from '@/lib/operator-error';
 
 const FEED_LIMIT = 40;
 
@@ -97,7 +98,7 @@ function eventMeta(e: OrderActivityEvent): ActivityMeta {
       bg: 'bg-amber-50',
       fg: 'text-amber-600',
       title: `인증 필요 · ${e.mallName}`,
-      sub: `${e.message} · ${shortTime(e.at)}`,
+      sub: `${operatorReason(e.message, '주문 수집 작업이 실패했습니다.')} · ${shortTime(e.at)}`,
     };
   }
   if (e.kind === 'login') {
@@ -106,7 +107,7 @@ function eventMeta(e: OrderActivityEvent): ActivityMeta {
       bg: 'bg-amber-50',
       fg: 'text-amber-600',
       title: `로그인 필요 · ${e.mallName}`,
-      sub: `${e.message} · ${shortTime(e.at)}`,
+      sub: `${operatorReason(e.message, '주문 수집 작업이 실패했습니다.')} · ${shortTime(e.at)}`,
     };
   }
   if (e.kind === 'error') {
@@ -115,7 +116,7 @@ function eventMeta(e: OrderActivityEvent): ActivityMeta {
       bg: 'bg-red-50',
       fg: 'text-red-600',
       title: `오류 · ${e.mallName}`,
-      sub: `${e.message} · ${shortTime(e.at)}`,
+      sub: `${operatorReason(e.message, '주문 수집 작업이 실패했습니다.')} · ${shortTime(e.at)}`,
     };
   }
   return {

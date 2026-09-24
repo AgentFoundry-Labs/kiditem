@@ -12,6 +12,7 @@ import { apiClient } from '@/lib/api-client';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
+import { friendlyError } from '@/lib/api-error';
 
 const WING_DOWNLOAD_URL = 'https://wing.coupang.com/vendor-inventory/list';
 const COUPANG_MALL_KEY = 'coupang';
@@ -65,7 +66,7 @@ export function CoupangWingExcelImport() {
     },
     onError: (error: Error) => {
       setResult(null);
-      toast.error(error.message || '엑셀을 가져오지 못했습니다.');
+      toast.error(friendlyError(error, '엑셀을 가져오지 못했습니다.'));
     },
   });
 

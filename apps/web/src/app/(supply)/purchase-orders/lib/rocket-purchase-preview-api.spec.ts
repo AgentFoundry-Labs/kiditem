@@ -107,7 +107,7 @@ describe('previewRocketPurchases', () => {
       new ApiError(409, 'OTHER', '서버 메시지'),
       'fallback',
     )).toBe('서버 메시지');
-    expect(rocketPreviewErrorMessage({}, 'fallback')).toBe('조회 실패');
+    expect(rocketPreviewErrorMessage({}, 'fallback')).toBe('fallback');
   });
 
   it('lists and loads server-saved Rocket evidence through account-scoped actions', async () => {

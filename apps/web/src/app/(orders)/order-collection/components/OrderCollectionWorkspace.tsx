@@ -61,6 +61,7 @@ import {
   hasSellpiaTransmissionRequest,
   mallCollectionFailureMessage,
   orderCollectionBatchNotice,
+  orderCollectionFailureEvidence,
   todayYmd,
   type ConversionHistoryItem,
   type ConversionState,
@@ -284,7 +285,8 @@ export function OrderCollectionWorkspace() {
       const notice = collectionAttentionNotice(
         '셀피아',
         error,
-        friendlyError(error) ?? '셀피아 대조에 실패했습니다.',
+        friendlyError(error, '셀피아 대조에 실패했습니다.') ?? '셀피아 대조에 실패했습니다.',
+        orderCollectionFailureEvidence(error),
       );
       if (notice.tone === 'warning') toast.warning(notice.message);
       else toast.error(notice.message);
@@ -587,7 +589,8 @@ export function OrderCollectionWorkspace() {
       setState('error');
       toast.error(mallCollectionFailureMessage(
         account.name,
-        friendlyError(err) ?? '브라우저 수집 실패',
+        orderCollectionFailureEvidence(err),
+        friendlyError(err, '브라우저 수집 실패') ?? '브라우저 수집 실패',
       ));
     }
   };

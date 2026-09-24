@@ -1,5 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { UnauthorizedException } from '@nestjs/common';
 import { AuthController } from '../auth.controller';
 import { AUTH_SESSION_COOKIE, type AuthService } from '../application/auth.service';
 import type { AuthUser } from '../auth.types';
@@ -133,7 +132,7 @@ describe('AuthController session endpoints', () => {
 
     await expect(
       controller.extensionHandoff(AUTH_USER, { cookies: {} } as any),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
   });
 
   it('rejects extension handoff when the cookie does not match the middleware session', async () => {
@@ -152,7 +151,7 @@ describe('AuthController session endpoints', () => {
           cookies: { [AUTH_SESSION_COOKIE]: 'a'.repeat(43) },
         } as any,
       ),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
   });
 
   it('revokes only the current session and clears its cookie on logout', async () => {
@@ -178,6 +177,6 @@ describe('AuthController session endpoints', () => {
 
     await expect(
       controller.logout(AUTH_USER, {} as any, { clearCookie: vi.fn() } as any),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
   });
 });

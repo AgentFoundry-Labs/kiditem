@@ -29,7 +29,7 @@ export default function ReportDownload() {
       const fileName = await downloadFinanceReport({ type, surface: 'settings' });
       toast.success(`${fileName} 다운로드 완료`);
     } catch (err) {
-      const msg = isApiError(err) ? err.detail : '리포트 생성 중 오류가 발생했습니다.';
+      const msg = isApiError(err) ? err.message : '리포트 생성 중 오류가 발생했습니다.';
       setError(msg);
       toast.error(msg);
     } finally {

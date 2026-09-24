@@ -127,7 +127,7 @@ export default function ProductEditHeader({
     },
     onError: (err) => {
       toast.error(
-        isApiError(err) ? err.detail : err instanceof Error ? err.message : '제품 등록 준비를 저장하지 못했습니다.',
+        isApiError(err) ? err.message : err instanceof Error ? err.message : '제품 등록 준비를 저장하지 못했습니다.',
       );
     },
   });
@@ -352,7 +352,7 @@ export default function ProductEditHeader({
           isSubmitting={createPreparationDraftMutation.isPending}
           errorMessage={accountsQuery.error
             ? isApiError(accountsQuery.error)
-              ? accountsQuery.error.detail
+              ? accountsQuery.error.message
               : '채널 계정을 불러오지 못했습니다.'
             : null}
           onClose={() => setPreparationDialogOpen(false)}

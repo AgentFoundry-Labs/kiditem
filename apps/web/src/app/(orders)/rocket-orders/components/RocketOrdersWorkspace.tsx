@@ -29,6 +29,7 @@ import { RocketOrderActivityPanel } from './RocketOrderActivityPanel';
 import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
 import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketChartPoint } from './RocketOrdersChart';
+import { attemptFailureText } from '@/lib/operator-error';
 
 const RocketOrdersChart = dynamic(
   () => import('./RocketOrdersChart').then((mod) => mod.RocketOrdersChart),
@@ -490,7 +491,7 @@ export function RocketOrdersWorkspace({
             {rocketSource.data?.latestAttempt?.state === 'FAILED' && (
               stoppedAttempt(rocketSource.data.latestAttempt)
                 ? <span> · 수집 중단됨 · {COLLECTION_STOPPED_MESSAGE}</span>
-                : <span className="text-[var(--danger)]"> · 수집 실패: {rocketSource.data.latestAttempt.errorMessage ?? rocketSource.data.latestAttempt.errorCode ?? '다시 수집해주세요.'}</span>
+                : <span className="text-[var(--danger)]"> · 수집 실패: {attemptFailureText(rocketSource.data.latestAttempt, 'coupang_rocket_po_catalog') ?? '다시 수집해주세요.'}</span>
             )}
           </>
         )}

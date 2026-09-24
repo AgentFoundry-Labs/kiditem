@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   ConflictException,
   Inject,
@@ -71,7 +72,7 @@ export class KeywordSerpSourceRepository {
               tx,
               replay,
               "ATTEMPT_EXPIRED",
-              "Keyword SERP collection expired.",
+              operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
             )
           : replay;
         return {
@@ -222,7 +223,7 @@ export class KeywordSerpSourceRepository {
             row,
             expired(row) ? "ATTEMPT_EXPIRED" : "COLLECTION_CANCELLED",
             expired(row)
-              ? "Keyword SERP collection expired."
+              ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
               : "키워드 순위 수집이 취소되었습니다.",
           );
         }
@@ -277,7 +278,7 @@ export class KeywordSerpSourceRepository {
         tx,
         old,
         "ATTEMPT_EXPIRED",
-        "Keyword SERP collection expired.",
+        operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
       );
     }
     const reused = await tx.sourceImportRun.findFirst({
@@ -404,7 +405,7 @@ export class KeywordSerpSourceRepository {
               tx,
               row,
               "INCOMPLETE_SERP_CAPTURE",
-              "Keyword SERP capture does not satisfy the frozen page plan.",
+              operatorErrorText({ code: 'INCOMPLETE_SERP_CAPTURE', source: SOURCE }),
               checksum,
             ),
           );
@@ -569,7 +570,7 @@ function view(row: Attempt): KeywordSerpSourceAttempt {
     itemCount: row.rowCount,
     errorCode: isExpired ? "ATTEMPT_EXPIRED" : row.errorCode,
     errorMessage: isExpired
-      ? "Keyword SERP collection expired."
+      ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
       : row.errorMessage,
   } satisfies KeywordSerpSourceAttempt;
 }

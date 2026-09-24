@@ -146,7 +146,7 @@ export default function DetailPageWorkspaceTab({
       setSelectedKey(row.key);
       toast.success('선택한 상세페이지를 등록 상세로 적용했습니다.');
     } catch (err) {
-      toast.error(isApiError(err) ? err.detail : '등록 상세 적용 실패');
+      toast.error(isApiError(err) ? err.message : '등록 상세 적용 실패');
     } finally {
       setApplyingKey(null);
     }
@@ -161,7 +161,7 @@ export default function DetailPageWorkspaceTab({
       toast.success('상세페이지 버전을 삭제했습니다.');
     };
     const onError = (err: unknown) => {
-      toast.error(isApiError(err) ? err.detail : '삭제 실패');
+      toast.error(isApiError(err) ? err.message : '삭제 실패');
     };
     if (row.kind === 'agent') {
       deleteAgent.mutate(row.id, { onSuccess, onError });
@@ -185,7 +185,7 @@ export default function DetailPageWorkspaceTab({
       await invalidateDetailVersionQueries();
       toast.success('상세페이지 버전 이름을 변경했습니다.');
     } catch (err) {
-      toast.error(isApiError(err) ? err.detail : '이름 변경 실패');
+      toast.error(isApiError(err) ? err.message : '이름 변경 실패');
     } finally {
       setRenamingKey(null);
     }
@@ -202,7 +202,7 @@ export default function DetailPageWorkspaceTab({
       await invalidateDetailVersionQueries();
       toast.success('상세페이지 버전을 복제했습니다. 복제본을 선택했습니다.');
     } catch (err) {
-      toast.error(isApiError(err) ? err.detail : '복제 실패');
+      toast.error(isApiError(err) ? err.message : '복제 실패');
     } finally {
       setDuplicatingKey(null);
     }

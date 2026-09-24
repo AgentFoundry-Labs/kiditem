@@ -44,6 +44,7 @@ import {
   classifyOrderCollectionFailure,
   isBrowserCollectableMall,
   mallCollectionFailureMessage,
+  orderCollectionFailureEvidence,
   orderCollectionBatchNotice,
   todayYmd,
   type ConversionHistoryItem,
@@ -231,11 +232,13 @@ export function useAllMarketplaceOrderCollection({
         // 운영자 중단이 이 절차를 끊었으면 terminal 은 owner 취소의 몫이다.
         // 여기서 실패를 먼저 보내면 `COLLECTION_FAILED` 실패 알림이 남는다(KID-159).
         const stopped = activeRun?.signal?.aborted === true;
+        const evidence = orderCollectionFailureEvidence(error);
         const message = mallCollectionFailureMessage(
           account.name,
-          friendlyError(error) ?? '브라우저 수집 실패',
+          evidence,
+          friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
         );
-        const failureKind = classifyOrderCollectionFailure(error, message);
+        const failureKind = classifyOrderCollectionFailure(error, evidence || message);
         const attentionKind = failureKind === 'auth' || failureKind === 'login'
           ? failureKind
           : null;
@@ -342,7 +345,8 @@ export function useAllMarketplaceOrderCollection({
         }
         toast.error(mallCollectionFailureMessage(
           account.name,
-          friendlyError(error) ?? '브라우저 수집 실패',
+          orderCollectionFailureEvidence(error),
+          friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
         ));
       },
     );
@@ -605,7 +609,7 @@ export function usePersistedAllMarketplaceOrderCollection({
         toast.warning(`셀피아 대조: 아직 안 올라간 주문 ${formatNumber(reconciled.missingTotal)}건`);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '셀피아 대조에 실패했습니다.');
+      toast.error(friendlyError(error, '셀피아 대조에 실패했습니다.'));
     }
   }, [collectAll, mallAccountsLoading, refetchMallAccounts]);
 

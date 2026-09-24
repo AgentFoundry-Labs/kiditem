@@ -1,12 +1,23 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   ArgumentsHost,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
+  Logger,
   NotFoundException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
-import { AppException } from '@kiditem/shared/server-errors';
+import {
+  ERROR_DEFINITIONS,
+  ErrorResponseSchema,
+  KiditemConflictError,
+  KiditemExternalError,
+  KiditemNotFoundError,
+} from '@kiditem/shared/errors';
 import {
   FactConflictError,
   FactInputError,
@@ -14,233 +25,207 @@ import {
   FactReferenceError,
 } from '../../errors/fact-errors';
 import { GlobalExceptionFilter } from '../global-exception.filter';
-
-// ── Mocks ──
+import { validationExceptionFactory } from '../../validation/validation-pipe';
 
 function makeHost(method = 'GET', url = '/api/test') {
   const json = vi.fn();
   const status = vi.fn().mockReturnValue({ json });
-  const response = { status };
-  const request = { method, url };
-  return {
-    host: {
-      switchToHttp: () => ({
-        getResponse: () => response,
-        getRequest: () => request,
-      }),
-    } as unknown as ArgumentsHost,
-    status,
-    json,
-  };
+  const host = {
+    switchToHttp: () => ({
+      getResponse: () => ({ status }),
+      getRequest: () => ({ method, url }),
+    }),
+  } as unknown as ArgumentsHost;
+  return { host, status, json };
 }
 
 function makePrismaError(code: string, message: string) {
   return { constructor: { name: 'PrismaClientKnownRequestError' }, code, message };
 }
 
-// ── Tests ──
+const HANGUL = /[가-힣]/;
+const ATTEMPT = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
-describe('GlobalExceptionFilter', () => {
-  const filter = new GlobalExceptionFilter();
+/** One filter run: the HTTP status it set and the body it wrote, checked against the ADR-0023 envelope. */
+function envelope(exception: unknown) {
+  const { host, status, json } = makeHost();
+  new GlobalExceptionFilter().catch(exception, host);
+  const body = json.mock.calls[0][0];
+  expect(ErrorResponseSchema.parse(body)).toEqual(body);
+  expect(status).toHaveBeenCalledWith(body.statusCode);
+  expect(body.message).toMatch(HANGUL);
+  return body;
+}
 
-  it('maps framework-free collection conflicts and reference errors at the HTTP boundary', () => {
-    const conflict = makeHost();
-    const attemptId = '0f8fad5b-d9cb-469f-a165-70867728950e';
-    filter.catch(new FactConflictError('Already running', { code: 'ATTEMPT_IN_PROGRESS', attemptId }), conflict.host);
-    expect(conflict.status).toHaveBeenCalledWith(409);
-    expect(conflict.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'ATTEMPT_IN_PROGRESS', attemptId }));
-    const reference = makeHost();
-    filter.catch(new FactReferenceError('Missing SKU', 'PURCHASE_REFERENCE_INVALID'), reference.host);
-    expect(reference.status).toHaveBeenCalledWith(422);
-    expect(reference.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'PURCHASE_REFERENCE_INVALID' }));
+describe('GlobalExceptionFilter → ADR-0023 envelope', () => {
+  let logError: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    logError = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('KiditemError → its registered status, kind, sentence and details', () => {
+    expect(envelope(new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND', { details: { reason: 'coupang' } }))).toEqual({
+      statusCode: 404,
+      code: 'CHANNELS_ACCOUNT_NOT_FOUND',
+      kind: 'not_found',
+      message: ERROR_DEFINITIONS.CHANNELS_ACCOUNT_NOT_FOUND.text,
+      errors: [],
+      details: { reason: 'coupang' },
+    });
+    expect(envelope(new KiditemConflictError('ATTEMPT_EXPIRED', { message: '주문 수집 시도가 만료됐습니다.' }))).toMatchObject({
+      statusCode: 409, code: 'ATTEMPT_EXPIRED', kind: 'expired', message: '주문 수집 시도가 만료됐습니다.',
+    });
   });
 
-  it('AppException → extracts code + status + message', () => {
-    const { host, status, json } = makeHost();
-    filter.catch(new AppException(422, 'ORDER_NO_SELECTION', '주문을 선택하세요'), host);
-
-    expect(status).toHaveBeenCalledWith(422);
-    expect(json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        statusCode: 422,
-        error: 'ORDER_NO_SELECTION',
-        message: '주문을 선택하세요',
-        path: '/api/test',
-      }),
-    );
-  });
-
-  it('HttpException (object response) → maps error field', () => {
-    const { host, status, json } = makeHost();
-    filter.catch(new BadRequestException('Validation failed'), host);
-
-    expect(status).toHaveBeenCalledWith(400);
-    const body = json.mock.calls[0][0];
-    expect(body.error).toBe('Bad Request');
-    expect(body.message).toBe('Validation failed');
-  });
-
-  it('HttpException (array message) → joins messages', () => {
-    const { host, json } = makeHost();
-    filter.catch(
-      new BadRequestException({
-        statusCode: 400,
-        message: ['field1 required', 'field2 invalid'],
-        error: 'Bad Request',
-      }),
-      host,
-    );
-
-    expect(json.mock.calls[0][0].message).toBe('field1 required, field2 invalid');
-  });
-
-  it('HttpException (object response) → passes a string code, a UUID attemptId and the message through', () => {
-    const { host, status, json } = makeHost('POST', '/api/ads/ad-campaigns/attempts');
-    const attemptId = '0f8fad5b-d9cb-469f-a165-70867728950e';
-    filter.catch(
-      new ConflictException({
-        code: 'ATTEMPT_IN_PROGRESS',
-        attemptId,
-        message: '이미 수집 중인 시도가 있습니다.',
-      }),
-      host,
-    );
-
-    expect(status).toHaveBeenCalledWith(409);
-    expect(json.mock.calls[0][0]).toEqual({
+  it('409 ATTEMPT_IN_PROGRESS carries the same attempt id at the top level and in details', () => {
+    const body = envelope(new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId: ATTEMPT, message: 'Already running' }));
+    expect(body).toEqual({
       statusCode: 409,
-      error: 'HTTP_409',
-      message: '이미 수집 중인 시도가 있습니다.',
       code: 'ATTEMPT_IN_PROGRESS',
-      attemptId,
-      timestamp: expect.any(String),
-      path: '/api/ads/ad-campaigns/attempts',
+      kind: 'in_progress',
+      message: ERROR_DEFINITIONS.ATTEMPT_IN_PROGRESS.text,
+      errors: [],
+      details: { attemptId: ATTEMPT },
+      attemptId: ATTEMPT,
     });
   });
 
-  it('HttpException (object response) → keeps a code without an attempt and drops malformed extras', () => {
-    const { host, json } = makeHost();
-    filter.catch(new ConflictException({ code: 'ATTEMPT_PAUSED', attemptId: 'not-a-uuid' }), host);
-    filter.catch(new ConflictException({ code: 42, attemptId: 7 }), host);
-
-    const paused = json.mock.calls[0][0];
-    expect(paused).toMatchObject({ statusCode: 409, error: 'HTTP_409', code: 'ATTEMPT_PAUSED' });
-    expect(paused).not.toHaveProperty('attemptId');
-    const malformed = json.mock.calls[1][0];
-    expect(malformed).not.toHaveProperty('code');
-    expect(malformed).not.toHaveProperty('attemptId');
+  it('validation pipe failures → VALIDATION_FAILED with Korean field reasons', () => {
+    const exception = validationExceptionFactory([
+      { property: 'name', value: 42, constraints: { isString: 'name must be a string' }, children: [] },
+      {
+        property: 'items',
+        value: [{}],
+        children: [{ property: '0', children: [{ property: 'sku', value: '', constraints: { isNotEmpty: 'sku should not be empty', madeUp: 'x' }, children: [] }] }],
+      },
+      { property: 'password', value: 'secret', constraints: { minLength: 'too short' }, children: [] },
+    ]);
+    const body = envelope(exception);
+    expect(body).toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED', kind: 'validation' });
+    expect(body.errors).toEqual([
+      { field: 'name', value: 42, reason: '문자열이어야 합니다.' },
+      { field: 'items.0.sku', value: '', reason: '비어 있을 수 없습니다.' },
+      { field: 'items.0.sku', value: '', reason: '올바르지 않습니다.' },
+      { field: 'password', reason: '너무 짧습니다.' },
+    ]);
   });
 
-  it('HttpException without a code → leaves the body shape unchanged', () => {
-    const { host, json } = makeHost();
-    filter.catch(new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED'), host);
-
-    expect(Object.keys(json.mock.calls[0][0]).sort()).toEqual(
-      ['error', 'message', 'path', 'statusCode', 'timestamp'],
-    );
-    expect(json.mock.calls[0][0]).toMatchObject({
-      error: 'Conflict',
-      message: 'SOURCE_IDEMPOTENCY_KEY_REUSED',
-    });
-  });
-
-  it('HttpException (string response) → uses string as message', () => {
-    const { host, status, json } = makeHost();
-    filter.catch(new HttpException('Service down', 503), host);
-
-    expect(status).toHaveBeenCalledWith(503);
-    const body = json.mock.calls[0][0];
-    expect(body.error).toBe('HTTP_503');
-    expect(body.message).toBe('Service down');
-  });
-
-  it('PrismaClientKnownRequestError P2025 → 404 NOT_FOUND', () => {
-    const { host, status, json } = makeHost();
-    filter.catch(makePrismaError('P2025', 'Record not found\n\ndetail line'), host);
-
-    expect(status).toHaveBeenCalledWith(404);
-    const body = json.mock.calls[0][0];
-    expect(body.error).toBe('COMMON_NOT_FOUND');
-    expect(body.message).toBe('detail line');
-  });
-
-  it('PrismaClientKnownRequestError P2002 → 409 BAD_REQUEST', () => {
-    const { host, status, json } = makeHost();
-    filter.catch(makePrismaError('P2002', 'Unique constraint\n\nDuplicate entry'), host);
-
-    expect(status).toHaveBeenCalledWith(409);
-    const body = json.mock.calls[0][0];
-    expect(body.error).toBe('COMMON_BAD_REQUEST');
-    expect(body.message).toBe('Duplicate entry');
-  });
-
-  it('PrismaClientKnownRequestError other code → 500 DB_ERROR', () => {
-    const { host, status, json } = makeHost();
-    filter.catch(makePrismaError('P2003', 'Foreign key\n\nFK violation'), host);
-
-    expect(status).toHaveBeenCalledWith(500);
-    expect(json.mock.calls[0][0].error).toBe('COMMON_DB_ERROR');
+  it('a default ValidationPipe array message still becomes field errors without the English text', () => {
+    const body = envelope(new BadRequestException({ statusCode: 400, message: ['field1 should not be empty', 'field2 must be a number'], error: 'Bad Request' }));
+    expect(body.code).toBe('VALIDATION_FAILED');
+    expect(body.errors).toEqual([
+      { field: 'field1', reason: '올바르지 않습니다.' },
+      { field: 'field2', reason: '올바르지 않습니다.' },
+    ]);
   });
 
   it.each([
-    ['FactNotFoundError', new FactNotFoundError('One or more SKUs were not found'), new NotFoundException('One or more SKUs were not found'), 404],
-    ['FactConflictError', new FactConflictError('Rocket identity 7 was not persisted'), new ConflictException('Rocket identity 7 was not persisted'), 409],
-    ['FactInputError', new FactInputError('INVALID_DATE_RANGE'), new BadRequestException('INVALID_DATE_RANGE'), 400],
-  ] as const)('%s → the status and body its Nest exception produced', (_name, factError, nestException, status) => {
-    const fact = makeHost('GET', '/api/facts');
-    const nest = makeHost('GET', '/api/facts');
-    filter.catch(factError, fact.host);
-    filter.catch(nestException, nest.host);
+    [new NotFoundException('Cannot GET /api/nope'), 404, 'NOT_FOUND'],
+    [new HttpException('Method Not Allowed', 405), 405, 'METHOD_NOT_ALLOWED'],
+    [new UnauthorizedException('auth_required'), 401, 'AUTH_REQUIRED'],
+    [new UnauthorizedException('no_organization_context'), 401, 'NO_ORGANIZATION_CONTEXT'],
+    [new UnauthorizedException('auth_user_not_mirrored'), 401, 'AUTH_REQUIRED'],
+    [new ForbiddenException('insufficient_role'), 403, 'FORBIDDEN'],
+    [new BadRequestException('ATTEMPT_FENCE_LOST'), 409, 'ATTEMPT_FENCE_LOST'],
+    [new ServiceUnavailableException('Authentication service unavailable'), 503, 'SERVICE_UNAVAILABLE'],
+    [new HttpException('ThrottlerException: Too Many Requests', 429), 429, 'RATE_LIMITED'],
+  ] as const)('HTTP exception %# → %i %s', (exception, statusCode, code) => {
+    const body = envelope(exception);
+    expect(body).toMatchObject({ statusCode, code, message: ERROR_DEFINITIONS[code].text });
+  });
 
-    expect(fact.status).toHaveBeenCalledWith(status);
-    expect(nest.status).toHaveBeenCalledWith(status);
-    const { timestamp: _factAt, ...factBody } = fact.json.mock.calls[0][0];
-    const { timestamp: _nestAt, ...nestBody } = nest.json.mock.calls[0][0];
-    expect(factBody).toEqual(nestBody);
-    expect(factBody).toEqual({
-      statusCode: status,
-      error: { 404: 'Not Found', 409: 'Conflict', 400: 'Bad Request' }[status],
-      message: factError.message,
-      path: '/api/facts',
+  it('keeps the wire spelling of codes the extension reads from the top-level body.code', () => {
+    // content/coupang/ads-report.js:2431 reads body.code and counts EXECUTION_REPORT_MANUAL_ACTION as "직접 처리".
+    const manual = envelope(new ConflictException({
+      code: 'EXECUTION_REPORT_MANUAL_ACTION',
+      message: '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.',
+    }));
+    expect(manual).toMatchObject({
+      statusCode: 409,
+      code: 'EXECUTION_REPORT_MANUAL_ACTION',
+      kind: 'conflict',
+      message: '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.',
+    });
+    for (const code of ['EXECUTION_TASK_NOT_LATEST', 'EXECUTION_TASK_EXPIRED', 'EXECUTION_REPORT_INVALID_TRANSITION'] as const) {
+      expect(envelope(new ConflictException({ code, message: '실행 보고를 반영할 수 없습니다.' }))).toMatchObject({ statusCode: 409, code });
+    }
+    // background/orders/order-collection-server-converter.js:88 stores body.code; an empty day is not a failed conversion.
+    expect(envelope(new BadRequestException({ code: 'NO_NEW_ORDERS', message: '변환할 키즈노트 주문이 없습니다.' })))
+      .toMatchObject({ statusCode: 400, code: 'NO_NEW_ORDERS', message: '변환할 키즈노트 주문이 없습니다.' });
+  });
+
+  it('an unregistered code falls back by status, keeps the status and moves the raw code to details.reason', () => {
+    expect(envelope(new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED'))).toEqual({
+      statusCode: 409,
+      code: 'STATE_CONFLICT',
+      kind: 'conflict',
+      message: ERROR_DEFINITIONS.STATE_CONFLICT.text,
+      errors: [],
+      details: { reason: 'SOURCE_IDEMPOTENCY_KEY_REUSED' },
+    });
+    expect(envelope(new UnprocessableEntityException({ code: 'INVALID_TRAFFIC_DATE_RANGE', internal: 'drop me' }))).toEqual({
+      statusCode: 422,
+      code: 'VALIDATION_FAILED',
+      kind: 'validation',
+      message: ERROR_DEFINITIONS.VALIDATION_FAILED.text,
+      errors: [],
+      details: { reason: 'INVALID_TRAFFIC_DATE_RANGE' },
     });
   });
 
-  it('fact errors are framework-free Errors that name themselves', () => {
-    for (const error of [
-      new FactNotFoundError('missing'),
-      new FactConflictError('conflict'),
-      new FactInputError('input'),
-    ]) {
-      expect(error).toBeInstanceOf(Error);
-      expect(error).not.toBeInstanceOf(HttpException);
-      expect(error.name).toBe(error.constructor.name);
-    }
+  it('keeps a Korean owner sentence and replaces an English one', () => {
+    expect(envelope(new ConflictException({ message: '초안을 지울 수 없습니다.', reason: 'has_listing' }))).toMatchObject({
+      code: 'STATE_CONFLICT', message: '초안을 지울 수 없습니다.', details: { reason: 'has_listing' },
+    });
+    expect(envelope(new BadRequestException('Order collection expired.')).message).toBe(ERROR_DEFINITIONS.VALIDATION_FAILED.text);
   });
 
-  it('plain Error → 500 INTERNAL with error message', () => {
-    const { host, status, json } = makeHost();
-    filter.catch(new Error('Something broke'), host);
-
-    expect(status).toHaveBeenCalledWith(500);
-    const body = json.mock.calls[0][0];
-    expect(body.error).toBe('COMMON_INTERNAL_ERROR');
-    expect(body.message).toBe('Something broke');
+  it.each([
+    ['P2025', 404, 'DB_NOT_FOUND'],
+    ['P2002', 409, 'DB_CONFLICT'],
+    ['P2003', 500, 'DB_ERROR'],
+  ] as const)('Prisma %s → %i %s without the Prisma text', (prismaCode, statusCode, code) => {
+    const body = envelope(makePrismaError(prismaCode, 'Invalid `prisma.product.update()` invocation\n\nRecord to update not found.'));
+    expect(body).toMatchObject({ statusCode, code, message: ERROR_DEFINITIONS[code].text });
+    expect(JSON.stringify(body)).not.toMatch(/prisma|Record/);
   });
 
-  it('plain Error with an empty message → keeps a non-empty fallback', () => {
-    const { host, status, json } = makeHost();
-    filter.catch(new Error(''), host);
-
-    expect(status).toHaveBeenCalledWith(500);
-    expect(json.mock.calls[0][0].message).toBe('Internal server error');
+  it.each([
+    [new FactNotFoundError('One or more SKUs were not found'), 404, 'NOT_FOUND'],
+    [new FactConflictError('Already running', { code: 'ATTEMPT_IN_PROGRESS', attemptId: ATTEMPT }), 409, 'ATTEMPT_IN_PROGRESS'],
+    [new FactConflictError('A completed Sellpia product collection is required', { code: 'SELLPIA_SYNC_REQUIRED' }), 409, 'SELLPIA_SYNC_REQUIRED'],
+    [new FactConflictError('Rocket identity 7 was not persisted'), 409, 'DB_CONFLICT'],
+    [new FactInputError('INVALID_DATE_RANGE'), 400, 'VALIDATION_FAILED'],
+    [new FactReferenceError('Missing SKU', 'PURCHASE_REFERENCE_INVALID'), 400, 'SUPPLY_PURCHASE_REFERENCE_INVALID'],
+    [new FactReferenceError('A product source reference is invalid', 'PRODUCT_SOURCE_REFERENCE_INVALID'), 422, 'PRODUCTS_SOURCE_REFERENCE_INVALID'],
+    [new FactReferenceError('odd', 'SOMETHING_UNKNOWN'), 400, 'VALIDATION_FAILED'],
+  ] as const)('fact error %# → %i %s with the registry sentence', (exception, statusCode, code) => {
+    const body = envelope(exception);
+    expect(body).toMatchObject({ statusCode, code, message: ERROR_DEFINITIONS[code].text });
+    if (code === 'ATTEMPT_IN_PROGRESS') expect(body).toMatchObject({ attemptId: ATTEMPT, details: { attemptId: ATTEMPT } });
   });
 
-  it('all responses include timestamp and path', () => {
-    const { host, json } = makeHost('POST', '/api/orders');
-    filter.catch(new Error('test'), host);
+  it('anything else → 500 INTERNAL_ERROR; the raw text and stack go to the log only', () => {
+    const body = envelope(new Error('Cannot read properties of undefined (reading sku)'));
+    expect(body).toEqual({
+      statusCode: 500,
+      code: 'INTERNAL_ERROR',
+      kind: 'internal',
+      message: ERROR_DEFINITIONS.INTERNAL_ERROR.text,
+      errors: [],
+    });
+    expect(logError).toHaveBeenCalledWith(expect.stringContaining('Cannot read properties'), expect.any(String));
+    expect(envelope(new KiditemExternalError('AGENT_OS_GATEWAY_UNAVAILABLE', { cause: new Error('ECONNREFUSED') }))).toMatchObject({
+      statusCode: 502, code: 'AGENT_OS_GATEWAY_UNAVAILABLE',
+    });
+    expect(envelope('a thrown string').code).toBe('INTERNAL_ERROR');
+  });
 
-    const body = json.mock.calls[0][0];
-    expect(body.path).toBe('/api/orders');
-    expect(body.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  it('drops an attempt id that is not a UUID', () => {
+    const body = envelope(new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId: 'not-a-uuid' }));
+    expect(body).not.toHaveProperty('attemptId');
+    expect(body).not.toHaveProperty('details');
   });
 });

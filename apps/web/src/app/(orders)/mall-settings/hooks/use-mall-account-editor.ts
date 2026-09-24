@@ -79,7 +79,7 @@ export function useMallAccountEditor() {
         setRevealedKeys((current) => new Set(current).add(mallKey));
       } catch (error) {
         toast.error(
-          isApiError(error) ? error.detail : `${mallName} 비밀번호를 불러오지 못했습니다.`,
+          isApiError(error) ? error.message : `${mallName} 비밀번호를 불러오지 못했습니다.`,
         );
       } finally {
         setRevealingKey(null);
@@ -129,7 +129,7 @@ export function useMallAccountEditor() {
         toast.success(`${mallName} 저장했습니다.`);
         return true;
       } catch (error) {
-        toast.error(isApiError(error) ? error.detail : `${mallName} 저장하지 못했습니다.`);
+        toast.error(isApiError(error) ? error.message : `${mallName} 저장하지 못했습니다.`);
         return false;
       } finally {
         setSavingKey(null);
@@ -163,7 +163,7 @@ export function useMallAccountEditor() {
       });
     },
     onError: (error) => {
-      toast.error(isApiError(error) ? error.detail : '몰 설정을 저장하지 못했습니다.');
+      toast.error(isApiError(error) ? error.message : '몰 설정을 저장하지 못했습니다.');
     },
   });
 

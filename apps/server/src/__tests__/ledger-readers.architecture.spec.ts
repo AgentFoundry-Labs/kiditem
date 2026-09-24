@@ -44,12 +44,12 @@ const RULES: readonly Rule[] = [
     },
   },
   {
-    name: 'imports no NestJS or HTTP error module',
-    pattern: String.raw`${SPECIFIER}(@nestjs/|@kiditem/shared/server-errors['"])`,
+    name: 'imports no NestJS module',
+    pattern: String.raw`${SPECIFIER}@nestjs/`,
     planted: {
       'nest-import.ts': "import { Injectable } from '@nestjs/common';\n",
       'nest-dynamic-import.ts': "export const nest = () => import('@nestjs/core');\n",
-      'app-exception-import.ts': "import { AppException } from '@kiditem/shared/server-errors';\n",
+      'nest-exception-import.ts': "import { ConflictException } from '@nestjs/common';\n",
     },
   },
   {
@@ -66,7 +66,7 @@ const RULES: readonly Rule[] = [
     pattern: String.raw`\bnew\s+\w*Exception\s*\(`,
     planted: {
       'nest-exception.ts': "throw new ConflictException('Row changed');\n",
-      'app-exception.ts': "throw new AppException(409, 'ROW_CHANGED', 'Row changed');\n",
+      'owner-exception.ts': "throw new ProductStateException('SOURCE_CONFLICT', 'Row changed');\n",
     },
   },
   {

@@ -13,6 +13,7 @@ import {
   updateKeywordTracker,
   type KeywordTracker,
 } from '../lib/rank-api';
+import { friendlyError } from '@/lib/api-error';
 
 const MAX_PAGES_OPTIONS = [1, 2, 3];
 
@@ -46,7 +47,7 @@ export default function TrackerManager({
       invalidateTrackers();
     },
     onError: (err) =>
-      toast.error(err instanceof Error ? err.message : '키워드 추적 등록 실패'),
+      toast.error(friendlyError(err, '키워드 추적 등록 실패')),
   });
 
   const toggleMutation = useMutation({
@@ -54,7 +55,7 @@ export default function TrackerManager({
       updateKeywordTracker(tracker.id, { enabled: !tracker.enabled }),
     onSuccess: invalidateTrackers,
     onError: (err) =>
-      toast.error(err instanceof Error ? err.message : '트래커 상태 변경 실패'),
+      toast.error(friendlyError(err, '트래커 상태 변경 실패')),
   });
 
   const deleteMutation = useMutation({
@@ -64,7 +65,7 @@ export default function TrackerManager({
       invalidateTrackers();
     },
     onError: (err) =>
-      toast.error(err instanceof Error ? err.message : '트래커 삭제 실패'),
+      toast.error(friendlyError(err, '트래커 삭제 실패')),
   });
 
   const handleSubmit = (event: FormEvent) => {

@@ -184,7 +184,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     await expect(prisma.$transaction((tx) => adapter.reconcile({
       ...reconciliationInput(randomUUID(), 3, 'DIFFERENT'),
       transaction: tx,
-    }))).rejects.toMatchObject({ code: 'ROCKET_FINAL_ORDER_BARCODE_MISMATCH' });
+    }))).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_FINAL_ORDER_BARCODE_MISMATCH' });
     expect(await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow()).toMatchObject({
       collectedOrderLineItemId: null,
     });
@@ -199,7 +199,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     await expect(prisma.$transaction((tx) => adapter.reconcile({
       ...reconciliationInput(randomUUID(), 3, '8801234567890'),
       transaction: tx,
-    }))).rejects.toMatchObject({ code: 'ROCKET_FINAL_ORDER_AMBIGUOUS' });
+    }))).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_FINAL_ORDER_AMBIGUOUS' });
   });
 
   it('does not re-check stock or create a commitment while linking a collected order', async () => {

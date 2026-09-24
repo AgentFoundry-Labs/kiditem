@@ -40,7 +40,7 @@ export interface MallRunOutcome {
 }
 
 export function mallRunErrorMessage(error: unknown, fallback: string): string {
-  if (isApiError(error)) return error.detail;
+  if (isApiError(error)) return error.message;
   if (error instanceof Error && error.message) return error.message;
   return fallback;
 }

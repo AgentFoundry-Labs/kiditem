@@ -40,7 +40,7 @@ import {
 } from '@kiditem/shared/product-operations';
 import { MallChannelOverviewSchema } from '@kiditem/shared/mall-publishing';
 import { apiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
+import { readApiError } from '@/lib/api-error';
 
 const BASE = '/api/products/sales-products';
 
@@ -157,12 +157,7 @@ export const salesProductApi = {
       body: JSON.stringify(body),
     });
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-      throw new ApiError(
-        response.status,
-        typeof payload?.error === 'string' ? payload.error : null,
-        typeof payload?.message === 'string' ? payload.message : '몰 엑셀을 만들지 못했습니다.',
-      );
+      throw await readApiError(response, '몰 엑셀을 만들지 못했습니다.');
     }
     return {
       blob: await response.blob(),
@@ -184,12 +179,7 @@ export const salesProductApi = {
     form.append('file', file);
     const response = await apiClient.fetchRaw(`${BASE}/coupang-catalog/file`, { method: 'POST', body: form });
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-      throw new ApiError(
-        response.status,
-        typeof payload?.error === 'string' ? payload.error : null,
-        typeof payload?.message === 'string' ? payload.message : '수정요청 파일을 만들지 못했습니다.',
-      );
+      throw await readApiError(response, '수정요청 파일을 만들지 못했습니다.');
     }
     return {
       blob: await response.blob(),

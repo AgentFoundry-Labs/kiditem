@@ -142,7 +142,7 @@ const ALREADY_RAN_REFUSAL = new ApiError(
   409,
   'HTTP_409',
   '이미 실행된 광고 액션은 거절할 수 없습니다. 광고센터에 이미 반영됐습니다.',
-  { code: 'EXECUTION_TASK_DONE' },
+  { reason: 'EXECUTION_TASK_DONE', },
 );
 
 async function renderExpandedProduct() {
@@ -357,7 +357,7 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 201개 모두 거절' }));
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(ALREADY_RAN_REFUSAL.detail));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(ALREADY_RAN_REFUSAL.message));
     // The command after the refused one is never sent.
     expect(
       vi.mocked(apiClient.post).mock.calls.map(([, body]) => (body as { ids: string[] }).ids.length),
@@ -375,7 +375,7 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     // pause after the list was read.
     fireEvent.click(chip('타요').getByRole('button', { name: '닫기' }));
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(ALREADY_RAN_REFUSAL.detail));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(ALREADY_RAN_REFUSAL.message));
     expect(toast.success).not.toHaveBeenCalled();
     await waitFor(() => expect(keywordReads()).toBe(2));
   });

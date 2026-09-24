@@ -8,6 +8,7 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
+import { KiditemConflictError } from '@kiditem/shared/errors';
 import { Prisma, type ProductRegistrationExecution } from '@prisma/client';
 import {
   PrepareListingAvailabilityInputSchema,
@@ -248,7 +249,7 @@ export class RegistrationExecutionRepositoryAdapter
         assertListingAvailabilityReplayIdentity(replay, input.requestedByUserId, intentHash);
         return listingAvailabilityResult(replay, false);
       }
-      throw new ConflictException('Another listing execution is already active for this listing.');
+      throw new KiditemConflictError('CHANNELS_LISTING_EXECUTION_ACTIVE');
     }
   }
 
@@ -670,7 +671,7 @@ export class RegistrationExecutionRepositoryAdapter
         });
         return targetExecutionResult(replay, false);
       }
-      throw new ConflictException('Registration execution conflicted with another active execution.');
+      throw new KiditemConflictError('CHANNELS_LISTING_EXECUTION_ACTIVE');
     }
   }
 

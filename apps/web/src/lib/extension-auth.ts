@@ -5,6 +5,7 @@ import {
   detectSourcingExtensionId,
   sendToExtension,
 } from './extension-bridge';
+import { operatorReason } from './operator-error';
 
 export const EXTENSION_AUTH_REQUIRED_EVENT = 'kiditem:extension-auth-required';
 
@@ -13,7 +14,6 @@ export const EXTENSION_AUTH_REQUIRED_EVENT = 'kiditem:extension-auth-required';
 // extension message keeps sendToExtension's own 15-second default.
 const HANDOFF_TOKEN_TIMEOUT_MS = 15_000;
 const HANDOFF_FAILED = '확장 프로그램에 로그인 정보를 넘기지 못했습니다. 잠시 후 다시 시도해 주세요.';
-const HANGUL = /[가-힣]/;
 
 type ExtensionResponse = { success?: boolean; error?: string };
 type ExtensionAuthSyncStatus =
@@ -55,8 +55,7 @@ async function requestExtensionHandoffToken(): Promise<string> {
 }
 
 function handoffFailure(message: unknown): Error {
-  const text = typeof message === 'string' ? message.trim() : '';
-  return new Error(HANGUL.test(text) ? text : HANDOFF_FAILED);
+  return new Error(operatorReason(message, HANDOFF_FAILED));
 }
 
 /**

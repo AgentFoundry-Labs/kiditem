@@ -118,7 +118,7 @@ describe('RisingProductsPage direct owner calculation', () => {
     const page = renderPage();
     await screen.findByText('저장된 급상승 스티커');
     fireEvent.click(screen.getByRole('button', { name: '감지 실행' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('calculation unavailable');
+    expect(await screen.findByRole('alert')).toHaveTextContent('처리 중 문제가 생겼습니다');
     expect(screen.getByText('저장된 급상승 스티커')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '감지 실행' })).toBeEnabled();
     expect(apiClient.post).toHaveBeenCalledTimes(1);

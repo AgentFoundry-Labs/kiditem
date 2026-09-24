@@ -38,6 +38,7 @@ import {
   type RocketMatchStatusRow,
 } from "./RocketMatchStatusModal";
 import { orderRocketPreviewRows } from "../lib/rocket-preview-row-order";
+import { friendlyError } from '@/lib/api-error';
 
 function componentValues(row: RocketPurchasePreviewRow): string {
   if (row.components.length === 0) return "—";
@@ -171,7 +172,7 @@ export function RocketConfirmPanel({
       );
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : '쿠팡 쿠키 정리에 실패했습니다.',
+        friendlyError(err, '쿠팡 쿠키 정리에 실패했습니다.'),
         { id: toastId },
       );
     } finally {

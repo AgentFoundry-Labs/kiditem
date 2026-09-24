@@ -2,6 +2,7 @@
 
 import { safeStorageGet, safeStorageSet } from './browser-storage';
 import { EXTENSION_TIMEOUT_MESSAGE } from './extension-bridge';
+import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 
 /**
  * 자동 로그인 차단과 재시도 간격 — 같은 몰을 계속 두드려 계정이 잠기지 않게 한다.
@@ -32,6 +33,12 @@ export const AUTO_LOGIN_RETRY_INTERVAL_MS = 60 * 60_000;
  * 저장된 옛 차단도 읽을 때 이 목록으로 걸러 낸다.
  */
 const NON_CREDENTIAL_REASONS = [
+  // 요청 제한(429)·서버 오류는 레지스트리 문장으로 온다(ADR-0023). 영어 두 줄은 저장된 옛 차단을 읽을 때만.
+  ERROR_DEFINITIONS.RATE_LIMITED.text,
+  ERROR_DEFINITIONS.INTERNAL_ERROR.text,
+  ERROR_DEFINITIONS.SERVICE_UNAVAILABLE.text,
+  ERROR_DEFINITIONS.NETWORK_FAILED.text,
+  ERROR_DEFINITIONS.REQUEST_TIMEOUT.text,
   'ThrottlerException',
   'Too Many Requests',
   '확장프로그램을 찾',

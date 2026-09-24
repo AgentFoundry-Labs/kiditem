@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
@@ -30,7 +31,7 @@ import {
 import type { SourcingCollectionPermit } from '../../../application/port/out/repository/sourcing-collection.repository.port';
 
 const MAX_ATTEMPT_TTL_MS = 30 * 60_000;
-const ATTEMPT_EXPIRED_MESSAGE = 'Source collection expired before a complete snapshot was published.';
+const ATTEMPT_EXPIRED_MESSAGE = operatorErrorText({ code: 'ATTEMPT_EXPIRED' });
 
 type Transaction = Prisma.TransactionClient;
 type AttemptRow = Prisma.SourcingEvidenceIngestionRunGetPayload<{}>;

@@ -130,7 +130,7 @@ describe('TrendCollectionViews TikTok direct source-owner collection', () => {
 
     await screen.findByText('보존된 틱톡 스냅샷');
     fireEvent.click(screen.getByRole('button', { name: '틱톡 수집' }));
-    await screen.findByText('extension response lost');
+    await screen.findByText('틱톡 수집 데이터가 최신 계획과 일치하지 않습니다.');
     expect(screen.getByText('보존된 틱톡 스냅샷')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '틱톡 수집' }));
@@ -225,7 +225,7 @@ describe('TrendCollectionViews TikTok direct source-owner collection', () => {
     });
     renderViews();
 
-    expect(await screen.findByText('TikTok source attempt expired.')).toBeInTheDocument();
+    expect(await screen.findByText('수집 시도가 만료됐습니다. 다시 시작해 주세요.')).toBeInTheDocument();
     expect(screen.getByText(/최근 완료 기준/)).toBeInTheDocument();
     expect(screen.getByText('보존된 틱톡 스냅샷')).toBeInTheDocument();
   });

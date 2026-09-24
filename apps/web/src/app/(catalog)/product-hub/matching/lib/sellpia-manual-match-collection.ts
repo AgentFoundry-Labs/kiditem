@@ -14,6 +14,7 @@ import type {
   SellpiaManualMatchCollectionFailureCode,
   SellpiaManualMatchSnapshotStatus,
 } from '@kiditem/shared/sellpia-manual-match';
+import { attemptFailureText } from '@/lib/operator-error';
 
 const REQUIRED_CAPABILITIES = [
   'browserCollectionSessions',
@@ -68,21 +69,16 @@ export type CollectedSellpiaManualMatch = {
   status: SellpiaManualMatchSnapshotStatus;
 };
 
-const FAILURE_MESSAGES: Record<SellpiaManualMatchCollectionFailureCode, string> = {
-  sellpia_manual_match_login_required:
-    'Sellpia 로그인이 필요합니다. 열린 수동상품매칭 화면에서 로그인한 뒤 다시 시도해 주세요.',
-  sellpia_manual_match_contract_drift:
-    'Sellpia 수동상품매칭 화면 구조가 변경되어 안전하게 수집을 중단했습니다.',
-  sellpia_manual_match_invalid_snapshot:
-    'Sellpia 수동상품매칭 결과가 올바르지 않아 저장하지 않았습니다.',
-  sellpia_manual_match_timeout:
-    'Sellpia 수동상품매칭 근거 수집 시간이 초과되었습니다.',
-  sellpia_manual_match_network_failed:
-    'Sellpia 수동상품매칭 근거를 수집하지 못했습니다.',
-};
+const FAILURE_CODES: ReadonlySet<string> = new Set<SellpiaManualMatchCollectionFailureCode>([
+  'sellpia_manual_match_login_required',
+  'sellpia_manual_match_contract_drift',
+  'sellpia_manual_match_invalid_snapshot',
+  'sellpia_manual_match_timeout',
+  'sellpia_manual_match_network_failed',
+]);
 
 function knownFailureCode(value: unknown): SellpiaManualMatchCollectionFailureCode | undefined {
-  return typeof value === 'string' && value in FAILURE_MESSAGES
+  return typeof value === 'string' && FAILURE_CODES.has(value)
     ? value as SellpiaManualMatchCollectionFailureCode
     : undefined;
 }
@@ -90,9 +86,7 @@ function knownFailureCode(value: unknown): SellpiaManualMatchCollectionFailureCo
 function attemptFailure(attempt: SellpiaManualMatchSourceAttempt): SellpiaManualMatchCollectionError {
   const code = knownFailureCode(attempt.errorCode);
   return new SellpiaManualMatchCollectionError(
-    code
-      ? FAILURE_MESSAGES[code]
-      : attempt.errorMessage || 'Sellpia 수동상품매칭 근거 수집에 실패했습니다.',
+    attemptFailureText(attempt, 'sellpia_manual_match') ?? 'Sellpia 수동상품매칭 근거 수집에 실패했습니다.',
     code,
   );
 }

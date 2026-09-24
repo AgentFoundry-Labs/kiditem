@@ -82,7 +82,7 @@ export default function AdOpsPage() {
     } catch (err) {
       const { isApiError } = await import("@/lib/api-error");
       if (isApiError(err) && err.status === 409) {
-        setRegisterError(err.detail);
+        setRegisterError(err.message);
       }
     }
   };

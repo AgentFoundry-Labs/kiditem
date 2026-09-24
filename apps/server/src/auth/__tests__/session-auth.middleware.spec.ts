@@ -12,6 +12,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthService, AUTH_SESSION_COOKIE } from '../application/auth.service';
+import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { SessionAuthMiddleware } from '../middleware/session-auth.middleware';
 
@@ -204,10 +205,10 @@ describe('SessionAuthMiddleware', () => {
 
       expect(response.body).toEqual({
         statusCode: 503,
-        error: 'Service Unavailable',
-        message: 'Authentication service unavailable',
-        timestamp: expect.any(String),
-        path: '/session-auth-http-probe',
+        code: 'SERVICE_UNAVAILABLE',
+        kind: 'external',
+        message: ERROR_DEFINITIONS.SERVICE_UNAVAILABLE.text,
+        errors: [],
       });
       expect(JSON.stringify(response.body)).not.toContain(token);
       expect(JSON.stringify(response.body)).not.toContain('database outage');

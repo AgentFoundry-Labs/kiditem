@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import { Inject, Injectable } from '@nestjs/common';
 import { ProductSourceConflictError } from '../exception/product-source.error';
 import type {
@@ -63,7 +64,7 @@ export class SellpiaCollectionUseCase implements SellpiaCollectionPort {
         attemptId: input.attemptId,
         attemptToken: input.attemptToken,
         errorCode: 'ATTEMPT_EXPIRED',
-        errorMessage: 'Sellpia inventory collection expired.',
+        errorMessage: operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
       });
       throw new ProductSourceConflictError('ATTEMPT_EXPIRED');
     }

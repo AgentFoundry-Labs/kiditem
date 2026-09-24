@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import {
   ConflictException,
@@ -615,7 +616,7 @@ export class SellpiaProfitabilitySourceService
     tx: Prisma.TransactionClient,
     attempt: SourceAttemptRecord,
   ): Promise<SourceAttemptRecord> {
-    const message = 'Sellpia profitability collection expired before publication.';
+    const message = operatorErrorText({ code: 'ATTEMPT_EXPIRED' });
     const updated = await tx.sourceImportRun.updateMany({
       where: {
         id: attempt.id,

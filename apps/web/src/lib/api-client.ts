@@ -1,6 +1,7 @@
 import { ZodType, ZodTypeDef, ZodError } from 'zod';
 import { getApiBase } from './api';
-import { ApiError } from './api-error';
+import { resolveErrorCode } from '@kiditem/shared/errors';
+import { ApiError, apiErrorFromBody } from './api-error';
 import { notifyAuthRequired } from './auth/browser-auth';
 import { composeRequestSignal } from './request-deadline';
 
@@ -9,8 +10,8 @@ const DEFAULT_READ_TIMEOUT_MS = 15_000;
 /**
  * Browser authentication is exclusively the HttpOnly cookie. The API client
  * always includes cookie credentials and never reads or attaches a bearer.
- * A 401 `auth_required` notifies AuthProvider and is never retried.
- * `no_organization_context` 401 은 인증은 유효하나 조직 미할당 상태이므로 refresh 도,
+ * A 401 `AUTH_REQUIRED` notifies AuthProvider and is never retried.
+ * `NO_ORGANIZATION_CONTEXT` 401 은 인증은 유효하나 조직 미할당 상태이므로 refresh 도,
  * signOut 도 일으키지 않고 caller 가 결정한다 (토스트 등).
  */
 function withCookieCredentials(init?: RequestInit): RequestInit {
@@ -90,11 +91,7 @@ function callerAbortError(reason: unknown): Error {
 }
 
 function timeoutError(): ApiError {
-  return new ApiError(
-    0,
-    'request_timeout',
-    '요청 시간이 초과되었습니다. 다시 시도해주세요.',
-  );
+  return new ApiError(0, 'REQUEST_TIMEOUT');
 }
 
 async function fetchApiResponse(
@@ -114,40 +111,24 @@ async function fetchApiResponse(
     if (!suppressNetworkErrorLog) {
       console.error('[apiClient] Network request failed', { path, error });
     }
-    throw new ApiError(
-      0,
-      'network_error',
-      'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
-    );
+    throw new ApiError(0, 'NETWORK_FAILED');
   }
 }
 
-async function read401Message(
+/** 401 본문의 등록 코드. ADR-0023 봉투는 `code`, 옛 봉투는 `message`(`auth_required`)에 담겼다. */
+async function read401Code(
   res: Response,
   signal?: AbortSignal,
 ): Promise<string | null> {
   try {
     const body = (await raceWithSignal(signal, () => res.clone().json())) as Record<string, unknown>;
-    const msg = body?.message;
-    return typeof msg === 'string' ? msg : null;
+    return resolveErrorCode(body?.code) ?? resolveErrorCode(body?.message);
   } catch (error) {
     if (error instanceof RequestSignalAbort) throw error;
     return null;
   }
 }
 
-/**
- * How long `Retry-After` says to wait, in either form the header allows: whole
- * seconds, or an HTTP date. A moment already past means nothing is left to
- * wait for; a header the client cannot read leaves the caller its own cadence.
- */
-function retryAfterDetail(res: Response): { retryAfterMs?: number } {
-  const header = res.headers.get('Retry-After')?.trim();
-  if (!header) return {};
-  if (/^\d+$/.test(header)) return { retryAfterMs: Number(header) * 1_000 };
-  const until = Date.parse(header);
-  return Number.isNaN(until) ? {} : { retryAfterMs: Math.max(0, until - Date.now()) };
-}
 
 async function consumeResponse<T>(
   res: Response,
@@ -156,49 +137,29 @@ async function consumeResponse<T>(
   options?: RequestOptions,
 ): Promise<T> {
   if (res.status === 401) {
-    const message = await read401Message(res, signal);
+    const code = await read401Code(res, signal);
 
-    if (message === 'auth_required') {
+    if (code === 'AUTH_REQUIRED') {
       if (path !== '/api/auth/me') notifyAuthRequired();
-      throw new ApiError(401, 'auth_required', '세션이 만료되었습니다. 다시 로그인해주세요.');
+      throw new ApiError(401, 'AUTH_REQUIRED');
     }
 
-    if (message === 'no_organization_context') {
+    if (code === 'NO_ORGANIZATION_CONTEXT') {
       // 인증은 유효하지만 조직 멤버십이 없음. signOut 하지 않고 caller 가 안내.
-      throw new ApiError(
-        401,
-        'no_organization_context',
-        '조직에 속해있지 않습니다. 관리자에게 문의해주세요.',
-      );
+      throw new ApiError(401, 'NO_ORGANIZATION_CONTEXT');
     }
 
     // 기타 401 (희귀) → 일반 ApiError flow 로 fall through
   }
 
   if (!res.ok) {
-    // 비-401 path 는 기존 의미 유지: code = body.error (HTTP error category 식별자).
     let body: unknown = {};
     try {
       body = await raceWithSignal(signal, () => res.json());
     } catch (error) {
       if (error instanceof RequestSignalAbort) throw error;
     }
-    const record = body as Record<string, unknown>;
-    const code = typeof record.error === 'string' ? record.error : null;
-    const messageRaw = record.message;
-    const detailRaw = record.detail;
-    const detail =
-      typeof messageRaw === 'string' && messageRaw.trim()
-        ? messageRaw.trim()
-        : typeof detailRaw === 'string' && detailRaw.trim()
-          ? detailRaw.trim()
-          : `API error: ${res.status}`;
-    throw new ApiError(res.status, code, detail, {
-      ...(typeof record.code === 'string' && record.code.trim() ? { code: record.code } : {}),
-      ...(typeof record.attemptId === 'string' && record.attemptId ? { attemptId: record.attemptId } : {}),
-      ...existingSalesProductDetail(record.existing),
-      ...retryAfterDetail(res),
-    });
+    throw apiErrorFromBody(res, body);
   }
 
   const text = await raceWithSignal(signal, () => res.text());
@@ -252,8 +213,7 @@ async function fetchRaw(
       authenticatedInit,
     ));
     if (res.status === 401) {
-      const message = await read401Message(res, signal);
-      if (message === 'auth_required') {
+      if (await read401Code(res, signal) === 'AUTH_REQUIRED') {
         if (path !== '/api/auth/me') notifyAuthRequired();
       }
     }
@@ -265,11 +225,7 @@ async function fetchRaw(
     }
     if (isAbortError(error)) throw error;
     console.error('[apiClient] Network request failed', { path, error });
-    throw new ApiError(
-      0,
-      'network_error',
-      'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
-    );
+    throw new ApiError(0, 'NETWORK_FAILED');
   }
 }
 
@@ -411,16 +367,3 @@ export const apiClient = {
   fetchRaw: async (path: string, init?: RequestInit): Promise<Response> =>
     fetchRaw(path, init),
 };
-
-/** 중복 거절(409)이 가리키는 기존 판매 상품. 화면이 그 초안으로 가는 링크를 낸다(KID-313). */
-function existingSalesProductDetail(
-  existing: unknown,
-): { existingSalesProductId?: string; existingSalesProductStatus?: string } {
-  if (!existing || typeof existing !== 'object') return {};
-  const { salesProductId, salesProductStatus } = existing as Record<string, unknown>;
-  if (typeof salesProductId !== 'string' || !salesProductId) return {};
-  return {
-    existingSalesProductId: salesProductId,
-    ...(typeof salesProductStatus === 'string' && salesProductStatus ? { existingSalesProductStatus: salesProductStatus } : {}),
-  };
-}

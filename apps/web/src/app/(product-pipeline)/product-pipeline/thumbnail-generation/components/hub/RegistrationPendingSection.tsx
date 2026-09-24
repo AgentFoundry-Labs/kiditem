@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 import { ListingPicker } from './ListingPicker';
+import { friendlyError } from '@/lib/api-error';
 
 /**
  * 등록 대기: 후보를 판매상품 작업공간의 대표이미지로 채택했지만 아직 몰에 반영되지 않은 job, 그리고 채택과
@@ -115,26 +116,26 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
   const handleClearError = (salesProductId: string) => {
     clearError.mutate(salesProductId, {
       onSuccess: () => toast.success('에러 초기화 완료 — 다시 등록을 시도할 수 있습니다'),
-      onError: (err) => toast.error(err instanceof Error ? err.message : '에러 초기화 실패'),
+      onError: (err) => toast.error(friendlyError(err, '에러 초기화 실패')),
     });
   };
 
   const handleResend = (executionId: string) => {
     resend.mutate(executionId, {
       onSuccess: () => toast.success(representativeImageUploadedMessage({ resent: true })),
-      onError: (err) => toast.error(err instanceof Error ? err.message : '다시 보내기에 실패했습니다'),
+      onError: (err) => toast.error(friendlyError(err, '다시 보내기에 실패했습니다')),
     });
   };
   const handleMarkNotApplied = (executionId: string) => {
     markNotApplied.mutate(executionId, {
       onSuccess: () => toast.success('반영 안 됨으로 표시했습니다 — 다시 등록할 수 있습니다'),
-      onError: (err) => toast.error(err instanceof Error ? err.message : '표시에 실패했습니다'),
+      onError: (err) => toast.error(friendlyError(err, '표시에 실패했습니다')),
     });
   };
   const handleConfirmApplied = (executionId: string) => {
     confirmApplied.mutate(executionId, {
       onSuccess: () => toast.success('반영됨으로 표시했습니다'),
-      onError: (err) => toast.error(err instanceof Error ? err.message : '표시에 실패했습니다'),
+      onError: (err) => toast.error(friendlyError(err, '표시에 실패했습니다')),
     });
   };
   const checkingBusy = resend.isPending || markNotApplied.isPending || confirmApplied.isPending;
@@ -173,7 +174,7 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
       else toast.warning(representativeImageUploadedMessage({ uploaded: ok, failed: fail }));
       setSelectedIds(new Set());
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '배치 등록에 실패했습니다');
+      toast.error(friendlyError(err, '배치 등록에 실패했습니다'));
       setResults(
         targets.map(({ id, subject }) => ({
           id,

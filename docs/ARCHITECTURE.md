@@ -207,6 +207,12 @@ extensions/          Browser extensions for sourcing / marketplace ingest
 exports. New or rebuilt domains add `@kiditem/shared/{domain}` entrypoints
 instead of expanding the root barrel.
 
+`@kiditem/shared/errors` is the one error registry (ADR-0023): every code a
+screen can see with its owner, kind, HTTP status and Korean sentence, the
+response envelope, `KiditemError`, and `operatorErrorText`. The extension reads
+the generated `extensions/kiditem-os/shared/operator-error.js`
+(`npm run check:operator-error-sync`).
+
 Exported Zod schema values use PascalCase `FooSchema`; exported TypeScript
 types use `export type Foo = z.infer<typeof FooSchema>`. Existing violations
 remain protected by the baseline checker until migrated, and new aliases should
@@ -328,10 +334,9 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/agent-os/adapter/out/history/sqlite` | Platform | Outbound SQLite Adapter for the completed-event history Interface, with its Implementation and OSS characterization specs. |
 | `apps/server/src/content` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
-| `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. |
+| `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. Human notifications only, with transaction-scoped failure upsert/resolution and no execution or freshness state. The writer keeps a Korean producer sentence and otherwise derives the message from the terminal code (`operatorErrorText`); the title is the producer's Korean title or `<source> 실패`. |
 | `apps/server/src/todo` | Owner Domain | Operator-written to-do list (`/api/todo`): who owes the work (operator or development), its area, and its status. Nothing derives it from other screens. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
-| `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
 | `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), one mall-neutral registration execution per target (`register` · `update` · `sold_out` · `resume` · `composition_change`) with channel adapters (`adapter/out/channel/<key>`) answering mall-specific identity, evidence and prepare-time facts, representative-image uploads as `thumbnail_update` executions on channels whose adapter supports them (Content supplies only the approved image), Wing/Rocket listing identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |

@@ -941,11 +941,14 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
         .set('Idempotency-Key', randomUUID())
         .send({})
         .expect(409);
-      expect(conflict.body).toMatchObject({
+      expect(conflict.body).toEqual({
         statusCode: 409,
         code: 'ATTEMPT_IN_PROGRESS',
+        kind: 'in_progress',
+        message: expect.stringMatching(/[가-힣]/),
+        errors: [],
+        details: { attemptId: running.attemptId },
         attemptId: running.attemptId,
-        path: `${base}/attempts`,
       });
       const reused = await request(filteredUrl)
         .post(`${base}/attempts`)
@@ -954,10 +957,25 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
         .expect(409);
       expect(reused.body).toMatchObject({
         statusCode: 409,
-        error: 'Conflict',
-        message: 'SOURCE_IDEMPOTENCY_KEY_REUSED',
+        code: 'STATE_CONFLICT',
+        details: { reason: 'SOURCE_IDEMPOTENCY_KEY_REUSED' },
       });
       expect(reused.body).not.toHaveProperty('attemptId');
+    });
+
+    it('answers an unknown Coupang account with 404 CHANNELS_ACCOUNT_NOT_FOUND in Korean', async () => {
+      const missing = await request(filteredUrl)
+        .post(`${base}/attempts`)
+        .set('Idempotency-Key', randomUUID())
+        .send({ channelAccountId: randomUUID() })
+        .expect(404);
+      expect(missing.body).toEqual({
+        statusCode: 404,
+        code: 'CHANNELS_ACCOUNT_NOT_FOUND',
+        kind: 'not_found',
+        message: '몰 계정이 없습니다. 쇼핑몰 계정 화면에서 먼저 연결해 주세요.',
+        errors: [],
+      });
     });
   });
 });

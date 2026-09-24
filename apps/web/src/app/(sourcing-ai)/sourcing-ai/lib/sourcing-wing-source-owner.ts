@@ -12,13 +12,13 @@ import { queryKeys } from '@/lib/query-keys';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import type { QueryKey } from '@tanstack/react-query';
 import type { SourcingWingCatalogBatchInput } from '@kiditem/shared/sourcing';
+import { operatorReason } from '@/lib/operator-error';
 
 const SOURCE_PATH = '/api/sourcing/workspace/wing-catalog';
 const START_CONFIRM_POLL_MS = 1_000;
 const START_CONFIRM_READS = 15;
 const EXTENSION_MISSING = 'KidItem OS 익스텐션을 연결한 뒤 다시 시도해주세요.';
 const START_FAILED = 'Wing 카탈로그 수집을 시작하지 못했습니다.';
-const HANGUL = /[가-힣]/;
 
 const PURPOSE_LABELS: Readonly<Record<string, string>> = {
   catalog_search: '카탈로그 검색',
@@ -67,7 +67,7 @@ function outcomeFromReply(value: unknown): CollectionStartOutcome {
   }
   const reason = reply.success ? reply.data.error ?? reply.data.errorMessage ?? '' : '';
   if (/ALREADY_RUNNING|ATTEMPT_IN_PROGRESS/.test(reason)) return { outcome: 'running', attemptId: null };
-  throw new Error(HANGUL.test(reason) ? reason : START_FAILED);
+  throw new Error(operatorReason(reason, START_FAILED));
 }
 
 const wait = (ms: number) => new Promise<void>((resolve) => {

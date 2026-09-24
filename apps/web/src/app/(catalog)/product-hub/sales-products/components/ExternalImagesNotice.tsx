@@ -50,7 +50,7 @@ export function ExternalImagesNotice() {
       if (state.failedCount === 0) toast.success(`사진 ${state.mirrored.toLocaleString()}장을 옮겼습니다`);
       else toast.warning(`사진 ${state.mirrored.toLocaleString()}장을 옮겼고 ${state.failedCount.toLocaleString()}장은 옮기지 못했습니다`);
     } catch (error) {
-      toast.error(isApiError(error) ? error.detail : '사진을 옮기지 못했습니다.');
+      toast.error(isApiError(error) ? error.message : '사진을 옮기지 못했습니다.');
     } finally {
       setRun({ ...state, running: false });
       void queryClient.invalidateQueries({ queryKey: salesProductKeys.all });

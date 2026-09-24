@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { KiditemConflictError, operatorErrorText } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { deriveSourceReadiness } from '@kiditem/shared/source-readiness';
 import {
@@ -181,13 +182,13 @@ export class SellerIdentitySourceRepository {
         await lockCompetitorCatalogSource(tx, org);
         const row = await this.find(tx, org, id);
         if (row.attemptToken !== token)
-          throw new ConflictException('ATTEMPT_FENCE_LOST');
+          throw new KiditemConflictError('ATTEMPT_FENCE_LOST', { details: { attemptId: row.id } });
         const checksum = hash(capture);
         if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
           if (row.contentChecksum === checksum) return view(row);
           throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
         }
-        if (expired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
+        if (expired(row)) throw new KiditemConflictError('ATTEMPT_EXPIRED', { details: { attemptId: row.id } });
         const plan = SellerIdentitySourcePlanSchema.parse(row.plan);
         const targets = new Map(
           plan.targets
@@ -215,7 +216,7 @@ export class SellerIdentitySourceRepository {
               tx,
               row,
               'IDENTITY_EVIDENCE_INCOMPLETE',
-              'Seller identities do not cover every eligible frozen target.',
+              operatorErrorText({ code: 'IDENTITY_EVIDENCE_INCOMPLETE', source: SOURCE }),
               checksum,
             ),
           );
@@ -292,13 +293,13 @@ export class SellerIdentitySourceRepository {
       await this.lock(tx, org);
       const row = await this.find(tx, org, id);
       if (row.attemptToken !== token)
-        throw new ConflictException('ATTEMPT_FENCE_LOST');
+        throw new KiditemConflictError('ATTEMPT_FENCE_LOST', { details: { attemptId: row.id } });
       const checksum = hash({ code, message });
       if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
         if (row.contentChecksum === checksum) return view(row);
         throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
       }
-      if (expired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
+      if (expired(row)) throw new KiditemConflictError('ATTEMPT_EXPIRED', { details: { attemptId: row.id } });
       return view(await this.failIn(tx, row, code, message, checksum));
     });
   }
@@ -306,7 +307,7 @@ export class SellerIdentitySourceRepository {
   private settleExpiry(tx: Tx, row: Row) {
     if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS || !expired(row)) return Promise.resolve(row);
     const code = 'ATTEMPT_EXPIRED';
-    const message = 'Seller identity collection expired before publication.';
+    const message = operatorErrorText({ code: 'ATTEMPT_EXPIRED' });
     return this.failIn(tx, row, code, message, hash({ code, message }));
   }
 
@@ -375,7 +376,7 @@ function view(row: Row): SellerIdentitySourceAttempt {
     itemCount: row.rowCount,
     errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
     errorMessage: isExpired
-      ? 'Seller identity collection expired before publication.'
+      ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
       : row.errorMessage,
   };
 }

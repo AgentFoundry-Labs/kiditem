@@ -19,6 +19,7 @@ import {
   type CollectionSourceStatusRead,
 } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
+import { friendlyError } from '@/lib/api-error';
 
 /**
  * `attemptId` is null when the owner has not named the attempt yet, such as a
@@ -121,7 +122,6 @@ const START_FAILED = '수집을 시작하지 못했습니다.';
 const STOP_FAILED = '수집을 중단하지 못했습니다. 잠시 후 다시 시도해 주세요.';
 /** 같은 원천을 다시 시작했을 때의 안내. 컨트롤 밖에서 시작하는 화면도 같은 문장을 쓴다. */
 export const COLLECTION_ALREADY_RUNNING_MESSAGE = '이미 진행 중인 수집이 있습니다.';
-const HANGUL = /[가-힣]/;
 // A session cancel answers within seconds; past this the owner route stops it.
 const EXTENSION_STOP_DEADLINE_MS = 10_000;
 /**
@@ -285,8 +285,7 @@ function latestSubmitted<TState extends { submittedAt: number }>(
 }
 
 function operatorMessage(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message.trim() : '';
-  return HANGUL.test(message) ? message : fallback;
+  return friendlyError(error, fallback) ?? fallback;
 }
 
 function startNotice<TStatus, TInput>(

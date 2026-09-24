@@ -1,5 +1,7 @@
-import { AppException } from '@kiditem/shared/server-errors';
-import { ErrorCodes } from '@kiditem/shared/errors';
+import {
+  KiditemError,
+  KiditemPreconditionError,
+} from '@kiditem/shared/errors';
 import {
   BadRequestException,
   ConflictException,
@@ -440,11 +442,7 @@ async function assertActor(
     select: { id: true },
   });
   if (!membership) {
-    throw new AppException(
-      403,
-      ErrorCodes.COMMON.UNAUTHORIZED,
-      'The authenticated actor is not active in this organization.',
-    );
+    throw new KiditemError('FORBIDDEN');
   }
 }
 
@@ -475,11 +473,7 @@ function assertCollectedInventory(
       && freshness.failedGeneration > freshness.freshnessGeneration
     )
   ) {
-    throw new AppException(
-      409,
-      ErrorCodes.INVENTORY.SELLPIA_SYNC_REQUIRED,
-      'The requested Sellpia inventory collection is no longer complete.',
-    );
+    throw new KiditemPreconditionError('SELLPIA_SYNC_REQUIRED');
   }
 }
 
@@ -535,12 +529,8 @@ async function readPurchaseInventoryAvailability(
   }
 }
 
-function syncRequired(): AppException {
-  return new AppException(
-    409,
-    ErrorCodes.INVENTORY.SELLPIA_SYNC_REQUIRED,
-    'A fresh Sellpia inventory snapshot is required before purchase.',
-  );
+function syncRequired(): KiditemError {
+  return new KiditemPreconditionError('SELLPIA_SYNC_REQUIRED');
 }
 
 async function promoteExpiredPrepared(
@@ -664,18 +654,10 @@ function cleanOptional(value: string | null | undefined): string | null {
   return value?.trim() || null;
 }
 
-function referenceInvalid(): AppException {
-  return new AppException(
-    422,
-    ErrorCodes.PURCHASE.REFERENCE_INVALID,
-    'Purchase order or item reference is invalid for this organization.',
-  );
+function referenceInvalid(): KiditemError {
+  return new KiditemError('SUPPLY_PURCHASE_REFERENCE_INVALID');
 }
 
-function reconciliationRequired(): AppException {
-  return new AppException(
-    409,
-    ErrorCodes.PURCHASE.SUBMISSION_RECONCILIATION_REQUIRED,
-    'The existing external purchase attempt must be reconciled before another submission.',
-  );
+function reconciliationRequired(): KiditemError {
+  return new KiditemPreconditionError('SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED');
 }

@@ -61,6 +61,8 @@ import {
   saveCoupangShipmentFiles,
 } from "./lib/coupang-shipment-store";
 import { useCoupangShipmentViewState } from "./hooks/useCoupangShipmentViewState";
+import { friendlyError } from '@/lib/api-error';
+import { operatorReason, attemptFailureText } from '@/lib/operator-error';
 
 type ResultKind = CoupangShipmentFileKind | CoupangShipmentServerFileKind;
 
@@ -247,9 +249,7 @@ export default function CoupangShipmentsPage() {
     } catch (error) {
       window.open(COUPANG_SHIPMENT_PAGE_URL, "_blank", "noopener,noreferrer");
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "쿠팡 쉽먼트 화면을 열지 못했습니다.",
+        friendlyError(error, "쿠팡 쉽먼트 화면을 열지 못했습니다."),
       );
     } finally {
       setExtensionBusy(false);
@@ -279,8 +279,9 @@ export default function CoupangShipmentsPage() {
         error instanceof CoupangShipmentExtensionError &&
         error.code === "SOURCE_RUNNING"
       ) {
-        toast.info(error.message);
-        notify("info", error.message);
+        const running = operatorReason(error.message, "이미 발송일 조회가 진행 중입니다.");
+        toast.info(running);
+        notify("info", running);
       } else showExtensionErrorToast(error, "발송일 조회·저장 실패");
     } finally {
       setSummaryLoading(false);
@@ -365,7 +366,7 @@ export default function CoupangShipmentsPage() {
       downloadBlob(file.blob, file.fileName);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "파일 다운로드 실패",
+        friendlyError(error, "파일 다운로드 실패"),
       );
     }
   };
@@ -408,7 +409,7 @@ export default function CoupangShipmentsPage() {
                 : source.data?.latestAttempt?.state === "RUNNING"
                   ? "쉽먼트 조회 진행 중 · 이전 달력 이력 표시"
                   : source.data?.latestAttempt?.state === "FAILED"
-                    ? `최근 조회 실패: ${source.data.latestAttempt.errorMessage}`
+                    ? `최근 조회 실패: ${attemptFailureText(source.data.latestAttempt, 'coupang_shipment_summary') ?? '다시 조회해 주세요.'}`
                     : source.data?.ready
                       ? `최근 조회 결과 ${source.data.capturedItems.length}일 · 달력 이력 유지`
                       : "수집 미확인 · 저장된 이력은 최신 수집 증거가 아닙니다."}

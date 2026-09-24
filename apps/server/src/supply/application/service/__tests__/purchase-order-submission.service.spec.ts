@@ -1,4 +1,4 @@
-import { AppException } from '@kiditem/shared/server-errors';
+import { KiditemError } from '@kiditem/shared/errors';
 import { describe, expect, it, vi } from 'vitest';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import {
@@ -212,12 +212,12 @@ describe('PurchaseOrderSubmissionService', () => {
   it('rejects an inactive actor before draft mutation reaches checkout lookup', async () => {
     const { service, procurement, transaction } = harness();
     transaction.prepareDraft.mockRejectedValue(
-      new AppException(403, 'UNAUTHORIZED', 'inactive actor'),
+      new KiditemError('FORBIDDEN'),
     );
 
     await expect(service.submit(submissionInput({
       userId: 'inactive-user',
-    }))).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    }))).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
     expect(transaction.prepare).not.toHaveBeenCalled();
@@ -226,12 +226,12 @@ describe('PurchaseOrderSubmissionService', () => {
   it('preserves reference-safe cross-tenant errors on the common HTTP and Agent port', async () => {
     const { service, procurement, transaction } = harness();
     transaction.prepareDraft.mockRejectedValue(
-      new AppException(422, 'PURCHASE_REFERENCE_INVALID', 'invalid reference'),
+      new KiditemError('SUPPLY_PURCHASE_REFERENCE_INVALID'),
     );
 
     await expect(service.submit(submissionInput({
       organizationId: 'other-org',
-    }))).rejects.toMatchObject({ code: 'PURCHASE_REFERENCE_INVALID' });
+    }))).rejects.toMatchObject({ code: 'SUPPLY_PURCHASE_REFERENCE_INVALID' });
 
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
     expect(transaction.prepare).not.toHaveBeenCalled();
@@ -285,7 +285,7 @@ describe('PurchaseOrderSubmissionService', () => {
     });
 
     await expect(service.submit(submissionInput())).rejects.toMatchObject({
-      code: 'PURCHASE_SUBMISSION_RECONCILIATION_REQUIRED',
+      code: 'SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED',
     });
     expect(runtime.submit).not.toHaveBeenCalled();
   });
@@ -295,7 +295,7 @@ describe('PurchaseOrderSubmissionService', () => {
     runtime.submit.mockRejectedValue(new Error('socket timed out after send'));
 
     await expect(service.submit(submissionInput())).rejects.toMatchObject({
-      code: 'PURCHASE_SUBMISSION_RECONCILIATION_REQUIRED',
+      code: 'SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED',
     });
     expect(transaction.markProviderUnknown).toHaveBeenCalledWith({
       organizationId: 'org-1',
@@ -353,7 +353,7 @@ describe('PurchaseOrderSubmissionService', () => {
   it('preserves the freshness error without creating an attempt or calling a provider', async () => {
     const { service, freshness, transaction, runtime } = harness({ runtime: true });
     freshness.requireCollectedStock.mockRejectedValue(
-      new AppException(409, 'SELLPIA_SYNC_REQUIRED', 'fresh snapshot required'),
+      new KiditemError('SELLPIA_SYNC_REQUIRED'),
     );
 
     await expect(service.submit(submissionInput()))

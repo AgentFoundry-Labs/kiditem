@@ -1,5 +1,6 @@
 import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import type { WingCatalogSource } from '../hooks/use-wing-catalog-source';
+import { attemptFailureText } from '@/lib/operator-error';
 
 /**
  * How the latest Wing catalog collection ended. Start, running state and stop
@@ -22,7 +23,7 @@ export function WingCatalogSourceStatus({ source }: { source: WingCatalogSource 
         <span className="text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</span>
       )}
       {attempt.state === 'FAILED' && !cancelled && attempt.errorMessage && (
-        <span className="text-destructive">{attempt.errorMessage}</span>
+        <span className="text-destructive">{attemptFailureText(attempt, 'coupang_wing_catalog')}</span>
       )}
     </div>
   );

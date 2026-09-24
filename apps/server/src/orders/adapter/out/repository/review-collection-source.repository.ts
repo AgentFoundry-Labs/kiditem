@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { operatorErrorText } from '@kiditem/shared/errors';
 import {
   BadRequestException,
   ConflictException,
@@ -101,7 +102,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
             tx,
             replay,
             'ATTEMPT_EXPIRED',
-            'Coupang review collection expired.',
+            operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
           );
           return this.controlView(tx, failed);
         }
@@ -124,7 +125,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
         });
       }
       for (const old of running) {
-        await this.failIn(tx, old, 'ATTEMPT_EXPIRED', 'Coupang review collection expired.');
+        await this.failIn(tx, old, 'ATTEMPT_EXPIRED', operatorErrorText({ code: 'ATTEMPT_EXPIRED' }));
       }
 
       const row = await tx.sourceImportRun.create({
@@ -551,7 +552,7 @@ export class ReviewCollectionSourceRepository implements ReviewCollectionSourceP
       linked: publication?.linked ?? 0,
       unlinked: publication?.unlinked ?? 0,
       errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
-      errorMessage: isExpired ? 'Coupang review collection expired.' : row.errorMessage,
+      errorMessage: isExpired ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : row.errorMessage,
     };
   }
 

@@ -972,6 +972,23 @@ describe('registration target execution repository (PostgreSQL)', () => {
     await expect(prisma.productRegistrationExecution.count()).resolves.toBe(0);
   });
 
+  it('refuses a second live registration execution for the same target with CHANNELS_LISTING_EXECUTION_ACTIVE', async () => {
+    const fixture = await createFixture(prisma, targets);
+    await repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: requestFor('target-live-first'),
+      snapshot: fixture.snapshot,
+    });
+    await expect(repository.prepareTarget({
+      organizationId: TEST_ORGANIZATION_ID,
+      requestedByUserId: TEST_USER_ID,
+      request: requestFor('target-live-second'),
+      snapshot: fixture.snapshot,
+    })).rejects.toMatchObject({ code: 'CHANNELS_LISTING_EXECUTION_ACTIVE', httpStatus: 409 });
+    await expect(prisma.productRegistrationExecution.count()).resolves.toBe(1);
+  });
+
   it('refuses to prepare a registration whose selling option has no issued KID', async () => {
     const fixture = await createFixture(prisma, targets);
     const snapshot = {

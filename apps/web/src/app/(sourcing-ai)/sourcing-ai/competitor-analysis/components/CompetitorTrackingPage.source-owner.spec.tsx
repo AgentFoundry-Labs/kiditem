@@ -206,7 +206,7 @@ describe('CompetitorTrackingPage direct source owner', () => {
     const collect = screen.getByRole('button', { name: '판매자 수집·갱신' });
 
     fireEvent.click(collect);
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('extension response lost'));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('처리 중 문제가 생겼습니다. 잠시 뒤 다시 시도해 주세요.'));
     await waitFor(() => expect(collect).not.toBeDisabled());
     fireEvent.click(collect);
 
@@ -294,8 +294,10 @@ describe('CompetitorTrackingPage direct source owner', () => {
     renderPage();
 
     await screen.findByText('판매자 상세');
-    expect(screen.getByText(/마지막 수집 실패: COMPETITOR_CATALOG_TARGET_COLLECTION_FAILED/)).toBeInTheDocument();
-    expect(screen.getByText(/seller catalog failed/)).toBeInTheDocument();
+    expect(screen.getByText(/마지막 수집 실패: /)).toBeInTheDocument();
+    expect(screen.queryByText(/COMPETITOR_CATALOG_TARGET_COLLECTION_FAILED/)).toBeNull();
+    expect(screen.getByText(/경쟁 판매자 수집 작업이 실패했습니다/)).toBeInTheDocument();
+    expect(screen.queryByText(/seller catalog failed/)).toBeNull();
   });
 });
 

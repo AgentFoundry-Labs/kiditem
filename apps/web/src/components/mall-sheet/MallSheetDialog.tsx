@@ -10,7 +10,7 @@ import {
   type SalesProductMallSheetCheck,
 } from '@kiditem/shared/sales-product';
 import { downloadBlob } from '@/lib/browser-download';
-import { isApiError } from '@/lib/api-error';
+import { isApiError, friendlyError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
@@ -70,7 +70,7 @@ export function MallSheetDialog({
       setCheck(result);
       setSelected(new Set(result.products.filter((product) => product.problems.length === 0).map((product) => product.salesProductId)));
     },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '몰 엑셀을 확인하지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '몰 엑셀을 확인하지 못했습니다.'),
   });
 
   const assign = useMutation({
@@ -80,7 +80,7 @@ export function MallSheetDialog({
         sheet?.categoryBy === 'code' && !result.code ? ' — 이 경로는 몰 번호로 바뀌지 않아 여전히 막힙니다' : ''}`);
       runCheck.mutate();
     },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '분류를 저장하지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '분류를 저장하지 못했습니다.'),
   });
 
   const download = useMutation({
@@ -98,7 +98,7 @@ export function MallSheetDialog({
       return Math.ceil(ids.length / size);
     },
     onSuccess: (files) => toast.success(`${sheet!.label} 엑셀 ${files}개를 받았습니다. 몰 판매자센터에 올려 주세요.`),
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '몰 엑셀을 만들지 못했습니다.'),
+    onError: (error) => toast.error(isApiError(error) ? error.message : '몰 엑셀을 만들지 못했습니다.'),
   });
 
   // 수집상품 화면에서 연 창은 상품이 이미 정해져 있다 — 몰을 고르면 바로 확인한다.
@@ -542,7 +542,7 @@ function PublicImagesPanel({ salesProductIds, onUploaded }: { salesProductIds: s
       void queryClient.invalidateQueries({ queryKey: [...salesProductKeys.all, 'public-images'] });
       if (result.saved > 0) onUploaded();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : '사진을 올리지 못했습니다.'),
+    onError: (error) => toast.error(friendlyError(error, '사진을 올리지 못했습니다.')),
     onSettled: () => {
       setProgress(null);
       stop.current = null;

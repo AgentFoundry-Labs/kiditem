@@ -4,7 +4,7 @@ import { salesProductApi } from '@/lib/sales-product-api';
 import type { SabangnetImportPreview, SabangnetImportSelection } from '@kiditem/shared/sales-product';
 
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { uploadParsed: vi.fn() },
+  apiClient: { uploadParsed: vi.fn(), fetchRaw: vi.fn() },
 }));
 
 const preview = {} as SabangnetImportPreview;
@@ -41,5 +41,37 @@ describe('salesProductApi.importSabangnet', () => {
     const [path] = vi.mocked(apiClient.uploadParsed).mock.calls[0]!;
     const query = new URLSearchParams({ dryRun: 'true', applyExisting: '[]' });
     expect(path).toBe(`/api/products/sales-products/imports/sabangnet?${query.toString()}`);
+  });
+});
+
+describe('salesProductApi file downloads — ADR-0023 envelope', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('reads the envelope code and Korean message of a refused mall sheet', async () => {
+    vi.mocked(apiClient.fetchRaw).mockResolvedValue(Response.json({
+      statusCode: 400,
+      code: 'VALIDATION_FAILED',
+      kind: 'validation',
+      message: '입력값이 올바르지 않습니다. 표시된 항목을 확인해 주세요.',
+      errors: [{ field: 'salesProductIds', reason: '하나 이상 필요합니다.' }],
+    }, { status: 400 }));
+
+    await expect(salesProductApi.downloadMallSheet('gmarket', { salesProductIds: [] } as never)).rejects.toMatchObject({
+      status: 400,
+      code: 'VALIDATION_FAILED',
+      message: '입력값이 올바르지 않습니다. 표시된 항목을 확인해 주세요.',
+      errors: [{ field: 'salesProductIds', reason: '하나 이상 필요합니다.' }],
+    });
+  });
+
+  it('keeps the caller sentence when the failure has no body', async () => {
+    vi.mocked(apiClient.fetchRaw).mockResolvedValue(new Response('boom', { status: 500 }));
+
+    await expect(salesProductApi.downloadCoupangCatalog(file)).rejects.toMatchObject({
+      status: 500,
+      message: '수정요청 파일을 만들지 못했습니다.',
+    });
   });
 });
