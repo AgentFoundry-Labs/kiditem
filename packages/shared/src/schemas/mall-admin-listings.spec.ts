@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { isChannelKey } from '../channel-registry';
 import {
   isMallAdminListingMallKey,
+  MALL_ADMIN_LISTING_MALL_KEYS,
   MALL_ADMIN_LISTING_READERS,
   MALL_ADMIN_LISTINGS_PARSER_VERSION,
   MALL_ADMIN_LISTINGS_SOURCE_TYPE,
@@ -41,7 +43,9 @@ function row(overrides: Record<string, unknown> = {}) {
 
 describe('MALL_ADMIN_LISTING_READERS', () => {
   it('직접 읽는 몰은 몰 계정 행의 키로 부른다', () => {
-    expect(Object.keys(MALL_ADMIN_LISTING_READERS)).toEqual(['kidkids', 'icecream-mall', 'onch', 'kkomangse', 'always', 'art09', 'thirtymall']);
+    // 읽기기 키는 몰 계정 행의 channel 값이다 — 채널 레지스트리에 없는 키는 계정 행을 찾지 못한다.
+    expect(MALL_ADMIN_LISTING_MALL_KEYS).toEqual(Object.keys(MALL_ADMIN_LISTING_READERS));
+    expect(MALL_ADMIN_LISTING_MALL_KEYS.filter((key) => !isChannelKey(key))).toEqual([]);
     expect(isMallAdminListingMallKey('kidkids')).toBe(true);
     expect(isMallAdminListingMallKey('icecream-mall')).toBe(true);
     expect(isMallAdminListingMallKey('always')).toBe(true);

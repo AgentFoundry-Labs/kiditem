@@ -1,0 +1,15 @@
+{
+  "extends": "../../apps/server/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "incremental": false,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["../run-data-migrations.ts", "../_shared/**/*.ts", "./**/*.ts"],
+  "exclude": []
+}

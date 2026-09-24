@@ -1,23 +1,15 @@
-import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ProductCollectionRuntimeModule } from '../../products/product-collection-runtime.module';
+import { importFromPattern, scanSource } from '../../test-helpers/architecture-rg';
 import { InventoryModule } from '../inventory.module';
 
-const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const INVENTORY_ROOT = path.resolve(__dirname, '..');
 
-function rg(args: string): string[] {
-  try {
-    return execSync(`rg ${args}`, { cwd: REPO_ROOT, encoding: 'utf8' })
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-  } catch (error: unknown) {
-    if ((error as { status?: number }).status === 1) return [];
-    throw error;
-  }
+/** Every production file of the owner (or of one sub-root), relative to the owner root. */
+function inventoryFiles(root = INVENTORY_ROOT): string[] {
+  return [...scanSource({ roots: [root], relativeTo: INVENTORY_ROOT }).hits];
 }
 
 describe('Inventory architecture contract', () => {
@@ -53,41 +45,48 @@ describe('Inventory architecture contract', () => {
   });
 
   it('does not leave source-related public ports in Inventory', () => {
-    const sourcePortHits = rg(
-      "--type ts --files apps/server/src/inventory/application/port --glob '**/*sellpia*' --glob '**/*snapshot*' --glob '**/*availability*' --glob '**/*transactional*' --glob '!**/rocket-workbook-progress*'",
-    );
+    const sourcePortHits = inventoryFiles(path.join(INVENTORY_ROOT, 'application/port')).filter((file) => {
+      const name = path.basename(file);
+      return /sellpia|snapshot|availability|transactional/.test(name) && !name.startsWith('rocket-workbook-progress');
+    });
     expect(sourcePortHits).toEqual([]);
   });
 
   it('keeps Prisma and source implementation out of Inventory application code', () => {
-    const hits = rg(
-      "--type ts --files-with-matches '@prisma/client|Prisma\\.|sellpiaInventorySku|SELLPIA_INVENTORY' apps/server/src/inventory/application --glob '!**/__tests__/**'",
-    );
-    expect(hits).toEqual([]);
+    const application = path.join(INVENTORY_ROOT, 'application');
+    const prismaImports = scanSource({
+      roots: [application],
+      pattern: importFromPattern('@prisma/client'),
+      relativeTo: INVENTORY_ROOT,
+    }).hits;
+    const sourceReads = scanSource({
+      roots: [application],
+      pattern: 'sellpiaInventorySku|SELLPIA_INVENTORY',
+      relativeTo: INVENTORY_ROOT,
+    }).hits;
+    expect([...prismaImports, ...sourceReads]).toEqual([]);
   });
 
   it('retains only the warehouse, transfer and Rocket progress implementation lanes', () => {
-    const files = rg('--type ts --files apps/server/src/inventory --glob "!**/__tests__/**"')
-      .map((file) => path.relative(REPO_ROOT, path.resolve(REPO_ROOT, file)))
-      .filter((file) => !file.endsWith('CLAUDE.md'));
+    const files = inventoryFiles();
     const allowedPrefixes = [
-      'apps/server/src/inventory/adapter/in/web/',
-      'apps/server/src/inventory/adapter/out/persistence/transfers',
-      'apps/server/src/inventory/adapter/out/persistence/warehouses',
-      'apps/server/src/inventory/adapter/out/persistence/rocket-workbook-progress',
-      'apps/server/src/inventory/application/exception/',
-      'apps/server/src/inventory/application/port/in/warehouse/',
-      'apps/server/src/inventory/application/port/in/stock/index.ts',
-      'apps/server/src/inventory/application/port/in/stock/rocket-workbook-progress',
-      'apps/server/src/inventory/application/port/out/cross-domain/index.ts',
-      'apps/server/src/inventory/application/port/out/persistence/index.ts',
-      'apps/server/src/inventory/application/port/out/persistence/transfers',
-      'apps/server/src/inventory/application/port/out/persistence/warehouses',
-      'apps/server/src/inventory/application/port/out/persistence/rocket-workbook-progress',
-      'apps/server/src/inventory/application/usecase/transfers',
-      'apps/server/src/inventory/application/usecase/warehouses',
-      'apps/server/src/inventory/application/usecase/rocket-workbook-progress',
-      'apps/server/src/inventory/inventory.module.ts',
+      'adapter/in/web/',
+      'adapter/out/persistence/transfers',
+      'adapter/out/persistence/warehouses',
+      'adapter/out/persistence/rocket-workbook-progress',
+      'application/exception/',
+      'application/port/in/warehouse/',
+      'application/port/in/stock/index.ts',
+      'application/port/in/stock/rocket-workbook-progress',
+      'application/port/out/cross-domain/index.ts',
+      'application/port/out/persistence/index.ts',
+      'application/port/out/persistence/transfers',
+      'application/port/out/persistence/warehouses',
+      'application/port/out/persistence/rocket-workbook-progress',
+      'application/usecase/transfers',
+      'application/usecase/warehouses',
+      'application/usecase/rocket-workbook-progress',
+      'inventory.module.ts',
     ];
     expect(files.filter((file) => !allowedPrefixes.some((prefix) => file.startsWith(prefix)))).toEqual([]);
   });

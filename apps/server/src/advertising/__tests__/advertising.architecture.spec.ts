@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { importFromPattern, ownerSource, scanSource } from '../../test-helpers/architecture-rg';
 
 // Architecture guard tests freeze the Advertising port/adapter contract:
 //
@@ -26,37 +26,15 @@ import { describe, it, expect } from 'vitest';
 //     therefore inject application services directly, which is allowed only
 //     while no `application/port/in/**` exists.
 
-const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const ADVERTISING_ROOT = path.resolve(__dirname, '..');
-
-function rg(args: string): string[] {
-  try {
-    const out = execSync(`rg ${args} --glob '!**/*.spec.ts' --glob '!**/*.test.ts'`, {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-    });
-    return out
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean);
-  } catch (err: unknown) {
-    if ((err as { status?: number }).status === 1) return [];
-    throw err;
-  }
-}
-
-function advertisingRel(): string {
-  return path.relative(REPO_ROOT, ADVERTISING_ROOT);
-}
+const { at, importers, ownerFiles } = ownerSource(ADVERTISING_ROOT);
+const OTHER_OWNERS =
+  'automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|analytics';
 
 describe('Advertising architecture contract', () => {
   it('PrismaService is imported only under advertising/adapter/out/repository/**', () => {
-    const adv = advertisingRel();
-    const allowedPrefix = path.join(adv, 'adapter/out/repository') + path.sep;
-    const hits = rg(
-      `--type ts --files-with-matches 'PrismaService' ${adv} --glob '!**/__tests__/**'`,
-    );
-    const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
+    const violators = importers([ADVERTISING_ROOT], String.raw`[^'"]*prisma/prisma\.service`)
+      .filter((file) => !file.startsWith('adapter/out/repository/'));
     expect(
       violators,
       `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
@@ -64,12 +42,9 @@ describe('Advertising architecture contract', () => {
   });
 
   it('shared persistence helpers stay under outgoing repository adapters', () => {
-    const adv = advertisingRel();
-    const allowedPrefix = path.join(adv, 'adapter/out/repository') + path.sep;
-    const hits = rg(
-      `--type ts --files --glob '${path.join(adv, '**', '*persistence.ts')}'`,
+    const violators = ownerFiles().filter(
+      (file) => file.endsWith('persistence.ts') && !file.startsWith('adapter/out/repository/'),
     );
-    const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
     expect(
       violators,
       `Persistence helpers must stay under outgoing repository adapters:\n${violators.join('\n')}`,
@@ -77,11 +52,7 @@ describe('Advertising architecture contract', () => {
   });
 
   it('application layer does not import Prisma client or expose Prisma types', () => {
-    const adv = advertisingRel();
-    const applicationGlob = path.join(adv, 'application') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application')], '@prisma/client');
     expect(
       hits,
       `application ports/services must stay Prisma-free; Prisma belongs in outgoing adapters:\n${hits.join('\n')}`,
@@ -89,11 +60,7 @@ describe('Advertising architecture contract', () => {
   });
 
   it('application/service/** does not import adapter/out/**', () => {
-    const adv = advertisingRel();
-    const serviceGlob = path.join(adv, 'application/service') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application/service')], String.raw`[^'"]*adapter/out/`);
     expect(
       hits,
       `application services must depend on application/port/out/*, not concrete adapter/out/** files:\n${hits.join('\n')}`,
@@ -101,41 +68,36 @@ describe('Advertising architecture contract', () => {
   });
 
   it('application/service/** does not import other owner-domain services directly', () => {
-    const adv = advertisingRel();
-    const serviceGlob = path.join(adv, 'application/service') + '/**';
-    // Cross-owner-domain reach must go through a local cross-domain port +
-    // adapter bridge. The grep targets relative paths that climb out of
-    // advertising and into another owner domain's application layer.
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|analytics)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
+    // Cross-owner reach goes through a local application/port/out/cross-domain/**
+    // port plus an adapter bridge, or the other owner's published
+    // application/port/in/** interface (apps/server/CLAUDE.md, Module Boundaries).
+    const hits = scanSource({
+      roots: [at('application/service')],
+      pattern: importFromPattern(String.raw`(?:\.\./)+(?:${OTHER_OWNERS})/application/`),
+      mode: 'lines',
+      relativeTo: ADVERTISING_ROOT,
+    }).hits.filter((line) => !/\/application\/port\/in\//.test(line));
     expect(
       hits,
-      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
+      `application services must reach other owner domains through ports:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 
   it('domain layer is free of Nest/Prisma/HTTP coupling', () => {
-    const adv = advertisingRel();
-    const domainGlob = path.join(adv, 'domain') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '@nestjs|@prisma/client|PrismaService|adapter/in/http|\\.dto'\
-       --glob '${domainGlob}' --glob '!**/__tests__/**'`,
+    const hits = importers(
+      [at('domain')],
+      String.raw`@nestjs|@prisma/client|[^'"]*prisma\.service|[^'"]*adapter/in/http|[^'"]*\.dto['"]`,
     );
     expect(hits, `domain code is importing infrastructure:\n${hits.join('\n')}`).toEqual([]);
   });
 
   it('no top-level dto/, util/, or adapter/out/prisma/ folders remain', () => {
-    const adv = advertisingRel();
     // Final hex layout uses adapter/in/http/dto/ for HTTP DTOs, domain/util/
     // for pure helpers, and adapter/out/repository/ for Prisma adapters.
     // These legacy folders must not be reintroduced.
-    const dtoHits = rg(`--type ts --files --glob '${path.join(adv, 'dto', '**', '*.ts')}'`);
-    const utilHits = rg(`--type ts --files --glob '${path.join(adv, 'util', '**', '*.ts')}'`);
-    const prismaHits = rg(
-      `--type ts --files --glob '${path.join(adv, 'adapter/out/prisma', '**', '*.ts')}'`,
+    const violators = ownerFiles().filter((file) =>
+      ['dto/', 'util/', 'adapter/out/prisma/'].some((prefix) => file.startsWith(prefix)),
     );
-    const violators = [...dtoHits, ...utilHits, ...prismaHits];
     expect(
       violators,
       `Legacy folders detected — move to hex layout (adapter/in/http/dto/, domain/util/, adapter/out/repository/):\n${violators.join('\n')}`,
@@ -143,8 +105,7 @@ describe('Advertising architecture contract', () => {
   });
 
   it('no services/ compatibility folder remains', () => {
-    const adv = advertisingRel();
-    const hits = rg(`--type ts --files --glob '${path.join(adv, 'services', '**', '*.ts')}'`);
+    const hits = ownerFiles().filter((file) => file.startsWith('services/'));
     expect(
       hits,
       `services/ is retired; business logic belongs in application/service/:\n${hits.join('\n')}`,

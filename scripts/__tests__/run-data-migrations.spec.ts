@@ -40,7 +40,6 @@ describe("data migration registry", () => {
       "v0.1.18:001_migrate_representative_keyword_overrides",
       "v0.1.24:001_dedupe_detail_page_artifacts",
       "v0.1.25:003_repair_ad_campaign_target_conversions",
-      "v0.1.25:004_rekey_ad_campaign_product_targets",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
       "v0.1.30:005_reset_sourcing_display_state",
       "v0.1.31:001_reset_absolute_product_abc",
@@ -154,6 +153,27 @@ describe("data migration registry", () => {
     expect(dataMigrationRegistryStatus().retiredMigrations).toContainEqual({
       ...retired,
       execution: "inactive",
+    });
+  });
+
+  it("retires the promoted campaign product-target rekey without a replacement (KID-262)", () => {
+    expect(DATA_MIGRATION_IDS).not.toContain("v0.1.25:004_rekey_ad_campaign_product_targets");
+    expect(
+      retiredDataMigrations.find(
+        (migration) => migration.id === "v0.1.25:004_rekey_ad_campaign_product_targets",
+      ),
+    ).toEqual({
+      id: "v0.1.25:004_rekey_ad_campaign_product_targets",
+      releaseVersion: "0.1.25",
+      name: "Rekey Coupang campaign product targets by campaign identity",
+      sourcePath:
+        "scripts/data-migrations/v0.1.25/004_rekey_ad_campaign_product_targets.ts",
+      sourceSha256:
+        "fde0af31cb65e0475c67bb520300372775872ea6d5272fb21b4a8f6e011eb847",
+      baselineCommit: "9d213b49f06d64a0fa1af20feae73575ad0cad3a",
+      replacementMigrations: [],
+      noReplacementReason:
+        "0.1.25에서 승격돼 Office가 실행 기록을 가짐; 새 DB에는 옮길 옛 행이 없어 대체 migration이 없다",
     });
   });
 

@@ -1,7 +1,7 @@
 'use client';
 
 import type { FinanceWindowTotals } from '@kiditem/shared/finance';
-import { cn, formatKRW, formatPercent, getProfitColor } from '@/lib/utils';
+import { cn, formatKRW, formatPercent, getAdCostColor, getProfitColor } from '@/lib/utils';
 
 interface Props {
   /**
@@ -62,7 +62,7 @@ export default function ProfitLossSummaryCards({ totals }: Props) {
       </div>
       <div className="card">
         <div className="card-label">총 광고비</div>
-        <div className="card-value text-orange-600">{won(totals.adCost)}</div>
+        <div className={cn('card-value', getAdCostColor(totals.adCost))}>{won(totals.adCost)}</div>
         <div className="text-xs text-slate-400">{`${formatPercent(totals.adCostRate)} of 매출`}</div>
       </div>
     </div>

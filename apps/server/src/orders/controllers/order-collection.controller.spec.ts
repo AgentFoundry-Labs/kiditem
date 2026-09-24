@@ -97,7 +97,6 @@ describe('OrderCollectionController Coupang direct convert', () => {
       ORGANIZATION_ID,
       ATTEMPT_ID,
       ATTEMPT_TOKEN,
-      null as never,
       { setHeader: vi.fn() } as never,
     )).rejects.toBeInstanceOf(BadRequestException);
 

@@ -1,14 +1,13 @@
+import type {
+  SourcingInterestTargetSource,
+  SourcingInterestTargetType,
+} from '../../../../domain/sourcing-interest-target';
+
 export const SOURCING_INTEREST_TARGET_REPOSITORY_PORT = Symbol(
   'SourcingInterestTargetRepositoryPort',
 );
 
-export type SourcingInterestTargetType = 'keyword' | 'category' | 'product';
-
-export type SourcingInterestTargetSource =
-  | 'keyword_analysis'
-  | 'today_recommendation'
-  | 'wing_catalog'
-  | 'manual';
+export type { SourcingInterestTargetSource, SourcingInterestTargetType };
 
 export interface SourcingInterestTargetRecord {
   id: string;
