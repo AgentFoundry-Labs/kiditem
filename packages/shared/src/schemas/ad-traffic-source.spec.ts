@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AdTrafficSourceBeginSchema,
+  AdTrafficSourceDailyPublishedSchema,
   AdTrafficSourceDailyPlanSchema,
   AdTrafficSourcePeriodReceiptInputSchema,
   AdTrafficSourceReceiptInputSchema,
@@ -202,5 +203,11 @@ describe('Wing traffic daily v2 wire', () => {
     });
     expect(ack).toMatchObject({ kind: 'period_summary', capturedAt: period.capturedAt });
     expect('accountSummary' in ack).toBe(false);
+  });
+});
+
+describe('Wing traffic published wire (KID-119)', () => {
+  it('no longer carries the legacy exact-period evidence no reader consumed', () => {
+    expect(AdTrafficSourceDailyPublishedSchema.shape).not.toHaveProperty('legacyExactPeriodEvidence');
   });
 });

@@ -888,13 +888,6 @@ export const SellpiaProductSalesSummarySchema = z.object({
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
   }).strict(),
-  abcStatusCounts: z.object({
-    READY: z.number().int().nonnegative(),
-    INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
-    SOURCE_UNMAPPED: z.number().int().nonnegative(),
-    SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
-    AD_SOURCE_STALE: z.number().int().nonnegative(),
-  }).strict(),
   abcContributionProfitByGrade: z.object({
     A: z.number().int(),
     B: z.number().int(),

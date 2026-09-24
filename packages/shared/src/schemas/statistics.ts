@@ -84,7 +84,6 @@ export const StatisticsGradeRowSchema = z.object({
   revenue: z.number().int().nullable(),
   profit: z.number().int().nullable(),
   count: z.number().int().nullable(),
-  productCount: z.number().int().nullable(),
   adCost: z.number().int().nullable(),
 });
 export type StatisticsGradeRow = z.infer<typeof StatisticsGradeRowSchema>;

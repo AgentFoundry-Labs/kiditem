@@ -237,13 +237,6 @@ describe('Sellpia product-sales inventory contracts', () => {
       reorderCount: 0,
       deadStockCount: 0,
       abcCounts: { A: 1, B: 0, C: 0 },
-      abcStatusCounts: {
-        READY: 1,
-        INSUFFICIENT_EVIDENCE: 0,
-        SOURCE_UNMAPPED: 0,
-        SELLPIA_SOURCE_STALE: 0,
-        AD_SOURCE_STALE: 0,
-      },
       abcContributionProfitByGrade: { A: 100, B: 0, C: 0 },
       classifiedProductCount: 1,
       unclassifiedProductCount: 0,
@@ -251,5 +244,7 @@ describe('Sellpia product-sales inventory contracts', () => {
     };
 
     expect(SellpiaProductSalesSummarySchema.parse(summary)).toEqual(summary);
+    // KID-119: the per-status ABC counts stay a server-internal projection; the wire had no reader.
+    expect(SellpiaProductSalesSummarySchema.shape).not.toHaveProperty('abcStatusCounts');
   });
 });

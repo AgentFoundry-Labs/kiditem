@@ -6,7 +6,7 @@ describe('GradesPanel', () => {
   it('renders grade totals that are unavailable as -, not as a zero or a bare unit', () => {
     render(
       <GradesPanel
-        grades={[{ grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null }]}
+        grades={[{ grade: 'A', revenue: null, profit: null, count: null, adCost: null }]}
       />,
     );
 
@@ -20,7 +20,7 @@ describe('GradesPanel', () => {
     // Not measured is a state, not a figure, so it may not read as spend.
     render(
       <GradesPanel
-        grades={[{ grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null }]}
+        grades={[{ grade: 'A', revenue: null, profit: null, count: null, adCost: null }]}
       />,
     );
 
@@ -32,7 +32,7 @@ describe('GradesPanel', () => {
   it('shows measured grade totals with their units', () => {
     render(
       <GradesPanel
-        grades={[{ grade: 'B', revenue: 20_000, profit: 9_000, count: 1, productCount: 1, adCost: 1_000 }]}
+        grades={[{ grade: 'B', revenue: 20_000, profit: 9_000, count: 1, adCost: 1_000 }]}
       />,
     );
 

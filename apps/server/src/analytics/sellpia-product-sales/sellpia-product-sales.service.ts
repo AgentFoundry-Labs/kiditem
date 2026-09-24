@@ -230,7 +230,6 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       deadStockCount: inventoryProjection.summary.deadStockCount,
       anomalyCount,
       abcCounts: inventoryProjection.summary.abcCounts,
-      abcStatusCounts: inventoryProjection.summary.abcStatusCounts,
       abcContributionProfitByGrade: inventoryProjection.summary.abcContributionProfitByGrade,
       classifiedProductCount: inventoryProjection.summary.classifiedProductCount,
       unclassifiedProductCount: inventoryProjection.summary.unclassifiedProductCount,

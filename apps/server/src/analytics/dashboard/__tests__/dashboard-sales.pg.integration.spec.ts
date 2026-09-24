@@ -861,7 +861,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       reconciliation: Object.fromEntries([
         'views', 'cartAdds', 'orders', 'salesQty', 'revenue',
       ].map((metric) => [metric, { dailySum: null, periodValue: null }])),
-      legacyExactPeriodEvidence: null,
     };
     // The old account publication remains present to prove that Dashboard
     // traffic now comes from the canonical listing-day reader.

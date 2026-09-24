@@ -330,8 +330,8 @@ describe('Statistics flow (PG integration)', () => {
       { category: '완구', name: '완구', revenue: 20_000, orders: 2, profit: 11_000, productCount: 1 },
     ]);
     expect(grades.rows).toEqual([
-      { grade: 'N/A', revenue: 32_000, profit: 15_000, count: 1, productCount: 1, adCost: 3_000 },
-      { grade: 'B', revenue: 20_000, profit: 11_000, count: 1, productCount: 1, adCost: 1_000 },
+      { grade: 'N/A', revenue: 32_000, profit: 15_000, count: 1, adCost: 3_000 },
+      { grade: 'B', revenue: 20_000, profit: 11_000, count: 1, adCost: 1_000 },
     ]);
     expect(periodBasisStatus(categories.basis!.revenue)).toBe('complete');
     expect(periodBasisStatus(grades.basis!.adCost)).toBe('complete');
@@ -700,8 +700,8 @@ describe('Statistics flow (PG integration)', () => {
       { category: '완구', name: '완구', revenue: null, orders: null, profit: null, productCount: null },
     ]);
     expect(grades.rows).toEqual([
-      { grade: 'N/A', revenue: null, profit: null, count: null, productCount: null, adCost: null },
-      { grade: 'B', revenue: null, profit: null, count: null, productCount: null, adCost: null },
+      { grade: 'N/A', revenue: null, profit: null, count: null, adCost: null },
+      { grade: 'B', revenue: null, profit: null, count: null, adCost: null },
     ]);
     expect(periodBasisStatus(categories.basis!.revenue)).toBe('partial');
     expect(periodBasisStatus(grades.basis!.revenue)).toBe('partial');
@@ -717,8 +717,8 @@ describe('Statistics flow (PG integration)', () => {
       { category: '완구', name: '완구', revenue: 15_000, orders: 1, profit: 9_000, productCount: 1 },
     ]);
     expect(openGrades.rows).toEqual([
-      { grade: 'N/A', revenue: 32_000, profit: 18_000, count: 1, productCount: 1, adCost: 0 },
-      { grade: 'B', revenue: 15_000, profit: 9_000, count: 1, productCount: 1, adCost: 0 },
+      { grade: 'N/A', revenue: 32_000, profit: 18_000, count: 1, adCost: 0 },
+      { grade: 'B', revenue: 15_000, profit: 9_000, count: 1, adCost: 0 },
     ]);
     expect(periodBasisStatus(openCategories.basis!.revenue)).toBe('complete');
     expect(openGrades.basis!.revenue).toMatchObject({ from: '2026-04-01', to: '2026-04-14', targetDays: 14 });

@@ -822,10 +822,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
             isDailyPlan(candidate.plan),
         );
         if (dailyRuns.length) {
-          const legacyRuns = parsedRuns.filter(
-            (candidate): candidate is { run: typeof runs[number]; plan: AdTrafficSourceLegacyPlan } =>
-              !isDailyPlan(candidate.plan),
-          );
           return readDailyPublished(
             tx,
             account.id,
@@ -833,7 +829,6 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
             dailyRuns,
             from,
             to,
-            legacyRuns,
           );
         }
         const legacy = parsedRuns[0]!;
@@ -1912,7 +1907,6 @@ async function readDailyPublished(
   dailyRuns: Array<{ run: SourceRun; plan: AdTrafficSourceDailyPlan }>,
   from: Date | undefined,
   to: Date | undefined,
-  legacyRuns: Array<{ run: SourceRun; plan: AdTrafficSourceLegacyPlan }>,
 ): Promise<AdTrafficSourcePublished> {
   // A default read represents the complete set of dates currently covered by
   // complete v2 runs. Anchoring it to the newest run's interval would make an
@@ -2041,12 +2035,6 @@ async function readDailyPublished(
       }
     }
   }
-  const legacyExactPeriodEvidence = await readLegacyExactPeriodEvidence(
-    tx,
-    legacyRuns,
-    rangeStartText,
-    rangeEndText,
-  );
   const selectedIdSet = new Set(selectedRunIds);
   const outputCandidate = dailyRuns.find((candidate) => selectedIdSet.has(candidate.run.id))
     ?? dailyRuns[0]!;
@@ -2076,39 +2064,7 @@ async function readDailyPublished(
     reconciliation: buildReconciliation(accountDaily, periodSummary, {
       periodSummaryApplies: !incompleteDailyCoverage && !periodEvidenceIsStale,
     }),
-    legacyExactPeriodEvidence,
   });
-}
-
-async function readLegacyExactPeriodEvidence(
-  tx: Tx,
-  legacyRuns: Array<{ run: SourceRun; plan: AdTrafficSourceLegacyPlan }>,
-  startDate: string,
-  endDate: string,
-): Promise<Record<string, unknown> | null> {
-  const exact = legacyRuns.find(
-    (candidate) => candidate.plan.startDate === startDate && candidate.plan.endDate === endDate,
-  );
-  if (!exact) return null;
-  const entries = await receiptEntriesForRun(tx, exact.run);
-  const dashboard = dashboardPayload(entries);
-  if (!dashboard) return null;
-  return {
-    startDate,
-    endDate,
-    observedAt: dashboard.capturedAt.toISOString(),
-    sourceAttemptId: exact.run.id,
-    summary: {
-      kpis: dashboard.kpis,
-      summary: dashboard.summary,
-      adSummary: dashboard.adSummary,
-      period: exact.plan.periodDays,
-      startDate: exact.plan.startDate,
-      endDate: exact.plan.endDate,
-      timestamp: dashboard.capturedAt.toISOString(),
-    },
-    raw: dashboard.raw,
-  };
 }
 
 function runIsNewer(left: SourceRun, right: SourceRun): boolean {

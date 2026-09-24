@@ -464,7 +464,6 @@ const dailyPublishedSchema = z
     periodSummary: periodSummarySchema.nullable(),
     coverage: coverageSchema,
     reconciliation: reconciliationSchema,
-    legacyExactPeriodEvidence: payload.nullable(),
   })
   .strict();
 

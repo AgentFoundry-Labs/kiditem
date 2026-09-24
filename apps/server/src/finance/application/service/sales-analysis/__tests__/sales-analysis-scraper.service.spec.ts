@@ -106,7 +106,6 @@ function makeTrafficRead(
             salesQty: { dailySum: null, periodValue: null },
             revenue: { dailySum: null, periodValue: null },
           },
-          legacyExactPeriodEvidence: null,
         }),
   };
 }
