@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hexagonalBoundaryViolations } from '../check-hexagonal.mjs';
+import { evaluateHexagonal, hexagonalBoundaryViolations } from '../check-hexagonal.mjs';
 
 const file = 'apps/server/src/channels/application/service/listing/list.service.ts';
 test('rejects framework, concrete adapter and Node dependencies in application', () => {
@@ -94,4 +94,43 @@ test('a marketplace/ business domain is refused in every domain (KID-310)', () =
       `apps/server/src/${owner}/domain/marketplace/wing.ts`, '',
     ).length);
   }
+});
+
+// KID-311: orders joins the scanner. Its services still import concrete
+// read/dto/products adapters; those exact pairs are listed with the ticket
+// that removes them, and anything else stays a failure.
+const ordersService = 'orders/application/service/orders.service.ts';
+const readerImport = "import { x } from '../../adapter/out/persistence/read/order-facts.reader';";
+const listed = { owner: 'orders', file: ordersService, specifier: '../../adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' };
+
+test('orders is scanned for the retired read/, mapper/ and usecase lanes (KID-311)', () => {
+  assert.ok(hexagonalBoundaryViolations('apps/server/src/orders/read/order-facts.reader.ts', '').length);
+  assert.ok(hexagonalBoundaryViolations('apps/server/src/orders/mapper/coupang-direct-order.mapper.ts', '').length);
+  assert.ok(hexagonalBoundaryViolations('apps/server/src/orders/shipments/application/usecase/a.ts', '').length);
+});
+
+test('a listed known violation passes only on an exact file and specifier match (KID-311)', () => {
+  assert.deepEqual(evaluateHexagonal([{ file: ordersService, source: readerImport }], [listed]), []);
+  const otherFile = evaluateHexagonal([{ file: 'orders/application/service/reviews.service.ts', source: readerImport }, { file: ordersService, source: readerImport }], [listed]);
+  assert.equal(otherFile.length, 1);
+  assert.match(otherFile[0], /reviews\.service\.ts: Pure layer imports a concrete adapter/);
+});
+
+test('an adapter import missing from the known list fails (KID-311)', () => {
+  const errors = evaluateHexagonal([{ file: ordersService, source: `${readerImport}\nimport { y } from '../../adapter/in/web/dto';` }], [listed]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /adapter\/in\/web\/dto/);
+});
+
+test('a known violation that no longer occurs fails as stale (KID-311)', () => {
+  const errors = evaluateHexagonal([{ file: ordersService, source: '' }], [listed]);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /Stale KNOWN_VIOLATIONS entry.*KID-334/);
+});
+
+test('a known violation cannot allow a non-adapter rule or another owner (KID-311)', () => {
+  const usecase = 'orders/application/usecase/a.ts';
+  assert.equal(evaluateHexagonal([{ file: usecase, source: '' }], [{ ...listed, file: usecase, specifier: '' }]).length, 2);
+  const channels = 'channels/application/service/listing/a.ts';
+  assert.ok(evaluateHexagonal([{ file: channels, source: readerImport }], [{ ...listed, file: channels }]).length >= 2);
 });
