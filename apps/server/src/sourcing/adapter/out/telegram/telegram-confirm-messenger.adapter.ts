@@ -27,6 +27,7 @@ const MAX_RETRY_WAIT_MS = 10_000;
 const MAX_CALLBACK_BYTES = 64;
 const SIGNATURE_LENGTH = 10;
 const SIGNING_CONTEXT = 'kiditem.sourcing-confirm.callback.v1';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -35,6 +36,7 @@ interface TelegramConfig {
   chatId: string | null;
   allowedUserIds: ReadonlySet<string>;
   pollingDisabled: boolean;
+  organizationId: string | null;
 }
 
 /** 편집한 내용이 이미 같을 때. 실패가 아니다. */
@@ -62,7 +64,8 @@ export class TelegramConfirmMessengerAdapter implements SourcingConfirmMessenger
     return {
       configured: config.token !== null,
       chatConfigured: config.chatId !== null,
-      listening: config.token !== null && !config.pollingDisabled,
+      listening: config.token !== null && config.organizationId !== null && !config.pollingDisabled,
+      organizationId: config.organizationId,
     };
   }
 
@@ -213,11 +216,13 @@ function readConfig(): TelegramConfig {
     .split(/[\s,]+/)
     .map((value) => value.trim())
     .filter((value) => /^\d+$/.test(value));
+  const organizationId = process.env.SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID?.trim().toLowerCase() || null;
   return {
     token,
     chatId: chatId && /^-?\d+$/.test(chatId) ? chatId : null,
     allowedUserIds: new Set(allowed),
     pollingDisabled: process.env.SOURCING_CONFIRM_TELEGRAM_POLLING?.trim() === '0',
+    organizationId: organizationId && UUID.test(organizationId) ? organizationId : null,
   };
 }
 
@@ -235,7 +240,7 @@ function requireChatId(): string {
   const { chatId } = readConfig();
   if (!chatId) {
     throw new ServiceUnavailableException(
-      '보고받을 채팅이 정해지지 않았습니다. 봇에게 /start 를 보내 채팅 ID를 받은 뒤 SOURCING_CONFIRM_TELEGRAM_CHAT_ID 에 넣어 주세요.',
+      '보고받을 채팅이 정해지지 않았습니다. Agent Org 텔레그램 칸에서 설정 토큰을 받아 채팅에 /start <토큰>을 보내고, 표시된 채팅 ID를 SOURCING_CONFIRM_TELEGRAM_CHAT_ID에 넣은 뒤 다시 시작하세요.',
     );
   }
   return chatId;

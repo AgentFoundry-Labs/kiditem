@@ -1,12 +1,14 @@
 import {
   BadGatewayException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { randomInt, timingSafeEqual } from 'node:crypto';
 import {
   CONFIRM_PAGE_SIZE,
   CONFIRM_REPORT_MAX_ITEMS,
@@ -18,6 +20,7 @@ import {
   renderConfirmPage,
   renderHelpReply,
   renderSetupReply,
+  renderSetupTokenReply,
   selectionStateFor,
   type ConfirmAction,
   type ConfirmCandidate,
@@ -51,8 +54,13 @@ export interface SourcingConfirmReportStatus {
   chatConfigured: boolean;
   listening: boolean;
   botUsername: string | null;
-  /** 채팅이 정해지기 전에 봇에게 /start 를 보낸 채팅. 설정값으로 옮겨 적는 용도다. */
+  /**
+   * 설정 토큰과 함께 `/start <토큰>` 을 보낸 채팅. 설정값으로 옮겨 적는 용도다. owner · admin 에게만
+   * 보이고, 채팅이 이미 정해졌으면 `null`.
+   */
   setupChatId: string | null;
+  /** 아직 쓰지 않은 설정 토큰의 만료 시각. owner · admin 에게만 보인다. */
+  setupTokenExpiresAt: string | null;
   /** 이 서버가 켜진 뒤 보낸 마지막 보고. 서버를 다시 켜면 비어 있다. */
   lastReport: { sentAt: string; runId: string; itemCount: number } | null;
   /** 최신 추천의 최종 후보와 결정 수. 추천이 없으면 `null`. */
@@ -64,6 +72,11 @@ export interface SourcingConfirmReportStatus {
     approved: number;
     rejected: number;
   } | null;
+}
+
+export interface SourcingConfirmSetupToken {
+  token: string;
+  expiresAt: string;
 }
 
 export interface SourcingConfirmReportSendResult {
@@ -93,6 +106,15 @@ interface Board {
   byPrefix: Map<string, BoardItem | null>;
 }
 
+const STALE_ANSWER = '웹에서 이미 결정돼 반영하지 않았습니다';
+const ORGANIZATION_NOT_BOUND = 'TELEGRAM_ORGANIZATION_NOT_BOUND';
+/** 채팅 설정 토큰. 대문자 · 숫자 8자, 10분 동안 한 번만 쓴다. */
+const SETUP_TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const SETUP_TOKEN_LENGTH = 8;
+const SETUP_TOKEN_TTL_MS = 10 * 60_000;
+/** 채팅 ID와 설정 토큰을 볼 수 있는 역할. 보내기 · 토큰 발급과 같은 사람들이다. */
+const MANAGER_ROLES: ReadonlySet<string> = new Set(['owner', 'admin']);
+
 type ButtonEvent = Extract<ConfirmMessengerEvent, { kind: 'button' }>;
 type TextEvent = Extract<ConfirmMessengerEvent, { kind: 'text' }>;
 
@@ -100,8 +122,8 @@ type TextEvent = Extract<ConfirmMessengerEvent, { kind: 'text' }>;
  * 사장님 컨펌 — 최종 후보 리스트를 텔레그램으로 보고하고, 버튼 답장을 최종 선택에 남긴다.
  *
  * 결정은 최종 선택 화면이 쓰는 그 자리(`final` 선택)에 쓴다. 승인은 `selected`, 반려는
- * `removed`, 되돌리기는 `neutral` 이다. 버전이 어긋나면(웹에서 먼저 바꿨으면) 최신 버전을
- * 다시 읽어 한 번만 다시 쓴다. 누를 때마다 최신 추천에서 상품을 다시 찾으므로, 보고 뒤에
+ * `removed`, 되돌리기는 `neutral` 이다. 버튼에 실린 버전이 지금 버전과 다르면(웹에서 먼저
+ * 결정했으면) 반영하지 않고 그렇다고 답한다. 누를 때마다 최신 추천에서 상품을 다시 찾으므로, 보고 뒤에
  * 추천이 새로 계산돼도 같은 상품이면 새 추천에 반영되고 빠진 상품이면 빠졌다고 답한다.
  */
 @Injectable()
@@ -110,6 +132,8 @@ export class SourcingConfirmReportService {
   private readonly lastReports = new Map<string, { sentAt: string; runId: string; itemCount: number }>();
   private readonly sending = new Set<string>();
   private setupChatId: string | null = null;
+  /** 설정 토큰은 이 프로세스 메모리에만 둔다. Office API 는 프로세스 하나다. */
+  private setupToken: { value: string; expiresAt: number } | null = null;
 
   constructor(
     @Inject(SOURCING_CONFIRM_MESSENGER_PORT)
@@ -118,8 +142,11 @@ export class SourcingConfirmReportService {
     private readonly reviews: SourcingReviewService,
   ) {}
 
-  async status(organizationId: string): Promise<SourcingConfirmReportStatus> {
+  async status(organizationId: string, role: string): Promise<SourcingConfirmReportStatus> {
     const setup = this.messenger.setup();
+    if (setup.organizationId === null) return disabledStatus();
+    assertBound(setup.organizationId, organizationId);
+    const manager = MANAGER_ROLES.has(role);
     const [botUsername, board] = await Promise.all([
       setup.configured
         ? this.messenger.identity().then((me) => me.username, () => null)
@@ -129,9 +156,12 @@ export class SourcingConfirmReportService {
     const count = (state: ConfirmItemState) => board?.items.filter((item) => item.state === state).length ?? 0;
     return {
       channel: 'telegram',
-      ...setup,
+      configured: setup.configured,
+      chatConfigured: setup.chatConfigured,
+      listening: setup.listening,
       botUsername,
-      setupChatId: setup.chatConfigured ? null : this.setupChatId,
+      setupChatId: manager && !setup.chatConfigured ? this.setupChatId : null,
+      setupTokenExpiresAt: manager ? this.pendingSetupTokenExpiry() : null,
       lastReport: this.lastReports.get(organizationId) ?? null,
       candidates: board
         ? {
@@ -146,8 +176,21 @@ export class SourcingConfirmReportService {
     };
   }
 
+  /**
+   * 채팅을 정할 1회용 토큰을 만든다. 텔레그램 채팅에서 `/start <토큰>` 을 보내면 그 채팅이 설정
+   * 채팅이 된다. 새로 만들면 이전 토큰은 버린다.
+   */
+  async issueSetupToken(organizationId: string): Promise<SourcingConfirmSetupToken> {
+    requireBound(this.messenger.setup().organizationId, organizationId);
+    const value = Array.from({ length: SETUP_TOKEN_LENGTH }, () => SETUP_TOKEN_ALPHABET[randomInt(SETUP_TOKEN_ALPHABET.length)]).join('');
+    const expiresAt = Date.now() + SETUP_TOKEN_TTL_MS;
+    this.setupToken = { value, expiresAt };
+    return { token: value, expiresAt: new Date(expiresAt).toISOString() };
+  }
+
   async sendReport(organizationId: string): Promise<SourcingConfirmReportSendResult> {
     const setup = this.messenger.setup();
+    requireBound(setup.organizationId, organizationId);
     if (!setup.configured) {
       throw new ServiceUnavailableException(
         '텔레그램 보고를 쓰려면 서버에 SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN 설정이 필요합니다.',
@@ -155,7 +198,7 @@ export class SourcingConfirmReportService {
     }
     if (!setup.chatConfigured) {
       throw new ServiceUnavailableException(
-        '보고받을 채팅이 정해지지 않았습니다. 봇에게 /start 를 보내 채팅 ID를 받은 뒤 SOURCING_CONFIRM_TELEGRAM_CHAT_ID 에 넣어 주세요.',
+        '보고받을 채팅이 정해지지 않았습니다. Agent Org 텔레그램 칸에서 설정 토큰을 받아 채팅에 /start <토큰>을 보내고, 표시된 채팅 ID를 SOURCING_CONFIRM_TELEGRAM_CHAT_ID에 넣은 뒤 다시 시작하세요.',
       );
     }
     if (this.sending.has(organizationId)) {
@@ -188,6 +231,7 @@ export class SourcingConfirmReportService {
           keyPrefix: item.keyPrefix,
           candidate: item.candidate,
           state: item.state,
+          version: item.version,
         }));
         await this.messenger.sendReport(renderConfirmPage(organizationId, entries));
         messages += 1;
@@ -219,11 +263,19 @@ export class SourcingConfirmReportService {
   }
 
   private async handleText(event: TextEvent): Promise<void> {
-    const command = event.text.trim().split(/\s+/)[0]?.split('@')[0]?.toLowerCase();
+    const [head, argument] = event.text.trim().split(/\s+/);
+    const command = head?.split('@')[0]?.toLowerCase();
     if (command !== '/start' && command !== '/id') return;
-    if (!this.messenger.setup().chatConfigured) {
-      this.setupChatId = event.chatId;
-      await this.messenger.reply(event.chatId, renderSetupReply(event.chatId));
+    const setup = this.messenger.setup();
+    if (setup.organizationId === null) return;
+    if (!setup.chatConfigured) {
+      // 토큰이 맞을 때만 이 채팅을 정한다. 아무나 /start 를 보내 채팅 ID를 상태 화면에 띄우지 못하게.
+      if (argument && this.consumeSetupToken(argument)) {
+        this.setupChatId = event.chatId;
+        await this.messenger.reply(event.chatId, renderSetupReply(event.chatId));
+      } else {
+        await this.messenger.reply(event.chatId, renderSetupTokenReply());
+      }
       return;
     }
     if (event.authorized) await this.messenger.reply(event.chatId, renderHelpReply());
@@ -239,6 +291,12 @@ export class SourcingConfirmReportService {
       await this.safeAnswer(event.replyToken, '버튼을 읽지 못했습니다. 새 보고를 보내 주세요.');
       return;
     }
+    const bound = this.messenger.setup().organizationId;
+    if (bound === null || ref.organizationId !== bound) {
+      // 봇 하나는 한 조직만 쓴다. 다른 조직의 버튼 값은 서명이 맞아도 반영하지 않는다.
+      this.logger.warn('묶인 조직이 아닌 텔레그램 컨펌 버튼을 반영하지 않았습니다.');
+      return;
+    }
     if (ref.action === 'info') {
       await this.safeAnswer(event.replyToken, '새 추천에서 빠진 상품이라 결정할 수 없습니다.');
       return;
@@ -252,37 +310,64 @@ export class SourcingConfirmReportService {
       return;
     }
 
-    const changed = await this.decide(ref.organizationId, board.runId, item, selectionStateFor(ref.action));
+    const outcome = await this.decide(ref.organizationId, board.runId, item, ref.version, selectionStateFor(ref.action));
+    if (outcome === 'stale') {
+      await this.safeAnswer(event.replyToken, STALE_ANSWER);
+      await this.rewritePage(event, ref.organizationId, await this.loadBoard(ref.organizationId));
+      return;
+    }
+    const changed = outcome === 'written';
     await this.safeAnswer(event.replyToken, `${ref.no}번 ${ANSWER[ref.action]}`);
     await this.rewritePage(event, ref.organizationId, changed ? await this.loadBoard(ref.organizationId) : board);
     if (changed) this.logger.log(`텔레그램 컨펌 반영: ${ref.action} (run ${board.runId})`);
   }
 
-  /** 최종 선택에 결정을 쓴다. 이미 같은 상태면 쓰지 않는다. */
+  private pendingSetupTokenExpiry(): string | null {
+    if (this.setupToken === null || this.setupToken.expiresAt <= Date.now()) return null;
+    return new Date(this.setupToken.expiresAt).toISOString();
+  }
+
+  /** 토큰이 맞고 만료 전이면 소진하고 `true`. 만료된 토큰은 버린다. */
+  private consumeSetupToken(candidate: string): boolean {
+    const token = this.setupToken;
+    if (token === null) return false;
+    if (token.expiresAt <= Date.now()) {
+      this.setupToken = null;
+      return false;
+    }
+    const given = Buffer.from(candidate.toUpperCase());
+    const expected = Buffer.from(token.value);
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) return false;
+    this.setupToken = null;
+    return true;
+  }
+
+  /**
+   * 최종 선택에 결정을 쓴다. 버튼을 그린 뒤 선택 버전이 바뀌었으면(웹에서 먼저 결정했으면) 쓰지
+   * 않는다 — 사장님이 본 적 없는 상태를 덮어쓰지 않게. 이미 같은 상태면 쓰지 않는다.
+   */
   private async decide(
     organizationId: string,
     recommendationRunId: string,
     item: BoardItem,
+    renderedVersion: number,
     state: ConfirmSelectionState,
-  ): Promise<boolean> {
-    if (item.selectionState === state) return false;
-    let expectedVersion = item.version;
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        await this.reviews.saveSelection({
-          organizationId,
-          workspaceKey: 'final',
-          recommendationRunId,
-          itemKey: item.itemKey,
-          state,
-          expectedVersion,
-        });
-        return true;
-      } catch (error) {
-        const currentVersion = conflictVersion(error);
-        if (currentVersion === null || attempt > 0) throw error;
-        expectedVersion = currentVersion;
-      }
+  ): Promise<'written' | 'unchanged' | 'stale'> {
+    if (item.version !== renderedVersion) return 'stale';
+    if (item.selectionState === state) return 'unchanged';
+    try {
+      await this.reviews.saveSelection({
+        organizationId,
+        workspaceKey: 'final',
+        recommendationRunId,
+        itemKey: item.itemKey,
+        state,
+        expectedVersion: item.version,
+      });
+      return 'written';
+    } catch (error) {
+      if (isVersionConflict(error)) return 'stale';
+      throw error;
     }
   }
 
@@ -292,7 +377,7 @@ export class SourcingConfirmReportService {
     if (!page || page.organizationId !== organizationId) return;
     const entries: ConfirmEntry[] = page.refs.map(({ no, keyPrefix }) => {
       const item = board?.byPrefix.get(keyPrefix) ?? null;
-      return { no, keyPrefix, candidate: item?.candidate ?? null, state: item?.state ?? 'pending' };
+      return { no, keyPrefix, candidate: item?.candidate ?? null, state: item?.state ?? 'pending', version: item?.version ?? 0 };
     });
     try {
       await this.messenger.editReport(event.messageId, renderConfirmPage(organizationId, entries));
@@ -339,6 +424,40 @@ export class SourcingConfirmReportService {
   }
 }
 
+/** 묶을 조직이 없으면 503, 다른 조직이면 403. */
+function requireBound(bound: string | null, organizationId: string): void {
+  if (bound === null) {
+    throw new ServiceUnavailableException(
+      '텔레그램 보고를 쓰려면 서버에 SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID 설정이 필요합니다.',
+    );
+  }
+  assertBound(bound, organizationId);
+}
+
+/** 봇이 묶인 조직이 아니면 거절한다. 보내기 · 상태 · 설정은 그 조직의 사람만 한다. */
+function assertBound(bound: string, organizationId: string): void {
+  if (bound === organizationId.toLowerCase()) return;
+  throw new ForbiddenException({
+    code: ORGANIZATION_NOT_BOUND,
+    message: '텔레그램 컨펌 봇은 다른 조직에 연결돼 있어 이 조직에서는 쓸 수 없습니다.',
+  });
+}
+
+/** 묶을 조직이 설정되지 않았을 때. 텔레그램 컨펌은 어느 조직에도 꺼져 있다. */
+function disabledStatus(): SourcingConfirmReportStatus {
+  return {
+    channel: 'telegram',
+    configured: false,
+    chatConfigured: false,
+    listening: false,
+    botUsername: null,
+    setupChatId: null,
+    setupTokenExpiresAt: null,
+    lastReport: null,
+    candidates: null,
+  };
+}
+
 function toCandidate(item: SourcingRecommendationPresenterItem): ConfirmCandidate {
   return {
     itemKey: item.itemKey,
@@ -353,12 +472,10 @@ function toCandidate(item: SourcingRecommendationPresenterItem): ConfirmCandidat
   };
 }
 
-function conflictVersion(error: unknown): number | null {
-  if (!(error instanceof ConflictException)) return null;
+function isVersionConflict(error: unknown): boolean {
+  if (!(error instanceof ConflictException)) return false;
   const response = error.getResponse();
-  if (typeof response !== 'object' || response === null) return null;
-  const { code, currentVersion } = response as { code?: unknown; currentVersion?: unknown };
-  return code === 'REVIEW_SELECTION_VERSION_CONFLICT' && typeof currentVersion === 'number' ? currentVersion : null;
+  return typeof response === 'object' && response !== null && (response as { code?: unknown }).code === 'REVIEW_SELECTION_VERSION_CONFLICT';
 }
 
 function describeError(error: unknown): string {

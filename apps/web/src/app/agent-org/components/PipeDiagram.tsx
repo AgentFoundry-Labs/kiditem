@@ -342,11 +342,19 @@ function SellpiaNode({ node, view, now }: { node: DiagramExternalNode; view: Pip
  * 사장님 컨펌 텔레그램 칸. 연결 단계(봇 → 채팅 → 답장 받기)를 순서대로 말하고, 다 이어졌으면
  * 최종 후보의 결정 수와 "지금 보고 보내기"를 둔다. 버튼이 있어 칸 전체를 링크로 감싸지 않는다.
  */
+function minutesLeft(expiresAt: string, now: number): number {
+  return Math.max(1, Math.ceil((Date.parse(expiresAt) - now) / 60_000));
+}
+
 function TelegramNode({ node, confirm, now }: { node: DiagramExternalNode; confirm: PipeConfirmChannel | undefined; now: number }) {
   const status = confirm?.status ?? null;
   const candidates = status?.candidates ?? null;
   const ready = status !== null && status.configured && status.chatConfigured;
   const canSend = ready && !confirm?.sending && candidates !== null && candidates.pending > 0;
+  // 받은 토큰은 서버가 아직 기다리는 동안(소진 · 만료 전)만 보인다.
+  const issued = confirm?.setupToken ?? null;
+  const activeToken =
+    issued && status?.setupTokenExpiresAt === issued.expiresAt && Date.parse(issued.expiresAt) > now ? issued : null;
 
   let subtitle: string;
   let chip: { state: PipeState; label: string };
@@ -425,14 +433,32 @@ function TelegramNode({ node, confirm, now }: { node: DiagramExternalNode; confi
           <div className="flex flex-1 flex-col gap-1 text-[11px] leading-snug text-slate-400">
             {status && !status.configured ? (
               <>
-                <span>서버 설정에 컨펌용 봇 토큰을 넣으면 켜집니다.</span>
+                <span>서버 설정에 컨펌용 봇 토큰과 쓸 조직을 넣으면 켜집니다.</span>
                 <code className="truncate rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
                   SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN
+                </code>
+                <code className="truncate rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                  SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID
                 </code>
               </>
             ) : status && !status.chatConfigured ? (
               <>
-                <span>봇에게 /start 를 보내 채팅 ID를 받은 뒤 서버 설정에 넣어 주세요.</span>
+                <span>설정 토큰을 받아 텔레그램 채팅에서 보내고, 받은 채팅 ID를 서버 설정에 넣어 주세요.</span>
+                {activeToken ? (
+                  <span className="text-slate-200">
+                    텔레그램 채팅에서 <span className="font-mono">/start {activeToken.token}</span>을 보내세요 ·{' '}
+                    {minutesLeft(activeToken.expiresAt, now)}분 남음
+                  </span>
+                ) : !status.setupChatId && confirm?.canSetup ? (
+                  <button
+                    type="button"
+                    onClick={confirm.issueSetupToken}
+                    disabled={confirm.issuingSetupToken}
+                    className="self-start rounded-md bg-white/[0.08] px-2 py-0.5 text-[11px] font-semibold text-slate-100 hover:bg-white/[0.12] focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:text-slate-500"
+                  >
+                    설정 토큰 발급
+                  </button>
+                ) : null}
                 {status.setupChatId ? (
                   <span className="text-slate-200">
                     받은 채팅 ID <span className="font-mono tabular-nums">{status.setupChatId}</span>

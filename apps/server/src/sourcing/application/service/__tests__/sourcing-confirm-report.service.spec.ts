@@ -1,5 +1,5 @@
 import { ConflictException } from '@nestjs/common';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   decodeConfirmPayload,
   encodeConfirmPayload,
@@ -10,6 +10,7 @@ import type { ConfirmMessengerEvent } from '../../port/out/provider/sourcing-con
 import { SourcingConfirmReportService } from '../sourcing-confirm-report.service';
 
 const ORG = '00000000-0000-4000-8000-000000000001';
+const OTHER_ORG = '00000000-0000-4000-8000-000000000002';
 const RUN_ID = '00000000-0000-4000-8000-000000000010';
 const keyOf = (index: number) => index.toString(16).padStart(2, '0').repeat(32);
 
@@ -32,6 +33,7 @@ function setup(options: {
   selections?: Array<{ itemKey: string; state: 'neutral' | 'selected' | 'removed'; version: number }>;
   configured?: boolean;
   chatConfigured?: boolean;
+  boundOrganizationId?: string | null;
 } = {}) {
   const items = Array.from({ length: options.items ?? 3 }, (_, index) => presenterItem(index + 1));
   let selections = options.selections ?? [];
@@ -40,6 +42,7 @@ function setup(options: {
       configured: options.configured ?? true,
       chatConfigured: options.chatConfigured ?? true,
       listening: true,
+      organizationId: options.boundOrganizationId === undefined ? ORG : options.boundOrganizationId,
     })),
     identity: vi.fn(async () => ({ username: 'kiditem_confirm_bot' })),
     sendReport: vi.fn(async (_message: ConfirmMessage) => ({ messageId: 1 })),
@@ -69,16 +72,22 @@ function setup(options: {
   return { service, messenger, recommendations, reviews };
 }
 
-function button(action: 'approve' | 'reject' | 'undo', no: number, index: number, overrides: Partial<Extract<ConfirmMessengerEvent, { kind: 'button' }>> = {}) {
-  const payloadFor = (act: 'approve' | 'reject' | 'undo', n: number, i: number) =>
-    encodeConfirmPayload({ action: act, no: n, organizationId: ORG, keyPrefix: itemKeyPrefix(keyOf(i)) });
+function button(
+  action: 'approve' | 'reject' | 'undo',
+  no: number,
+  index: number,
+  overrides: Partial<Extract<ConfirmMessengerEvent, { kind: 'button' }>> = {},
+  version = 0,
+) {
+  const payloadFor = (act: 'approve' | 'reject' | 'undo', n: number, i: number, v = 0) =>
+    encodeConfirmPayload({ action: act, no: n, organizationId: ORG, keyPrefix: itemKeyPrefix(keyOf(i)), version: v });
   return {
     kind: 'button' as const,
     replyToken: 'cb-1',
     chatId: '987654321',
     messageId: 55,
     authorized: true,
-    payload: payloadFor(action, no, index),
+    payload: payloadFor(action, no, index, version),
     messagePayloads: [payloadFor('approve', 1, 1), payloadFor('reject', 1, 1), payloadFor('approve', 2, 2), payloadFor('reject', 2, 2)],
     ...overrides,
   };
@@ -102,7 +111,7 @@ describe('SourcingConfirmReportService', () => {
     expect(bodyText(sent[1]!)).not.toContain('후보 상품 1\n');
     expect(bodyText(sent[1]!)).toContain('⬜ 1. 후보 상품 2');
     expect(sent.slice(1).flatMap((message) => message.buttons).length).toBe(9);
-    await expect(service.status(ORG)).resolves.toMatchObject({
+    await expect(service.status(ORG, 'owner')).resolves.toMatchObject({
       botUsername: 'kiditem_confirm_bot',
       lastReport: { runId: RUN_ID, itemCount: 9 },
       candidates: { total: 10, pending: 9, approved: 1, rejected: 0 },
@@ -143,18 +152,45 @@ describe('SourcingConfirmReportService', () => {
     ]);
   });
 
-  it('⭐ 웹에서 먼저 바꿔 버전이 어긋나면 최신 버전으로 한 번만 다시 쓴다', async () => {
+  it('⭐ 보고 버튼에는 그린 때의 선택 버전을 싣는다', async () => {
+    const { service, messenger } = setup({ items: 2, selections: [{ itemKey: keyOf(2), state: 'neutral', version: 3 }] });
+
+    await service.sendReport(ORG);
+
+    const page = messenger.sendReport.mock.calls[1]![0];
+    expect(page.buttons.map((row) => row.map((entry) => decodeConfirmPayload(entry.payload)?.version))).toEqual([
+      [0, 0],
+      [3, 3],
+    ]);
+  });
+
+  it('⭐ 버튼 버전이 지금 버전과 같으면 그 버전으로 반영한다', async () => {
     const { service, reviews } = setup({ selections: [{ itemKey: keyOf(1), state: 'neutral', version: 3 }] });
+
+    await service.handleEvent(button('reject', 1, 1, {}, 3));
+
+    expect(reviews.saveSelection.mock.calls.map(([input]) => [input.state, input.expectedVersion])).toEqual([['removed', 3]]);
+  });
+
+  it('⭐ 웹에서 먼저 결정해 버전이 어긋나면 반영하지 않고 그렇다고 답한다', async () => {
+    const { service, messenger, reviews } = setup({ selections: [{ itemKey: keyOf(1), state: 'selected', version: 4 }] });
+
+    await service.handleEvent(button('reject', 1, 1, {}, 3));
+
+    expect(reviews.saveSelection).not.toHaveBeenCalled();
+    expect(messenger.answer).toHaveBeenCalledWith('cb-1', '웹에서 이미 결정돼 반영하지 않았습니다');
+  });
+
+  it('⭐ 쓰는 사이에 버전이 바뀌면(REVIEW_SELECTION_VERSION_CONFLICT) 다시 쓰지 않는다', async () => {
+    const { service, messenger, reviews } = setup({ selections: [{ itemKey: keyOf(1), state: 'neutral', version: 3 }] });
     reviews.saveSelection.mockRejectedValueOnce(
       new ConflictException({ code: 'REVIEW_SELECTION_VERSION_CONFLICT', currentVersion: 4 }),
     );
 
-    await service.handleEvent(button('reject', 1, 1));
+    await service.handleEvent(button('reject', 1, 1, {}, 3));
 
-    expect(reviews.saveSelection.mock.calls.map(([input]) => [input.state, input.expectedVersion])).toEqual([
-      ['removed', 3],
-      ['removed', 4],
-    ]);
+    expect(reviews.saveSelection).toHaveBeenCalledTimes(1);
+    expect(messenger.answer).toHaveBeenCalledWith('cb-1', '웹에서 이미 결정돼 반영하지 않았습니다');
   });
 
   it('⭐ 허락되지 않은 사람이나 서명이 틀린 버튼은 아무것도 쓰지 않는다', async () => {
@@ -182,14 +218,157 @@ describe('SourcingConfirmReportService', () => {
     expect(bodyText(page)).toContain('2. 새 추천에서 빠진 상품');
   });
 
-  it('채팅이 정해지기 전 /start 에는 채팅 ID를 알려 주고, 상태에도 보인다', async () => {
-    const { service, messenger } = setup({ chatConfigured: false });
+  describe('설정 토큰', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-    await service.handleEvent({ kind: 'text', chatId: '424242', authorized: false, text: '/start' });
-    await service.handleEvent({ kind: 'text', chatId: '777', authorized: false, text: '안녕' });
+    const start = (chatId: string, text: string) => ({ kind: 'text' as const, chatId, authorized: false, text });
 
-    expect(messenger.reply).toHaveBeenCalledTimes(1);
-    expect(bodyText(messenger.reply.mock.calls[0]![1])).toContain('이 채팅의 ID는 424242 입니다.');
-    await expect(service.status(ORG)).resolves.toMatchObject({ setupChatId: '424242', chatConfigured: false });
+    it('⭐ /start 만 보내면 채팅을 정하지 않고, 채팅 ID 없이 안내 한 줄만 답한다', async () => {
+      const { service, messenger } = setup({ chatConfigured: false });
+      await service.issueSetupToken(ORG);
+
+      await service.handleEvent(start('424242', '/start'));
+      await service.handleEvent(start('777', '안녕'));
+
+      expect(messenger.reply).toHaveBeenCalledTimes(1);
+      expect(bodyText(messenger.reply.mock.calls[0]![1])).not.toContain('424242');
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({ setupChatId: null });
+    });
+
+    it('⭐ 틀린 토큰은 채팅을 정하지 않는다', async () => {
+      const { service } = setup({ chatConfigured: false });
+      const { token } = await service.issueSetupToken(ORG);
+      const wrong = token === 'AAAAAAAA' ? 'BBBBBBBB' : 'AAAAAAAA';
+
+      await service.handleEvent(start('424242', `/start ${wrong}`));
+
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({ setupChatId: null });
+    });
+
+    it('⭐ 맞는 토큰은 그 채팅을 정하고 소진된다 — 같은 토큰을 다시 쓸 수 없다', async () => {
+      const { service, messenger } = setup({ chatConfigured: false });
+      const { token } = await service.issueSetupToken(ORG);
+      expect(token).toMatch(/^[A-Z0-9]{8}$/);
+
+      await service.handleEvent(start('424242', `/start ${token}`));
+      await service.handleEvent(start('999999', `/start ${token}`));
+
+      expect(bodyText(messenger.reply.mock.calls[0]![1])).toContain('이 채팅의 ID는 424242 입니다.');
+      expect(bodyText(messenger.reply.mock.calls[1]![1])).not.toContain('999999');
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({
+        setupChatId: '424242',
+        setupTokenExpiresAt: null,
+      });
+    });
+
+    it('⭐ 10분이 지난 토큰은 채팅을 정하지 않는다', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-09-24T07:00:00.000Z'));
+      const { service } = setup({ chatConfigured: false });
+      const { token, expiresAt } = await service.issueSetupToken(ORG);
+      expect(expiresAt).toBe('2026-09-24T07:10:00.000Z');
+
+      vi.setSystemTime(new Date('2026-09-24T07:10:00.001Z'));
+      await service.handleEvent(start('424242', `/start ${token}`));
+
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({ setupChatId: null, setupTokenExpiresAt: null });
+    });
+
+    it('⭐ 채팅 ID와 대기 중인 토큰은 owner · admin 에게만 보인다', async () => {
+      const { service } = setup({ chatConfigured: false });
+      const { expiresAt } = await service.issueSetupToken(ORG);
+
+      await expect(service.status(ORG, 'admin')).resolves.toMatchObject({ setupTokenExpiresAt: expiresAt });
+      // 토큰이 아직 기다리는 중에도 다른 역할에는 싣지 않는다.
+      await expect(service.status(ORG, 'member')).resolves.toMatchObject({ setupTokenExpiresAt: null });
+      const { token } = await service.issueSetupToken(ORG);
+      await service.handleEvent(start('424242', `/start ${token}`));
+
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({ setupChatId: '424242' });
+      await expect(service.status(ORG, 'member')).resolves.toMatchObject({
+        configured: true,
+        setupChatId: null,
+        setupTokenExpiresAt: null,
+      });
+    });
+
+    it('⭐ 토큰을 새로 받으면 이전 토큰은 쓸 수 없다', async () => {
+      const { service } = setup({ chatConfigured: false });
+      const first = await service.issueSetupToken(ORG);
+      let second = await service.issueSetupToken(ORG);
+      while (second.token === first.token) second = await service.issueSetupToken(ORG);
+
+      await service.handleEvent(start('111111', `/start ${first.token}`));
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({ setupChatId: null });
+
+      await service.handleEvent(start('222222', `/start ${second.token}`));
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({ setupChatId: '222222' });
+    });
+
+    it('설정 토큰은 묶인 조직만 발급한다', async () => {
+      const { service } = setup({ chatConfigured: false });
+      await expect(service.issueSetupToken(OTHER_ORG)).rejects.toMatchObject({ status: 403 });
+      await expect(setup({ boundOrganizationId: null }).service.issueSetupToken(ORG)).rejects.toMatchObject({ status: 503 });
+    });
+  });
+
+  describe('env 조직 바인딩', () => {
+    it('⭐ 묶인 조직이 아니면 보내기 · 상태를 403 TELEGRAM_ORGANIZATION_NOT_BOUND 로 거절한다', async () => {
+      const { service, messenger, recommendations } = setup();
+
+      for (const call of [() => service.sendReport(OTHER_ORG), () => service.status(OTHER_ORG, 'owner')]) {
+        const error = await call().then(() => null, (caught: unknown) => caught);
+        expect(error).toMatchObject({ status: 403 });
+        expect((error as { getResponse(): unknown }).getResponse()).toMatchObject({ code: 'TELEGRAM_ORGANIZATION_NOT_BOUND' });
+      }
+      expect(messenger.sendReport).not.toHaveBeenCalled();
+      expect(recommendations.latest).not.toHaveBeenCalled();
+    });
+
+    it('⭐ 버튼 값의 조직이 묶인 조직과 다르면 반영하지 않는다', async () => {
+      const { service, messenger, reviews, recommendations } = setup();
+      const foreign = encodeConfirmPayload({ action: 'approve', no: 1, organizationId: OTHER_ORG, keyPrefix: itemKeyPrefix(keyOf(1)), version: 0 });
+
+      await service.handleEvent(button('approve', 1, 1, { payload: foreign }));
+
+      expect(recommendations.latest).not.toHaveBeenCalled();
+      expect(reviews.saveSelection).not.toHaveBeenCalled();
+      expect(messenger.editReport).not.toHaveBeenCalled();
+    });
+
+    it('묶인 조직은 보내기 · 상태 · 버튼이 그대로 된다', async () => {
+      const { service, reviews } = setup();
+
+      const status = await service.status(ORG, 'owner');
+      expect(status).toMatchObject({ configured: true });
+      // 묶인 조직 ID는 서버 설정이다. 상태 응답에 싣지 않는다.
+      expect(status).not.toHaveProperty('organizationId');
+      await expect(service.sendReport(ORG)).resolves.toMatchObject({ runId: RUN_ID });
+      await service.handleEvent(button('approve', 1, 1));
+      expect(reviews.saveSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('⭐ 조직 설정이 없으면 텔레그램 전체가 꺼진다 — 보내기 503, 상태는 꺼짐, 버튼 · /start 무시', async () => {
+      const { service, messenger, reviews, recommendations } = setup({ boundOrganizationId: null, chatConfigured: false });
+
+      await expect(service.sendReport(ORG)).rejects.toMatchObject({ status: 503 });
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({
+        configured: false,
+        chatConfigured: false,
+        listening: false,
+        botUsername: null,
+        setupChatId: null,
+        candidates: null,
+      });
+      await service.handleEvent(button('approve', 1, 1));
+      await service.handleEvent({ kind: 'text', chatId: '424242', authorized: false, text: '/start' });
+
+      expect(recommendations.latest).not.toHaveBeenCalled();
+      expect(reviews.saveSelection).not.toHaveBeenCalled();
+      expect(messenger.reply).not.toHaveBeenCalled();
+      expect(messenger.identity).not.toHaveBeenCalled();
+    });
   });
 });

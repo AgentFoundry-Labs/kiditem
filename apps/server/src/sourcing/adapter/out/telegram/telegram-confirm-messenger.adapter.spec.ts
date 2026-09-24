@@ -11,6 +11,7 @@ const ENV_KEYS = [
   'SOURCING_CONFIRM_TELEGRAM_CHAT_ID',
   'SOURCING_CONFIRM_TELEGRAM_ALLOWED_USER_IDS',
   'SOURCING_CONFIRM_TELEGRAM_POLLING',
+  'SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID',
 ] as const;
 const ORIGINAL_ENV = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
 
@@ -22,7 +23,7 @@ function fail(status: number, description: string): Response {
   return new Response(JSON.stringify({ ok: false, error_code: status, description }), { status });
 }
 
-const payload = encodeConfirmPayload({ action: 'approve', no: 1, organizationId: ORG, keyPrefix: itemKeyPrefix('ab'.repeat(32)) });
+const payload = encodeConfirmPayload({ action: 'approve', no: 1, organizationId: ORG, keyPrefix: itemKeyPrefix('ab'.repeat(32)), version: 0 });
 const message: ConfirmMessage = {
   lines: [[{ text: '⬜ 1. ' }, { text: '슬라임 <대용량> & 키트', bold: true }], [{ text: '1688에서 보기', href: 'https://detail.1688.com/offer/1.html?a=1&b="2"' }]],
   buttons: [[{ label: '✅ 1 승인', payload }]],
@@ -34,6 +35,7 @@ describe('TelegramConfirmMessengerAdapter', () => {
     process.env.SOURCING_CONFIRM_TELEGRAM_CHAT_ID = CHAT_ID;
     delete process.env.SOURCING_CONFIRM_TELEGRAM_ALLOWED_USER_IDS;
     delete process.env.SOURCING_CONFIRM_TELEGRAM_POLLING;
+    process.env.SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID = ORG;
   });
 
   afterEach(() => {
@@ -48,11 +50,31 @@ describe('TelegramConfirmMessengerAdapter', () => {
   it('설정이 없으면 보고도 답장 받기도 꺼져 있다', () => {
     delete process.env.SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN;
     delete process.env.SOURCING_CONFIRM_TELEGRAM_CHAT_ID;
-    expect(new TelegramConfirmMessengerAdapter().setup()).toEqual({ configured: false, chatConfigured: false, listening: false });
+    expect(new TelegramConfirmMessengerAdapter().setup()).toEqual({
+      configured: false,
+      chatConfigured: false,
+      listening: false,
+      organizationId: ORG,
+    });
 
     process.env.SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN = TOKEN;
     process.env.SOURCING_CONFIRM_TELEGRAM_POLLING = '0';
-    expect(new TelegramConfirmMessengerAdapter().setup()).toEqual({ configured: true, chatConfigured: false, listening: false });
+    expect(new TelegramConfirmMessengerAdapter().setup()).toEqual({
+      configured: true,
+      chatConfigured: false,
+      listening: false,
+      organizationId: ORG,
+    });
+  });
+
+  it('⭐ 묶을 조직(SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID)이 없거나 UUID 가 아니면 답장 받기를 켜지 않는다', () => {
+    expect(new TelegramConfirmMessengerAdapter().setup()).toMatchObject({ listening: true, organizationId: ORG });
+
+    delete process.env.SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID;
+    expect(new TelegramConfirmMessengerAdapter().setup()).toMatchObject({ listening: false, organizationId: null });
+
+    process.env.SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID = 'not-a-uuid';
+    expect(new TelegramConfirmMessengerAdapter().setup()).toMatchObject({ listening: false, organizationId: null });
   });
 
   it('⭐ 보고는 설정된 채팅으로, 글자는 HTML 로 이스케이프하고 버튼 값에는 서명을 붙인다', async () => {
@@ -72,6 +94,57 @@ describe('TelegramConfirmMessengerAdapter', () => {
     const data = body.reply_markup.inline_keyboard[0][0].callback_data as string;
     expect(data.startsWith(`${payload}.`)).toBe(true);
     expect(Buffer.byteLength(data, 'utf8')).toBeLessThanOrEqual(64);
+  });
+
+  it('⭐ 가장 긴 버튼 값(번호 1295 · 버전 Int 최댓값)도 서명을 붙여 64바이트 안에 든다', async () => {
+    const longest = encodeConfirmPayload({
+      action: 'approve',
+      no: 1295,
+      organizationId: ORG,
+      keyPrefix: itemKeyPrefix('ab'.repeat(32)),
+      version: 2_147_483_647,
+    });
+    const fetchMock = vi.fn(async () => ok({ message_id: 78 }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await new TelegramConfirmMessengerAdapter().sendReport({ lines: [[{ text: '·' }]], buttons: [[{ label: '✅ 1295 승인', payload: longest }]] });
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    const data = body.reply_markup.inline_keyboard[0][0].callback_data as string;
+    expect(data.startsWith(`${longest}.`)).toBe(true);
+    expect(Buffer.byteLength(data, 'utf8')).toBeLessThanOrEqual(64);
+  });
+
+  it('⭐ 서명은 그대로 두고 버전 칸만 바꾼 버튼 값은 읽지 않는다', async () => {
+    const sendMock = vi.fn(async () => ok({ message_id: 77 }));
+    globalThis.fetch = sendMock as typeof fetch;
+    const adapter = new TelegramConfirmMessengerAdapter();
+    await adapter.sendReport(message);
+    const signed = JSON.parse(String((sendMock.mock.calls[0] as unknown as [string, RequestInit])[1].body)).reply_markup
+      .inline_keyboard[0][0].callback_data as string;
+    // k2.a.1.<조직>.<키>.<버전>.<서명> — 버전 칸(끝에서 두 번째)만 바꾼다.
+    const parts = signed.split('.');
+    expect(parts.at(-2)).toBe('0');
+    parts[parts.length - 2] = 'zz';
+    const forged = parts.join('.');
+
+    globalThis.fetch = vi.fn(async () =>
+      ok([
+        {
+          update_id: 20,
+          callback_query: {
+            id: 'cb-20',
+            from: { id: Number(CHAT_ID) },
+            data: forged,
+            message: { message_id: 77, chat: { id: Number(CHAT_ID) }, reply_markup: { inline_keyboard: [[{ text: '✅ 1 승인', callback_data: signed }]] } },
+          },
+        },
+      ]),
+    ) as typeof fetch;
+
+    const result = await adapter.receive(new AbortController().signal);
+    const event = result.kind === 'ok' ? result.events[0] : undefined;
+    expect(event).toMatchObject({ kind: 'button', authorized: true, payload: null });
   });
 
   it('⭐ 실패해도 토큰은 오류 문구에 싣지 않는다', async () => {

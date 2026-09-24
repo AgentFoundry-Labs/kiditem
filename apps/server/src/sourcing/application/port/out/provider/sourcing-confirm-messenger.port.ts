@@ -9,6 +9,11 @@ export interface ConfirmMessengerSetup {
   chatConfigured: boolean;
   /** 이 서버 프로세스가 답장을 받아 읽는가. */
   listening: boolean;
+  /**
+   * 이 봇이 묶인 조직(`SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID`). 없으면 `null` — 텔레그램 컨펌은
+   * 어느 조직에도 꺼져 있다. 봇 하나 · 채팅 하나를 한 조직만 쓴다.
+   */
+  organizationId: string | null;
 }
 
 export type ConfirmMessengerEvent =
