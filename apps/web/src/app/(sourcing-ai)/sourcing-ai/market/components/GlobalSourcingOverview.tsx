@@ -25,7 +25,7 @@ import {
 } from '@/hooks/use-trend-source-collection';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
 import {
-  buildPersistedNaverMarketResult,
+  selectPersistedNaverMarket,
   type LiveNaverMarketResult,
 } from '../lib/live-naver-market';
 import {
@@ -50,16 +50,12 @@ const SNAPSHOT_DAYS = 7;
 const NAVER_SNAPSHOT_DAYS = 30;
 const NAVER_TREND_SOURCES = ['naver'] as const;
 
-function selectNaverMarket(snapshot: Awaited<ReturnType<typeof fetchNaverKeywordTrends>>): LiveNaverMarketResult {
-  return buildPersistedNaverMarketResult(snapshot.keywords);
-}
-
 export function GlobalSourcingOverview() {
   const naverQuery = useQuery({
     queryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
     // The cache keeps the raw snapshot other screens read under this key; the overview derives its view.
     queryFn: () => fetchNaverKeywordTrends(NAVER_SNAPSHOT_DAYS),
-    select: selectNaverMarket,
+    select: selectPersistedNaverMarket,
     staleTime: 10 * 60 * 1000,
   });
   const naverSource = useTrendSourceCollection({ sources: NAVER_TREND_SOURCES });

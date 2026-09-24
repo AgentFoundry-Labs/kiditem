@@ -3,6 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GlobalSourcingOverview } from './GlobalSourcingOverview';
 import { TrendCollectionViews } from './TrendCollectionViews';
+import { TrendRadarSection } from './TrendRadarSection';
 
 const mocks = vi.hoisted(() => ({
   useAction: vi.fn(),
@@ -19,6 +20,10 @@ vi.mock('../lib/trend-collection-api', () => ({
   fetchPopularKeywordBoards: vi.fn().mockResolvedValue({ boards: [] }),
   fetchShortsTrends: vi.fn().mockResolvedValue({ items: [], capturedAt: null, businessDate: null }),
   fetchTiktokCcTrends: vi.fn().mockResolvedValue({ regions: [], capturedAt: null }),
+}));
+
+vi.mock('../lib/live-sns-market', () => ({
+  fetchLiveSnsMarket: vi.fn().mockResolvedValue({ generatedAt: '', opportunities: [], warnings: [] }),
 }));
 
 vi.mock('./LiveCommerceSection', () => ({
@@ -78,11 +83,25 @@ beforeEach(() => {
   });
 });
 
+function newQueryClient() {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+}
+
+async function expectTrendTableRow(queryClient: QueryClient) {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TrendCollectionViews />
+    </QueryClientProvider>,
+  );
+  const table = (await screen.findByRole('heading', { name: '네이버 월검색량 상위 키워드' })).closest('section')!;
+  await waitFor(() => expect(within(table).getByRole('cell', { name: '슬라임 만들기' })).toBeInTheDocument());
+}
+
 describe('Naver keyword snapshot shared between the market overview and the trend collection tab', () => {
   it('draws the stored keyword in the trend collection table after the overview read the same snapshot', async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
+    const queryClient = newQueryClient();
     const overview = render(
       <QueryClientProvider client={queryClient}>
         <GlobalSourcingOverview />
@@ -92,13 +111,19 @@ describe('Naver keyword snapshot shared between the market overview and the tren
     await waitFor(() => expect(korea).toHaveTextContent('슬라임 만들기'));
     overview.unmount();
 
-    render(
+    await expectTrendTableRow(queryClient);
+  });
+
+  it('draws the stored keyword in the trend collection table after the trend radar read the same snapshot', async () => {
+    const queryClient = newQueryClient();
+    const radar = render(
       <QueryClientProvider client={queryClient}>
-        <TrendCollectionViews />
+        <TrendRadarSection />
       </QueryClientProvider>,
     );
+    await waitFor(() => expect(screen.getAllByText('슬라임 만들기').length).toBeGreaterThan(0));
+    radar.unmount();
 
-    const table = (await screen.findByRole('heading', { name: '네이버 월검색량 상위 키워드' })).closest('section')!;
-    await waitFor(() => expect(within(table).getByRole('cell', { name: '슬라임 만들기' })).toBeInTheDocument());
+    await expectTrendTableRow(queryClient);
   });
 });
