@@ -369,7 +369,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Hexagonal | Profit-loss, sales-analysis, report-export, sales-plan, settlement and supplier-payment folders under `adapter/in/web/` and `application/service/`; settlement facts stay in `adapter/out/persistence/read/`. |
 | `apps/server/src/inventory` | Hexagonal | Retained warehouse, stock-transfer and return-record capabilities; source products, collection and current stock belong to Products. |
-| `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities; Sellpia transmission fencing is a scoped `application/port` + `adapter/out/repository` sub-capability. |
+| `apps/server/src/orders` | Hexagonal | Controllers and DTOs under `adapter/in/web/`, services under `application/service/`, ledger read helpers in `adapter/out/persistence/read/`, pure mappers in `domain/`; Coupang shipments use a `shipments/` folder per layer and `coupang-directship/` stays at the root. Sellpia transmission fencing keeps its `application/port` + `adapter/out/repository` lanes. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/products` | Hexagonal | Source MasterProduct identity/current stock, Sellpia collection/publication, image metadata, exports and ABC; incoming ports, `application/service` orchestration, pure domain rules and outgoing adapters; the `/api/categories` compatibility capability sits in the `category/` folders. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
