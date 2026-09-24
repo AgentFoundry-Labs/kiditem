@@ -21,6 +21,7 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { WingRankSourceController } from '../../advertising/adapter/in/http/wing-rank-source.controller';
 import { WingRankSourceRepository } from '../../advertising/adapter/out/repository/wing-rank-source.repository';
 import { KeywordRankRepositoryAdapter } from '../../advertising/adapter/out/repository/keyword-rank.repository.adapter';
@@ -42,7 +43,8 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const rank = new KeywordRankRepositoryAdapter(prisma as never);
+    const channelFacts = channelFactTestPorts(prisma as never);
+    const rank = new KeywordRankRepositoryAdapter(channelFacts.listings, channelFacts.recipes, prisma as never);
     const owner = new WingRankSourceRepository(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
