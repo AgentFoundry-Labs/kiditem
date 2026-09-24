@@ -1,7 +1,7 @@
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
 import {
   OTHER_ORGANIZATION_ID,
   TEST_ORGANIZATION_ID,

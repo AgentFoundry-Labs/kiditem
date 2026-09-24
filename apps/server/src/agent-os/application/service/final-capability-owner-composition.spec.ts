@@ -10,7 +10,7 @@ import {
   FINAL_CAPABILITY_DEFINITIONS,
   registerFinalCapabilityCatalog,
 } from './final-capability-catalog-registrar.service';
-import type { AnalyticsAgentOverviewCapabilityPort } from '../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
+import type { AnalyticsAgentOverviewCapabilityPort } from '../../../analytics/application/port/in/dashboard/analytics-overview-capability.port';
 import type { ChannelsRepresentativeImageCapabilityPort } from '../../../channels/application/port/in/capability/representative-image.port';
 import type { ProductsListingGenerationCapabilityPort } from '../../../products/application/port/in/capability/listing-generation.port';
 import type {

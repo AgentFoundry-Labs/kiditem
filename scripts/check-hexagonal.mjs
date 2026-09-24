@@ -20,7 +20,7 @@ const builtins = new Set(builtinModules.map(name => name.replace(/^node:/, '')))
 // finance, advertising and products; they are retired for every scanned
 // domain so a vacated folder cannot silently return.
 const RETIRED_TOP_LEVEL_DIRS = new Set(['read', 'mapper', 'service', 'controllers', 'services', 'dto']);
-const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders', 'finance', 'advertising', 'products'];
+const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders', 'finance', 'advertising', 'products', 'analytics'];
 
 // KID-311: pure-layer adapter imports that predate an owner's move into the
 // scanner. Each entry allows exactly one { file, specifier } pair (file is
@@ -59,6 +59,9 @@ export const KNOWN_VIOLATIONS = [
   { owner: 'products', file: 'products/application/port/out/persistence/master-product-abc.repository.port.ts', specifier: '../../../../adapter/out/persistence/read/product-abc-publication.reader', removeWith: 'KID-334' },
   // Products categories service takes incoming DTOs until KID-335.
   { owner: 'products', file: 'products/application/service/category/categories.service.ts', specifier: '../../../adapter/in/web/category/dto', removeWith: 'KID-335' },
+  // Analytics statistics and supplier-stats services read the Orders ledger helper until KID-334.
+  { owner: 'analytics', file: 'analytics/application/service/statistics/statistics.service.ts', specifier: '../../../../orders/adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
+  { owner: 'analytics', file: 'analytics/application/service/supplier-stats/supplier-stats.service.ts', specifier: '../../../../orders/adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
 ];
 
 // Every entry must name a scanned owner, a file under that owner, a non-empty
@@ -182,5 +185,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const roots = HEXAGONAL_DOMAINS.map(name => path.join(serverSrc, name));
   const violations = scanHexagonalDomains(roots, serverSrc);
   if (violations.length) { console.error(violations.join('\n')); process.exitCode = 1; }
-  else console.log('PASS: Channels/Sourcing/Content/Orders/Finance/Advertising/Products domain, application and business directories preserve hexagonal boundaries.');
+  else console.log('PASS: Channels/Sourcing/Content/Orders/Finance/Advertising/Products/Analytics domain, application and business directories preserve hexagonal boundaries.');
 }

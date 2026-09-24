@@ -4,7 +4,7 @@ import { ANALYTICS_CAPABILITIES } from '../../../domain/capability/analytics.cap
 import {
   ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT,
   type AnalyticsAgentOverviewCapabilityPort,
-} from '../../../dashboard/application/port/in/analytics-overview-capability.port';
+} from '../../../application/port/in/dashboard/analytics-overview-capability.port';
 import type { AnalyticsCapabilityCompositionPort } from '../../../application/port/in/capability/analytics-capability-composition.port';
 
 /** Analytics owns the definition-to-dashboard-owner-port Adapter. */

@@ -3,13 +3,13 @@ import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type CoupangAdsDailyRow,
   type WingTrafficAggregationRepositoryPort,
-} from '../dashboard/application/port/out/repository/wing-traffic-aggregation.repository.port';
-import { measuredPercent1 } from '../dashboard/domain/util/percent';
+} from '../application/port/out/repository/dashboard/wing-traffic-aggregation.repository.port';
+import { measuredPercent1 } from '../domain/dashboard/util/percent';
 import {
   COUPANG_ADS_SOURCE,
   SELLPIA_SALES_SOURCE,
   type DashboardSourceName,
-} from '../dashboard/domain/evidence';
+} from '../domain/dashboard/evidence';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   readSellpiaSalesDailyFacts,

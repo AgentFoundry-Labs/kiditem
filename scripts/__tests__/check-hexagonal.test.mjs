@@ -155,10 +155,22 @@ test('products joins the scanner (KID-311)', () => {
   assert.ok(hexagonalBoundaryViolations('apps/server/src/products/read/product-abc-publication.reader.ts', '').length);
 });
 
+test('analytics joins the scanner: retired lanes refused, a listed adapter import passes (KID-311)', () => {
+  for (const path of ['analytics/dto/x.dto.ts', 'analytics/services/x.service.ts', 'analytics/read/x.ts', 'analytics/controllers/x.controller.ts']) {
+    assert.ok(hexagonalBoundaryViolations(`apps/server/src/${path}`, '').length, path);
+  }
+  const statistics = 'analytics/application/service/statistics/statistics.service.ts';
+  const specifier = '../../../../orders/adapter/out/persistence/read/order-facts.reader';
+  const source = `import { x } from '${specifier}';`;
+  const entry = { owner: 'analytics', file: statistics, specifier, removeWith: 'KID-334' };
+  assert.deepEqual(evaluateHexagonal([{ file: statistics, source }], [entry]), []);
+  assert.equal(evaluateHexagonal([{ file: statistics, source }], []).length, 1);
+});
+
 test('a known violation must name a scanned owner, a file under it, a specifier and a KID ticket (KID-311)', () => {
   assert.deepEqual(knownViolationShapeErrors(KNOWN_VIOLATIONS), []);
   const bad = [
-    { ...listed, owner: 'analytics', specifier: 'a' },
+    { ...listed, owner: 'inventory', specifier: 'a' },
     { ...listed, file: 'finance/application/service/a.ts' },
     { ...listed, specifier: '' },
     { ...listed, removeWith: undefined, specifier: 'b' },
@@ -168,7 +180,7 @@ test('a known violation must name a scanned owner, a file under it, a specifier 
   ];
   const errors = knownViolationShapeErrors(bad);
   assert.equal(errors.length, 6);
-  assert.match(errors[0], /owner "analytics" is not a scanned domain/);
+  assert.match(errors[0], /owner "inventory" is not a scanned domain/);
   assert.match(errors[1], /file must start with orders\//);
   assert.match(errors[2], /specifier is required/);
   assert.match(errors[3], /removeWith must be KID-<n>/);

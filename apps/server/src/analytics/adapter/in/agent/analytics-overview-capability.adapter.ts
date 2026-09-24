@@ -3,7 +3,7 @@ import {
   ANALYTICS_OVERVIEW_CAPABILITY_PORT,
   type AnalyticsAgentOverviewCapabilityPort,
   type AnalyticsOverviewCapabilityPort,
-} from '../../../dashboard/application/port/in/analytics-overview-capability.port';
+} from '../../../application/port/in/dashboard/analytics-overview-capability.port';
 
 /** Analytics owns the public read capability; callers never reach dashboard services. */
 @Injectable()

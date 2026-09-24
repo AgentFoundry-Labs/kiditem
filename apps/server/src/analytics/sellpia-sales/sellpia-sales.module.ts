@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AlertsModule } from '../../alerts/alerts.module';
-import { DashboardModule } from '../dashboard/dashboard.module';
+import { DashboardModule } from '../dashboard.module';
 import { SellpiaSalesController } from './sellpia-sales.controller';
 import { SellpiaSalesService } from './sellpia-sales.service';
 import { SellpiaSalesSourceService } from './sellpia-sales-source.service';

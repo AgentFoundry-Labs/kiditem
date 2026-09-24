@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
-import { DashboardModule } from './dashboard/dashboard.module';
-import { StatisticsModule } from './statistics/statistics.module';
-import { TrafficModule } from './traffic/traffic.module';
-import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
+import { DashboardModule } from './dashboard.module';
+import { StatisticsModule } from './statistics.module';
+import { TrafficModule } from './traffic.module';
+import { SupplierStatsModule } from './supplier-stats.module';
 import { SellpiaSalesModule } from './sellpia-sales/sellpia-sales.module';
 import { SellpiaProductSalesModule } from './sellpia-product-sales/sellpia-product-sales.module';
 import { AnalyticsOwnerOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
 import { AnalyticsCapabilityCompositionAdapter } from './adapter/in/agent/analytics-capability-composition.adapter';
-import { ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT } from './dashboard/application/port/in/analytics-overview-capability.port';
+import { ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT } from './application/port/in/dashboard/analytics-overview-capability.port';
 import { ANALYTICS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/analytics-capability-composition.port';
 
 /**
@@ -29,10 +29,11 @@ import { ANALYTICS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/cap
  *     retired (KID-110) — Advertising's Wing collection is the only
  *     listing-day traffic publisher.
  *   - Raw SQL and report hydration code lives under
- *     `dashboard/adapter/out/repository/*.repository.adapter.ts` (the only
- *     sub-domain that needed an out-adapter lane in this wave). Statistics,
- *     traffic, and supplier-stats use Prisma directly because they have no
- *     `$queryRaw` surfaces.
+ *     `adapter/out/repository/dashboard/*.repository.adapter.ts` (the only
+ *     sub-domain that needed an out-adapter lane in this wave). Statistics
+ *     and supplier-stats use Prisma directly because they have no
+ *     `$queryRaw` surfaces (documented legacy exception, KID-334); traffic
+ *     reads through Advertising's `ad-traffic-source` input port.
  *   - Tenant predicates: every read binds `organizationId` from
  *     `@CurrentOrganization()`. Raw SQL paths bind `${organizationId}::uuid` per
  *     tenant-scope rule; ORM paths use `where: { organizationId, ... }`.

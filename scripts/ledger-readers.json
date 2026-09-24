@@ -932,73 +932,73 @@
       "to": "apps/server/src/core/read/source-import-run.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/collection-freshness.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/collection-freshness.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/adapter/out/persistence/read/review-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/dashboard-inventory.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/dashboard-inventory.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/core/read/source-import-run.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-sales.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/dashboard-sales.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-sales.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/dashboard-sales.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-trend.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/dashboard-trend.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/profit-calculation.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/profit-calculation.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/profit-calculation.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/profit-calculation.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter.ts"
+      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/statistics/statistics.service.ts"
+      "from": "apps/server/src/analytics/application/service/statistics/statistics.service.ts"
     },
     {
       "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/supplier-stats/supplier-stats.service.ts"
+      "from": "apps/server/src/analytics/application/service/supplier-stats/supplier-stats.service.ts"
     },
     {
       "from": "apps/server/src/auth/adapter/in/cli/auth-admin.ts",

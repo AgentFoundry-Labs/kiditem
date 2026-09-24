@@ -25,7 +25,7 @@ import { readSellpiaSalesDailyFacts } from '../read/sellpia-sales-daily-facts';
 import { FactInputError } from '../../../common/errors/fact-errors';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
-import type { CoupangAdsDailyRow } from '../../dashboard/application/port/out/repository/wing-traffic-aggregation.repository.port';
+import type { CoupangAdsDailyRow } from '../../application/port/out/repository/dashboard/wing-traffic-aggregation.repository.port';
 
 const base = '/api/sellpia-sales';
 
