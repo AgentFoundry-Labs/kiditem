@@ -199,9 +199,9 @@ erDiagram
   }
   RocketPoCatalogSnapshot {
     String id PK
-    String organizationId
+    String organizationId FK
     String channelAccountId
-    String sourceImportRunId
+    String sourceImportRunId FK
     String collectionRunId
     String vendorId
     Int listPagesRead
@@ -276,6 +276,7 @@ erDiagram
 | Review | sourceImportRun | references external | Core | SourceImportRun |
 | ReviewCollectionChunk | organization | references external | Core | Organization |
 | ReviewCollectionChunk | sourceImportRun | references external | Core | SourceImportRun |
+| RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaOrderTransmissionIntent | creator | references external | Core | User |
 | SellpiaOrderTransmissionIntent | organization | references external | Core | Organization |
 | SellpiaOrderTransmissionIntentReconciliation | organization | references external | Core | Organization |

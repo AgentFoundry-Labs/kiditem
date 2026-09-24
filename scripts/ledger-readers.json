@@ -749,6 +749,7 @@
       "prismaModel": "rocketPoCatalogSnapshot",
       "prismaType": "RocketPoCatalogSnapshot",
       "relationNames": [
+        "rocketPoCatalogSnapshot",
         "snapshot"
       ],
       "ownerPublications": [

@@ -319,6 +319,7 @@ model SourceImportRun {
   lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
   rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
   rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
+  rocketPoCatalogSnapshot                 RocketPoCatalogSnapshot?
   coupangShipmentDateSummaries            CoupangShipmentDateSummary[]
   sellpiaSalesDailySnapshots              SellpiaSalesDailySnapshot[]              @relation("SellpiaSalesSource")
   orders                                  Order[]

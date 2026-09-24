@@ -1318,9 +1318,9 @@ erDiagram
   }
   RocketPoCatalogSnapshot {
     String id PK
-    String organizationId
+    String organizationId FK
     String channelAccountId
-    String sourceImportRunId
+    String sourceImportRunId FK
     String collectionRunId
     String vendorId
     Int listPagesRead
@@ -2492,6 +2492,7 @@ erDiagram
   SourceImportRun ||--|| OrderCollectionArtifact : "sourceImportRun"
   SourceImportRun o|--o{ Review : "sourceImportRun"
   SourceImportRun ||--o{ ReviewCollectionChunk : "sourceImportRun"
+  SourceImportRun ||--|| RocketPoCatalogSnapshot : "sourceImportRun"
   SourceImportRun ||--o{ RocketPurchaseConfirmation : "sourceImportRun"
   SourceImportRun ||--o{ RocketPurchaseConfirmationTransmission : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"

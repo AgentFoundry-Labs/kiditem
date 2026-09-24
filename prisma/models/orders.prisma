@@ -389,6 +389,8 @@ model RocketPoCatalogSnapshot {
 
   lines RocketPoCatalogLine[]
 
+  sourceImportRun SourceImportRun       @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
   @@unique([id, organizationId], map: "rocket_po_catalog_snapshots_id_org_key")
   @@unique([sourceImportRunId, organizationId], map: "rocket_po_catalog_snapshots_run_org_key")
   @@unique([organizationId, channelAccountId, collectionRunId], map: "rocket_po_catalog_snapshots_org_account_collection_key")

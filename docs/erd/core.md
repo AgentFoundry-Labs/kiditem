@@ -258,6 +258,7 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Orders | OrderCollectionArtifact |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Review |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | ReviewCollectionChunk |
+| SourceImportRun | sourceImportRun | referenced by external | Orders | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | User | activeSyncOwner | referenced by external | Products | SellpiaInventoryState |
