@@ -5,7 +5,11 @@
  */
 export const PUBLIC_CAPABILITY_CATALOG_KEYS = Object.freeze([
   'analytics.readOverview',
+  'channels.get_target_execution',
+  'channels.prepare_target_execution',
   'channels.register_confirmed_listing',
+  'channels.report_target_execution',
+  'channels.start_target_execution',
   'channels.submit_wing_thumbnail',
   'products.create_listing_generation_package',
   'sourcing.createReviewBatch',
